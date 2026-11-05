@@ -11,6 +11,8 @@
 package io.superdurable.dex;
 
 import com.google.protobuf.Empty;
+import io.grpc.Codec;
+import io.grpc.DecompressorRegistry;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Status;
@@ -371,7 +373,10 @@ public final class Worker implements AutoCloseable {
                 new ThreadPoolExecutor.AbortPolicy());
     }
 
+    // Accepting only identity encoding keeps a decompression failure from cancelling a poll stream.
     private static ManagedChannel createOutboundChannel(final String address) {
-        return ManagedChannelBuilder.forTarget(address).usePlaintext().build();
+        return ManagedChannelBuilder.forTarget(address).usePlaintext()
+                .decompressorRegistry(DecompressorRegistry.emptyInstance().with(Codec.Identity.NONE, true))
+                .build();
     }
 }

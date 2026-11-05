@@ -867,6 +867,13 @@ final class PullWorker {
             }
         }
 
+        // Fails here, before gRPC serializes the frame, so the SDK resets the stream itself.
+        private void requireSerializable(final PollWorkerTaskRequest request) {
+            if (request.getSerializedSize() < 0) {
+                throw new IllegalStateException("Worker task frame exceeds the protobuf size limit");
+            }
+        }
+
         private void drainWrites() {
             while (true) {
                 final PendingWrite write;
@@ -881,6 +888,7 @@ final class PullWorker {
                     if (write.request == null) {
                         write.requests.onCompleted();
                     } else {
+                        requireSerializable(write.request);
                         write.requests.onNext(write.request);
                     }
                 } catch (RuntimeException failure) {
@@ -1000,7 +1008,8 @@ final class PullWorker {
             final long waitNanos = isStopping
                     ? Math.max(1L, (hasUnconfirmedFinalOutput ? finalOutputFlushDeadlineNanos
                             : stopDeadlineNanos) - System.nanoTime())
-                    : options.getStopDrainTimeout().toNanos();
+                    : options.getStopDrainTimeout().toNanos()
+                            + (hasUnconfirmedFinalOutput ? FINAL_OUTPUT_FLUSH_GRACE.toNanos() : 0L);
             closeTimer = scheduler.schedule(() -> {
                 synchronized (PullWorker.this) {
                     if (!isClosed) {

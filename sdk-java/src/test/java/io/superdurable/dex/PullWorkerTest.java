@@ -803,6 +803,39 @@ final class PullWorkerTest {
     }
 
     @Test
+    void reconnectGivesUnconfirmedFinalOutputTheFlushGrace() throws Exception {
+        final TestFlow flow = new TestFlow();
+        final PollServer pollServer = new PollServer(true);
+        try (RunningWorker running = new RunningWorker(pollServer, flow, 1, Duration.ofSeconds(1))) {
+            final PollStream stream = pollServer.awaitQueue("PullTestFlow");
+            stream.assign(executeTask("reconnect-queued-final", "large"));
+            assertTrue(flow.entered.await(5, TimeUnit.SECONDS));
+            stream.respond(PollWorkerTaskResponse.newBuilder()
+                    .setReconnect(PollWorkerTaskReconnect.getDefaultInstance()).build());
+            flow.release.countDown();
+            pollServer.releasePendingReadsAfter(Duration.ofMillis(1600));
+            final PollWorkerTaskRequest result = stream.awaitFrame();
+            assertTrue(result.getTaskFrame().getExecute().hasResult());
+            assertTrue(stream.closed.await(5, TimeUnit.SECONDS));
+            assertTrue(stream.isHalfClosed);
+            assertTrue(stream.hasFinalFrameAtHalfClose);
+            assertFalse(stream.isReset);
+        }
+    }
+
+    @Test
+    void pollStreamsAcceptOnlyIdentityEncoding() throws Exception {
+        final PollServer pollServer = new PollServer();
+        try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 1)) {
+            pollServer.awaitQueue("PullTestFlow");
+            assertFalse(pollServer.acceptEncodings.isEmpty());
+            for (String acceptEncoding : pollServer.acceptEncodings) {
+                assertFalse(acceptEncoding.contains("gzip"), acceptEncoding);
+            }
+        }
+    }
+
+    @Test
     void stopResetsHalfClosedIdleStreamWithoutServerEofByTheDeadline() throws Exception {
         final PollServer pollServer = new PollServer(Duration.ofSeconds(60));
         try (RunningWorker running = new RunningWorker(pollServer, new TestFlow(), 1, Duration.ofMillis(300))) {
@@ -1567,6 +1600,8 @@ final class PullWorkerTest {
         private volatile int maxConcurrentTasks;
         private boolean shouldDelayRpcRegistration;
         private volatile boolean shouldAssignTaskAfterRegistered;
+        private final java.util.Set<String> acceptEncodings =
+                java.util.concurrent.ConcurrentHashMap.newKeySet();
         private volatile java.util.function.Consumer<PollStream> finalFrameListener;
         private final java.util.List<PollStream> allStreams =
                 new java.util.concurrent.CopyOnWriteArrayList<PollStream>();
@@ -1941,7 +1976,17 @@ final class PullWorkerTest {
                             observer.onCompleted();
                         }
                     })
-                    .addService(pollServer).build().start();
+                    .addService(io.grpc.ServerInterceptors.intercept(pollServer, new io.grpc.ServerInterceptor() {
+                        @Override
+                        public <Request, Response> io.grpc.ServerCall.Listener<Request> interceptCall(
+                                final io.grpc.ServerCall<Request, Response> call, final io.grpc.Metadata headers,
+                                final io.grpc.ServerCallHandler<Request, Response> next) {
+                            final String acceptEncoding = headers.get(io.grpc.Metadata.Key.of(
+                                    "grpc-accept-encoding", io.grpc.Metadata.ASCII_STRING_MARSHALLER));
+                            pollServer.acceptEncodings.add(acceptEncoding == null ? "" : acceptEncoding);
+                            return next.startCall(call, headers);
+                        }
+                    })).build().start();
             worker = new Worker(new Registry(Arrays.<Flow<?>>asList(flow)), new EmptyBlobCache(),
                     WorkerOptions.newBuilder().serverAddress("127.0.0.1:" + server.getPort())
                             .pull(PullWorkerOptions.newBuilder()
