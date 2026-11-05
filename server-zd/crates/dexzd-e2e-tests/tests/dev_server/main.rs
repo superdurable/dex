@@ -16,6 +16,7 @@ mod flow_controls;
 mod hard_delete_closed;
 mod harness;
 mod queued_state;
+mod queued_time_travel;
 mod reserved_slots;
 mod rpc_closed_run;
 mod rpc_request_dedup;

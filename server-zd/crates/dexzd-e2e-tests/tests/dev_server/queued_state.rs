@@ -195,7 +195,7 @@ fn attempt(task: &dexzd_protocol::dex::PollWorkerTask) -> i32 {
 }
 
 /// Waits until the node's DispatchQueue row count is `count`.
-async fn wait_for_queue_entries(metrics: SocketAddr, count: usize) {
+pub(crate) async fn wait_for_queue_entries(metrics: SocketAddr, count: usize) {
     let mut last_seen = None;
     let polled = tokio::time::timeout(STATE_BUDGET, async {
         loop {
