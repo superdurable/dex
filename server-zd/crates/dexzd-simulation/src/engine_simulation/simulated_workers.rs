@@ -11,21 +11,26 @@
 //! A reservation stands for an idle reserved Worker slot; the drawn behavior plays once the task
 //! frame is sent.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_engine::{
-    MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
+    MethodClaim, MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
     MethodStreamReservation, MethodTask, ReservedMethodStream, RpcInvokeError, RpcWorkerInvoker,
     WorkerRpcInvocation, WorkerRpcResult,
 };
+use dexzd_keyspace::PartitionId;
+use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
 use dexzd_protocol::dex::{
-    Context, DispatchTaskErrorReason, InvokeExecuteMethodOutput, InvokeWaitForMethodOutput,
-    PollWorkerTaskFrame, PollWorkerTaskRejectReason, StepMethodHeartbeat,
-    invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task_frame,
+    Context, InvokeExecuteMethodOutput, InvokeWaitForMethodOutput, PollWorkerTaskFrame,
+    PollWorkerTaskRejectReason, StepMethodHeartbeat, invoke_execute_method_output,
+    invoke_wait_for_method_output, poll_worker_task_frame,
 };
-use dexzd_worker_dispatch::{DispatchOutcome, StepTaskEvent, StepTaskSendFailure};
+use dexzd_worker_dispatch::{
+    ClaimReply, DispatchOutcome, HeadsScanToken, QueuedTaskRef, ScannedQueueHead, StepTaskEvent,
+    StepTaskSendFailure, WorkerDispatch,
+};
 use futures::future::BoxFuture;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -132,11 +137,17 @@ pub(crate) struct SimulatedWorkers {
     /// Bumped whenever a child wait ends, so RPCs held for it check again.
     child_waits_ended: watch::Sender<u64>,
     trace: Arc<EventTrace>,
+    /// Issues periodic Heads tokens; the simulated queues hold the refs themselves.
+    heads_matching: WorkerDispatch,
 }
 
 impl SimulatedWorkers {
     pub(crate) fn new(seed: u64, has_step_failure_policies: bool, trace: Arc<EventTrace>) -> Self {
         Self {
+            heads_matching: WorkerDispatch::new(
+                dexzd_worker_dispatch::MatchingConfig::default(),
+                Arc::new(dexzd_clock::SystemWallClock),
+            ),
             state: Mutex::new(WorkerPoolState {
                 rng: ChaCha8Rng::seed_from_u64(seed),
                 has_step_failure_policies,
@@ -185,6 +196,7 @@ impl SimulatedWorkers {
     /// Returns the dispatch port of one node process.
     pub(crate) fn dispatcher_for(self: &Arc<Self>, process_label: &str) -> Arc<NodeWorkerPort> {
         Arc::new(NodeWorkerPort {
+            queue: SimulatedTaskQueue::default(),
             workers: Arc::clone(self),
             process_label: process_label.to_owned(),
         })
@@ -212,10 +224,7 @@ impl SimulatedWorkers {
         self.trace
             .record(&format!("{process_label} reservation found no Worker"));
         tokio::time::sleep(delay).await;
-        MethodStreamReservation::NoWorker {
-            reason: DispatchTaskErrorReason::NoWorkerAvailable,
-            detail: "no simulated Worker is available".to_owned(),
-        }
+        MethodStreamReservation::Enqueue
     }
 
     fn start_dispatch(
@@ -681,8 +690,25 @@ impl Drop for SimulatedDispatchSession {
     }
 }
 
+/// The durable task queue refs one node process holds: a simplified matching that claims every
+/// ref after a short delay, as if a Worker came online. A process restart loses it, like matching.
+#[derive(Default)]
+pub(crate) struct SimulatedTaskQueue {
+    refs: Mutex<VecDeque<QueuedTaskRef>>,
+    has_refs: tokio::sync::Notify,
+    next_claim_id: Mutex<u64>,
+}
+
+impl SimulatedTaskQueue {
+    fn push(&self, task: QueuedTaskRef) {
+        self.refs.lock().expect("queue lock").push_back(task);
+        self.has_refs.notify_one();
+    }
+}
+
 /// The Worker ports of one node process.
 pub(crate) struct NodeWorkerPort {
+    queue: SimulatedTaskQueue,
     workers: Arc<SimulatedWorkers>,
     process_label: String,
 }
@@ -694,6 +720,87 @@ impl MethodDispatcher for NodeWorkerPort {
     ) -> BoxFuture<'_, MethodStreamReservation> {
         Box::pin(self.workers.reserve(&self.process_label))
     }
+
+    fn queued(&self, task: QueuedTaskRef) {
+        self.workers.trace.record(&format!(
+            "{} queued {}",
+            self.process_label, task.position.step_execution_id
+        ));
+        self.queue.push(task);
+    }
+
+    fn report_rebuilt_heads(&self, heads: Vec<QueuedTaskRef>) {
+        for head in heads {
+            self.queue.push(head);
+        }
+    }
+
+    fn take_heads_token(&self, partition: PartitionId) -> HeadsScanToken {
+        self.workers.heads_matching.take_heads_token(partition)
+    }
+
+    fn report_scanned_heads(&self, token: HeadsScanToken, results: Vec<ScannedQueueHead>) -> usize {
+        for head in results.iter().filter_map(|result| result.head.clone()) {
+            self.queue.push(head);
+        }
+        self.workers
+            .heads_matching
+            .report_scanned_heads(token, Vec::new())
+    }
+
+    fn next_claim(&self) -> BoxFuture<'_, Option<MethodClaim>> {
+        Box::pin(async move {
+            loop {
+                let notified = self.queue.has_refs.notified();
+                let task = self.queue.refs.lock().expect("queue lock").pop_front();
+                let Some(task) = task else {
+                    notified.await;
+                    continue;
+                };
+                let delay = {
+                    let mut state = self.workers.lock();
+                    Duration::from_millis(state.rng.random_range(10..500))
+                };
+                tokio::time::sleep(delay).await;
+                let claim_id = {
+                    let mut next = self.queue.next_claim_id.lock().expect("claim id lock");
+                    *next += 1;
+                    *next
+                };
+                return Some(MethodClaim {
+                    claim_id,
+                    task,
+                    stream: Box::new(SimulatedSlot {
+                        workers: Arc::clone(&self.workers),
+                        process_label: self.process_label.clone(),
+                    }),
+                });
+            }
+        })
+    }
+
+    fn reply_to_claim(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        _claim_id: u64,
+        reply: ClaimReply,
+    ) {
+        if let Some(next) = reply.next {
+            self.queue.push(next);
+        }
+    }
+
+    fn is_waiting_for_supporting_worker(
+        &self,
+        _tenant_id: u64,
+        _flow_type: &str,
+        _step_type: &str,
+    ) -> bool {
+        false
+    }
+
+    fn refresh_task_queue_gauges(&self) {}
 }
 
 /// A reserved slot of the simulated Worker pool.
@@ -705,6 +812,10 @@ struct SimulatedSlot {
 impl ReservedMethodStream for SimulatedSlot {
     fn app_worker_id(&self) -> &str {
         "worker-0"
+    }
+
+    fn may_hand_out_tasks(&self) -> bool {
+        true
     }
 
     fn send_task(

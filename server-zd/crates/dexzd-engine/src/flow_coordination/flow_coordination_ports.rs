@@ -33,6 +33,8 @@ pub trait FlowCoordinationEffectSink: Send + Sync + 'static {
 /// One RPC call to a Worker.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkerRpcInvocation {
+    /// Partition of the Flow; removing it from matching ends the RPC's wait for a Worker.
+    pub partition: dexzd_keyspace::PartitionId,
     /// Flow the RPC targets.
     pub flow: FlowAddress,
     /// Run the RPC targets.

@@ -22,6 +22,7 @@ mod outbox_delivery;
 mod partition_rebuild;
 mod pending_close_check;
 mod state_reads;
+mod task_queue;
 mod timer_service;
 
 #[cfg(test)]
@@ -45,8 +46,8 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 pub use dispatch::{
-    MethodDispatchSession, MethodDispatcher, MethodStreamRequest, MethodStreamReservation,
-    MethodTask, ReservedMethodStream,
+    MethodClaim, MethodDispatchSession, MethodDispatcher, MethodStreamRequest,
+    MethodStreamReservation, MethodTask, ReservedMethodStream,
 };
 pub use flow_effect_operations::{
     FlowEffectOperationError, FlowEffectOperations, InvocationLockCheck, InvocationStartOutcome,
@@ -68,7 +69,7 @@ use crate::blocking_work::BlockingWorkPlacement;
 use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
-use dispatch::{DispatchScheduler, HandoutEnd, InterruptedAttempt};
+use dispatch::{AttemptEntries, DispatchScheduler, HandoutEnd, InterruptedAttempt};
 use method_request::MethodAttemptKey;
 use timer_service::TimerServices;
 
@@ -118,6 +119,13 @@ pub struct EffectsConfig {
     /// Default [`BlockingWorkPlacement::BlockingThreadPool`]. Where method attempts run their
     /// local store reads; see [`BlockingWorkPlacement`].
     pub blocking_work: BlockingWorkPlacement,
+    /// Default 5 minutes, `matching.headsResyncInterval`; zero disables. One round of periodic
+    /// Heads scans every owned partition once, spread over the interval. The scans only catch
+    /// implementation bugs that lose queued tasks.
+    pub heads_resync_interval: Duration,
+    /// Default 100000. Deleted entries one periodic Heads seek may skip before it gives up on
+    /// a queue until the next round.
+    pub heads_max_skipped_deletions: u64,
 }
 
 impl Default for EffectsConfig {
@@ -149,6 +157,8 @@ impl Default for EffectsConfig {
                 max_child_flow_result_bytes: 16 * 1024 * 1024,
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
+            heads_resync_interval: Duration::from_secs(5 * 60),
+            heads_max_skipped_deletions: 100_000,
         }
     }
 }
@@ -223,6 +233,7 @@ pub(crate) enum RouterMessage {
     HandoutFinished {
         flow: FlowAddress,
         key: MethodAttemptKey,
+        generation: u64,
         end: HandoutEnd,
     },
     AttemptStarting {
@@ -297,6 +308,10 @@ pub(crate) struct EffectContext {
     /// Permits for method attempt store reads on blocking threads; see
     /// [`EffectsConfig::max_blocking_state_reads`].
     pub(crate) blocking_read_slots: Arc<Semaphore>,
+    /// The entry of every attempt a task holds; never held across an await.
+    attempt_entries: std::sync::Mutex<AttemptEntries>,
+    /// What periodic Heads resume from, and the queue row counts.
+    task_queue_memory: task_queue::SharedTaskQueueMemory,
     router: mpsc::UnboundedSender<RouterMessage>,
 }
 
@@ -306,6 +321,20 @@ impl EffectContext {
         if self.router.send(message).is_err() {
             tracing::debug!("effect router stopped before a task report");
         }
+    }
+
+    pub(crate) fn attempt_entries(&self) -> std::sync::MutexGuard<'_, AttemptEntries> {
+        self.attempt_entries
+            .lock()
+            .expect("attempt entry lock poisoned")
+    }
+
+    pub(crate) fn task_queue_memory(
+        &self,
+    ) -> std::sync::MutexGuard<'_, task_queue::TaskQueueMemory> {
+        self.task_queue_memory
+            .lock()
+            .expect("task queue memory lock poisoned")
     }
 
     pub(crate) fn run_location(&self, flow: &FlowAddress, run_id: RunId) -> RunLocation {
@@ -538,8 +567,12 @@ impl EffectTasks {
             shutdown: shutdown.clone(),
             tracker: tracker.clone(),
             blocking_read_slots,
+            attempt_entries: std::sync::Mutex::new(AttemptEntries::default()),
+            task_queue_memory: task_queue::SharedTaskQueueMemory::default(),
             router: self.router_sender,
         });
+        tracker.spawn(task_queue::run_claim_pump(Arc::clone(&context)));
+        tracker.spawn(task_queue::run_heads_resync(Arc::clone(&context)));
         let router = EffectRouter {
             dispatch: DispatchScheduler::new(Arc::clone(&context)),
             timers: TimerServices::new(Arc::clone(&context)),
@@ -613,8 +646,13 @@ impl EffectRouter {
                     }
                 });
             }
-            RouterMessage::HandoutFinished { flow, key, end } => {
-                self.dispatch.finish_handout(flow, key, end);
+            RouterMessage::HandoutFinished {
+                flow,
+                key,
+                generation,
+                end,
+            } => {
+                self.dispatch.finish_handout(flow, key, generation, end);
             }
             RouterMessage::AttemptStarting {
                 task_id,
@@ -662,7 +700,22 @@ impl EffectRouter {
             }
             ApplyEffect::LocksReleased { run_id, .. } => self.dispatch.release_locks(run_id),
             ApplyEffect::WakeWaiters { .. } => {}
-            // Wired into the task queue together with matching.
+            ApplyEffect::DispatchQueueChanged {
+                written_keys,
+                removed_count,
+            } if is_committed => {
+                let partition = self
+                    .context
+                    .hasher
+                    .partition_of_flow(flow.tenant_id, &flow.flow_id);
+                task_queue::note_queue_change(
+                    &self.context,
+                    partition,
+                    &written_keys,
+                    removed_count,
+                );
+            }
+            // A speculative change may roll back; only its committed copy counts.
             ApplyEffect::DispatchQueueChanged { .. } => {}
             effect if !is_committed => {
                 tracing::debug!(?effect, "ignoring a speculative external effect");

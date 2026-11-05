@@ -31,15 +31,16 @@ use dexzd_apply::{
     apply_flow_command,
 };
 use dexzd_clock::WallClock;
+use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId};
 use dexzd_object_store::{FaultAction, FaultInjector, InMemoryObjectStore, ObjectStoreOperation};
 use dexzd_protocol::dex::{
-    DispatchTaskErrorReason, FlowTimeoutPolicy, InvokeExecuteMethodOutput,
-    InvokeExecuteMethodResponse, InvokeWaitForMethodOutput, InvokeWaitForMethodResponse,
-    PollWorkerTaskFrame, PullRouting, StartFlowRequest, StepMethodHeartbeat, StepStreamWrite,
-    Value, WorkerErrorResponse, WorkerTarget, invoke_execute_method_output,
-    invoke_wait_for_method_output, poll_worker_task_frame, value,
+    FlowTimeoutPolicy, InvokeExecuteMethodOutput, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodOutput, InvokeWaitForMethodResponse, PollWorkerTaskFrame, PullRouting,
+    StartFlowRequest, StepMethodHeartbeat, StepStreamWrite, Value, WorkerErrorResponse,
+    WorkerTarget, invoke_execute_method_output, invoke_wait_for_method_output,
+    poll_worker_task_frame, value,
 };
 use dexzd_protocol::dexzd::v1::{
     CommandErrorReply, CommandReply, EmptyReply, FlowCommand, FlowStartCommand, RunRecord,
@@ -49,7 +50,10 @@ use dexzd_protocol::dexzd::v1::{
 use dexzd_request_validation::ValidationConfig;
 use dexzd_storage::InMemoryLocalStore;
 use dexzd_stream_store::{StreamStore, StreamStoreConfig};
-use dexzd_worker_dispatch::{DispatchOutcome, StepTaskEvent, StepTaskSendFailure};
+use dexzd_worker_dispatch::{
+    ClaimReply, DispatchOutcome, HeadsScanToken, QueuedTaskRef, ScannedQueueHead, StepTaskEvent,
+    StepTaskSendFailure, WorkerDispatch,
+};
 use futures::future::BoxFuture;
 use prost::Message;
 use tokio::sync::mpsc;
@@ -62,9 +66,9 @@ use crate::effects::flow_effect_operations::{
 use crate::effects::state_reads::{RunLocation, read_step_execution};
 use crate::effects::{
     EffectDependencies, EffectError, EffectRunner, EffectTasksHandle, EffectsConfig,
-    HardDeleteObjects, HardDeleteUploadLedger, MethodDispatchSession, MethodDispatcher,
-    MethodRequest, MethodStreamRequest, MethodStreamReservation, MethodTask, NodeMetaUploadLedger,
-    ReservedMethodStream,
+    HardDeleteObjects, HardDeleteUploadLedger, MethodClaim, MethodDispatchSession,
+    MethodDispatcher, MethodRequest, MethodStreamRequest, MethodStreamReservation, MethodTask,
+    NodeMetaUploadLedger, ReservedMethodStream,
 };
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 
@@ -814,32 +818,76 @@ pub(super) struct FakeDispatcher {
     pub(super) dispatch_count: Arc<AtomicUsize>,
     /// Reserved Worker slots, including those never sent.
     pub(super) reservation_count: AtomicUsize,
-    /// When set, every reservation finds no Worker.
+    /// When set, every reservation finds no Worker and the attempt goes to the queue.
     pub(super) refuse_dispatch: AtomicBool,
-    /// The reason of a refused reservation; NO_WORKER_AVAILABLE when unset.
-    pub(super) refusal_reason: Mutex<Option<DispatchTaskErrorReason>>,
     /// When set, every reservation reports that matching is closing.
     pub(super) is_closing: AtomicBool,
     /// Sends that fail as never delivered, before later sends succeed.
     pub(super) undelivered_sends: Arc<AtomicUsize>,
     /// Requests of every reservation, in order.
     pub(super) reservations: Mutex<Vec<MethodStreamRequest>>,
+    /// Refs of every Queued, in order.
+    pub(super) queued_refs: Mutex<Vec<QueuedTaskRef>>,
+    /// Heads of every rebuild, in order.
+    pub(super) rebuilt_heads: Mutex<Vec<QueuedTaskRef>>,
+    /// Replies to the Claims the test injected, in order.
+    pub(super) claim_replies: Mutex<Vec<(u64, ClaimReply)>>,
+    claims: Mutex<mpsc::UnboundedSender<MethodClaim>>,
+    claim_receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<MethodClaim>>,
+    /// Issues periodic Heads tokens and merges scans like production matching.
+    pub(super) heads_matching: WorkerDispatch,
 }
 
 impl FakeDispatcher {
     fn new() -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
+        let (claim_sender, claim_receiver) = mpsc::unbounded_channel();
         Self {
             dispatches: Arc::new(Mutex::new(sender)),
             receiver: tokio::sync::Mutex::new(receiver),
             dispatch_count: Arc::new(AtomicUsize::new(0)),
             reservation_count: AtomicUsize::new(0),
             refuse_dispatch: AtomicBool::new(false),
-            refusal_reason: Mutex::new(None),
             is_closing: AtomicBool::new(false),
             undelivered_sends: Arc::new(AtomicUsize::new(0)),
             reservations: Mutex::new(Vec::new()),
+            queued_refs: Mutex::new(Vec::new()),
+            rebuilt_heads: Mutex::new(Vec::new()),
+            claim_replies: Mutex::new(Vec::new()),
+            claims: Mutex::new(claim_sender),
+            claim_receiver: tokio::sync::Mutex::new(claim_receiver),
+            heads_matching: WorkerDispatch::new(
+                dexzd_worker_dispatch::MatchingConfig::default(),
+                Arc::new(dexzd_clock::SystemWallClock),
+            ),
         }
+    }
+
+    /// Claims `task` on a slot of the fake Worker, as matching would for a free stream.
+    pub(super) fn claim(&self, claim_id: u64, task: QueuedTaskRef) {
+        let request = MethodStreamRequest {
+            partition: task.partition,
+            tenant_id: task.queue.tenant_id.0,
+            flow_id: task.flow_id.clone(),
+            flow_type: task.queue.flow_type.clone(),
+            step_type: task.queue.step_type.clone(),
+            sticky_app_worker_id: None,
+        };
+        let claim = MethodClaim {
+            claim_id,
+            task,
+            stream: Box::new(FakeSlot {
+                request,
+                dispatches: Arc::clone(&self.dispatches),
+                dispatch_count: Arc::clone(&self.dispatch_count),
+                undelivered_sends: Arc::clone(&self.undelivered_sends),
+            }),
+        };
+        self.claims
+            .lock()
+            .expect("lock")
+            .send(claim)
+            .expect("the claim pump holds the receiver");
     }
 
     /// Waits for the next dispatch.
@@ -871,15 +919,7 @@ impl MethodDispatcher for FakeDispatcher {
                 return MethodStreamReservation::ServerClosing;
             }
             if self.refuse_dispatch.load(Ordering::SeqCst) {
-                let reason = self
-                    .refusal_reason
-                    .lock()
-                    .expect("lock")
-                    .unwrap_or(DispatchTaskErrorReason::NoWorkerAvailable);
-                return MethodStreamReservation::NoWorker {
-                    reason,
-                    detail: "no Worker accepted the task".to_owned(),
-                };
+                return MethodStreamReservation::Enqueue;
             }
             MethodStreamReservation::Reserved(Box::new(FakeSlot {
                 request,
@@ -889,6 +929,50 @@ impl MethodDispatcher for FakeDispatcher {
             }))
         })
     }
+
+    fn queued(&self, task: QueuedTaskRef) {
+        self.queued_refs.lock().expect("lock").push(task);
+    }
+
+    fn report_rebuilt_heads(&self, heads: Vec<QueuedTaskRef>) {
+        self.rebuilt_heads.lock().expect("lock").extend(heads);
+    }
+
+    fn take_heads_token(&self, partition: PartitionId) -> HeadsScanToken {
+        self.heads_matching.take_heads_token(partition)
+    }
+
+    fn report_scanned_heads(&self, token: HeadsScanToken, results: Vec<ScannedQueueHead>) -> usize {
+        self.heads_matching.report_scanned_heads(token, results)
+    }
+
+    fn next_claim(&self) -> BoxFuture<'_, Option<MethodClaim>> {
+        Box::pin(async move { self.claim_receiver.lock().await.recv().await })
+    }
+
+    fn reply_to_claim(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        claim_id: u64,
+        reply: ClaimReply,
+    ) {
+        self.claim_replies
+            .lock()
+            .expect("lock")
+            .push((claim_id, reply));
+    }
+
+    fn is_waiting_for_supporting_worker(
+        &self,
+        _tenant_id: u64,
+        _flow_type: &str,
+        _step_type: &str,
+    ) -> bool {
+        false
+    }
+
+    fn refresh_task_queue_gauges(&self) {}
 }
 
 /// A reserved slot of the fake Worker `worker-a`.
@@ -902,6 +986,10 @@ struct FakeSlot {
 impl ReservedMethodStream for FakeSlot {
     fn app_worker_id(&self) -> &str {
         "worker-a"
+    }
+
+    fn may_hand_out_tasks(&self) -> bool {
+        true
     }
 
     fn send_task(

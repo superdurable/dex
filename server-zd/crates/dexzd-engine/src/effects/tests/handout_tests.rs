@@ -140,7 +140,7 @@ async fn attempts_the_worker_never_ran_return_with_the_same_attempt_number() {
             assert_eq!(returned[0].expected_task_id, started[0]);
             assert_ne!(started[0], started[1], "each start gets its own task ID");
             assert!(failures(&harness).is_empty());
-            // The dispatch wait keeps counting from the first search.
+            // Each search after a return reserves again from scratch (plan D74).
             let reservations = harness
                 .dispatcher
                 .reservations
@@ -148,10 +148,6 @@ async fn attempts_the_worker_never_ran_return_with_the_same_attempt_number() {
                 .expect("lock")
                 .clone();
             assert_eq!(reservations.len(), 2);
-            assert_eq!(
-                reservations[0].search_started_at,
-                reservations[1].search_started_at
-            );
             assert_eq!(
                 invocation(&harness, run_id).furthest_attempt_progress,
                 StepAttemptProgress::NotStarted as i32

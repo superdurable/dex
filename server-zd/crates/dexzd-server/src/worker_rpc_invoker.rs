@@ -48,6 +48,7 @@ impl PullWorkerRpcInvoker {
                 deadline: SystemTime::now() + remaining,
                 sticky_wait: None,
                 dispatch_wait: None,
+                partition: Some(invocation.partition),
             })
             .map_err(|status| RpcInvokeError::NoWorkerAvailable {
                 detail: status.message().to_owned(),
