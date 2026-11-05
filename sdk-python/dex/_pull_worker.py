@@ -607,11 +607,7 @@ class PullStream:
         stop_wait: asyncio.Task[bool] | None = None
         try:
             while True:
-                deadline = (
-                    self.runtime._final_output_flush_deadline
-                    if self.has_unconfirmed_final_output
-                    else self.runtime._stop_drain_deadline
-                ) or reconnect_deadline
+                deadline = self._stream_eof_deadline(reconnect_deadline)
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     _LOGGER.warning("Worker task stream did not close after draining")
@@ -652,6 +648,18 @@ class PullStream:
                     await reader
                 except asyncio.CancelledError:
                     pass
+
+    def _stream_eof_deadline(self, reconnect_deadline: float) -> float:
+        # An unread final output gets the flush grace; a reset could drop it.
+        stop_drain_deadline = self.runtime._stop_drain_deadline
+        flush_deadline = self.runtime._final_output_flush_deadline
+        if stop_drain_deadline is None or flush_deadline is None:
+            if self.has_unconfirmed_final_output:
+                return reconnect_deadline + _FINAL_OUTPUT_FLUSH_GRACE_SECONDS
+            return reconnect_deadline
+        if self.has_unconfirmed_final_output:
+            return flush_deadline
+        return stop_drain_deadline
 
     async def _start_task(self, task: pb.PollWorkerTask) -> None:
         if self.runtime.is_stopping or self.is_draining:

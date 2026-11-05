@@ -744,3 +744,70 @@ def test_poll_channel_accepts_only_identity_encoding() -> None:
         "127.0.0.1:1",
         options=(("grpc.compression_enabled_algorithms_bitset", 1),),
     )
+
+
+@pytest.mark.parametrize("is_released_within_grace", [True, False])
+def test_reconnect_keeps_flush_grace_for_unconfirmed_final_output(
+    is_released_within_grace: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_pull_worker, "_FINAL_OUTPUT_FLUSH_GRACE_SECONDS", 0.6)
+    asyncio.run(
+        _reconnect_keeps_flush_grace_for_unconfirmed_final_output(
+            is_released_within_grace
+        )
+    )
+
+
+async def _reconnect_keeps_flush_grace_for_unconfirmed_final_output(
+    is_released_within_grace: bool,
+) -> None:
+    dispatcher = BlockingDispatcher()
+    call = DelayedEofCall([registered(), rpc_task("before-reconnect")])
+    runtime = PullWorkerRuntime(
+        Registry([]),
+        dispatcher,
+        PullWorkerOptions(
+            max_concurrent_tasks=1, stop_drain_timeout=timedelta(milliseconds=100)
+        ),
+        "unused",
+        None,
+    )
+    runtime._stopping = asyncio.Event()
+    stream = PullStream(
+        runtime, FakeStub(cast(FakeCall, call)), pb.POLL_WORKER_SLOT_KIND_STEP_AND_RPC
+    )
+    polling = asyncio.create_task(stream._poll())
+    await dispatcher.started.wait()
+    call.frames.put_nowait(
+        pb.PollWorkerTaskResponse(
+            reconnect=pb.PollWorkerTaskReconnect(reason="rebalance")
+        )
+    )
+    await wait_until(lambda: stream.is_draining)
+    dispatcher.gate.set()
+    await asyncio.wait_for(call.half_closed.wait(), 2)
+    loop = asyncio.get_running_loop()
+    half_closed_at = loop.time()
+    # The Server has not read the output past the 100 ms reconnect deadline.
+    await asyncio.sleep(0.3)
+    assert not call.is_closed
+    assert not polling.done()
+    if is_released_within_grace:
+        call.release_eof()
+        await asyncio.wait_for(polling, 2)
+        operations = call.operations
+        assert operations.index("write:task_frame") < operations.index("done_writing")
+        assert operations.index("done_writing") < operations.index("read:EOF")
+        assert operations.index("read:EOF") < operations.index("cancel")
+    else:
+        await asyncio.wait_for(polling, 2)
+        assert loop.time() - half_closed_at >= 0.6
+        assert call.is_closed
+        assert "read:EOF" not in call.operations or call.operations.index(
+            "cancel"
+        ) < call.operations.index("read:EOF")
+    assert [
+        request.task_frame.task_id
+        for request in call.requests
+        if request.HasField("task_frame")
+    ] == ["before-reconnect"]

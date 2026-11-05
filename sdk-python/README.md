@@ -148,6 +148,9 @@ must not equal a registered Flow type.
 Pull streams reconnect after failures. A broken stream cancels its handler;
 its output is never sent on a replacement connection. Server-directed reconnect
 lets an active task finish before sending its final output and half-closing.
+If the Server has not confirmed that final output by EOF when the reconnect wait
+of `stop_drain_timeout` ends, the stream gets up to 5 more seconds before it is
+reset.
 `start()` reports protocol and startup synchronization failures. Later transport
 errors are logged and retried by default.
 
