@@ -12,13 +12,17 @@
 use super::*;
 use dexzd_metrics::WorkerStreamProtocolError;
 use dexzd_protocol::dex::PollWorkerTask;
-use dexzd_request_validation::quote_go_string;
 
+use super::backlog_matching::partition_removed;
 use super::worker_streams::{record_protocol_error, send_task_frame};
+use dexzd_keyspace::PartitionId;
+use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
 
 /// Inputs for reserving one Worker stream for a Step method attempt.
 #[derive(Debug, Clone)]
 pub struct StepStreamRequest {
+    /// Partition of the Flow; removing the partition ends the search.
+    pub partition: PartitionId,
     /// Tenant containing the Flow and its Worker queues; use zero for the default tenant.
     pub tenant_id: u64,
     /// Flow instance ID used for same-Flow affinity.
@@ -29,24 +33,17 @@ pub struct StepStreamRequest {
     pub step_type: String,
     /// Worker process ID preferred while the sticky wait lasts.
     pub sticky_app_worker_id: Option<String>,
-    /// When this search for a Worker started; the sticky and dispatch waits count from it.
-    /// A search whose waits already ended still tries the idle slots once.
-    pub search_started_at: Instant,
 }
 
 /// The result of reserving a Worker stream.
 pub enum StepStreamReservation {
     /// An idle Worker slot is reserved for this attempt until it is sent or dropped.
     Reserved(ReservedStepStream),
-    /// No Worker took the attempt within the dispatch wait.
-    NoWorker {
-        /// NO_WORKER_AVAILABLE, or UNKNOWN_NAME when every connected Worker declined the Step
-        /// type.
-        reason: DispatchTaskErrorReason,
-        /// Human-readable diagnostic.
-        detail: String,
-    },
-    /// Matching is closing or its node lease is no longer valid; nothing was reserved.
+    /// No Worker took the attempt within the sync match wait, or its queue already has
+    /// backlog; the attempt goes to the durable task queue (plan D53).
+    Enqueue,
+    /// Matching is closing, its node lease is no longer valid, or the partition was removed;
+    /// nothing was reserved and nothing should be written.
     ServerClosing,
     /// The request is invalid, such as an overlong Flow type.
     Invalid {
@@ -126,6 +123,8 @@ impl Drop for StepTaskHandle {
 }
 
 /// Reserves an idle Worker slot for `request`; see [`WorkerDispatch::reserve_step_stream`].
+///
+/// Reserves a slot; backlog that a connected Worker can run sends the attempt to the queue.
 pub(super) async fn reserve_step_stream(
     dispatch: &WorkerDispatch,
     request: StepStreamRequest,
@@ -138,19 +137,27 @@ pub(super) async fn reserve_step_stream(
     let Ok(waiter_sequence) = dispatch.next_waiter_sequence() else {
         return StepStreamReservation::ServerClosing;
     };
+    let partition_search = dispatch.register_partition_search(request.partition);
     let task_type = TaskTypeKey {
         tenant_id: request.tenant_id,
         flow_type: request.flow_type.clone(),
         kind: TaskKind::Step,
         name: request.step_type.clone(),
     };
+    let queue_name = DispatchQueueName {
+        tenant_id: dexzd_keyspace::TenantId(request.tenant_id),
+        flow_type: request.flow_type.clone(),
+        step_type: request.step_type.clone(),
+    };
     let task = TaskSearch {
         task_type: &task_type,
         flow_id: &request.flow_id,
+        partition_search: Some(partition_search.search.as_ref()),
     };
+    if dispatch.has_qualified_backlog(&queue_name) {
+        return StepStreamReservation::Enqueue;
+    }
     let config = &dispatch.inner.config;
-    let dispatch_end = request.search_started_at + config.dispatch_wait;
-    let sticky_end = request.search_started_at + config.sticky_wait.min(config.dispatch_wait);
     let sticky_queue = request
         .sticky_app_worker_id
         .as_ref()
@@ -161,9 +168,8 @@ pub(super) async fn reserve_step_stream(
                 .unsupported_types
                 .contains(&task_type, id)
         });
-    if let Some(queue) = sticky_queue
-        && Instant::now() < sticky_end
-    {
+    if let Some(queue) = sticky_queue {
+        let sticky_end = Instant::now() + config.sticky_wait;
         match reserve_in_queue(
             dispatch,
             &request,
@@ -175,47 +181,29 @@ pub(super) async fn reserve_step_stream(
         )
         .await
         {
-            QueueReservation::Reserved(worker) => {
-                return reserved(dispatch, worker);
-            }
+            QueueReservation::Reserved(worker) => return reserved(dispatch, worker),
             QueueReservation::ServerClosing => return StepStreamReservation::ServerClosing,
             QueueReservation::Ended => {}
         }
+        if dispatch.has_qualified_backlog(&queue_name) {
+            return StepStreamReservation::Enqueue;
+        }
     }
+    let sync_end = Instant::now() + config.sync_match_wait;
     match reserve_in_queue(
         dispatch,
         &request,
         &task,
         &request.flow_type,
         waiter_sequence,
-        dispatch_end,
+        sync_end,
         false,
     )
     .await
     {
         QueueReservation::Reserved(worker) => reserved(dispatch, worker),
         QueueReservation::ServerClosing => StepStreamReservation::ServerClosing,
-        QueueReservation::Ended => {
-            if dispatch.has_only_unsupported_streams(
-                request.tenant_id,
-                &request.flow_type,
-                &task_type,
-            ) {
-                StepStreamReservation::NoWorker {
-                    reason: DispatchTaskErrorReason::UnknownName,
-                    detail: format!(
-                        "no pull Worker registered Step {} for Flow type {}",
-                        quote_go_string(&request.step_type),
-                        quote_go_string(&request.flow_type)
-                    ),
-                }
-            } else {
-                StepStreamReservation::NoWorker {
-                    reason: DispatchTaskErrorReason::NoWorkerAvailable,
-                    detail: "no Worker accepted the task".to_owned(),
-                }
-            }
-        }
+        QueueReservation::Ended => StepStreamReservation::Enqueue,
     }
 }
 
@@ -226,8 +214,7 @@ fn reserved(dispatch: &WorkerDispatch, worker: Arc<WorkerStream>) -> StepStreamR
     })
 }
 
-/// Waits in one queue until it reserves a stream, `queue_end`, or matching closes. A
-/// sticky search also ends once its queue has no streams.
+/// Waits in one queue for a stream until `queue_end`, after at least one pick.
 async fn reserve_in_queue(
     dispatch: &WorkerDispatch,
     request: &StepStreamRequest,
@@ -245,7 +232,10 @@ async fn reserve_in_queue(
     let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
     tokio::pin!(search_timer);
     loop {
-        if *shutdown.borrow() || !dispatch.may_hand_out_tasks() {
+        let is_removed = task
+            .partition_search
+            .is_some_and(|search| search.is_removed());
+        if *shutdown.borrow() || !dispatch.may_hand_out_tasks() || is_removed {
             return QueueReservation::ServerClosing;
         }
         let picked = dispatch.pick_worker(
@@ -269,6 +259,7 @@ async fn reserve_in_queue(
         tokio::select! {
             () = &mut search_timer => {},
             () = wakeup.notified() => {},
+            () = partition_removed(task.partition_search) => return QueueReservation::ServerClosing,
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
                     return QueueReservation::ServerClosing;
@@ -285,6 +276,18 @@ enum QueueReservation {
 }
 
 impl ReservedStepStream {
+    pub(super) fn new(dispatch: WorkerDispatch, worker: Arc<WorkerStream>) -> Self {
+        Self {
+            dispatch,
+            worker: Some(worker),
+        }
+    }
+
+    /// Returns whether this node may hand out a task now; false once its lease is invalid.
+    pub fn may_hand_out_tasks(&self) -> bool {
+        self.dispatch.may_hand_out_tasks()
+    }
+
     /// Returns the Worker process that owns the reserved slot.
     pub fn app_worker_id(&self) -> &str {
         &self.worker().app_worker_id

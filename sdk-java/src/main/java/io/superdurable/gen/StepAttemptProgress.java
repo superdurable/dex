@@ -140,7 +140,7 @@ public enum StepAttemptProgress
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(26);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(28);
   }
 
   private static final StepAttemptProgress[] VALUES = values();

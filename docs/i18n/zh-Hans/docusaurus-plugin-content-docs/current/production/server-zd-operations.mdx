@@ -176,7 +176,8 @@ lease，并保持 pull Worker stream 打开，等待运行中的 attempt 完成�
 
 Drain 期间，新的 Flow RPC 返回 **UNAVAILABLE**，SDK 会重试它们。还没有交给 Worker 的
 Step 会等待，由后继进程拿到 lease 后再 dispatch。drain 开始时 start 已经在写入的 Step
-仍会发给它的 Worker，并像运行中的 attempt 一样被 drain。
+仍会发给它的 Worker，并像运行中的 attempt 一样被 drain。drain 开始前 Worker 已经从
+[Step 任务队列](#step-task-queue)取走的 Step 也是如此。仍在任务队列中的 Step 会留给后继进程。
 
 **lifecycle.attemptDrainTimeout** 默认为 **30s**，设为 **0s** 可禁用 attempt drain。
 Step 方法和 heartbeat 的超时在 drain 期间仍然生效，drain 不会延长它们。选择 drain 超时
@@ -940,7 +941,8 @@ key label。
 | Worker stream 协议错误 | **dexzd_worker_stream_protocol_errors_total**，带 **error** |
 | Flow 关闭 | **dexzd_flow_closes_total**，带 **close_status**；**dexzd_flow_end_to_end_latency_seconds** |
 | 派发延迟 | **dexzd_step_schedule_to_start_latency_seconds** |
-| Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks** |
+| Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks**（只计内存中的等待者） |
+| Step 任务队列 | **dexzd_step_task_queue_entries**；**dexzd_step_task_queue_oldest_age_seconds**；**dexzd_matching_unserved_task_queues**，带 **reason**；**dexzd_matching_heads_restored_refs_total**；**dexzd_matching_heads_incomplete_scans_total**；**dexzd_step_task_queue_incomplete_seeks_total** |
 | 提交延迟 | **dexzd_commit_latency_seconds** |
 | 对象存储 | **dexzd_object_store_requests_total**，带 **operation** 和 **object_kind**；**dexzd_object_store_request_errors_total**，带 **operation** |
 | Lease 和节点状态 | **dexzd_node_role**，带 **role**；**dexzd_lease_epoch**；**dexzd_lease_renewals_total**，带 **outcome** |
@@ -1009,6 +1011,8 @@ server-zd 以单节点运行，因此自己拥有所有 Worker 队列。Worker �
 matching:
   dispatchWait: 10s
   stickyWait: 5s
+  syncMatchWait: 200ms
+  headsResyncInterval: 5m
   maxConcurrentTasksCap: 256
   maxStreams: 100000
   unsupportedTypeCacheEntries: 10000
@@ -1020,8 +1024,10 @@ matching:
 
 | 键 | 默认值 | 含义 |
 | --- | --- | --- |
-| **matching.dispatchWait** | 10s | 为一次 attempt 寻找 Worker 的总时间。 |
+| **matching.dispatchWait** | 10s | 为一次 RPC 寻找 Worker 的总时间。Step 不使用它，而是在持久任务队列中等待。 |
 | **matching.stickyWait** | 5s | 回退到 Flow type 队列之前，尝试已连接 sticky Worker 的时间。不得超过 **dispatchWait**。没有连接上一个 app Worker ID 的 stream 时，server-zd 立即使用 Flow type 队列。 |
+| **matching.syncMatchWait** | 200ms | 在 sticky 等待之后、Step 进入持久任务队列之前，尝试该 Flow 类型任意 Worker 的时间。必须大于 0。 |
+| **matching.headsResyncInterval** | 5m | 后台检查的间隔，用来找出 matching 丢失的排队任务。0 表示禁用。见 [Step 任务队列](#step-task-queue)。 |
 | **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。Dex 在注册时把它告知 Worker。 |
 | **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。按总 slot 数估算。 |
 | **matching.unsupportedTypeCacheEntries** | 10000 | Dex 记为不支持的（tenant、Flow type、Step type 或 RPC 名称、app Worker ID）组合的最大数量。 |
@@ -1044,8 +1050,40 @@ Worker ID，因此不会被排除。如果你覆盖了 app Worker ID，请在每
 会再次向它提供这个类型。对于 RPC，Dex 会在调用方的 deadline
 内尝试其他 Worker。没有 Worker 支持时，RPC 仍然以现有的错误失败。
 
-如果在 **dispatchWait** 内没有可用的 Worker，Step 会收到可重试的 unavailable 错误，并消耗一次
-Step 重试。RPC 调用方会直接收到 **Unavailable** 错误。
+### Step 任务队列 {#step-task-queue}
+
+没有 Worker 立即接收的 Step attempt 不会失败。它先尝试已连接的 sticky Worker，最多 **stickyWait**。
+然后尝试该 Flow 类型的任意 Worker，最多 **syncMatchWait**。如果该 Step 类型已有已连接 Worker
+能运行的积压，新的 Step 会直接进入队列。
+
+之后 attempt 在持久任务队列中等待，直到有 Worker 接收它、Flow 超时或 Flow 被停止。队列按租户、
+Flow 类型和 Step 类型划分。没有已连接 Worker 支持的 Step 类型会一直留在队列中，不会阻塞其他
+Step 类型。大致按任务就绪的先后派发，不保证严格顺序。Dex 把每个队列分到多个 partition，
+每个节点服务自己拥有的 partition。
+
+空出的 Worker slot 先服务等待的 RPC，然后是内存中等待的 Step，最后是持久队列。排队时间不计入
+method timeout 和 heartbeat timeout。
+
+RPC 从不排队。如果在 **dispatchWait** 内没有可用的 Worker，RPC 调用方会直接收到
+**Unavailable** 错误。未知的 RPC 名称仍返回现有错误。
+
+请对 **dexzd_step_task_queue_entries** 和 **dexzd_step_task_queue_oldest_age_seconds**
+设置告警，而不是 **dexzd_matching_queued_tasks**。**dexzd_matching_queued_tasks** 现在只计内存中的
+等待者，即等待 slot 的 Step 和 RPC，不计持久积压。
+**dexzd_step_task_queue_entries** 是本节点所拥有 partition 中排队 Step 任务的 gauge。
+**dexzd_step_task_queue_oldest_age_seconds** 是其中最老任务年龄的 gauge。
+**dexzd_matching_unserved_task_queues** 是有积压、但没有已连接 Worker 能服务的队列数的 gauge，
+**reason** 为 **no_worker** 或 **no_supporting_worker**。
+
+重启或 failover 之后，每个 partition 要等它的后台计数完成，才会计入
+**dexzd_step_task_queue_entries**，所以这个 gauge 可能会在一段时间内偏低。这段时间里请以
+**dexzd_step_task_queue_oldest_age_seconds** 为准，重建会根据每个队列的第一个排队任务让它保持准确。
+
+**matching.headsResyncInterval** 设置一个周期性的后台检查。它只能发现丢失排队任务的 server bug。
+**dexzd_matching_heads_restored_refs_total** 是应保持为 0 的 counter。如果它不为 0，请查看 WARN 日志
+"periodic Heads restored a queued task that matching had lost"，并把它当作 bug 报告。
+**dexzd_matching_heads_incomplete_scans_total** 统计未完成的检查次数。
+**dexzd_step_task_queue_incomplete_seeks_total** 统计查找下一个排队任务时跳过了过多已删除条目的次数。Dex 会在退避后重试每一次。持续增长说明 compaction 跟不上。
 
 当前 SDK 在任务运行期间每 20 秒发送一次上行 **Pong** 帧。请为长连接 HTTP/2 stream 配置负载均衡器和
 代理，并把它们的空闲超时设置得高于 20 秒和 **matching.pingInterval**，同时留出网络延迟的余量。
@@ -1156,7 +1194,8 @@ server-zd 协议版本 4 没有提高最低协议。较旧 SDK 的 Worker 和 Cl
 这次 server 升级不支持混合版本。启动新版本之前，先停止所有旧的 server 进程，包括 active、热
 standby 和冷 standby。新版本写入过某个 storage prefix 之后，旧 server 不能再在其上运行。请向前
 升级，或把升级前的备份恢复到新的 prefix。只有在每个进程都运行新版本之后才设置新的配置项，回滚
-之前要先删除它们。
+之前要先删除它们。这适用于 **matching.syncMatchWait** 和 **matching.headsResyncInterval**。
+matching 配置会拒绝未知的键。
 
 以后提高最低协议的版本需要同样的谨慎：升级 server 之前先停止旧 Worker 及其流量，或者使用相互
 隔离的蓝绿环境，使协议范围不相交的部署永远不会互相通信。运行中的 Worker 在 server 升级后不会

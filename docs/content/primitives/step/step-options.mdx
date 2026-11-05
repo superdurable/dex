@@ -98,9 +98,9 @@ Dex pins the durability when a method call becomes pending. Changing **step_dura
 
 Durability changes when Dex Server persists an attempt start and a result. With **SYNC**, the start is durable before the task goes to the Worker. With **ASYNC**, Dex Server does not wait for the start to be persisted, so the task can go out before the start is durable. Retry policy, method timeout, and heartbeat settings apply to every attempt in both modes. The default method attempt timeout is two hours, and the default heartbeat timeout is one minute.
 
-The method timeout and the heartbeat timeout start when Dex sends the task to the Worker. Waiting for locks or for a Worker does not count. The deadline in the task is the send time plus the method timeout.
+The method timeout and the heartbeat timeout start when Dex sends the task to the Worker. Waiting for locks or for a Worker, including time in the task queue, does not count. The deadline in the task is the send time plus the method timeout.
 
-The default total retry duration (**TotalDuration**) is four hours for both durability modes. An explicit retry duration may be shorter or longer. **TotalDuration** starts when Dex first hands attempt 1 to a Worker. If attempt 1 was returned without running, the clock resets. Dex uses **TotalDuration** only after an attempt fails, to decide whether to retry. It never cuts a running attempt, so the last attempt can start or end after **TotalDuration**. Only the method timeout limits a single attempt. To bound one long attempt, set **ExecuteMethodTimeout** or **WaitForMethodTimeout**, not **TotalDuration**. The server no longer produces the RETRY_DEADLINE failure kind. The SDK helper **IsRetryTotalDurationExceeded**, and its equivalent in other SDKs, can be true only for records from before the upgrade.
+The default total retry duration (**TotalDuration**) is four hours for both durability modes. An explicit retry duration may be shorter or longer. **TotalDuration** starts when Dex first hands attempt 1 to a Worker. If attempt 1 was returned without running, the clock resets. Dex does not check **TotalDuration** while a Step waits in the task queue, so a retry that waited past it still runs. A retry waits in the queue again. Dex dispatches queued tasks roughly in the order they became ready, with no strict order. That wait counts toward **TotalDuration**. After a long backlog, a failed retry may have no time left. Dex uses **TotalDuration** only after an attempt fails, to decide whether to retry. It never cuts a running attempt, so the last attempt can start or end after **TotalDuration**. Only the method timeout limits a single attempt. To bound one long attempt, set **ExecuteMethodTimeout** or **WaitForMethodTimeout**, not **TotalDuration**. The server no longer produces the RETRY_DEADLINE failure kind. The SDK helper **IsRetryTotalDurationExceeded**, and its equivalent in other SDKs, can be true only for records from before the upgrade.
 
 <SdkTabs
   examples={{
@@ -431,7 +431,7 @@ Concurrent Steps and RPC invocations can read and write the same Attribute. This
 
 **WaitFor** and **Execute** have separate lock sets. Set them by returning **StepOptions**.
 
-An attempt keeps its locks while it waits to run again after a return, for example when a Worker declined its Step type. Transactional RPCs on those keys get a lock conflict meanwhile.
+A first attempt that no Worker took yet holds no locks, but later Steps that need the same lock wait behind it. A returned attempt, for example when a Worker declined its Step type, and a retry attempt keep their locks while they wait in the queue. When no Worker can run them, they hold the locks until the Flow times out or stops. Transactional RPCs on those keys get a lock conflict meanwhile.
 
 See [Attribute locking](/primitives/attribute#locking) for more details.
 

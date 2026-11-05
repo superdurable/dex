@@ -47,6 +47,9 @@ pub struct EngineSimulationConfig {
     /// Overrides the seed's fault rate for a targeted regression, as a percentage from 0 to 100.
     /// Defaults to `None`, using the seed's fault rate.
     pub fault_probability_percent: Option<u8>,
+    /// Whether the simulated task queue injects duplicate refs and Claims without a lease.
+    /// Defaults to true. Regression seeds turn it off, so they keep reproducing their scenario.
+    pub has_queue_faults: bool,
 }
 
 impl Default for EngineSimulationConfig {
@@ -56,6 +59,7 @@ impl Default for EngineSimulationConfig {
             calm_tail_seconds: 60,
             profile: EngineSimulationProfile::Standard,
             fault_probability_percent: None,
+            has_queue_faults: true,
         }
     }
 }

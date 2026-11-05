@@ -10,6 +10,7 @@
 
 mod attribute_sync_invariants;
 mod directory_invariants;
+mod dispatch_queue_invariants;
 mod lock_invariants;
 mod search_order_invariants;
 mod value_invariants;
@@ -114,12 +115,14 @@ pub fn check_flow(
     directory_invariants::check_directory(flow_id, view)?;
     attribute_sync_invariants::check_index_runs_exist(flow_id, view)?;
     search_order_invariants::check_search_order(flow_id, view)?;
+    dispatch_queue_invariants::check_dispatch_queue_runs_exist(flow_id, view)?;
     for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
         let context = RunContext { flow_id, run_id };
         directory_invariants::check_run_record(&context, run)?;
         directory_invariants::check_history(&context, run)?;
         directory_invariants::check_timers(&context, run, view)?;
         lock_invariants::check_invocations(&context, run)?;
+        dispatch_queue_invariants::check_dispatch_queue_rows(&context, run, view)?;
         lock_invariants::check_locks(&context, run)?;
         lock_invariants::check_guarded_attributes(&context, run)?;
         let genesis = memory.genesis_values.get(run_id);

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use prometheus_client::encoding::{EncodeLabelSet, EncodeMetric, MetricEncoder, NoLabelSet};
 use prometheus_client::metrics::MetricType;
 use prometheus_client::metrics::counter::Counter;
+use prometheus_client::metrics::gauge::Gauge;
 
 /// A persistent Worker stream event.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -212,5 +213,68 @@ impl EncodeMetric for WorkerStreamProtocolErrors {
 
     fn metric_type(&self) -> MetricType {
         MetricType::Counter
+    }
+}
+
+/// Why no connected stream serves a queue with backlog.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum UnservedTaskQueueReason {
+    /// No connected Worker serves the queue's Flow type.
+    NoWorker,
+    /// Every connected Worker of the Flow type declined the queue's Step type.
+    NoSupportingWorker,
+}
+
+label_value!(UnservedTaskQueueReason { NoWorker => "no_worker", NoSupportingWorker => "no_supporting_worker" });
+
+impl UnservedTaskQueueReason {
+    const ALL: [Self; 2] = [Self::NoWorker, Self::NoSupportingWorker];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::NoWorker => 0,
+            Self::NoSupportingWorker => 1,
+        }
+    }
+}
+
+#[derive(Clone, Debug, EncodeLabelSet)]
+struct UnservedTaskQueueLabel {
+    reason: UnservedTaskQueueReason,
+}
+
+/// Queues with backlog that no connected stream can serve, by reason.
+#[derive(Clone, Debug)]
+pub struct UnservedTaskQueues {
+    counts: Arc<[Gauge; 2]>,
+}
+
+impl Default for UnservedTaskQueues {
+    fn default() -> Self {
+        Self {
+            counts: Arc::new(std::array::from_fn(|_| Gauge::default())),
+        }
+    }
+}
+
+impl UnservedTaskQueues {
+    /// Sets the number of unserved queues for `reason`.
+    pub fn set(&self, reason: UnservedTaskQueueReason, count: i64) {
+        self.counts[reason.index()].set(count);
+    }
+}
+
+impl EncodeMetric for UnservedTaskQueues {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for reason in UnservedTaskQueueReason::ALL {
+            encoder
+                .encode_family(&UnservedTaskQueueLabel { reason })?
+                .encode_gauge(&self.counts[reason.index()].get())?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Gauge
     }
 }

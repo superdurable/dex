@@ -20,6 +20,7 @@ mod lease_validity;
 mod metrics;
 mod object_store_compatibility;
 mod purging_reads;
+mod queued_restart;
 mod robustness;
 mod search_outbox;
 mod standby_failover;

@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::directory_lock::{OpenDirectory, register_open_directory};
 use crate::local_store::{
-    LocalReadView, LocalStore, ScanDirection, StorageError, StorageResult, WriteBatch,
+    BoundedSeek, LocalReadView, LocalStore, ScanDirection, StorageError, StorageResult, WriteBatch,
     WriteOperation, new_node_meta,
 };
 
@@ -30,6 +30,10 @@ use crate::local_store::{
 pub(crate) const INFO_LOG_FILES_KEPT: usize = 3;
 /// Size at which RocksDB starts a new info log.
 const INFO_LOG_FILE_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// Consecutive PartitionIndex entries a file's deletion counter looks at.
+const PARTITION_INDEX_DELETION_WINDOW: usize = 128 * 1024;
+/// Deletions within one window that mark a PartitionIndex file for compaction.
+const PARTITION_INDEX_DELETION_TRIGGER: usize = 32 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RocksDbStoreOptions {
@@ -288,6 +292,9 @@ impl LocalStore for RocksDbLocalStore {
                 WriteOperation::Delete { cf, key } => {
                     rocks_batch.delete_cf(self.cf_handle(*cf), key)
                 }
+                WriteOperation::SingleDelete { cf, key } => {
+                    rocks_batch.single_delete_cf(self.cf_handle(*cf), key)
+                }
                 WriteOperation::DeleteRange { cf, start, end } => {
                     if start >= end {
                         return Err(StorageError::InvalidRange {
@@ -322,6 +329,34 @@ struct RocksView<'a> {
 impl LocalReadView for RocksView<'_> {
     fn get(&self, cf: ColumnFamily, key: &[u8]) -> StorageResult<Option<Vec<u8>>> {
         Ok(self.snapshot.get_cf(self.store.cf_handle(cf), key)?)
+    }
+
+    fn seek_first_bounded(
+        &self,
+        cf: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        max_skippable_entries: u64,
+    ) -> StorageResult<BoundedSeek> {
+        let mut options = read_options(Some(start), Some(end));
+        options.set_max_skippable_internal_keys(max_skippable_entries);
+        let mut iterator = self
+            .snapshot
+            .raw_iterator_cf_opt(self.store.cf_handle(cf), options);
+        iterator.seek(start);
+        if let (Some(key), Some(value)) = (iterator.key(), iterator.value()) {
+            return Ok(BoundedSeek::Found {
+                key: key.to_vec(),
+                value: value.to_vec(),
+            });
+        }
+        match iterator.status() {
+            Ok(()) => Ok(BoundedSeek::Exhausted),
+            Err(error) if error.kind() == rocksdb::ErrorKind::Incomplete => {
+                Ok(BoundedSeek::Incomplete)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn scan(
@@ -396,6 +431,14 @@ fn column_family_descriptors(options: RocksDbStoreOptions) -> Vec<ColumnFamilyDe
             let mut block_options = BlockBasedOptions::default();
             block_options.set_block_cache(&cache);
             cf_options.set_block_based_table_factory(&block_options);
+            if cf == ColumnFamily::PartitionIndex {
+                // Drained task queues leave dense tombstone runs; compact such files early.
+                cf_options.add_compact_on_deletion_collector_factory(
+                    PARTITION_INDEX_DELETION_WINDOW,
+                    PARTITION_INDEX_DELETION_TRIGGER,
+                    0.0,
+                );
+            }
             if cf == ColumnFamily::Value {
                 cf_options.set_enable_blob_files(true);
                 cf_options.set_min_blob_size(64 * 1024);

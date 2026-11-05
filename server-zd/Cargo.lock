@@ -1212,6 +1212,7 @@ dependencies = [
  "dexzd-stream-store",
  "dexzd-worker-dispatch",
  "futures",
+ "prometheus-client",
  "prost",
  "prost-types",
  "self_cell",
@@ -1483,6 +1484,7 @@ version = "0.1.0"
 dependencies = [
  "dexzd-clock",
  "dexzd-cluster-metadata",
+ "dexzd-keyspace",
  "dexzd-metrics",
  "dexzd-protocol",
  "dexzd-request-validation",

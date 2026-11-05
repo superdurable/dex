@@ -108,6 +108,8 @@ metrics:
 matching:
   dispatchWait: 10s
   stickyWait: 5s
+  syncMatchWait: 200ms
+  headsResyncInterval: 5m
   maxConcurrentTasksCap: 256
   maxStreams: 100000
   maxQueueLength: 256

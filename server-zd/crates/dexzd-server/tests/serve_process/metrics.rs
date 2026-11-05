@@ -9,7 +9,7 @@
 use std::fs;
 use std::net::SocketAddr;
 
-use dexzd_protocol::dex::RetryPolicy;
+use dexzd_protocol::dex::{RetryPolicy, StepMovement};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
@@ -58,6 +58,16 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         WorkerTaskServiceClient::new(channel.clone()),
         FLOW_TYPE,
         Box::new(|request| {
+            if request.step_type == "FailStep" {
+                // A Step decision without a Step type is an invalid response.
+                return InvokeExecuteMethodResponse {
+                    step_decision: Some(StepDecision {
+                        next_steps: vec![StepMovement::default()],
+                        ..StepDecision::default()
+                    }),
+                    ..InvokeExecuteMethodResponse::default()
+                };
+            }
             assert_eq!(request.step_type, "GreetStep");
             InvokeExecuteMethodResponse {
                 step_decision: Some(StepDecision {
@@ -107,13 +117,12 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .expect("Flow completes")
         .into_inner();
     assert_eq!(result.flow_status, FlowStatus::Completed as i32);
-    worker.stop().await;
 
     client
         .start_flow(StartFlowRequest {
             flow_id: "metrics-failed-flow".to_owned(),
             flow_type: FLOW_TYPE.to_owned(),
-            start_step_type: "GreetStep".to_owned(),
+            start_step_type: "FailStep".to_owned(),
             step_input: Some(string_value("start")),
             step_options: Some(StepOptions {
                 skip_wait_for: true,
@@ -146,6 +155,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .expect("second Flow closes")
         .into_inner();
     assert_eq!(failed.flow_status, FlowStatus::Failed as i32);
+    worker.stop().await;
 
     let after = scrape(metrics_address, "/metrics").await;
     let body = after.split_once("\r\n\r\n").expect("HTTP body exists").1;
@@ -174,6 +184,12 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         "dexzd_timer_lag_seconds",
         "dexzd_matching_queued_tasks",
         "dexzd_matching_worker_streams",
+        "dexzd_step_task_queue_entries",
+        "dexzd_step_task_queue_oldest_age_seconds",
+        "dexzd_matching_unserved_task_queues",
+        "dexzd_matching_heads_restored_refs_total",
+        "dexzd_matching_heads_incomplete_scans_total",
+        "dexzd_step_task_queue_incomplete_seeks_total",
         "dexzd_step_attempt_failures_total",
         "dexzd_step_retries_exhausted_total",
         "dexzd_flow_closes_total",
@@ -307,7 +323,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .lines()
         .filter(|line| !line.starts_with('#') && !line.is_empty())
         .count();
-    assert!(series_count <= 175, "scrape has {series_count} series");
+    assert!(series_count <= 186, "scrape has {series_count} series");
     eprintln!("metrics scenario series count: {series_count}");
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());

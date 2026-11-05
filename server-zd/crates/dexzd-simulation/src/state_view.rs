@@ -8,6 +8,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dexzd_keyspace::dispatch_queue_keys::{
+    DispatchQueueEntry, decode_dispatch_queue_key, dispatch_queue_partition_prefix,
+};
 use dexzd_keyspace::row_keys::{
     AttributeSyncPendingIndexEntry, HARD_DELETE_CURRENT_OBJECT, TimerIndexEntry,
     decode_attribute_sync_pending_index_key, decode_timer_index_key, partition_index_range,
@@ -18,9 +21,9 @@ use dexzd_keyspace::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributeSyncOutboxRecord, ChannelMessageRecord,
-    ChannelMetaRecord, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, LockRecord,
-    RequestDedupRecord, RunRecord, SearchDocumentRecord, StepExecutionRecord, SubFlowResultRecord,
-    TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    ChannelMetaRecord, DispatchQueueRecord, FlowDirectoryRecord, HardDeleteObjectRecord,
+    HistoryRecord, LockRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord,
+    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -40,6 +43,8 @@ pub struct FlowView {
     pub attribute_sync_pending_index: Vec<AttributeSyncPendingIndexEntry>,
     /// SearchOrder index keys of this Flow's runs, by run.
     pub search_order_keys: BTreeMap<RunId, BTreeSet<Vec<u8>>>,
+    /// DispatchQueue index rows of this Flow in its partition.
+    pub dispatch_queue_index: Vec<(DispatchQueueEntry, DispatchQueueRecord)>,
     /// The partition and Flow hash the view was read for.
     pub location: Option<(PartitionId, FlowHash)>,
 }
@@ -203,6 +208,28 @@ impl FlowView {
             })
             .collect::<Result<_, _>>()?;
         view.search_order_keys = search_order_keys(state, partition, flow_hash)?;
+        let (start, end) =
+            dexzd_keyspace::row_keys::prefix_range(&dispatch_queue_partition_prefix(partition));
+        let queue_rows = dexzd_apply::FlowStateReader::scan(
+            state,
+            ColumnFamily::PartitionIndex,
+            &start,
+            &end,
+            usize::MAX,
+        )
+        .map_err(|error| StateViewError {
+            what: "DispatchQueue index",
+            key_hex: hex(&start),
+            detail: error.to_string(),
+        })?;
+        for (key, value) in &queue_rows {
+            let entry = decode_dispatch_queue_key(key)
+                .ok_or_else(|| view_error(key, "DispatchQueue index", "malformed key"))?;
+            if entry.position.flow_hash == flow_hash {
+                let record = decode(key, value, "DispatchQueue row")?;
+                view.dispatch_queue_index.push((entry, record));
+            }
+        }
         view.location = Some((partition, flow_hash));
         Ok(view)
     }

@@ -73,12 +73,22 @@ pub struct MetricsConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct MatchingConfig {
-    /// Defaults to 10 s; total time to find a Worker for a regular attempt.
+    /// Defaults to 10 s; total time an RPC waits for a Worker. Steps never fail for want of a
+    /// Worker; they use stickyWait and syncMatchWait, then the durable task queue.
     #[serde(with = "humantime_serde")]
     pub dispatch_wait: Duration,
     /// Defaults to 5 s; time to try a connected sticky Worker before fallback, no greater than dispatchWait.
     #[serde(with = "humantime_serde")]
     pub sticky_wait: Duration,
+    /// Defaults to 200 ms and must be positive; how long a Step waits in memory for a Worker of
+    /// its Flow type before it goes to the durable task queue.
+    #[serde(with = "humantime_serde")]
+    pub sync_match_wait: Duration,
+    /// Defaults to 5 min; 0 disables. One round of periodic Heads scans every partition this
+    /// node owns once, spread over the interval, to restore queued tasks that matching lost
+    /// through a bug. Rebuild, failover, and restart Heads do not depend on it.
+    #[serde(with = "humantime_serde")]
+    pub heads_resync_interval: Duration,
     /// Defaults to 256; maximum registered streams for one appWorkerID on this node.
     pub max_concurrent_tasks_cap: u32,
     /// Defaults to 100000; maximum registered pull Worker streams on this node.
@@ -103,6 +113,8 @@ impl Default for MatchingConfig {
         Self {
             dispatch_wait: Duration::from_secs(10),
             sticky_wait: Duration::from_secs(5),
+            sync_match_wait: Duration::from_millis(200),
+            heads_resync_interval: Duration::from_secs(5 * 60),
             max_concurrent_tasks_cap: 256,
             max_streams: 100_000,
             max_queue_length: 256,

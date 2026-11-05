@@ -191,7 +191,10 @@ takes over after the release.
 During the drain, new Flow RPCs answer **UNAVAILABLE**, and the SDKs retry them.
 Steps that are not yet handed to a Worker wait. The successor dispatches them
 after it takes the lease. A Step whose start was already being written when the
-drain began still goes to its Worker and is drained like a running attempt.
+drain began still goes to its Worker and is drained like a running attempt. So
+does a Step that a Worker took from the
+[Step task queue](#step-task-queue) before the drain began. Steps still in the
+task queue stay there for the successor.
 
 **lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
 attempt draining. Step method and heartbeat timeouts still apply during the
@@ -1132,7 +1135,8 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Worker stream protocol errors | **dexzd_worker_stream_protocol_errors_total** with **error** |
 | Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
 | Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
-| Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** |
+| Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** (in-memory waiters only) |
+| Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total**; **dexzd_step_task_queue_incomplete_seeks_total** |
 | Commit latency | **dexzd_commit_latency_seconds** |
 | Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
 | Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
@@ -1209,6 +1213,8 @@ Clients connect to **api.listen**, which is **0.0.0.0:8801** by default.
 matching:
   dispatchWait: 10s
   stickyWait: 5s
+  syncMatchWait: 200ms
+  headsResyncInterval: 5m
   maxConcurrentTasksCap: 256
   maxStreams: 100000
   unsupportedTypeCacheEntries: 10000
@@ -1220,8 +1226,10 @@ matching:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| **matching.dispatchWait** | 10s | Total time to find a Worker for one attempt. |
+| **matching.dispatchWait** | 10s | Total time to find a Worker for one RPC. Steps do not use it; they wait in the durable task queue. |
 | **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
+| **matching.syncMatchWait** | 200ms | Time to try any Worker of the Flow type for a Step after the sticky wait, before the Step goes to the durable task queue. Must be greater than 0. |
+| **matching.headsResyncInterval** | 5m | Interval of a background check that finds queued tasks matching lost. 0 disables it. See [Step task queue](#step-task-queue). |
 | **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. Dex reports it to Workers at registration. |
 | **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by total slots. |
 | **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, Flow type, Step type or RPC name, app Worker ID) pairs that Dex remembers as unsupported. |
@@ -1249,9 +1257,53 @@ streams. If the cache evicts the entry first, Dex offers the type again after a
 Worker with that ID completes a Step. For an RPC, Dex tries other Workers within the caller's deadline. An RPC
 still fails with the existing error when no Worker supports it.
 
-If no Worker is available within **dispatchWait**, a Step receives a retryable
-unavailable error that consumes a Step retry. An RPC caller receives an
-**Unavailable** error directly.
+### Step task queue {#step-task-queue}
+
+A Step attempt that no Worker takes at once does not fail. It first tries a
+connected sticky Worker for up to **stickyWait**. It then tries any Worker of
+the Flow type for up to **syncMatchWait**. When the Step type already has a
+backlog that a connected Worker can run, a new Step goes straight to the queue.
+
+The attempt then waits in a durable task queue until a Worker takes it, the Flow
+times out, or the Flow stops. Queues are per tenant, Flow type, and Step type.
+A Step type that no connected Worker supports stays queued and does not block
+other Step types. Steps are dispatched roughly in the order they became ready;
+strict ordering is not guaranteed. Dex spreads each queue over partitions, and
+each node serves the partitions it owns.
+
+A freed Worker slot serves waiting RPCs first, then Steps waiting in memory,
+then the durable queue. Queue time does not count toward the method timeout or
+the heartbeat timeout.
+
+An RPC never queues. If no Worker is available within **dispatchWait**, an RPC
+caller receives an **Unavailable** error directly. An unknown RPC name keeps
+its existing error.
+
+Alert on **dexzd_step_task_queue_entries** and
+**dexzd_step_task_queue_oldest_age_seconds**, not on
+**dexzd_matching_queued_tasks**. **dexzd_matching_queued_tasks** now counts only
+in-memory waiters, which are Steps and RPCs that wait for a slot. It does not
+count the durable backlog.
+**dexzd_step_task_queue_entries** is a gauge of queued Step tasks in the
+partitions this node owns. **dexzd_step_task_queue_oldest_age_seconds** is a gauge
+of the age of the oldest one. **dexzd_matching_unserved_task_queues** is a gauge
+of queues with backlog that no connected Worker can serve. **reason** is
+**no_worker** or **no_supporting_worker**.
+
+After a restart or a failover, each partition joins
+**dexzd_step_task_queue_entries** only when its background count finishes, so
+the gauge can read low for a while. During that time, rely on
+**dexzd_step_task_queue_oldest_age_seconds**, which the rebuild keeps accurate
+from the first queued task of each queue.
+
+**matching.headsResyncInterval** sets a periodic background check. It only
+catches server bugs that lose queued tasks. **dexzd_matching_heads_restored_refs_total**
+is a counter that should stay 0. If it is ever nonzero, look for the WARN log
+line "periodic Heads restored a queued task that matching had lost" and report
+it as a bug. **dexzd_matching_heads_incomplete_scans_total** counts checks that did
+not finish. **dexzd_step_task_queue_incomplete_seeks_total** counts searches for the next
+queued task that passed too many deleted entries. Dex retries each one after a backoff. A
+steady increase means compaction falls behind.
 
 Current SDKs send upstream **Pong** frames every 20 seconds while a task runs.
 Configure load balancers and proxies for long-lived HTTP/2 streams, and set
@@ -1384,7 +1436,9 @@ process, including active, hot standby, and cold standby, before you start the
 new version. After the new version wrote to a storage prefix, an older server
 must not run on it again. Roll forward, or restore a backup taken before the
 upgrade into a new prefix. Set new configuration keys only after every process
-runs the new version, and remove them before any rollback.
+runs the new version, and remove them before any rollback. This applies to
+**matching.syncMatchWait** and **matching.headsResyncInterval**. Matching
+configuration rejects unknown keys.
 
 A later release that raises the minimum protocol needs the same care. Stop old
 Workers and their traffic before that server upgrade, or use isolated blue and

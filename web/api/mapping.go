@@ -186,6 +186,14 @@ func mapActiveStep(step *dexpb.ActiveStepExecutionState) (activeStepExecution, e
 	if err != nil {
 		return activeStepExecution{}, err
 	}
+	waitForInvocation, err := protoMap(step.GetWaitForInvocation())
+	if err != nil {
+		return activeStepExecution{}, err
+	}
+	executeInvocation, err := protoMap(step.GetExecuteInvocation())
+	if err != nil {
+		return activeStepExecution{}, err
+	}
 	return activeStepExecution{
 		WaitForPullRouting:  waitForRouting,
 		ExecutePullRouting:  executeRouting,
@@ -199,6 +207,8 @@ func mapActiveStep(step *dexpb.ActiveStepExecutionState) (activeStepExecution, e
 		StepExecutionLocals: mapKeyValues(step.GetStepExecutionLocals()),
 		Timers:              interfaceSlice(wholeStep["timers"]),
 		LastFailureInfo:     lastFailureInfo,
+		WaitForInvocation:   waitForInvocation,
+		ExecuteInvocation:   executeInvocation,
 	}, nil
 }
 

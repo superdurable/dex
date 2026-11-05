@@ -980,6 +980,7 @@ export function StepMethodContextSection({
         ['From', context.fromStepExecutionId],
         ['Durability', durabilityLabel(context.durability)],
         ['Final attempt', context.finalAttempt],
+        ['Scheduled', isPresent(context.scheduledTime) ? formatDate(String(context.scheduledTime), timezone) : undefined],
         ['Started', isPresent(context.startedTime) ? formatDate(String(context.startedTime), timezone) : undefined],
         ['Duration', protobufDuration(context.duration)],
       ]} />

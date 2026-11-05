@@ -691,6 +691,9 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("matching.stickyWait", |config| {
             config.matching.sticky_wait = Duration::from_secs(11)
         }),
+        ("matching.syncMatchWait", |config| {
+            config.matching.sync_match_wait = Duration::ZERO
+        }),
         ("matching.maxConcurrentTasksCap", |config| {
             config.matching.max_concurrent_tasks_cap = 0
         }),

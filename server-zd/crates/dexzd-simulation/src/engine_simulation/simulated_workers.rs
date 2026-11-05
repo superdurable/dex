@@ -16,16 +16,21 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_engine::{
-    MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
+    MethodClaim, MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
     MethodStreamReservation, MethodTask, ReservedMethodStream, RpcInvokeError, RpcWorkerInvoker,
-    WorkerRpcInvocation, WorkerRpcResult,
+    StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
 };
+use dexzd_keyspace::PartitionId;
+use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
 use dexzd_protocol::dex::{
-    Context, DispatchTaskErrorReason, InvokeExecuteMethodOutput, InvokeWaitForMethodOutput,
-    PollWorkerTaskFrame, PollWorkerTaskRejectReason, StepMethodHeartbeat,
-    invoke_execute_method_output, invoke_wait_for_method_output, poll_worker_task_frame,
+    Context, InvokeExecuteMethodOutput, InvokeWaitForMethodOutput, PollWorkerTaskFrame,
+    PollWorkerTaskRejectReason, StepMethodHeartbeat, invoke_execute_method_output,
+    invoke_wait_for_method_output, poll_worker_task_frame,
 };
-use dexzd_worker_dispatch::{DispatchOutcome, StepTaskEvent, StepTaskSendFailure};
+use dexzd_worker_dispatch::{
+    ClaimReply, DispatchOutcome, HeadsScanToken, QueuedTaskRef, ScannedQueueHead, StepTaskEvent,
+    StepTaskSendFailure, WorkerDispatch,
+};
 use futures::future::BoxFuture;
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -37,9 +42,16 @@ use crate::engine_simulation::workload::{
     AWAIT_CHILD_RESULT_RPC_NAME, MethodCallView, execute_response, heartbeat_value, rpc_response,
     wait_for_response, worker_error,
 };
+use simulated_task_queue::SimulatedTaskQueue;
+
+mod simulated_task_queue;
 
 /// New Steps each run's Workers may create, so every run eventually closes.
 const STEPS_PER_RUN: u32 = 8;
+/// Percent of Claim replies and Claims that draw a queue fault outside calm and hold.
+const QUEUE_FAULT_PERCENT: u32 = 20;
+/// Separates queue fault draws from Worker draws, so other trajectories keep their draws.
+const QUEUE_FAULT_SEED_SALT: u64 = 0x7a51_c0de;
 
 /// One method attempt as the Worker sees it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -109,6 +121,10 @@ pub(crate) enum WorkerBehavior {
     HeartbeatWithValue,
     /// A heartbeat frame without a value, which clears the checkpoint.
     HeartbeatWithoutValue,
+    /// Matching receives the claimed ref again, like a late Queued, so it is claimed twice.
+    DuplicateQueueRef,
+    /// The claimed stream may not hand out tasks, so the owner answers "retry later".
+    ClaimWithoutLease,
 }
 
 /// One timed event of a scripted dispatch; `None` waits until the dispatch is canceled.
@@ -121,8 +137,11 @@ struct ScriptedEvent {
 
 struct WorkerPoolState {
     rng: ChaCha8Rng,
+    queue_fault_rng: ChaCha8Rng,
     /// Whether new Steps carry failure policies, as in the Step failure profile.
     has_step_failure_policies: bool,
+    /// Whether queue faults may be drawn at all.
+    has_queue_faults: bool,
     is_calm: bool,
     is_holding: bool,
     dispatch_history: BTreeMap<String, Vec<AttemptIdentity>>,
@@ -143,14 +162,27 @@ pub(crate) struct SimulatedWorkers {
     /// Bumped whenever a child wait ends, so RPCs held for it check again.
     child_waits_ended: watch::Sender<u64>,
     trace: Arc<EventTrace>,
+    /// Issues periodic Heads tokens; the simulated queues hold the refs themselves.
+    heads_matching: WorkerDispatch,
 }
 
 impl SimulatedWorkers {
-    pub(crate) fn new(seed: u64, has_step_failure_policies: bool, trace: Arc<EventTrace>) -> Self {
+    pub(crate) fn new(
+        seed: u64,
+        has_step_failure_policies: bool,
+        has_queue_faults: bool,
+        trace: Arc<EventTrace>,
+    ) -> Self {
         Self {
+            heads_matching: WorkerDispatch::new(
+                dexzd_worker_dispatch::MatchingConfig::default(),
+                Arc::new(dexzd_clock::SystemWallClock),
+            ),
             state: Mutex::new(WorkerPoolState {
                 rng: ChaCha8Rng::seed_from_u64(seed),
+                queue_fault_rng: ChaCha8Rng::seed_from_u64(seed ^ QUEUE_FAULT_SEED_SALT),
                 has_step_failure_policies,
+                has_queue_faults,
                 is_calm: false,
                 is_holding: false,
                 dispatch_history: BTreeMap::new(),
@@ -191,6 +223,19 @@ impl SimulatedWorkers {
         self.lock().task_frames.clone()
     }
 
+    /// Draws whether the queue fault `behavior` happens now, and counts it when it does.
+    fn draw_queue_fault(&self, behavior: WorkerBehavior) -> bool {
+        let mut state = self.lock();
+        if !state.has_queue_faults || state.is_calm || state.is_holding {
+            return false;
+        }
+        let is_drawn = state.queue_fault_rng.random_range(0..100) < QUEUE_FAULT_PERCENT;
+        if is_drawn {
+            *state.behaviors.entry(behavior).or_default() += 1;
+        }
+        is_drawn
+    }
+
     pub(crate) fn behavior_counts(&self) -> BTreeMap<WorkerBehavior, u64> {
         self.lock().behaviors.clone()
     }
@@ -202,6 +247,7 @@ impl SimulatedWorkers {
     /// Returns the dispatch port of one node process.
     pub(crate) fn dispatcher_for(self: &Arc<Self>, process_label: &str) -> Arc<NodeWorkerPort> {
         Arc::new(NodeWorkerPort {
+            queue: SimulatedTaskQueue::default(),
             workers: Arc::clone(self),
             process_label: process_label.to_owned(),
         })
@@ -224,15 +270,13 @@ impl SimulatedWorkers {
             return MethodStreamReservation::Reserved(Box::new(SimulatedSlot {
                 workers: Arc::clone(self),
                 process_label: process_label.to_owned(),
+                may_hand_out_tasks: true,
             }));
         };
         self.trace
             .record(&format!("{process_label} reservation found no Worker"));
         tokio::time::sleep(delay).await;
-        MethodStreamReservation::NoWorker {
-            reason: DispatchTaskErrorReason::NoWorkerAvailable,
-            detail: "no simulated Worker is available".to_owned(),
-        }
+        MethodStreamReservation::Enqueue
     }
 
     fn start_dispatch(
@@ -531,7 +575,9 @@ impl WorkerPoolState {
             | WorkerBehavior::RpcFail
             | WorkerBehavior::RpcTimeout
             | WorkerBehavior::HeartbeatWithValue
-            | WorkerBehavior::HeartbeatWithoutValue => {
+            | WorkerBehavior::HeartbeatWithoutValue
+            | WorkerBehavior::DuplicateQueueRef
+            | WorkerBehavior::ClaimWithoutLease => {
                 unreachable!("{behavior:?} is never drawn for a sent Step task")
             }
         }
@@ -716,6 +762,7 @@ impl Drop for SimulatedDispatchSession {
 
 /// The Worker ports of one node process.
 pub(crate) struct NodeWorkerPort {
+    queue: SimulatedTaskQueue,
     workers: Arc<SimulatedWorkers>,
     process_label: String,
 }
@@ -727,12 +774,140 @@ impl MethodDispatcher for NodeWorkerPort {
     ) -> BoxFuture<'_, MethodStreamReservation> {
         Box::pin(self.workers.reserve(&self.process_label))
     }
+
+    fn queued(&self, task: QueuedTaskRef) {
+        self.workers.trace.record(&format!(
+            "{} queued {}",
+            self.process_label, task.position.step_execution_id
+        ));
+        self.queue.push(task);
+    }
+
+    fn report_rebuilt_heads(&self, heads: Vec<QueuedTaskRef>) {
+        for head in heads {
+            self.queue.push(head);
+        }
+    }
+
+    fn take_heads_token(&self, partition: PartitionId) -> HeadsScanToken {
+        self.workers.heads_matching.take_heads_token(partition)
+    }
+
+    fn report_scanned_heads(&self, token: HeadsScanToken, results: Vec<ScannedQueueHead>) -> usize {
+        for head in results.iter().filter_map(|result| result.head.clone()) {
+            self.queue.push(head);
+        }
+        self.workers
+            .heads_matching
+            .report_scanned_heads(token, Vec::new())
+    }
+
+    fn partition_removals(&self, _partition: PartitionId) -> u64 {
+        0
+    }
+
+    fn is_partition_unremoved_since(
+        &self,
+        _partition: PartitionId,
+        _partition_removals: u64,
+    ) -> bool {
+        true
+    }
+
+    fn is_claim_tracked(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        claim_id: u64,
+    ) -> bool {
+        self.queue.is_claim_tracked(partition, queue, claim_id)
+    }
+
+    fn report_ordinary_backlog(
+        &self,
+        _partition: PartitionId,
+        _queue: &DispatchQueueName,
+        _pending_since_micros: Option<i64>,
+    ) {
+    }
+
+    fn next_claim(&self) -> BoxFuture<'_, Option<MethodClaim>> {
+        Box::pin(async move {
+            loop {
+                let notified = self.queue.has_refs.notified();
+                let claim_id = self.queue.new_claim_id();
+                let Some(task) = self.queue.take_claimable(claim_id) else {
+                    notified.await;
+                    continue;
+                };
+                let delay = {
+                    let mut state = self.workers.lock();
+                    Duration::from_millis(state.rng.random_range(10..500))
+                };
+                tokio::time::sleep(delay).await;
+                let is_without_lease = self
+                    .workers
+                    .draw_queue_fault(WorkerBehavior::ClaimWithoutLease);
+                self.workers.trace.record(&format!(
+                    "{} claim {claim_id} {} without_lease={is_without_lease}",
+                    self.process_label, task.position.step_execution_id
+                ));
+                return Some(MethodClaim {
+                    partition_removals: 0,
+                    claim_id,
+                    task,
+                    stream: Box::new(SimulatedSlot {
+                        workers: Arc::clone(&self.workers),
+                        process_label: self.process_label.clone(),
+                        may_hand_out_tasks: !is_without_lease,
+                    }),
+                });
+            }
+        })
+    }
+
+    fn reply_to_claim(
+        &self,
+        partition: PartitionId,
+        queue: &DispatchQueueName,
+        claim_id: u64,
+        reply: ClaimReply,
+    ) {
+        let Some(claimed) = self
+            .queue
+            .finish_claim(partition, queue, claim_id, reply.next)
+        else {
+            return;
+        };
+        if self
+            .workers
+            .draw_queue_fault(WorkerBehavior::DuplicateQueueRef)
+        {
+            self.workers.trace.record(&format!(
+                "{} duplicate ref {} after {:?}",
+                self.process_label, claimed.position.step_execution_id, reply.result
+            ));
+            self.queue.push(claimed);
+        }
+    }
+
+    fn is_waiting_for_supporting_worker(
+        &self,
+        _tenant_id: u64,
+        _flow_type: &str,
+        _step_type: &str,
+    ) -> bool {
+        false
+    }
+
+    fn refresh_task_queue_gauges(&self) {}
 }
 
 /// A reserved slot of the simulated Worker pool.
 struct SimulatedSlot {
     workers: Arc<SimulatedWorkers>,
     process_label: String,
+    may_hand_out_tasks: bool,
 }
 
 impl ReservedMethodStream for SimulatedSlot {
@@ -740,11 +915,26 @@ impl ReservedMethodStream for SimulatedSlot {
         "worker-0"
     }
 
+    fn may_hand_out_tasks(&self) -> bool {
+        self.may_hand_out_tasks
+    }
+
     fn send_task(
         self: Box<Self>,
         task: MethodTask,
     ) -> Result<Box<dyn MethodDispatchSession>, StepTaskSendFailure> {
         self.workers.start_dispatch(&self.process_label, &task)
+    }
+}
+
+impl StepQueueStatus for NodeWorkerPort {
+    fn is_waiting_for_supporting_worker(
+        &self,
+        _tenant_id: u64,
+        _flow_type: &str,
+        _step_type: &str,
+    ) -> bool {
+        false
     }
 }
 

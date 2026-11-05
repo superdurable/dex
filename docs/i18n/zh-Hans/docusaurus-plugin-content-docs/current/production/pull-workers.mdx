@@ -451,20 +451,26 @@ Worker 的内存。同一个 Dex Server 内的 Flow 类型名称必须唯一。a
 包括升级后进程自己的 stream。如果缓存先淘汰了这个条目，使用这个 ID 的 Worker 完成一个 Step 之后，
 Dex 会再次向它提供这个类型。
 
-Dex 在 matching dispatch 等待时间内寻找可用 Worker。如果没有 Worker，Step 会收到
-可重试的 unavailable 错误，并消耗一次 Step 重试。RPC 调用方则直接收到
-**Unavailable** 错误。dispatch
-默认等待 10 秒，其中有已连接 stream 的黏性队列最多等待 5 秒。等待时间不会超过这次 attempt 的 method deadline。
-等待设置见 [Pull Worker 分发](/production/server-zd-operations#pull-worker-dispatch)。
+Dex 先尝试已连接的 sticky Worker，最多 5 秒。然后再尝试该 Flow 类型的任意 Worker，
+默认只尝试 200 毫秒。如果没有 Worker 接收这次 Step attempt，它会进入持久的任务队列等待，
+直到有 Worker 接收它、Flow 超时或 Flow 被停止。它不会失败，也不会消耗重试。
+大致按任务就绪的先后派发，不保证严格顺序。
+
+没有已连接 Worker 支持的 Step 类型会一直留在队列中，不会阻塞其他 Step 类型。
+排队时间不计入 method timeout 和 heartbeat timeout，它们从 Dex 把 attempt 交给 Worker 时开始计时。
+
+RPC 从不排队。如果在分发等待时间内没有 Worker 接收，调用方会直接收到 **Unavailable** 错误。
+默认分发等待是 10 秒，其中有已连接 stream 的黏性队列最多等待 5 秒。等待时间不会超过这次
+attempt 的 method deadline。等待设置见
+[Pull Worker 分发](/production/server-zd-operations#pull-worker-dispatch)。
 
 如果拉取模式 Worker 注册了该 Flow 类型，却没有请求的 Step 类型或 RPC 名称，
 它会在运行 handler 前拒绝任务。Dex 会立即改用 Flow 类型队列，并在本次分配中
 排除该 Worker，即使 Flow 原本黏附于它。Dex 会为这个 app Worker ID 记住该不支持的类型，
 并在该 Worker 的所有 stream 断开之前不再向它提供这个类型。重新分配不会消耗 Step attempt，
 attempt 保留原来的 attempt 编号、输入 snapshot 和 Attribute lock。
-如果在 dispatch 等待时间内没有可处理任务的 Worker，Step 会按其失败和重试策略
-收到注明 Step 或 RPC 名称的错误；RPC 调用方会在 Dex 于调用方 deadline 内尝试其他
-Worker、最多等待 dispatch 等待时间（10 秒）后直接收到该错误。此重新分配需要支持它的 Dex Server 版本。面对旧版
+如果没有已连接的 Worker 能处理该任务，Step 会在队列中等待；RPC 调用方会在 Dex 于调用方
+deadline 内尝试其他 Worker、最多等待 dispatch 等待时间（10 秒）后直接收到注明 RPC 名称的错误。此重新分配需要支持它的 Dex Server 版本。面对旧版
 Server，Worker 与之前一样返回未注册错误。
 
 Dex 把 Step attempt 交给 Worker 之后，就不会再把同一个 attempt 编号交给另一个 Worker。
@@ -538,8 +544,7 @@ Worker 会以 **NO_CAPACITY** 拒绝所有 Step 任务，包括 WaitFor 和 Exec
 例如，上限为八、预留值为二时，只有忙碌处理函数少于六个，才能启动新的 Step 任务。
 
 Dex 会尝试其他 Worker，不消耗 Step 尝试次数。如果所有 Worker 都持续达到 Step 容量上限，
-Step 最多等待到分发等待时间结束，然后收到 **NO_WORKER_AVAILABLE**、消耗一次尝试并遵循其重试策略，
-与所有 Worker 都已满载时相同。
+Step 会在队列中等待，直到有 Worker 空出 slot。
 每个队列仍保留可用的空闲流。队列因预留 RPC 容量拒绝 Step 后，
 会多保留一条空闲 stream，直到最后一次拒绝后的 30 秒。其他队列维持配置的空闲数量。
 所有任务槽位都忙碌时，Worker 不会新建这条额外 stream。Step 积压较多的 Worker
@@ -648,8 +653,15 @@ pub fn get_pull_greeting_diagnostics(worker: &Worker) -> PullGreetingDiagnostics
 
 ## 缩容到零
 
-server-zd 没有 Worker 唤醒 hook。Worker 可能缩容到零时，应按 Worker 启动时间设置 dispatch 等待和
-Step 重试，让 Step 重试可以等待 Worker 启动。
+server-zd 没有 Worker 唤醒 hook。Worker 可能缩容到零时，没有 Worker 接收的 Step 会在持久任务队列中
+等待，直到有 Worker 启动，等待不消耗重试。请按队列深度和最老任务的年龄来扩缩 Worker，即
+**dexzd_step_task_queue_entries** 和 **dexzd_step_task_queue_oldest_age_seconds**。
+重启或 failover 刚结束时，每个 partition 的后台计数完成之前，队列深度的 gauge 可能偏低，所以不要只凭它缩容到零；
+最老任务的年龄保持准确。
+见 [Pull Worker 分发](/production/server-zd-operations#pull-worker-dispatch)。
+RPC 不排队，所以在没有 Worker 运行时，它会在分发等待后失败。
+
+带 timeout 的 Flow 在 Step 等待期间仍会超时。没有 Flow timeout 时，没有 Worker 的 Step 会一直等待。
 
 ## Server 和网络配置
 

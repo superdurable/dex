@@ -44,6 +44,27 @@ impl StreamSlot {
     pub(super) fn is_reserved(self) -> bool {
         self != Self::Legacy
     }
+
+    pub(super) fn may_run_steps(self) -> bool {
+        self != Self::ReservedRpcOnly
+    }
+}
+
+/// Returns the Flow types whose durable queues a registration may claim from.
+pub(super) fn backlog_flow_types(registration: &PollWorkerTaskRegister) -> Vec<String> {
+    if !registration.supports_reserved_slot_dispatch {
+        return (registration.queue != registration.app_worker_id)
+            .then(|| registration.queue.clone())
+            .into_iter()
+            .collect();
+    }
+    if StreamSlot::of(registration) == StreamSlot::ReservedRpcOnly {
+        return Vec::new();
+    }
+    let mut flow_types = registration.flow_types.clone();
+    flow_types.sort();
+    flow_types.dedup();
+    flow_types
 }
 
 /// Returns the queues a validated registration serves: a reserved slot serves its sticky queue
@@ -304,6 +325,7 @@ mod tests {
             id: Uuid::now_v7(),
             tenant_id: 7,
             queues: Vec::new(),
+            backlog_flow_types: Vec::new(),
             app_worker_id: app_worker_id.to_owned(),
             slot: StreamSlot::ReservedStepAndRpc,
             output,

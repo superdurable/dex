@@ -163,7 +163,7 @@ fn state_limit_rejects_a_turn_that_grows_while_freeing_its_lock() {
         "TurnStep-1",
         vec![AttributeWrite {
             key: "messages/1".to_owned(),
-            value: Some(string_value(&"n".repeat(30))),
+            value: Some(string_value(&"n".repeat(60))),
             ..AttributeWrite::default()
         }],
         StepDecision::default(),

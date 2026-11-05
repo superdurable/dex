@@ -135,6 +135,7 @@ fn request(tenant_id: u64, flow_id: &str) -> DispatchRequest {
         deadline: SystemTime::now() + Duration::from_secs(10),
         sticky_wait: None,
         dispatch_wait: Some(Duration::from_millis(400)),
+        partition: None,
     }
 }
 

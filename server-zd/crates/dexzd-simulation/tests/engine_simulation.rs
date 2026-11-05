@@ -50,7 +50,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0x00817473832b4669f6c580afd8670548,
+        0x216dab7f1c04e0631e1e6f5f8d48fff3,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -62,37 +62,37 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990875,
         120,
-        0xe5b1b323037217744a1bdba4f1aef536,
+        0x10e0d89bc5919fb6b27ad0d2df8828ed,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990400,
         120,
-        0xc0d0049ae7b36ba8dd0b52fd92f23d14,
+        0x9677bd868a00836031d6b0d1045fb1ee,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0x61cbfe3b51b78038b18b6d0898583dd1,
+        0x6835855b420e314659cdaf66091d0703,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 1,
         120,
-        0x973e8636ce278f739d5a8355bb81d417,
+        0xbf6834db43324eff654d0430512a17c4,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED + 2,
         120,
-        0xd7cdf699c65a52f9b02784cf1da3ed8f,
+        0x65901e026f434ae19867cfa273d1fec7,
     ),
     (
         EngineSimulationProfile::RedeploysWithShortHistoryWindow,
         FIRST_REDEPLOY_SEED,
         120,
-        0x5f403dc70d3a2ff1d7b773b174ccfcd7,
+        0x45a96bc6410b6d68fefec4c56877c21d,
     ),
     (
         EngineSimulationProfile::HotStandbyTakeovers,
@@ -140,6 +140,14 @@ fn configured(
             (seeds, false)
         }
     }
+}
+
+/// Returns whether `seed` is a pinned regression seed, which runs without queue faults.
+fn is_regression_seed(seed: u64) -> bool {
+    regression_seed_cases()
+        .iter()
+        .chain(HOT_STANDBY_REGRESSION_SEEDS)
+        .any(|&(regression_seed, _)| regression_seed == seed)
 }
 
 fn regression_seed_cases() -> Vec<(u64, u64)> {
@@ -345,6 +353,7 @@ fn pinned_seeds_keep_their_canonical_command_trajectories() {
         let config = EngineSimulationConfig {
             active_seconds,
             profile,
+            has_queue_faults: !is_regression_seed(seed),
             ..EngineSimulationConfig::default()
         };
         let summary = run_engine_seed(seed, &config).unwrap_or_else(|failure| panic!("{failure}"));
@@ -387,6 +396,7 @@ fn run_seeds(
                     u8::try_from(percent).expect("validated fault percentage fits in u8")
                 },
             ),
+            has_queue_faults: !is_regression_seed(seed),
             ..EngineSimulationConfig::default()
         };
         match run_engine_seed(seed, &config) {
@@ -464,6 +474,8 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "RpcSucceed",
         "RpcFail",
         "RpcTimeout",
+        "DuplicateQueueRef",
+        "ClaimWithoutLease",
     ] {
         assert!(
             count(&total.worker_behaviors, behavior) > 0,
@@ -481,6 +493,7 @@ fn assert_covered(total: &EngineSimulationSummary) {
         "StepAttemptHeartbeat",
         "StepAttemptFailed",
         "StepMethodCompleted",
+        "StepAttemptQueued",
         "TimersFired",
         "RunPurge",
     ] {

@@ -154,6 +154,7 @@ impl Simulation {
         let workers = Arc::new(SimulatedWorkers::new(
             rng.random(),
             config.profile.has_step_failure_policies(),
+            config.has_queue_faults,
             Arc::clone(&trace),
         ));
         let sampled_fault_probability =

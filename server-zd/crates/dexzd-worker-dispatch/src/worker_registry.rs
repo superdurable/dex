@@ -31,6 +31,7 @@ use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::MatchingConfig;
+mod backlog_matching;
 mod dispatch_handle;
 mod dispatch_request;
 mod queue_state;
@@ -40,8 +41,10 @@ mod task_frames;
 mod unsupported_types;
 mod worker_protocol;
 mod worker_streams;
+use backlog_matching::QueueMatching;
+pub use backlog_matching::TaskClaim;
 pub use dispatch_handle::DispatchHandle;
-pub use dispatch_request::{DispatchRequest, DispatchTaskPayload};
+pub use dispatch_request::{DispatchEvent, DispatchOutcome, DispatchRequest, DispatchTaskPayload};
 use queue_state::{QueueWaiter, QueuedTaskMetric, SearchState};
 pub use step_reservation::{
     ReservedStepStream, StepStreamRequest, StepStreamReservation, StepTaskEvent, StepTaskHandle,
@@ -55,56 +58,6 @@ use task_frames::{
 use unsupported_types::{TaskKind, TaskTypeKey, UnsupportedTypeCache};
 pub use worker_protocol::WorkerTaskService;
 use worker_streams::{StepBackoff, StreamSlot, TaskSendError, send_task_frame};
-
-/// One ordered frame from the Worker, an assignment change, or the terminal dispatch outcome.
-#[derive(Debug)]
-pub enum DispatchEvent {
-    /// The task was sent to this Worker, which may still reject it before any output.
-    Assigned {
-        /// Assigned Worker process ID.
-        app_worker_id: String,
-    },
-    /// The assigned Worker rejected the task or disconnected before any output; matching
-    /// continues with another Worker.
-    Unassigned,
-    /// A non-final heartbeat or stream write from the assigned Worker.
-    Output(PollWorkerTaskFrame),
-    /// The unique final outcome of the dispatch.
-    Completed(DispatchOutcome),
-}
-
-/// The terminal result of one dispatch.
-#[derive(Debug)]
-pub enum DispatchOutcome {
-    /// A final WaitFor, Execute, or RPC result and the Worker that served it.
-    WorkerResult {
-        /// Final Worker frame.
-        frame: PollWorkerTaskFrame,
-        /// Serving Worker process ID.
-        app_worker_id: String,
-    },
-    /// A Worker error response and the Worker that returned it.
-    WorkerError {
-        /// Final Worker error frame.
-        frame: PollWorkerTaskFrame,
-        /// Serving Worker process ID.
-        app_worker_id: String,
-    },
-    /// A matching failure with the same reason values as DispatchTaskErrorReason.
-    DispatchError {
-        /// Matching failure reason.
-        reason: DispatchTaskErrorReason,
-        /// Human-readable diagnostic.
-        detail: String,
-    },
-    /// The caller cancelled this dispatch.
-    Cancelled,
-    /// The method deadline elapsed before a final Worker frame.
-    DeadlineExceeded,
-    /// The matching owner shut down while waiting for a Worker, or its node lease is no longer
-    /// valid.
-    ServerClosing,
-}
 
 /// Shared in-memory matching owner. Clone it to give a tenant-scoped gRPC service access.
 #[derive(Clone)]
@@ -151,6 +104,8 @@ struct WorkerStream {
     tenant_id: u64,
     /// Queues this stream serves: its registered queue, or its sticky queue and Flow types.
     queues: Vec<String>,
+    /// Flow types whose durable queues this stream may claim from.
+    backlog_flow_types: Vec<String>,
     app_worker_id: String,
     slot: StreamSlot,
     output: mpsc::UnboundedSender<Result<PollWorkerTaskResponse, Status>>,
@@ -195,6 +150,8 @@ struct QueuePick {
 struct TaskSearch<'a> {
     task_type: &'a TaskTypeKey,
     flow_id: &'a str,
+    /// Ends the search when its partition is removed; `None` for searches without one.
+    partition_search: Option<&'a backlog_matching::PartitionSearch>,
 }
 
 impl WorkerDispatch {
@@ -252,6 +209,7 @@ impl WorkerDispatch {
                     next_idle_position: 0,
                     promised_streams: HashMap::new(),
                     unsupported_types,
+                    queue_matching: QueueMatching::default(),
                 }),
                 shutdown,
                 stream_shutdown,
@@ -392,9 +350,13 @@ impl WorkerDispatch {
             unavailable: false,
             unknown: false,
         };
+        let partition_search = request
+            .partition
+            .map(|partition| self.register_partition_search(partition));
         let task = TaskSearch {
             task_type: &task_type,
             flow_id: &request.flow_id,
+            partition_search: partition_search.as_ref().map(|guard| guard.search.as_ref()),
         };
         if let Some(queue) = sticky_queue
             && let Some(outcome) = self
@@ -477,7 +439,10 @@ impl WorkerDispatch {
         let search_timer = tokio::time::sleep_until(tokio::time::Instant::from_std(queue_end));
         tokio::pin!(search_timer);
         while Instant::now() < queue_end {
-            if *shutdown.borrow() || !self.may_hand_out_tasks() {
+            let is_removed = task
+                .partition_search
+                .is_some_and(|search| search.is_removed());
+            if *shutdown.borrow() || !self.may_hand_out_tasks() || is_removed {
                 return Some(DispatchOutcome::ServerClosing);
             }
             if *cancel.borrow() {
@@ -593,6 +558,7 @@ impl WorkerDispatch {
                 () = wakeup.notified() => {},
                 changed = cancel.changed() => { if changed.is_err() || *cancel.borrow() { return Some(DispatchOutcome::Cancelled); } },
                 changed = shutdown.changed() => { if changed.is_err() || *shutdown.borrow() { return Some(DispatchOutcome::ServerClosing); } },
+                () = backlog_matching::partition_removed(task.partition_search) => return Some(DispatchOutcome::ServerClosing),
             }
         }
         None
@@ -918,6 +884,7 @@ impl WorkerDispatch {
         let Some(worker) = registry.streams.remove(&id) else {
             return;
         };
+        registry.queue_matching.remove_step_stream(&worker);
         self.inner
             .metrics
             .worker_stream_events

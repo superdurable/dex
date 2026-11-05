@@ -25,6 +25,7 @@ pub(super) struct Registry {
     /// them (plan D56).
     pub(super) promised_streams: HashMap<Uuid, u64>,
     pub(super) unsupported_types: UnsupportedTypeCache,
+    pub(super) queue_matching: QueueMatching,
 }
 
 impl Registry {
@@ -38,6 +39,7 @@ impl Registry {
                 queue.idle.insert(position, worker.id);
             }
         }
+        self.queue_matching.add_idle_step_stream(worker, position);
     }
 
     /// Removes `worker` from the idle order of every queue it serves.
@@ -51,6 +53,7 @@ impl Registry {
                 queue.idle.remove(&position);
             }
         }
+        self.queue_matching.take_idle_step_stream(worker, position);
     }
 
     /// Ends the wait of `waiter_sequence` in the queue `key`.
@@ -149,6 +152,11 @@ impl Registry {
         }
         if let Some((sequence, queue_name)) = step_choice {
             self.wake_waiter(worker, TaskKind::Step, sequence, queue_name);
+            return;
+        }
+        // Backlog comes after every waiter (plan D56).
+        if let Some(worker) = self.streams.get(&worker.id).cloned() {
+            self.claim_backlog_for(&worker);
         }
     }
 

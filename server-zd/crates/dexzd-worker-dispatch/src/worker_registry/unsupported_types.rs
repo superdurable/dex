@@ -74,6 +74,29 @@ impl UnsupportedTypeCache {
         }
     }
 
+    /// Returns the app Workers that declined `key`.
+    pub(super) fn declining_workers(&self, key: &TaskTypeKey) -> impl Iterator<Item = &String> {
+        self.workers_by_type.get(key).into_iter().flatten()
+    }
+
+    /// Returns the app Workers that declined `key` or whose evicted decline awaits a reprobe;
+    /// each appears once.
+    pub(super) fn declining_or_reprobing_workers(
+        &self,
+        key: &TaskTypeKey,
+    ) -> impl Iterator<Item = &String> {
+        let awaiting = self
+            .awaiting_reprobe
+            .get(&key.tenant_id)
+            .into_iter()
+            .flatten();
+        self.declining_workers(key).chain(
+            awaiting
+                .filter(move |(_, keys)| keys.contains(key))
+                .map(|(app_worker_id, _)| app_worker_id),
+        )
+    }
+
     /// Returns whether `app_worker_id` declined `key`.
     pub(super) fn contains(&self, key: &TaskTypeKey, app_worker_id: &str) -> bool {
         self.workers_by_type

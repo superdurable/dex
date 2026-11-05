@@ -146,6 +146,8 @@ type activeStepExecution struct {
 	StepExecutionLocals []keyValue             `json:"stepExecutionLocals"`
 	Timers              []interface{}          `json:"timers"`
 	LastFailureInfo     map[string]interface{} `json:"lastFailureInfo,omitempty"`
+	WaitForInvocation   map[string]interface{} `json:"waitForInvocation,omitempty"`
+	ExecuteInvocation   map[string]interface{} `json:"executeInvocation,omitempty"`
 }
 
 type timeTravelFlowRequest struct {

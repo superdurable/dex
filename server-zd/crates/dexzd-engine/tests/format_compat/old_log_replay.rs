@@ -17,9 +17,9 @@ use std::sync::Arc;
 use dexzd_apply::FlowStateReader;
 use dexzd_engine::SystemEngineIdSource;
 use dexzd_keyspace::{ColumnFamily, RunTable, parse_run_key};
-use dexzd_protocol::dex::FlowStatus;
+use dexzd_protocol::dex::{FlowStatus, flow_history_event};
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, RunRecord, StepExecutionRecord, StepInvocationPhase,
+    CheckpointRecord, HistoryRecord, RunRecord, StepExecutionRecord, StepInvocationPhase,
 };
 use prost::Message;
 
@@ -128,6 +128,9 @@ fn matches_without_new_fields(
             }
             checkpoint.encode_to_vec()
         }
+        (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
+            history_without_scheduled_time(value)
+        }
         (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
             let Some(recorded_run) = recorded_run_records.get(hex_key) else {
                 return false;
@@ -140,6 +143,32 @@ fn matches_without_new_fields(
         _ => return false,
     };
     dumped_value(&cleared) == recorded_value
+}
+
+/// Clears the Step method event field that newer binaries add to history.
+fn history_without_scheduled_time(value: &[u8]) -> Vec<u8> {
+    let mut record = HistoryRecord::decode(value).expect("history rows decode");
+    for event in &mut record.events {
+        let context = match event.payload.as_mut() {
+            Some(
+                flow_history_event::Payload::StepWaitForPending(pending)
+                | flow_history_event::Payload::StepExecutePending(pending),
+            ) => pending.context.as_mut(),
+            Some(flow_history_event::Payload::StepWaitForCompleted(completed)) => {
+                completed.context.as_mut()
+            }
+            Some(flow_history_event::Payload::StepWaitForFailed(failed)) => failed.context.as_mut(),
+            Some(flow_history_event::Payload::StepExecuteCompleted(completed)) => {
+                completed.context.as_mut()
+            }
+            Some(flow_history_event::Payload::StepExecuteFailed(failed)) => failed.context.as_mut(),
+            _ => None,
+        };
+        if let Some(context) = context {
+            context.scheduled_time = None;
+        }
+    }
+    record.encode_to_vec()
 }
 
 /// Decodes a run record without its byte counters: storage usage and checkpoint byte counts.
@@ -170,6 +199,7 @@ fn step_execution_without_progress(value: &[u8]) -> Vec<u8> {
     let mut step = StepExecutionRecord::decode(value).expect("Step execution rows decode");
     if let Some(invocation) = step.invocation.as_mut() {
         invocation.furthest_attempt_progress = 0;
+        invocation.pending_since_micros = 0;
     }
     if let Some(recovery_error) = step.recovery_error.as_mut() {
         recovery_error.attempt_progress = 0;

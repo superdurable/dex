@@ -137,6 +137,20 @@ class ActiveStepPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ACTIVE_STEP_PHASE_ACTIVE: _ClassVar[ActiveStepPhase]
     ACTIVE_STEP_PHASE_WAITING: _ClassVar[ActiveStepPhase]
 
+class StepMethodInvocationPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    STEP_METHOD_INVOCATION_PHASE_UNSPECIFIED: _ClassVar[StepMethodInvocationPhase]
+    STEP_METHOD_INVOCATION_PHASE_PENDING: _ClassVar[StepMethodInvocationPhase]
+    STEP_METHOD_INVOCATION_PHASE_RUNNING: _ClassVar[StepMethodInvocationPhase]
+    STEP_METHOD_INVOCATION_PHASE_BACKOFF: _ClassVar[StepMethodInvocationPhase]
+
+class StepMethodPendingReason(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    STEP_METHOD_PENDING_REASON_UNSPECIFIED: _ClassVar[StepMethodPendingReason]
+    STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER: _ClassVar[StepMethodPendingReason]
+    STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER: _ClassVar[StepMethodPendingReason]
+    STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS: _ClassVar[StepMethodPendingReason]
+
 class FlowResetType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     FLOW_RESET_TYPE_UNSPECIFIED: _ClassVar[FlowResetType]
@@ -289,6 +303,14 @@ PULL_ROUTING_SOURCE_FLOW_TYPE_QUEUE: PullRoutingSource
 ACTIVE_STEP_PHASE_UNSPECIFIED: ActiveStepPhase
 ACTIVE_STEP_PHASE_ACTIVE: ActiveStepPhase
 ACTIVE_STEP_PHASE_WAITING: ActiveStepPhase
+STEP_METHOD_INVOCATION_PHASE_UNSPECIFIED: StepMethodInvocationPhase
+STEP_METHOD_INVOCATION_PHASE_PENDING: StepMethodInvocationPhase
+STEP_METHOD_INVOCATION_PHASE_RUNNING: StepMethodInvocationPhase
+STEP_METHOD_INVOCATION_PHASE_BACKOFF: StepMethodInvocationPhase
+STEP_METHOD_PENDING_REASON_UNSPECIFIED: StepMethodPendingReason
+STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER: StepMethodPendingReason
+STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER: StepMethodPendingReason
+STEP_METHOD_PENDING_REASON_WAITING_FOR_LOCKS: StepMethodPendingReason
 FLOW_RESET_TYPE_UNSPECIFIED: FlowResetType
 FLOW_RESET_TYPE_BEGINNING: FlowResetType
 FLOW_RESET_TYPE_HISTORY_EVENT_TIME: FlowResetType
@@ -1278,7 +1300,7 @@ class PullRouting(_message.Message):
     def __init__(self, sticky_app_worker_id: _Optional[str] = ..., served_by_app_worker_id: _Optional[str] = ..., source: _Optional[_Union[PullRoutingSource, str]] = ...) -> None: ...
 
 class StepMethodEventContext(_message.Message):
-    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "durability", "final_attempt", "started_time", "duration", "method_options", "last_failure_info", "pull_routing", "from_event_id", "wait_for_completed_event_id", "wait_for_completed_time")
+    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "durability", "final_attempt", "started_time", "duration", "method_options", "last_failure_info", "pull_routing", "from_event_id", "wait_for_completed_event_id", "wait_for_completed_time", "scheduled_time")
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1292,6 +1314,7 @@ class StepMethodEventContext(_message.Message):
     FROM_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_COMPLETED_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_COMPLETED_TIME_FIELD_NUMBER: _ClassVar[int]
+    SCHEDULED_TIME_FIELD_NUMBER: _ClassVar[int]
     step_execution_id: str
     from_step_execution_id: str
     step_type: str
@@ -1305,7 +1328,8 @@ class StepMethodEventContext(_message.Message):
     from_event_id: int
     wait_for_completed_event_id: int
     wait_for_completed_time: _timestamp_pb2.Timestamp
-    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., durability: _Optional[_Union[StepDurability, str]] = ..., final_attempt: _Optional[int] = ..., started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., duration: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., from_event_id: _Optional[int] = ..., wait_for_completed_event_id: _Optional[int] = ..., wait_for_completed_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    scheduled_time: _timestamp_pb2.Timestamp
+    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., durability: _Optional[_Union[StepDurability, str]] = ..., final_attempt: _Optional[int] = ..., started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., duration: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ..., pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., from_event_id: _Optional[int] = ..., wait_for_completed_event_id: _Optional[int] = ..., wait_for_completed_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., scheduled_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class StepWaitForCompletedOutput(_message.Message):
     __slots__ = ("wait_for_condition", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals", "delete_from_channel")
@@ -1442,7 +1466,7 @@ class WaitForHistoryEventResponse(_message.Message):
     def __init__(self, event_available: _Optional[bool] = ..., available_internal_event_id: _Optional[int] = ..., flow_status: _Optional[_Union[FlowStatus, str]] = ...) -> None: ...
 
 class ActiveStepExecutionState(_message.Message):
-    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "phase", "movement", "waiting_condition", "completed_conditions", "step_execution_locals", "timers", "last_failure_info", "wait_for_pull_routing", "execute_pull_routing")
+    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "phase", "movement", "waiting_condition", "completed_conditions", "step_execution_locals", "timers", "last_failure_info", "wait_for_pull_routing", "execute_pull_routing", "wait_for_invocation", "execute_invocation")
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1455,6 +1479,8 @@ class ActiveStepExecutionState(_message.Message):
     LAST_FAILURE_INFO_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
     EXECUTE_PULL_ROUTING_FIELD_NUMBER: _ClassVar[int]
+    WAIT_FOR_INVOCATION_FIELD_NUMBER: _ClassVar[int]
+    EXECUTE_INVOCATION_FIELD_NUMBER: _ClassVar[int]
     step_execution_id: str
     from_step_execution_id: str
     step_type: str
@@ -1467,7 +1493,25 @@ class ActiveStepExecutionState(_message.Message):
     last_failure_info: StepMethodFailure
     wait_for_pull_routing: PullRouting
     execute_pull_routing: PullRouting
-    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ..., wait_for_pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., execute_pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ...) -> None: ...
+    wait_for_invocation: StepMethodInvocationState
+    execute_invocation: StepMethodInvocationState
+    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ..., wait_for_pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., execute_pull_routing: _Optional[_Union[PullRouting, _Mapping]] = ..., wait_for_invocation: _Optional[_Union[StepMethodInvocationState, _Mapping]] = ..., execute_invocation: _Optional[_Union[StepMethodInvocationState, _Mapping]] = ...) -> None: ...
+
+class StepMethodInvocationState(_message.Message):
+    __slots__ = ("phase", "pending_reason", "attempt", "pending_since_time", "attempt_started_time", "backoff_fires_at_time")
+    PHASE_FIELD_NUMBER: _ClassVar[int]
+    PENDING_REASON_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    PENDING_SINCE_TIME_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_STARTED_TIME_FIELD_NUMBER: _ClassVar[int]
+    BACKOFF_FIRES_AT_TIME_FIELD_NUMBER: _ClassVar[int]
+    phase: StepMethodInvocationPhase
+    pending_reason: StepMethodPendingReason
+    attempt: int
+    pending_since_time: _timestamp_pb2.Timestamp
+    attempt_started_time: _timestamp_pb2.Timestamp
+    backoff_fires_at_time: _timestamp_pb2.Timestamp
+    def __init__(self, phase: _Optional[_Union[StepMethodInvocationPhase, str]] = ..., pending_reason: _Optional[_Union[StepMethodPendingReason, str]] = ..., attempt: _Optional[int] = ..., pending_since_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., attempt_started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., backoff_fires_at_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class GetFlowStateRequest(_message.Message):
     __slots__ = ("flow_id", "run_id")

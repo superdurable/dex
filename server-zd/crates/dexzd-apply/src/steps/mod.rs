@@ -9,6 +9,7 @@
 //! Step executions and their method calls (plan sections 8.1 and 8.3).
 
 mod attempt_snapshot;
+pub(crate) mod dispatch_queue;
 mod invocations;
 mod retry_backoff;
 mod step_creation;

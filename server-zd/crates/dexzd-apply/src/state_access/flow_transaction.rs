@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_keyspace::row_keys::history_row_metadata_key;
 use dexzd_keyspace::{ColumnFamily, RunTable, parse_run_key};
@@ -36,6 +36,8 @@ pub(crate) struct FlowTransaction<'reader> {
     context: ApplyContext,
     rows: BTreeMap<(ColumnFamily, Vec<u8>), Option<Vec<u8>>>,
     range_deletes: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)>,
+    /// Keys whose reader row this call removes with a SingleDelete, emitted before any put.
+    single_deletes: BTreeSet<(ColumnFamily, Vec<u8>)>,
 }
 
 impl<'reader> FlowTransaction<'reader> {
@@ -45,6 +47,7 @@ impl<'reader> FlowTransaction<'reader> {
             context,
             rows: BTreeMap::new(),
             range_deletes: Vec::new(),
+            single_deletes: BTreeSet::new(),
         }
     }
 
@@ -143,6 +146,10 @@ impl<'reader> FlowTransaction<'reader> {
 
     pub(crate) fn delete(&mut self, column_family: ColumnFamily, key: Vec<u8>) {
         self.check_key_scope(column_family, &key);
+        assert!(
+            !self.single_deletes.contains(&(column_family, key.clone())),
+            "a key removed with SingleDelete is never deleted with Delete"
+        );
         if column_family == ColumnFamily::History {
             self.rows.insert(
                 (ColumnFamily::Flow, metadata_key_for_history_row(&key)),
@@ -150,6 +157,31 @@ impl<'reader> FlowTransaction<'reader> {
             );
         }
         self.rows.insert((column_family, key), None);
+    }
+
+    /// Deletes a row put once since its last deletion; see [`StateWrite::SingleDelete`].
+    ///
+    /// Returns the reader's error when checking for such a row fails.
+    pub(crate) fn single_delete(
+        &mut self,
+        column_family: ColumnFamily,
+        key: Vec<u8>,
+    ) -> Result<(), ApplyError> {
+        self.check_key_scope(column_family, &key);
+        let row_key = (column_family, key);
+        let is_buffered_put = matches!(self.rows.get(&row_key), Some(Some(_)));
+        let is_reader_row_live = !self.single_deletes.contains(&row_key)
+            && !self.is_range_deleted(column_family, &row_key.1)
+            && self.reader.get(column_family, &row_key.1)?.is_some();
+        if is_reader_row_live {
+            self.single_deletes.insert(row_key.clone());
+            self.rows.insert(row_key, None);
+        } else if is_buffered_put && self.single_deletes.contains(&row_key) {
+            self.rows.insert(row_key, None);
+        } else if is_buffered_put {
+            self.rows.remove(&row_key);
+        }
+        Ok(())
     }
 
     /// Deletes every key in `[start, end)`, including rows buffered earlier in this call.
@@ -305,16 +337,26 @@ impl<'reader> FlowTransaction<'reader> {
                 start,
                 end,
             });
+        let single_deletes = self.single_deletes;
         let rows = self
             .rows
             .into_iter()
-            .map(|((column_family, key), value)| match value {
-                Some(value) => StateWrite::Put {
+            .flat_map(move |((column_family, key), value)| {
+                let is_single_deleted = single_deletes.contains(&(column_family, key.clone()));
+                let single_delete = is_single_deleted.then(|| StateWrite::SingleDelete {
                     column_family,
-                    key,
-                    value,
-                },
-                None => StateWrite::Delete { column_family, key },
+                    key: key.clone(),
+                });
+                let row_write = match value {
+                    Some(value) => Some(StateWrite::Put {
+                        column_family,
+                        key,
+                        value,
+                    }),
+                    None if is_single_deleted => None,
+                    None => Some(StateWrite::Delete { column_family, key }),
+                };
+                single_delete.into_iter().chain(row_write)
             });
         range_deletes.chain(rows).collect()
     }

@@ -43,7 +43,7 @@ use crate::flow_coordination::speculative_overlay::{
 use crate::flow_coordination::{
     CommitTicket, CommitUrgency, CommittedFlowCommand, FlowAddress, FlowCommandCommitter,
     FlowCoordinationConfig, FlowCoordinationEffectSink, FlowCoordinationError,
-    HardDeleteValueReader, HardDeleteValueUploader, RpcWorkerInvoker, grpc_code,
+    HardDeleteValueReader, HardDeleteValueUploader, RpcWorkerInvoker, StepQueueStatus, grpc_code,
 };
 use crate::long_poll::WaiterRegistry;
 
@@ -59,6 +59,8 @@ pub struct FlowCoordinatorDependencies {
     pub effects: Arc<dyn FlowCoordinationEffectSink>,
     /// Calls RPC handlers on Workers.
     pub rpc_invoker: Arc<dyn RpcWorkerInvoker>,
+    /// Tells whether a queued Step waits for a Worker that supports its Step type.
+    pub step_queue_status: Arc<dyn StepQueueStatus>,
     /// Reads hard-delete Attribute values.
     pub hard_delete_reader: Arc<dyn HardDeleteValueReader>,
     /// Uploads hard-delete Attribute values before their commands are proposed.
@@ -370,10 +372,11 @@ impl FlowCoordinatorRegistry {
                 ));
                 return;
             }
-            self.inner
-                .dependencies
-                .effects
-                .handle(&flow, &outcome.effects, true);
+            self.inner.dependencies.effects.handle_committed(
+                &flow,
+                &outcome.effects,
+                &committed.committed.position,
+            );
         }
         for effect in &outcome.effects {
             if let ApplyEffect::WakeWaiters { change, .. } = effect {
@@ -859,6 +862,22 @@ impl RegistryInner {
         Some(FlowCoordinatorLease {
             inner: Arc::clone(self),
             coordinator: Some(coordinator),
+        })
+    }
+
+    /// Returns whether an admitted transactional RPC of the Flow holds `lock_key` in `run_id`.
+    pub(super) fn is_rpc_lock_held(
+        self: &Arc<Self>,
+        flow: &FlowAddress,
+        run_id: RunId,
+        lock_key: &str,
+    ) -> bool {
+        self.lease_existing(flow).is_some_and(|lease| {
+            lease
+                .coordinator()
+                .lock_state()
+                .rpc_locks
+                .is_held(run_id, lock_key)
         })
     }
 

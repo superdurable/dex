@@ -10,8 +10,10 @@
 //! restarted owner behaves like one that never stopped.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use dexzd_apply::{ApplyEffect, FlowStateReader};
+use dexzd_apply::{ApplyEffect, FlowStateReader, dispatch_queue_entry};
+use dexzd_keyspace::dispatch_queue_keys::dispatch_queue_key;
 use dexzd_keyspace::row_keys::prefix_range;
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionId, RunTable, TenantId, partition_index_prefix,
@@ -30,7 +32,7 @@ use crate::flow_coordination::FlowAddress;
 
 /// Rebuilds the partition's work and submits it to the router as committed effects.
 pub(crate) async fn rebuild_partition(
-    context: &EffectContext,
+    context: &Arc<EffectContext>,
     partition: PartitionId,
 ) -> Result<usize, EffectError> {
     let startup_uploads = context
@@ -44,6 +46,10 @@ pub(crate) async fn rebuild_partition(
         .hard_delete_objects
         .recover_pending_uploads(partition, startup_uploads, reader)
         .await?;
+    // Heads go to matching before any Dispatch of the rebuilt work (plan section 3.6).
+    crate::effects::task_queue::rebuild_heads(context, partition).await?;
+    // The count runs in the background and never delays this or another rebuild.
+    crate::effects::task_queue::spawn_row_count(context, partition);
     let reader = context.flow_effect_operations.committed_state_reader()?;
     let mut work: BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)> = BTreeMap::new();
     let mut interrupted: BTreeMap<RunLocation, (FlowAddress, Vec<InterruptedAttempt>)> =
@@ -70,6 +76,7 @@ pub(crate) async fn rebuild_partition(
             effects,
             is_committed: true,
             scheduled_at: None,
+            position: None,
         });
     }
     tracing::debug!(%partition, effect_count, "rebuilt partition effects");
@@ -87,20 +94,39 @@ fn rebuild_invocations(
     let prefix = partition_index_prefix(partition, IndexKind::ActiveWork);
     for (key, _) in scan_all(reader, ColumnFamily::PartitionIndex, &prefix)? {
         let (run, _) = parse_run_item_index_key(partition, IndexKind::ActiveWork, &key)?;
-        let Some((flow, run_attempt)) = flow_of_run(reader, run)? else {
+        let Some(record) = read_run_record(reader, run)? else {
             continue;
+        };
+        let run_attempt = record.current_attempt;
+        let flow = FlowAddress {
+            tenant_id: TenantId(record.tenant_id),
+            flow_id: record.flow_id.clone(),
         };
         let mut effects = Vec::new();
         let mut running = Vec::new();
         for step_execution in read_step_executions(reader, run)? {
-            let Some(invocation) = step_execution.invocation else {
+            let Some(invocation) = step_execution.invocation.clone() else {
                 continue;
             };
             let key = StepInvocationKey {
                 step_execution_id: step_execution.step_execution_id.clone(),
                 method: invocation.method,
             };
-            if invocation.phase == StepInvocationPhase::Pending as i32 {
+            let is_queued = invocation.phase == StepInvocationPhase::Pending as i32
+                && dispatch_queue_entry(
+                    partition,
+                    &record,
+                    run.flow_hash,
+                    run.run_id,
+                    &step_execution,
+                )
+                .map(|entry| dispatch_queue_key(&entry))
+                .map(|key| reader.get(ColumnFamily::PartitionIndex, &key))
+                .transpose()?
+                .flatten()
+                .is_some();
+            // A queued attempt reaches matching through Heads only.
+            if invocation.phase == StepInvocationPhase::Pending as i32 && !is_queued {
                 effects.push(ApplyEffect::InvocationPending {
                     run_id: run.run_id,
                     run_attempt,

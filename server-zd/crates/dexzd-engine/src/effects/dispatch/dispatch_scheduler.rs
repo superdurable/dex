@@ -10,7 +10,7 @@
 //! attempt, invocations parked on busy locks, cancellation of started attempts, and attempts
 //! that a restart interrupted.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -18,36 +18,27 @@ use dexzd_keyspace::RunId;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::effects::dispatch::attempt_entries::HandoutRestart;
 use crate::effects::dispatch::attempt_handout::{
-    AttemptHandout, HandoutEnd, HandoutProgress, InterruptedAttempt, fail_interrupted_attempt,
+    AttemptHandout, HandoutEnd, HandoutEndReport, HandoutProgress, InterruptedAttempt,
+    fail_interrupted_attempt,
 };
 use crate::effects::method_request::MethodAttemptKey;
-use crate::effects::{AttemptDrainProgress, EffectContext, RouterMessage};
+use crate::effects::{AttemptDrainProgress, EffectContext};
 use crate::flow_coordination::FlowAddress;
 
 struct RunningAttempt {
     cancel: CancellationToken,
 }
 
-/// An attempt whose hand-out task runs.
-struct InFlightEntry {
-    /// Lock releases of the run already seen when the task last started.
-    lock_release_count: u64,
-}
-
-struct ParkedInvocation {
-    flow: FlowAddress,
-    progress: HandoutProgress,
-}
-
-/// Dispatch state owned by the effect router task.
+/// Dispatch state owned by the effect router task; attempt entries are shared.
 pub(crate) struct DispatchScheduler {
     context: Arc<EffectContext>,
     drain: Option<watch::Sender<AttemptDrainProgress>>,
-    /// At most one hand-out task per attempt; duplicate pending effects find it here.
-    in_flight: BTreeMap<MethodAttemptKey, InFlightEntry>,
-    parked: BTreeMap<RunId, BTreeMap<MethodAttemptKey, ParkedInvocation>>,
-    lock_release_counts: BTreeMap<RunId, u64>,
+    /// Hand-out tasks this router spawned, by attempt and entry generation, until they end.
+    in_flight: BTreeSet<(MethodAttemptKey, u64)>,
+    /// Claim tasks this router spawned until they end.
+    claim_tasks: usize,
     /// Started attempts by task ID, then by attempt key.
     running: BTreeMap<Vec<u8>, BTreeMap<MethodAttemptKey, RunningAttempt>>,
 }
@@ -57,54 +48,44 @@ impl DispatchScheduler {
         Self {
             context,
             drain: None,
-            in_flight: BTreeMap::new(),
-            parked: BTreeMap::new(),
-            lock_release_counts: BTreeMap::new(),
+            in_flight: BTreeSet::new(),
+            claim_tasks: 0,
             running: BTreeMap::new(),
         }
     }
 
-    /// Hands out a pending attempt unless a task already owns it or it waits for locks.
+    /// Hands out a pending attempt unless a task already holds its entry.
     pub(crate) fn start_pending_invocation(
         &mut self,
         flow: FlowAddress,
         key: MethodAttemptKey,
         scheduled_at: Option<Instant>,
     ) {
-        let is_parked = self
-            .parked
-            .get(&key.run_id)
-            .is_some_and(|parked| parked.contains_key(&key));
-        if self.in_flight.contains_key(&key) || is_parked {
+        let Some(generation) = self.context.attempt_entries().register(&key) else {
             return;
-        }
+        };
         let progress = HandoutProgress { scheduled_at };
-        self.spawn_handout(flow, key, progress);
+        self.start_handout(flow, key, generation, progress);
     }
 
-    fn spawn_handout(
+    /// Spawns the hand-out task of `generation`; while attempts drain, releases its entry instead.
+    fn start_handout(
         &mut self,
         flow: FlowAddress,
         key: MethodAttemptKey,
+        generation: u64,
         progress: HandoutProgress,
     ) {
         if self.drain.is_some() {
+            // The attempt stays pending for the successor, as after a refused reservation.
+            let _released = self
+                .context
+                .attempt_entries()
+                .finish_handout(&key, generation, None);
             return;
         }
-        let lock_release_count = self.lock_release_count(key.run_id);
-        self.in_flight
-            .insert(key.clone(), InFlightEntry { lock_release_count });
-        let context = Arc::clone(&self.context);
-        self.context.tracker.spawn(async move {
-            let handout = AttemptHandout {
-                context: Arc::clone(&context),
-                flow: flow.clone(),
-                key: key.clone(),
-                progress,
-            };
-            let end = handout.run().await;
-            context.report(RouterMessage::HandoutFinished { flow, key, end });
-        });
+        self.in_flight.insert((key.clone(), generation));
+        spawn_handout(&self.context, flow, key, generation, progress);
     }
 
     /// Records the end of a hand-out task; one that met busy locks waits for their release.
@@ -112,39 +93,58 @@ impl DispatchScheduler {
         &mut self,
         flow: FlowAddress,
         key: MethodAttemptKey,
+        generation: u64,
         end: HandoutEnd,
     ) {
-        let Some(entry) = self.in_flight.remove(&key) else {
-            return;
+        let locks_busy = match end {
+            HandoutEnd::Released => None,
+            HandoutEnd::LocksBusy(progress) => Some((flow, progress)),
         };
-        self.publish_attempt_drain();
-        let HandoutEnd::LocksBusy(progress) = end else {
-            return;
-        };
-        if entry.lock_release_count != self.lock_release_count(key.run_id) {
-            // Locks were released while the task checked them; try again now.
-            self.spawn_handout(flow, key, progress);
-            return;
+        self.in_flight.remove(&(key.clone(), generation));
+        let restart = self
+            .context
+            .attempt_entries()
+            .finish_handout(&key, generation, locks_busy);
+        if let HandoutRestart::Again(flow, progress, generation) = restart {
+            self.start_handout(flow, key, generation, progress);
         }
-        self.parked
-            .entry(key.run_id)
-            .or_default()
-            .insert(key, ParkedInvocation { flow, progress });
+        self.publish_attempt_drain();
+    }
+
+    /// Counts the task of a delivered Claim before the router spawns it.
+    ///
+    /// Returns false while attempts drain: like a new hand-out, the Claim does not run, and its
+    /// row stays queued for the successor.
+    pub(crate) fn admit_claim(&mut self) -> bool {
+        if self.drain.is_some() {
+            return false;
+        }
+        self.claim_tasks += 1;
+        true
+    }
+
+    /// Records the end of a Claim's task.
+    pub(crate) fn finish_claim(&mut self) {
+        self.claim_tasks = self
+            .claim_tasks
+            .checked_sub(1)
+            .expect("each admitted Claim's task reports its end once");
+        self.publish_attempt_drain();
     }
 
     /// Retries the run's invocations that waited for locks.
     pub(crate) fn release_locks(&mut self, run_id: RunId) {
-        *self.lock_release_counts.entry(run_id).or_insert(0) += 1;
-        for (key, parked) in self.parked.remove(&run_id).unwrap_or_default() {
-            self.spawn_handout(parked.flow, key, parked.progress);
+        let unparked = self.context.attempt_entries().release_locks(run_id);
+        for (key, flow, progress, generation) in unparked {
+            self.start_handout(flow, key, generation, progress);
         }
     }
 
     /// Retries every parked invocation; in-memory RPC locks release without an effect.
     pub(crate) fn retry_parked_invocations(&mut self) {
-        let parked = std::mem::take(&mut self.parked);
-        for (key, parked) in parked.into_values().flatten() {
-            self.spawn_handout(parked.flow, key, parked.progress);
+        let unparked = self.context.attempt_entries().release_all_parked();
+        for (key, flow, progress, generation) in unparked {
+            self.start_handout(flow, key, generation, progress);
         }
     }
 
@@ -222,7 +222,7 @@ impl DispatchScheduler {
         progress.send_replace(AttemptDrainProgress {
             attempts_waited,
             attempts_running: attempts_waited,
-            outstanding_handouts: self.in_flight.len(),
+            outstanding_handouts: self.outstanding_handouts(),
             has_started: true,
             ..AttemptDrainProgress::default()
         });
@@ -233,16 +233,39 @@ impl DispatchScheduler {
         if let Some(drain) = &self.drain {
             drain.send_modify(|progress| {
                 progress.attempts_running = self.running.values().map(BTreeMap::len).sum();
-                progress.outstanding_handouts = self.in_flight.len();
+                progress.outstanding_handouts = self.outstanding_handouts();
             });
         }
     }
 
-    pub(crate) fn has_parked_invocations(&self) -> bool {
-        !self.parked.is_empty()
+    fn outstanding_handouts(&self) -> usize {
+        self.in_flight.len() + self.claim_tasks
     }
 
-    fn lock_release_count(&self, run_id: RunId) -> u64 {
-        self.lock_release_counts.get(&run_id).copied().unwrap_or(0)
+    pub(crate) fn has_parked_invocations(&self) -> bool {
+        self.context.attempt_entries().has_parked()
     }
+}
+
+/// Spawns the hand-out task of `generation`; it reports its end to the router.
+pub(crate) fn spawn_handout(
+    context: &Arc<EffectContext>,
+    flow: FlowAddress,
+    key: MethodAttemptKey,
+    generation: u64,
+    progress: HandoutProgress,
+) {
+    // Built before the spawn, so a task dropped before its first poll still reports its end.
+    let mut report = HandoutEndReport::new(context, flow.clone(), key.clone(), generation);
+    let task_context = Arc::clone(context);
+    context.tracker.spawn(async move {
+        let handout = AttemptHandout {
+            context: task_context,
+            flow,
+            key,
+            generation,
+            progress,
+        };
+        report.set_end(handout.run().await);
+    });
 }

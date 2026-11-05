@@ -18,9 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dexzd_apply::FlowStateReader;
 use dexzd_keyspace::row_keys::hard_delete_current_key;
 use dexzd_keyspace::{ColumnFamily, TenantId};
-use dexzd_protocol::dex::{
-    self, PollWorkerTaskFrame, PullRouting, PullRoutingSource, StepStreamWrite, Value,
-};
+use dexzd_protocol::dex::{self, PollWorkerTaskFrame, StepStreamWrite, Value};
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, HardDeleteObjectRecord, StepAttemptFailedCommand, StepAttemptFailureKind,
     StepAttemptHeartbeatCommand, StepAttemptReturnReason, StepAttemptReturnedCommand, flow_command,
@@ -33,6 +31,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::attempt_checkpoints::{CheckpointTracker, heartbeat_change, into_step_stream_write};
 use super::attempt_deadlines::{AttemptEnd, AttemptTimeouts, MethodDeadline, task_event_end};
+use super::attempt_handout::pull_routing;
 use crate::blocking_work::BlockingWorkFailure;
 use crate::effects::dispatch::attempt_failure::AttemptFailure;
 use crate::effects::dispatch::worker_result::{WorkerResultCheck, check_worker_result};
@@ -352,7 +351,18 @@ impl MethodAttempt {
             .await
         {
             Some(reply) if !reply.is_error() => StartedAttemptEnd::Returned,
-            _ => StartedAttemptEnd::Ended,
+            reply => {
+                // A new owner fails the still-running attempt as interrupted (plan D68).
+                tracing::info!(
+                    run_id = %self.key.run_id,
+                    step_execution_id = %self.key.step_execution_id,
+                    attempt = self.key.attempt,
+                    ?reason,
+                    is_rejected = reply.is_some(),
+                    "the attempt's return did not apply"
+                );
+                StartedAttemptEnd::Ended
+            }
         }
     }
 
@@ -941,26 +951,6 @@ async fn sleep_until_optional(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => sleep_until(deadline).await,
         None => std::future::pending().await,
-    }
-}
-
-/// Returns the routing of a dispatch to the run's sticky Worker or its Flow type queue; an
-/// empty `served_by_app_worker_id` means no Worker served it yet.
-pub(crate) fn pull_routing(
-    sticky_app_worker_id: &str,
-    served_by_app_worker_id: &str,
-) -> PullRouting {
-    let source = if served_by_app_worker_id.is_empty() {
-        PullRoutingSource::Unspecified
-    } else if served_by_app_worker_id == sticky_app_worker_id {
-        PullRoutingSource::StickyQueue
-    } else {
-        PullRoutingSource::FlowTypeQueue
-    };
-    PullRouting {
-        sticky_app_worker_id: sticky_app_worker_id.to_owned(),
-        served_by_app_worker_id: served_by_app_worker_id.to_owned(),
-        source: source as i32,
     }
 }
 

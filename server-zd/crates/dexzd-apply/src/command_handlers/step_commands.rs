@@ -167,7 +167,7 @@ pub(crate) fn apply_timers_fired(
         }
         match &timer.kind {
             Some(timer_id::Kind::RetryBackoff(backoff)) => {
-                apply_retry_backoff_fired(transaction, &mut cursor, backoff)?;
+                apply_retry_backoff_fired(transaction, &mut cursor, backoff, scope.now_micros)?;
             }
             Some(timer_id::Kind::FlowTimeout(_)) => {
                 apply_flow_timeout(transaction, &mut cursor, scope)?
@@ -272,6 +272,7 @@ pub(crate) fn apply_flow_timeout(
                     &mut handler,
                     StepMethod::Execute,
                     1,
+                    scope.now_micros,
                     scope.now_micros,
                 )?;
                 cursor.rows.put_step_execution(transaction, &handler);

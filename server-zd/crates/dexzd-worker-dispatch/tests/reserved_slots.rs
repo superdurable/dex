@@ -14,21 +14,25 @@ use std::time::{Duration, Instant, SystemTime};
 
 use dexzd_clock::SystemWallClock;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
+use dexzd_keyspace::PartitionId;
+use dexzd_keyspace::dispatch_queue_keys::{
+    DEFAULT_DISPATCH_PRIORITY, DispatchQueueName, DispatchQueuePosition,
+};
+use dexzd_keyspace::{FlowHash, RunId, TenantId};
 use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::{
-    self, DispatchTaskErrorReason, InvokeExecuteMethodRequest, InvokeWaitForMethodOutput,
-    InvokeWaitForMethodRequest, InvokeWaitForMethodResponse, InvokeWorkerRpcRequest,
-    InvokeWorkerRpcResponse, PollWorkerSlotKind, PollWorkerTaskFrame, PollWorkerTaskRegister,
-    PollWorkerTaskReject, PollWorkerTaskRejectReason, PollWorkerTaskRequest,
-    PollWorkerTaskResponse, StepMethodHeartbeat, poll_worker_task, poll_worker_task_frame,
-    poll_worker_task_request, poll_worker_task_response,
+    self, InvokeExecuteMethodRequest, InvokeWaitForMethodOutput, InvokeWaitForMethodRequest,
+    InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse,
+    PollWorkerSlotKind, PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskReject,
+    PollWorkerTaskRejectReason, PollWorkerTaskRequest, PollWorkerTaskResponse, StepMethodHeartbeat,
+    poll_worker_task, poll_worker_task_frame, poll_worker_task_request, poll_worker_task_response,
     worker_task_service_client::WorkerTaskServiceClient,
     worker_task_service_server::WorkerTaskServiceServer,
 };
 use dexzd_worker_dispatch::{
-    DispatchEvent, DispatchOutcome, DispatchRequest, DispatchTaskPayload, MatchingConfig,
-    StepStreamRequest, StepStreamReservation, StepTaskEvent, StepTaskHandle, StepTaskSendFailure,
-    WorkerDispatch,
+    ClaimReply, ClaimResult, DispatchEvent, DispatchOutcome, DispatchRequest, DispatchTaskPayload,
+    MatchingConfig, QueuedTaskRef, StepStreamRequest, StepStreamReservation, StepTaskEvent,
+    StepTaskHandle, StepTaskSendFailure, TaskClaim, WorkerDispatch,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -203,6 +207,7 @@ fn config() -> MatchingConfig {
     MatchingConfig {
         dispatch_wait: Duration::from_millis(400),
         sticky_wait: Duration::from_millis(100),
+        sync_match_wait: Duration::from_millis(400),
         ..MatchingConfig::default()
     }
 }
@@ -267,12 +272,12 @@ async fn register(channel: &Channel, registration: PollWorkerTaskRegister) -> Sl
 
 fn step_request(flow_type: &str, step_type: &str, sticky: Option<&str>) -> StepStreamRequest {
     StepStreamRequest {
+        partition: PartitionId(0),
         tenant_id: 0,
         flow_id: "flow-1".to_owned(),
         flow_type: flow_type.to_owned(),
         step_type: step_type.to_owned(),
         sticky_app_worker_id: sticky.map(str::to_owned),
-        search_started_at: Instant::now(),
     }
 }
 
@@ -343,6 +348,7 @@ fn rpc_request(rpc_name: &str) -> DispatchRequest {
         deadline: SystemTime::now() + Duration::from_secs(10),
         sticky_wait: None,
         dispatch_wait: Some(Duration::from_secs(2)),
+        partition: None,
     }
 }
 
@@ -448,10 +454,7 @@ async fn rpc_only_slots_never_take_steps_and_idle_slots_serve_rpcs_first() {
     .await;
     assert!(matches!(
         reserve(&dispatch, step_request("Flow", "Charge", None)).await,
-        StepStreamReservation::NoWorker {
-            reason: DispatchTaskErrorReason::NoWorkerAvailable,
-            ..
-        }
+        StepStreamReservation::Enqueue
     ));
     let mut rpc = dispatch
         .dispatch(rpc_request("getStatus"))
@@ -475,11 +478,7 @@ async fn rpc_only_slots_never_take_steps_and_idle_slots_serve_rpcs_first() {
     assert_eq!(slot.task().await.task_id, "busy");
     let step_waiter = tokio::spawn({
         let dispatch = dispatch.clone();
-        async move {
-            let mut request = step_request("Flow", "Charge", None);
-            request.search_started_at = Instant::now() + Duration::from_secs(1);
-            reserve(&dispatch, request).await
-        }
+        async move { reserve(&dispatch, step_request("Flow", "Charge", None)).await }
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
     // The RPC-only slot is busy too, so the RPC waits behind the Step.
@@ -538,10 +537,7 @@ async fn a_declined_step_type_skips_that_worker_until_its_streams_are_gone() {
             step_request("Flow", "NewStep", Some("old-worker"))
         )
         .await,
-        StepStreamReservation::NoWorker {
-            reason: DispatchTaskErrorReason::UnknownName,
-            ..
-        }
+        StepStreamReservation::Enqueue
     ));
     let (app_worker_id, _other) = hand_out(&dispatch, "Flow", "OldStep", "task-2").await;
     assert_eq!(app_worker_id, "old-worker");
@@ -657,28 +653,6 @@ async fn a_reset_right_after_a_half_close_fails_the_task_as_a_disconnect() {
     ));
 }
 
-/// A search whose waits ended before it began, such as after a long lock wait, still tries
-/// the idle slots once.
-#[tokio::test]
-async fn a_search_past_its_dispatch_wait_still_tries_the_idle_slots() {
-    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
-    let server = start_server(dispatch.clone()).await;
-    let _slot = register(
-        &server.channel,
-        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
-    )
-    .await;
-    let mut request = step_request("Flow", "Charge", None);
-    request.search_started_at = Instant::now()
-        .checked_sub(config().dispatch_wait * 2)
-        .expect("the monotonic clock runs longer than two dispatch waits");
-    assert!(matches!(
-        reserve(&dispatch, request).await,
-        StepStreamReservation::Reserved(_)
-    ));
-}
-
-/// A slot reserved when matching starts shutting down reconnects once it is released.
 #[tokio::test]
 async fn a_slot_released_during_shutdown_reconnects() {
     let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
@@ -921,6 +895,249 @@ async fn an_execute_task_carries_the_engine_task_id_and_deadline() {
     assert_eq!(task.task_id, "0192f3a4-5b6c-7d8e-9fa0-b1c2d3e4f5a6");
     assert_eq!(task.deadline.expect("deadline").seconds, 4_000_000_000);
 }
+
+fn queued_ref(partition: u16, step_type: &str, pending_since_micros: i64) -> QueuedTaskRef {
+    QueuedTaskRef {
+        partition: PartitionId(partition),
+        queue: DispatchQueueName {
+            tenant_id: TenantId(0),
+            flow_type: "Flow".to_owned(),
+            step_type: step_type.to_owned(),
+        },
+        position: DispatchQueuePosition {
+            priority: DEFAULT_DISPATCH_PRIORITY,
+            pending_since_micros,
+            flow_hash: FlowHash(1),
+            run_id: RunId([1; 16]),
+            method: 2,
+            attempt: 1,
+            step_execution_id: format!("{step_type}-{pending_since_micros}"),
+        },
+        run_attempt: 1,
+        flow_id: "flow-1".to_owned(),
+    }
+}
+
+async fn next_claim(dispatch: &WorkerDispatch) -> TaskClaim {
+    tokio::time::timeout(Duration::from_secs(3), dispatch.next_claim())
+        .await
+        .expect("a Claim arrives")
+        .expect("matching is open")
+}
+
+#[tokio::test]
+async fn an_idle_slot_claims_the_earliest_head_and_the_reply_brings_the_next_ref() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut busy) = hand_out(&dispatch, "Flow", "Charge", "busy").await;
+    assert_eq!(slot.task().await.task_id, "busy");
+    dispatch.queued(queued_ref(1, "Charge", 30));
+    dispatch.queued(queued_ref(2, "Ship", 20));
+    dispatch.queued(queued_ref(1, "Charge", 40));
+    // A queue with backlog that a connected Worker can run takes new Steps at once (plan D53).
+    assert!(matches!(
+        reserve(&dispatch, step_request("Flow", "Charge", None)).await,
+        StepStreamReservation::Enqueue
+    ));
+    slot.result("busy");
+    assert!(matches!(
+        final_event(&mut busy).await,
+        StepTaskEvent::Completed(DispatchOutcome::WorkerResult { .. })
+    ));
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(
+        claim.task,
+        queued_ref(2, "Ship", 20),
+        "the earliest head across queues"
+    );
+    assert_eq!(claim.stream.app_worker_id(), "worker-a");
+    // The engine hands the claimed slot back: it stays busy until the reply and the drop.
+    dispatch.reply_to_claim(
+        PartitionId(2),
+        &claim.task.queue,
+        claim.claim_id,
+        ClaimReply {
+            result: ClaimResult::Stale,
+            next: None,
+        },
+    );
+    drop(claim.stream);
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(
+        claim.task,
+        queued_ref(1, "Charge", 30),
+        "the smaller ref of the partition"
+    );
+    dispatch.reply_to_claim(
+        PartitionId(1),
+        &claim.task.queue,
+        claim.claim_id,
+        ClaimReply {
+            result: ClaimResult::Busy,
+            next: Some(queued_ref(1, "Charge", 40)),
+        },
+    );
+    drop(claim.stream);
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(
+        claim.task,
+        queued_ref(1, "Charge", 40),
+        "the reply's next ref"
+    );
+}
+
+#[tokio::test]
+async fn rpc_waiters_take_a_freed_slot_before_the_backlog() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut busy) = hand_out(&dispatch, "Flow", "Charge", "busy").await;
+    assert_eq!(slot.task().await.task_id, "busy");
+    dispatch.queued(queued_ref(1, "Charge", 30));
+    let mut rpc = dispatch
+        .dispatch(rpc_request("getStatus"))
+        .expect("dispatch");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    slot.result("busy");
+    assert!(matches!(
+        final_event(&mut busy).await,
+        StepTaskEvent::Completed(DispatchOutcome::WorkerResult { .. })
+    ));
+    let task = slot.task().await;
+    assert!(
+        matches!(task.request, Some(poll_worker_task::Request::Rpc(_))),
+        "the RPC waiter goes first (plan D56)"
+    );
+    slot.send(rpc_result(&task.task_id));
+    loop {
+        if let DispatchEvent::Completed(outcome) = rpc.next().await.expect("an event") {
+            assert!(matches!(outcome, DispatchOutcome::WorkerResult { .. }));
+            break;
+        }
+    }
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(claim.task, queued_ref(1, "Charge", 30));
+}
+
+#[tokio::test]
+async fn rebuilt_heads_only_lower_refs_so_an_early_queued_survives() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut busy) = hand_out(&dispatch, "Flow", "Charge", "busy").await;
+    assert_eq!(slot.task().await.task_id, "busy");
+    // A Queued of a new row arrives before the rebuild's Heads.
+    dispatch.queued(queued_ref(1, "Charge", 90));
+    dispatch.report_rebuilt_heads(vec![queued_ref(1, "Charge", 10)]);
+    dispatch.report_rebuilt_heads(vec![queued_ref(1, "Charge", 50)]);
+    slot.result("busy");
+    assert!(matches!(
+        final_event(&mut busy).await,
+        StepTaskEvent::Completed(DispatchOutcome::WorkerResult { .. })
+    ));
+    assert_eq!(
+        next_claim(&dispatch).await.task,
+        queued_ref(1, "Charge", 10)
+    );
+}
+
+#[tokio::test]
+async fn removing_a_partition_ends_its_waiters_refs_and_claims() {
+    let dispatch = WorkerDispatch::new(
+        MatchingConfig {
+            sticky_wait: Duration::from_secs(2),
+            sync_match_wait: Duration::from_secs(2),
+            ..config()
+        },
+        Arc::new(SystemWallClock),
+    );
+    let server = start_server(dispatch.clone()).await;
+    let mut slot = register(
+        &server.channel,
+        reserved("worker-a", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut busy) = hand_out(&dispatch, "Flow", "Charge", "busy").await;
+    assert_eq!(slot.task().await.task_id, "busy");
+    let partition_request = |sticky: Option<&str>| StepStreamRequest {
+        partition: PartitionId(7),
+        ..step_request("Flow", "Charge", sticky)
+    };
+    let sync_dispatch = dispatch.clone();
+    let sync_request = partition_request(None);
+    let sync_waiter = tokio::spawn(async move { reserve(&sync_dispatch, sync_request).await });
+    let sticky_dispatch = dispatch.clone();
+    let sticky_request = partition_request(Some("worker-a"));
+    let sticky_waiter =
+        tokio::spawn(async move { reserve(&sticky_dispatch, sticky_request).await });
+    let mut removed_rpc = dispatch
+        .dispatch(DispatchRequest {
+            partition: Some(PartitionId(7)),
+            ..rpc_request("getStatus")
+        })
+        .expect("dispatch");
+    // The waiters register before backlog exists; otherwise they go to the queue at once.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    dispatch.queued(queued_ref(7, "Charge", 10));
+    dispatch.queued(queued_ref(8, "Charge", 20));
+    dispatch.remove_partition(PartitionId(7));
+    for waiter in [sync_waiter, sticky_waiter] {
+        let outcome = match waiter.await.expect("join") {
+            StepStreamReservation::ServerClosing => "closing",
+            StepStreamReservation::Enqueue => "enqueue",
+            StepStreamReservation::Reserved(_) => "reserved",
+            StepStreamReservation::Invalid { .. } => "invalid",
+        };
+        assert_eq!(outcome, "closing");
+    }
+    loop {
+        if let DispatchEvent::Completed(outcome) = removed_rpc.next().await.expect("an event") {
+            assert!(matches!(outcome, DispatchOutcome::ServerClosing));
+            break;
+        }
+    }
+    slot.result("busy");
+    assert!(matches!(
+        final_event(&mut busy).await,
+        StepTaskEvent::Completed(DispatchOutcome::WorkerResult { .. })
+    ));
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(
+        claim.task,
+        queued_ref(8, "Charge", 20),
+        "the other partition keeps its ref"
+    );
+    // A full Heads of the removed partition restores its backlog.
+    dispatch.report_rebuilt_heads(vec![queued_ref(7, "Charge", 10)]);
+    dispatch.reply_to_claim(
+        PartitionId(8),
+        &claim.task.queue,
+        claim.claim_id,
+        ClaimReply {
+            result: ClaimResult::Stale,
+            next: None,
+        },
+    );
+    drop(claim.stream);
+    assert_eq!(
+        next_claim(&dispatch).await.task,
+        queued_ref(7, "Charge", 10)
+    );
+}
+
 /// A freed slot that woke an RPC waiter is that RPC's, even before the RPC runs (plan D56).
 #[tokio::test]
 async fn a_new_step_never_takes_a_slot_offered_to_a_waiting_rpc() {
@@ -1079,6 +1296,53 @@ async fn a_rejection_after_output_ends_the_stream_instead_of_freeing_the_slot() 
         !matches!(next, StepStreamReservation::Reserved(_)),
         "the slot was reused without a final output after it had already produced a heartbeat"
     );
+}
+
+/// TB27 (plan D55): a declined queue head leaves its Worker free for the partition's other queues.
+#[tokio::test]
+async fn a_declined_queue_head_does_not_block_another_step_type_of_its_partition() {
+    let dispatch = WorkerDispatch::new(config(), Arc::new(SystemWallClock));
+    let server = start_server(dispatch.clone()).await;
+    let mut old = register(
+        &server.channel,
+        reserved("old-worker", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let (_, mut declined) = hand_out(&dispatch, "Flow", "NewStep", "task-1").await;
+    old.task().await;
+    old.reject("task-1", PollWorkerTaskRejectReason::UnknownStep);
+    assert!(matches!(
+        final_event(&mut declined).await,
+        StepTaskEvent::Rejected {
+            reason: PollWorkerTaskRejectReason::UnknownStep,
+            is_reserved_slot: true
+        }
+    ));
+    // The declined type is the earlier head of the same partition.
+    dispatch.queued(queued_ref(1, "NewStep", 10));
+    dispatch.queued(queued_ref(1, "OldStep", 20));
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(claim.task, queued_ref(1, "OldStep", 20));
+    assert_eq!(claim.stream.app_worker_id(), "old-worker");
+    dispatch.reply_to_claim(
+        PartitionId(1),
+        &claim.task.queue,
+        claim.claim_id,
+        ClaimReply {
+            result: ClaimResult::Stale,
+            next: None,
+        },
+    );
+    drop(claim.stream);
+    // The declined head waits for a Worker that supports it.
+    let _new = register(
+        &server.channel,
+        reserved("new-worker", &["Flow"], PollWorkerSlotKind::StepAndRpc),
+    )
+    .await;
+    let claim = next_claim(&dispatch).await;
+    assert_eq!(claim.task, queued_ref(1, "NewStep", 10));
+    assert_eq!(claim.stream.app_worker_id(), "new-worker");
 }
 
 /// More evictions than the cache holds keep every Worker that declined the type excluded

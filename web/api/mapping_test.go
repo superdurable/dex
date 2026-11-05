@@ -94,6 +94,32 @@ func TestMapPullRouting(t *testing.T) {
 	}
 }
 
+func TestMapStepMethodInvocations(t *testing.T) {
+	pendingSince := time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC)
+	state, err := mapFlowState(&dexpb.GetFlowStateResponse{
+		ActiveStepExecutions: []*dexpb.ActiveStepExecutionState{{
+			StepExecutionId: "ChargeStep-1",
+			ExecuteInvocation: &dexpb.StepMethodInvocationState{
+				Phase:            dexpb.StepMethodInvocationPhase_STEP_METHOD_INVOCATION_PHASE_PENDING,
+				PendingReason:    dexpb.StepMethodPendingReason_STEP_METHOD_PENDING_REASON_WAITING_FOR_SUPPORTING_WORKER,
+				Attempt:          2,
+				PendingSinceTime: timestamppb.New(pendingSince),
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := state.ActiveStepExecutions[0]
+	if step.WaitForInvocation != nil {
+		t.Fatalf("WaitFor invocation: %#v", step.WaitForInvocation)
+	}
+	invocation := step.ExecuteInvocation
+	if invocation["phase"] != float64(1) || invocation["pendingReason"] != float64(2) || invocation["attempt"] != float64(2) || invocation["pendingSinceTime"] != "2026-11-05T08:00:00Z" {
+		t.Fatalf("Execute invocation: %#v", invocation)
+	}
+}
+
 func TestMapLegacyRouting(t *testing.T) {
 	state, err := mapFlowState(&dexpb.GetFlowStateResponse{ActiveStepExecutions: []*dexpb.ActiveStepExecutionState{{}}})
 	if err != nil {

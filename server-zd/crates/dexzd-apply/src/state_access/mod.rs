@@ -50,4 +50,33 @@ pub trait FlowStateReader {
         end: &[u8],
         limit: usize,
     ) -> Result<Vec<StateRow>, StateReadError>;
+
+    /// Returns the first row in `[start, end)`, or [`BoundedRowSeek::Incomplete`] after skipping
+    /// more than `max_skipped_deletions` deleted entries. Readers without deletion markers never
+    /// give up.
+    fn seek_first_bounded(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        _max_skipped_deletions: u64,
+    ) -> Result<BoundedRowSeek, StateReadError> {
+        Ok(
+            match self.scan(column_family, start, end, 1)?.into_iter().next() {
+                Some(row) => BoundedRowSeek::Found(row),
+                None => BoundedRowSeek::Exhausted,
+            },
+        )
+    }
+}
+
+/// The first row of a bounded seek.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoundedRowSeek {
+    /// The first row in the range.
+    Found(StateRow),
+    /// The range has no row.
+    Exhausted,
+    /// The seek skipped too many deleted entries before finding a row.
+    Incomplete,
 }

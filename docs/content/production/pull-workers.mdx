@@ -466,11 +466,22 @@ lasts until every stream with that ID is gone, including the upgraded process's
 own streams. If the cache evicts the entry first, Dex offers the type again after
 a Worker with that ID completes a Step.
 
-Dex waits for an available Worker within the matching dispatch budget. If none
-is available, a Step receives a retryable unavailable error that consumes a
-Step retry. An RPC caller receives an **Unavailable** error directly. The default dispatch wait is 10 seconds,
-including up to 5 seconds for a sticky queue with connected streams. The wait never extends past
-the method deadline of the attempt. See [Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch)
+Dex first tries a connected sticky Worker for up to 5 seconds. It then tries any
+Worker of the Flow type for a short time, 200 milliseconds by default. If no
+Worker takes the Step attempt, the attempt waits in a durable task queue. It
+stays there until a Worker takes it, the Flow times out, or the Flow stops. It
+does not fail and does not consume a retry. Steps are dispatched roughly in the
+order they became ready; strict ordering is not guaranteed.
+
+A Step type that no connected Worker supports stays queued. It does not block
+other Step types. Queue time does not count toward the method timeout or the
+heartbeat timeout. These start when Dex hands the attempt to a Worker.
+
+An RPC never queues. If no Worker takes it within the dispatch wait, the caller
+receives an **Unavailable** error directly. The default dispatch wait is 10
+seconds, including up to 5 seconds for a sticky queue with connected streams.
+The wait never extends past the method deadline of the attempt. See
+[Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch)
 for the wait settings.
 
 When a pull Worker has the Flow type but lacks the requested Step type or RPC
@@ -480,8 +491,7 @@ was sticky to it. Dex remembers the unsupported type for that app Worker ID and
 stops offering it to that Worker until every stream of the Worker disconnects.
 This reassignment does not consume a Step attempt. The attempt keeps its
 attempt number, input snapshot, and Attribute locks. If no
-capable Worker accepts within the dispatch wait, the Step follows its failure
-and retry policy with an error that names the Step or RPC. An RPC caller gets
+capable Worker is connected, the Step waits in the queue. An RPC caller gets
 the named error directly after Dex tries other Workers within the caller's
 deadline, up to the dispatch wait of 10 seconds. This reassignment requires a Dex Server release that supports it.
 Against older Servers, the Worker returns the not-registered error as before.
@@ -571,9 +581,7 @@ the reserve. RPC tasks can use the full limit. For example, a limit of eight
 and a reserve of two lets Steps start only while fewer than six handlers are busy.
 
 Dex tries other Workers without consuming a Step attempt. If all Workers remain
-at their Step limit, a Step can wait until the dispatch wait expires, then receive
-**NO_WORKER_AVAILABLE**, consume an attempt, and follow its retry policy, as when
-all Workers are full.
+at their Step limit, the Step waits in the queue until a Worker has a free slot.
 Idle streams stay available on every queue. A queue that declines a Step for
 reserved RPC capacity keeps one additional idle stream until 30 seconds after
 its last decline. Other queues keep their configured idle count. The Worker does
@@ -687,9 +695,18 @@ pub fn get_pull_greeting_diagnostics(worker: &Worker) -> PullGreetingDiagnostics
 
 ## Scale to zero
 
-server-zd has no Worker wake hook. When Workers may scale to zero, size the
-dispatch wait and Step retries for Worker startup time, so a Step retry can
-wait for a Worker to start.
+server-zd has no Worker wake hook. When Workers may scale to zero, a Step
+that no Worker takes waits in the durable task queue until a Worker starts. The
+wait uses no retry. Scale Workers on the queue depth and oldest age metrics,
+**dexzd_step_task_queue_entries** and **dexzd_step_task_queue_oldest_age_seconds**.
+Right after a restart or a failover, the entries gauge can read low until each
+partition's background count finishes, so do not scale to zero on it alone; the
+oldest age stays accurate.
+See [Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch).
+An RPC does not queue, so it fails after the dispatch wait while no Worker runs.
+
+A Flow with a timeout still times out while its Step waits. With no Flow
+timeout, a Step with no Worker waits forever.
 
 ## Server and network setup
 

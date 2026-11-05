@@ -37,7 +37,7 @@ pub use effects::{
     EffectTasksHandle, EffectsConfig, FlowEffectOperationError, FlowEffectOperations,
     HARD_DELETE_OBJECT_KEY_PREFIX, HardDeleteObjectOwner, HardDeleteObjects,
     HardDeleteUploadLedger, HardDeleteUploads, InvocationLockCheck, InvocationStartOutcome,
-    MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
+    MethodClaim, MethodDispatchSession, MethodDispatcher, MethodRequest, MethodStreamRequest,
     MethodStreamReservation, MethodTask, NodeMetaUploadLedger, ReservedMethodStream, StartCommit,
     decode_hard_delete_value, encode_hard_delete_value, hard_delete_placeholder_value,
 };
@@ -56,8 +56,8 @@ pub use flow_coordination::{
     FlowCoordinationEffectSink, FlowCoordinationError, FlowCoordinatorDependencies,
     FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
     HardDeleteValueReader, HardDeleteValueUploader, PendingInvocation, ProposalResult,
-    RpcInvokeError, RpcWorkerInvoker, WorkerRpcInvocation, WorkerRpcResult, default_run_settings,
-    grpc_code,
+    RpcInvokeError, RpcWorkerInvoker, StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
+    default_run_settings, grpc_code,
 };
 #[cfg(feature = "test-util")]
 pub use hot_standby::HotStandbyProbeForTest;
