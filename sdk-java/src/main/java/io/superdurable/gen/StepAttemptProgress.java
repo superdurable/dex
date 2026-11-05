@@ -17,7 +17,8 @@ public enum StepAttemptProgress
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
    * <pre>
-   * Older Servers did not report progress; treat this like NOT_COMPLETED.
+   * Older Servers, or failures recorded before the Server upgrade.
+   * Treat it like NOT_COMPLETED.
    * </pre>
    *
    * <code>STEP_ATTEMPT_PROGRESS_UNSPECIFIED = 0;</code>
@@ -25,7 +26,7 @@ public enum StepAttemptProgress
   STEP_ATTEMPT_PROGRESS_UNSPECIFIED(0),
   /**
    * <pre>
-   * No attempt was handed to a Worker that may have executed it; the handler did not run.
+   * No attempt ran the handler.
    * </pre>
    *
    * <code>STEP_ATTEMPT_PROGRESS_NOT_STARTED = 1;</code>
@@ -33,7 +34,9 @@ public enum StepAttemptProgress
   STEP_ATTEMPT_PROGRESS_NOT_STARTED(1),
   /**
    * <pre>
-   * At least one attempt was handed to a Worker and may have run, but none completed.
+   * Some attempt may have run the handler, and none succeeded.
+   * Dex also reports this value when it cannot prove that no attempt ran
+   * (for example every ASYNC failure).
    * </pre>
    *
    * <code>STEP_ATTEMPT_PROGRESS_NOT_COMPLETED = 2;</code>
@@ -53,7 +56,8 @@ public enum StepAttemptProgress
   }
   /**
    * <pre>
-   * Older Servers did not report progress; treat this like NOT_COMPLETED.
+   * Older Servers, or failures recorded before the Server upgrade.
+   * Treat it like NOT_COMPLETED.
    * </pre>
    *
    * <code>STEP_ATTEMPT_PROGRESS_UNSPECIFIED = 0;</code>
@@ -61,7 +65,7 @@ public enum StepAttemptProgress
   public static final int STEP_ATTEMPT_PROGRESS_UNSPECIFIED_VALUE = 0;
   /**
    * <pre>
-   * No attempt was handed to a Worker that may have executed it; the handler did not run.
+   * No attempt ran the handler.
    * </pre>
    *
    * <code>STEP_ATTEMPT_PROGRESS_NOT_STARTED = 1;</code>
@@ -69,7 +73,9 @@ public enum StepAttemptProgress
   public static final int STEP_ATTEMPT_PROGRESS_NOT_STARTED_VALUE = 1;
   /**
    * <pre>
-   * At least one attempt was handed to a Worker and may have run, but none completed.
+   * Some attempt may have run the handler, and none succeeded.
+   * Dex also reports this value when it cannot prove that no attempt ran
+   * (for example every ASYNC failure).
    * </pre>
    *
    * <code>STEP_ATTEMPT_PROGRESS_NOT_COMPLETED = 2;</code>

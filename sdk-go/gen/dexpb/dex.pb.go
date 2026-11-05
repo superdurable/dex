@@ -146,13 +146,13 @@ func (PollWorkerSlotKind) EnumDescriptor() ([]byte, []int) {
 }
 
 // Explains why a Worker declined a task.
-// Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC before the handler ran.
+// See PollWorkerTaskReject for the reasons a reserved-slot stream may send.
 type PollWorkerTaskRejectReason int32
 
 const (
 	// No rejection reason was supplied.
 	PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED PollWorkerTaskRejectReason = 0
-	// All Worker execution slots are occupied; only valid without supports_reserved_slot_dispatch.
+	// All Worker execution slots are occupied; not allowed on reserved-slot streams.
 	PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY PollWorkerTaskRejectReason = 1
 	// The Flow has no registration for the requested Step type.
 	PollWorkerTaskRejectReason_POLL_WORKER_TASK_REJECT_REASON_UNKNOWN_STEP PollWorkerTaskRejectReason = 2
@@ -1473,11 +1473,14 @@ func (InternalTimerStatus) EnumDescriptor() ([]byte, []int) {
 type StepAttemptProgress int32
 
 const (
-	// Older Servers did not report progress; treat this like NOT_COMPLETED.
+	// Older Servers, or failures recorded before the Server upgrade.
+	// Treat it like NOT_COMPLETED.
 	StepAttemptProgress_STEP_ATTEMPT_PROGRESS_UNSPECIFIED StepAttemptProgress = 0
-	// No attempt was handed to a Worker that may have executed it; the handler did not run.
+	// No attempt ran the handler.
 	StepAttemptProgress_STEP_ATTEMPT_PROGRESS_NOT_STARTED StepAttemptProgress = 1
-	// At least one attempt was handed to a Worker and may have run, but none completed.
+	// Some attempt may have run the handler, and none succeeded.
+	// Dex also reports this value when it cannot prove that no attempt ran
+	// (for example every ASYNC failure).
 	StepAttemptProgress_STEP_ATTEMPT_PROGRESS_NOT_COMPLETED StepAttemptProgress = 2
 )
 
@@ -1687,7 +1690,7 @@ type isPollWorkerTaskRequest_Frame interface {
 }
 
 type PollWorkerTaskRequest_Register struct {
-	// Starts this queue stream; no other frame may precede registration.
+	// Starts this queue or reserved-slot stream; no other frame may precede registration.
 	Register *PollWorkerTaskRegister `protobuf:"bytes,1,opt,name=register,proto3,oneof"`
 }
 
@@ -1698,8 +1701,7 @@ type PollWorkerTaskRequest_TaskFrame struct {
 
 type PollWorkerTaskRequest_Reject struct {
 	// Declines an assigned task before output when the Worker lacks capacity or the named handler.
-	// Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
-	// NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
+	// See PollWorkerTaskReject for the reasons each stream kind may send.
 	Reject *PollWorkerTaskReject `protobuf:"bytes,3,opt,name=reject,proto3,oneof"`
 }
 
@@ -1722,6 +1724,7 @@ type PollWorkerTaskRegister struct {
 	// Names this stream's queue: app_worker_id or one declared flow_type.
 	// Workers declaring supports_reserved_slot_dispatch leave it empty; the stream serves its own
 	// sticky queue (app_worker_id) and every Flow type in flow_types.
+	// Dex rejects a reserved-slot registration with a non-empty queue with INVALID_ARGUMENT.
 	Queue string `protobuf:"bytes,1,opt,name=queue,proto3" json:"queue,omitempty"`
 	// Identifies this Worker process across reconnects; a restart uses a new ID.
 	AppWorkerId string `protobuf:"bytes,2,opt,name=app_worker_id,json=appWorkerId,proto3" json:"app_worker_id,omitempty"`
@@ -1732,11 +1735,18 @@ type PollWorkerTaskRegister struct {
 	// Identifies the SDK release for diagnostics.
 	SdkVersion string `protobuf:"bytes,5,opt,name=sdk_version,json=sdkVersion,proto3" json:"sdk_version,omitempty"`
 	// When true, this stream is one reserved Worker execution slot, ready whenever idle.
-	// The Worker executes every received task and never rejects for capacity.
-	// Dex treats NO_CAPACITY on this stream as a protocol error.
-	// When false, the Worker keeps the per-queue behavior.
+	// The Worker never rejects a task for capacity.
+	// It rejects only unknown Step types or RPC names.
+	// While stopping, it drops task frames without sending any frame for them.
+	// See the PollWorkerTask rpc.
+	// When false, the stream serves only the queue named in queue and may reject with NO_CAPACITY.
+	// Requires Server protocol version 4 or later.
 	SupportsReservedSlotDispatch bool `protobuf:"varint,6,opt,name=supports_reserved_slot_dispatch,json=supportsReservedSlotDispatch,proto3" json:"supports_reserved_slot_dispatch,omitempty"`
 	// Selects which tasks this slot accepts; unspecified means STEP_AND_RPC.
+	// Applies only to reserved-slot streams.
+	// Dex rejects a registration with INVALID_ARGUMENT when supports_reserved_slot_dispatch is false
+	// and slot_kind is not UNSPECIFIED.
+	// Requires Server protocol version 4 or later.
 	SlotKind      PollWorkerSlotKind `protobuf:"varint,7,opt,name=slot_kind,json=slotKind,proto3,enum=dex.PollWorkerSlotKind" json:"slot_kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1950,8 +1960,10 @@ func (*PollWorkerTaskFrame_Rpc) isPollWorkerTaskFrame_Output() {}
 func (*PollWorkerTaskFrame_WorkerError) isPollWorkerTaskFrame_Output() {}
 
 // Declines a task so Dex can assign it to another available Worker stream.
-// Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
-// NO_CAPACITY is only for streams without supports_reserved_slot_dispatch.
+// Reserved-slot streams may send only UNKNOWN_STEP or UNKNOWN_RPC; the handler never ran.
+// NO_CAPACITY on a reserved-slot stream is a protocol error.
+// Dex then fails that attempt as not run, which consumes an attempt,
+// and ends the stream with INVALID_ARGUMENT.
 type PollWorkerTaskReject struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Matches the declined task on this stream.
@@ -2145,7 +2157,7 @@ type isPollWorkerTaskResponse_Frame interface {
 }
 
 type PollWorkerTaskResponse_Registered struct {
-	// Confirms that Dex accepted this stream's queue registration.
+	// Confirms that Dex accepted this stream's queue or reserved-slot registration.
 	Registered *PollWorkerTaskRegistered `protobuf:"bytes,1,opt,name=registered,proto3,oneof"`
 }
 
@@ -2179,13 +2191,16 @@ func (*PollWorkerTaskResponse_Reconnect) isPollWorkerTaskResponse_Frame() {}
 
 func (*PollWorkerTaskResponse_Ping) isPollWorkerTaskResponse_Frame() {}
 
-// Confirms that Dex accepted the queue registration.
+// Confirms that Dex accepted the queue or reserved-slot registration.
 type PollWorkerTaskRegistered struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Allows this queue-owner stream to reject an assigned unknown Step type or RPC name.
+	// Reserved-slot streams may always reject unknown names.
 	SupportsUnknownNameRejection bool `protobuf:"varint,1,opt,name=supports_unknown_name_rejection,json=supportsUnknownNameRejection,proto3" json:"supports_unknown_name_rejection,omitempty"`
 	// Most reserved-slot streams Dex accepts from one app_worker_id on this Server.
+	// It counts all of them, including RPC_ONLY slots.
 	// Zero means the Server does not report a limit.
+	// Reported by Server protocol version 4 or later.
 	// A Worker whose configured concurrency exceeds it should fail to start with a clear error.
 	MaxConcurrentTasksPerAppWorker uint32 `protobuf:"varint,2,opt,name=max_concurrent_tasks_per_app_worker,json=maxConcurrentTasksPerAppWorker,proto3" json:"max_concurrent_tasks_per_app_worker,omitempty"`
 	unknownFields                  protoimpl.UnknownFields
@@ -2402,10 +2417,10 @@ func (x *PollWorkerTaskCancelTask) GetTaskId() string {
 	return ""
 }
 
-// Asks the Worker to finish its task and reconnect for queue ownership changes or shutdown.
+// Asks the Worker to finish its task and reconnect for queue or slot ownership changes or shutdown.
 type PollWorkerTaskReconnect struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Explains why Dex needs a new queue stream.
+	// Explains why Dex needs a new queue or reserved-slot stream.
 	Reason        string `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -11727,6 +11742,7 @@ type RecoveryErrorInfo struct {
 	ErrorType string `protobuf:"bytes,2,opt,name=error_type,json=errorType,proto3" json:"error_type,omitempty"`
 	// Furthest progress across all attempts of this Step method call.
 	// Use in recovery to decide whether side effects may have happened.
+	// Requires Server protocol version 4 or later.
 	AttemptProgress StepAttemptProgress `protobuf:"varint,3,opt,name=attempt_progress,json=attemptProgress,proto3,enum=dex.StepAttemptProgress" json:"attempt_progress,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

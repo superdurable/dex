@@ -8,7 +8,7 @@ package io.superdurable.gen;
 /**
  * <pre>
  * Explains why a Worker declined a task.
- * Reserved-slot streams allow only UNKNOWN_STEP or UNKNOWN_RPC before the handler ran.
+ * See PollWorkerTaskReject for the reasons a reserved-slot stream may send.
  * </pre>
  *
  * Protobuf enum {@code dex.PollWorkerTaskRejectReason}
@@ -26,7 +26,7 @@ public enum PollWorkerTaskRejectReason
   POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED(0),
   /**
    * <pre>
-   * All Worker execution slots are occupied; only valid without supports_reserved_slot_dispatch.
+   * All Worker execution slots are occupied; not allowed on reserved-slot streams.
    * </pre>
    *
    * <code>POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY = 1;</code>
@@ -70,7 +70,7 @@ public enum PollWorkerTaskRejectReason
   public static final int POLL_WORKER_TASK_REJECT_REASON_UNSPECIFIED_VALUE = 0;
   /**
    * <pre>
-   * All Worker execution slots are occupied; only valid without supports_reserved_slot_dispatch.
+   * All Worker execution slots are occupied; not allowed on reserved-slot streams.
    * </pre>
    *
    * <code>POLL_WORKER_TASK_REJECT_REASON_NO_CAPACITY = 1;</code>
