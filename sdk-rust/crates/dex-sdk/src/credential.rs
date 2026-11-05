@@ -661,6 +661,8 @@ mod tests {
                 if is_server_info {
                     let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
                     Ok(grpc.unary(GetServerInfo, request).await)
+                } else if request.uri().path() == "/dex.FlowService/SyncAttributeIndexes" {
+                    Ok(Status::unimplemented("fake Attribute index synchronization").into_http())
                 } else {
                     let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
                     Ok(grpc.unary(HealthCheck, request).await)
@@ -687,7 +689,14 @@ mod tests {
         type Future = BoxFuture<Response<Self::Response>, Status>;
 
         fn call(&mut self, _: Request<()>) -> Self::Future {
-            Box::pin(async { Ok(Response::new(ServerInfo::default())) })
+            Box::pin(async {
+                Ok(Response::new(ServerInfo {
+                    server_version: "fake".to_string(),
+                    minimum_supported_protocol_version: 4,
+                    current_protocol_version: 4,
+                    ..Default::default()
+                }))
+            })
         }
     }
 
@@ -828,14 +837,17 @@ mod tests {
         .expect("authenticated Worker");
         worker
             .start()
-            .expect_err("fake protocol interval is invalid");
-        assert_eq!(credential.calls.load(Ordering::SeqCst), 4);
+            .expect_err("fake Attribute index synchronization is unsupported");
+        assert_eq!(credential.calls.load(Ordering::SeqCst), 6);
         assert_eq!(
             *headers.lock().expect("headers lock"),
             vec![
                 None,
+                None,
+                Some("Bearer first".to_string()),
                 Some("Bearer first".to_string()),
                 Some("Bearer second".to_string()),
+                Some("Bearer worker".to_string()),
                 Some("Bearer worker".to_string())
             ]
         );

@@ -130,7 +130,8 @@ impl Worker {
     /// # Errors
     ///
     /// Returns FlowDefinition if called more than once, or Service for index synchronization,
-    /// timeout, and server failures.
+    /// timeout, incompatible Server protocol, and server failures. Startup also fails when
+    /// configured concurrency exceeds the Server setting `matching.maxConcurrentTasksCap`.
     /// Returns a service error exposing [`SdkError::pull_registration_error`] after draining when permanent-rejection shutdown is enabled.
     pub fn start(&self) -> SdkResult<()> {
         let result = self.start_worker();
@@ -198,7 +199,7 @@ impl Worker {
         result
     }
 
-    /// Waits until every Flow type queue and the app Worker ID queue has registered once.
+    /// Waits until a Step-and-RPC slot and, when reserved, an RPC-only slot have registered once.
     ///
     /// Safe before or after [`Self::start`] and for concurrent callers. Start the Worker on a
     /// dedicated thread. Drop this future to cancel the wait, or use `tokio::time::timeout`.
@@ -220,26 +221,19 @@ impl Worker {
         self.pull.registration.wait().await
     }
 
-    /// Returns cumulative Step declines caused by reserved RPC capacity for this Worker.
+    /// Returns zero for the obsolete reserved-RPC decline counter.
     ///
-    /// The counter counts decline events. Dex may decline the same Step dispatch repeatedly
-    /// while retrying it, so read the counter as a rate. Full-capacity rejections and unknown names are excluded. The count never resets and
-    /// remains available after stop. Concurrent reads are safe.
-    /// Export the count to a monitoring counter to identify reserve pressure.
-    ///
-    /// ```no_run
-    /// # fn inspect(worker: &dex_sdk::Worker) {
-    /// let declines: u64 = worker.pull_reserved_rpc_declines();
-    /// # }
-    /// ```
+    /// Deprecated: the Server assigns work to reserved slots, and the Worker never declines tasks
+    /// for capacity. This method remains callable after shutdown and is safe for concurrent reads.
+    #[deprecated(note = "reserved slots never decline for capacity; this counter is always zero")]
     pub fn pull_reserved_rpc_declines(&self) -> u64 {
-        self.pull.reserved_rpc_declines()
+        0
     }
 
-    /// Returns an independent snapshot of current pull queue registrations.
+    /// Returns an independent snapshot of current pull slot-kind registrations.
     ///
-    /// Readiness latches after every queue registers once. Only a permanent rejection with no
-    /// registered stream makes it false. Successful registration clears that queue's error.
+    /// Readiness latches after each required slot kind registers once. Only a permanent rejection with no
+    /// registered stream makes it false. Successful registration clears that slot kind's error.
     /// Transient disconnects and Stop do not clear readiness. See [`Self::wait_pull_registered`] for a startup and probe example.
     pub fn pull_registration_state(&self) -> crate::PullRegistrationState {
         self.pull.registration.snapshot()
@@ -248,10 +242,14 @@ impl Worker {
     /// Requests shutdown of a running Worker and returns immediately.
     ///
     /// Calling `stop` before or after `start` is safe; [`Self::start`] observes the shutdown signal.
-    /// The Worker first drains active handlers. After the drain timeout it cancels them, and
-    /// [`Self::start`] waits for their return. Half-closed pull streams wait for server EOF
-    /// until the remaining drain deadline. Stop is idempotent.
+    /// No new handler starts after this request. Idle streams half-close immediately; busy streams
+    /// finish their handler and send its final output before half-closing. Task frames arriving
+    /// after Stop are dropped without invoking a handler, including after half-close. Streams keep
+    /// reading until the Server ends them or the drain deadline expires. At that deadline, busy
+    /// streams are reset and their handlers are cancelled; [`Self::start`] waits for their return.
+    /// Stop is idempotent.
     pub fn stop(&self) {
+        self.pull.stop_accepting_tasks();
         self.pull.registration.finish(None);
         self.shutdown.send_replace(true);
     }

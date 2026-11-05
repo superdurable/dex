@@ -351,17 +351,18 @@ discarded.
 ### Pull mode
 
 Run `start()` on a dedicated thread, then await `worker.wait_pull_registered()` to wait until
-every Flow type queue and the app Worker ID queue has registered once. Drop the future to
+a Step-and-RPC slot and, when reserved, an RPC-only slot have registered once. Drop the future to
 cancel waiting or wrap it in `tokio::time::timeout`. Concurrent callers and calls before startup
 are safe. Before readiness, a permanent rejection without another registered stream returns
-a service error whose `pull_registration_error()` accessor returns `PullRegistrationError`, preserving the queue and
+a service error whose `pull_registration_error()` accessor returns `PullRegistrationError`, preserving the slot kind and
 original gRPC status. Startup failures and shutdown before readiness also wake waiters.
 Completion stays latched, including after shutdown.
 
 Use `worker.pull_registration_state().is_ready` for ongoing probes. Its queue snapshots expose
-`queue`, `has_registered_stream`, and `last_permanent_error`. Readiness does not flap during
+`queue`, `has_registered_stream`, and `last_permanent_error`. The retained `queue` field
+contains `STEP_AND_RPC` or `RPC_ONLY`, identifying a slot kind rather than a queue. Readiness does not flap during
 reconnects or transient errors. A permanent rejection without another registered stream makes
-it false. Re-registration clears that queue's error; Stop does not reset readiness.
+it false. Re-registration clears that slot kind's error; Stop does not reset readiness.
 
 `PullWorkerOptions::stop_on_permanent_stream_rejection(true)` opts into draining and stopping
 on such a rejection before or after readiness. The default is false, retrying indefinitely.
@@ -370,7 +371,7 @@ and waiting for cancelled handlers to return. Calling `stop()` afterward remains
 
 Workers use outbound task streams and need only an outbound connection to the
 Dex Server. `WorkerOptions::new()` uses pull defaults. Set `WorkerOptions::pull`
-to customize concurrency, queue streams, and shutdown. StartFlow and SubFlow
+to customize execution slots and shutdown. StartFlow and SubFlow
 always use pull routing. UpdateFlowConfig leaves the Worker target unset and preserves the
 existing Flow target.
 
@@ -381,8 +382,7 @@ let worker = Worker::try_new(
     WorkerOptions::new()
         .server_address("dex.example:8801")
         .pull(PullWorkerOptions::new()
-            .max_concurrent_tasks(8)
-            .idle_streams_per_queue(1)),
+            .max_concurrent_tasks(8)),
 )?;
 let client = Client::try_new(
     registry,
@@ -392,19 +392,17 @@ let client = Client::try_new(
 )?;
 ```
 
-The Worker polls its sticky queue and every registered Flow type queue. Flow
-type names must be unique within a Dex server. The task limit defaults to the
-CPU count, and each queue keeps one idle stream by default. A stream runs one
-task at a time. At capacity, the Worker rejects an assignment for reassignment.
-The SDK sends an upstream Pong every 20 seconds while a task runs and stops
-before its final frame. This interval is internal and needs no Worker option.
-An unregistered Step or RPC is rejected by name. Dex retries that task on
-another pull Worker without consuming a Step attempt, including when the Flow
-was sticky to the rejecting Worker. If no capable Worker accepts it within the
-server's dispatch wait (10 seconds by default, or the local Step attempt), the
-Step follows its failure and retry policy; an RPC caller receives the named
-error. This reassignment requires a Dex Server that supports it. Against older
-Servers, the Worker returns the not-registered error as before.
+The Worker opens exactly `max_concurrent_tasks` long-lived poll streams. Each stream
+is one execution slot serving the Worker's sticky queue and every registered Flow type.
+The task limit defaults to the CPU count. An idle slot is ready for work; a busy slot
+executes its task and sends its final output before becoming ready again. The Worker
+executes every assignment and never rejects work for capacity. Start fails when the
+configured task limit exceeds the Server's reported `matching.maxConcurrentTasksCap`.
+The deprecated `idle_streams_per_queue` setting is still accepted and has no effect.
+Flow type names must be unique within a Dex server.
+The SDK sends an upstream Pong every 20 seconds while a task runs and stops before
+its final frame. This interval is internal and needs no Worker option. An unregistered
+Step or RPC may be rejected by name before its handler runs, allowing reassignment.
 The generated app Worker ID uses the first nonempty `DEX_WORKER_INSTANCE`,
 `POD_NAME`, or `HOSTNAME` value, or the system hostname (falling back to
 `worker`), plus eight random base32 characters. An override must identify one
@@ -414,67 +412,58 @@ underscores, or hyphens, and differ from every registered Flow type.
 The Worker reconnects after stream failures and drains an active task before a
 server-directed reconnect. After sending the final frame, that stream waits up
 to `PullWorkerOptions::stop_drain_timeout` for the server to close it.
-Registration failures back off; an older server without pull support logs one
-explicit error and retries. `Worker::start`
+Registration failures back off. Incompatible Server protocols fail startup immediately. `Worker::start`
 returns startup errors, while later polling failures are logged and retried.
 A permanent registration error waits one minute. If the next attempt fails
 transiently before registration, that retry also waits one minute; subsequent
 transient retries resume at the five-second cap. A registered stream or a
 server-directed reconnect resets backoff to 100 ms, with jitter on every retry.
-After tasks finish, the Worker gracefully closes surplus idle streams while
-preserving readiness. After load drops, the steady-state stream bound is
-`max_concurrent_tasks + (1 + number of Flow types) * idle_streams_per_queue`.
-Allow up to one more stream per queue for 30 seconds after reserve declines,
-or up to `1 + number of Flow types` additional streams.
-The transient peak during a burst remains bounded by the matching caps. Size both
-options for `matching.maxConcurrentTasksCap` per app Worker ID per matching owner
-(256 by default) and `matching.maxStreams` per Matching instance (100,000 by default).
+The stream count stays equal to `max_concurrent_tasks` across load changes. Choose
+this limit within `matching.maxConcurrentTasksCap` per app Worker ID and the available
+`matching.maxStreams` budget on the Server.
 
-`Worker::stop` begins a graceful drain. After 30 seconds by default, the Worker
-cancels active handlers; `Worker::start` waits for them to return before it
-exits. Half-closed streams wait for server EOF until the remaining Stop drain
-deadline before the connection closes. Set `PullWorkerOptions::stop_drain_timeout`
-to change that deadline. Handlers should check `Context::is_cancelled` during
-interruptible work.
+`Worker::stop` immediately stops new handler starts. Idle streams half-close their
+request side immediately. Busy streams let their handlers finish, send final output,
+and then half-close. Task frames arriving after Stop are dropped without calling a
+handler, including frames arriving after half-close. Each stream keeps reading until
+the Server ends it. At the drain deadline (30 seconds by default), a stream whose
+handler is still running is reset rather than half-closed; its handler is cancelled.
+`Worker::start` waits for cancelled handlers to return. Set
+`PullWorkerOptions::stop_drain_timeout` to change the deadline. Handlers should check
+`Context::is_cancelled` during interruptible work. A broken connection cancels its
+handlers, and their outputs are never sent on a replacement connection.
 
 #### Reserved RPC capacity
 
-Set `reserved_rpc_tasks` when synchronous RPC latency must stay responsive
-behind long-running Steps. When unset, it reserves one slot if the resolved task
-limit is at least two, otherwise zero. With the CPU-count default, Steps get one
-fewer slot than before. Set it explicitly to zero to opt out. With one slot and
-no explicit reserve, Worker start logs one warning: RPCs may wait behind
-long-running Steps; use a limit of at least two or set the reserve explicitly.
-Flows must stay responsive because RPCs share Worker task capacity with Steps.
-The value must be nonnegative and less than `max_concurrent_tasks` after its
-CPU-count default is resolved; invalid values fail construction. RPC and Step
-handlers count together. WaitFor and Execute tasks, including local attempts,
-are declined with `NO_CAPACITY` when the busy
-count reaches the task limit minus the reserve. API-direct and transactional
-InvokeWorkerRPC tasks can use the full limit.
+`reserved_rpc_tasks` selects slots that accept only RPCs. The remaining slots accept
+Steps and RPCs. The Server routes each assignment to an eligible idle slot; the Worker
+never declines a Step to preserve the reservation. When unset, one slot is reserved
+if the resolved task limit is at least two, otherwise zero. Set zero to let Steps use
+all slots. With one slot and no explicit reservation, startup warns that RPCs may
+wait behind long-running Steps. The reservation must be less than the resolved
+`max_concurrent_tasks`; invalid values fail construction.
 
 ```rust
 let pull = PullWorkerOptions::new().max_concurrent_tasks(8).reserved_rpc_tasks(2);
 ```
 
-A decline lets Dex try another Worker without consuming an attempt. If all
-Workers remain at their Step limit, a Step can wait until the dispatch wait
-expires, then receive `NO_WORKER_AVAILABLE`, consume an attempt, and follow its
-retry policy, as when all Workers are full. Local attempts wait the local
-dispatch wait, then fall back according to their policy. A queue that declines
-a Step for reserved RPC capacity keeps one additional idle stream until 30
-seconds after its last decline. Other queues retain their configured count.
-The Worker does not open the extra stream while all task slots are busy. Set
-`idle_streams_per_queue` to at least two for heavy Step backlogs. A reserve decline
-does not close a stream or change registration readiness.
+Readiness requires at least one registered Step-and-RPC slot and one registered
+RPC-only slot when a reservation is configured. The deprecated
+`Worker::pull_reserved_rpc_declines()` method remains available and always returns zero.
 
-Each reserve decline records the Flow type through a tracing debug event
-(configure a tracing subscriber to collect it). Export the cumulative
-`pull_reserved_rpc_declines()` Worker value to distinguish reserve pressure from
-full-capacity rejections. The count excludes full-capacity rejections and unknown
-names. It counts decline events, including repeated declines of the same Step
-dispatch while Dex retries it. Read its rate to assess reserve pressure. It never
-resets and remains available after shutdown.
+### Step retries and recovery
+
+`RetryPolicy::total_duration` starts when Dex first hands the Step to a Worker. After
+an attempt fails, Dex uses that elapsed budget to decide whether to retry. Expiration
+does not end a running attempt.
+
+`Context::recovery_error().attempt_progress()` reports the furthest progress across
+all attempts of the failed method. `StepAttemptProgress::NotStarted` means the handler
+did not run. `NotCompleted` means an attempt may have run, but none completed.
+`Unspecified` comes from older Servers and must be treated like `NotCompleted`.
+
+`StepDurability::Async` gives lower latency and faster individual Flows. Sustained
+throughput is about the same as synchronous durability.
 
 ### Step progress and Streams
 
@@ -489,10 +478,10 @@ events.write(context, Event::Imported { offset })?;
 context.record_heartbeat()?;
 ```
 
-`record_heartbeat_value` persists a typed checkpoint for the next regular activity attempt.
+`record_heartbeat_value` persists a typed checkpoint for the next Step method attempt.
 `record_heartbeat` sends a heartbeat without a Value and clears the persisted details. A missing
 Value and a null Value remain distinguishable by decoding `Option<T>`: the latter returns
-`Some(None)`. Local activities transmit heartbeat frames but Dex ignores their values.
+`Some(None)`. Both durability modes preserve checkpoint values.
 
 Each call blocks only when the Worker's single-frame output buffer is full. This bounded
 backpressure preserves handler order without unbounded memory. `Stream::write` uses the same Step
@@ -583,7 +572,7 @@ an index, or `sync_to_attribute_store`. Every write also rejects values that
 encode to numbers or Booleans. `wait_for_attribute_match` rejects hard-delete
 Attributes, and Action conditions cannot read them. Writes require a Server with an enabled blob store and protocol
 version 3 or later. The Worker checks the protocol at startup, and the Client
-checks it once before its first hard-delete write. Each Flow keeps one stored
+negotiates before its first service request. Each Flow keeps one stored
 copy per Attribute key, so writes from failed attempts, concurrent writers, and
 failed starts for a running Flow ID can affect the stored value. See the
 `Attribute::hard_delete_on_null` documentation for every limitation.
@@ -695,9 +684,14 @@ restricted to `main` and requires the `CRATES_IO_TOKEN` repository secret.
 
 Worker startup calls `GetServerInfo`, negotiates the highest common protocol,
 synchronizes Attribute indexes, and then starts pull polling. The initial Rust
-SDK interval is `[1,1]`. Missing information, invalid or disjoint intervals, and
+SDK interval is `[4,4]`. This requires a server-zd release with protocol 4, later than
+`server-zd/v0.1.16`. Missing information, invalid or disjoint intervals, and
 RPC failures stop startup before polling. The negotiated protocol is retained
-for future protocol-specific paths.
+for future protocol-specific paths. Client construction stays lazy and performs no
+network I/O. Every Client negotiates before its first service request, regardless of
+method. It caches success and incompatibility errors for its lifetime; transient
+negotiation failures are retried on the next call. Errors include the Server version
+and required server-zd release.
 
 The diagnostic SDK version is compiled from Cargo package metadata. Release
 stamping therefore updates both the crate artifact and its runtime value. The

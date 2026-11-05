@@ -440,6 +440,7 @@ impl Client {
         let with_context = |error: SdkError| {
             error.with_call_context(GET_ATTRIBUTES_OPERATION, flow_id, call_context.clone())
         };
+        self.require_server_protocol()?;
         let mut service = self.service.clone();
         let response = self
             .runtime

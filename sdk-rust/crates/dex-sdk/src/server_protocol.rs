@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use dex_protocol::dex::ServerInfo;
 
-pub(crate) const MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 1;
-pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 3;
+pub(crate) const MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 4;
+pub(crate) const MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION: u32 = 4;
 pub(crate) const HARD_DELETE_ATTRIBUTE_PROTOCOL_VERSION: u32 = 3;
 pub(crate) const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -25,10 +25,6 @@ pub(crate) struct NegotiatedServerProtocolVersion {
 impl NegotiatedServerProtocolVersion {
     pub(crate) fn store(&self, version: u32) {
         self.version.store(version, Ordering::Release);
-    }
-
-    pub(crate) fn has_negotiated(&self) -> bool {
-        self.version() != 0
     }
 
     /// Returns `Ok(())` when the negotiated Server accepts hard-delete Attribute writes, and an
@@ -104,7 +100,7 @@ fn compatibility_error(server_info: &ServerInfo, reason: &str) -> String {
         "Rust SDK version \"{SDK_VERSION}\" protocol \
          [{MINIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION},{MAXIMUM_SUPPORTED_SERVER_PROTOCOL_VERSION}] \
          is incompatible with Server version \"{server_version}\" protocol \
-         [{},{}]: {reason}",
+         [{},{}]: {reason}; requires a server-zd release with protocol version 4 (later than server-zd/v0.1.16)",
         server_info.minimum_supported_protocol_version, server_info.current_protocol_version
     )
 }
@@ -115,7 +111,7 @@ mod tests {
 
     #[test]
     fn negotiates_highest_common_protocol() {
-        for (server_current, expected) in [(1, 1), (2, 2), (3, 3), (4, 3)] {
+        for (server_current, expected) in [(4, 4), (5, 4)] {
             let negotiated = negotiate_server_protocol(&ServerInfo {
                 server_version: "newer".to_string(),
                 minimum_supported_protocol_version: 1,
@@ -166,8 +162,8 @@ mod tests {
             },
             ServerInfo {
                 server_version: "future".to_string(),
-                minimum_supported_protocol_version: 4,
-                current_protocol_version: 4,
+                minimum_supported_protocol_version: 5,
+                current_protocol_version: 5,
                 server_engine: 0,
             },
         ] {

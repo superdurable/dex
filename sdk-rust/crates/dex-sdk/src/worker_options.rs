@@ -14,9 +14,8 @@ use crate::Credential;
 /// Configures outbound polling for a Worker.
 ///
 /// Pass this to [`WorkerOptions::pull`]. The Worker polls its sticky queue and each registered
-/// Flow type, runs at most `max_concurrent_tasks` handlers, and keeps `idle_streams_per_queue`
-/// waiting streams on each queue. An omitted task limit uses the CPU count; an omitted idle
-/// stream count uses one. An omitted drain timeout uses 30 seconds.
+/// Flow type through exactly `max_concurrent_tasks` long-lived slot streams. An omitted task limit
+/// uses the CPU count. An omitted drain timeout uses 30 seconds.
 ///
 /// ```no_run
 /// use std::sync::Arc;
@@ -39,14 +38,13 @@ pub struct PullWorkerOptions {
     pub(crate) max_concurrent_tasks: Option<usize>,
     pub(crate) reserved_rpc_tasks: Option<usize>,
     pub(crate) idle_streams_per_queue: Option<usize>,
-    pub(crate) reserve_pressure_linger: Option<Duration>,
     pub(crate) app_worker_id: Option<String>,
     pub(crate) stop_drain_timeout: Option<Duration>,
     pub(crate) stop_on_permanent_stream_rejection: bool,
 }
 
 impl PullWorkerOptions {
-    /// Creates pull options with CPU-count concurrency, one idle stream per queue, and a 30-second drain.
+    /// Creates pull options with CPU-count slot concurrency and a 30-second drain.
     ///
     /// The app Worker ID is generated from process identity and eight random base32 characters.
     pub fn new() -> Self {
@@ -56,31 +54,24 @@ impl PullWorkerOptions {
     /// Sets the maximum number of concurrent Step and RPC handlers.
     ///
     /// The default is the available CPU count. Zero returns [`crate::SdkError::FlowDefinition`]
-    /// from [`crate::Worker::try_new`]. Additional assignments are rejected at capacity.
+    /// from [`crate::Worker::try_new`]. Each slot owns one long-lived poll stream and executes
+    /// every task assigned to it. [`crate::Worker::start`] fails if this value exceeds the
+    /// Server's reported per-Worker limit, configured by `matching.maxConcurrentTasksCap`.
     pub fn max_concurrent_tasks(mut self, value: usize) -> Self {
         self.max_concurrent_tasks = Some(value);
         self
     }
 
-    /// Reserves capacity to protect synchronous RPC latency from long-running Steps.
+    /// Reserves slots that accept only RPCs, protecting RPC latency from long-running Steps.
     ///
-    /// Unset reserves one slot when resolved capacity is at least two, otherwise zero.
-    /// With the CPU-count default, Steps get one fewer slot than before. Set zero to opt out.
-    /// With one slot and no explicit reserve, start warns once that RPCs may wait behind Steps.
-    /// Flows must stay responsive because RPCs share Worker task capacity with Steps.
-    /// WaitFor and Execute tasks, including local attempts, are declined when
-    /// total busy handlers reach the resolved task limit minus this reserve. RPCs use the full limit.
-    /// API-direct and transactional RPCs both use the full limit. Declines reassign without consuming an attempt.
-    /// If all Workers remain at the Step limit through the dispatch wait, NO_WORKER_AVAILABLE
-    /// consumes an attempt and follows the Step retry policy. Local attempts wait the local dispatch
-    /// wait, then fall back according to their policy. Readiness is unaffected.
-    /// Declines emit a tracing debug event and increment [`crate::Worker::pull_reserved_rpc_declines`].
-    /// A queue keeps one extra idle stream for 30 seconds after its last reserve decline.
-    /// The Worker does not open it while all task slots are busy.
-    ///
-    /// `value` must be less than the task limit after its CPU-count default is resolved.
-    /// [`crate::Worker::try_new`] returns [`crate::SdkError::FlowDefinition`] otherwise.
-    /// Returns these options with the reserve applied.
+    /// The default reserves one slot when resolved concurrency is at least two, otherwise zero.
+    /// The remaining slots accept Steps and RPCs. The Server selects eligible slots; the Worker
+    /// never declines a Step for capacity. Set zero to allow Steps on every slot. A one-slot
+    /// Worker with no explicit reservation warns that RPCs may wait behind Steps.
+    /// Readiness requires a registered Step-and-RPC slot and, with a reservation, an RPC-only slot.
+    /// `value` must be less than resolved `max_concurrent_tasks`; otherwise
+    /// [`crate::Worker::try_new`] returns [`crate::SdkError::FlowDefinition`].
+    /// Returns these options with the reservation applied.
     ///
     /// ```
     /// use dex_sdk::PullWorkerOptions;
@@ -91,11 +82,12 @@ impl PullWorkerOptions {
         self
     }
 
-    /// Sets the number of waiting streams per queue.
+    /// Retains the former per-queue idle-stream setting for source compatibility.
     ///
-    /// The default is one. Zero returns [`crate::SdkError::FlowDefinition`] from
-    /// [`crate::Worker::try_new`]. The Worker also retains busy streams until their tasks finish.
-    /// A queue keeps one additional idle stream after a recent reserve decline. Use at least two for heavy Step backlogs.
+    /// Deprecated: `value` is accepted, including zero, and has no effect. Every execution slot
+    /// now owns exactly one long-lived stream. Use [`Self::max_concurrent_tasks`] to select the
+    /// total stream count. Returns these options with the compatibility value retained.
+    #[deprecated(note = "one long-lived stream per execution slot; this setting has no effect")]
     pub fn idle_streams_per_queue(mut self, value: usize) -> Self {
         self.idle_streams_per_queue = Some(value);
         self
@@ -112,7 +104,7 @@ impl PullWorkerOptions {
         self
     }
 
-    /// Stops when a permanent rejection leaves a queue without any registered stream.
+    /// Stops when a permanent rejection leaves a required slot kind without any registered stream.
     ///
     /// Defaults to false, retrying indefinitely. When enabled, [`crate::Worker::start`] drains
     /// within the configured timeout, cancels remaining handlers, and waits for their return.
@@ -128,7 +120,10 @@ impl PullWorkerOptions {
     /// The default is 30 seconds. Zero returns [`crate::SdkError::FlowDefinition`] from
     /// [`crate::Worker::try_new`].
     /// A busy server-directed Reconnect uses this duration to wait for server EOF after the final frame.
-    /// During Stop, half-closed streams use the remaining drain deadline.
+    /// During Stop, idle streams half-close immediately. Busy streams finish and send their final
+    /// output before half-closing. Later task frames are dropped without invoking handlers, and
+    /// half-closed streams keep reading until the Server ends them or the drain deadline expires.
+    /// At the deadline, a stream with a running handler is reset instead of half-closed.
     /// [`crate::Worker::start`] waits for cancelled handlers to return before it exits.
     pub fn stop_drain_timeout(mut self, value: Duration) -> Self {
         self.stop_drain_timeout = Some(value);
