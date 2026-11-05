@@ -1254,6 +1254,12 @@ of the age of the oldest one. **dexzd_matching_unserved_task_queues** is a gauge
 of queues with backlog that no connected Worker can serve. **reason** is
 **no_worker** or **no_supporting_worker**.
 
+After a restart or a failover, each partition joins
+**dexzd_step_task_queue_entries** only when its background count finishes, so
+the gauge can read low for a while. During that time, rely on
+**dexzd_step_task_queue_oldest_age_seconds**, which the rebuild keeps accurate
+from the first queued task of each queue.
+
 **matching.headsResyncInterval** sets a periodic background check. It only
 catches server bugs that lose queued tasks. **dexzd_matching_heads_restored_refs_total**
 is a counter that should stay 0. If it is ever nonzero, look for the WARN log

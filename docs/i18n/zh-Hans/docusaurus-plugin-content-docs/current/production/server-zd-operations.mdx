@@ -1052,6 +1052,10 @@ RPC 从不排队。如果在 **dispatchWait** 内没有可用的 Worker，RPC �
 **dexzd_matching_unserved_task_queues** 是有积压、但没有已连接 Worker 能服务的队列数的 gauge，
 **reason** 为 **no_worker** 或 **no_supporting_worker**。
 
+重启或 failover 之后，每个 partition 要等它的后台计数完成，才会计入
+**dexzd_step_task_queue_entries**，所以这个 gauge 可能会在一段时间内偏低。这段时间里请以
+**dexzd_step_task_queue_oldest_age_seconds** 为准，重建会根据每个队列的第一个排队任务让它保持准确。
+
 **matching.headsResyncInterval** 设置一个周期性的后台检查。它只能发现丢失排队任务的 server bug。
 **dexzd_matching_heads_restored_refs_total** 是应保持为 0 的 counter。如果它不为 0，请查看 WARN 日志
 "periodic Heads restored a queued task that matching had lost"，并把它当作 bug 报告。

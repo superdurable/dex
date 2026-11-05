@@ -656,6 +656,8 @@ pub fn get_pull_greeting_diagnostics(worker: &Worker) -> PullGreetingDiagnostics
 server-zd 没有 Worker 唤醒 hook。Worker 可能缩容到零时，没有 Worker 接收的 Step 会在持久任务队列中
 等待，直到有 Worker 启动，等待不消耗重试。请按队列深度和最老任务的年龄来扩缩 Worker，即
 **dexzd_step_task_queue_entries** 和 **dexzd_step_task_queue_oldest_age_seconds**。
+重启或 failover 刚结束时，每个 partition 的后台计数完成之前，队列深度的 gauge 可能偏低，所以不要只凭它缩容到零；
+最老任务的年龄保持准确。
 见 [Pull Worker 分发](/production/server-zd-operations#pull-worker-dispatch)。
 RPC 不排队，所以在没有 Worker 运行时，它会在分发等待后失败。
 

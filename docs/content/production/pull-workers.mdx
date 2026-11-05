@@ -699,6 +699,9 @@ server-zd has no Worker wake hook. When Workers may scale to zero, a Step
 that no Worker takes waits in the durable task queue until a Worker starts. The
 wait uses no retry. Scale Workers on the queue depth and oldest age metrics,
 **dexzd_step_task_queue_entries** and **dexzd_step_task_queue_oldest_age_seconds**.
+Right after a restart or a failover, the entries gauge can read low until each
+partition's background count finishes, so do not scale to zero on it alone; the
+oldest age stays accurate.
 See [Pull Worker dispatch](/production/server-zd-operations#pull-worker-dispatch).
 An RPC does not queue, so it fails after the dispatch wait while no Worker runs.
 

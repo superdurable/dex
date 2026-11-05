@@ -169,7 +169,7 @@ Flow 详情显示 **Worker target**，其值为 **Pull**。它还显示以 Flow 
 
 活跃 Step 显示当前的 **WaitFor invocation** 和 **Execute invocation**。**Phase** 是 **Pending**、**Running** 或 **Backoff**。**Attempt** 是正在等待或运行的 attempt。在 **Backoff** 期间，它是下一次 attempt。待处理的 attempt 显示 **Pending reason** 和 **Pending since**，以及已经等待的时长。原因是以下之一：
 
-- **Waiting for locks**：另一个 Step 或事务性 RPC 持有它的某个锁，或者更早的 Step 正在等待其中一个锁。
+- **Waiting for locks**：另一个 Step 或事务型 RPC 持有它的某个锁，或者更早的 Step 正在等待其中一个锁。
 - **Waiting for a Worker**：还没有该 Flow 类型的 Worker 接收这个 attempt。
 - **Waiting for a Worker that supports this Step type**：该 Flow 类型的 Worker 已经连接，但都不支持这个 Step 类型。该 Step 会一直排队，直到支持它的 Worker 连接、Flow 超时或 Flow 被停止。
 
