@@ -189,8 +189,9 @@ input. Dex then runs the start Step on a Worker. Each Step returns a decision
 that moves to the next Steps or closes the Flow. Several Steps can be active
 at the same time.
 
-A Flow closes when a Step completes or fails it, when its timeout fires, or
-when a client stops it. While it runs, clients read and change it through RPCs
+A Flow closes when a Step completes or fails it, when its timeout fails or
+cancels it, or when a client stops it. A timeout can instead run a handler that
+decides the outcome. While it runs, clients read and change it through RPCs
 and Channels.
 
 ## Start options and configuration {#start-options}
