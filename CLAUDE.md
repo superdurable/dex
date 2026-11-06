@@ -152,7 +152,8 @@ build it.
 - The left sidebar of each reference has a version selector. It defaults to
   the latest version.
 - Only the current version is edited by hand. Each minor release snapshots it
-  automatically. Older versions change only to fix a factual error.
+  automatically. Older versions change only to fix a factual error or a
+  broken link.
 - The site keeps the last 5 versions of each reference.
 - When a version leaves the site, redirect each of its URLs to the same page
   in the latest version. If that page no longer exists, redirect to the

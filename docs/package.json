@@ -14,8 +14,9 @@
     "write-heading-ids": "docusaurus write-heading-ids",
     "generate:flow-definitions": "./scripts/generate-flow-definitions.sh",
     "typecheck": "tsc",
-    "test:site": "node tests/site-smoke.mjs",
-    "check": "npm run typecheck && npm run build && npm run test:site"
+    "test:site": "npm run test:reference && node tests/site-smoke.mjs",
+    "check": "npm run typecheck && npm run build && npm run test:site",
+    "test:reference": "node --test tests/snapshot-reference.test.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "3.8.1",
@@ -36,7 +37,9 @@
     "@docusaurus/module-type-aliases": "3.8.1",
     "@docusaurus/tsconfig": "3.8.1",
     "@docusaurus/types": "3.8.1",
+    "@docusaurus/utils": "3.8.1",
     "@types/dagre": "^0.7.52",
+    "gray-matter": "4.0.3",
     "remark-frontmatter": "5.0.0",
     "remark-gfm": "4.0.1",
     "remark-mdx": "3.1.1",
