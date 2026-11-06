@@ -74,12 +74,10 @@ tools until it is back.
 
 ## Run it
 
-The example installs the Dex Agents library from this repository until 0.2.0 is on npm. Build it
-first, and again (followed by `npm install`) after you change it, because npm copies the built package:
+The example installs the published Dex Agents library, `@superdurable/dex-agents` 0.2.0, from npm:
 
 ```bash
 dexcli dev
-cd agents/typescript/core && npm ci && npm run build && cd -
 cd examples/typescript
 npm install
 npm start

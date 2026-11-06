@@ -3,13 +3,8 @@
 These examples target [`@superdurable/dex@1.35.0`](https://www.npmjs.com/package/@superdurable/dex).
 
 The [AI Agent](./src/products/ai-agent) also depends on the Dex Agents library,
-[`@superdurable/dex-agents`](../../agents/typescript/core). Until its 0.2.0
-release is on npm, `package.json` installs it from this repository, so build it
-before `npm install`:
-
-```bash
-(cd ../../agents/typescript/core && npm ci && npm run build)
-```
+[`@superdurable/dex-agents@0.2.0`](https://www.npmjs.com/package/@superdurable/dex-agents),
+installed from npm.
 
 The sample process runs one pull Worker and an HTTP controller on port `8080`.
 The Worker needs only an outbound connection to the Dex Server. Step `execute` / `waitFor` / RPC handlers may
