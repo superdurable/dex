@@ -12,8 +12,8 @@ use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dexzd_protocol::dex::{GetFlowSummaryRequest, PollWorkerTaskRequest};
 use dexzd_server::{DevCommandOptions, start_dev_server};
-use s3mock::{Durability, EtagMode, Store, StoreConfig};
-use s3mock_server::SignatureVerification;
+use s3local::{Durability, EtagMode, Store, StoreConfig};
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tonic::Code;
 use tonic::transport::Channel;
@@ -154,6 +154,7 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
         log_dir: None,
         config: Some(config_path),
         attribute_store_config: None,
+        durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
     };
     let waiting_address = waiting_options.listen;
     let waiting = tokio::spawn(async move { start_dev_server(&waiting_options).await });

@@ -311,9 +311,10 @@ Kubernetes 随后按退避策略重启容器。
 进程会启动失败。持有这个锁期间，仍被持有的 lease 一定属于已经停止的进程。dev 节点随后会立即
 接管 lease 并提升 epoch，所以重启不需要等待，崩溃之后也一样。在不支持文件锁的文件系统上，dev
 节点会记录一条警告，并等待 lease 过期，最多 31 秒。默认的 **dev.durabilityMode** 是
-**processCrashSafe**，它在这类崩溃或 kill 之后保留每个已确认的写入，但不能承受主机崩溃或
-断电。**strict** 还能承受主机崩溃。在 **relaxed** 模式下异常退出之后，dev 节点会拒绝启动，
-直到你删除它的数据目录。参见[本地开发](/production/dex-web#run-against-server-zd)。
+**strict**，它在回复之前用 fsync 刷写每个写入。它在这类崩溃或 kill 之后保留每个已确认的
+写入，也能承受主机崩溃或断电。**processCrashSafe** 跳过 fsync，所以更快，但主机崩溃或断电
+可能丢失最近的写入。**dex-server-zd dev** 的 **--durability** flag 会覆盖这个设置。在
+**relaxed** 模式下异常退出之后，dev 节点会拒绝启动，直到你删除它的数据目录。参见[本地开发](/production/dex-web#run-against-server-zd)。
 
 数据安全不依赖这个时长。每次获得 lease 都会提升节点 epoch，每次日志写入都是条件写。
 两者一起把丢失 lease 的进程隔离在外。

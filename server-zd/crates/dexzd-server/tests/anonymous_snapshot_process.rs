@@ -37,6 +37,8 @@ async fn dev_mode_completes_snapshot_with_anonymous_object_store() {
         .arg(address.to_string())
         .arg("--config")
         .arg(&config_path)
+        .arg("--durability")
+        .arg("process-crash-safe")
         .env("RUST_LOG", "info")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

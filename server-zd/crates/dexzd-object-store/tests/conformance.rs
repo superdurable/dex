@@ -16,7 +16,7 @@ use dexzd_object_store::{
     ByteRange, InMemoryObjectStore, ObjectStore, S3Credentials, S3ObjectStore, S3ObjectStoreConfig,
     WriteCondition, WriteOutcome, startup_self_check,
 };
-use s3mock::{Durability, EtagMode, Store, StoreConfig};
+use s3local::{Durability, EtagMode, Store, StoreConfig};
 use tempfile::TempDir;
 
 use recording_s3_proxy::RecordingS3Proxy;
@@ -434,7 +434,7 @@ async fn s3_conformance(durability: Durability) {
             .await
             .expect("the conformance operation succeeds");
         let store = Arc::new(store);
-        let server = s3mock_server::start(Arc::clone(&store), listener)
+        let server = s3local_server::start(Arc::clone(&store), listener)
             .expect("the conformance operation succeeds");
         let endpoint = format!("http://{}", server.local_address());
         (
@@ -443,8 +443,8 @@ async fn s3_conformance(durability: Durability) {
             endpoint,
             "object-store-conformance".to_owned(),
             S3Credentials::Static {
-                access_key_id: "s3mock".to_owned(),
-                secret_access_key: "s3mock".to_owned(),
+                access_key_id: "s3local".to_owned(),
+                secret_access_key: "s3local".to_owned(),
                 session_token: None,
             },
         )
@@ -470,7 +470,7 @@ async fn s3_conformance(durability: Durability) {
         .expect("the conformance operation succeeds");
     check_store(&object_store).await;
     if let Some(server) = &server {
-        let request_log = s3mock_request_log(server.local_address()).await;
+        let request_log = s3local_request_log(server.local_address()).await;
         assert!(
             request_log.contains("\"operation\":\"ListObjectsV2\""),
             "{request_log}"
@@ -488,7 +488,7 @@ async fn s3_conformance(durability: Durability) {
         let uploads = store
             .list_multipart_uploads(
                 &bucket,
-                &s3mock::ListMultipartUploadsRequest {
+                &s3local::ListMultipartUploadsRequest {
                     prefix: "dexzd/conformance/".to_owned(),
                     delimiter: String::new(),
                     key_marker: None,
@@ -525,7 +525,7 @@ async fn relaxed_s3_conformance() {
 async fn start_anonymous_s3_store(
     directory: &TempDir,
     multipart_threshold: usize,
-) -> (Arc<Store>, s3mock_server::ServerHandle, S3ObjectStore) {
+) -> (Arc<Store>, s3local_server::ServerHandle, S3ObjectStore) {
     let store = Store::open(&StoreConfig {
         root_directory: directory.path().join("s3"),
         durability: Durability::Relaxed,
@@ -539,7 +539,7 @@ async fn start_anonymous_s3_store(
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("the emulator binds");
-    let server = s3mock_server::start(Arc::clone(&store), listener).expect("the emulator starts");
+    let server = s3local_server::start(Arc::clone(&store), listener).expect("the emulator starts");
     let mut config = S3ObjectStoreConfig::new("us-east-1", "anonymous-file-uploads");
     config.endpoint = Some(format!("http://{}", server.local_address()));
     config.force_path_style = true;
@@ -578,16 +578,16 @@ async fn anonymous_s3_single_file_upload_preserves_crc32() {
         .head_object(
             "anonymous-file-uploads",
             "single",
-            &s3mock::ObjectReadRequest::default(),
+            &s3local::ObjectReadRequest::default(),
         )
         .expect("the single-part object is readable")
         .record
         .checksum
         .expect("the single-part object has a checksum");
-    assert_eq!(single_checksum.algorithm, s3mock::ChecksumAlgorithm::Crc32);
+    assert_eq!(single_checksum.algorithm, s3local::ChecksumAlgorithm::Crc32);
     assert_eq!(
         single_checksum.base64_value,
-        s3mock::ChecksumAlgorithm::Crc32.base64_checksum(single_body)
+        s3local::ChecksumAlgorithm::Crc32.base64_checksum(single_body)
     );
     server.shutdown().await;
 }
@@ -687,7 +687,7 @@ async fn anonymous_s3_multipart_file_upload_sends_crc32_for_every_part() {
                     .is_some_and(|line| line.contains(&format!("partNumber={part_number}")))
             })
             .expect("each part has an UploadPart request");
-        let expected_checksum = s3mock::ChecksumAlgorithm::Crc32.base64_checksum(part_body);
+        let expected_checksum = s3local::ChecksumAlgorithm::Crc32.base64_checksum(part_body);
         assert!(
             request.lines().any(|line| {
                 line.split_once(':').is_some_and(|(name, value)| {
@@ -725,7 +725,7 @@ fn assert_multipart_crc32(store: &Store, key: &str, body: &[u8], part_size: usiz
         .head_object(
             "anonymous-file-uploads",
             key,
-            &s3mock::ObjectReadRequest::default(),
+            &s3local::ObjectReadRequest::default(),
         )
         .expect("the multipart object is readable")
         .record;
@@ -734,18 +734,18 @@ fn assert_multipart_crc32(store: &Store, key: &str, body: &[u8], part_size: usiz
     let checksum = record
         .checksum
         .expect("the multipart object has a checksum");
-    assert_eq!(checksum.algorithm, s3mock::ChecksumAlgorithm::Crc32);
-    assert_eq!(checksum.checksum_type, s3mock::ChecksumType::Composite);
+    assert_eq!(checksum.algorithm, s3local::ChecksumAlgorithm::Crc32);
+    assert_eq!(checksum.checksum_type, s3local::ChecksumType::Composite);
     let mut part_checksums = Vec::new();
     for part_body in body.chunks(part_size) {
-        let part_checksum = s3mock::ChecksumAlgorithm::Crc32.base64_checksum(part_body);
+        let part_checksum = s3local::ChecksumAlgorithm::Crc32.base64_checksum(part_body);
         part_checksums.extend_from_slice(
-            &s3mock::decode_base64(&part_checksum).expect("the part checksum is valid base64"),
+            &s3local::decode_base64(&part_checksum).expect("the part checksum is valid base64"),
         );
     }
     let expected = format!(
         "{}-{part_count}",
-        s3mock::ChecksumAlgorithm::Crc32.base64_checksum(&part_checksums)
+        s3local::ChecksumAlgorithm::Crc32.base64_checksum(&part_checksums)
     );
     assert_eq!(checksum.base64_value, expected);
 }
@@ -1032,7 +1032,7 @@ async fn startup_check_names_failed_positive_replacement() {
 #[tokio::test]
 async fn s3_missing_bucket_and_access_denied_are_permanent() {
     use dexzd_object_store::ObjectStoreErrorKind;
-    use s3mock_server::{ServerConfig, SignatureVerification};
+    use s3local_server::{ServerConfig, SignatureVerification};
 
     let directory = TempDir::new().expect("the conformance operation succeeds");
     let store = Store::open(&StoreConfig {
@@ -1047,7 +1047,7 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("the conformance operation succeeds");
-    let server = s3mock_server::start_with_config(
+    let server = s3local_server::start_with_config(
         Arc::new(store),
         listener,
         ServerConfig {
@@ -1061,8 +1061,8 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
     missing.endpoint = Some(endpoint.clone());
     missing.force_path_style = true;
     missing.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: None,
     };
     let missing = S3ObjectStore::new(missing)
@@ -1111,7 +1111,7 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
             .kind,
         ObjectStoreErrorKind::Permanent
     );
-    let request_log = s3mock_request_log(server.local_address()).await;
+    let request_log = s3local_request_log(server.local_address()).await;
     assert!(
         !request_log.contains("\"operation\":\"HeadBucket\""),
         "{request_log}"
@@ -1121,8 +1121,8 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
     session.endpoint = Some(endpoint.clone());
     session.force_path_style = true;
     session.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: Some("temporary-session".to_owned()),
     };
     let session = S3ObjectStore::new(session)
@@ -1192,7 +1192,7 @@ async fn s3_missing_bucket_and_access_denied_are_permanent() {
 
 #[tokio::test]
 async fn s3_prefix_confined_reads_disambiguate_access_denied() {
-    use s3mock_server::{ServerConfig, SignatureVerification};
+    use s3local_server::{ServerConfig, SignatureVerification};
 
     let directory = TempDir::new().expect("the test directory opens");
     let store = Store::open(&StoreConfig {
@@ -1207,7 +1207,7 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("the listener binds");
-    let server = s3mock_server::start_with_config(
+    let server = s3local_server::start_with_config(
         Arc::new(store),
         listener,
         ServerConfig {
@@ -1221,8 +1221,8 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
     config.key_prefix = "confined".to_owned();
     config.force_path_style = true;
     config.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: None,
     };
     let startup_config = config.clone();
@@ -1251,7 +1251,7 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
     startup_self_check(&object_store)
         .await
         .expect("startup works with existing keys under the configured prefix");
-    set_s3mock_fault(
+    set_s3local_fault(
         server.local_address(),
         r#"{"operation":"GetObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"HeadObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"GetObject","key_prefix":"confined/existing","action":{"type":"error","status":403}},{"operation":"HeadObject","key_prefix":"confined/existing","action":{"type":"error","status":403}}"#,
     )
@@ -1308,7 +1308,7 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
             .detail
             .contains("status=Some(403)")
     );
-    let request_log = s3mock_request_log(server.local_address()).await;
+    let request_log = s3local_request_log(server.local_address()).await;
     assert!(
         !request_log.contains("\"operation\":\"HeadBucket\""),
         "{request_log}"
@@ -1317,7 +1317,7 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
         request_log.contains("\"operation\":\"ListObjectsV2\""),
         "{request_log}"
     );
-    set_s3mock_fault(
+    set_s3local_fault(
         server.local_address(),
         r#"{"operation":"GetObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"HeadObject","key_prefix":"confined/missing","action":{"type":"error","status":403}},{"operation":"ListObjectsV2","bucket":"confined-bucket","action":{"type":"error","status":403}}"#,
     )
@@ -1362,7 +1362,7 @@ async fn s3_prefix_confined_reads_disambiguate_access_denied() {
 
 #[tokio::test]
 async fn s3_denied_read_retries_when_key_appears_before_listing() {
-    use s3mock_server::{ServerConfig, SignatureVerification};
+    use s3local_server::{ServerConfig, SignatureVerification};
 
     let directory = TempDir::new().expect("the test directory opens");
     let store = Store::open(&StoreConfig {
@@ -1377,7 +1377,7 @@ async fn s3_denied_read_retries_when_key_appears_before_listing() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("the listener binds");
-    let server = s3mock_server::start_with_config(
+    let server = s3local_server::start_with_config(
         Arc::new(store),
         listener,
         ServerConfig {
@@ -1391,12 +1391,12 @@ async fn s3_denied_read_retries_when_key_appears_before_listing() {
     config.key_prefix = "confined".to_owned();
     config.force_path_style = true;
     config.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: None,
     };
     let object_store = Arc::new(S3ObjectStore::new(config).await.expect("the client opens"));
-    set_s3mock_fault(
+    set_s3local_fault(
         server.local_address(),
         r#"{"operation":"GetObject","key_prefix":"confined/race","action":{"type":"error","status":403}},{"operation":"ListObjectsV2","action":{"type":"delay","milliseconds":5000}}"#,
     )
@@ -1405,7 +1405,7 @@ async fn s3_denied_read_retries_when_key_appears_before_listing() {
     let read = tokio::spawn(async move { reading_store.get("race").await });
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
-            let requests = s3mock_request_log(server.local_address()).await;
+            let requests = s3local_request_log(server.local_address()).await;
             if requests.contains("\"key\":\"confined/race\"") && requests.contains("\"status\":403")
             {
                 break;
@@ -1423,7 +1423,7 @@ async fn s3_denied_read_retries_when_key_appears_before_listing() {
         )
         .await
         .expect("the key is created before the listing completes");
-    set_s3mock_fault(server.local_address(), "").await;
+    set_s3local_fault(server.local_address(), "").await;
     let content = read
         .await
         .expect("the read task completes")
@@ -1433,14 +1433,14 @@ async fn s3_denied_read_retries_when_key_appears_before_listing() {
     server.shutdown().await;
 }
 
-async fn set_s3mock_fault(address: std::net::SocketAddr, rule: &str) {
+async fn set_s3local_fault(address: std::net::SocketAddr, rule: &str) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let body = format!("{{\"rules\":[{rule}]}}");
     let mut stream = tokio::net::TcpStream::connect(address)
         .await
         .expect("the conformance operation succeeds");
     let request = format!(
-        "PUT /_s3mock/faults HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "PUT /_s3local/faults HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     );
     stream
@@ -1459,7 +1459,7 @@ async fn set_s3mock_fault(address: std::net::SocketAddr, rule: &str) {
     );
 }
 
-async fn s3mock_request_log(address: std::net::SocketAddr) -> String {
+async fn s3local_request_log(address: std::net::SocketAddr) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut stream = tokio::net::TcpStream::connect(address)
         .await
@@ -1467,7 +1467,7 @@ async fn s3mock_request_log(address: std::net::SocketAddr) -> String {
     stream
         .write_all(
             format!(
-                "GET /_s3mock/requests HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
+                "GET /_s3local/requests HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n"
             )
             .as_bytes(),
         )
@@ -1499,12 +1499,12 @@ async fn s3_conflicts_and_ambiguous_writes() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("the conformance operation succeeds");
-    let server = s3mock_server::start_with_config(
+    let server = s3local_server::start_with_config(
         Arc::clone(&store),
         listener,
-        s3mock_server::ServerConfig {
+        s3local_server::ServerConfig {
             fault_seed: 3,
-            ..s3mock_server::ServerConfig::default()
+            ..s3local_server::ServerConfig::default()
         },
     )
     .expect("the conformance operation succeeds");
@@ -1512,15 +1512,15 @@ async fn s3_conflicts_and_ambiguous_writes() {
     config.endpoint = Some(format!("http://{}", server.local_address()));
     config.force_path_style = true;
     config.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: None,
     };
     let object_store = S3ObjectStore::new(config)
         .await
         .expect("the conformance operation succeeds");
 
-    set_s3mock_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"conflict-once/","has_conditional_header":true,"probability":0.5,"action":{"type":"error","status":409}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"conflict-once/","has_conditional_header":true,"probability":0.5,"action":{"type":"error","status":409}}"#).await;
     assert!(matches!(
         object_store
             .put(
@@ -1532,7 +1532,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             .expect("a one-time conflict is retried"),
         WriteOutcome::Written { .. }
     ));
-    let once_log = s3mock_request_log(server.local_address()).await;
+    let once_log = s3local_request_log(server.local_address()).await;
     assert_eq!(
         once_log
             .matches("\"key\":\"conflict-once/key\",\"operation\":\"PutObject\",\"status\":409")
@@ -1540,7 +1540,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
         1
     );
 
-    set_s3mock_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"conflict/","has_conditional_header":true,"action":{"type":"error","status":409}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"conflict/","has_conditional_header":true,"action":{"type":"error","status":409}}"#).await;
     assert_eq!(
         object_store
             .put(
@@ -1560,7 +1560,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             .expect("the key can be read")
             .is_none()
     );
-    let conflict_request_log = s3mock_request_log(server.local_address()).await;
+    let conflict_request_log = s3local_request_log(server.local_address()).await;
     assert_eq!(
         conflict_request_log
             .matches("\"key\":\"conflict/key\",\"operation\":\"PutObject\",\"status\":409")
@@ -1568,7 +1568,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
         3,
         "{conflict_request_log}"
     );
-    set_s3mock_fault(server.local_address(), r#"{"operation":"CompleteMultipartUpload","bucket":"fault-bucket","key_prefix":"multipart-conflict/","has_conditional_header":true,"action":{"type":"error","status":409}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"CompleteMultipartUpload","bucket":"fault-bucket","key_prefix":"multipart-conflict/","has_conditional_header":true,"action":{"type":"error","status":409}}"#).await;
     assert_eq!(
         object_store
             .put(
@@ -1601,7 +1601,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
     let uploads = store
         .list_multipart_uploads(
             "fault-bucket",
-            &s3mock::ListMultipartUploadsRequest {
+            &s3local::ListMultipartUploadsRequest {
                 prefix: "multipart-conflict/".to_owned(),
                 delimiter: String::new(),
                 key_marker: None,
@@ -1611,7 +1611,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
         )
         .expect("multipart uploads can be inspected");
     assert!(uploads.uploads.is_empty());
-    let request_log = s3mock_request_log(server.local_address()).await;
+    let request_log = s3local_request_log(server.local_address()).await;
     for key in ["multipart-conflict/bytes", "multipart-conflict/file"] {
         assert_eq!(
             request_log
@@ -1622,7 +1622,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             3
         );
     }
-    set_s3mock_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"failed/","action":{"type":"error","status":500}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"failed/","action":{"type":"error","status":500}}"#).await;
     assert_eq!(
         object_store
             .put(
@@ -1635,7 +1635,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             .kind,
         ObjectStoreErrorKind::OutcomeUnknown
     );
-    set_s3mock_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"throttled/","action":{"type":"error","status":503}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"throttled/","action":{"type":"error","status":503}}"#).await;
     assert_eq!(
         object_store
             .put(
@@ -1648,7 +1648,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             .kind,
         ObjectStoreErrorKind::Transient
     );
-    set_s3mock_fault(server.local_address(), r#"{"operation":"UploadPart","bucket":"fault-bucket","key_prefix":"part-failure/","action":{"type":"error","status":500}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"UploadPart","bucket":"fault-bucket","key_prefix":"part-failure/","action":{"type":"error","status":500}}"#).await;
     assert_eq!(
         object_store
             .put(
@@ -1664,7 +1664,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
     let unfinished = store
         .list_multipart_uploads(
             "fault-bucket",
-            &s3mock::ListMultipartUploadsRequest {
+            &s3local::ListMultipartUploadsRequest {
                 prefix: "part-failure/".to_owned(),
                 delimiter: String::new(),
                 key_marker: None,
@@ -1680,14 +1680,14 @@ async fn s3_conflicts_and_ambiguous_writes() {
     timeout_config.force_path_style = true;
     timeout_config.request_timeout = std::time::Duration::from_millis(40);
     timeout_config.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: None,
     };
     let timeout_store = S3ObjectStore::new(timeout_config)
         .await
         .expect("the timeout store is configured");
-    set_s3mock_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"delayed/","action":{"type":"delay","milliseconds":250}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"delayed/","action":{"type":"delay","milliseconds":250}}"#).await;
     assert_eq!(
         timeout_store
             .put(
@@ -1700,7 +1700,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             .kind,
         ObjectStoreErrorKind::OutcomeUnknown
     );
-    set_s3mock_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"committed/","action":{"type":"commit_then_drop"}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"PutObject","bucket":"fault-bucket","key_prefix":"committed/","action":{"type":"commit_then_drop"}}"#).await;
     let committed_error = object_store
         .put(
             "committed/key",
@@ -1723,7 +1723,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             .bytes,
         Bytes::from_static(b"body")
     );
-    set_s3mock_fault(server.local_address(), r#"{"operation":"GetObject","bucket":"fault-bucket","key_prefix":"committed/","action":{"type":"error","status":500}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"GetObject","bucket":"fault-bucket","key_prefix":"committed/","action":{"type":"error","status":500}}"#).await;
     assert_eq!(
         object_store
             .get("committed/key")
@@ -1732,7 +1732,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
             .kind,
         ObjectStoreErrorKind::Transient
     );
-    set_s3mock_fault(server.local_address(), r#"{"operation":"GetObject","bucket":"fault-bucket","key_prefix":"committed/","action":{"type":"truncate_response"}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"GetObject","bucket":"fault-bucket","key_prefix":"committed/","action":{"type":"truncate_response"}}"#).await;
     let download_directory = TempDir::new().expect("the download fixture directory is available");
     let target = download_directory.path().join("incomplete");
     assert_eq!(
@@ -1745,7 +1745,7 @@ async fn s3_conflicts_and_ambiguous_writes() {
     );
     assert!(!target.exists());
     assert_no_temporary_downloads(download_directory.path());
-    set_s3mock_fault(server.local_address(), r#"{"operation":"GetObject","bucket":"fault-bucket","key_prefix":"unused/","action":{"type":"truncate_response"}}"#).await;
+    set_s3local_fault(server.local_address(), r#"{"operation":"GetObject","bucket":"fault-bucket","key_prefix":"unused/","action":{"type":"truncate_response"}}"#).await;
     assert_eq!(
         object_store
             .get_to_file("committed/key", &target)
@@ -1778,8 +1778,8 @@ async fn s3_connection_refused_is_transient() {
     config.force_path_style = true;
     config.request_timeout = std::time::Duration::from_secs(2);
     config.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: None,
     };
     let store = S3ObjectStore::new(config)
@@ -1829,8 +1829,8 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
     config.request_timeout = std::time::Duration::from_secs(1);
     config.multipart_threshold = 5 * 1024 * 1024;
     config.credentials = S3Credentials::Static {
-        access_key_id: "s3mock".to_owned(),
-        secret_access_key: "s3mock".to_owned(),
+        access_key_id: "s3local".to_owned(),
+        secret_access_key: "s3local".to_owned(),
         session_token: None,
     };
     let store = S3ObjectStore::new(config)

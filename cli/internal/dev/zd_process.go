@@ -57,6 +57,12 @@ func (resources *zdRunResources) closeInto(runErr *error) {
 }
 
 func startZDProcess(cfg *Config, dataDirectory string, dexAddress string, logs io.Writer) (*zdProcess, error) {
+	command := exec.Command(cfg.ZDBinary, zdDevArguments(cfg, dataDirectory, dexAddress)...)
+	return startChildProcess(command, logs, "dex-server-zd", true)
+}
+
+// zdDevArguments returns the dex-server-zd command line, starting with dev, for cfg.
+func zdDevArguments(cfg *Config, dataDirectory string, dexAddress string) []string {
 	arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", dexAddress}
 	if cfg.isExplicit("server-log-folder") {
 		arguments = append(arguments, "--log-dir", cfg.LogDirectory)
@@ -64,11 +70,14 @@ func startZDProcess(cfg *Config, dataDirectory string, dexAddress string, logs i
 	if cfg.ZDConfigPath != "" {
 		arguments = append(arguments, "--config", cfg.ZDConfigPath)
 	}
+	// Passed only when set, so a -zd-config durability applies and older dex-server-zd releases still start.
+	if cfg.isExplicit("durability") {
+		arguments = append(arguments, "--durability", cfg.Durability)
+	}
 	if cfg.AttributeStoreConfigPath != "" {
 		arguments = append(arguments, "--attribute-store-config", cfg.AttributeStoreConfigPath)
 	}
-	command := exec.Command(cfg.ZDBinary, arguments...)
-	return startChildProcess(command, logs, "dex-server-zd", true)
+	return arguments
 }
 
 func waitForZD(ctx context.Context, address string, process *zdProcess) (*grpc.ClientConn, error) {

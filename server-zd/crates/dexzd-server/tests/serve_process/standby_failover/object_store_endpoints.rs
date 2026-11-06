@@ -12,15 +12,15 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use s3mock::Store;
-use s3mock_server::{ServerConfig, ServerHandle, SignatureVerification};
+use s3local::Store;
+use s3local_server::{ServerConfig, ServerHandle, SignatureVerification};
 
 use crate::PRIMARY_PREFIX;
-use crate::harness::s3mock_admin_request;
+use crate::harness::s3local_admin_request;
 
 /// Longer than the server's 30 s object storage request timeout, so every held request times out.
 const TIMEOUT_HOLD: Duration = Duration::from_secs(35);
-/// The longest delay s3mock accepts; the held requests run only when the fault is cleared.
+/// The longest delay s3local accepts; the held requests run only when the fault is cleared.
 const BLACKHOLE_HOLD: Duration = Duration::from_secs(600);
 /// Operations that change object storage; a standby sends none of them.
 const WRITE_OPERATIONS: [&str; 8] = [
@@ -39,7 +39,7 @@ const HELD_REQUEST_DURATION: Duration = Duration::from_secs(1);
 /// A fault that one endpoint applies to every S3 operation until it is cleared.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ObjectStoreFault {
-    /// Delays every request by this long before s3mock handles it.
+    /// Delays every request by this long before s3local handles it.
     Latency(Duration),
     /// Delays only requests for node log objects, so lease reads and writes stay fast.
     LogLatency(Duration),
@@ -48,14 +48,14 @@ pub(crate) enum ObjectStoreFault {
 
     /// Fails each request with 503 SlowDown with this probability, before it reaches the store.
     ServiceUnavailable { probability: f64 },
-    /// Holds every request past the client's timeout; s3mock then drops it unhandled.
+    /// Holds every request past the client's timeout; s3local then drops it unhandled.
     Timeouts,
     /// Holds requests until cleared; clearing runs only those whose connection stayed open.
     Blackhole,
 }
 
 impl ObjectStoreFault {
-    /// Returns the s3mock fault rules that implement this fault.
+    /// Returns the s3local fault rules that implement this fault.
     fn rules(self) -> String {
         let action = match self {
             Self::Latency(delay) => delay_action(delay),
@@ -92,7 +92,7 @@ fn delay_action(delay: Duration) -> String {
     format!(r#"{{"type":"delay","milliseconds":{}}}"#, delay.as_millis())
 }
 
-/// One s3mock server over the shared emulator store with its own fault rules and request counters.
+/// One s3local server over the shared emulator store with its own fault rules and request counters.
 pub(crate) struct ObjectStoreEndpoint {
     server: ServerHandle,
 }
@@ -103,7 +103,7 @@ impl ObjectStoreEndpoint {
         let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
             .await
             .expect("the endpoint binds a loopback port");
-        let server = s3mock_server::start_with_config(
+        let server = s3local_server::start_with_config(
             store,
             listener,
             ServerConfig {
@@ -121,10 +121,10 @@ impl ObjectStoreEndpoint {
 
     /// Replaces this endpoint's faults with `fault`; other endpoints keep theirs.
     pub(crate) async fn inject(&self, fault: ObjectStoreFault) {
-        let response = s3mock_admin_request(
+        let response = s3local_admin_request(
             self.server.local_address(),
             "PUT",
-            "/_s3mock/faults",
+            "/_s3local/faults",
             &format!(r#"{{"rules":{}}}"#, fault.rules()),
         )
         .await;
@@ -133,16 +133,21 @@ impl ObjectStoreEndpoint {
 
     /// Removes this endpoint's faults and releases the requests a delay still holds.
     pub(crate) async fn clear_faults(&self) {
-        let response =
-            s3mock_admin_request(self.server.local_address(), "DELETE", "/_s3mock/faults", "")
-                .await;
+        let response = s3local_admin_request(
+            self.server.local_address(),
+            "DELETE",
+            "/_s3local/faults",
+            "",
+        )
+        .await;
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     }
 
     /// Returns how many write requests this endpoint finished so far, failed ones included.
     pub(crate) async fn write_requests(&self) -> u64 {
         let response =
-            s3mock_admin_request(self.server.local_address(), "GET", "/_s3mock/counters", "").await;
+            s3local_admin_request(self.server.local_address(), "GET", "/_s3local/counters", "")
+                .await;
         let (_, body) = response
             .split_once("\r\n\r\n")
             .unwrap_or_else(|| panic!("the counters have a body: {response}"));
@@ -159,7 +164,8 @@ impl ObjectStoreEndpoint {
     /// Returns the key and status of every PUT that a fault held and that then reached the store.
     pub(crate) async fn held_puts_that_completed(&self) -> Vec<(String, u64)> {
         let response =
-            s3mock_admin_request(self.server.local_address(), "GET", "/_s3mock/requests", "").await;
+            s3local_admin_request(self.server.local_address(), "GET", "/_s3local/requests", "")
+                .await;
         let (_, body) = response
             .split_once("\r\n\r\n")
             .unwrap_or_else(|| panic!("the request log has a body: {response}"));

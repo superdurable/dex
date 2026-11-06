@@ -52,7 +52,7 @@ jobs:
               - 'blob-cache-go/**'
               - 'protos/**'
               - 'server-zd/**'
-              - 's3mock/**'
+              - 's3local/**'
               - 'cli/**'
               - 'web/**'
               - 'go.work'
@@ -63,7 +63,7 @@ jobs:
               - 'sdk-rust/**'
               - 'cli/**'
               - 'server-zd/**'
-              - 's3mock/**'
+              - 's3local/**'
               - 'protos/**'
               - 'web/**'
               - 'codecov.yml'
@@ -77,7 +77,7 @@ jobs:
               - 'cli/**'
               - 'web/**'
               - 'server-zd/**'
-              - 's3mock/**'
+              - 's3local/**'
               - 'protos/**'
               - 'codecov.yml'
               - '.github/workflows/sdk-java-ci.yml'
@@ -90,7 +90,7 @@ jobs:
               - 'sdk-rust/crates/dex-blob-cache-python/**'
               - 'cli/**'
               - 'server-zd/**'
-              - 's3mock/**'
+              - 's3local/**'
               - 'web/**'
               - 'protos/**'
               - 'codecov.yml'
@@ -104,7 +104,7 @@ jobs:
               - 'sdk-rust/crates/dex-blob-cache-node/**'
               - 'cli/**'
               - 'server-zd/**'
-              - 's3mock/**'
+              - 's3local/**'
               - 'protos/**'
               - 'web/**'
               - '.github/workflows/sdk-typescript-ci.yml'
@@ -142,12 +142,12 @@ jobs:
               - 'examples/rust/**'
               - '.github/workflows/examples-rust-ci.yml'
               - 'examples/entity-store/**'
-            s3mock:
-              - 's3mock/**'
-              - '.github/workflows/s3mock-ci.yml'
+            s3local:
+              - 's3local/**'
+              - '.github/workflows/s3local-ci.yml'
             server_zd:
               - 'server-zd/**'
-              - 's3mock/**'
+              - 's3local/**'
               - 'protos/**'
               - '.github/workflows/server-zd-ci.yml'
             server_zd_integ:
@@ -208,7 +208,7 @@ jobs:
               - 'sdk-java/**'
               - 'sdk-python/**'
               - 'sdk-rust/**'
-              - 's3mock/**'
+              - 's3local/**'
               - 'server-zd/**'
               - 'web/**'
               - 'examples/go/**'
@@ -242,7 +242,7 @@ jobs:
           FILTER_EXAMPLES_JAVA: ${{ steps.filter.outputs.examples_java }}
           FILTER_EXAMPLES_PYTHON: ${{ steps.filter.outputs.examples_python }}
           FILTER_EXAMPLES_RUST: ${{ steps.filter.outputs.examples_rust }}
-          FILTER_S3MOCK: ${{ steps.filter.outputs.s3mock }}
+          FILTER_S3LOCAL: ${{ steps.filter.outputs.s3local }}
           FILTER_SERVER_ZD: ${{ steps.filter.outputs.server_zd }}
           FILTER_SERVER_ZD_INTEG: ${{ steps.filter.outputs.server_zd_integ }}
           FILTER_SERVER_ZD_SIMULATION_RUNNER: ${{ steps.filter.outputs.server_zd_simulation_runner }}
@@ -278,7 +278,7 @@ jobs:
               "Rust Rules CI"
               "Rust SDK CI"
               "TypeScript SDK CI"
-              "S3mock CI"
+              "S3local CI"
               "Server ZD CI"
               "Server Integration against server-zd"
               "Server ZD Simulation Runner CI"
@@ -298,7 +298,7 @@ jobs:
             [[ "$FILTER_EXAMPLES_JAVA" == "true" ]] && expected+=("Java examples CI")
             [[ "$FILTER_EXAMPLES_PYTHON" == "true" ]] && expected+=("Python examples CI")
             [[ "$FILTER_EXAMPLES_RUST" == "true" ]] && expected+=("Rust examples CI")
-            [[ "$FILTER_S3MOCK" == "true" ]] && expected+=("S3mock CI")
+            [[ "$FILTER_S3LOCAL" == "true" ]] && expected+=("S3local CI")
             [[ "$FILTER_SERVER_ZD" == "true" ]] && expected+=("Server ZD CI")
             [[ "$FILTER_SERVER_ZD_INTEG" == "true" ]] && expected+=("Server Integration against server-zd")
             [[ "$FILTER_SERVER_ZD_SIMULATION_RUNNER" == "true" ]] && expected+=("Server ZD Simulation Runner CI")

@@ -12,13 +12,13 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 
 use super::harness::{S3Emulator, ServeConfig, ServeProcess, free_loopback_address};
 use super::{PRIMARY_BUCKET, PRIMARY_PREFIX, SHUTDOWN_BUDGET};
 
-/// The longest delay s3mock accepts, which outlasts every test here.
+/// The longest delay s3local accepts, which outlasts every test here.
 const HUNG_REQUEST_MILLISECONDS: u64 = 600_000;
 /// The watchdog's graceful budget after the deadline, then the abort.
 const LEASE_EXPIRY_ABORT_BUDGET: Duration = Duration::from_secs(2);

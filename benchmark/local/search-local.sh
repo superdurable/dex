@@ -70,6 +70,8 @@ binary="$repo_root/benchmark/bin/dexbench"
 server_binary="$repo_root/server-zd/target/release/dex-server-zd"
 address="127.0.0.1:${DEXBENCH_SEARCH_PORT:-18815}"
 cat > "$output_directory/zd-config.yaml" <<YAML
+dev:
+  durabilityMode: processCrashSafe
 cluster:
   partitionCount: ${DEXBENCH_PARTITIONS:-1024}
 metrics:

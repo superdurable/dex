@@ -5,13 +5,13 @@ on:
     branches: [main]
     paths:
       - "server-zd/**"
-      - "s3mock/**"
+      - "s3local/**"
       - "protos/**"
       - ".github/workflows/server-zd-ci.yml"
   pull_request:
     paths:
       - "server-zd/**"
-      - "s3mock/**"
+      - "s3local/**"
       - "protos/**"
       - ".github/workflows/server-zd-ci.yml"
   workflow_dispatch:

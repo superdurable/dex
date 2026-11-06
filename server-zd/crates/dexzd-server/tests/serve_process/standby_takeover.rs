@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{FlowStatus, GetFlowSummaryRequest};
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tonic::transport::Channel;
 

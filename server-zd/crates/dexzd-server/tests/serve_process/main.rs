@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Process-level tests of `dex-server-zd serve` against s3mock emulators in the test process.
+//! Process-level tests of `dex-server-zd serve` against s3local emulators in the test process.
 
 #![cfg(unix)]
 
@@ -43,7 +43,7 @@ use dexzd_protocol::dex::{
     SearchFlowsResponseEntry, SetAttributesRequest, StartFlowRequest, StepDecision, StepOptions,
     Value, WaitForFlowRequest, WorkerTarget, value,
 };
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tonic::transport::Channel;
 

@@ -119,6 +119,41 @@ func TestZDEngineFlags(t *testing.T) {
 	}
 }
 
+func TestZDDurabilityIsPassedOnlyWhenSet(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "dex-server-zd")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEX_SERVER_ZD_BINARY", binary)
+	zdConfig := writeZDTestConfig(t)
+	config, err := parseConfig([]string{"--zd-config", zdConfig}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Durability != "strict" {
+		t.Fatalf("default durability = %q, want strict", config.Durability)
+	}
+	expected := []string{"dev", "--data-dir", "/data", "--listen", "127.0.0.1:8801", "--config", zdConfig}
+	if actual := zdDevArguments(config, "/data", "127.0.0.1:8801"); !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("arguments without -durability = %q, want %q so the -zd-config durability applies", actual, expected)
+	}
+	for _, durability := range []string{"strict", "process-crash-safe", "relaxed"} {
+		config, err = parseConfig([]string{"--zd-config", zdConfig, "--durability", " " + durability + " "}, &bytes.Buffer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := []string{"dev", "--data-dir", "/data", "--listen", "127.0.0.1:8801", "--config", zdConfig, "--durability", durability}
+		if actual := zdDevArguments(config, "/data", "127.0.0.1:8801"); !reflect.DeepEqual(actual, expected) {
+			t.Fatalf("arguments with -durability %s = %q, want %q", durability, actual, expected)
+		}
+	}
+	for _, durability := range []string{"", "processCrashSafe", "fsync"} {
+		if _, err := parseConfig([]string{"--durability", durability}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "durability must be one of") {
+			t.Fatalf("-durability %q: expected a validation error, got %v", durability, err)
+		}
+	}
+}
+
 func TestZDBinaryPrecedence(t *testing.T) {
 	flagBinary := writeFakeExecutable(t, t.TempDir(), "dex-server-zd")
 	environmentBinary := writeFakeExecutable(t, t.TempDir(), "dex-server-zd")

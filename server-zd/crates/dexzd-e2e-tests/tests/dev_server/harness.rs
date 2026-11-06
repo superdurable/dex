@@ -24,7 +24,7 @@ use dexzd_protocol::dex::{
 };
 use dexzd_server::{DevCommandOptions, RunningServer};
 use prost::Message;
-use s3mock::Store;
+use s3local::Store;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -65,6 +65,8 @@ impl DevServer {
             log_dir: None,
             config,
             attribute_store_config: None,
+            // Per-test servers skip fsync for speed; strict is the dev default.
+            durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
         })
         .await
         .expect("the dev server starts");

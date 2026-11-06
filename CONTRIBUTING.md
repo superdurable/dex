@@ -22,7 +22,7 @@
 | [sdk-typescript/](sdk-typescript/) | TypeScript SDK |
 | [examples/typescript/](examples/typescript/) | TypeScript examples |
 | [examples/playground/](examples/playground/) | Shared examples playground |
-| [s3mock/](s3mock/) | S3-compatible object store on local disk for development and tests |
+| [s3local/](s3local/) | S3-compatible object store on local disk for development and tests |
 
 Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside the workspace so consumers resolve released versions. The Rust server builds from `server-zd/`.
 
@@ -73,14 +73,14 @@ make -C sdk-go e2eTests  # starts an isolated dexcli dev environment
 make -C blob-cache-go tests
 ```
 
-### s3mock
+### s3local
 
 ```bash
-make -C s3mock test  # unit tests and the conformance suite against an in-process s3mock
-make -C s3mock run ARGS="--data-directory /tmp/s3mock-data"
+make -C s3local test  # unit tests and the conformance suite against an in-process s3local
+make -C s3local run ARGS="--data-directory /tmp/s3local-data"
 ```
 
-`S3MOCK_CONFORMANCE_TARGET=aws make -C s3mock test` runs the same conformance suite against real S3
+`S3LOCAL_CONFORMANCE_TARGET=aws make -C s3local test` runs the same conformance suite against real S3
 with the default AWS credential chain.
 
 ### Dex CLI and Web
@@ -178,7 +178,7 @@ CI jobs use GitHub-hosted runners for pushes, pull requests, and manual runs. Li
 
 To run every CI workflow against the latest `main` commit, dispatch **Main CI (all)** in GitHub Actions or run `gh workflow run main-ci-all.yml --ref main`. The dispatcher starts every non-release CI workflow, then starts Check Gate to report their aggregate result.
 
-Check Gate CI is the only required check. It waits for every workflow whose paths a pull request touches. A pull request with the `ci:fast-merge` label does not wait for the SDK, CLI, Web, and examples suites; they still run on the pull request and again on `main`, and a failure on `main` must be fixed forward right away. Generated Code CI, Server ZD CI, Server Integration against server-zd, S3mock CI, Rust Rules CI, Copyright, CLA, Skills CI, and Release Tooling CI still block. Use the label only for changes that cannot affect the existing engine's behavior, such as additive protocol fields or test runner support for another engine.
+Check Gate CI is the only required check. It waits for every workflow whose paths a pull request touches. A pull request with the `ci:fast-merge` label does not wait for the SDK, CLI, Web, and examples suites; they still run on the pull request and again on `main`, and a failure on `main` must be fixed forward right away. Generated Code CI, Server ZD CI, Server Integration against server-zd, S3local CI, Rust Rules CI, Copyright, CLA, Skills CI, and Release Tooling CI still block. Use the label only for changes that cannot affect the existing engine's behavior, such as additive protocol fields or test runner support for another engine.
 
 ## Releases (monorepo tags)
 

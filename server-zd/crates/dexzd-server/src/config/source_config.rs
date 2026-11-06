@@ -167,6 +167,9 @@ impl Config {
             .clone_from(&options.data_dir);
         configuration.dev.s3_data_directory = options.data_dir.join("s3");
         configuration.dev.log_directory.clone_from(&options.log_dir);
+        if let Some(durability) = options.durability {
+            configuration.dev.durability_mode = durability;
+        }
         configuration.local_storage.directory = options.data_dir.join("store");
         if !has_stream_store_backend_override {
             configuration.stream_store.backend = StreamStoreBackend::Memory;

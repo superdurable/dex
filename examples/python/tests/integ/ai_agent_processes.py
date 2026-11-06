@@ -115,6 +115,9 @@ class PrivateDexEngine:
         zd_binary = server_zd_binary()
         if zd_binary is None:
             raise RuntimeError("set DEX_SERVER_ZD_BINARY or put dex-server-zd on PATH")
+        # A config file, unlike a flag, also works with an older dex-server-zd.
+        zd_config = self._state_dir / "zd-overrides.yaml"
+        zd_config.write_text("dev:\n  durabilityMode: processCrashSafe\n")
         await self._process.start(
             [
                 dexcli_path(),
@@ -134,6 +137,8 @@ class PrivateDexEngine:
                 "-web-port",
                 str(self.web_port),
                 "-open=false",
+                "-zd-config",
+                str(zd_config),
             ],
             ENGINE_READY_LINE,
         )
