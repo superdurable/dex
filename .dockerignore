@@ -39,3 +39,5 @@ sdk-python/coverage/
 sdk-go/coverage/
 script/licenseheaders/copyright/copyright
 web/dex-web
+# Generated SDK API reference HTML and its downloaded tools.
+docs/.cache/

@@ -1,0 +1,10 @@
+{
+  "name": "dex-api-reference-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "marked": "15.0.12",
+    "typedoc": "0.28.14",
+    "typescript": "5.9.3"
+  }
+}

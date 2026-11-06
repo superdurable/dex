@@ -56,6 +56,7 @@ const localeCopies = {
 const hostContainerTypes = new Set(['p', 'ol', 'ul', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 // Output written outside this build's postBuild, such as generated API reference, may not exist yet.
 export const unverifiedLinkPrefixes = ['/api/'];
+const pathnameProtocol = 'pathname://';
 const phrasingTypes = new Set(['text', 'emphasis', 'strong', 'delete', 'inlineCode', 'break', 'image', 'link', 'html']);
 const parser = unified().use(remarkParse).use(remarkMdx).use(remarkFrontmatter).use(remarkGfm);
 const writer = unified().use(remarkStringify, {bullet: '-', fences: true, handlers: {text: writeText}}).use(remarkGfm);
@@ -460,6 +461,7 @@ function imageProperties(node, context) {
 }
 
 function rewriteLink(href, context, node) {
+  if (href.startsWith(pathnameProtocol)) return rewritePathnameLink(href, context, node);
   const target = new URL(href, context.canonicalUrl);
   if (target.origin !== new URL(context.siteUrl).origin) return href;
   if (/\.mdx?(?:[?#]|$)/.test(href) && !href.startsWith('/') && !/^https?:/i.test(href)) {
@@ -478,6 +480,15 @@ function rewriteLink(href, context, node) {
     fail(context, node, `Link target ${href} is not a route or static file`);
   }
   return target.href;
+}
+
+// The MDX link wrapper serves pathname:// API links from the site root, without the locale base URL.
+function rewritePathnameLink(href, context, node) {
+  const pathname = href.slice(pathnameProtocol.length);
+  if (!unverifiedLinkPrefixes.some(prefix => pathname.startsWith(prefix))) {
+    fail(context, node, `Link target ${href} must start with pathname://${unverifiedLinkPrefixes.join(' or pathname://')}`);
+  }
+  return new URL(pathname, context.siteUrl).href;
 }
 
 function isKnownTarget(pathname, context) {

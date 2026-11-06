@@ -864,7 +864,7 @@ original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 After publish, artifacts appear on
 [Maven Central](https://repo1.maven.org/maven2/io/superdurable/dex-sdk/)
 (and on [MVN Repository](https://mvnrepository.com/artifact/io.superdurable/dex-sdk) with some delay).
-Javadoc: [javadoc.io](https://www.javadoc.io/doc/io.superdurable/dex-sdk/latest/index.html).
+Javadoc: [Java SDK API reference](https://docs.superdurable.io/api/java/latest/).
 
 ### Gradle
 

@@ -19,6 +19,10 @@ import {prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
 import {markdownPath} from '../src/markdownPath.mjs';
 import './markdown-export.mjs';
 import {readReferenceDocuments, compareVersions} from '../scripts/snapshot-reference.mjs';
+import {
+  apiEntryPaths, auditApiReferenceIndexPages, auditApiReferences, auditPythonGenerationLocks, isApiReferenceVersionPath,
+} from './api-reference-smoke.mjs';
+import './api-reference-redirect.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
@@ -411,7 +415,13 @@ await Promise.all([
 
 const outputFiles = await collectOutputFiles(root);
 const outputFilePaths = new Set(outputFiles.map((filePath) => relativeOutputPath(filePath)));
-const htmlIndexFiles = outputFiles.filter((filePath) => filePath.endsWith(`${sep}index.html`));
+const htmlIndexFiles = outputFiles.filter((filePath) =>
+  filePath.endsWith(`${sep}index.html`) && !relativeOutputPath(filePath).startsWith('api/'));
+await auditApiReferenceIndexPages();
+await auditPythonGenerationLocks();
+if (outputFiles.some((filePath) => relativeOutputPath(filePath).startsWith('api/'))) {
+  await auditApiReferences(join(root, 'api'));
+}
 const canonicalPages = new Map();
 const archivedCanonicalUrls = new Set();
 const actualRedirects = new Map();
@@ -481,11 +491,13 @@ for (const [canonical, {html, route}] of canonicalPages) {
       continue;
     }
     const isRoute = canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
-      outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, ''));
+      outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')) ||
+      apiEntryPaths.has(target.pathname);
     // Archived snapshots are frozen, so their links may reach a moved page through its declared redirect.
     if (archivedCanonicalUrls.has(canonical)) {
       const redirectTarget = expectedRedirects.get(routeWithTrailingSlash(target.pathname));
-      assert.ok(isRoute || canonicalPages.has(redirectTarget), `${route} links to missing route ${target.pathname}`);
+      assert.ok(isRoute || canonicalPages.has(redirectTarget) || isApiReferenceVersionPath(target.pathname),
+        `${route} links to missing route ${target.pathname}`);
       continue;
     }
     assert.equal(expectedRedirects.has(target.pathname), false, `${route} links to redirect ${target.pathname}`);
@@ -543,7 +555,9 @@ for (const [canonical, {html, route}] of canonicalPages) {
       const target = new URL(node.url);
       if (target.origin === siteOrigin) {
         assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
-          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `${pathname} links to missing ${target.pathname}`);
+          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || apiEntryPaths.has(target.pathname) ||
+          (archivedCanonicalUrls.has(canonical) && isApiReferenceVersionPath(target.pathname)),
+          `${pathname} links to missing ${target.pathname}`);
       }
     }
   });
