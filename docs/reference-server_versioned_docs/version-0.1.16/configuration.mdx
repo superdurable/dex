@@ -85,7 +85,7 @@ are pruned in chunks of 1,000. The window also shrinks when the superseded
 values kept for time travel exceed 256 MiB.
 
 History reads, such as **dexcli flow history --all**, return only the retained
-events. [Time travel](/reference/server/runtime-client#time-travel) can target only
+events. [Time travel](/reference/server/0.1.16/runtime-client#time-travel) can target only
 a point inside the window. Time travel to the beginning is always available.
 
 Each history page also reports the range of event IDs that the window removed.

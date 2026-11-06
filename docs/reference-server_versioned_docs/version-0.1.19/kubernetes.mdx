@@ -111,7 +111,7 @@ Steps that are not yet handed to a Worker wait. The successor dispatches them
 after it takes the lease. A Step whose start was already being written when the
 drain began still goes to its Worker and is drained like a running attempt. So
 does a Step that a Worker took from the
-[Step task queue](/reference/server/workers#step-task-queue) before the drain began. Steps still in the
+[Step task queue](/reference/server/0.1.19/workers#step-task-queue) before the drain began. Steps still in the
 task queue stay there for the successor.
 
 **lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
@@ -244,7 +244,7 @@ Use gRPC health for all three probes:
 A serving node that never steps down returns to **NOT_SERVING** only by
 exiting, because a lost lease ends the process. Liveness on gRPC health
 therefore does not cause restart loops for it. A
-[step down](/reference/server/high-availability#step-down) makes the active process report **NOT_SERVING** while
+[step down](/reference/server/0.1.19/high-availability#step-down) makes the active process report **NOT_SERVING** while
 it keeps running as a standby, and a liveness probe on gRPC health would restart
 it. A process that may step down needs the TCP or exec liveness probe of a
 standby.
@@ -252,7 +252,7 @@ standby.
 This probe set is for a single replica. A standby replica stays
 **NOT_SERVING** until it takes over, so it would never pass this startup probe.
 A standby needs a TCP or exec startup probe and liveness probe instead. See
-[hot standby](/reference/server/high-availability#hot-standby-health).
+[hot standby](/reference/server/0.1.19/high-availability#hot-standby-health).
 
 The process exits on its own after a fatal error, such as a lost lease or a
 failed commit. During startup, transient or unknown-outcome object storage read errors are retried

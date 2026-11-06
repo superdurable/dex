@@ -212,7 +212,7 @@ Use gRPC health for all three probes:
 A serving node that never steps down returns to **NOT_SERVING** only by
 exiting, because a lost lease ends the process. Liveness on gRPC health
 therefore does not cause restart loops for it. A
-[step down](/reference/server/high-availability#step-down) makes the active process report **NOT_SERVING** while
+[step down](/reference/server/0.1.16/high-availability#step-down) makes the active process report **NOT_SERVING** while
 it keeps running as a standby, and a liveness probe on gRPC health would restart
 it. A process that may step down needs the TCP or exec liveness probe of a
 standby.
@@ -220,7 +220,7 @@ standby.
 This probe set is for a single replica. A standby replica stays
 **NOT_SERVING** until it takes over, so it would never pass this startup probe.
 A standby needs a TCP or exec startup probe and liveness probe instead. See
-[hot standby](/reference/server/high-availability#hot-standby-health).
+[hot standby](/reference/server/0.1.16/high-availability#hot-standby-health).
 
 The process exits on its own after a fatal error, such as a lost lease or a
 failed commit. During startup, transient or unknown-outcome object storage read errors are retried

@@ -37,9 +37,9 @@ Start Dex with a directory containing generated JSON files:
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Flow Rendering** at **/v1/rendering**. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. A Version 2.0 file is drawn with the **v2** canvas instead, followed by its diagnostics. See [Dex Web](/reference/web/dex-web#flow-canvas).
+Open **Flow Rendering** at **/v1/rendering**. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPCs, Attributes, Channels, Streams, SubFlows, and diagnostics. Flow timeout handlers are always shown as part of the Flow. Streams are hidden by default. The other layers start visible. A Version 2.0 file is drawn with the **v2** canvas instead, followed by its diagnostics. See [Dex Web](/reference/web/1.30.x/dex-web#flow-canvas).
 
-When Dex starts with a JSON directory, **v2** at **/v2** also renders the selected Flow type's definition beside the run list. See [Dex Web](/reference/web/dex-web).
+When Dex starts with a JSON directory, **v2** at **/v2** also renders the selected Flow type's definition beside the run list. See [Dex Web](/reference/web/1.30.x/dex-web).
 
 Dex scans JSON files recursively and takes a snapshot when it starts. Restart Dex after changing the files. Invalid JSON, an unsupported schema version, or a path that is not a directory stops startup with an error.
 
@@ -119,7 +119,7 @@ An Execute method whose decision is hidden in a helper produces **hidden_dex_dec
 
 Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard imports, getattr-based targets, monkeypatching, or movement collections that escape the handler.
 
-Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Multiple directive lines keep source order, which becomes UI order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. See [Dex Web](/reference/web/dex-web) for those rules.
+Version 2.0 retains every Version 1 field and requires Step groups and explanations in the same file. Named directive parameters can appear in any order within a line. Multiple directive lines keep source order, which becomes UI order. Unknown, repeated, missing, or invalid parameters are blocking diagnostics. The Go analyzer also reads Indexed Attributes, Summary, Display, Actions, and start-input schemas. See [Dex Web](/reference/web/1.30.x/dex-web) for those rules.
 
 Version 2.0 derives an optional start-input schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. Nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps are supported. Integer bounds and integer enum values remain decimal strings in the schema. Recursive types, nesting beyond 32 levels, non-string map keys, interfaces, functions, channels, byte slices, conflicting anonymous fields, JSON string encoding tags, and custom JSON codecs produce a warning and omit the start schema. They do not invalidate the remaining graph.
 

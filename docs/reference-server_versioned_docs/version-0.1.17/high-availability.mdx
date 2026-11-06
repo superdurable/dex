@@ -151,7 +151,7 @@ keeps reporting its last status.
 
 ### Kubernetes {#hot-standby-kubernetes}
 
-Change the [StatefulSet example](/reference/server/kubernetes#one-replica-in-a-statefulset) as follows:
+Change the [StatefulSet example](/reference/server/0.1.17/kubernetes#one-replica-in-a-statefulset) as follows:
 
 - Set **replicas** to 2 and **podManagementPolicy** to **Parallel**. Each pod
   gets its own volume from the claim template.
@@ -177,9 +177,9 @@ over.
 Keep **lease.duration** at about 10 seconds, the default, when a standby is
 deployed. After a crash, the standby waits until the old lease expires, plus 1
 second, so the lease bounds the failover time. Do not lower it much when you use
-[Attribute Store sync](/reference/server/attribute-store-sync): a write transaction lasts at most a
+[Attribute Store sync](/reference/server/0.1.17/attribute-store-sync): a write transaction lasts at most a
 quarter of **lease.duration**, 2.5 seconds with a 10-second lease. See
-[Write timeout](/reference/server/attribute-store-sync#attribute-store-write-timeout).
+[Write timeout](/reference/server/0.1.17/attribute-store-sync#attribute-store-write-timeout).
 
 Alert when no standby is ready to take over, when a standby failed or keeps
 restarting, and when its lag grows:
@@ -199,7 +199,7 @@ dexzd_hot_standby_lag_seconds > 5
 
 **dexcli admin step-down** asks the active process of a node ID to give up its
 lease. The process stops handing out new Step tasks and drains running attempts
-as described under [graceful shutdown](/reference/server/kubernetes#graceful-shutdown), using the same
+as described under [graceful shutdown](/reference/server/0.1.17/kubernetes#graceful-shutdown), using the same
 **lifecycle.attemptDrainTimeout**. It keeps renewing the lease and accepting
 Worker heartbeats and final output until the drain ends. Busy Worker streams
 stay open until their results commit or the timeout expires.
@@ -221,7 +221,7 @@ waits.
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active process, and changes nothing. Every lease
 acquisition raises the node epoch. Both commands need an
-[admin credential](/reference/server/authentication#admin-credentials). Step down also needs the **--yes** flag.
+[admin credential](/reference/server/0.1.17/authentication#admin-credentials). Step down also needs the **--yes** flag.
 
 ~~~bash
 dexcli --server dex.example.internal:8801 admin describe \
@@ -329,10 +329,10 @@ new node epoch.
 
 A stepped-down process reports **NOT_SERVING** while it keeps running. Before
 you step down a process, make sure that its liveness probe does not use gRPC
-health, as described in [health checks](/reference/server/kubernetes#health-checks). Otherwise Kubernetes
+health, as described in [health checks](/reference/server/0.1.17/kubernetes#health-checks). Otherwise Kubernetes
 restarts the stepped-down process.
 
 Without authentication, anyone who can reach **api.listen** can step the node
-down, again and again. Configure [admin credentials](/reference/server/authentication#admin-credentials), or
+down, again and again. Configure [admin credentials](/reference/server/0.1.17/authentication#admin-credentials), or
 restrict access to **api.listen**. A server without **AdminService** answers
 **UNIMPLEMENTED**.

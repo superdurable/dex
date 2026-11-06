@@ -12,7 +12,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {
-  droppedVersionRedirects, readReferenceDocuments, referenceVersion,
+  droppedVersionRedirects, localizeAllSnapshotLinks, readReferenceDocuments, referenceVersion,
   retargetRedirects, rewriteSnapshotLinks, snapshotReference,
 } from '../scripts/snapshot-reference.mjs';
 
@@ -127,6 +127,53 @@ test('bootstrap snapshot of the latest label stays hidden and enables the next r
     assert.deepEqual((await snapshotReference('server', 'v0.1.19', {siteDirectory, createSnapshot})).retainedVersions, ['0.1.19']);
     assert.deepEqual((await snapshotReference('server', '0.1.20', {siteDirectory, createSnapshot})).retainedVersions, ['0.1.20', '0.1.19']);
     assert.deepEqual(JSON.parse(await readFile(join(siteDirectory, 'reference/versions.json'), 'utf8')), {server: '0.1.20'});
+  } finally {
+    await rm(siteDirectory, {recursive: true, force: true});
+  }
+});
+
+test('snapshots link to their own component at the same version, including the hidden latest snapshot', async () => {
+  const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-local-links-'));
+  try {
+    const currentDirectory = join(siteDirectory, 'reference/server');
+    await mkdir(currentDirectory, {recursive: true});
+    const currentContent = [
+      '[w](/reference/server/workers) [i](/reference/server/) [bare](/reference/server)',
+      '[anchor](/reference/server/configuration#limits) [slash](/reference/server/search/#monitoring)',
+      '<Link to="/reference/server/upgrades/">u</Link> [ref]: /reference/server/metrics',
+      '[angle](</reference/server/workers/#queue>) [angle-ref]: </reference/server/search>',
+      '[web](/reference/web/dex-web) [other](/reference/serverless/x) [api](pathname:///api/go/1.35.x/)',
+      '[ext](https://docs.superdurable.io/reference/server/workers) [hub](/reference/) [zh](/zh-Hans/reference/server/workers)',
+      '[pinned](/reference/server/0.1.18/workers) [guide](/primitives/flow)',
+    ].join('\n');
+    await writeFile(join(currentDirectory, 'index.mdx'), currentContent);
+    await writeFile(join(siteDirectory, 'reference/versions.json'), JSON.stringify({server: '0.1.19', web: '1.35.x'}));
+    await writeFile(join(siteDirectory, 'redirects.json'), '[]');
+    const createSnapshot = async (directory, component, version) => {
+      await cp(join(directory, 'reference', component), join(directory, `reference-${component}_versioned_docs/version-${version}`), {recursive: true});
+      await mkdir(join(directory, `reference-${component}_versioned_sidebars`), {recursive: true});
+      await writeFile(join(directory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`),
+        '{"reference": [{"type": "link", "href": "/reference/"}, {"type": "link", "href": "/reference/server/workers"}]}');
+    };
+    await snapshotReference('server', '0.1.19', {siteDirectory, createSnapshot});
+    const hiddenSnapshot = join(siteDirectory, 'reference-server_versioned_docs/version-0.1.19/index.mdx');
+    assert.equal(await readFile(hiddenSnapshot, 'utf8'), [
+      '[w](/reference/server/0.1.19/workers) [i](/reference/server/0.1.19/) [bare](/reference/server/0.1.19)',
+      '[anchor](/reference/server/0.1.19/configuration#limits) [slash](/reference/server/0.1.19/search/#monitoring)',
+      '<Link to="/reference/server/0.1.19/upgrades/">u</Link> [ref]: /reference/server/0.1.19/metrics',
+      '[angle](</reference/server/0.1.19/workers/#queue>) [angle-ref]: </reference/server/0.1.19/search>',
+      '[web](/reference/web/dex-web) [other](/reference/serverless/x) [api](pathname:///api/go/1.35.x/)',
+      '[ext](https://docs.superdurable.io/reference/server/workers) [hub](/reference/) [zh](/zh-Hans/reference/server/workers)',
+      '[pinned](/reference/server/0.1.18/workers) [guide](/primitives/flow)',
+    ].join('\n'));
+    assert.equal(await readFile(join(siteDirectory, 'reference-server_versioned_sidebars/version-0.1.19-sidebars.json'), 'utf8'),
+      '{"reference": [{"type": "link", "href": "/reference/"}, {"type": "link", "href": "/reference/server/0.1.19/workers"}]}');
+    assert.equal(await readFile(join(currentDirectory, 'index.mdx'), 'utf8'), currentContent);
+    await snapshotReference('server', '0.1.20', {siteDirectory, createSnapshot});
+    assert.match(await readFile(join(siteDirectory, 'reference-server_versioned_docs/version-0.1.20/index.mdx'), 'utf8'),
+      /^\[w\]\(\/reference\/server\/0\.1\.20\/workers\)/);
+    assert.match(await readFile(hiddenSnapshot, 'utf8'), /^\[w\]\(\/reference\/server\/0\.1\.19\/workers\)/);
+    assert.deepEqual(await localizeAllSnapshotLinks({siteDirectory}), {server: 0, web: 0});
   } finally {
     await rm(siteDirectory, {recursive: true, force: true});
   }

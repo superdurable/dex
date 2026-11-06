@@ -120,7 +120,7 @@ The object storage prefix is the only source of truth. The local store is
 rebuilt from it. An external search projection is not rebuilt: after a restore,
 configure a new **search.paradeDbSchema** or **search.postgresSchema**, or a new
 database, so the server loads it from the restored state. See
-[Initial load](/reference/server/search#search-projection-initial-load). Reusing the old schema fails:
+[Initial load](/reference/server/0.1.17/search#search-projection-initial-load). Reusing the old schema fails:
 the restored node epoch is older than the one that the schema records, so the
 projection stops and SearchFlows returns **UNAVAILABLE**. With
 **search.backend: postgres**, reusing the old schema can also leave the

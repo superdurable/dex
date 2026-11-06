@@ -85,7 +85,7 @@ Against older Servers, the Worker returns the not-registered error as before.
 
 Delivery is at least once. A call can be assigned again when its Worker
 disconnects before Dex receives any output. See
-[Failure and redelivery](/reference/server/runtime-steps#same-attempt-redelivery)
+[Failure and redelivery](/reference/server/0.1.16/runtime-steps#same-attempt-redelivery)
 for when an attempt runs again at the same attempt number. Make external side
 effects idempotent, for example by using the Flow ID and Step execution ID as an
 idempotency key.
@@ -182,7 +182,7 @@ section lists the matching limits and wait settings.
 
 All five SDKs, **dexcli**, and Dex Web can send the required bearer credential.
 Workers and Clients have separate credential options. See the
-[authentication settings](/reference/server/authentication).
+[authentication settings](/reference/server/0.1.16/authentication).
 
 ## Pull Worker dispatch {#pull-worker-dispatch}
 

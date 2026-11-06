@@ -491,8 +491,8 @@ request timeout. A wait timeout does not undo the start or prove the database
 write failed; report completion as pending or unknown according to the API
 contract and preserve the same start identity for retries.
 
-See [Wait for a Step](/reference/server/runtime-client#wait-for-a-step) and
-[Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match)
+See [Wait for a Step](/reference/server/0.1.18/runtime-client#wait-for-a-step) and
+[Wait for an Attribute match](/reference/server/0.1.18/runtime-client#wait-for-an-attribute-match)
 for these waits. Attribute waits target an active run. If a Flow
 closes before the wait attaches, reconcile the actual wait error through the
 authoritative business record or a supported terminal read; do not assume the
@@ -1508,7 +1508,7 @@ A **StepDecision** can cancel other active Steps.
   parent Step execution.
 
 An RPC can also cancel Steps by type. See
-[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
+[Cancel running Steps](/reference/server/0.1.18/runtime-data#cancel-running-steps). For how a
 running attempt observes cancellation, see [Cancellation](#cancellation).
 
 <SdkTabs
@@ -2460,9 +2460,9 @@ fail, or record a heartbeat to receive cancellation.
 
 Cancellation is cooperative. The SDK cannot stop running code. A long handler
 must check for cancellation and return, as the heartbeat example above does.
-See [Make the Step stop](/reference/server/runtime-data#cancel-honour) for the
+See [Make the Step stop](/reference/server/0.1.18/runtime-data#cancel-honour) for the
 check in each language, and
-[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for
+[Cancel running Steps](/reference/server/0.1.18/runtime-data#cancel-running-steps) for
 how Dex ends a canceled attempt.
 
 Because cancellation is cooperative, an interrupted execution may still run
@@ -2562,7 +2562,7 @@ avoid races, use Attribute locks. Dex Server ensures only one Step execution or
 RPC handling can acquire the lock at a time. **WaitFor** and **Execute** have
 separate lock sets. Set them by returning **StepOptions**.
 
-See [Attribute locks](/reference/server/runtime-data#attribute-locks) for when
+See [Attribute locks](/reference/server/0.1.18/runtime-data#attribute-locks) for when
 a Step attempt takes and holds its locks, with **WaitFor** and **Execute**
 examples. See [Locks](/primitives/attribute#locking) for the lock model.
 

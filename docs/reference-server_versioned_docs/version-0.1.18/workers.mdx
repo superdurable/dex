@@ -92,7 +92,7 @@ An RPC never queues. If no Worker takes it within the dispatch wait, the caller
 receives an **Unavailable** error directly. The default dispatch wait is 10
 seconds, including up to 5 seconds for a sticky queue with connected streams.
 The wait never extends past the method deadline of the attempt. See
-[Pull Worker dispatch](/reference/server/workers#pull-worker-dispatch)
+[Pull Worker dispatch](/reference/server/0.1.18/workers#pull-worker-dispatch)
 for the wait settings.
 
 When a pull Worker has the Flow type but lacks the requested Step type or RPC
@@ -115,7 +115,7 @@ or without output. There is one exception. When a Dex Server node crashes before
 an ASYNC attempt start was written to object storage, Dex rolls the start back
 and runs the same attempt number again, possibly on another Worker. That rerun
 consumes no retry, and the two runs can overlap. See
-[Failure and redelivery](/reference/server/runtime-steps#same-attempt-redelivery)
+[Failure and redelivery](/reference/server/0.1.18/runtime-steps#same-attempt-redelivery)
 for this case and for the cases where an attempt returns to pending without consuming a retry.
 Make external side effects idempotent, for example by using the Flow ID and Step
 execution ID as an idempotency key.
@@ -193,7 +193,7 @@ Steps never use reserved slots, so a Worker never declines a Step for capacity.
 When no Worker has a free Step-and-RPC slot, the Step waits in the durable task
 queue until a slot frees up. The wait consumes no attempt. To see Step capacity
 pressure, watch the queue depth and the age of the oldest queued Step. See
-[Step task queue](/reference/server/workers#step-task-queue) for these
+[Step task queue](/reference/server/0.1.18/workers#step-task-queue) for these
 metrics.
 
 The reserve-decline counters are deprecated. They remain for source
@@ -201,7 +201,7 @@ compatibility. On SDKs that use reserved-slot dispatch, they always read zero.
 Workers on older SDKs still decline Steps for capacity against a new server. Dex
 returns those attempts without consuming a retry and counts them with
 **reason="legacy_no_capacity"**. See
-[server-zd metrics](/reference/server/metrics).
+[server-zd metrics](/reference/server/0.1.18/metrics).
 
 The startup examples set the task limit to eight and explicitly reserve one slot
 for RPCs, matching the default. A full Worker stays ready.
@@ -215,7 +215,7 @@ wait uses no retry. Scale Workers on the queue depth and oldest age metrics,
 Right after a restart or a failover, the entries gauge can read low until each
 partition's background count finishes, so do not scale to zero on it alone; the
 oldest age stays accurate.
-See [Pull Worker dispatch](/reference/server/workers#pull-worker-dispatch).
+See [Pull Worker dispatch](/reference/server/0.1.18/workers#pull-worker-dispatch).
 An RPC does not queue, so it fails after the dispatch wait while no Worker runs.
 
 A Flow with a timeout still times out while its Step waits. With no Flow
@@ -230,12 +230,12 @@ get this behavior. Dex sends **Ping** frames to idle streams at
 **matching.pingInterval**. Set load balancer and proxy idle timeouts above both
 20 seconds and **matching.pingInterval**, with margin for network delays. Older
 SDKs need idle timeouts above the longest task duration. The
-[Pull Worker dispatch](/reference/server/workers#pull-worker-dispatch)
+[Pull Worker dispatch](/reference/server/0.1.18/workers#pull-worker-dispatch)
 section lists the matching limits and wait settings.
 
 All five SDKs, **dexcli**, and Dex Web can send the required bearer credential.
 Workers and Clients have separate credential options. See the
-[authentication settings](/reference/server/authentication).
+[authentication settings](/reference/server/0.1.18/authentication).
 
 ## Pull Worker dispatch {#pull-worker-dispatch}
 

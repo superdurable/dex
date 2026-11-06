@@ -19,14 +19,14 @@ comments describe each API in its own language.
 
 **StartFlowOptions** can set initial Attributes when the Flow is created.
 Initial values and Flow creation are one operation, so the first Step sees them
-immediately. See [Attributes](/reference/server/runtime-steps#attributes) in
+immediately. See [Attributes](/reference/server/0.1.19/runtime-steps#attributes) in
 StartFlowOptions.
 
 Applications use Flow RPCs to write Attributes after a Flow starts. A Client can
 also use **WaitForAttributeMatch** to wait until a singleton Attribute or one
 AttributeMap instance satisfies a scalar comparison. The call returns the
 matched current value. See
-[Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match).
+[Wait for an Attribute match](/reference/server/0.1.19/runtime-client#wait-for-an-attribute-match).
 
 ### Read Attributes from outside a Flow {#read-attributes-from-outside-a-flow}
 
@@ -55,7 +55,7 @@ The read has these semantics:
 
 An RPC remains the right choice when the read needs Flow-side validation,
 authorization, a derived view, or Attribute locks. See
-[Client requests: Read Attributes](/reference/server/runtime-client#read-attributes)
+[Client requests: Read Attributes](/reference/server/0.1.19/runtime-client#read-attributes)
 for the example, the unset value in each SDK, and the errors.
 
 ### Indexes {#attribute-indexes}
@@ -424,7 +424,7 @@ Plan for these consequences:
 
 A value remains stored until it is deleted, or until Dex removes the Flow after
 its retention period. Object storage backups and bucket versioning outside Dex
-can keep copies. See [Object storage](/reference/server/object-storage).
+can keep copies. See [Object storage](/reference/server/0.1.19/object-storage).
 
 #### Erase after the run closes {#hard-delete-after-close}
 
@@ -658,7 +658,7 @@ type: **with_canceling_steps** in Python, **CancelSteps** in Go,
 **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no
 parent Step execution, so it cannot cancel sibling Steps. A Step can cancel
 other Steps the same way from its
-[StepDecision](/reference/server/runtime-steps#cancellation-on-stepdecision).
+[StepDecision](/reference/server/0.1.19/runtime-steps#cancellation-on-stepdecision).
 
 In the example, **GenerateReport** writes a report section by section. The
 **stop_report** RPC cancels it and starts **FinishReportStop**.
@@ -970,7 +970,7 @@ still running, Dex closes the Worker stream that carried it. The handler keeps
 running inside the Worker process until it returns, and its external calls
 still take effect. A canceled attempt may also have done part of its work before
 it stopped. Keep its external effects idempotent. See
-[Failure and redelivery](/reference/server/runtime-steps#failure-and-redelivery).
+[Failure and redelivery](/reference/server/0.1.19/runtime-steps#failure-and-redelivery).
 
 ### Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
 
@@ -1367,7 +1367,7 @@ Deleting a message that is no longer pending depends on the caller:
 Pending messages are queue state, not Flow history. After a Step consumes a
 message, it disappears from the Channel even though the publication and
 consumption remain observable in recent
-[Flow history](/reference/server/configuration#history-window).
+[Flow history](/reference/server/0.1.19/configuration#history-window).
 
 Every Step method, timeout handler, and RPC always receives Channel size
 metadata. It must explicitly load pending messages before reading their IDs or
@@ -1407,7 +1407,7 @@ because Dex uses that character between the map name and instance key.
 ## Streams {#streams}
 
 Server settings for Streams, with their defaults, are in
-[Streams](/reference/server/configuration#streams).
+[Streams](/reference/server/0.1.19/configuration#streams).
 
 ### Write semantics {#stream-write-semantics}
 
@@ -1587,7 +1587,7 @@ Stream, and the memory of all Streams on a server. A Client write past the
 server-wide total fails with **RESOURCE_EXHAUSTED**, and background trimming
 then removes the oldest messages of the largest Streams until the message fits.
 Retry the write after a short delay. See
-[Streams](/reference/server/configuration#streams) for each limit and its
+[Streams](/reference/server/0.1.19/configuration#streams) for each limit and its
 default.
 
 ### Best-effort storage {#stream-storage}

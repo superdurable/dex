@@ -14,6 +14,18 @@ npm start
 `npm start` builds and serves both English and Simplified Chinese. Do not run
 `docusaurus start` for review: it only serves English.
 
+`npm start` and `npm run serve` use `docusaurus serve`, which returns 404 for
+the index of an archived Developer Reference version, such as
+`/reference/web/1.29.x/`. It treats `1.29.x` as a file name with an extension.
+Other archived pages and GitHub Pages are not affected. To review archived
+indexes, serve the build with a static server that redirects directories to
+their trailing slash, as GitHub Pages does:
+
+```bash
+npm run build
+python3 -m http.server 3000 --directory build
+```
+
 Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.
 
@@ -81,11 +93,16 @@ To capture a released component, run from this directory:
 
 ```bash
 node scripts/snapshot-reference.mjs web 1.36.0
-node scripts/snapshot-reference.mjs server 0.1.20
+node scripts/snapshot-reference.mjs server 0.1.21
 ```
 
 The script runs `docusaurus docs:version:reference-<component>`, updates the
-latest label, and keeps five released snapshots, including the latest. The
+latest label, and keeps five released snapshots, including the latest. It
+then points the new snapshot's links to its own component at the same version:
+`/reference/server/workers` becomes `/reference/server/0.1.20/workers`. A
+reader of an archived version stays in that version. Anchors and trailing
+slashes are kept. Links to other components, generated API references, and
+other site routes still point to their current pages. The
 snapshot matching the latest label is stored but hidden: current content serves
 that release at the permanent unversioned route. When a newer release arrives,
 that stored snapshot becomes an archived version. A patch release within the
@@ -105,12 +122,11 @@ it. Running the script with the latest label itself creates the hidden snapshot:
 node scripts/snapshot-reference.mjs web 1.35.x
 ```
 
-The site starts without snapshots. Before the first release after versioning
-merges, each component needs a hidden snapshot equal to its label in
+Every component needs a hidden snapshot equal to its label in
 `reference/versions.json`, made from that release's reference content. The
-historical backfill creates these snapshots together with the older versions.
-Until then, the release snapshot job fails for that component without
-affecting the release.
+historical backfill created these snapshots together with the older versions.
+A new component needs one before its first release snapshot. Until then, the
+release snapshot job fails for that component without affecting the release.
 
 ### Editing archived snapshots
 
@@ -136,12 +152,31 @@ It keeps anchors and trailing slashes and leaves current content unchanged. The
 site audit accepts a link on an archived page when it resolves to a route or a
 declared redirect. Current pages must still link to routes directly.
 
+Snapshots taken by the script already have version-local links. To apply the
+same rewrite to every stored snapshot, including each hidden latest snapshot,
+run:
+
+```bash
+node scripts/snapshot-reference.mjs --localize-links
+```
+
+It prints the number of rewritten links per component. Links that already name
+a version stay unchanged, so a rerun rewrites nothing. A hidden snapshot links
+to its own version route, which exists once a newer release archives it.
+
+A version-local link to a page or anchor that the version lacks fails
+`npm run check`. Fix the snapshot text: drop the link or the anchor. Do not
+point it back to the current page, which describes a different release.
+
 ### Pruning and search indexing
 
 Pruning removes obsolete snapshot files and adds direct redirects in both
 locale shells. Each dropped page goes to the latest page with the same document
 ID, or to the component index if that document no longer exists. Existing
-redirects are retargeted to avoid chains. Archived pages have self-canonical
+redirects are retargeted to avoid chains. Reference sidebars have no generated
+category pages, so every route of a version is a document route and has a
+redirect. Version-local links exist only inside their own version, so they are
+removed together with it. Archived pages have self-canonical
 URLs and Docusaurus's noindex metadata, and are excluded from the sitemap and
 `llms.txt`. Their Markdown twins still exist. Current pages remain indexable.
 
@@ -183,8 +218,8 @@ pull request.
 
 `npm run test:reference` checks version boundaries, retention, file pruning,
 page fallback, locale redirects, patch replacement, the missing-bootstrap error,
-link rewrites (including angle-bracket destinations), and isolation between
-instances. `npm run check` also builds both
+link rewrites (including angle-bracket destinations), version-local links in
+archived and hidden snapshots, and isolation between instances. `npm run check` also builds both
 locale shells and audits the selectors, archived routes, banners, canonicals,
 robots metadata, redirects, sitemaps, and `llms.txt`.
 
