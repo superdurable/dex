@@ -5,7 +5,25 @@ slug: /primitives/timer
 
 # Timer
 
-Timer is **Durable Timer** persisted on the Dex Server. While waiting on the Timer, there is no resource consumed at the Worker side.
+A **Timer** is a durable timer that Dex Server keeps. A Step returns it from
+**WaitFor**, and **Execute** runs when it fires. While the Step waits, no Worker
+holds memory, a thread, or a connection for it.
+
+## When to use a Timer
+
+Use a Timer for a delay, a reminder, or a deadline. Combine it with another
+condition to build a timeout: a Step that waits for any of a
+[Channel](/primitives/channel) message and a Timer proceeds with whichever
+comes first.
+
+## Guarantees
+
+The server stores the Timer with the Flow. It survives Worker restarts and
+server failover. In **Execute**, the Step checks whether its Timer fired.
+
+## Wait for a Timer
+
+This Step waits for the number of seconds in its input:
 
 <SdkTabs
   examples={{
@@ -116,17 +134,33 @@ impl Step for TimerExampleStep {
 </SdkSnippet>
 </SdkTabs>
 
-## How to skip a Timer
+<a id="how-to-skip-a-timer"></a>
 
-You can call **SkipTimer** with the Flow ID and Timer selector to skip a Timer. A skipped timer acts like timer has fired. This is helpful to manually trigger a timer for test simulation for production operation.
+## Skip a Timer
 
-<SdkTabs>
+A Client can skip a Timer with **SkipTimer**. It selects the Timer by Flow ID,
+Step execution ID, and either the Timer's condition ID or the index of its
+condition in **WaitFor**. A skipped
+Timer acts as if it had fired. Use it in tests, or in production to run a
+waiting Step early. See [Skip a Timer](/reference/server/runtime-client#skip-a-timer).
+
+In this test of the order-processing example, the **Ship** Step waits on a
+Timer, and the test skips it:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/tests/integ/test_order_processing.py',
+    go: 'examples/go/integ/order_processing_test.go',
+    java: 'examples/java/src/test/java/io/superdurable/dex/integ/OrderProcessingIntegTest.java',
+    typescript: 'examples/typescript/test/integ/order-processing.test.ts',
+    rust: 'examples/rust/tests/dex_integration.rs',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
-client.skip_timer(
+await client.skip_timer(
     flow_id,
-    StepExecutionId("TimerExampleStep"),
+    SHIP_STEP,
     TimerId.by_condition_index(0),
 )
 ```
@@ -135,22 +169,21 @@ client.skip_timer(
   <SdkSnippet lang="go">
 
 ```go
-timerIndex := int32(0)
-err := client.SkipTimer(
-	ctx,
+return integClient.SkipTimer(
+	integrationContext(t),
 	flowID,
-	dex.StepExecutionID{StepType: "TimerExampleStep"},
-	dex.TimerID{Index: &timerIndex},
-)
+	dex.StepExecutionID{StepType: orderprocessing.ShipStepType},
+	dex.TimerID{Index: new(int32)},
+) == nil
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-client.skipTimer(
+environment.client().skipTimer(
         flowId,
-        StepExecutionId.of("TimerExampleStep"),
+        StepExecutionId.of("Ship"),
         TimerId.byConditionIndex(0));
 ```
 
@@ -158,9 +191,9 @@ client.skipTimer(
   <SdkSnippet lang="typescript">
 
 ```typescript
-await client.skipTimer(
+await environment.client.skipTimer(
   flowId,
-  StepExecutionId.of("TimerExampleStep"),
+  StepExecutionId.of("Ship"),
   TimerId.byConditionIndex(0),
 );
 ```
@@ -169,12 +202,26 @@ await client.skipTimer(
   <SdkSnippet lang="rust">
 
 ```rust
-client.skip_timer(
-    &flow_id,
-    StepExecutionId::of(&TimerExampleStep),
+match environment.client.skip_timer(
+    flow_id,
+    StepExecutionId::of(&Ship::default()),
     TimerId::by_condition_index(0),
-)?;
+) {
+    Ok(()) => return,
+    Err(error) => last_error = Some(error),
+}
 ```
 
 </SdkSnippet>
 </SdkTabs>
+
+See [Step](/primitives/step) for how a Step combines conditions in **WaitFor**.
+
+## Reference
+
+- [Waits](/reference/server/runtime-steps#waits) and
+  [Condition results](/reference/server/runtime-steps#condition-results) cover
+  how a Timer combines with other conditions and how a Step reads which one
+  fired.
+- [Skip a Timer](/reference/server/runtime-client#skip-a-timer) covers the
+  Client call.

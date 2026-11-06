@@ -6,16 +6,22 @@ slug: /primitives/subflow
 
 # SubFlow
 
-**SubFlow** 是 parent Flow 下的另一个 Flow execution。
+**SubFlow** 是父 Flow 从它的某个 Step 启动的 Flow execution。子 Flow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。父 Flow 像等待 **WaitFor** 中的其他 condition 一样等待它。
 
-SubFlow 有两个主要意义：
+## 什么时候用 SubFlow
 
-1. 把复杂逻辑抽象到更小的 Flow 中。这样业务逻辑更容易维护，层级结构也更清晰。
-2. Fan out 工作。一个 Flow execution 无法同时并发执行太多操作，但可以 delegate 给多个 SubFlow。每个 SubFlow 可以同时运行，所以 parent 可以达到更高的并发。
+SubFlow 主要有两种用途：
+
+1. 把复杂逻辑拆到更小的 Flow 中。这让业务逻辑更容易维护，层次也更清楚。
+2. 扇出工作。一个 Flow execution 不能同时运行太多操作，但可以把工作交给很多 SubFlow。这些 SubFlow 同时运行，父 Flow 因此能达到高得多的并发。
+
+## 保证
+
+Dex Server 根据父 Flow ID、Step execution 和 condition 序号生成 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
 
 ## 启动并等待 SubFlow
 
-target Flow 必须注册在 Worker 上，而且它的 start Step 必须能接受传给 **SubFlow** 的 input。**WaitFor** 启动 child；child 完成后，**Execute** 读取结果。
+目标 Flow 必须注册在 Worker 上。它的 start Step 必须接受传给 **SubFlow** 的输入。**WaitFor** 启动子 Flow。子 Flow 完成后，**Execute** 读取它的结果。
 
 <SdkTabs
 examples={{
@@ -176,25 +182,16 @@ impl Step for SubFlowParent {
 </SdkSnippet>
 </SdkTabs>
 
-## 与其他 Condition 一起使用 SubFlow
+<a id="与其他-condition-一起使用-subflow"></a>
 
-使用 **allOf**，让 parent 等待所有 SubFlow 完成。
+## 等待多个 SubFlow
 
-使用 **anyOf** 时，parent 不会等待所有 SubFlow。**WaitFor** 已经结束等待后，SubFlow 仍会继续运行。**Execute** 仍然可以拿到 SubFlow ID 来停止它，或者把 SubFlow ID 传给其他 Step，由它决定如何处理。
+用 **allOf** 让父 Flow 等待所有 SubFlow 完成。
 
-## SubFlowOptions 和 SubFlowReusePolicy
+父 Flow 不需要等待全部 SubFlow 时，用 **anyOf**。**WaitFor** 停止等待后，SubFlow 仍会继续运行。**Execute** 仍然可以拿到 SubFlow ID 来停止它，或者把 ID 传给另一个 Step 决定如何处理。SubFlow 与其他 condition 的组合见 [SubFlow results](/reference/server/runtime-steps#subflow-results)。
 
-**SubFlowOptions** 等同于 **StartFlow** API 上的 **StartFlowOptions**。大部分 option 都一样，只有 **SubFlowReusePolicy** 不同。
+<a id="subflowoptions-和-subflowreusepolicy"></a>
 
-Dex Server 会根据 parent Flow ID、Step execution ID 和 condition index 生成 SubFlow ID。当 parent 通过 **IDReusePolicy** 复用 Flow ID，或者 time travel 时，它可能会进入同一个 Step execution，再尝试启动相同的 SubFlow ID。**SubFlowReusePolicy** 决定这种情况如何处理。
+## 参考
 
-默认的 **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** 通常就是 parent 想要的：继续等待 running child，使用成功 child 的 result，重新启动异常结束的 child。
-
-| 已存在的 child Flow | **ATTACH** | **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** | **ALWAYS_RESTART** |
-| --- | --- | --- | --- |
-| 没有已有 Flow | Start | Start | Start |
-| Running | Attach | Attach | Terminate 后 start |
-| Completed | 返回它的 result | 返回它的 result | Start |
-| Failed、canceled、timed out 或 terminated | 返回它的 result | Start | Start |
-
-Dex Server 会先比较为这次 child start 生成的 Request ID。Request ID 相同，就一定会 attach 到 running child 或返回它的 terminal result，和 **ReusePolicy** 无关。这样，Dex Server 接受了原始 start 但 parent 没收到 response 时，retry 也是安全的。Request ID 不同时，Dex Server 才根据表格应用 **ReusePolicy**。
+**SubFlowOptions** 接受与 Client 启动 Flow 相同的选项，另加一个 reuse policy。选项和面对已有子 Flow 各种状态时的 reuse policy，见 [SubFlowOptions](/reference/server/runtime-data#subflow-options) 和 [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy)。

@@ -7,6 +7,8 @@
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
+import {existsSync, readFileSync} from 'node:fs';
+import referenceVersions from './reference/versions.json';
 import {fileURLToPath} from 'node:url';
 import clientRedirects from '@docusaurus/plugin-client-redirects';
 import {themes as prismThemes} from 'prism-react-renderer';
@@ -14,16 +16,7 @@ import type {Config, LoadContext} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import redirects from './redirects.json';
 
-const developerReferenceComponents = [
-  'server',
-  'cli',
-  'web',
-  'go',
-  'python',
-  'java',
-  'typescript',
-  'rust',
-];
+const developerReferenceComponents = Object.keys(referenceVersions) as (keyof typeof referenceVersions)[];
 
 // src/theme/Navbar/Content renders left items as the site row and right items as the actions.
 const companyHeaderNavigation = {
@@ -170,6 +163,7 @@ const config: Config = {
         sitemap: {
           changefreq: 'daily',
           priority: 0.5,
+          ignorePatterns: ['/api/**'],
         },
       } satisfies Preset.Options,
     ],
@@ -185,8 +179,20 @@ const config: Config = {
         routeBasePath: `reference/${component}`,
         sidebarPath: `./reference/sidebars/${component}.ts`,
         editUrl: 'https://github.com/superdurable/dex/tree/main/docs/',
+        lastVersion: 'current',
+        versions: {
+          current: {label: `${referenceVersions[component]} (latest)`, path: '', banner: 'none', badge: false},
+          ...Object.fromEntries(referenceSnapshots(component).map((version) => [
+            version,
+            {label: version, path: version, banner: 'unmaintained', badge: false, noIndex: true},
+          ])),
+        },
+        onlyIncludeVersions: ['current', ...referenceSnapshots(component).filter(
+          (version) => version !== referenceVersions[component],
+        )],
       },
     ]),
+    './plugins/markdown-export/index.cjs',
     (context: LoadContext) =>
       clientRedirects(context, {
         id: 'default',
@@ -266,6 +272,11 @@ const config: Config = {
     },
   } satisfies Preset.ThemeConfig,
 };
+
+function referenceSnapshots(component: string): string[] {
+  const versionsPath = new URL(`./reference-${component}_versions.json`, import.meta.url);
+  return existsSync(versionsPath) ? JSON.parse(readFileSync(versionsPath, 'utf8')) : [];
+}
 
 function redirectPathLocale(context: LoadContext, pathname: string): string {
   return (

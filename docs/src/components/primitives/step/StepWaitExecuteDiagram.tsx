@@ -1,10 +1,17 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
 import React, {type ReactNode} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
 import {CompactCard, GraphArrow, StepCard} from './flowGraphShared';
 
 type Copy = {
-  label: string;
   returnsWait: string;
   conditionWaiting: string;
   conditionDetail: string;
@@ -15,32 +22,30 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'Step lifecycle: WaitFor, condition waiting, Execute, StepDecision',
   returnsWait: 'returns Wait',
   conditionWaiting: 'Condition waiting',
-  conditionDetail: 'Dex evaluates timer or channel',
+  conditionDetail: 'Dex evaluates Timer, Channel, or SubFlow',
   satisfied: 'condition satisfied',
   executeMove: 'GoTo(Complete Flow, input + 1)',
   decision: 'StepDecision',
-  decisionDetail: 'GoTo · GracefulComplete · Fail',
+  decisionDetail: 'GoTo · GracefulComplete · ForceFail',
 };
 
 const ZH: Copy = {
-  label: 'Step 生命周期：WaitFor、条件等待、Execute、StepDecision',
   returnsWait: '返回 Wait',
   conditionWaiting: 'Condition 等待',
-  conditionDetail: 'Dex 评估 timer 或 channel',
+  conditionDetail: 'Dex 评估 Timer、Channel 或 SubFlow',
   satisfied: '条件满足',
   executeMove: 'GoTo(Complete Flow, input + 1)',
   decision: 'StepDecision',
-  decisionDetail: 'GoTo · GracefulComplete · Fail',
+  decisionDetail: 'GoTo · GracefulComplete · ForceFail',
 };
 
-export default function StepWaitExecuteDiagram(): ReactNode {
+export default function StepWaitExecuteDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = i18n.currentLocale === 'zh-Hans' ? ZH : EN;
   return (
-    <div className="exec-diagram" role="img" aria-label={copy.label}>
+    <div className="exec-diagram" role="img" aria-label={markdownDescription}>
       <div className="flow-graph">
         <StepCard
           name="ExampleStep"

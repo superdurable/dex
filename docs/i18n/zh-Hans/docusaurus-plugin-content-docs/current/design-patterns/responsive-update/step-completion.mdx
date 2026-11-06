@@ -8,7 +8,7 @@ title: 等待 Step 完成
 
 **WaitForStepCompletionFlow** 示例会在 **PersistData** 中持久化记录，再启动 **BackgroundWork**。它的 controller 在查询已持久化记录前等待 **PersistData**。只有当一个 Step 已提交了使响应有效的状态后，才应把它选作这个边界。
 
-在 HTTP 或 admission 边界应设置 **RequestTimeout**。下面的 runnable controller 没有设置它。见[等待超时与上限](/primitives/client/advanced#wait-timeouts-and-limits)。
+在 HTTP 或 admission 边界应设置 **RequestTimeout**。下面的 runnable controller 没有设置它。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 核心实现
 
@@ -178,4 +178,4 @@ async fn start(
 ## 相关内容
 
 - [Step](/primitives/step)
-- [Client 高级操作](/primitives/client/advanced)
+- [Client](/primitives/client)

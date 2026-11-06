@@ -441,6 +441,97 @@ fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
 }
 
 #[test]
+fn single_node_partition_count_defaults_to_32_unless_the_overrides_set_it() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let other_cluster_key_path = temporary.path().join("cluster-node.yaml");
+    fs::write(&other_cluster_key_path, "cluster:\n  nodeId: other\n").expect("write test config");
+    let explicit_count_path = temporary.path().join("partition-count.yaml");
+    fs::write(&explicit_count_path, "cluster:\n  partitionCount: 1024\n")
+        .expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
+            .expect("configuration without YAML");
+        assert_eq!(without_overrides.cluster.partition_count, 32);
+        let with_other_cluster_key = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(other_cluster_key_path.clone()),
+        ))
+        .expect("configuration with another cluster key");
+        assert_eq!(with_other_cluster_key.cluster.partition_count, 32);
+        let with_explicit_count = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(explicit_count_path.clone()),
+        ))
+        .expect("configuration with an explicit partition count");
+        assert_eq!(with_explicit_count.cluster.partition_count, 1024);
+    }
+
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert_eq!(serve.cluster.partition_count, 1024);
+}
+
+#[test]
+fn single_node_applier_lanes_above_the_default_partition_count_need_an_explicit_count() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let lanes_path = temporary.path().join("lanes.yaml");
+    fs::write(&lanes_path, "commit:\n  applierLanes: 64\n").expect("write test config");
+    let lanes_and_count_path = temporary.path().join("lanes-and-count.yaml");
+    fs::write(
+        &lanes_and_count_path,
+        "cluster:\n  partitionCount: 1024\ncommit:\n  applierLanes: 64\n",
+    )
+    .expect("write test config");
+    let at_default_path = temporary.path().join("lanes-at-default.yaml");
+    fs::write(&at_default_path, "commit:\n  applierLanes: 32\n").expect("write test config");
+    for (load, command, override_file) in [
+        (
+            Config::load_dev as fn(&DevCommandOptions) -> Result<Config, ConfigError>,
+            "dev",
+            "the --config file (with dexcli dev, the --zd-config file)",
+        ),
+        (Config::load_local, "local", "the --config file"),
+    ] {
+        let error = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(lanes_path.clone()),
+        ))
+        .expect_err("64 lanes exceed the 32 default partitions");
+        assert!(
+            matches!(
+                error,
+                ConfigError::SingleNodeApplierLanesExceedDefaultPartitionCount {
+                    command: actual_command,
+                    override_file: actual_override_file,
+                    applier_lanes: 64,
+                    default_partition_count: 32,
+                } if actual_command == command && actual_override_file == override_file
+            ),
+            "{error:?}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains("since server-zd v0.1.20")
+                && message.contains("set cluster.partitionCount")
+                && message.contains("1024 for a data directory")
+                && message.contains("lower commit.applierLanes to at most 32"),
+            "{message}"
+        );
+        let with_count = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(lanes_and_count_path.clone()),
+        ))
+        .expect("an explicit partition count admits 64 lanes");
+        assert_eq!(with_count.commit.applier_lanes, Some(64));
+        let at_default = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(at_default_path.clone()),
+        ))
+        .expect("32 lanes fit the default partition count");
+        assert_eq!(at_default.commit.applier_lanes, Some(32));
+    }
+}
+
+#[test]
 fn single_node_listen_prefers_the_flag_then_api_listen_then_loopback() {
     let temporary = tempfile::tempdir().expect("test directory");
     let yaml_path = temporary.path().join("listen.yaml");

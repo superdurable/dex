@@ -15,19 +15,16 @@ Dex provides the rest.
 | [Server](/primitives/components/server) | server-zd stores Flow state and hands work to Workers. |
 | [CLI](/primitives/components/cli) | **dexcli** runs a local Dex and operates Flows from a shell. |
 | [Web](/primitives/components/web) | Dex Web is the operator UI for inspecting and acting on Flows. |
-| [Connector](/primitives/components/connector) | Connectors are released integrations that a Flow calls. |
+| [Connector setup](/primitives/components/connector) | Connectors are released integrations that a Flow calls. Dex Web sets them up locally. |
 | [External Attribute Sync](/primitives/components/external-attribute-sync) | server-zd copies selected Attributes into PostgreSQL tables. |
 
 ## How they fit together
 
 ```text
- Client ───────▶ ┌───────────┐ ◀─────── Worker (outbound streams)
-                 │ server-zd │
- Dex Web ──────▶ │           │ ───────▶ PostgreSQL (External Attribute Sync)
- dexcli ───────▶ └───────────┘
-                       │
-                       ▼
-                 object storage
+Client  ──▶ server-zd ◀── Worker
+Dex Web ──▶     │
+dexcli  ──▶     ├──▶ object storage
+                └──▶ PostgreSQL (Attribute Sync)
 ```
 
 Workers, Clients, Dex Web, and **dexcli** all connect to the server's API port.

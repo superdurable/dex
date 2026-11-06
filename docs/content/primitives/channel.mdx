@@ -7,19 +7,40 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** is a durable first-in, first-out (FIFO) queue inside one Flow execution. Steps and RPCs append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
+A **Channel** is a durable first-in, first-out (FIFO) queue inside one Flow
+execution. Steps and RPCs publish typed messages to it. A Step consumes messages
+by waiting on the Channel in **WaitFor**.
 
-A Channel keeps messages in arrival order. A message can be consumed by one matching wait, once. It is not copied to other waiting Steps.
+A Channel is scoped to one Flow execution. Messages never cross between Flow
+executions.
 
-A Channel is scoped to one Flow execution. Messages never cross between Flow executions.
+<ChannelScopeDiagram markdownDescription="A Flow execution owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and a waiting consumer Step consumes each message once." />
 
-<ChannelScopeDiagram />
+## When to use a Channel
 
-## Persistence schema {#persistence-schema}
+Use a Channel for events that a Step waits for, such as an approval, a user
+reply, or a new work item. Use an [Attribute](/primitives/attribute) for state
+that you overwrite and read many times. Use a [Stream](/primitives/stream) for
+live progress that a user can afford to lose.
 
-A Channel has a stable name and a message type. Define it and add it to the Flow persistence schema.
+## Guarantees
 
-This example has an **ApprovalMessages** Channel. Its start Step waits for either one approval or a Timer. The **publishApprovalMessage** RPC publishes the approval message. The **enqueueChannelMessage** RPC lets applications publish another queued message.
+- Dex stores every message durably with the Flow.
+- Messages stay in arrival order.
+- One wait consumes a message, once. Dex does not copy it to other waiting
+  Steps.
+- A message can arrive before a Step starts waiting. Dex keeps it until a later
+  wait consumes it.
+- A publication commits together with the Step or RPC result that made it.
+
+## Define, publish, and wait {#persistence-schema}
+
+A Channel has a stable name and a message type. Define it and add it to the
+Flow persistence schema.
+
+In this example, the start Step waits for one message on the
+**ApprovalMessages** Channel, or for a Timer. The
+**publishApprovalMessage** RPC publishes the approval.
 
 <SdkTabs
 examples={{
@@ -32,12 +53,7 @@ rust: 'examples/rust/src/primitives/channel/flow.rs',
 <SdkSnippet lang="python">
 
 ```python
-@dataclass(frozen=True)
-class QueuedMessageReference:
-    message_id: str
-
-
-class ChannelWaitStep(Step[int]):
+class ChannelWait(Step[int]):
     def __init__(
         self,
         approval_messages: Channel[str],
@@ -65,35 +81,12 @@ class ChannelWaitStep(Step[int]):
         approval_message_values = self.approval_messages.results(context)
         return graceful_complete(approval_message_values[0])
 
-
 class ChannelFlow(Flow[int]):
     approval_messages = Channel("ApprovalMessages", str)
-    queued_messages = Channel("QueuedMessages", str)
-    prioritized_messages = Channel("PrioritizedMessages", str)
-
-    def __init__(self) -> None:
-        self.wait_for_approval = ChannelWaitStep(self.approval_messages, self.queued_messages)
-
-    def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.wait_for_approval)
-
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.approval_messages, self.queued_messages, self.prioritized_messages)
 
     @rpc
     def publish_approval_message(self, context: Context) -> None:
         self.approval_messages.publish(context, "approved")
-
-    @rpc(is_transactional=True, load_channels=(queued_messages,))
-    def move_queued_message_to_prioritized_messages(
-        self, context: Context, queued_message: QueuedMessageReference
-    ) -> None:
-        message_to_prioritize = self.queued_messages.find_pending_message(
-            context, queued_message.message_id
-        )
-        self.queued_messages.delete(context, queued_message.message_id)
-        if message_to_prioritize is not None:
-            self.prioritized_messages.publish(context, message_to_prioritize.value)
 ```
 
 </SdkSnippet>
@@ -105,55 +98,6 @@ var (
 	QueuedMessages      = dex.DefineChannel[string]("QueuedMessages")
 	PrioritizedMessages = dex.DefineChannel[string]("PrioritizedMessages")
 )
-
-type ChannelFlow struct {
-	dex.FlowDefaults
-}
-
-type QueuedMessageReference struct {
-	MessageID string `json:"messageId"`
-}
-
-func (*ChannelFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(channelWait{})}
-}
-
-func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{
-		dex.DefineRPC(flow.PublishApprovalMessage, nil),
-		dex.DefineRPC(flow.EnqueueChannelMessage, nil),
-		dex.DefineRPC(flow.GetQueuedMessages, &dex.RPCOptions{
-			LoadChannels: []dex.ChannelDef{QueuedMessages},
-		}),
-		dex.DefineRPC(flow.DeleteQueuedMessage, &dex.RPCOptions{
-			IsTransactional: true,
-			LoadChannels:    []dex.ChannelDef{QueuedMessages},
-		}),
-		dex.DefineRPC(flow.GetPrioritizedMessages, &dex.RPCOptions{
-			LoadChannels: []dex.ChannelDef{PrioritizedMessages},
-		}),
-		dex.DefineRPC(flow.MoveQueuedMessageToPrioritizedMessages, &dex.RPCOptions{
-			IsTransactional: true,
-			LoadChannels:    []dex.ChannelDef{QueuedMessages},
-		}),
-	}
-}
-
-func (*ChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{ApprovalMessages, QueuedMessages, PrioritizedMessages},
-	}
-}
-
-type channelWait struct {
-	dex.StepDefaults
-}
-
-func (channelWait) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		ExecuteLoadChannels: []dex.ChannelDef{QueuedMessages},
-	}
-}
 
 func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
@@ -189,111 +133,41 @@ func (*ChannelFlow) PublishApprovalMessage(ctx dex.Context, _ dex.None) (*dex.RP
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
-
-func (*ChannelFlow) MoveQueuedMessageToPrioritizedMessages(
-	ctx dex.Context,
-	queuedMessageReference QueuedMessageReference,
-) (*dex.RPCResult[dex.None], error) {
-	messageToPrioritize, found, err := QueuedMessages.FindPendingMessage(ctx, queuedMessageReference.MessageID)
-	if err != nil {
-		return nil, err
-	}
-	if err := QueuedMessages.Delete(ctx, queuedMessageReference.MessageID); err != nil {
-		return nil, err
-	}
-	if found {
-		if err := PrioritizedMessages.Publish(ctx, messageToPrioritize.Value); err != nil {
-			return nil, err
-		}
-	}
-	return &dex.RPCResult[dex.None]{}, nil
-}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-public class ChannelFlow implements Flow<Integer> {
-    public static final class QueuedMessageReference {
-        public String messageId;
+public final Channel<String> approvalMessages =
+        Channel.define("ApprovalMessages", String.class);
 
-        public QueuedMessageReference() {
-        }
+@Override
+public Wait waitFor(final Context context, final Integer input) {
+    return Wait.anyOf(
+            approvalMessages.forOne(),
+            Timer.byDuration(Duration.ofSeconds(input)));
+}
 
-        public QueuedMessageReference(final String messageId) {
-            this.messageId = messageId;
-        }
+@Override
+public StepDecision execute(final Context context, final Integer input) {
+    final List<ChannelMessage<String>> pendingQueuedMessages =
+            queuedMessages.pendingMessages(context);
+    if (!pendingQueuedMessages.isEmpty()) {
+        queuedMessages.delete(context, pendingQueuedMessages.get(0).getMessageId());
+        return StepDecision.gracefulComplete(pendingQueuedMessages.get(0).getValue());
     }
-
-    public final Channel<String> approvalMessages = Channel.define("ApprovalMessages", String.class);
-    public final Channel<String> queuedMessages = Channel.define("QueuedMessages", String.class);
-    public final Channel<String> prioritizedMessages = Channel.define("PrioritizedMessages", String.class);
-    private final ChannelWaitStep waitForApproval = new ChannelWaitStep();
-
-    @Override
-    public StepList<Integer> getSteps() {
-        return StepList.startStep(waitForApproval);
+    if (context.hasTimerFired()) {
+        return StepDecision.gracefulComplete("approval timed out");
     }
+    final List<String> approvalMessageValues =
+            approvalMessages.getConditionResults(context);
+    return StepDecision.gracefulComplete(approvalMessageValues.get(0));
+}
 
-    @Override
-    public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(approvalMessages, queuedMessages, prioritizedMessages);
-    }
-
-    @RPC
-    public void publishApprovalMessage(final Context context) {
-        approvalMessages.publish(context, "approved");
-    }
-
-    @RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
-    public void moveQueuedMessageToPrioritizedMessages(
-            final Context context,
-            final QueuedMessageReference queuedMessageReference) {
-        final ChannelMessage<String> messageToPrioritize =
-                queuedMessages.findPendingMessage(context, queuedMessageReference.messageId);
-        queuedMessages.delete(context, queuedMessageReference.messageId);
-        if (messageToPrioritize != null) {
-            prioritizedMessages.publish(context, messageToPrioritize.getValue());
-        }
-    }
-
-    final class ChannelWaitStep implements Step<Integer> {
-        @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
-        }
-
-        @Override
-        public StepOptions getStepOptions() {
-            return StepOptions.newBuilder()
-                    .addExecuteLoadChannel(queuedMessages)
-                    .build();
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Integer input) {
-            return Wait.anyOf(
-                    approvalMessages.forOne(),
-                    Timer.byDuration(Duration.ofSeconds(input)));
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Integer input) {
-            final List<ChannelMessage<String>> pendingQueuedMessages =
-                    queuedMessages.pendingMessages(context);
-            if (!pendingQueuedMessages.isEmpty()) {
-                queuedMessages.delete(context, pendingQueuedMessages.get(0).getMessageId());
-                return StepDecision.gracefulComplete(pendingQueuedMessages.get(0).getValue());
-            }
-            if (context.hasTimerFired()) {
-                return StepDecision.gracefulComplete("approval timed out");
-            }
-            final List<String> approvalMessageValues =
-                    approvalMessages.getConditionResults(context);
-            return StepDecision.gracefulComplete(approvalMessageValues.get(0));
-        }
-    }
+@RPC
+public void publishApprovalMessage(final Context context) {
+    approvalMessages.publish(context, "approved");
 }
 ```
 
@@ -302,78 +176,30 @@ public class ChannelFlow implements Flow<Integer> {
 
 ```typescript
 const approvalMessages = new Channel("ApprovalMessages", stringCodec);
-export const queuedMessages = new Channel("QueuedMessages", stringCodec);
-export const prioritizedMessages = new Channel("PrioritizedMessages", stringCodec);
 
-export interface QueuedMessageReference {
-  readonly messageId: string;
+public waitFor(_context: Context, input: number): Wait {
+  return Wait.anyOf(
+    approvalMessages.forOne(),
+    Timer.byDuration(input * 1000),
+  );
 }
 
-const queuedMessageReferenceCodec = jsonCodec<QueuedMessageReference>();
-
-class ChannelWait implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
-  public getStepType(): string {
-    return "ChannelWait";
+public execute(context: Context, _input: number): StepDecision {
+  const pendingQueuedMessages = queuedMessages.pendingMessages(context);
+  if (pendingQueuedMessages.length > 0) {
+    queuedMessages.delete(context, pendingQueuedMessages[0]!.messageId);
+    return gracefulComplete(pendingQueuedMessages[0]!.value);
   }
-
-  public getStepOptions(): StepOptions {
-    return { executeLoadChannels: [queuedMessages] };
+  if (context.hasTimerFired()) {
+    return gracefulComplete("approval timed out");
   }
-
-  public waitFor(_context: Context, input: number): Wait {
-    return Wait.anyOf(
-      approvalMessages.forOne(),
-      Timer.byDuration(input * 1000),
-    );
-  }
-
-  public execute(context: Context, _input: number): StepDecision {
-    const pendingQueuedMessages = queuedMessages.pendingMessages(context);
-    if (pendingQueuedMessages.length > 0) {
-      queuedMessages.delete(context, pendingQueuedMessages[0]!.messageId);
-      return gracefulComplete(pendingQueuedMessages[0]!.value);
-    }
-    if (context.hasTimerFired()) {
-      return gracefulComplete("approval timed out");
-    }
-    const approvalMessageValues = approvalMessages.results(context);
-    return gracefulComplete(approvalMessageValues[0]!);
-  }
+  const approvalMessageValues = approvalMessages.results(context);
+  return gracefulComplete(approvalMessageValues[0]!);
 }
 
-const channelWait = new ChannelWait();
-
-export class ChannelFlow implements Flow<number> {
-  public getFlowType(): string {
-    return "ChannelFlow";
-  }
-
-  public getSteps() {
-    return StepList.startStep(channelWait);
-  }
-
-  public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [approvalMessages, queuedMessages, prioritizedMessages] };
-  }
-
-  @rpc()
-  public publishApprovalMessage(context: Context): void {
-    approvalMessages.publish(context, "approved");
-  }
-
-  @rpc({ isTransactional: true, loadChannels: [queuedMessages], inputCodec: queuedMessageReferenceCodec })
-  public moveQueuedMessageToPrioritizedMessages(
-    context: Context,
-    queuedMessage: QueuedMessageReference,
-  ): void {
-    const messageToPrioritize = queuedMessages.findPendingMessage(context, queuedMessage.messageId);
-    queuedMessages.delete(context, queuedMessage.messageId);
-    if (messageToPrioritize !== undefined) {
-      prioritizedMessages.publish(context, messageToPrioritize.value);
-    }
-  }
+@rpc()
+public publishApprovalMessage(context: Context): void {
+  approvalMessages.publish(context, "approved");
 }
 ```
 
@@ -381,109 +207,56 @@ export class ChannelFlow implements Flow<number> {
   <SdkSnippet lang="rust">
 
 ```rust
-pub const PUBLISH_APPROVAL_MESSAGE: Rpc<(), ()> = Rpc::new("PublishApprovalMessage");
-pub const MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES: Rpc<QueuedMessageReference, ()> = Rpc::new("MoveQueuedMessageToPrioritizedMessages");
+static APPROVAL_MESSAGES: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("ApprovalMessages"));
 
-static APPROVAL_MESSAGES: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("ApprovalMessages"));
-pub static QUEUED_MESSAGES: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("QueuedMessages"));
-pub static PRIORITIZED_MESSAGES: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("PrioritizedMessages"));
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct QueuedMessageReference {
-    pub message_id: String,
+fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+    Ok(Wait::any_of([
+        APPROVAL_MESSAGES.for_one(),
+        Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+    ]))
 }
 
-#[derive(Default)]
-pub struct ChannelFlow {
-    wait: ChannelWait,
-}
-
-impl ChannelFlow {
-    fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
-        APPROVAL_MESSAGES.publish(context, "approved".to_string())
-    }
-
-    fn move_queued_message_to_prioritized_messages(
-        &self,
-        context: &mut Context,
-        queued_message: QueuedMessageReference,
-    ) -> HandlerResult<()> {
-        let message_to_prioritize =
-            QUEUED_MESSAGES.find_pending_message(context, &queued_message.message_id)?;
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let pending_queued_messages = QUEUED_MESSAGES.pending_messages(context)?;
+    if let Some(queued_message) = pending_queued_messages.first() {
         QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
-        if let Some(message_to_prioritize) = message_to_prioritize {
-            PRIORITIZED_MESSAGES.publish(context, message_to_prioritize.value)?;
-        }
-        Ok(())
+        return Ok(StepDecision::graceful_complete(
+            queued_message.value.clone(),
+        ));
     }
+    if context.has_any_timer_fired() {
+        return Ok(StepDecision::graceful_complete(
+            "approval timed out".to_owned(),
+        ));
+    }
+    let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
+    Ok(StepDecision::graceful_complete(
+        approval_message_values[0].clone(),
+    ))
 }
 
-impl Flow for ChannelFlow {
-    type StartInput = i32;
-
-    fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.wait)
-    }
-
-    fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .channel(&APPROVAL_MESSAGES)
-            .channel(&QUEUED_MESSAGES)
-            .channel(&PRIORITIZED_MESSAGES)
-    }
-
-    fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new()
-            .procedure_without_input(PUBLISH_APPROVAL_MESSAGE, Self::publish_approval_message)
-            .procedure(
-                MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES.is_transactional().load_channel(&QUEUED_MESSAGES),
-                Self::move_queued_message_to_prioritized_messages,
-            )
-    }
-}
-
-#[derive(Default)]
-struct ChannelWait;
-
-impl Step for ChannelWait {
-    type Input = i32;
-
-    fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_load_channel(&QUEUED_MESSAGES)
-    }
-
-    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([
-            APPROVAL_MESSAGES.for_one(),
-            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
-        ]))
-    }
-
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let pending_queued_messages = QUEUED_MESSAGES.pending_messages(context)?;
-        if let Some(queued_message) = pending_queued_messages.first() {
-            QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
-            return Ok(StepDecision::graceful_complete(queued_message.value.clone()));
-        }
-        if context.has_any_timer_fired() {
-            return Ok(StepDecision::graceful_complete(
-                "approval timed out".to_owned(),
-            ));
-        }
-        let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
-        Ok(StepDecision::graceful_complete(approval_message_values[0].clone()))
-    }
+fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
+    APPROVAL_MESSAGES.publish(context, "approved".to_string())
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-The Timer branch returns before reading Channel results. If the approval wins, the Channel condition has consumed one message, so the first result is present.
+**Execute** first takes a message that an RPC queued on a second Channel,
+**QueuedMessages**, if one is pending. See
+[Manage pending messages](#manage-pending-messages). The Timer branch returns
+before it reads Channel results. If the approval wins,
+the Channel condition has consumed one message, so the first result is present.
+The full example also loads **QueuedMessages** in the Step options, registers
+the Channels in the persistence schema, and registers the RPC.
 
 ## Wait and consume {#wait-and-consume}
 
-Returning a Channel condition from **WaitFor** waits for the Channel. When the condition is met, it consumes messages from the Channel. Dex Server keeps messages until a waiting Step wins them, then removes the selected messages from the queue in FIFO order and passes them to **Execute** as Channel results.
+A Channel condition in **WaitFor** waits until enough messages are queued. Dex
+then removes the selected messages in FIFO order and passes them to **Execute**
+as Channel results.
 
 | Condition | When it proceeds | What it consumes |
 | --- | --- | --- |
@@ -493,142 +266,32 @@ Returning a Channel condition from **WaitFor** waits for the Channel. When the c
 | **AtMost** | Immediately, including when the queue is empty. | Up to the requested number of currently queued messages. |
 | **AtLeastAtMost** | At least the lower bound is queued. | From the lower bound up to the upper bound of currently queued messages. |
 
-**AtMost** does not wait on its own for messages to accumulate. When the surrounding Wait completes, it consumes up to the limit from the queue at that time. To wait for at least one message and consume up to a limit, use **AtLeastAtMost** with a lower bound of 1.
-
 ## Publish messages {#publish-messages}
 
-Inside a Step or RPC, call the Channel publish method with the handler **Context**. Dex appends the message when it accepts that handler result.
-
-Code outside a Worker invokes a Flow RPC that publishes with the handler **Context**. This makes the Flow the boundary for validation, authorization, locking, and related state changes.
-
-Messages can arrive before a Step starts waiting. Dex Server keeps them in the Channel until a later wait consumes them.
+Inside a Step or RPC, publish with the handler **Context**. Code outside a
+Worker calls a Flow RPC that publishes. This keeps validation, authorization,
+and related state changes inside the Flow.
 
 ## Manage pending messages {#manage-pending-messages}
 
-Dex assigns a UUIDv7 message ID when it accepts each publication. An RPC can list every pending message in FIFO order and delete one by ID. Listing does not consume messages. Only a message that is still pending can be deleted; a concurrent Step consumption or deletion returns the Channel-message-not-found error.
+Each message gets an ID when Dex accepts it. A Step or RPC can load the pending
+messages, read them in FIFO order, and delete one by ID. Reading does not
+consume a message. Other Steps and RPCs can change the queue while a handler
+runs, so a loaded list can be stale.
 
-This is queue state, not Flow history. After a Step consumes a message, it disappears from the Channel even though the publication and consumption remain observable in recent [Flow history](/reference/server/configuration#history-window).
-
-Every Step method, timeout handler, and RPC always receives Channel size metadata. It must explicitly load pending messages before reading their IDs or Values. Deleting a message whose ID is already known does not require loading it. **StepOptions** selects state separately for **WaitFor** and **Execute**; **FlowTimeoutHandlerOptions** selects state for the timeout handler. Loading a Channel creates one invocation snapshot and does not consume messages. A loaded empty Channel returns an empty list; reading pending messages without loading the Channel is a usage error.
-
-Treat every pending-message snapshot read inside a Step or RPC as potentially stale. Other Steps and RPCs can consume, delete, or publish messages while the handler is running. Transactional execution validates selected deletions and commits the handler's writes atomically, but it does not lock the whole Channel snapshot. Read and write pending messages directly only when the operation explicitly tolerates that concurrency. If a decision requires the queue to remain unchanged, every cooperating Step and RPC writer must use the same Attribute lock.
-
-A Step or timeout handler can stage deletion with its other side effects. Dex applies successful handler effects in this order: Attribute writes, best-effort Channel deletions, then Channel publications, followed by the Step decision. If another operation already consumed or deleted a selected message, deletion is a no-op and the remaining effects still apply. **StepDecision** describes only control flow; it does not contain deletions.
-
-An RPC can combine deletion with other durable writes. The move example loads **QueuedMessages**, finds the original Value by message ID, then stages its deletion and republishes that Value. The caller sends only the ID. Enable transactional execution when a missing message must abort every write; see [Transactional reads and writes](/primitives/rpc#transactional-reads-and-writes).
-
-<SdkTabs
-examples={{
-python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-go: 'examples/go/primitives/channel/workflow.go',
-java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
-typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
-rust: 'examples/rust/src/primitives/channel/flow.rs',
-}}>
-<SdkSnippet lang="python">
-
-```python
-@rpc(is_transactional=True, load_channels=(queued_messages,))
-def move_queued_message_to_prioritized_messages(
-    self, context: Context, queued_message: QueuedMessageReference
-) -> None:
-    message_to_prioritize = self.queued_messages.find_pending_message(
-        context, queued_message.message_id
-    )
-    self.queued_messages.delete(context, queued_message.message_id)
-    if message_to_prioritize is not None:
-        self.prioritized_messages.publish(context, message_to_prioritize.value)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-func (*ChannelFlow) MoveQueuedMessageToPrioritizedMessages(
-	ctx dex.Context,
-	queuedMessageReference QueuedMessageReference,
-) (*dex.RPCResult[dex.None], error) {
-	messageToPrioritize, found, err := QueuedMessages.FindPendingMessage(ctx, queuedMessageReference.MessageID)
-	if err != nil {
-		return nil, err
-	}
-	if err := QueuedMessages.Delete(ctx, queuedMessageReference.MessageID); err != nil {
-		return nil, err
-	}
-	if found {
-		if err := PrioritizedMessages.Publish(ctx, messageToPrioritize.Value); err != nil {
-			return nil, err
-		}
-	}
-	return &dex.RPCResult[dex.None]{}, nil
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-@RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
-public void moveQueuedMessageToPrioritizedMessages(
-        final Context context,
-        final QueuedMessageReference queuedMessageReference) {
-    final ChannelMessage<String> messageToPrioritize =
-            queuedMessages.findPendingMessage(context, queuedMessageReference.messageId);
-    queuedMessages.delete(context, queuedMessageReference.messageId);
-    if (messageToPrioritize != null) {
-        prioritizedMessages.publish(context, messageToPrioritize.getValue());
-    }
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-@rpc({
-  isTransactional: true,
-  loadChannels: [queuedMessages],
-  inputCodec: queuedMessageReferenceCodec,
-})
-public moveQueuedMessageToPrioritizedMessages(
-  context: Context,
-  queuedMessage: QueuedMessageReference,
-): void {
-  const messageToPrioritize = queuedMessages.findPendingMessage(
-    context,
-    queuedMessage.messageId,
-  );
-  queuedMessages.delete(context, queuedMessage.messageId);
-  if (messageToPrioritize !== undefined) {
-    prioritizedMessages.publish(context, messageToPrioritize.value);
-  }
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-fn move_queued_message_to_prioritized_messages(
-    &self,
-    context: &mut Context,
-    queued_message: QueuedMessageReference,
-) -> HandlerResult<()> {
-    let message_to_prioritize =
-        QUEUED_MESSAGES.find_pending_message(context, &queued_message.message_id)?;
-    QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
-    if let Some(message_to_prioritize) = message_to_prioritize {
-        PRIORITIZED_MESSAGES.publish(context, message_to_prioritize.value)?;
-    }
-    Ok(())
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
+Inside a Step or a non-transactional RPC, deleting a message that is gone is a
+no-op. A transactional RPC fails instead and commits nothing. A direct delete
+from dexcli or Dex Web fails with a not-found error. See
+[Pending messages](/reference/server/runtime-data#manage-pending-messages).
 
 ## ChannelMap {#channelmap}
 
-Use **ChannelMap** when one Flow has an unbounded set of independent queues, such as one Channel per order, customer, or job. A ChannelMap has one declared name and one value type. Each instance key has its own FIFO queue.
+Use a **ChannelMap** when one Flow needs many independent queues, such as one
+per order, customer, or job. A ChannelMap has one name and one message type.
+Each instance key has its own FIFO queue.
 
-RPCs can always read the current ChannelMap keys and sizes. Load the entire ChannelMap when the handler needs every instance's pending messages. Load exact instances when it needs only known keys. Instance keys cannot contain **/** because Dex uses that character between the map name and instance key.
+## Reference
+
+[Data primitive semantics](/reference/server/runtime-data#channels) covers wait
+conditions, pending messages, deletion, state loading, and ChannelMap keys in
+detail.

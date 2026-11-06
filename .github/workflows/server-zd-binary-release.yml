@@ -402,3 +402,85 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: server-zd/v${{ needs.metadata.outputs.version }}
         run: gh release upload "${RELEASE_TAG}" dist/* --clobber
+
+  snapshot-reference:
+    name: Push released server reference snapshot
+    needs: [metadata, publish]
+    if: needs.metadata.outputs.publish == 'true'
+    # A snapshot failure must never fail the release run.
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # A release event checks out the tag; the snapshot branch must start from main.
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: Install docs dependencies
+        run: npm ci --prefix docs
+      # The snapshot script owns the version policy: stable 0.1.N, then X.Y.Z minors from 1.0.
+      - name: Check reference version
+        id: reference
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          if node docs/scripts/snapshot-reference.mjs --reference-version server "${VERSION}"; then
+            echo "selected=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "No server reference snapshot for ${VERSION}; prereleases are not snapshotted." >> "${GITHUB_STEP_SUMMARY}"
+            echo "selected=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Snapshot server reference
+        if: steps.reference.outputs.selected == 'true'
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: node docs/scripts/snapshot-reference.mjs server "${VERSION}"
+      - name: Check snapshot
+        if: steps.reference.outputs.selected == 'true'
+        run: npm run check --prefix docs
+      # GITHUB_TOKEN cannot open pull requests here, and its pull requests would not trigger CI.
+      # A GitHub App token would let this step open the pull request itself.
+      - name: Push snapshot branch
+        if: steps.reference.outputs.selected == 'true'
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          git add docs
+          if git diff --cached --quiet; then
+            echo "No server reference snapshot changes for ${VERSION}." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          branch="automation/reference-snapshots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "${branch}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "docs: snapshot server reference ${VERSION}"
+          git push origin "${branch}"
+          compare_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+          {
+            echo "## Server reference snapshot for ${VERSION}"
+            echo
+            echo "Pushed \`${branch}\`. Open its pull request: ${compare_url}"
+            echo
+            echo "Merge reference snapshot branches in release order."
+            echo
+            echo '```text'
+            git show --stat --format='%s' HEAD
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Report snapshot failure
+        if: failure()
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          {
+            echo "## Server reference snapshot for ${VERSION} failed"
+            echo
+            echo "The release is unaffected. Run the snapshot from docs/README.md by hand and open its pull request."
+          } >> "${GITHUB_STEP_SUMMARY}"

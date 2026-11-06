@@ -1,3 +1,11 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
 import React, {type ReactNode} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
@@ -46,7 +54,6 @@ function DatabaseIcon(): ReactNode {
 }
 
 type Copy = {
-  label: string;
   app: string;
   client: string;
   worker: string;
@@ -56,7 +63,6 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'Client and Worker talk to Dex Server through the Dex SDK',
   app: 'APPLICATION',
   client: 'Start and interact with Flow instances.',
   worker: 'Hosts the Flow. Runs Step and RPC implementations.',
@@ -66,7 +72,6 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: 'Client 和 Worker 通过 Dex SDK 与 Dex Server 交互',
   app: '应用',
   client: 'Start Flow 实例，并与之交互。',
   worker: '托管 Flow。跑 Step 和 RPC implementation。',
@@ -75,11 +80,11 @@ const ZH: Copy = {
   persist: '持久化 Flow instance 和 execution。',
 };
 
-export default function DexSystemDiagram(): ReactNode {
+export default function DexSystemDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = i18n.currentLocale === 'zh-Hans' ? ZH : EN;
   return (
-    <div className="exec-diagram" role="img" aria-label={copy.label}>
+    <div className="exec-diagram" role="img" aria-label={markdownDescription}>
       <div className="exec-system">
         <div className="exec-app">
           <span className="exec-kicker">{copy.app}</span>

@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::Parser;
+use dexzd_cluster_metadata::MetadataError;
 use dexzd_engine::{EngineStartError, NodeStopReason};
 use tokio::sync::watch;
 
@@ -113,6 +114,26 @@ pub enum ServerError {
         /// Engine error.
         #[source]
         source: EngineStartError,
+    },
+    /// A `dev` or `local` data directory records a partition count other than the configured one.
+    #[error(
+        "opening data directory {}: it records {stored} partitions, but cluster.partitionCount is \
+         {configured}; a data directory keeps the partition count it was created with, so set \
+         cluster.partitionCount: {stored} in {override_file}; dev and local default to {default} \
+         partitions since server-zd v0.1.20, and server-zd before v0.1.20 and dexcli before \
+         1.37.0 created 1024",
+        data_directory.display(),
+        default = config::SINGLE_NODE_PARTITION_COUNT
+    )]
+    SingleNodePartitionCountMismatch {
+        /// The `--data-dir` of `dev` or `local`.
+        data_directory: PathBuf,
+        /// The file that sets overrides for the command, such as `the --config file`.
+        override_file: &'static str,
+        /// Configured `cluster.partitionCount`.
+        configured: u32,
+        /// Partition count recorded in the data directory's cluster object.
+        stored: u32,
     },
     /// Public API authentication could not be set up, for example because a token file is missing.
     #[error("setting up public API authentication: {source}")]
@@ -217,6 +238,7 @@ fn serve_single_node_until_terminated(
         move |mut cancellation| async move {
             start_single_node_server_with_config(
                 configuration,
+                profile,
                 &mut cancellation,
                 LeaseExpiryResponse::ExitProcess,
             )
@@ -289,6 +311,7 @@ pub async fn start_dev_server(options: &DevCommandOptions) -> Result<RunningServ
     let (_cancellation_sender, mut cancellation) = watch::channel(false);
     let started = start_single_node_server_with_config(
         config::Config::load_dev(options)?,
+        config::SingleNodeProfile::Dev,
         &mut cancellation,
         LeaseExpiryResponse::StopNodeOnly,
     )
@@ -298,6 +321,7 @@ pub async fn start_dev_server(options: &DevCommandOptions) -> Result<RunningServ
 
 async fn start_single_node_server_with_config(
     mut configuration: config::Config,
+    profile: config::SingleNodeProfile,
     cancellation: &mut watch::Receiver<bool>,
     lease_expiry_response: LeaseExpiryResponse,
 ) -> Result<Option<RunningServer>, ServerError> {
@@ -312,6 +336,34 @@ async fn start_single_node_server_with_config(
         lease_expiry_response,
     )
     .await
+    .map_err(|error| {
+        explain_single_node_partition_count_mismatch(
+            error,
+            &configuration.dev.data_directory,
+            profile,
+        )
+    })
+}
+
+/// Returns `SingleNodePartitionCountMismatch` with the fix when `error` is a partition count
+/// mismatch of the data directory; returns every other error unchanged.
+fn explain_single_node_partition_count_mismatch(
+    error: ServerError,
+    data_directory: &Path,
+    profile: config::SingleNodeProfile,
+) -> ServerError {
+    match error {
+        ServerError::EngineStart {
+            source:
+                EngineStartError::Metadata(MetadataError::PartitionCountMismatch { configured, stored }),
+        } => ServerError::SingleNodePartitionCountMismatch {
+            data_directory: data_directory.to_path_buf(),
+            override_file: profile.override_file_description(),
+            configured,
+            stored,
+        },
+        other => other,
+    }
 }
 
 /// Warns at startup when a single-node server accepts unauthenticated calls from other hosts.

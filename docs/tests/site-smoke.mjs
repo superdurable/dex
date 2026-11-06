@@ -1,12 +1,58 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
 import assert from 'node:assert/strict';
 import {access, readFile, readdir} from 'node:fs/promises';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {unified} from 'unified';
+import remarkParse from 'remark-parse';
+import remarkMdx from 'remark-mdx';
+import remarkFrontmatter from 'remark-frontmatter';
+import remarkGfm from 'remark-gfm';
+import {prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
+import {markdownPath} from '../src/markdownPath.mjs';
+import './markdown-export.mjs';
+import {readReferenceDocuments, compareVersions} from '../scripts/snapshot-reference.mjs';
+import {
+  apiEntryPaths, auditApiReferenceIndexPages, auditApiReferences, auditPythonGenerationLocks, isApiReferenceVersionPath,
+} from './api-reference-smoke.mjs';
+import './api-reference-redirect.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const docsRoot = join(root, '..');
 const redirectsPath = join(root, '..', 'redirects.json');
+const latestReferenceVersions = JSON.parse(await readFile(join(docsRoot, 'reference/versions.json'), 'utf8'));
+const referenceVersions = new Map();
+for (const [component, latest] of Object.entries(latestReferenceVersions)) {
+  let snapshots;
+  try {
+    snapshots = JSON.parse(await readFile(join(docsRoot, `reference-${component}_versions.json`), 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    snapshots = [];
+  }
+  const archived = snapshots.filter((version) => version !== latest);
+  assert.ok(archived.length < 5, `${component} must publish at most five versions including current`);
+  assert.deepEqual(snapshots, [...new Set(snapshots)].sort((first, second) => compareVersions(second, first)));
+  referenceVersions.set(component, ['current', ...archived]);
+  for (const version of ['current', ...archived]) {
+    const sourceDirectory = version === 'current' ? join(docsRoot, 'reference', component)
+      : join(docsRoot, `reference-${component}_versioned_docs/version-${version}`);
+    for (const document of await readReferenceDocuments(sourceDirectory)) {
+      for (const localePrefix of ['', 'zh-Hans/']) {
+        const versionPrefix = version === 'current' ? '' : `${version}/`;
+        await access(join(root, `${localePrefix}reference/${component}/${versionPrefix}${document.slug}`, 'index.html'));
+      }
+    }
+  }
+}
 const redirectRules = JSON.parse(await readFile(redirectsPath, 'utf8'));
 const expectedRedirects = new Map(
   redirectRules.map(({from, to}) => [
@@ -58,6 +104,7 @@ const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'connecto
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 const dexSkillHostTabsSource = await readFile(join(docsRoot, 'src', 'components', 'DexSkillHostTabs.tsx'), 'utf8');
+const dexSkillHostData = JSON.parse(await readFile(join(docsRoot, 'src', 'data', 'dex-skill-hosts.json'), 'utf8'));
 const dexSkillSourcePaths = [
   join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill.mdx'),
   join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill', 'dex-app-builder.mdx'),
@@ -221,9 +268,27 @@ assert.match(
 );
 assert.match(zhServerReference, /id="step-task-queue"/);
 assert.match(zhServerReference, /Workers and the task queue/);
-// Transition pages keep the old section ids so inbound anchors still resolve.
-for (const id of ['history-window', 'pull-worker-dispatch', 'attribute-store-fencing-table', 'step-down']) {
-  assert.match(serverTransition, new RegExp(`id="${id}"`));
+// Transition pages keep every old section id so inbound anchors still resolve.
+// The inventory lists the ids of the pages before they moved.
+const transitionAnchors = JSON.parse(await readFile(join(docsRoot, 'tests', 'transition-anchors.json'), 'utf8'));
+for (const [route, ids] of Object.entries(transitionAnchors)) {
+  const html = await readFile(join(root, ...route.split('/').filter(Boolean), 'index.html'), 'utf8');
+  assert.equal(metaRefreshTarget(html), undefined, `${route} must stay a transition page, not a redirect`);
+  for (const id of ids) {
+    assert.ok(html.includes(`id="${id}"`), `${route} lost the old anchor #${id}`);
+  }
+}
+// Old Primitives URLs keep every section id at the page they now resolve to.
+const movedPrimitiveAnchors = JSON.parse(
+  await readFile(join(docsRoot, 'tests', 'moved-primitive-anchors.json'), 'utf8'),
+);
+for (const [route, ids] of Object.entries(movedPrimitiveAnchors)) {
+  const redirectTarget = expectedRedirects.get(route);
+  const finalRoute = redirectTarget ? new URL(redirectTarget).pathname : route;
+  const html = await readFile(join(root, ...finalRoute.split('/').filter(Boolean), 'index.html'), 'utf8');
+  for (const id of ids) {
+    assert.ok(html.includes(`id="${id}"`), `${route}#${id} does not resolve at ${finalRoute}`);
+  }
 }
 assert.match(serverTransition, /href="\/reference\/server\/configuration\/#history-window"/);
 assert.match(zhPullWorkersTransition, /id="readiness"/);
@@ -247,10 +312,13 @@ for (const page of chineseDexSkillPages) {
   assertDexSkillHostTabs(page, '其他客户端', true);
 }
 
-assert.match(dexSkillHostTabsSource, /defaultValue="codex-desktop"/);
+assert.match(dexSkillHostTabsSource, /defaultValue=\{hosts\[0\]\.id\}/);
 assert.match(dexSkillHostTabsSource, /groupId="dex-skill-host"/);
 assert.match(dexSkillHostTabsSource, /queryString="host"/);
-assert.equal((dexSkillHostTabsSource.match(/<TabItem\b/g) ?? []).length, 6);
+assert.match(dexSkillHostTabsSource, /<TabItem key=\{host\.id\} label=\{host\.label\} value=\{host\.id\}>/);
+for (const {hosts} of Object.values(dexSkillHostData.locales)) {
+  assert.deepEqual(hosts.map((host) => host.id), ['codex-desktop', 'codex-cli', 'claude-desktop', 'claude-cli', 'cursor', 'others']);
+}
 assert.doesNotMatch(dexSkillHostTabsSource, /\blazy(?:=|\s)/);
 for (const source of dexSkillSources) {
   assert.match(source, /<DexSkillHostTabs skill="(?:all|dex-app-builder|dex-sdk|dex-connector-contributor)" \/>/);
@@ -347,8 +415,15 @@ await Promise.all([
 
 const outputFiles = await collectOutputFiles(root);
 const outputFilePaths = new Set(outputFiles.map((filePath) => relativeOutputPath(filePath)));
-const htmlIndexFiles = outputFiles.filter((filePath) => filePath.endsWith(`${sep}index.html`));
-const indexablePages = new Map();
+const htmlIndexFiles = outputFiles.filter((filePath) =>
+  filePath.endsWith(`${sep}index.html`) && !relativeOutputPath(filePath).startsWith('api/'));
+await auditApiReferenceIndexPages();
+await auditPythonGenerationLocks();
+if (outputFiles.some((filePath) => relativeOutputPath(filePath).startsWith('api/'))) {
+  await auditApiReferences(join(root, 'api'));
+}
+const canonicalPages = new Map();
+const archivedCanonicalUrls = new Set();
 const actualRedirects = new Map();
 
 for (const filePath of htmlIndexFiles) {
@@ -375,9 +450,32 @@ for (const filePath of htmlIndexFiles) {
     expectedAlternateLanguageLinks(route),
     `${route} has incorrect alternate-language URLs`,
   );
-  assert.equal(hasNoIndexOrNoFollow(html), false, `${route} blocks search indexing`);
-  assert.equal(indexablePages.has(expectedCanonical), false, `${route} duplicates canonical ${expectedCanonical}`);
-  indexablePages.set(expectedCanonical, {html, route});
+  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust)\/(?:(\d+\.\d+\.(?:x|\d+))\/)?/);
+  const isArchivedReference = Boolean(referenceMatch?.[2]);
+  const selectorMarkers = html.match(/data-reference-version-selector=/g) ?? [];
+  assert.equal(selectorMarkers.length, referenceMatch ? 1 : 0, `${route} has an incorrect sidebar version selector`);
+  if (referenceMatch) {
+    const [, component, version] = referenceMatch;
+    const select = html.match(/<select\b[^>]*>[\s\S]*?<\/select>/)?.[0];
+    assert.ok(select, `${route} needs a native version select`);
+    const versionNames = [...select.matchAll(/<option[^>]*value="([^"]+)"/g)].map((match) => match[1]);
+    assert.deepEqual(versionNames, referenceVersions.get(component), `${route} must list its own versions newest first`);
+    if (version) assert.ok(referenceVersions.get(component).includes(version), `${route} has an undeclared version`);
+    assert.ok(html.includes(latestReferenceVersions[component]), `${route} needs the latest component version`);
+    if (isArchivedReference) {
+      archivedCanonicalUrls.add(expectedCanonical);
+      assert.ok(select.includes(`value="${version}" selected=""`), `${route} must select its own version`);
+      assert.match(html, /data-reference-version-banner/);
+      const robotsMeta = htmlTags(html, 'meta').find((tag) => attributeValue(tag, 'name') === 'robots');
+      assert.equal(attributeValue(robotsMeta, 'content'), 'noindex, nofollow');
+    } else {
+      assert.match(select, /value="current" selected=""/);
+      assert.doesNotMatch(html, /data-reference-version-banner/);
+    }
+  }
+  assert.equal(hasNoIndexOrNoFollow(html), isArchivedReference, `${route} has incorrect indexing directives`);
+  assert.equal(canonicalPages.has(expectedCanonical), false, `${route} duplicates canonical ${expectedCanonical}`);
+  canonicalPages.set(expectedCanonical, {html, route});
 }
 
 assert.deepEqual(
@@ -386,18 +484,24 @@ assert.deepEqual(
   'the production build must contain every declared redirect and no undeclared redirects',
 );
 
-for (const [canonical, {html, route}] of indexablePages) {
+for (const [canonical, {html, route}] of canonicalPages) {
   for (const href of anchorTargets(html)) {
     const target = new URL(href, canonical);
     if (target.origin !== siteOrigin) {
       continue;
     }
+    const isRoute = canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
+      outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')) ||
+      apiEntryPaths.has(target.pathname);
+    // Archived snapshots are frozen, so their links may reach a moved page through its declared redirect.
+    if (archivedCanonicalUrls.has(canonical)) {
+      const redirectTarget = expectedRedirects.get(routeWithTrailingSlash(target.pathname));
+      assert.ok(isRoute || canonicalPages.has(redirectTarget) || isApiReferenceVersionPath(target.pathname),
+        `${route} links to missing route ${target.pathname}`);
+      continue;
+    }
     assert.equal(expectedRedirects.has(target.pathname), false, `${route} links to redirect ${target.pathname}`);
-    assert.ok(
-      indexablePages.has(new URL(target.pathname, siteOrigin).href) ||
-        outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')),
-      `${route} links to missing route ${target.pathname}`,
-    );
+    assert.ok(isRoute, `${route} links to missing route ${target.pathname}`);
   }
 }
 
@@ -413,9 +517,88 @@ const sitemapUrls = (
 assert.equal(new Set(sitemapUrls).size, sitemapUrls.length, 'sitemap URLs must be unique');
 assert.deepEqual(
   [...sitemapUrls].sort(),
-  [...indexablePages.keys()].sort(),
-  'sitemap must contain every indexable canonical URL and no redirects or duplicate variants',
+  [...canonicalPages.keys()].filter((url) => !archivedCanonicalUrls.has(url)).sort(),
+  'sitemap must contain current canonical URLs and exclude archived references, redirects, and duplicate variants',
 );
+
+const markdownParser = unified().use(remarkParse).use(remarkFrontmatter).use(remarkGfm);
+const sourceParser = unified().use(remarkParse).use(remarkMdx).use(remarkFrontmatter).use(remarkGfm);
+let markdownPages = 0;
+const indexableMarkdownUrls = new Set();
+for (const [canonical, {html, route}] of canonicalPages) {
+  if (!html.includes('theme-doc-markdown')) continue;
+  const locale = route.startsWith('/zh-Hans/') ? 'zh-Hans' : 'en';
+  const pathname = markdownPath(route, locale === 'zh-Hans' ? '/zh-Hans/' : '/');
+  const markdown = await readFile(join(root, pathname.slice(1)), 'utf8');
+  const metadata = Object.fromEntries([...markdown.matchAll(/^(title|description|canonical_url|source|locale): (.+)$/gm)]
+    .map(([, key, value]) => [key, JSON.parse(value)]));
+  assert.equal(metadata.canonical_url, canonical, `${pathname} has incorrect HTML canonical`);
+  assert.equal(metadata.locale, locale);
+  assert.ok(metadata.title && metadata.source, `${pathname} is missing source metadata`);
+  const descriptionTag = htmlTags(html, 'meta').find((tag) => attributeValue(tag, 'name') === 'description');
+  const metaDescription = htmlText(attributeValue(descriptionTag ?? '', 'content') ?? '').replace(/\s+/g, ' ').trim();
+  assert.equal(metadata.description ?? '', metaDescription, `${pathname} description must match the HTML meta description`);
+  const markdownLinkLabel = locale === 'zh-Hans' ? '查看 Markdown（在新标签页中打开）' : 'View as Markdown (opens in a new tab)';
+  const markdownLinks = [...html.matchAll(/<a [^>]*target="_blank" rel="noopener" aria-label="([^"]+)"[^>]*>/g)]
+    .filter(([tag]) => tag.includes(`href="${pathname}"`));
+  assert.deepEqual(markdownLinks.map(([, label]) => label), [markdownLinkLabel], `${pathname} needs one localized robot link`);
+  assert.doesNotMatch(markdownLinks[0][0], /\stitle=/, `${pathname} robot link must not repeat its label in title`);
+  assert.ok(html.indexOf('<h1') >= 0 && html.indexOf('<h1') < markdownLinks[0].index, `${pathname} robot link must follow the h1`);
+  const tree = markdownParser.parse(markdown);
+  const codeBlocks = [];
+  visitMarkdown(tree, node => {
+    if (node.type === 'code') codeBlocks.push(node);
+    if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${pathname} contains leftover JSX/HTML`);
+    if (node.type === 'text') assert.doesNotMatch(node.value, /^\s*:::/m, `${pathname} contains a leftover admonition fence`);
+    if (['link', 'definition', 'image'].includes(node.type)) {
+      assert.match(node.url, /^https?:\/\//, `${pathname} contains non-absolute URL ${node.url}`);
+      const target = new URL(node.url);
+      if (target.origin === siteOrigin) {
+        assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
+          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || apiEntryPaths.has(target.pathname) ||
+          (archivedCanonicalUrls.has(canonical) && isApiReferenceVersionPath(target.pathname)),
+          `${pathname} links to missing ${target.pathname}`);
+      }
+    }
+  });
+  const source = await readFile(join(docsRoot, '..', metadata.source), 'utf8');
+  const sourceTree = sourceParser.parse(prepareSource(source, {headingIds: new Map(), locale, sourcePath: metadata.source}));
+  const expectedBlocks = [];
+  visitMarkdown(sourceTree, node => {
+    if (node.name !== 'SdkTabs' && !(node.name === 'SdkSnippet' && !node.isInsideSdkTabs)) return;
+    const snippets = node.name === 'SdkSnippet' ? [node] : node.children.filter(child => child.name === 'SdkSnippet');
+    snippets.forEach(snippet => { snippet.isInsideSdkTabs = node.name === 'SdkTabs'; });
+    const blocksByLanguage = new Map(snippets.map(snippet => {
+      const language = snippet.attributes.find(attribute => attribute.name === 'lang')?.value;
+      return [language, snippet.children.filter(child => child.type === 'code')
+        .map(block => ({lang: block.lang || language, value: block.value}))];
+    }));
+    for (const language of sdkOrder) expectedBlocks.push(...(blocksByLanguage.get(language) ?? []));
+  });
+  let codeCursor = 0;
+  for (const expected of expectedBlocks) {
+    while (codeCursor < codeBlocks.length && !(codeBlocks[codeCursor].lang === expected.lang && codeBlocks[codeCursor].value === expected.value)) codeCursor++;
+    assert.ok(codeCursor < codeBlocks.length, `${pathname} lost or reordered the ${expected.lang} SDK snippet`);
+    codeCursor++;
+  }
+  markdownPages++;
+  if (!archivedCanonicalUrls.has(canonical)) indexableMarkdownUrls.add(new URL(pathname, siteOrigin).href);
+}
+const indexedMarkdown = new Set();
+for (const localeRoot of ['', 'zh-Hans/']) {
+  const index = await readFile(join(root, localeRoot, 'llms.txt'), 'utf8');
+  for (const [, href] of index.matchAll(/\]\((https?:[^)]+\.md)\)/g)) {
+    const target = new URL(href);
+    assert.equal(target.origin, siteOrigin);
+    assert.ok(outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `llms.txt links to missing ${href}`);
+    assert.equal(indexedMarkdown.has(href), false, `llms.txt duplicates ${href}`);
+    indexedMarkdown.add(href);
+  }
+}
+assert.deepEqual([...indexedMarkdown].sort(), [...indexableMarkdownUrls].sort(),
+  'llms.txt indexes must cover every indexable docs page exactly once and omit archived versions');
+assert.ok(sitemapUrls.every(href => !new URL(href).pathname.endsWith('.md')), 'Markdown twins must stay outside sitemaps');
+console.log(`Markdown audit passed for ${markdownPages} docs pages in both locales, SDK snippets, and llms.txt indexes.`);
 
 const robots = await readFile(join(root, 'robots.txt'), 'utf8');
 assert.match(robots, /^User-agent: \*$/m);
@@ -425,7 +608,7 @@ assert.match(robots, /^Sitemap: https:\/\/docs\.superdurable\.io\/sitemap\.xml$/
 assert.match(robots, /^Sitemap: https:\/\/docs\.superdurable\.io\/zh-Hans\/sitemap\.xml$/m);
 
 console.log(
-  `Docs shell and SEO audit passed for ${indexablePages.size} indexable routes and ${actualRedirects.size} redirects.`,
+  `Docs shell and SEO audit passed for ${canonicalPages.size} canonical routes and ${actualRedirects.size} redirects.`,
 );
 
 function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
@@ -440,6 +623,10 @@ function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
   ]);
   assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>Codex Desktop<\/li>/);
   assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 6);
+  const codeBlocks = (html.match(/class="codeBlockContent/g) ?? []).length;
+  // Only string CodeBlock children render codeBlockContent, which holds the browser-only copy button.
+  assert.ok(codeBlocks >= 8, 'skill host code blocks must render as highlighted CodeBlocks');
+  assert.equal((html.match(/<pre\b/g) ?? []).length, codeBlocks, 'every skill host code block needs CodeBlock highlighting and a copy button');
 
   const text = htmlText(html);
   assert.match(text, /@Dex /);
@@ -584,4 +771,9 @@ function hasNoIndexOrNoFollow(html) {
     }
     return /(?:^|[,\s])(noindex|nofollow)(?:$|[,\s])/i.test(attributeValue(tag, 'content') ?? '');
   });
+}
+
+function visitMarkdown(node, visitor) {
+  visitor(node);
+  node.children?.forEach(child => visitMarkdown(child, visitor));
 }

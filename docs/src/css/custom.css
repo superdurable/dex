@@ -144,7 +144,7 @@ summary:focus-visible {
   outline-offset: 4px;
 }
 
-.markdown a:not(.hash-link) {
+.markdown a:not(.hash-link, .doc-markdown-link) {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.18em;
@@ -1886,4 +1886,9 @@ code {
     grid-template-columns: minmax(0, 1fr);
     gap: 32px;
   }
+}
+
+/* Alias anchors for moved sections must clear the sticky navbar like headings. */
+.markdown a[id]:not([href]) {
+  scroll-margin-top: calc(var(--ifm-navbar-height) + 0.5rem);
 }

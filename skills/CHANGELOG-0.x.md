@@ -1,6 +1,10 @@
 # Changelog for 0.x releases
 
-This archive holds the release notes of Dex Skills 0.1.0 through 0.69.1. See [CHANGELOG.md](CHANGELOG.md) for 1.0.0 and later.
+This archive holds the release notes of Dex Skills 0.1.0 through 0.69.2. See [CHANGELOG.md](CHANGELOG.md) for 1.0.0 and later.
+
+## 0.69.2 - 2026-11-06
+
+- Point the Core operations link for the full Custom Attribute Store contract at **/reference/server/attribute-store-sync**, where the table contract now lives. Synchronize the bundle and plugin manifests at 0.69.2.
 
 ## 0.69.1 - 2026-11-06
 

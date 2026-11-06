@@ -1,7 +1,7 @@
 # Changelog
 
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
-0.69.1 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
+0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
 ## 1.0.0 - 2026-11-06
 

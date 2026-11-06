@@ -2,5 +2,6 @@ node_modules
 build
 .docusaurus
 .cache-loader
+.cache/
 *.log
 .DS_Store

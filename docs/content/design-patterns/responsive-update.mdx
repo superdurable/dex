@@ -12,7 +12,7 @@ Choose the boundary deliberately:
 - [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match) returns the current matching Attribute value. Use a revision watermark when callers need to refresh after business state changes.
 - [Wait and Stream](/design-patterns/responsive-update/stream) long-polls for the next incremental update and resumes from its token. Use it for progress or a changing feed.
 
-The first two waits observe durable state. They are not a substitute for an application timeout or a final Flow result. For timeouts and limits, see [Wait timeouts and limits](/primitives/client/advanced#wait-timeouts-and-limits).
+The first two waits observe durable state. They are not a substitute for an application timeout or a final Flow result. For timeouts and limits, see [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
 
 ## Related
 
