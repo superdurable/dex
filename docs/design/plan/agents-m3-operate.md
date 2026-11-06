@@ -168,10 +168,12 @@ invocation."
 4. It maps the result as below.
 
 **`DeferredToolExecution` needs one addition.** `Call.context` must be the live
-`AsyncContext`, because the single-dispatch fence reads and writes heartbeat
-checkpoints through it, and `Call.id` needs the Step execution ID. Today the
-source receives neither. Add an optional field that exposes the Step's context to
-a tool source. It is additive and absent from persisted values.
+`AsyncContext`, because the single-dispatch fence reads and writes heartbeat checkpoints
+through it. Today the source does not receive it. Add an optional field that exposes the
+Step's context to a tool source. It is additive and absent from persisted values. The same
+context gives the Step execution ID for the Call ID. The bridge also translates `RetryError`
+into a Dex retry, because the helper that does this in connector Steps is private and
+`Retry-After` is lost otherwise.
 
 **Identity.** The Connector key is derived from the Call ID, so a `CallTool` retry
 keeps it. A new Step execution gets a new key. Connector tools never ask a
@@ -210,8 +212,8 @@ retry and read-back could have settled the outcome.
 
 **Approval is a separate question from retry.** Approval asks whether the call
 should happen. Idempotency does not answer that: a refund with an idempotency key
-is still a real refund. Today `ToolPolicy` derives approval from the effect class,
-so `IDEMPOTENT_WRITE` needs no approval. That is right for most writes, because
+is still a real refund. By default `ToolPolicy` derives approval from the effect class,
+so `IDEMPOTENT_WRITE` needs no approval, and `requires_approval` overrides it. That is right for most writes, because
 approving every message would make an always-on agent unusable. It is wrong for a
 few operations.
 
@@ -237,7 +239,8 @@ operation has an unknown approval default.
 
 **Tool schema.** The manifest names `inputType` and has no JSON Schema.
 `connectorctl generate` should write a JSON Schema per operation into
-`dex-connector.json`, generated from the same models, plus an optional
+`dex-connector.json`. That file's schema lives in dexcli and rejects unknown fields, so a
+dexcli change and release come first. The schema is generated from the same models, plus an optional
 model-facing description. Input field comments can seed it. Generating in each
 agent core at run time would give three implementations of one mapping.
 
@@ -252,8 +255,8 @@ options and per-tool policy successfully.
 then notifies has an order in mind. For connector tools, writes run one at a time in the
 model's order, and reads stay parallel. If a write fails or ends `outcome_unknown`, later
 writes of that turn do not run and record that they were skipped. `RunModel` schedules the
-waves. Other tools keep today's behavior. Locks are not the way: "Locks do not queue", and
-a parked Step has a per-second cost ([#1185](https://github.com/superdurable/dex/issues/1185)).
+waves. Other tools keep today's behavior. Locks do not give this order: a Step waits for
+its lock, but a lock cannot hold a write behind an earlier write that is waiting for approval.
 
 **Connections.** The application binds a logical connection at Worker start, as
 Connector Steps do. A per-session choice is a connection name in `session_settings`.
@@ -265,8 +268,9 @@ helper that exposes the same tools in each framework's format. Go follows once i
 scope is decided. Connector packages exist for all three languages, so Connector
 host SubFlows are not needed for Python and TypeScript.
 
-**Result size.** Query output goes to the model and into Flow state. Bound it per
-tool, and truncate with a note. This needs a default.
+**Result size.** Query output goes to the model and into Flow state. Most Connectors
+already cap provider responses with `maxResponseBytes`, but that is far above what a model
+should read. Bound the result per tool, and truncate with a note. This needs a default.
 
 ### Exactly-once
 
@@ -278,11 +282,11 @@ tool, and truncate with a note. This needs a default.
 | Tool Step never reaches a Worker | Waits in the durable queue |
 | `cancel_turn` during a started call | The Step runs to its end, as for any synchronous tool |
 
-**Risk to test first.** The core records heartbeats before the tool and in the
-background. The fence reads the last heartbeat value and fails closed on a value it
-cannot read. A background heartbeat must not clear or replace the fence's marker,
-and a core heartbeat must not read as a foreign marker. If they conflict, the fence
-marker goes through `save_heartbeat_checkpoint`, so background heartbeats carry it.
+**Risk to test first.** Reading the source confirms a conflict. A bare background heartbeat
+clears the fence's marker, and `_ToolStepHeartbeats` reads the last heartbeat value as a
+string, which a marker is not. Either the core stops background heartbeats during a fenced
+call, or the fence writes through `save_heartbeat_checkpoint`. The second needs a change in
+the fence too. If neither is clean, fenced Mutations stay in `CallSingleAttemptTool`.
 
 ### Tests
 
@@ -314,108 +318,117 @@ contract (C5) can therefore serve every framework."
 
 ### What is already there
 
-Dex Web has run search, the Flow canvas, the timeline, state, Streams, Time Travel,
-Actions, and a Work Queue. `actionableSteps.ts` derives Steps that wait for a person
-from the Flow Definition Graph. The session view therefore needs little new data.
-The inbox needs real work.
+Dex Web has run search, the Flow canvas, the timeline, state, Streams, Time Travel, Actions,
+and a Work Queue. `actionableSteps.ts` derives Steps that wait for a person from the Flow
+Definition Graph. Actions reach Dex Web through that graph, and `POST /api/v2/actions` invokes
+them. It is the only route that invokes a chosen RPC. It is not authorization: the permission
+it checks is a string the browser sends, and the trusted boundary in front of Dex Web
+authenticates users.
 
 ### Session view
 
 A tab on the run page, shown for Flows with the Dex Agents schema.
 
-- **Conversation:** messages and tool calls in order, each linked to its Step
-  execution. Each call shows arguments, result, effect class, and approval decision.
-- **State of each call:** queued for a Worker, waiting for approval, running,
-  finished, or unknown. Since #1259 a tool Step can wait a long time for a Worker,
-  and a Flow timeout or stop skips the failure route. Without this state, a queued
-  call looks stuck.
-- **Controls:** approve, reject, answer, steer, stop, through the session's RPCs.
+- **Conversation:** messages in order, linked to Step executions.
+- **Tool calls of the running turn:** arguments, effect class, approval, and state, from
+  `AgentToolCalls`.
+- **Past turns:** the session deletes tool records when a turn ends, and only message text
+  stays. Effect class, approval decision, and `outcome_unknown` of a past call are available
+  from Flow history inside its window, or from the message text. The view says so. Keeping
+  them for longer needs a persisted field, which is a decision for O2's first PR.
+- **State of a call:** queued for a Worker comes from `StepMethodPendingReason`. Since #1259
+  a tool Step can wait a long time, and a Flow timeout or stop skips the failure route.
+- **Controls:** approve, reject, answer, steer, stop, through the Action route below.
 - **Usage:** tokens from `AgentUsage`.
 
-**Read path.** `get_agent_snapshot` is an RPC and needs a Worker. An operator most
-needs this page when Workers are down. The view should read Attributes directly and
-treat the snapshot as optional. This keeps schema knowledge in Dex Web, so the schema
-needs a stated compatibility rule.
+**Read path.** `get_agent_snapshot` is an RPC and needs a Worker. An operator most needs this
+page when Workers are down. The view reads Attributes directly and treats the snapshot as
+optional. This keeps schema knowledge in Dex Web, so the schema needs a stated compatibility
+rule.
 
 ### Inbox
 
-The inbox answers one question across sessions: what needs a person? Nothing does
-this today, for three reasons.
+The inbox answers one question across sessions: what needs a person?
 
-1. **Discovery is off by default.** `ActiveStepTypes` is a built-in search field, so a
-   query such as `ActiveStepTypes = "AwaitToolApproval"` finds every session waiting for
-   approval, across agents. It needs no indexed Attribute and uses no tenant index key. It
-   works only when a Flow sets `ActiveStepSearchMode`, which is off by default. Session
-   Flows should set `WITH_WAIT_FOR`. A local test on the builtin backend (dexcli 1.30.0)
-   showed a Flow appear while waiting and leave when it moved on. A Flow without the mode
-   did not appear. SQL backends and write cost are not tested.
-2. **Actions exist only in Go.** Python and TypeScript must gain them. The protocol,
-   server, and Dex Web are language neutral and need no change: `ActionPermissionMappings`
-   is already in `dex.proto`. Three layers are missing in both SDKs:
-   - a registration API, the equivalent of `DefineAction` and `RPCOptions.Action`;
-   - the Worker sending `ActionPermissionMappings` with its responses;
-   - `dexcli visualize` reading Actions from Python and TypeScript source.
-3. **The Work Queue needs a graph.** It reads a Flow Definition Graph, and no graph
-   exists for the session Flow. The analyzers read application source, and the session
-   Flow is defined in the Dex Agents library. The library probably ships its graph.
-   `dexcli visualize` on a library-built Flow is untested.
+**Discovery.** `ActiveStepTypes` is a built-in search field, so `ActiveStepTypes =
+"AwaitToolApproval"` finds sessions waiting for approval, across agents. It needs no indexed
+Attribute and uses no tenant index key. Session Flows set `ActiveStepSearchMode` to
+`WITH_WAIT_FOR`, which `start_session` options can do today. **UpdateFlowConfig** turns it on
+for a running session. Local tests on the builtin backend showed a Flow appear while waiting,
+leave when it moved on, and appear within seconds of the update. SQL backends and write cost
+are not tested.
 
-Proposed: extend the Work Queue with an agent mode rather than add a surface.
+**Dex Web changes.** The v2 list has no `ActiveStepTypes` filter and searches one Flow type at
+a time. The inbox needs both.
 
-**Approvals are per tool call, and an Action is per run.** A session can hold several
-pending approvals, and `resolve_interrupt` names one. A run-level Action button does not
-fit. The agent view therefore draws one card per pending call and invokes
-`resolve_interrupt` directly. Session RPCs are declared as Actions for their label and
-permission. The alternative, one Action that handles a "current" interrupt at a time, is
-rejected: it hides the other pending calls.
+**Not covered by this search.**
 
-**What this does not cover.** `outcome_unknown` is a record on a finished call, so no Step
-waits on it and the search cannot find it. The first inbox covers approvals and questions.
-Unknown outcomes show in the session view. Sessions started before the mode was set can be
-updated with **UpdateFlowConfig**.
+- `outcome_unknown`: no Step waits on it. It stays in the session view.
+- A draft plan waiting for `execute_plan`: no Step waits on it.
+- Sorting by deadline: the deadline lives in `PendingInterrupts`, so a row reads it after
+  search. Sorting works within a page only. If this is not enough, an indexed Attribute comes
+  back as a question.
 
-**Races.** Two operators approve the same call. `resolve_interrupt` locks
-`PendingInterrupts`, and locks do not queue, so one can fail. The UI treats that as
-"already handled", then reloads. A deadline can reject a call while an operator
-decides, so the result must be read back from committed state.
+**Invoking session RPCs.** A session can hold several pending approvals, and the view draws
+one card per call. Each card calls the existing Action route, which already accepts per-call
+input. Two things stop it today:
 
-**`outcome_unknown` in the inbox.** Today an operator checks the target system and
-tells the session with `send_user_message`. The inbox can offer that as a prompt.
-Adding a resolved status conflicts with Principle 4, so it stays out of scope unless
-partners show the need.
+1. The route answers 502 when an RPC returns a value, after the RPC has run. `resolve_interrupt`
+   returns a bool. The route should return the output.
+2. An Action needs a scalar condition Attribute, and the session has none. The route should
+   accept an Action without a condition, because `resolve_interrupt` checks current state itself.
+
+**Graph.** Dex Web reads Actions from the Flow Definition Graph. `dexcli visualize` on
+`session_flow.py` reports invalid, and the Flow type is chosen per application. So Dex Agents
+needs a generator for its session graph, with the Flow type filled in. Python and TypeScript
+sessions then show their Actions with no SDK change.
+
+**Python and TypeScript Actions.** Applications in those languages should also declare their
+own Actions, as Go does. That needs a registration API, the Worker sending
+`ActionPermissionMappings`, and `dexcli visualize` reading them. Server and protocol already
+support it. It is worth doing, and the agent inbox does not wait for it.
+
+**Permissions.** "Working as" filters on permissions that Workers project. Agent sessions
+without mappings have nothing to match, so the first inbox does not filter by permission.
+
+**Races.** Two operators approve the same call. `resolve_interrupt` locks `PendingInterrupts`,
+and an RPC that cannot get a lock fails. The UI treats that as "already handled", then reloads.
+A deadline can reject a call while an operator decides, so the result is read back from
+committed state.
 
 ### Conditional approval
 
-Approval today is per call, and policy is fixed at build time: always or never. For
-an always-on agent, this leaves no middle ground. Other products have one (see
-Prior art): rules that match arguments, "allow for this session", and editing the
-arguments before approving.
-
-This plan does not design it. It is listed because the decision affects `ToolPolicy`
-and the interrupt shape, both of which are hard to change later.
-
-| Candidate | Change |
-| --- | --- |
-| Predicate on arguments, such as a refund under a limit | `ToolPolicy` gains a Worker-side function. No persisted change |
-| "Allow for this session" | Session state read by `RunModel` |
-| Edit arguments before approval | `ResolveInterruptRequest` gains replacement arguments |
+Approval is per call, and a tool source decides the policy per call from the arguments. So
+`ConnectorToolSource` can offer an argument predicate, such as a refund under a limit, with no
+core change. "Allow for this session" can read `session_settings`, which applies at the next
+turn. Function tools keep a fixed policy. Editing arguments before approval needs a new field
+on `ResolveInterruptRequest`, and stays out of scope.
 
 ## O3. Adapter session lifetime
 
-Compaction exists for Stepwise only. Retention deletes a chunk only once its messages
-are summarized, and adapters never summarize. So retention never runs on adapter
-sessions, and their stored messages grow until `limits.maxFlowStateBytes`, which is
-enforced since [#1234](https://github.com/superdurable/dex/pull/1234). This is an
-inference from those facts, not a test result. First, measure it: run each adapter
-to the limit, and record `FrameworkRunState` growth.
+Compaction ships for Stepwise. `ContextCompactionRunner` is public, but no adapter implements
+it. Retention deletes a chunk only once its messages are summarized, so it never runs on adapter
+sessions, and `retained_message_limit` has no effect without compaction.
 
-Open:
+A test on 0.2.0 in Python confirmed the limit, with a 4 MiB budget:
 
-1. Implement `ContextCompactionRunner` on the main adapters, or state a lifetime.
-2. How a summary enters each framework's input. Message-list frameworks look easy;
-   `RunState` and graph checkpoints do not.
-3. Framework-native compaction against a Dex summary: which owns the record?
-4. Retention without a summary for adapters changes an owner rule.
+- About 1.8 MB of messages filled the budget, because superseded values count.
+- The session does not end. `send_user_message` starts failing, and the session stays running
+  with no error recorded.
+
+That silent failure is the first thing to fix, whatever else happens. Next, measure a real
+adapter at the default limit. The model's context window may end these sessions first.
+
+Options once measured:
+
+1. Implement compaction at turn boundaries. Turn input comes from `turn.messages` and
+   `FrameworkRunState` is deleted at turn end, so this looks easy for most adapters. Claude
+   transcripts are the exception.
+2. Archive old messages to a hard-delete AttributeMap, which leaves the budget (tested) and keeps
+   the record. It has no time travel and needs a blob store. It keeps the owner's rule.
+3. Retention without a summary. This changes the owner's rule.
+
+A deleted chunk counts until history prunes it, so relief lags for every runner.
 
 ## O4. Spend limits
 
@@ -434,8 +447,8 @@ groups, spend limits, and the view. This plan separates them, so the test can ru
 first.
 
 Known limits it will meet: `maxInFlightRpcsPerNode`, `maxConcurrentTasksCap`, and
-AgentEvents capacity, which is 10 MiB shared by all sessions of a Flow type, or about
-1 KiB per session at this scale.
+AgentEvents capacity, which defaults to 10 MiB shared by all sessions of a Flow type, or
+about 1 KiB per session at this scale. It can be raised to 64 MiB.
 
 Open: the mix of parked and active sessions, scripted model and which core, pass
 criteria, and recovery time after a takeover. Run after #1266.
@@ -503,33 +516,24 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 
 **Decided, with reasons.**
 
-1. **A fenced Mutation runs in `CallTool` with retries.** The fence refuses a second send,
-   so a retry reads back instead of sending. This settles more calls than recording
-   `outcome_unknown` at once. It depends on the fence spike (O1-3, O1-4).
-2. **The single-dispatch fence stays.** #1253 stops the same attempt being delivered again.
-   The fence stops a later attempt from sending again. A retry after a Worker death is a
-   new attempt, so #1253 does not replace it.
-3. **High-risk operations carry an optional manifest marker.** Mutations run without
-   approval by default, because approving every message makes an always-on agent unusable.
-   The core's approval rule does not change. Only reviewed operations are offered to agents.
-4. **Python and TypeScript gain Actions.** This is a port of the Go design to two SDKs and
-   two analyzers. It goes through normal SDK review.
-5. **O7 closes.** No requirement exists that Streams do not meet. A new requirement reopens it.
-
-**Still to settle before review.**
-
-6. **Inbox discovery.** Use `ActiveStepTypes` instead of a new indexed Attribute. See O2.
+1. **A fenced Mutation runs in `CallTool` with retries.** The fence refuses a second send, so a
+   retry reads back. This depends on resolving the heartbeat conflict (O1-3, O1-4).
+2. **The single-dispatch fence stays.** #1253 stops the same attempt being delivered again. The
+   fence stops a later attempt from sending again.
+3. **High-risk operations carry an optional manifest marker.** Mutations run without approval by
+   default, and only reviewed operations are offered to agents.
+4. **Connector writes in one turn run in order.** A failed or unknown write stops later writes.
+5. **The inbox uses `ActiveStepTypes`.** No new indexed Attribute.
+6. **Python and TypeScript gain Actions.** The agent inbox does not wait for this.
+7. **O7 closes.** A new requirement reopens it.
 
 **For the owner.**
 
-7. **Action permission from the agent view.** Approvals are per tool call and an Action is
-   per run, so the agent view invokes `resolve_interrupt` directly and takes its permission
-   from the Action declaration. The Dex Web reference says an Action gateway authorizes the
-   selected RPC. Does this direct call fit that model, or should it pass through the gateway?
-8. **Retention without a summary, after O3 is measured.** The current rule deletes a chunk
-   only behind a summary, so adapters never run retention. If the measurement confirms a hard
-   session lifetime, the options are compaction per adapter, or retention without a summary
-   for adapters. The second changes a rule set in the M2 review.
+8. **Two changes to the Action route.** Return an RPC's output instead of 502, and accept an
+   Action without a condition Attribute. Session RPCs check current state themselves, and the
+   route is not authorization. Is that acceptable for `POST /api/v2/actions`?
+9. **Adapter session lifetime, after O3 is measured.** Option 2 keeps the current retention rule.
+   Option 3 changes it.
 
 ## Non-goals
 
@@ -547,7 +551,7 @@ Proposals from #1132, none scheduled and none reviewed by the owner. The full te
 - **Asynchronous model calls.** A Step submits a background or batch request and stores its ID in an Attribute. It moves to a Step waiting on a Channel fed by the provider webhook through the existing webhook Trigger, with a Timer poll as fallback. No Step holds a long HTTP connection, and batch pricing becomes available. Tool tasks (A8) already have the Timer half.
 - **Dex MCP server (G7).** Expose session Flows and selected RPCs as MCP tools. A session maps to a task whose ID is the Flow ID: `tools/call` starts the Flow, `tasks/get` reads the snapshot, `tasks/update` publishes to the session Channel, and `tasks/cancel` calls `cancel_turn`. A pending interrupt appears as `input_required`.
 - **AG-UI adapter (G6).** Snapshots from Attributes on connect, then live events from the resume token. Test: a client receives snapshots on connect.
-- **Archived AttributeMap instances (G9).** A server feature moves an instance to blob storage, keeps it readable through an explicit load and the history page RPC, and stops counting it toward `limits.maxFlowStateBytes`. Retention then archives a chunk instead of deleting it. Tests: archived bytes leave the budget, explicit load reads them, history pages return them.
+- **Archived AttributeMap instances (G9).** A hard-delete AttributeMap already leaves the budget; see O3. A server feature moves an instance to blob storage, keeps it readable through an explicit load and the history page RPC, and stops counting it toward `limits.maxFlowStateBytes`. Retention then archives a chunk instead of deleting it. Tests: archived bytes leave the budget, explicit load reads them, history pages return them.
 - **Step concurrency groups (C10).** See C10.
 - **ForkFlow, counterfactual replay, trajectory export (C11).** See C11.
 - **Sub-agents as tools and handoffs (C8).** See C8.
@@ -565,8 +569,8 @@ Proposals from #1132, none scheduled and none reviewed by the owner. The full te
 - **More framework adapters, by demand.** Microsoft Agent Framework, Strands, CrewAI, LlamaIndex Workflows. Likely state hooks: **CheckpointStorage**, **SessionRepository**, **FlowPersistence**, context snapshots. Mode decided by the three questions.
 - **Go contract features (A2 to A8, MCP, spans), by demand.** Also adapters opting in to unfinished-turn messages and built-ins (M2 plan, PR 17).
 - **Java and Rust cores, by demand.** Ports through the conformance suite.
-- **Agent definition versions (C14).** A version a session can pin at start, with Workers that register several versions. See question 12.
-- **Cross-language Step routing for connector Steps (C4).** Engine change. A Flow declares a connector Step that a different Worker serves, turning per-Worker Step registration into a supported contract with registration checks, so the Step runs in the Flow's own history without a SubFlow.
+- **Agent definition versions (C14).** One Flow type per version works today by convention. A version a session can pin at start, with Workers that register several versions. See question 12.
+- **Cross-language Step routing for connector Steps (C4).** Routing by Step type exists; a supported contract does not. Engine change. A Flow declares a connector Step that a different Worker serves, turning per-Worker Step registration into a supported contract with registration checks, so the Step runs in the Flow's own history without a SubFlow.
 - **Turn replay fallback.** For a framework that can neither stop after one model call nor take external results. `RunTurn` reruns the loop from the turn start with provider and tools replaced. A call whose key (`model#<n>`, `tool:<toolCallId>`) and request fingerprint match a recorded result returns it; the first unrecorded calls park the loop and become Steps. It needs same-order calls within a turn, and every side effect through a replaced call. Build only for a concrete framework with a reproduction.
 - **A2A, sandboxes, acting for a user.** See C8, C12, C13.
 
@@ -605,7 +609,7 @@ Proposals from #1132, none scheduled and none reviewed by the owner. The full te
 
 ### Unresolved open questions
 
-- **11. Serverless Workers (G16).** Pull Workers are the only mode since #1023. Builders on Vercel, Cloudflare, and Lambda expect push or scale-to-zero. Needs a separate decision.
+- **11. Serverless Workers (G16).** Scaling Workers to zero on queue metrics is documented; RPCs still fail with no Worker. Pull Workers are the only mode since #1023. Builders on Vercel, Cloudflare, and Lambda expect push or scale-to-zero. Needs a separate decision.
 - **12. Version pinning default.** Following the latest definition is the Dex default; pinning protects a session from a prompt or tool schema change. Recommendation: follow latest, with pinning per session through session settings.
 - **15. Budget ownership with a gateway.** When a gateway such as LiteLLM also enforces budgets, which one is authoritative by default. One owns enforcement and the other reports.
 - Questions 10 and 14: covered by O3 and O2 (see top).
