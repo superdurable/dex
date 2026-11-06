@@ -6,7 +6,7 @@ Read core semantics first; this page gives Python shapes at the pinned baseline.
 
 Subclass `Flow[InputT]` and `Step[InputT]`. `get_steps` returns `StepList.start_step(instance).other_steps(...)`. A Step without `wait_for` executes immediately. `Wait.until`, all/any condition APIs, and `Wait.skip_immediately` control waiting. Return `go_to`, `go_to_many`, `dead_end`, graceful, or force decisions.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/examples/python/dex_examples/primitives/flow/example_flow.py)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/flow/example_flow.py)
 <!-- dex-source: examples/python/dex_examples/primitives/flow/example_flow.py -->
 ```python
 class Example(Step[int]):
@@ -27,7 +27,7 @@ From SDK v1.28.0, register several instances of one Step class by overriding `ge
 
 `Context.flow_started_at` (SDK v1.28.0) is the run's server start time as a timezone-aware UTC `datetime` with one-second precision. It is identical across Steps, retries, timeout handlers, and RPC handlers for both `Worker` and `AsyncWorker`. Derive deterministic identities from the Flow ID and this value, not `datetime.now`.
 
-`Context.deadline` (SDK v1.28.0) is the absolute UTC `datetime` deadline of the current `wait_for`, `execute`, or timeout-handler attempt, or `None` for RPC handlers and tasks without one. Compute the remaining budget with `(context.deadline - datetime.now(timezone.utc)).total_seconds()` after checking for `None`, and use it to size external call timeouts. A shorter remaining `RetryPolicy.total_duration` shortens it, and each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
+`Context.deadline` (SDK v1.28.0) is the absolute UTC `datetime` deadline of the current `wait_for`, `execute`, or timeout-handler attempt, or `None` for RPC handlers and tasks without one. Compute the remaining budget with `(context.deadline - datetime.now(timezone.utc)).total_seconds()` after checking for `None`, and use it to size external call timeouts. On server-zd v0.1.16 and earlier, a shorter remaining `RetryPolicy.total_duration` shortens it; newer server-zd derives it only from the method timeout. Each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
 
 ## Attribute/AttributeMap and Channel/ChannelMap
 
@@ -43,7 +43,7 @@ Timer belongs in `wait_for` as a durable condition, never `asyncio.sleep` for du
 
 Streams are typed feeds registered in persistence schema. In sync generator handlers, `yield` every Stream output. In async handlers, Stream writes are synchronous API calls at the pinned surface while heartbeat is awaited. Consumers resume from tokens.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/examples/python/dex_examples/primitives/stream/stream_flow.py)
+[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/stream/stream_flow.py)
 <!-- dex-source: examples/python/dex_examples/primitives/stream/stream_flow.py -->
 ```python
 class RenderPreview(Step[str]):
@@ -59,7 +59,7 @@ class RenderPreview(Step[str]):
 
 Use `read_stream` for forward, one-at-a-time, optionally long-polling consumption. Use `list_stream_messages` on `Client` or `AsyncClient` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `next_page_token` unchanged until it is empty.
 
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/examples/python/dex_examples/primitives/stream/controller.py)
+[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/stream/controller.py)
 <!-- dex-source: examples/python/dex_examples/primitives/stream/controller.py -->
 ```python
 page = await app_state.client.list_stream_messages(
@@ -82,7 +82,7 @@ The before-page token is exclusive and scope-bound. The first page uses an empty
 
 From Python SDK v1.29.0, `Client.get_attributes(flow_id, *reads)` and `await AsyncClient.get_attributes(flow_id, *reads)` read committed values of registered Attributes and AttributeMap instances in one request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass singleton Attributes, or AttributeMap instances selected with `AttributeMap.instance(key)`. There is no single-Attribute method; pass one read to read one value.
 
-[Released Python Client Attribute read](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/README.md)
+[Released Python Client Attribute read](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/README.md)
 <!-- dex-source: sdk-python/README.md -->
 ```python
 values = client.get_attributes(flow_id, ORDER_STATUS, NOTES.instance("n1"))
@@ -101,10 +101,10 @@ Each read must equal a definition declared by some Flow in the Client's Registry
 - `ValueMappingError`: a value cannot be resolved or decoded as its value type.
 - `DexServiceError`: another FlowService or LoadBlobs failure. A LoadBlobs failure for a missing Flow raises `FlowNotFoundError`.
 
-On any error the call returns no values. [Released Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/dex/client.py)
+On any error the call returns no values. [Released Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/client.py)
 
 ## Selection
 
-Use `Client.describe_flow(flow_id)` or await `AsyncClient.describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow raises `FlowNotFoundError`. The call does not wait for terminal status: use `wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type` and `error_message`. Do not use `describe_flow` as a `start_flow` preflight. Use `search_flows` for indexed discovery. [Released Python Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/dex/client.py)
+Use `Client.describe_flow(flow_id)` or await `AsyncClient.describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow raises `FlowNotFoundError`. The call does not wait for terminal status: use `wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type` and `error_message`. Do not use `describe_flow` as a `start_flow` preflight. Use `search_flows` for indexed discovery. [Released Python Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/client.py)
 
 Attribute = current state; Channel = queued intent; `get_attributes` = direct read of committed Attributes; RPC = synchronous mutation or computed snapshot; Stream = incremental output; Timer = durable time; SubFlow = independently identified durable child.

@@ -11,7 +11,7 @@ loopback `dexcli dev`.
 
 ## Run Dex Web
 
-`dexcli dev` starts server-zd and an embedded Dex Web. A deployment runs the standalone `dex-web` binary or the `superdurable/dex-web` image next to the Dex Server. The Dex Server does not serve Dex Web, and no `dex-server` process or image does either. `dex-web` connects to an existing FlowService and never starts a Server. [Released standalone Web](https://github.com/superdurable/dex/blob/web/v1.32.0/web/README.md#run-standalone-dex-web)
+`dexcli dev` starts server-zd and an embedded Dex Web. A deployment runs the standalone `dex-web` binary or the `superdurable/dex-web` image next to the Dex Server. The Dex Server does not serve Dex Web, and no `dex-server` process or image does either. `dex-web` connects to an existing FlowService and never starts a Server. [Released standalone Web](https://github.com/superdurable/dex/blob/web/v1.35.0/web/README.md#run-standalone-dex-web)
 
 ```bash
 dex-web --flow-service-address dex-server-zd:8801 \
@@ -62,13 +62,13 @@ Dex Web derives its experience from:
 
 Flow detail shows the Flow type queue and sticky app Worker ID. Active Steps and Step history show serving app Worker IDs for WaitFor and Execute, the dispatch sticky app Worker ID, and the queue source. **Sticky queue** means the serving ID matches the sticky ID captured for that dispatch; otherwise a completed dispatch shows **Flow type queue**. Compare against that captured ID, not just the Flow's current sticky ID.
 
-Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage.
+Dispatch failures distinguish no available Worker, an unknown Step type or RPC name after the dispatch wait, and a Worker disconnect. From server-zd newer than v0.1.16, a Step that no Worker takes waits in the task queue instead of failing, so the first two failures apply only to RPCs; older Step records may show **Unknown Step type: dispatch timed out**. With Dex Web newer than v1.32.0, a pending attempt shows its **Pending reason** and **Pending since**: **Waiting for locks**, **Waiting for a Worker**, or **Waiting for a Worker that supports this Step type**. Existing RPC history shows the serving app Worker ID for recorded invocations. Pending or failed dispatches without a serving Worker show **—** for Worker and queue source; older runs without metadata also show **—**. Step history still groups retries into its final method attempt and latest failure; routing does not provide a separate record for every retry or expand RPC history coverage.
 
-Use the captured dispatch sticky ID, queue source, and failure reason before changing Worker configuration. Inspect [reserve pressure and capacity](../../dex-sdk/references/core/pull-workers.md#reserved-rpc-capacity) when registered Workers decline Steps.
+Use the captured dispatch sticky ID, queue source, and failure reason before changing Worker configuration. Inspect [reserve pressure and capacity](../../dex-sdk/references/core/pull-workers.md#reserved-rpc-capacity) when registered Workers decline Steps or Steps stay **Waiting for a Worker**. Deploy a Worker that registers the Step type when a Step stays **Waiting for a Worker that supports this Step type**.
 
 ## Dex Web with server-zd
 
-Dex Web reads `GetServerInfo` and reports the engine in `GET /api/v2/catalog` as `serverEngine`: `zd`, or `unspecified` when the FlowService does not answer. Locally, `dexcli dev` serves server-zd and Dex Web together. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.32.0/web/README.md#run-against-server-zd)
+Dex Web reads `GetServerInfo` and reports the engine in `GET /api/v2/catalog` as `serverEngine`: `zd`, or `unspecified` when the FlowService does not answer. Locally, `dexcli dev` serves server-zd and Dex Web together. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.35.0/web/README.md#run-against-server-zd)
 
 - **Start Flow** always starts on pull Workers. The dialog asks only for the Flow ID and the Start input and has no Worker address or headless control.
 - Time travel keeps the run ID and creates a new run attempt. The run details page, which v1 run pages and v2 **Inspect** share, replaces **Run chain** with a **Run attempt** selector. Choosing an earlier attempt adds `?runAttempt=N` to the URL and shows that attempt's history. Live history and live state always belong to the current attempt. A **TimeTravelFork** event links to the previous attempt.

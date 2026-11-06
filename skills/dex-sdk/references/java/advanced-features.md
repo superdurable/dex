@@ -4,11 +4,11 @@
 
 Use `StepOptions` and `@RPC` load declarations to request only the AttributeMap instances and pending Channels a handler reads. Selective loading is a correctness boundary: an unselected read throws. Combine Attribute locks with transactional RPC execution when multiple durable mutations must commit atomically.
 
-`@RPC` and its registration options define fixed timeout, locks, transactionality, and loads. `RPCInvokeOptions` adds only exact AttributeMap instance locks, exact AttributeMap instance loads, and exact ChannelMap instance loads. Build it with `addLockAttributeMapInstance`, `addLoadAttributeMapInstance`, or `addLoadChannelMapInstance`, then pass it to the matching `Client.invokeRPC` overload. Include the same AttributeMap instance in both lock and load for read-modify-write. The Client unions, sorts, and deduplicates registration and invocation selections, and validates the Flow definition and slash-free nonblank instance before the request. See the pinned [hash-partitioned controller](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java).
+`@RPC` and its registration options define fixed timeout, locks, transactionality, and loads. `RPCInvokeOptions` adds only exact AttributeMap instance locks, exact AttributeMap instance loads, and exact ChannelMap instance loads. Build it with `addLockAttributeMapInstance`, `addLoadAttributeMapInstance`, or `addLoadChannelMapInstance`, then pass it to the matching `Client.invokeRPC` overload. Include the same AttributeMap instance in both lock and load for read-modify-write. The Client unions, sorts, and deduplicates registration and invocation selections, and validates the Flow definition and slash-free nonblank instance before the request. See the pinned [hash-partitioned controller](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java).
 
 ## Heartbeat and buffered Stream progress
 
-[Pinned buffered Stream source](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java)
+[Pinned buffered Stream source](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java -->
 ```java
 public StepDecision execute(final Context context, final String input) {
@@ -27,9 +27,9 @@ Create one buffered writer per invocation. Flush/finalization occurs with handle
 
 ## Timeout handlers
 
-Override `Flow.handleTimeout` and select handler timeout policy only when the business needs a final notification, compensation, or explicit outcome. Give the handler its own retries and loads. Its recovery target must be a registered `Step<Void>` and can inspect `Context.getRecoveryError()`.
+Override `Flow.handleTimeout` and select handler timeout policy only when the business needs a final notification, compensation, or explicit outcome. Give the handler its own retries and loads. Its recovery target must be a registered `Step<Void>` and can inspect `Context.getRecoveryError()`, including its [attempt progress](error-handling.md) in SDK releases newer than v1.32.0.
 
-[Pinned timeout start source](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/examples/java/src/main/java/io/superdurable/dex/patterns/timeout/TimeoutController.java)
+[Pinned timeout start source](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/patterns/timeout/TimeoutController.java)
 <!-- dex-source: examples/java/src/main/java/io/superdurable/dex/patterns/timeout/TimeoutController.java -->
 ```java
 StartFlowOptions.newBuilder()
@@ -44,7 +44,7 @@ StartFlowOptions.newBuilder()
 
 Use `AttributeLock.of(attribute)` for handler locks. Do not pass an Attribute directly to `addLock`.
 
-[Pinned timeout option source](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/test/java/io/superdurable/dex/WorkerDispatchIntegrationTest.java)
+[Pinned timeout option source](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/test/java/io/superdurable/dex/WorkerDispatchIntegrationTest.java)
 <!-- dex-source: sdk-java/src/test/java/io/superdurable/dex/WorkerDispatchIntegrationTest.java -->
 ```java
 final FlowTimeoutHandlerOptions timeoutOptions =
@@ -65,7 +65,7 @@ final FlowTimeoutHandlerOptions timeoutOptions =
 
 ## Cancellation selectors
 
-Use `withCancelingSiblingSteps` for branches created by the same predecessor and `withCancelingSteps` for all executions of a Step type. Cancellation applies after the successful decision and excludes Steps created by that same decision. An RPC returns `RPCResult.of(output, movement).withCancelingSteps(...)` for Flow-wide selection; it has no sibling lineage. Make target handlers interruption-aware and their effects idempotent. [Pinned `RPCResult`](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/main/java/io/superdurable/dex/RPCResult.java). For a user's Stop in an Agent, follow [stop a turn](../core/ai-agents.md#stop-a-turn-with-canceling-steps).
+Use `withCancelingSiblingSteps` for branches created by the same predecessor and `withCancelingSteps` for all executions of a Step type. Cancellation applies after the successful decision and excludes Steps created by that same decision. An RPC returns `RPCResult.of(output, movement).withCancelingSteps(...)` for Flow-wide selection; it has no sibling lineage. Make target handlers interruption-aware and their effects idempotent. [Pinned `RPCResult`](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/RPCResult.java). For a user's Stop in an Agent, follow [stop a turn](../core/ai-agents.md#stop-a-turn-with-canceling-steps).
 
 ## StepOptions and Flow durability
 

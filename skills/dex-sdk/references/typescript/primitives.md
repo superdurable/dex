@@ -9,7 +9,7 @@ Choose primitives from the business behavior first, then encode them with the SD
 | Wait | `Wait.until`, `anyOf`, `allOf`, `anyCombinationOf` | Durable readiness | Wait is returned, never awaited as a Promise |
 | Attribute / AttributeMap | `new Attribute`, `new AttributeMap` | Durable latest state | Durable name and codec are compatibility surface |
 | Channel / ChannelMap | `new Channel`, `new ChannelMap` | Durable FIFO messages | Selected waits consume messages |
-| RPC | `@rpc({...})` and `RPCResult<T>` | Synchronous command or query | Query-only handlers can read retained terminal runs; locks, transactions, and returned effects require active execution |
+| RPC | `@rpc({...})` or `declareRPCMethod`, and `RPCResult<T>` | Synchronous command or query | Query-only handlers can read retained terminal runs; locks, transactions, and returned effects require active execution |
 | Stream | `new Stream` | Best-effort progress | Not a source of truth |
 | Timer | `Timer.byDuration`, `Timer.byTimestamp` | Durable deadlines | Milliseconds are numbers; no event-loop timer survives Worker loss |
 | SubFlow | `SubFlow.run` | Durable child work | Parent/child lifetime is an application decision |
@@ -21,11 +21,11 @@ From SDK v1.28.0, register several instances of one Step class by overriding `ge
 
 The fields that hold targets (`StepMovement.step`, `ExecuteFailure.step`, `FlowTimeoutHandlerFailure.step`, and the cancellation fields) are typed `StepTarget` from v1.28.0. Code that reads one as a class must narrow first with `typeof target === "function"` or `target instanceof StepRef`. `Client.startFlow` now throws `FlowDefinitionError`, not `TypeError`, for a start-option failure target that does not belong to the Flow.
 
-`Context.flowStartedAt` is the run's start time as a `Date`, identical across Steps and retries; derive deterministic identities from the Flow ID and this value rather than `Date.now()`. `Context.deadline` (v1.28.0) is the absolute `Date` deadline of the current `waitFor`, `execute`, or timeout-handler attempt, or `undefined` for RPC handlers and tasks without one. After checking for `undefined`, use `context.deadline.getTime() - Date.now()` for the remaining milliseconds and to size external call timeouts. A shorter remaining `RetryPolicy.totalDurationMs` shortens it, and each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
+`Context.flowStartedAt` is the run's start time as a `Date`, identical across Steps and retries; derive deterministic identities from the Flow ID and this value rather than `Date.now()`. `Context.deadline` (v1.28.0) is the absolute `Date` deadline of the current `waitFor`, `execute`, or timeout-handler attempt, or `undefined` for RPC handlers and tasks without one. After checking for `undefined`, use `context.deadline.getTime() - Date.now()` for the remaining milliseconds and to size external call timeouts. On server-zd v0.1.16 and earlier, a shorter remaining `RetryPolicy.totalDurationMs` shortens it; newer server-zd derives it only from the method timeout. Each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
 
 ## Wait composition
 
-[Pinned wait example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
+[Pinned wait example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
 <!-- dex-source: examples/typescript/src/primitives/wait-types/wait-types-flow.ts -->
 ```typescript
 if (input.mode === "any") {
@@ -54,7 +54,7 @@ Use `stringCodec`, `booleanCodec`, `int64Codec`, `doubleCodec`, `bytesCodec`, or
 
 Use `Client.readStream` for forward, one-at-a-time, optionally long-polling consumption. Use `Client.listStreamMessages` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `nextPageToken` unchanged until it is empty.
 
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/examples/typescript/src/primitives/stream/controller.ts)
+[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/stream/controller.ts)
 <!-- dex-source: examples/typescript/src/primitives/stream/controller.ts -->
 ```typescript
 const page = await client.listStreamMessages(
@@ -69,7 +69,7 @@ The before-page token is exclusive and scope-bound. The first page uses an empty
 
 ## State, locks, and transaction
 
-[Pinned Channel transaction example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/examples/typescript/src/primitives/channel/channel-flow.ts)
+[Pinned Channel transaction example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/channel/channel-flow.ts)
 <!-- dex-source: examples/typescript/src/primitives/channel/channel-flow.ts -->
 ```typescript
 @rpc({
@@ -100,11 +100,35 @@ Read committed Attributes from outside the Flow with [`client.getAttributes`](#c
 
 An RPC without Attribute locks or `isTransactional` can query a retained terminal run when it returns no durable effects. Locks, transactions, returned effects, or Server policy require an active execution. RPC success alone does not prove the Flow is active.
 
+## Decorator-free RPC declaration
+
+From TypeScript SDK v1.35.0, `declareRPCMethod(FlowClass, "methodName", options)` declares a Flow method as an RPC handler without the `@rpc` decorator. Use it when the runtime that loads the Flow module cannot transform decorators, such as Node.js type stripping with `node --experimental-transform-types` or plain `node main.ts` on Node.js 22.18 and later. Such a runtime rejects `@rpc` with a SyntaxError. Keep `@rpc` when the build transforms decorators, for example with `tsc`.
+
+[Pinned decorator-free RPC example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/decorator-free-rpc/order-status-flow.ts)
+<!-- dex-source: examples/typescript/decorator-free-rpc/order-status-flow.ts -->
+```typescript
+declareRPCMethod(OrderStatusFlow, "getOrderStatus", { outputCodec: stringCodec });
+declareRPCMethod(OrderStatusFlow, "updateOrderStatus", {
+  inputCodec: stringCodec,
+  outputCodec: stringCodec,
+  lockAttributes: [orderStatus.lock()],
+});
+```
+
+- It takes the same `RPCOptions` as `@rpc`, and Registry construction reports the same errors for both forms.
+- Call it at module top level, right after the class and before constructing the Registry. A later declaration does not affect a Registry that already exists.
+- Pass the class and the method name as a string literal. The `RPCMethodName` type accepts only public methods whose first parameter is `Context`. An instance field, such as an arrow function, is not a class method and throws `TypeError`.
+- Declare a method through the class that defines it. A method declared on a base class is an RPC of every subclass that inherits it. Naming a subclass for a method it only inherits throws `TypeError`; override the method in the subclass and declare the override instead.
+- Declare each method once. Declaring it again, declaring a method that already has `@rpc`, or declaring `handleTimeout` throws `TypeError`. One Flow may use both forms on different methods.
+- Client calls are unchanged, such as `client.invokeRPC(flow.getOrderStatus, flowId)`.
+
+[Released declaration rules](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md#declaring-rpc-methods)
+
 ## Client Attribute reads
 
 From TypeScript SDK v1.29.0, `client.getAttributes(flowId, ...reads)` reads committed values of registered Attributes and AttributeMap instances in one FlowService request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass singleton Attributes, or AttributeMap instances selected with `attributeMap.instance(key)`. There is no single-Attribute method; pass one read to read one value.
 
-[Released TypeScript Client Attribute read](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/sdk-typescript/README.md)
+[Released TypeScript Client Attribute read](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md)
 <!-- dex-source: sdk-typescript/README.md -->
 ```typescript
 const [status, note] = await client.getAttributes(
@@ -125,10 +149,10 @@ Each definition must be the exact object that a Flow in the Client's Registry re
 - `DexServiceError`: another FlowService failure. A failed LoadBlobs request has `operation` `loadBlobs` and keeps the gRPC `code`.
 - `Error`: an invalid server response, or a BlobCache failure while large values are hydrated.
 
-On any error the Promise rejects and returns no values. [Released Client API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/sdk-typescript/src/client.ts)
+On any error the Promise rejects and returns no values. [Released Client API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/client.ts)
 
 ## Decisions
 
-Use `await client.describeFlow(flowId)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow throws `FlowNotFoundError`. The call does not wait for terminal status: use `waitForFlow` when the caller must wait, and do not loop on `describeFlow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `waitForFlow` returns immediately, and a failed result carries them in `errorType` and `errorMessage`. Do not use `describeFlow` as a `startFlow` preflight. Use `searchFlows` for indexed discovery. [Released TypeScript Client API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/sdk-typescript/src/client.ts)
+Use `await client.describeFlow(flowId)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow throws `FlowNotFoundError`. The call does not wait for terminal status: use `waitForFlow` when the caller must wait, and do not loop on `describeFlow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `waitForFlow` returns immediately, and a failed result carries them in `errorType` and `errorMessage`. Do not use `describeFlow` as a `startFlow` preflight. Use `searchFlows` for indexed discovery. [Released TypeScript Client API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/client.ts)
 
 Use `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`, and conditional completion helpers to express lifecycle. Do not encode control flow in mutable module globals. A Flow can have `StepList.empty()` or `withoutStartStep` when started work is driven by RPCs.

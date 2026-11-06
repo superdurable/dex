@@ -24,7 +24,7 @@ From server-zd v0.1.5, a new transactional or locking RPC, WaitForStepCompletion
 
 The Server preserves **ResourceExhausted** for backend capacity and rate-limit failures instead of reporting **Internal**. The response retains the message and available status details, including a retry-delay hint when supplied. Use the selected SDK's named status representation and inspect available details; do not parse error text or assume every SDK exposes every detail. Apply bounded retries with backoff and jitter within the caller's deadline, honoring a retry hint when available. A failed mutation can still have an uncertain outcome: reconcile using its stable identity and authoritative state before repeating effects. SDK-managed retries may already exhaust the deadline, so avoid stacking unbounded retry loops.
 
-This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server-zd/v0.1.16/server-zd/crates/dexzd-api/src/flow_operation_error.rs)
+This Client API status is distinct from a pull stream's permanent registration rejection: **ResourceExhausted** there follows the [queue readiness and stream capacity rules](pull-workers.md#startup-registration-and-readiness). [Released API error mapping](https://github.com/superdurable/dex/blob/server-zd/v0.1.18/server-zd/crates/dexzd-api/src/flow_operation_error.rs)
 
 ## Indexed search limits
 
@@ -34,7 +34,7 @@ With server-zd v0.1.13 and `search.backend: postgres`, the Server enforces the [
 - **Keyword length.** A StartFlow or RPC whose indexed Keyword value or KeywordArray element exceeds 1,024 UTF-8 bytes fails with INVALID_ARGUMENT and INDEXED_KEYWORD_TOO_LONG. Nothing from the request commits, although an RPC handler has already run. Treat it as a local input defect: validate or shorten the value before the write, and do not retry the same value. A SetAttributes call made directly through FlowService, such as from `dexcli` or Dex Web, fails the same way; no SDK Client has an Attribute write at the baselines.
 - **Step results.** A Step result that carries such a value cannot return an error to the Worker. The Step attempt fails without retry, and the Step's failure policy applies: by default the Flow fails, a WaitFor proceed-on-failure policy enters Execute, and an Execute failure route starts its recovery Step. A Flow that fails this way reports a Worker API failure as its Flow error type, a recovery Step receives error type **ValueTooLarge**, and the detail names the Attribute and its size. Keep this detail visible for operators, and follow the [recovery error type rule](#recovery-error-types) rather than matching the text. Each language page names its public Flow error type value.
 
-At the Go, Python, and TypeScript v1.30.0 baselines and the Java and Rust v1.31.0 baselines, the generated protocol bindings of every SDK name both values, but no SDK's public error model maps them. A Client call reports either failure as the SDK's generic service error with the Uncategorized sub-status. Worker startup wraps the failed index registration in its startup error. Do not branch on the generated values or the detail text. See the selected language's **error-handling.md** for the exact type. [Released sub-statuses](https://github.com/superdurable/dex/blob/web/v1.32.0/protos/dex.proto)
+At the Go, Python, and TypeScript v1.30.0 baselines and the Java and Rust v1.31.0 baselines, the generated protocol bindings of every SDK name both values, but no SDK's public error model maps them. A Client call reports either failure as the SDK's generic service error with the Uncategorized sub-status. Worker startup wraps the failed index registration in its startup error. Do not branch on the generated values or the detail text. See the selected language's **error-handling.md** for the exact type. [Released sub-statuses](https://github.com/superdurable/dex/blob/web/v1.35.0/protos/dex.proto)
 
 ## Missing or inactive target errors
 
@@ -42,11 +42,11 @@ At the released SDK API baseline, use the exact public names:
 
 | SDK | Combined missing/inactive target error | Source |
 | --- | --- | --- |
-| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.32.0/sdk-go/dex/errors.go) |
-| Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.32.0/sdk-python/dex/runtime_errors.py) |
-| TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.32.0/sdk-typescript/src/errors.ts) |
-| Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.32.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
-| Rust | `SdkError::FlowNotActiveOrNotFound` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-rust/v1.31.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs) |
+| Go | `*dex.FlowNotActiveOrNotFoundError` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/errors.go) |
+| Python | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/runtime_errors.py) |
+| TypeScript | `FlowNotActiveOrNotFoundError` | [Definition](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/errors.ts) |
+| Java | `FlowNotActiveOrNotFoundException` | [Definition](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowNotActiveOrNotFoundException.java) |
+| Rust | `SdkError::FlowNotActiveOrNotFound` | [Definition and mapping](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs) |
 
 These names replace the old not-active-only names without compatibility aliases. The rename preserves Server routing, protocol sub-statuses, service metadata, and cause chains. The separate Flow-not-found error remains available for operations mapped to it, including the Client Attribute read. Inspect an existing application's installed SDK before changing a catch or import; do not assume older packages export the new names.
 
@@ -104,7 +104,7 @@ Commit-confirming API: StartFlow succeeds or deduplicates
 
 When **WaitFor** starts a SubFlow and Dex rejects that start before the child begins, the parent receives the rejection detail in its failure. Keep that detail visible in the parent Step's failure route or recovery record; it identifies the rejected child-start configuration or admission condition. Do not replace it with a generic timeout, child-completion, or retry outcome.
 
-A pull dispatch failure such as no available Worker carries its text into the child result, the parent's WaitForFlow response, and a recovery Step's error detail. Keep the detail visible and branch on the error type, not the text.
+A pull dispatch failure, such as an RPC with no available Worker or a Worker disconnect after hand-out, carries its text into the child result, the parent's WaitForFlow response, and a recovery Step's error detail. From server-zd newer than v0.1.16, a Step never fails for no available Worker; it waits in the task queue. Keep the detail visible and branch on the error type, not the text.
 
 ## Closed-Flow races
 
@@ -174,10 +174,22 @@ With Go SDK v1.17.0, **RecoveryErrorInfo** offers **IsMethodTimeout**, **IsHeart
 
 - When the call to the Worker fails before Dex records a method timeout, Dex reports a Worker API failure, and **IsMethodTimeout** returns false. A Worker API failure has other causes, such as an unreachable Worker, so do not treat it as a timeout.
 - **IsRetryTotalDurationExceeded** is true only when the overall deadline of the method call ended a running attempt. When the total duration ends between attempts, Dex starts no further attempt and reports the final attempt's error type instead.
-- server-zd ends a running attempt at the retry total duration.
+- server-zd v0.1.16 and earlier end a running attempt at the retry total duration. Newer server-zd never does, so **IsRetryTotalDurationExceeded** returns false for its failures and can be true only for records written before the upgrade. Keep the call for those records.
 - An application error type that reuses a backend time-limit name also matches. Give application error types distinct names.
 
-Java, Python, and TypeScript at their v1.32.0 baselines, and Rust at v1.31.0, offer no such predicates. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).
+Java, Python, TypeScript, and Rust at their v1.35.0 baselines offer no such predicates. There, record the detail and error type for operators, and branch only on error types the application defines. Treat any other error type as an infrastructure failure rather than matching backend spellings. See the [Go recovery guidance](../go/error-handling.md#commit-and-recovery).
+
+### Attempt progress
+
+SDK releases newer than Go, Java, Python, and TypeScript v1.32.0 and Rust v1.31.0 expose the attempt progress of the failed Step method on the recovery error. It reports the furthest progress across all attempts of that method call:
+
+- **NOT_STARTED** guarantees that the handler did not run in any attempt. Recovery may repeat the side effect directly. Only **SYNC** Steps report it.
+- **NOT_COMPLETED** means some attempt may have run, but none completed. Confirm the external effect from authoritative state, or make the repeat idempotent, before doing it again.
+- **UNSPECIFIED** comes from an older Server or a failure recorded before the upgrade. Treat it like **NOT_COMPLETED**.
+
+**ASYNC** failures always report **NOT_COMPLETED**, because a node crash can roll back an **ASYNC** start whose execution may already have run. Recovery that relies on **NOT_STARTED** therefore applies only to **SYNC** Steps; an **ASYNC** Step always reconciles first.
+
+**NOT_COMPLETED** is conservative. A Worker disconnect or crash after hand-out reports it for SYNC and ASYNC alike, even when the handler never started, and so does a failure before the handler runs, such as reading or decoding its input. A Worker that stops gracefully and returns a task it did not run reports nothing, because that task consumes no retry. Read each language's **error-handling.md** for the exact field and enum names.
 
 ## Design review
 

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.16"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.18"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -43,11 +43,7 @@ SERVER_ZD_STATEMENTS = (
         "`syncRetryPolicy.totalDuration` bounds each pending entry's retry window",
         "Entries of a store that is no longer configured",
         "StopFlow (CANCEL or FAIL), Terminate",
-        "`processCrashSafe` (default)",
         "Delete the whole data directory to start",
-        "A directory that an earlier release stopped gracefully keeps working in every mode.",
-        "A directory that an earlier release left after an abrupt exit is refused in the default and",
-        "After the first start of a release with this rule, the directory is stamped, and any mode works.",
         "takes it over at once",
     )),
     ("server-zd/v0.1.5", "server-zd/README.md", (
@@ -267,14 +263,12 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "A server that does not serve `AdminService` answers UNIMPLEMENTED.",
     )),
     ("server-zd/v0.1.16", "docs/content/production/server-zd-operations.mdx", (
-        "Calls still open at the release answer\n**UNAVAILABLE** at once, so clients retry them on the new active process.",
-        "Calls that finish before\nthe release keep their answers.",
-        "process takes over in that time, it takes the lease back.",
-        "the process then exits 1 without taking the lease.",
+        "If no other\nprocess takes over in that time, it takes the lease back.",
+        "Either way,\nthe process then exits 1 without taking the lease.",
     )),
     ("server-zd/v0.1.16", "server-zd/README.md", (
         'UNAVAILABLE ("the server process stopped serving during the call")',
-        "calls that finish before it keep their answers.",
+        "open public calls never delay the release; calls that finish before it keep their answers.",
         "up to 60 s for the old store to close.",
         "unless\nanother process has already taken over, the process answers the step down with `Internal`. Either\nway it then exits 1 without competing for the lease",
         "The old instance\nstops accepting connections, so new ones reach the new standby gRPC instance",
@@ -282,6 +276,57 @@ SERVER_ZD_LATEST_STATEMENTS = (
     ("server-zd/v0.1.16", "server-zd/crates/dexzd-server/src/server_node/grpc_server.rs", (
         '"the server process stopped serving during the call; retry it";',
         'const STARTING_MESSAGE: &str = "the node is starting";',
+    )),
+    ("server-zd/v0.1.18", "server-zd/README.md", (
+        "[--durability strict|process-crash-safe|relaxed]",
+        "| `strict` (default) | A process kill, a host crash, and power loss. |",
+        "| `processCrashSafe` | A process kill: SIGKILL, an OOM kill, or a deleted Pod. A host crash or power loss can lose recent writes. |",
+        "- A directory from v0.1.4 or later carries a stamp and keeps working in every mode.",
+        "- A directory that a release before v0.1.4 stopped gracefully keeps working in every mode.",
+        "- A directory that a release before v0.1.4 left after an abrupt exit is refused in every mode,",
+    )),
+    ("server-zd/v0.1.18", "docs/content/production/server-zd-operations.mdx", (
+        "The default **dev.durabilityMode**, **strict**,",
+        "**processCrashSafe** skips fsync, so it is faster, but a host crash or power",
+    )),
+    ("server-zd/v0.1.18", "docs/content/production/server-zd-operations.mdx", (
+        "Calls that\nfinish before the release keep their answers. Calls still open at the release\n"
+        "answer **UNAVAILABLE**, so clients retry on the new active process.",
+    )),
+)
+# Statements read from the Dex CLI checkout at DEX_CLI_BASELINE.
+CLI_STATEMENTS = (
+    ("cli/README.md", (
+        "`--durability` selects how zd stores acknowledged writes. The default, `strict`,",
+        "flag, zd uses `dev.durabilityMode` from that file, or `strict`.",
+    )),
+    ("cli/internal/flowviz/v2_directives.go", (
+        "registeredRPCNames[rpc.protocolName] = true",
+        "func (analyzer *goAnalyzer) v2RPCProtocolName(methodName string, optionsExpression ast.Expr) string {",
+        '"RPC %s Name must be a non-empty compile-time string"',
+        '"%s must be registered in GetRPCs"',
+    )),
+)
+# Per language: (example manifest, pattern capturing the SDK version, reference pages and statements with {version}).
+EXAMPLE_DEPENDENCY_PINS = (
+    ("go", "examples/go/go.mod", r"^\tgithub\.com/superdurable/dex/sdk-go (v[0-9]+\.[0-9]+\.[0-9]+)$", (
+        ("go/go.md", "`github.com/superdurable/dex/sdk-go {version}`"),
+        ("go/primitives.md", "The pinned example module selects SDK {version}"),
+    )),
+    ("java", "examples/java/build.gradle", r'^    implementation "io\.superdurable:dex-sdk:([0-9]+\.[0-9]+\.[0-9]+)"$', (
+        ("java/java.md", "`io.superdurable:dex-sdk:{version}`"),
+        ("java/java.md", "PullGreetingExample.java) selects SDK v{version}."),
+    )),
+    ("python", "examples/python/pyproject.toml", r'^    "dex-python-sdk==([0-9]+\.[0-9]+\.[0-9]+)",$', (
+        ("python/python.md", "`dex-python-sdk=={version}`"),
+    )),
+    ("typescript", "examples/typescript/package.json", r'^    "@superdurable/dex": "([0-9]+\.[0-9]+\.[0-9]+)",$', (
+        ("typescript/typescript.md", "`@superdurable/dex@{version}`"),
+    )),
+    ("rust", "examples/rust/Cargo.toml", r'^dex-sdk = "=([0-9]+\.[0-9]+\.[0-9]+)"$', (
+        ("rust/rust.md", '`dex-sdk = "={version}"`'),
+        ("rust/rust.md", "pull_workers.rs) selects SDK v{version}."),
+        ("rust/versioning.md", 'dex-sdk = "={version}"'),
     )),
 )
 # Core operations statements for the server-zd v0.1.14 search projection.
@@ -311,7 +356,7 @@ SEARCH_PROJECTION_REFERENCES = (
         "point the server at a new database or schema; the server loads it from committed state automatically.",
         "After restoring the object storage prefix, configure a new `search.paradeDbSchema` or `search.postgresSchema`, "
         "or a new database, before restarting the node.",
-        "server-zd/v0.1.16 for CLI v1.34.0",
+        "server-zd/v0.1.18 for CLI v1.35.0",
         "server-zd v0.1.15 changes these operator-visible behaviors.",
         "Upgrade the binary on every process before you add a `standby` section to any configuration",
         "`standby.mode: hot` runs extra processes with the same node ID.",
@@ -367,7 +412,7 @@ SEARCH_SUB_STATUS_TAGGED_STATEMENTS = (
     )),
     ("typescript", "sdk-typescript/src/grpc-status.ts", ("    default:\n      return ErrorSubStatus.UNCATEGORIZED;",)),
     ("typescript", "sdk-typescript/src/worker.ts", (
-        "const startupError = new Error(`cannot start TypeScript ${endpoint}`, { cause: failure });",
+        "new Error(`cannot start TypeScript ${endpoint}",
     )),
     ("rust", "sdk-rust/crates/dex-sdk/src/sdk_error.rs", (
         "        _ => ErrorSubStatus::Uncategorized,", "ErrorSubStatus::Uncategorized => Self::Service { service },",
@@ -584,7 +629,7 @@ REFERENCE_1_24_STATEMENTS = (
     )),
     ("core/error-handling.md", (
         "return NOT_FOUND with FLOW_NOT_EXISTS",
-        "A pull dispatch failure such as no available Worker carries its text",
+        "A pull dispatch failure, such as an RPC with no available Worker or a Worker disconnect after hand-out, carries its text",
     )),
     ("core/read-after-write.md", ("From server-zd v0.1.8, a transactional or locking RPC on a closed run returns NOT_FOUND",)),
     ("core/operations.md", (
@@ -620,7 +665,7 @@ REFERENCE_1_24_STATEMENTS = (
         "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.16.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.18.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
@@ -632,6 +677,103 @@ REFERENCE_1_24_STATEMENTS = (
 def check_release_1_24_references(references: Path) -> None:
     for page, needles in REFERENCE_1_24_STATEMENTS:
         require_text(references / page, *needles)
+
+
+# Statements that supersede the reserve-decline and dispatch-failure rules once Steps queue durably.
+NEWER_SDK = "newer than Go, Java, Python, and TypeScript v1.32.0 and Rust v1.31.0"
+ATTEMPT_START_QUEUE_REFERENCE_STATEMENTS = (
+    ("core/pull-workers.md", (
+        f"From SDK releases {NEWER_SDK}, reserved RPC slots are RPC-only streams and Steps are never declined for capacity.",
+        "Steps are dispatched roughly in the order they became ready; strict ordering is not guaranteed.",
+        "The wait consumes no retry.",
+        f"SDK releases {NEWER_SDK} require Server protocol 4, which server-zd newer than v0.1.16 provides.",
+        "readiness counts slot kinds instead of queues",
+    )),
+    ("core/operations.md", (
+        "From server-zd newer than v0.1.16, **matching.dispatchWait** (10 seconds) applies only to RPCs.",
+        "Steps are dispatched roughly in the order they became ready; strict ordering is not guaranteed.",
+        "**lifecycle.attemptDrainTimeout** (30 seconds by default",
+        "This Server upgrade does not support mixed Server versions",
+    )),
+    ("core/error-handling.md", (
+        "### Attempt progress",
+        "Newer server-zd never does, so **IsRetryTotalDurationExceeded** returns false for its failures",
+    )),
+    ("core/step-options.md", (
+        "From server-zd newer than v0.1.16, the deadline is the hand-out time plus the method timeout",
+        "it never ends a running attempt, so the last attempt can start or end after **TotalDuration**.",
+    )),
+    ("core/patterns.md", ("it never cuts the attempt in progress.",)),
+    ("go/go.md", ("Go SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("java/java.md", ("Java SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("python/python.md", ("Python SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("rust/rust.md", ("Rust SDK releases newer than v1.31.0 replace the decline, extra idle stream",)),
+    ("typescript/typescript.md", ("TypeScript SDK releases newer than v1.32.0 replace the decline, extra idle stream",)),
+    ("go/error-handling.md", ("**RecoveryErrorInfo.AttemptProgress**",)),
+    ("java/error-handling.md", ("**RecoveryErrorInfo.getAttemptProgress()**",)),
+    ("python/error-handling.md", ("**RecoveryErrorInfo.attempt_progress**",)),
+    ("rust/error-handling.md", ("**RecoveryErrorInfo::attempt_progress()**",)),
+    ("typescript/error-handling.md", ("**RecoveryErrorInfo.attemptProgress**",)),
+)
+# Source facts behind those statements, checked at each language's SDK baseline.
+ATTEMPT_START_QUEUE_TAGGED_STATEMENTS = (
+    ("go", "sdk-go/dex/context.go", (
+        "AttemptProgress StepAttemptProgress", "StepAttemptProgressNotStarted", "StepAttemptProgressNotCompleted",
+        "Current server-zd never ends a running attempt at RetryPolicy.TotalDuration",
+    )),
+    ("go", "sdk-go/dex/server_protocol.go", ("minimumSupportedServerProtocolVersion uint32 = 4",)),
+    ("go", "sdk-go/dex/worker.go", (
+        "// Deprecated: MaxConcurrentTasks determines the fixed number of slot streams.",
+        "// Deprecated: reservations are enforced by RPC_ONLY streams, so this counter is always zero.",
+        "POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY",
+        "Start fails when this exceeds the Server's reported matching.maxConcurrentTasksCap per Worker.",
+    )),
+    ("go", "sdk-go/README.md", (
+        "`IdleStreamsPerQueue` is deprecated, remains accepted, and has no effect.",
+        "`PullReservedRPCDeclines()` is deprecated and always returns zero.",
+    )),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/RecoveryErrorInfo.java", ("public StepAttemptProgress getAttemptProgress()",)),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/StepAttemptProgress.java", ("NOT_STARTED,", "NOT_COMPLETED;")),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/Worker.java", ("@deprecated reserved slots no longer decline tasks for capacity",)),
+    ("java", "sdk-java/src/main/java/io/superdurable/dex/PullWorkerOptions.java", ("@deprecated execution slots determine the stream count",)),
+    ("python", "sdk-python/dex/context.py", ("attempt_progress: StepAttemptProgress = StepAttemptProgress.UNSPECIFIED",)),
+    ("python", "sdk-python/dex/worker_options.py", ("idle_streams_per_queue: Deprecated;",)),
+    ("python", "sdk-python/README.md", ("The `pull_reserved_rpc_declines` counter is deprecated and always zero.",)),
+    ("typescript", "sdk-typescript/src/context.ts", ("readonly attemptProgress?: StepAttemptProgress;", 'NOT_STARTED: "notStarted",')),
+    ("typescript", "sdk-typescript/src/worker.ts", ("@deprecated Reserved slots never decline Steps for capacity.",)),
+    ("typescript", "sdk-typescript/src/options.ts", ("@deprecated Has no effect. Each maxConcurrentTasks slot has one long-lived stream.",)),
+    ("rust", "sdk-rust/crates/dex-sdk/src/context.rs", ("pub enum StepAttemptProgress",)),
+    ("rust", "sdk-rust/crates/dex-sdk/src/worker.rs", (
+        '#[deprecated(note = "reserved slots never decline for capacity; this counter is always zero")]',
+    )),
+    ("rust", "sdk-rust/crates/dex-sdk/src/worker_options.rs", (
+        '#[deprecated(note = "one long-lived stream per execution slot; this setting has no effect")]',
+    )),
+)
+# server-zd operation guide statements, checked at the latest server-zd release.
+ATTEMPT_START_QUEUE_SERVER_STATEMENTS = (
+    "| **matching.dispatchWait** | 10s | Total time to find a Worker for one RPC. Steps do not use it;",
+    "| **matching.syncMatchWait** | 200ms |",
+    "| **matching.headsResyncInterval** | 5m |",
+    "| **matching.unsupportedTypeCacheEntries** | 10000 |",
+    "Steps are dispatched roughly in the order they became ready;\nstrict ordering is not guaranteed.",
+    "**lifecycle.attemptDrainTimeout** defaults to **30s**.",
+    "server-zd protocol version 4 does not raise the minimum protocol.",
+    "This server upgrade does not support mixed versions.",
+    "**dexzd_step_attempts_returned_total** with **reason=\"legacy_no_capacity\"**",
+    "**dexzd_matching_heads_restored_refs_total**",
+    # The v0.1.16 step-down tuple matches both wordings; this pins the UNAVAILABLE claim exactly.
+    "answer **UNAVAILABLE**, so clients retry on the new active process.",
+)
+
+
+def check_attempt_start_queue(checkout: Path, server_release: str, sdk_baselines: dict[str, str], references: Path) -> None:
+    for page, needles in ATTEMPT_START_QUEUE_REFERENCE_STATEMENTS:
+        require_text(references / page, *needles)
+    for language, path, needles in ATTEMPT_START_QUEUE_TAGGED_STATEMENTS:
+        require_tagged_text(checkout, sdk_baselines[language], path, *needles)
+    require_tagged_text(checkout, server_release, "docs/content/production/server-zd-operations.mdx",
+                        *ATTEMPT_START_QUEUE_SERVER_STATEMENTS)
 
 
 def check_server_zd_statements(checkout: Path, current_release: str, statements) -> None:
@@ -649,17 +791,23 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         "FlowID string", "RunID string", "FlowType string", "Status FlowStatus",
         "StartedAt time.Time", "ClosedAt time.Time",
     )
-    require_tagged_go_function_text(
-        checkout, tag, client_path,
-        "func (client *Client) validateCall(ctx context.Context) error {",
+    client_source = git(checkout, "show", f"refs/tags/{tag}:{client_path}")
+    location = f"{tag}:{client_path}"
+    # Later SDKs split the call checks into helpers; follow each delegation before matching.
+    validate_call = go_function_source(client_source, "func (client *Client) validateCall(ctx context.Context) error {", location)
+    if "client.validateCallContext(ctx)" in validate_call:
+        validate_call += "\n" + go_function_source(
+            client_source, "func (client *Client) validateCallContext(ctx context.Context) error {", location)
+    require_block_text(validate_call, location, "validateCall", (
         "if ctx == nil {", "closed := client.closed", "if closed {\n\t\treturn errClientClosed",
         "if err := ctx.Err(); err != nil {\n\t\treturn err",
-    )
-    require_tagged_go_function_text(
-        checkout, tag, client_path,
-        "func (client *Client) validateFlowCall(ctx context.Context, flowID string) error {",
-        "client.validateCall(ctx)", 'strings.TrimSpace(flowID) == ""',
-    )
+    ))
+    validate_flow_call = go_function_source(
+        client_source, "func (client *Client) validateFlowCall(ctx context.Context, flowID string) error {", location)
+    if "validateFlowID(flowID)" in validate_flow_call:
+        validate_flow_call += "\n" + go_function_source(client_source, "func validateFlowID(flowID string) error {", location)
+    require_block_text(validate_flow_call, location, "validateFlowCall",
+                       ("client.validateCall(ctx)", 'strings.TrimSpace(flowID) == ""'))
     require_tagged_go_function_text(
         checkout, tag, client_path,
         GO_DESCRIBE_FLOW_SIGNATURE + " {",
@@ -882,7 +1030,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     )
     require_tagged_go_function_text(
         checkout, go_tag, "sdk-go/dex/server_protocol.go", "func serverProtocolRequestError(",
-        'if status.Code(err) == codes.Unavailable {',
+        'codes.Unavailable',
         'FlowService connection failed during GetServerInfo',
         'protocol [%d,%d] is incompatible with Server version',
     )
@@ -924,8 +1072,11 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
         "NewClient", "NewWorker", "gRPC **Unavailable**", "APIKeyCredential",
         "**api.listen** serves plaintext FlowService gRPC",
         "dexcli", "Dex Web connects with plaintext gRPC unless **--tls** is set",
-        "Java", "Python", "TypeScript", "Rust", "no FlowService TLS option",
+        "Java", "Python", "Rust", "no FlowService TLS option",
         "default FlowService connections use plaintext",
+        "TypeScript SDK v1.35.0", "**ClientOptions.flowServiceTls**", "**WorkerOptions.flowServiceTls**",
+        "**FlowServiceTlsOptions**", "Node.js default trust store", "negotiates no ALPN protocol",
+        "throws **TypeError**", "rejection from **worker.start()**",
     )
     require_section_text(references / "go" / "go.md", "## FlowService TLS",
                          "ClientOptions.FlowServiceTLS", "WorkerOptions.FlowServiceTLS",
@@ -937,7 +1088,15 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
                  "WorkerOptions.FlowServiceTLS", "ClientOptions.FlowServiceTLS",
                  "pull task streams use the Worker's FlowService connection")
     require_text(ROOT / "dex-sdk" / "SKILL.md", "Go FlowService TLS", "references/core/operations.md#public-api-authentication")
-    for language in ("java", "python", "typescript", "rust"):
+    require_section_text(references / "typescript" / "typescript.md", "## FlowService TLS",
+                         "TypeScript SDK v1.35.0", "ClientOptions.flowServiceTls", "WorkerOptions.flowServiceTls",
+                         "FlowServiceTlsOptions", "additionalRootCAsPem?: string | Uint8Array",
+                         "serverName?: string", "Omitting it keeps plaintext", "even **{}**",
+                         "Node.js default trust store", "no client-certificate field", "pull task streams",
+                         "TypeError", "UNAVAILABLE", "operations.md#flowservice-tls")
+    require_text(references / "core" / "getting-started.md", "TypeScript Client and Worker each set **flowServiceTls**")
+    require_text(references / "core" / "pull-workers.md", "TypeScript pull Worker", "WorkerOptions.flowServiceTls")
+    for language in ("java", "python", "rust"):
         require_section_text(references / language / f"{language}.md", "## FlowService transport",
                              "v1.20.0", "ClientOptions", "WorkerOptions", "no FlowService TLS option", "plaintext")
     require_tagged_go_function_text(
@@ -948,7 +1107,6 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
         ("java", ("sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
                   "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java")),
         ("python", ("sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py")),
-        ("typescript", ("sdk-typescript/src/options.ts",)),
         ("rust", ("sdk-rust/crates/dex-sdk/src/client_options.rs",
                   "sdk-rust/crates/dex-sdk/src/worker_options.rs")),
     ):
@@ -968,7 +1126,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     require_tagged_rust_function_text(
         checkout, sdk_baselines["java"], java_worker_path,
         "    private static ManagedChannel createOutboundChannel(",
-        "ManagedChannelBuilder.forTarget(address).usePlaintext().build()",
+        "ManagedChannelBuilder.forTarget(address).usePlaintext()",
     )
     python_transport_path = "sdk-python/dex/_credential_transport.py"
     python_transport = git(checkout, "show", f"refs/tags/{sdk_baselines['python']}:{python_transport_path}")
@@ -983,15 +1141,8 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     pull_channel = python_function_source(python_pull, "def outbound_worker_task_channel(",
                                        f"{sdk_baselines['python']}:{python_pull_path}")
     require_block_text(pull_channel, f"{sdk_baselines['python']}:{python_pull_path}",
-                       "outbound_worker_task_channel", ("return grpc.aio.insecure_channel(server_address)",))
-    for path, class_name in (("sdk-typescript/src/client.ts", "Client"),
-                             ("sdk-typescript/src/worker.ts", "Worker")):
-        source = git(checkout, "show", f"refs/tags/{sdk_baselines['typescript']}:{path}")
-        class_source = source.split(f"export class {class_name} {{", 1)[1].split("\n}\n", 1)[0]
-        constructor = rust_function_source(class_source, "  public constructor(",
-                                           f"{sdk_baselines['typescript']}:{path}")
-        require_block_text(constructor, f"{sdk_baselines['typescript']}:{path}",
-                           f"{class_name} constructor", ("new FlowServiceClient(", "credentials.createInsecure()"))
+                       "outbound_worker_task_channel", ("return grpc.aio.insecure_channel(",))
+    check_typescript_flow_service_tls(checkout, sdk_baselines["typescript"])
     for path in ("sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs"):
         require_tagged_rust_function_text(checkout, sdk_baselines["rust"], path,
                                           "fn endpoint_address(", 'format!("http://{address}")')
@@ -1006,6 +1157,137 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     require_block_text(zd_source, f"{SERVER_ZD_RELEASE}:{zd_path}", "GrpcServer::start",
                        ("listener: TcpListener", "tonic::transport::Server::builder()", ".serve_with_incoming_shutdown("),
                        (".tls_config(",))
+
+
+def check_typescript_flow_service_tls(checkout: Path, typescript_tag: str) -> None:
+    for path, class_name, needles in (
+        ("sdk-typescript/src/client.ts", "Client", (
+            "createFlowServiceChannel(options.serverAddress ?? defaultServerAddress, options.flowServiceTls)",
+            "new FlowServiceClient(\n      channel.target,\n      channel.channelCredentials,",
+        )),
+        ("sdk-typescript/src/worker.ts", "Worker", (
+            'createFlowServiceChannel(options.serverAddress ?? "localhost:8801", options.flowServiceTls)',
+            "new FlowServiceClient(\n      channel.target,\n      channel.channelCredentials,",
+            "registry, dispatcher, channel, options.pull ?? {},",
+        )),
+    ):
+        source = git(checkout, "show", f"refs/tags/{typescript_tag}:{path}")
+        class_source = source.split(f"export class {class_name} {{", 1)[1].split("\n}\n", 1)[0]
+        constructor = rust_function_source(class_source, "  public constructor(", f"{typescript_tag}:{path}")
+        require_block_text(constructor, f"{typescript_tag}:{path}", f"{class_name} constructor", needles)
+    options_path = "sdk-typescript/src/options.ts"
+    options_source = git(checkout, "show", f"refs/tags/{typescript_tag}:{options_path}")
+    if options_source.count("  readonly flowServiceTls?: FlowServiceTlsOptions;\n") != 2:
+        fail(f"{typescript_tag}:{options_path} must declare flowServiceTls on ClientOptions and WorkerOptions")
+    tls_options = options_source.split("export interface FlowServiceTlsOptions {", 1)
+    if len(tls_options) != 2:
+        fail(f"{typescript_tag}:{options_path} is missing FlowServiceTlsOptions")
+    fields = re.findall(r"^  readonly ([A-Za-z0-9]+\?: [^;\n]+);$", tls_options[1].split("\n}\n", 1)[0], re.MULTILINE)
+    if fields != ["additionalRootCAsPem?: string | Uint8Array", "serverName?: string"]:
+        fail(f"{typescript_tag}:{options_path} has unexpected FlowServiceTlsOptions fields: {fields}")
+    tls_path = "sdk-typescript/src/flow-service-tls.ts"
+    tls_source = git(checkout, "show", f"refs/tags/{typescript_tag}:{tls_path}")
+    channel_function = rust_function_source(tls_source, "export function createFlowServiceChannel(",
+                                            f"{typescript_tag}:{tls_path}")
+    require_block_text(channel_function, f"{typescript_tag}:{tls_path}", "createFlowServiceChannel", (
+        "if (tlsOptions === undefined) {\n    return { target: serverAddress, "
+        "channelCredentials: credentials.createInsecure(), channelOptions: {} };",
+        "const target = flowServiceTlsTarget(serverAddress);",
+        "createFlowServiceSecureContext(tlsOptions.additionalRootCAsPem)",
+        '{ "grpc.ssl_target_name_override": serverName, "grpc.default_authority": serverName }',
+        "credentials.createFromSecureContext(secureContext)",
+    ))
+    require_block_text(tls_source, f"{typescript_tag}:{tls_path}", "flow-service-tls.ts", (
+        'tls.createSecureContext({ minVersion: "TLSv1.2" })', "!(port >= 1 && port <= 65_535)",
+        'throw new TypeError("dex: flowServiceTls.additionalRootCAsPem contains no PEM certificate")',
+    ), ("rejectunauthorized", "checkserveridentity"))
+    require_tagged_rust_function_text(
+        checkout, typescript_tag, "sdk-typescript/src/pull-worker.ts", "function createWorkerTaskClient(",
+        "new ResettableWorkerTaskServiceClient(channel.target, channel.channelCredentials, {",
+        "...channel.channelOptions,",
+    )
+    require_tagged_text(checkout, typescript_tag, "sdk-typescript/src/pull-worker.ts",
+                        "this.client = createWorkerTaskClient(channel, credential);")
+
+
+def check_cli_statements(cli_root: Path) -> None:
+    for path, needles in CLI_STATEMENTS:
+        require_text(cli_root / path, *needles)
+
+
+def check_example_dependency_pins(checkout: Path, sdk_baselines: dict[str, str], references: Path) -> None:
+    for language, manifest_path, pattern, statements in EXAMPLE_DEPENDENCY_PINS:
+        location = f"{sdk_baselines[language]}:{manifest_path}"
+        versions = re.findall(pattern, git(checkout, "show", f"refs/tags/{location}"), re.MULTILINE)
+        if len(versions) != 1:
+            fail(f"{location} must select the Dex SDK exactly once; found {versions}")
+        for page, statement in statements:
+            require_text(references / page, statement.format(version=versions[0]))
+
+
+def check_release_1_35_sources(checkout: Path, sdk_baselines: dict[str, str], references: Path) -> None:
+    go_tag = sdk_baselines["go"]
+    typescript_tag = sdk_baselines["typescript"]
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/rpc_registration.go", "func rpcDurableName(",
+        "(character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||\n"
+        "\t\t\t(character >= '0' && character <= '9') || character == '_' || character == '-'",
+        "\"RPC %q name %q may contain only ASCII letters, digits, '_', and '-'\"",
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/registration.go", "func (flow *registeredFlow) registerRPCs(",
+        '"RPC name %q is the Go method name of another RPC"',
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/registration.go", "func (flow *registeredFlow) registerRPC(",
+        '"duplicate RPC %q"', '"duplicate RPC method %q"',
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/worker_service.go", "func (service *workerService) invokeWorkerRPC(",
+        "if request.Input == nil {", "if rpc.input != noneType {", "codes.InvalidArgument,",
+        "request.Input = newNullValue()",
+    )
+    require_tagged_go_function_text(checkout, go_tag, "sdk-go/dex/options.go", "type RPCOptions struct {",
+                                    "\tName string\n")
+    require_tagged_text(
+        checkout, typescript_tag, "sdk-typescript/src/options.ts",
+        " * A server that negotiates no ALPN protocol is accepted, unlike the Go SDK.",
+        " * Node.js 26 rejects IP SNI, so prefer a DNS name.",
+        " * An IPv6 value is sent as an unbracketed :authority, which strict HTTP/2 servers reject.",
+    )
+    require_tagged_text(
+        checkout, typescript_tag, "sdk-typescript/src/flow-service-tls.ts",
+        "// Unlike Go's Atoi, a signed port is rejected because grpc-js cannot dial it.",
+        "// grpc-js cannot dial a bracketed DNS name, which Go's SplitHostPort accepts.",
+    )
+    require_tagged_text(
+        checkout, typescript_tag, "sdk-typescript/README.md",
+        "decorator with `SyntaxError: Invalid or unexpected token`.",
+        "Declaring it again, or declaring a method that\n  already has `@rpc`, throws `TypeError`.",
+        "A declaration made after a\n  Registry is built has no effect on that Registry.",
+    )
+    require_tagged_text(checkout, typescript_tag, "sdk-typescript/src/index.ts",
+                        'export { declareRPCMethod, rpc } from "./rpc.js";')
+    require_section_text(
+        references / "go" / "primitives.md", "## RPC",
+        "From Go SDK v1.35.0, `RPCOptions.Name` sets the RPC's protocol name",
+        "Go code still refers to the RPC by its bound method",
+        "characters other than ASCII letters, digits, `_`, and `-`",
+        "another RPC's protocol name or Go method name", "one method registered twice",
+        "reads a request without input for an RPC whose input is `dex.None` as JSON null",
+        "still fails with `INVALID_ARGUMENT`",
+    )
+    require_section_text(
+        references / "typescript" / "primitives.md", "## Decorator-free RPC declaration",
+        "From TypeScript SDK v1.35.0, `declareRPCMethod(FlowClass, \"methodName\", options)`",
+        "rejects `@rpc` with a SyntaxError", "before constructing the Registry",
+        "already has `@rpc`", "throws `TypeError`",
+    )
+    require_text(references / "go" / "go.md", "**Name** must be a non-empty compile-time string",
+                 '"must be registered in GetRPCs"')
+    require_text(references / "core" / "operations.md",
+                 "a signed port such as **+443**", "a bracketed DNS name",
+                 "an IPv6 **serverName** is sent as an unbracketed **:authority**")
 
 
 def check_flow_summary_rpc(checkout: Path, server_zd_tag: str) -> None:
@@ -1749,12 +2031,15 @@ def main() -> None:
     check_release_1_24_references(SDK_REFERENCES)
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_STATEMENTS)
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_LATEST_STATEMENTS)
+    check_cli_statements(arguments.dex_root)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_flow_summary_rpc(arguments.dex_root, SERVER_ZD_RELEASE)
     check_sdk_flow_closing_errors(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_go_describe_flow(arguments.dex_root, go_sdk_baseline, SDK_REFERENCES)
     check_sdk_describe_flow(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_flow_service_tls(arguments.dex_root, go_sdk_baseline, sdk_baselines, SDK_REFERENCES)
+    check_release_1_35_sources(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    check_example_dependency_pins(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_pull_only_workers(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_release_1_28_statements(arguments.dex_root, sdk_baselines)
     check_client_attribute_reads(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
@@ -1765,8 +2050,9 @@ def main() -> None:
         go_sdk_baseline,
         "sdk-go/README.md",
         "The SDK sends an upstream Pong every 20 seconds while a task runs",
-        "keeps one additional idle stream until 30",
+        "Reserved streams register as `RPC_ONLY` so\nSteps use the other slots without being declined.",
     )
+    check_attempt_start_queue(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, sdk_baselines, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

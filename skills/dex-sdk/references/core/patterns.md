@@ -58,11 +58,11 @@ One long-running Step's Execute owns the whole wait. Each round:
 
 Every wait limit comes from the polling Step's Execute options, and the engine enforces each one. The Step code never computes a deadline:
 
-- **Method timeout**: the maximum wait. It bounds one attempt; an omitted value uses the two-hour server default.
-- **Retry**: a few attempts with backoff for Worker crashes and transient errors, with a total duration equal to the maximum wait. The total duration is measured from the first attempt's schedule, includes every retry, and also cuts the in-flight attempt. An omitted total duration uses the four-hour server default, so always set it.
+- **Method timeout**: the maximum wait. It bounds one attempt; an omitted value uses the two-hour server default. From server-zd newer than v0.1.16, it is the only limit on a single attempt.
+- **Retry**: a few attempts with backoff for Worker crashes and transient errors, with a total duration equal to the maximum wait. An omitted total duration uses the four-hour server default, so always set it. From server-zd newer than v0.1.16, the total duration starts when Dex first hands the Step to a Worker and only decides, after an attempt fails, whether to retry; it never cuts the attempt in progress. With Workers available, the whole wait is therefore at most about the total duration plus one method timeout, plus any time the Step waits for a Worker. On server-zd v0.1.16 and earlier, the total duration was measured from the first attempt's schedule and also cut the in-flight attempt.
 - **Heartbeat timeout**: keep the one-minute default, so a stalled Worker is detected within a minute rather than after the whole attempt timeout.
 
-When the method timeout or the total duration expires, the engine fails the Step with a timeout. Route Execute failure to a failure-record Step that reads the recovery error (detail and error type) and records the business failure; without an Execute-failure route the Flow fails. The last observed status is visible in the progress Stream and logs, not in the recovery error. To branch on which limit ended the wait, follow [recovery error types](error-handling.md#recovery-error-types); never compare the error type with a fixed string.
+When the method timeout expires, the engine fails the attempt with a timeout; when no retry remains, including because the total duration has run out, the Step fails. On server-zd v0.1.16 and earlier, an expiring total duration also failed the running attempt with a timeout. Route Execute failure to a failure-record Step that reads the recovery error (detail and error type) and records the business failure; without an Execute-failure route the Flow fails. The last observed status is visible in the progress Stream and logs, not in the recovery error. To branch on which limit ended the wait, follow [recovery error types](error-handling.md#recovery-error-types); never compare the error type with a fixed string.
 
 The heartbeat checkpoint is only resume state, such as the last reported status so a new attempt does not repeat a progress frame; it never carries a deadline. A business condition that is not a fixed duration, such as stopping when a lease the Flow does not own expires, is still checked inside the loop; it is a business rule, not a polling timeout. Stream progress is best effort; consumers recover from durable Attributes or a snapshot RPC. Write frames only on status changes so the shared Stream budget is not flooded. Do not hold Execute lock Attributes for the whole wait; commit results that need a lock in a short following Step.
 
@@ -151,4 +151,4 @@ Sources:
 - Polling: https://docs.superdurable.io/design-patterns/polling
 - Sequential chunking: https://docs.superdurable.io/design-patterns/sequentially-chunked-attribute-map
 - Hash partitioning: https://docs.superdurable.io/design-patterns/hash-partitioned-attribute-map
-- Baseline runnable implementations: https://github.com/superdurable/dex/tree/sdk-go/v1.32.0/examples
+- Baseline runnable implementations: https://github.com/superdurable/dex/tree/sdk-go/v1.35.0/examples
