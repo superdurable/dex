@@ -1,0 +1,150 @@
+---
+title: Java Workers
+sidebar_label: Workers
+---
+
+# Java Workers
+
+This page shows how to start a Java Worker. It lists the Java names for the
+Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Start a Worker
+
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
+and keeps one slot for RPCs. See the [Java SDK README](https://github.com/superdurable/dex/blob/sdk-java/v1.29.0/sdk-java/README.md#pull-workers) for
+startup details.
+
+```java
+public final class PullGreetingExample {
+    private PullGreetingExample() {
+    }
+
+    public static RunningPullGreeting start(
+            final BlobCache cache, final String serverAddress) throws InterruptedException, TimeoutException {
+        final GreetingFlow flow = new GreetingFlow();
+        final Registry registry = new Registry(List.<Flow<?>>of(flow));
+        final Worker worker = new Worker(registry, cache, WorkerOptions.newBuilder()
+                .serverAddress(serverAddress)
+                .pull(PullWorkerOptions.newBuilder()
+                        .maxConcurrentTasks(8)
+                        // Keep one slot for RPCs so Flows stay responsive.
+                        .reservedRpcTasks(1)
+                        .build())
+                .build());
+        final Client client = new Client(registry, cache, new ClientOptions(serverAddress));
+        final CompletableFuture<Void> workerResult = new CompletableFuture<>();
+        final Thread workerThread = new Thread(() -> {
+            try {
+                worker.start();
+                workerResult.complete(null);
+            } catch (final Throwable failure) {
+                workerResult.completeExceptionally(failure);
+            }
+        }, "pull-greeting-worker");
+        workerThread.start();
+        final RunningPullGreeting running = new RunningPullGreeting(
+                flow, worker, client, workerThread, workerResult);
+        try {
+            worker.waitPullRegistered(Duration.ofSeconds(30));
+        } catch (final InterruptedException | TimeoutException | RuntimeException | Error failure) {
+            try {
+                running.close();
+            } catch (final InterruptedException | RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+                if (cleanupFailure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            throw failure;
+        }
+        return running;
+    }
+
+    public static boolean isPullGreetingReady(final Worker worker) {
+        return worker.getPullRegistrationState().isReady();
+    }
+
+    public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
+        return new PullGreetingDiagnostics(
+                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+    }
+
+    public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
+    }
+
+    public record RunningPullGreeting(
+            GreetingFlow flow, Worker worker, Client client, Thread workerThread,
+            CompletableFuture<Void> workerResult) implements AutoCloseable {
+        @Override
+        public void close() throws InterruptedException {
+            client.close();
+            worker.close();
+            workerThread.join();
+            workerResult.join();
+        }
+    }
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/sdk-java/v1.29.0/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)
+
+## Readiness
+
+Java provides **waitPullRegistered(Duration)** and
+**getPullRegistrationState()** in SDK 1.14.0. Java's
+**stopOnPermanentStreamRejection** provides the same opt-in shutdown behavior
+as Go.
+
+A **PullRegistrationError** names the rejected queue, a Flow type queue or the
+app Worker ID queue, and keeps the original gRPC error.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```java
+    public static boolean isPullGreetingReady(final Worker worker) {
+        return worker.getPullRegistrationState().isReady();
+    }
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/sdk-java/v1.29.0/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)
+
+## Capacity and shutdown
+
+| Setting | Java name |
+| --- | --- |
+| Concurrent tasks | **maxConcurrentTasks** |
+| Reserved RPC slots | **reservedRpcTasks** |
+| Idle streams per queue | **idleStreamsPerQueue** |
+| Stop drain timeout | **stopDrainTimeout** |
+| Shutdown | **stop** |
+
+The option names are builder methods.
+
+The idle stream option, **idleStreamsPerQueue**, keeps that many idle streams ready on each
+Flow type queue and on the app Worker ID queue. It defaults to one.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **getPullReservedRpcDeclines()**, counts Step tasks the Worker
+declined to keep reserved RPC capacity. The count never resets and remains
+available after shutdown, so read its rate.
+
+This diagnostics helper exposes registration readiness and the reserve-decline
+counter. A rising counter indicates Step capacity pressure. It does not make
+the Worker unready.
+
+```java
+    public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
+        return new PullGreetingDiagnostics(
+                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+    }
+
+    public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
+    }
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/sdk-java/v1.29.0/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)

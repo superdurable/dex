@@ -1,0 +1,50 @@
+---
+title: Rust SDK reference
+sidebar_label: Overview
+slug: /
+---
+
+# Rust SDK reference
+
+This reference covers the Dex Rust SDK. Check the SDK version your application
+uses before you rely on a detail:
+
+```bash
+cargo tree --package dex-sdk --depth 0
+```
+
+## Install
+
+The Rust SDK is the crate **dex-sdk**. Pin an exact release in **Cargo.toml**:
+
+```toml
+dex-sdk = "=1.23.0"
+```
+
+The crate requires Rust 1.97 or newer. Releases use the tag
+**sdk-rust/vX.Y.Z**.
+
+## Supported versions
+
+| SDK minor | Server requirement |
+| --- | --- |
+| 1.23 | server-zd 0.1.0 or newer (protocol versions 1 to 3) |
+
+Minor numbers follow the shared Dex release train. A missing minor means the
+Rust SDK did not change in that release.
+
+## API reference
+
+Read the [SDK 1.23.0 API reference](https://docs.rs/dex-sdk/1.23.0/dex_sdk/) on docs.rs.
+
+All versions: [1.35.0](https://docs.rs/dex-sdk/1.35.0/dex_sdk/), [1.31.0](https://docs.rs/dex-sdk/1.31.0/dex_sdk/), [1.26.0](https://docs.rs/dex-sdk/1.26.0/dex_sdk/), [1.25.0](https://docs.rs/dex-sdk/1.25.0/dex_sdk/), [1.23.0](https://docs.rs/dex-sdk/1.23.0/dex_sdk/).
+
+## Pages
+
+- [Workers](/reference/rust/workers): Rust names for Worker readiness,
+  capacity, and shutdown settings.
+
+## Release notes
+
+See the [sdk-rust releases](https://github.com/superdurable/dex/releases?q=sdk-rust&expanded=true)
+on GitHub.
