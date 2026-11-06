@@ -6,6 +6,8 @@ Use a real Dex Server for durable behavior. Mock-only tests cannot prove registr
 
 Run `dexcli dev`; start `AsyncWorker`/`Worker`; create the matching Client with the same Registry/BlobCache. Generate every Flow ID with `uuid4().hex`. Bound operations with `timedelta` arguments or `asyncio.timeout`; shut workers down in fixtures.
 
+A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
+
 [Pinned integration source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/tests/integ/conftest.py)
 <!-- dex-source: examples/python/tests/integ/conftest.py -->
 ```python

@@ -68,3 +68,5 @@ cd examples/java
 ```
 
 For SDK work, use the repository's documented Gradle integration tasks and a real `dexcli dev`; do not substitute mocks for Worker replacement or durable waiting.
+
+A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).

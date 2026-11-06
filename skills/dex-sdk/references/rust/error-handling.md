@@ -78,7 +78,7 @@ When the API promises a critical operation has completed, follow the shared [req
 
 For an idempotent start, set one stable `StartFlowOptions::request_id(...)` and `ignore_already_started(true)` only when a retry of that same logical request may attach to the existing run. A remaining `SdkError::FlowAlreadyStarted` means a different Request ID owns the Flow ID. Treat it as a domain conflict unless the coordinator contract deliberately redirects the command to that existing Flow. Another service-backed variant can leave acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
 
-For an explicitly best-effort external `Client::write_stream`, suppress only `SdkError::Service { .. }`, the remote fallback produced by that operation. Propagate local argument and value-mapping variants. Context Stream writes inside a handler remain `HandlerResult` work and must participate in the Step's retry or recovery policy.
+For an explicitly best-effort external `Client::write_stream`, suppress only `SdkError::Service { .. }`, the remote fallback produced by that operation. It also carries the FAILED_PRECONDITION or RESOURCE_EXHAUSTED status of a disabled or full Stream Store; see the [Core error guidance](../core/error-handling.md) for which one to retry. Propagate local argument and value-mapping variants. Context Stream writes inside a handler remain `HandlerResult` work and must participate in the Step's retry or recovery policy.
 
 ## Flow close cleanup
 

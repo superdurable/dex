@@ -6,6 +6,8 @@ Use Node's test runner or the application's framework for assertions, but run du
 
 Create an isolated Registry, free Worker port, temporary BlobCache directory, Worker, and Client. Close them in `finally`. Generate a UUID-based Flow ID for every test.
 
+A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
+
 [Pinned test environment](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/test/integ/environment.ts)
 <!-- dex-source: sdk-typescript/test/integ/environment.ts -->
 ```typescript

@@ -18,7 +18,7 @@ When the API promises a critical operation has completed, follow the shared [req
 
 For an idempotent start, set one stable `StartFlowOptions.requestId` and `ignoreAlreadyStarted: true` only when a retry of that same logical request may attach to the existing run. A remaining `FlowAlreadyStartedError` means a different Request ID owns the Flow ID. Treat it as a domain conflict unless the coordinator contract deliberately redirects the command to that existing Flow. Another `DexServiceError` can leave acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
 
-For an explicitly best-effort external `client.writeStream`, log sanitized identity and discard only an `instanceof DexServiceError` failure. Rethrow other values so codec, definition, and programming defects remain visible.
+For an explicitly best-effort external `client.writeStream`, log sanitized identity and discard only an `instanceof DexServiceError` failure. That error also carries the FAILED_PRECONDITION or RESOURCE_EXHAUSTED status of a disabled or full Stream Store; see the [Core error guidance](../core/error-handling.md) for which one to retry. Rethrow other values so codec, definition, and programming defects remain visible.
 
 [Pinned example error classification](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/service-errors.ts)
 <!-- dex-source: examples/typescript/src/service-errors.ts -->

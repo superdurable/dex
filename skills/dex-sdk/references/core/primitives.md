@@ -128,7 +128,9 @@ Stream clients have two distinct read paths. **ReadStream** consumes forward one
 
 Treat reverse listing as a best-effort retained-message snapshot. Writes after the first page do not enter the older-page chain, but trimming can create gaps. If trimming moves the retained head past the anchor, Dex returns an empty page instead of restarting from the tail. Page size must be positive and cannot exceed the Server **streamStore.maxReadMessages** limit, which defaults to 1000.
 
-Docs: https://docs.superdurable.io/primitives/stream
+From server-zd v0.1.19, **streamStore.backend** defaults to **memory** for both `serve` and `dexcli dev`. Memory contents are lost on restart, standby takeover, or step down. With the backend **disabled**, Client Stream calls fail with FAILED_PRECONDITION and Step Stream writes are dropped without failing the Step; the Server counts them in **dexzd_step_stream_writes_dropped_total** by reason. The Server caps one Stream's **streamCapacityBytes** at **streamStore.maxStreamCapacityBytes** (64 MiB by default) and all Streams on a node at **streamStore.maxTotalBytes** (1 GiB by default). A Client write past the node total fails with RESOURCE_EXHAUSTED and can be retried after a short delay, because trimming frees room. A message larger than its Stream's capacity also fails with RESOURCE_EXHAUSTED but can never fit, so do not retry it. See [server-zd operations](operations.md#server-zd).
+
+
 
 ## Timer
 

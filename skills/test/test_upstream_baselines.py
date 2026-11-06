@@ -1424,6 +1424,41 @@ class ServerZdDevStrictDurabilityStatementsTest(unittest.TestCase):
         self.assertIn("docs/content/production/server-zd-operations.mdx", paths)
         self.assertNotIn("cli/README.md", paths)
 
+    def test_real_tagged_sources_pass(self):
+        self.check()
+
+    def test_each_tagged_statement_must_be_enforced(self):
+        for _, path, needles in self.statements:
+            for needle in needles:
+                with self.subTest(path=path, needle=needle):
+                    mutated = replace_once(self.sources[path], needle, needle[:-1] + "?")
+                    self.repository.commit_and_tag(self.TAG, {path: mutated})
+                    with self.assertRaises(SystemExit) as raised:
+                        self.check()
+                    self.assertIn(f"{self.TAG}:{path} is missing required text", str(raised.exception))
+                    self.repository.commit_and_tag(self.TAG, {path: self.sources[path]})
+
+
+class ServerZdStreamStoreStatementsTest(unittest.TestCase):
+    TAG = "server-zd/v0.1.19"
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.statements = tuple(
+            statement for statement in CHECKER.SERVER_ZD_LATEST_STATEMENTS if statement[0] == self.TAG
+        )
+        self.sources = tagged_sources(self.TAG, *dict.fromkeys(path for _, path, _ in self.statements))
+        self.repository.commit_and_tag(self.TAG, self.sources)
+
+    def check(self):
+        CHECKER.check_server_zd_statements(self.repository.root, self.TAG, self.statements)
+
+    def test_statements_cover_stream_store_and_s3local(self):
+        paths = {path for _, path, _ in self.statements}
+        self.assertIn("server-zd/README.md", paths)
+        self.assertIn("docs/content/production/server-zd-operations.mdx", paths)
+        self.assertNotIn("cli/README.md", paths)
+
     def test_latest_release_is_the_server_baseline(self):
         self.assertEqual(CHECKER.SERVER_ZD_LATEST_RELEASE, self.TAG)
         self.assertEqual((CHECKER.ROOT / "DEX_SERVER_BASELINE").read_text().strip(), self.TAG)
@@ -1480,6 +1515,27 @@ class SearchProjectionReferencesTest(unittest.TestCase):
                             target.write_text(original)
                         else:
                             target.unlink()
+
+
+class DevDurabilityStreamStoreReferencesTest(unittest.TestCase):
+    PAGES = tuple(page for page, _ in CHECKER.DEV_DURABILITY_STREAM_STORE_REFERENCE_STATEMENTS)
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.references = copy_references(Path(temporary.name), *self.PAGES)
+
+    def check(self):
+        CHECKER.check_dev_durability_stream_store_references(self.references)
+
+    def test_real_references_pass(self):
+        CHECKER.check_dev_durability_stream_store_references(CHECKER.SDK_REFERENCES)
+
+    def test_each_reference_statement_must_be_enforced(self):
+        for page, needles in CHECKER.DEV_DURABILITY_STREAM_STORE_REFERENCE_STATEMENTS:
+            for needle in needles:
+                with self.subTest(page=page, needle=needle):
+                    mutate_page(self, self.check, self.references / page, needle, needle[:-1] + "?")
 
 
 class FlowServiceTlsTest(unittest.TestCase):
@@ -1702,7 +1758,7 @@ class FlowServiceTlsTest(unittest.TestCase):
 
 
 class CliStatementsTest(unittest.TestCase):
-    TAG = "cli-v1.35.0"
+    TAG = "cli-v1.36.0"
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
