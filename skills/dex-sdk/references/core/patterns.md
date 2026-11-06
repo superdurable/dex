@@ -328,7 +328,7 @@ AwaitInbound.execute
 - A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
 - Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
 - Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
-- A reply accepted after the resolution but before the Flow closes is not recorded. When that matters, have Resolve complete only when the reply Channel is empty, as in [Drain an external Channel](#drain-an-external-channel).
+- A reply accepted after the resolution but before the Flow closes is not recorded if Resolve completes at once. When every accepted reply must be kept, Resolve completes with ForceCompleteIfChannelsEmpty on the reply Channel, as in [Drain an external Channel](#drain-an-external-channel). Its fallback returns to the waiting Step with the resolution in its input; that Step records the remaining replies and moves to Resolve again. Keep the waiting Step the only consumer of the reply Channel.
 
 Why not write the transcript from the RPC: the waiting Step must then lock the transcript, and the RPC must lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC does, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
 

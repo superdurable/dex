@@ -94,6 +94,7 @@ mappings:
       - docs/content/design-patterns/failure-handling/manual-recovery.mdx
       - docs/content/design-patterns/failure-handling/wait-for-failure-recovery.mdx
       - docs/content/design-patterns/hash-partitioned-attribute-map.mdx
+      - docs/content/design-patterns/inbound-event-loop.mdx
       - docs/content/design-patterns/index.mdx
       - docs/content/design-patterns/interruptible.mdx
       - docs/content/design-patterns/parallel-subflows.mdx

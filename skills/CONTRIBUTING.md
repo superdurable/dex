@@ -117,8 +117,10 @@ Without arguments it validates the map. Skills CI runs only the checks that
 depend on the commit. Check Gate CI runs both scripts with `--base-ref` and
 `--pr-body-file`, using the pull request description it fetches from GitHub
 when it runs, to enforce the release metadata and the doc-map pairing. A stale
-Skills CI run therefore cannot approve a description. To run that locally,
-pass a base such as `--base-ref origin/main` and a file with the description.
+Skills CI run therefore cannot approve a description. A manual dispatch of
+Check Gate CI runs only the non-PR checks and validates no pull request
+description. To run the description checks locally, pass a base such as
+`--base-ref origin/main` and a file with the description.
 
 Also validate the Codex, Claude Code, and Cursor manifests with their current
 client tooling and smoke-test that one plugin install exposes exactly the three

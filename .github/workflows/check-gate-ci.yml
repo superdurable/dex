@@ -5,6 +5,7 @@ on:
     # Adding or removing the ci:fast-merge label changes the required workflows.
     # edited re-runs the skills checks that read the pull request description.
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  # A manual dispatch checks non-PR CI only; it validates no pull request description.
   workflow_dispatch:
 
 permissions:
@@ -244,7 +245,9 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pull_request_file"
           jq -r '.body // ""' "$pull_request_file" > "$body_file"
           base_sha="$(jq -r '.base.sha' "$pull_request_file")"
-          git fetch --no-tags --unshallow origin
+          if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+            git fetch --no-tags --unshallow origin
+          fi
           git fetch --no-tags origin "$base_sha"
           cd skills
           python3 script/check-package.py --base-ref "$base_sha" --pr-body-file "$body_file"

@@ -147,6 +147,9 @@ class BoundaryTest(unittest.TestCase):
             "The n8n workflow imports into one Flow.",
             "Signal the operator when the query returns.",
             "A Channel message can signal that a query finished.",
+            "The workflow updates the stored Attributes.",
+            "This workflow queries the external service.",
+            "The n8n workflow signals completion with a webhook.",
         ):
             with self.subTest(text=text):
                 self.assertEqual(CHECKER.find_boundary_terms(text), [])

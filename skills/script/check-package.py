@@ -58,7 +58,14 @@ CONCEPT_BOUNDARY_TERMS = (
         re.compile(r"\b(?:Signal|Query|Update|Describe|Terminate|Cancel|Reset)Workflow(?:Execution)?\b"),
         "a backend workflow API",
     ),
-    (re.compile(r"\bworkflow[\s_-]+(?:signals?|quer(?:y|ies)|updates?)\b", re.IGNORECASE), "a backend workflow Signal, Query, or Update"),
+    # Noun forms only, so "the workflow updates the Attributes" stays allowed.
+    (
+        re.compile(
+            r"\b[Ww]orkflow[\s_-]+(?:Signal|Query|Update|Queries)s?\b"
+            r"|\b(?:[Aa]n?|[Tt]he|[Ss]end|[Hh]andle|[Rr]eceive|[Dd]efine|[Rr]egister)\s+workflow[\s_-]+(?:signal|query|update)\b"
+        ),
+        "a backend workflow Signal, Query, or Update",
+    ),
     # Lowercase temporal and cadence are English words; flag them only as backend names.
     (
         re.compile(

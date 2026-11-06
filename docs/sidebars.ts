@@ -126,6 +126,7 @@ const sidebars: SidebarsConfig = {
             'design-patterns/responsive-update/stream',
           ],
         },
+        'design-patterns/inbound-event-loop',
         {
           type: 'category',
           label: 'AttributeMap Partitioning',
