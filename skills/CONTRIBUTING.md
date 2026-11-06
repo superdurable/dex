@@ -20,7 +20,32 @@ Contributor intentionally has no supporting references because the target
 repository owns that guidance. Do not add a `plugins/` wrapper, a backend
 companion skill, or duplicated Core/Go handbooks.
 
-## Pin source authority
+## Skill content
+
+The Skills are the coding-agent version of Dex's stable docs layer. They cover
+the same scope as the docs Primitives, Components, and Design pattern pages,
+written as mental models, decision tables, rules, anti-patterns, code
+skeletons, and checklists. Each rule must be complete without its links.
+
+Ask one question of each fact: will this still hold in the next minor release?
+If yes, it may belong in the Skills. If no, it belongs in SDK doc comments or
+the versioned docs Developer reference. Skills contain no Dex version numbers
+and no release-tag pins. They link only to the Developer reference and to
+`examples/`, never to the Primitives, Components, or Design pattern pages.
+
+Change the Skills only when a stable programming rule, a Primitive concept or
+relation, a Component, or a design pattern changes. Update the matching docs
+pages in the same pull request, or state in the pull request why they need no
+change. A skills change does not wait for a Dex release, and a Dex release
+never requires a skills change.
+
+## Transitional: pinned baselines
+
+Phase P6 of the docs and skills cleanup replaces the validators below and
+removes the baseline pins. Until then, the existing validators must keep
+passing, so avoid editing pinned skills content. Do not advance a baseline
+only because Dex released. When you must touch pinned content, these rules
+still apply.
 
 `DEX_BASELINE` pins exact Go SDK excerpts. `DEX_JAVA_BASELINE`,
 `DEX_PYTHON_BASELINE`, `DEX_TYPESCRIPT_BASELINE`, and `DEX_RUST_BASELINE`
@@ -76,15 +101,24 @@ current instructions.
 
 ## Version and release
 
-Every change under `dex-sdk/`, `dex-app-builder/`, or
-`dex-connector-contributor/` updates `VERSION` and
-`CHANGELOG.md`. Keep every plugin and marketplace manifest on that exact
-version where the format supports a version.
+Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
+changes: a rule, a Primitive concept or relation, a Component, a design
+pattern, skill routing, or packaging. After phase P6 of the docs and skills
+cleanup, a typo, link, or wording-only change needs no bump. Until P6, see the
+transitional rule below. Keep every plugin and
+marketplace manifest on that exact version where the format supports a
+version.
 
-- Increment PATCH for corrections and clarifications.
+- Increment PATCH for corrections to an existing rule or concept.
 - Increment MINOR for new product workflows, languages, patterns, or other
   backward-compatible capabilities.
 - Increment MAJOR for incompatible plugin or skill identity changes.
+
+Transitional: until phase P6, Skills CI still requires every change under
+`dex-sdk/`, `dex-app-builder/`, or `dex-connector-contributor/` to update
+`VERSION` and `CHANGELOG.md`. Until then, a typo, link, or wording-only change
+either waits and is batched into the next stable-content change, or bumps
+PATCH as CI requires. After P6, such a change needs no bump.
 
 After a pull request lands on Dex `main`, the skills mirror syncs the package.
 The mirror's Release workflow validates it and creates `v<version>` from the

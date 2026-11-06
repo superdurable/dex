@@ -60,7 +60,7 @@ def heartbeat(value: object = _NO_HEARTBEAT_VALUE) -> StepOutput:
 
     Yield ``heartbeat()`` to clear persisted heartbeat details. Passing a value,
     including ``None``, persists that codec-supported value for the next regular
-    activity attempt. Local activity execution ignores heartbeat frames.
+    Step attempt. Heartbeat frames report progress in both durability modes.
 
     Args:
         value: Optional checkpoint value. Omitting it clears prior details.
@@ -81,6 +81,20 @@ class StepDurability(Enum):
 
     ASYNC gives lower latency and faster single Flows. Sustained throughput is
     about the same as SYNC.
+
+    SYNC persists the attempt start before handing work to a Worker and persists
+    its result before advancing the Flow. ASYNC can advance before its result is
+    persisted; a Server node failure can repeat that method and later work.
+    If an ASYNC start was not persisted, Dex may repeat the same attempt number
+    without consuming a retry. The attempts can overlap and repeat Stream writes.
+    Other interrupted handed-out attempts consume a retry in either mode.
+    External side effects must tolerate repetition in both modes.
+    Prefer SYNC when repeating an expensive or non-idempotent call is unsafe.
+    Durability changes affect methods scheduled afterward, not method calls
+    already in progress, including their retries.
+
+    .. versionchanged:: 1.35.0
+       Attempt starts follow SYNC or ASYNC durability as well as method results.
 
     Attributes:
         DEFAULT: Use FlowConfig, then the server's synchronous default.
@@ -107,23 +121,56 @@ class WaitForFailurePolicy(Enum):
 
 @dataclass(frozen=True)
 class RetryPolicy:
-    """Configure exponential retries for a Step handler or Flow.
+    """Configure exponential retries for a Step method or Flow timeout handler.
 
     A ``None`` duration or zero numeric value uses the server default. The default
     total duration is four hours.
+    The current Server supports Step and timeout-handler retries, but rejects a
+    Flow-level policy on StartFlowOptions or SubFlowOptions. Use this policy on
+    StepOptions or FlowTimeoutHandlerOptions to retry work.
     Attempts include the initial call. Retries stop at the first configured limit.
     Step total duration starts when the Step is first handed to a Worker.
     After an attempt fails, Dex uses the elapsed duration to decide whether to
     schedule another retry. It never ends a running attempt.
+    Only the method timeout bounds the attempt's overall running duration;
+    heartbeat timeout separately detects a silent handler.
+    Waiting for locks or a Worker before the first hand-out uses no retry budget.
+    Returning attempt 1 without running resets the retry clock. Later queue waits
+    count toward elapsed duration, but Dex does not expire queued work against
+    this budget. A scheduled retry can therefore start or finish after it expires.
+    The next backoff must fit in the remaining budget when the failure is handled.
+    Use ``maximum_attempts=1`` to disable retries. Zero does not disable retries.
+    Raising ``retry_after(seconds, cause)`` overrides the next backoff interval;
+    maximum attempts and total duration still apply.
+    Durations must be non-negative whole seconds fitting a signed 32-bit integer.
+
+    .. versionchanged:: 1.35.0
+       Step total duration starts at hand-out and gates retry scheduling only.
+       It no longer shortens the running attempt's deadline.
 
     Attributes:
-        initial_interval: Delay before the first retry.
-        backoff_coefficient: Interval multiplier; zero uses the server default.
-        maximum_interval: Upper bound for one retry delay.
-        maximum_attempts: Total attempt limit; zero uses the server default.
+        initial_interval: Delay before the first retry. None or zero uses one second.
+        backoff_coefficient: Interval multiplier; zero uses 2.0.
+        maximum_interval: Upper bound for calculated retry delays. None or zero
+            uses 100 seconds. The default delays are 1, 2, 4, 8 seconds and so on,
+            capped at 100 seconds.
+        maximum_attempts: Total attempt limit, including the initial attempt.
+            Zero leaves the attempt count unlimited within total_duration.
         total_duration: Retry scheduling budget counted from the first hand-out
             to a Worker. Checked only after an attempt fails; it does not end a
-            running attempt. ``None`` uses four hours.
+            running attempt. ``None`` or zero uses four hours.
+
+    Examples:
+        >>> from datetime import timedelta
+        >>> from dex import RetryPolicy, StepOptions
+        >>> retry = RetryPolicy(
+        ...     initial_interval=timedelta(seconds=2),
+        ...     backoff_coefficient=2.0,
+        ...     maximum_interval=timedelta(seconds=30),
+        ...     maximum_attempts=5,
+        ...     total_duration=timedelta(minutes=10),
+        ... )
+        >>> options = StepOptions(execute_retry=retry)
     """
 
     initial_interval: timedelta | None = None
@@ -143,6 +190,33 @@ class StepOptions:
     durability gives lower latency and faster single Flows. Sustained throughput
     is about the same as synchronous durability.
 
+    Method timeouts bound each Python handler attempt, not the durable Wait
+    returned by ``wait_for``. Durations must be non-negative whole seconds within
+    a signed 32-bit integer. Zero method timeout uses the two-hour default.
+    Method and heartbeat clocks start at hand-out; waiting for locks or a Worker
+    does not consume them. See ``Context.deadline`` to budget external calls.
+    Both durability modes use these same timeouts and retry policies.
+
+    Each logical method call reuses its first attempt's state snapshot on retries.
+    Attribute locks remain held through backoff and queued retries until that
+    method call ends. WaitFor and Execute use independent snapshots; Execute
+    loads after the winning Wait consumes its selected messages.
+    Conflicting writing RPCs receive ``RpcLockConflictError``.
+    Unlocked snapshot values can become stale; retrying does not reload them.
+    Use a Channel wait in a later Step to observe a concurrent writer instead.
+    A first attempt awaiting a Worker has no acquired locks. A returned attempt
+    can retain its snapshot and locks while awaiting a supporting Worker.
+
+    Heartbeats and Stream frames report liveness. Only heartbeat values supply
+    retry checkpoints. Stream progress preserves the last explicit checkpoint.
+    A silent external call must finish within heartbeat_timeout or emit progress
+    while it runs. A timeout may start a retry while the previous
+    Python handler still runs; observe cancellation and make effects idempotent.
+
+    .. versionchanged:: 1.35.0
+       Attempts start at Worker hand-out. Unsupported Steps wait durably for a
+       supporting Worker without consuming retries.
+
     Attributes:
         wait_for_method_timeout: Maximum duration of one ``wait_for``
             attempt; ``None`` uses two hours.
@@ -150,6 +224,10 @@ class StepOptions:
             attempt; ``None`` uses two hours.
         heartbeat_timeout: Handler progress deadline; ``None`` or zero uses
             one minute. The server-configured explicit minimum defaults to ten seconds.
+            The Server rejects a shorter explicit value. ``start_flow`` raises
+            DexServiceError with INVALID_ARGUMENT for the starting Step. A Step
+            movement returned by a handler fails that attempt as an invalid
+            response, and the attempt is retried under its retry policy.
         wait_for_retry: Optional retry policy for ``wait_for``.
         execute_retry: Optional retry policy for ``execute``.
         wait_for_failure: Behavior after all ``wait_for`` attempts fail.
@@ -171,6 +249,20 @@ class StepOptions:
         execute_load_channel_maps: ChannelMaps fully loaded for ``execute``.
         execute_load_channel_map_instances: Exact ChannelMap instances loaded for
             ``execute``.
+
+    Raises:
+        ValueError: When options are mapped with negative, fractional, or oversized
+            durations.
+
+    Examples:
+        >>> from datetime import timedelta
+        >>> from dex import RetryPolicy, StepDurability, StepOptions
+        >>> options = StepOptions(
+        ...     execute_method_timeout=timedelta(minutes=3),
+        ...     heartbeat_timeout=timedelta(minutes=3),
+        ...     execute_retry=RetryPolicy(maximum_attempts=3),
+        ...     execute_durability=StepDurability.SYNC,
+        ... )
     """
 
     wait_for_method_timeout: timedelta | None = None
@@ -207,6 +299,9 @@ class StepOptions:
         fallback whose input type differs. The check is skipped for ``Any``,
         ``object``, and unresolved TypeVar input types.
 
+        .. versionchanged:: 1.28.0
+           Targets accept registered instances and StepRef as well as unambiguous classes.
+
         Args:
             step: Fallback class, registered instance, or StepRef; validated at registration.
             options: Optional options applied to the fallback movement.
@@ -233,6 +328,8 @@ class StepRef:
     selection, is validated only when the Worker applies that returned result.
     Unknown types raise FlowDefinitionError. Input is checked by the destination's
     codec rather than inferred from the reference.
+
+    .. versionadded:: 1.28.0
 
     Attributes:
         step_type: Non-empty Step type returned by the destination's get_step_type.
@@ -319,6 +416,11 @@ class Step(Generic[InputT], ABC):
         """Return the name used to register and address this Step.
 
         Override it to decouple the protocol Step type from the Python class name.
+        Multiple instances of one class must return distinct Step types. Address
+        them by their registered instance or StepRef; class targets are ambiguous.
+
+        .. versionchanged:: 1.28.0
+           Several instances of a Step class can register with distinct Step types.
 
         Returns:
             A non-empty name unique within the containing Flow.
@@ -327,6 +429,8 @@ class Step(Generic[InputT], ABC):
 
     def get_input_type(self) -> object | None:
         """Return the input type that overrides this Step's handler annotations.
+
+        .. versionadded:: 1.28.0
 
         Override it in a generic Step whose input annotation is a TypeVar, so each
         registered instance can declare its concrete input type. Registry calls it
@@ -377,6 +481,8 @@ StepTarget = type[Step[InputT]] | Step[InputT] | StepRef
 
 Class targets require exactly one registered instance of that class. Multiple
 instances make the class ambiguous; select the instance or use StepRef instead.
+
+.. versionadded:: 1.28.0
 """
 
 
@@ -392,6 +498,10 @@ class StepList(Generic[StartT]):
 
     A Flow may have zero or one starting Step. Other Steps are reachable only through
     decisions, RPC results, or failure routing.
+
+    .. versionchanged:: 1.28.0
+       Multiple instances of one Step class may register with distinct Step types.
+
     """
 
     _definitions: tuple[_StepDef, ...]
@@ -481,6 +591,9 @@ class StepMovement(Generic[InputT]):
         returns this movement. An unknown StepRef, ambiguous class, or unregistered
         instance raises FlowDefinitionError at that point.
 
+        .. versionchanged:: 1.28.0
+           Targets accept registered instances and StepRef as well as unambiguous classes.
+
         Args:
             step: Destination class, registered instance, or StepRef. A class must be unambiguous.
             input: A value compatible with the Step's input annotation.
@@ -545,6 +658,9 @@ class StepDecision:
         The Worker validates each target when it applies the returned decision. An
         invalid target raises FlowDefinitionError at that point.
 
+        .. versionchanged:: 1.28.0
+           Targets accept registered instances and StepRef as well as unambiguous classes.
+
         Args:
             *steps: Registered instances, StepRef values, or unambiguous Step classes.
 
@@ -569,6 +685,9 @@ class StepDecision:
         A sibling has the same ``Context.from_step_execution_id`` as the execution
         returning this decision. Snapshot, no-op, and validation behavior match
         ``with_canceling_steps``. Flow-wide selection wins for the same Step type.
+
+        .. versionchanged:: 1.28.0
+           Targets accept registered instances and StepRef as well as unambiguous classes.
 
         Args:
             *steps: Registered instances, StepRef values, or unambiguous Step classes.
@@ -602,6 +721,9 @@ def go_to(step: StepTarget[InputT], input: InputT) -> StepDecision:
     The Worker validates the target when it applies the returned decision. An
     unknown StepRef, ambiguous class, or unregistered instance raises
     FlowDefinitionError at that point, not when this function is called.
+
+    .. versionchanged:: 1.28.0
+       Targets accept registered instances and StepRef as well as unambiguous classes.
 
     Args:
         step: Destination class, registered instance, or StepRef. A class must be unambiguous.

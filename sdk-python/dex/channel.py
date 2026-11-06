@@ -69,6 +69,14 @@ class Channel(Generic[ValueT]):
     Steps use the condition factories to wait for a count and then inspect the
     selected values through ``results``.
 
+    A successful Wait consumes only messages selected by its winning Channel
+    conditions. Unselected AnyOf branches leave their messages pending. Values
+    published by a handler are staged until that handler's result is committed.
+    Channel size metadata loads automatically. Pending message envelopes require
+    explicit load options; ChannelMessagesNotLoadedError means the snapshot did
+    not load them, not that the queue is empty. A Channel cannot be observed
+    through Client.get_attributes.
+
     Attributes:
         name: The non-empty Channel name without ``/``, unique within its Flow.
         value_type: The Python type of every published value.
@@ -275,6 +283,9 @@ class ChannelMap(Generic[ValueT]):
     Each ``instance`` has an independent queue and may be waited on separately.
     Add the ChannelMap definition to the Flow's ``PersistenceSchema``.
     Instance keys must be non-empty and must not contain ``/``.
+    Each instance follows Channel consumption and publication rules. Select exact
+    instance messages with load_messages in RPC invocation options; declaring a
+    map does not load all of its pending values.
 
     Attributes:
         name: The non-empty Channel name without ``/``, unique within its Flow.

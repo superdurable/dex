@@ -27,6 +27,26 @@ export interface BufferedTextStreamOptions {
 
 /**
  * Defines a typed, best-effort resumable message stream owned by one Flow type.
+ * Register it in getPersistenceSchema. Capacity is shared across every Flow ID with this Flow type
+ * and Stream name, rather than allocated per Flow ID. Trimming removes the oldest messages.
+ * Storage is best effort; a restart or trimming can lose messages. Use Channels or Attributes
+ * when delivery or state must be durable. A resume token cannot recover trimmed messages.
+ * A Client can write or read independently of Flow existence or lifecycle.
+ * Step writes happen immediately and count as heartbeats, preserving explicit checkpoint state.
+ * Retries may repeat already sent messages; unsent buffered text is not recovered.
+ * Client calls report Stream Store failures. Step writes do not fail the handler on storage failure.
+ * If Stream storage is disabled, Client calls fail with FAILED_PRECONDITION and Step writes are dropped.
+ * A full Stream or node budget rejects Client writes with RESOURCE_EXHAUSTED; retry after trimming.
+ * A message larger than the allowed message size or Stream capacity cannot fit; do not retry it.
+ * Server defaults cap one Stream at 64 MiB, all Streams at 1 GiB, and a message at 102,400 bytes.
+ *
+ * @example
+ * ```ts
+ * const updates = new Stream("updates", stringCodec, 1024 * 1024);
+ * const persistence: PersistenceSchema = { streams: [updates] };
+ * await client.writeStream("order-42", updates, "application", "accepted");
+ * const message = await client.readStream("order-42", updates);
+ * ```
  * @typeParam T - Message type encoded by the Stream codec.
  */
 export class Stream<T> {

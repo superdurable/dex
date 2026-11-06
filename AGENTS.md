@@ -35,8 +35,11 @@ only when a section genuinely doesn't apply.
   not use inline backticks for API names, methods, types, or identifiers. Use
   **bold** instead (for example **WaitFor**, **StepDecision**). Fenced code
   blocks and `bash` / `text` fences are exempt.
-- Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
-  locales in sync. See `.cursor/rules/docs-i18n.mdc`.
+- Docs pages outside the Developer reference ship in English and Simplified
+  Chinese (`zh-Hans`); keep both locales in sync. The Developer reference is
+  English only. See `.cursor/rules/docs-i18n.mdc`.
+- Place each new fact by Docs Information Placement: SDK doc comments, the
+  Developer reference, or the stable layer (docs and skills together).
 - Treat every published docs URL as permanent. Before moving, renaming, or
   deleting a page, add direct entries to `docs/redirects.json` for every
   affected locale. Redirect to the closest successor, never an unrelated page
@@ -139,27 +142,135 @@ Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude
 (`CLAUDE.md`) coding-agent rules synchronized. Any addition or modification to
 one requires equivalent updates to all three in the same commit.
 
-### Application-Facing Changes Require Skill Updates
+### Skills Change Only When Stable Rules or Concepts Change
 
-When adding, removing, renaming, or materially changing an application-visible
-API, primitive, feature, design pattern, or operational semantic, update
-Dex `skills/` in the same work item. Merging `skills/` to main automatically
-syncs it to the read-only `superdurable/dex-skills` mirror, which publishes the
-skill release. Pure internal
-refactors and fixes that preserve application behavior do not trigger this rule.
+Dex `skills/` is the coding-agent version of the stable docs layer. See Docs
+Information Placement. Change skills only when one of these changes:
 
-Commit Dex first. After that change is included in a published Dex release,
-advance `skills/DEX_BASELINE` to that exact release tag,
-refresh pinned source links, update affected core and all five language
-references, and update the version, changelog, and plugin manifests. Never use
-a branch name or commit SHA for `DEX_BASELINE` or pinned source links. Run every
-skill validator before completion.
+- a stable programming rule, such as determinism or idempotency;
+- a Primitive concept or a relation between Primitives;
+- a Component: what it is and how it works with the others;
+- a design pattern.
 
-If no release tag contains the Dex change yet, report the release as the
-blocker. Do not update `skills/` from an unreleased commit.
+New APIs, options, defaults, limits, error codes, configuration, and version
+differences do not change skills. Put them in SDK doc comments and the docs
+Developer reference. Pure internal refactors and fixes that preserve
+application behavior do not change skills either.
+
+If a Dex change makes existing skills text wrong, remove or correct that text
+in the same work item. During the transition below, this is a PATCH bump. Do
+not add new volatile detail while doing so.
+
+Test each fact with one question: will this still hold in the next minor
+release? If yes, it may belong in skills. If no, it belongs in the Developer
+reference.
+
+Skills contain no Dex version numbers and no release-tag pins. A skills change
+does not wait for a Dex release, and a Dex release never requires a skills
+change. Merging `skills/` to main automatically syncs it to the read-only
+`superdurable/dex-skills` mirror, which publishes the skill release.
 
 If the skills mirror is unavailable or contains work that cannot be safely
-synced, do not mark the feature complete. Report the blocker explicitly.
+synced, do not mark the skills change complete. Report the blocker explicitly.
+
+Transitional: phase P6 of the docs and skills cleanup replaces the skills
+validators. Until then, the existing validators must keep passing. They still
+pin `skills/DEX_BASELINE` and the other `DEX_*_BASELINE` files, check source
+excerpts against those release tags, and require a `VERSION` and
+`CHANGELOG.md` bump for any change under a skill directory. Until P6 lands,
+avoid editing pinned skills content, except to remove or correct text that a
+Dex change made wrong. Do not advance a baseline only because Dex released.
+See `skills/CONTRIBUTING.md`.
+
+### Docs Information Placement
+
+Dex knowledge lives in two layers. Each fact has one home.
+
+| Layer | For humans | For coding agents | Changes |
+| --- | --- | --- | --- |
+| Stable: concepts, relations, mental model, rules, Components, design patterns | Docs Primitives, Components, and Design patterns | `skills/` | Only when a concept or rule changes |
+| Volatile: APIs, parameters, defaults, limits, configuration, flags, metrics, edge cases, version differences | Docs Developer reference (versioned) and the generated API references | The same pages; skills link to them | Any release |
+
+Both copies of the stable layer cover the same scope. Each is written for its
+reader. Docs use narrative, diagrams, and examples. Skills use rules, decision
+tables, code skeletons, anti-patterns, and checklists. Skills keep every stable
+fact an agent needs to write correct code. Do not cut one only to be shorter.
+
+| Information | Single home | Elsewhere |
+| --- | --- | --- |
+| Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs and skills link to it; they do not restate it |
+| Primitive concepts, relations, and mental model | Docs Primitives and skills | Change both in one pull request |
+| Components (Application, server, cli, web, connector, external Attribute sync): what each is and how they work together | Docs Components and skills | Change both in one pull request |
+| Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
+| Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it |
+
+- Skills link only to the Developer reference, including its generated API
+  references, and to `examples/`. They never link to the Primitives,
+  Components, or Design pattern pages. Each skill rule must be complete
+  without its links.
+- When a pull request changes stable content on one side, it updates the
+  other side in the same pull request. Otherwise its description states why
+  the other side needs no change.
+- `skills/doc-map.yaml` maps each skills file to its docs pages. Phase P6 of
+  the docs and skills cleanup adds that file, together with a CI check that
+  enforces the same-pull-request rule.
+- Until the versioned Developer reference exists, put volatile facts in the
+  existing `docs/content/references/` and `docs/content/production/` pages.
+  Phase P2 of the docs and skills cleanup moves them into the Developer
+  reference. Those pages stay in English and Simplified Chinese until they
+  move into the `reference-*` instances.
+
+#### Developer Reference Versions
+
+This is the target layout. Phases P2 and P4 of the docs and skills cleanup
+build it.
+
+- Each component has its own versioned reference: the Go, Python, Java,
+  TypeScript, and Rust SDKs, the server, cli, and web.
+- The left sidebar of each reference has a version selector. It defaults to
+  the latest version.
+- Only the current version is edited by hand. Each minor release snapshots it
+  automatically. Older versions change only to fix a factual error.
+- The site keeps the last 5 versions of each reference.
+- When a version leaves the site, redirect each of its URLs to the same page
+  in the latest version. If that page no longer exists, redirect to the
+  component's reference index. Docs URLs stay permanent.
+- SDKs, cli, and web are versioned by minor release. Until server-zd 1.0, each
+  `0.1.N` server-zd release is one version. From 1.0 on, server-zd is
+  versioned by minor release.
+
+#### Docs Writing, Languages, and Markdown Export
+
+These rules add to `.cursor/rules/docs-writing.mdc`,
+`.cursor/rules/docs-i18n.mdc`, and `.cursor/rules/docs.mdc`.
+
+- Concept pages are the Primitives, Components, and Design pattern pages. Use
+  short sentences there. Put one idea in each sentence.
+- Concept pages contain no version numbers and no compatibility notes for
+  older servers or SDKs.
+- Say each thing once. Link to its single home instead of repeating it.
+- Version differences appear only in the Developer reference. Mark each one
+  "Since <component version>" or "Changed in <component version>". Use the
+  version of the component the page documents, such as "Since 1.35" for an
+  SDK, cli, or web, and "Since 0.1.17" for server-zd.
+- Every changed page outside the Developer reference must be read in a
+  browser before merge. This includes Intro, Quick start, Primitives,
+  Components, Design patterns, and Use cases. Run `cd docs && npm start`,
+  which builds and serves both locales. Read every such page from top to
+  bottom as a reader, once in English and once in Simplified Chinese. Fix what
+  you find. List the pages you read in the pull request's Testing section.
+- Every docs page outside the Developer reference ships in English and
+  Simplified Chinese (`zh-Hans`). This includes Intro, Quick start,
+  Primitives, Components, Design patterns, and Use cases. Keep both locales in
+  sync.
+- The Developer reference is English only. It means the versioned
+  `reference-*` docs instances and the generated API references. When a page
+  moves into the Developer reference, it drops its Chinese copy. Redirect the
+  old `zh-Hans` URL like any other moved page.
+- Every docs page has a Markdown twin, built by the local docs exporter. Each
+  new MDX component needs an export rule in that exporter. The build fails on
+  a component without one. Phase P1 of the docs and skills cleanup adds the
+  exporter; this rule applies from then on.
 
 ### No Downstream Product Information
 
@@ -372,6 +483,20 @@ behavior, nullability, ownership, side effects, errors, and other tricky
 semantics whenever users must understand them. Finish with language-native
 documentation for every type parameter, input, output, and user-visible error.
 Do not impose a word limit; prefer a complete paragraph over a terse fragment.
+
+- Per-API details live in the SDK doc comments. Docs and skills link to the
+  generated API reference instead of restating them.
+- When a release adds an API or changes its behavior, its doc comment says so
+  in the language's idiom. Use the first release of that SDK that ships the
+  change. When that number is not known yet, use the next minor after the
+  newest Dex release tag.
+  - Go and Rust: a sentence such as "Since 1.NN.0." or "Changed in 1.NN.0:
+    <what changed>."
+  - Python: `.. versionadded:: 1.NN.0` or `.. versionchanged:: 1.NN.0`,
+    followed by what changed.
+  - Java and TypeScript: an `@since 1.NN.0` tag for a new API. For a behavior
+    change, add the sentence "Changed in 1.NN.0: <what changed>."
+
 Use the exact nouns exposed by the API or protocol. Do not invent one umbrella
 term for distinct identifiers; say Flow type, Step type, RPC name, Attribute
 name, Channel name, or map instance as appropriate.

@@ -71,7 +71,13 @@ type Condition interface {
 }
 
 // Timer returns a Condition satisfied after duration of durable workflow time.
-// The timer survives Worker restarts.
+// The timer survives Worker restarts. Waiting does not occupy a Worker task slot.
+// duration must be nonnegative; positive fractions round up to whole seconds.
+// Invalid durations fail when Dex serializes the returned Wait, not when Timer constructs the Condition.
+// WithConditionID supplies a stable ID for Client.SkipTimer; otherwise use the Timer's zero-based index.
+// Execute can inspect Context.HasTimerFired or HasTimerFiredByIndex, including after a skipped Timer.
+//
+//	return dex.Until(dex.Timer(5*time.Minute, dex.WithConditionID("approval-deadline"))), nil
 func Timer(duration time.Duration, options ...ConditionOption) Condition {
 	condition := &conditionImpl{
 		kind:     conditionTimer,
@@ -86,6 +92,10 @@ func Timer(duration time.Duration, options ...ConditionOption) Condition {
 // target must be registered by the Worker and define a starting Step whose input accepts input.
 // Dex generates the SubFlow Flow ID. Omit options to use the default abnormal-restart policy, or
 // pass exactly one value to configure reuse, timing, Attributes, Flow configuration, and ID.
+// WaitFor's successful result starts or attaches to the child; Execute reads SubFlowResult.
+// AnyOf does not stop losing children. Use SubFlowID with Client.StopFlow to stop a still-running child.
+// Invalid options or unencodable input fail serialization of the returned Wait.
+// Child failure is represented by FlowResult.Status; inspect it before decoding outputs.
 //
 //	return dex.Until(dex.SubFlow(ChargeFlow{}, chargeInput)), nil
 func SubFlow(target Flow, input any, options ...SubFlowOptions) Condition {
@@ -111,6 +121,8 @@ func SubFlow(target Flow, input any, options ...SubFlowOptions) Condition {
 //
 // Omit index to read the first SubFlow Condition. Indexes are zero-based in the stable SubFlow
 // order within the surrounding Wait. AnyOf losers return a nonterminal running snapshot.
+// Invalid contexts, multiple or negative indexes, missing results, and undecodable results return errors.
+// Inspect Status before calling DecodeSingleOutput; a failed child is a result, not a SubFlowResult error.
 func SubFlowResult(ctx Context, index ...int) (FlowResult, error) {
 	invocation, ok := ctx.(*invocationContext)
 	if !ok || invocation == nil {

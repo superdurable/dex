@@ -16,9 +16,19 @@ package io.superdurable.dex;
  * <p>Use {@link RecoveryErrorInfo#getAttemptProgress()} during recovery to decide whether handler
  * side effects may need reconciliation. Only {@link #NOT_STARTED} rules out handler execution.
  * See that accessor for an example.
+ *
+ * <p>ASYNC failures always report NOT_COMPLETED because an unpersisted attempt start may have
+ * been rolled back after application code ran. NOT_STARTED is available only for SYNC.
+ * NOT_COMPLETED is conservative: hand-out followed by a disconnect or input decoding failure
+ * can report it even if the handler never ran.
+ *
+ * @since 1.35.0
  */
 public enum StepAttemptProgress {
-    /** The Server did not report progress; treat this as {@link #NOT_COMPLETED}. */
+    /**
+     * The Server did not report progress; treat this as {@link #NOT_COMPLETED}.
+     * This includes failures recorded before progress reporting was available.
+     */
     UNSPECIFIED,
     /** The handler did not run in any attempt of this Step method call. */
     NOT_STARTED,

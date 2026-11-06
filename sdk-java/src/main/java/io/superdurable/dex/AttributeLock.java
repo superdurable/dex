@@ -19,6 +19,19 @@ package io.superdurable.dex;
  * behavior through {@link RPC#lockAttributes} and {@link RPC#lockAttributeMaps}; Java annotations
  * cannot accept {@code AttributeLock} objects, so RPC locks use annotation elements instead.
  *
+ * <p>Locks serialize participating writers, not all reads. A Step waits until its locks are
+ * available; its method timeout starts only at Worker hand-out. An RPC that declares locks fails
+ * with {@link io.superdurable.dex.exceptions.RpcLockConflictException} instead of waiting.
+ * Declare locks consistently on every Step and RPC that updates the protected value.
+ *
+ * <p>With Server protocol 4 (server-zd v0.1.17, required by SDK 1.35.0): the first attempt
+ * takes its locks at Worker hand-out. Retries and returned attempts retain their locks while
+ * queued, until the method finishes or the Flow ends.
+ * A Step type unsupported by all connected Workers can hold those locks until a capable Worker
+ * connects. Locking a map instance does not load its value; request state loads separately.
+ * To protect a collection-wide invariant, use a separate singleton Attribute as a coordination
+ * lock and request it from every participating writer. Its stored value is not lock state.
+ *
  * <pre>{@code
  * return StepOptions.newBuilder()
  *         .addExecuteLock(AttributeLock.of(balance))

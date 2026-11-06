@@ -17,6 +17,10 @@ class Timer:
     Timer conditions measure durable workflow time rather than blocking a Python
     worker thread. Use a stable ``condition_id`` when external code may skip the
     Timer by ID.
+    A Timer waits without occupying a Worker slot. Its durable delay is separate
+    from Step method timeout. A zero duration is immediately eligible. Skipping a
+    Timer makes its condition ready; use Context.has_timer_fired in execute to
+    inspect the outcome. Timers in Wait.any_combination_of require unique IDs.
     """
 
     @staticmethod
@@ -28,7 +32,7 @@ class Timer:
         """Create a Timer that becomes ready after ``duration``.
 
         Args:
-            duration: A non-negative delay measured from the wait's start.
+            duration: A non-negative whole-second delay measured from the wait's start.
             condition_id: Optional stable identifier unique within the Wait tree.
 
         Returns:
@@ -36,8 +40,11 @@ class Timer:
 
         Raises:
             ValueError: If ``duration`` is negative or the identifier is invalid.
+                Fractional seconds are rejected when the Worker maps the Wait.
 
         Examples:
+            >>> from datetime import timedelta
+            >>> from dex import Timer, Wait
             >>> reminder = Timer.by_duration(timedelta(minutes=15), condition_id="remind")
             >>> wait = Wait.until(reminder)
         """

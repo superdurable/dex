@@ -38,14 +38,22 @@ class StepAttemptProgress(Enum):
     the handler did not run. Other values require idempotent recovery or an
     application check for completed side effects.
 
+    Only a method with SYNC durability can report ``NOT_STARTED``. An ASYNC
+    method reports ``NOT_COMPLETED`` even when its handler never ran, because
+    Dex may not have persisted the attempt start.
+
+    .. versionadded:: 1.35.0
+
     Attributes:
         UNSPECIFIED: An older Server or a failure recorded before upgrade supplied
             no progress. Treat it like
             ``NOT_COMPLETED`` because an attempt may have run.
-        NOT_STARTED: The handler did not run in any attempt.
+        NOT_STARTED: The handler did not run in any attempt. Reported only for
+            SYNC methods.
         NOT_COMPLETED: Some attempt may have run, but none completed.
 
     Examples:
+        >>> from dex import RecoveryErrorInfo, StepAttemptProgress
         >>> error = RecoveryErrorInfo("unavailable", "dispatch", StepAttemptProgress.NOT_STARTED)
         >>> can_repeat_side_effect = error.attempt_progress is StepAttemptProgress.NOT_STARTED
     """
@@ -58,6 +66,16 @@ class StepAttemptProgress(Enum):
 @dataclass(frozen=True)
 class RecoveryErrorInfo:
     """Describe the final failure that selected a recovery path.
+
+    A Worker disconnect or crash after hand-out can leave external effects even
+    when Dex recorded no completion. Treat NOT_COMPLETED and UNSPECIFIED as
+    possibly run. Only NOT_STARTED permits assuming no handler attempt ran.
+    ASYNC methods never report NOT_STARTED, so their recovery must treat every
+    failure as possibly run.
+
+    .. versionchanged:: 1.35.0
+       Added attempt_progress, defaulting to UNSPECIFIED for source compatibility
+       and failures recorded without progress information.
 
     Attributes:
         detail: Failure message supplied by the Worker or backend.
@@ -96,8 +114,13 @@ class Context(Protocol):
     def run_id(self) -> str:
         """Return the current server-assigned run ID.
 
+        Time travel keeps the run ID and re-runs work within the same run.
+        An idempotency key built from the run ID therefore repeats after time
+        travel. Add an application value when a re-run must use a new key.
+
         Returns:
-            The run ID, which changes after time travel or continue-as-new.
+            The current run ID. A new run changes it; time travel does not. The
+            Flow ID remains stable across runs.
         """
         ...
 
@@ -109,6 +132,8 @@ class Context(Protocol):
         this run. It is available in ``wait_for``, ``execute``, Flow timeout
         handlers, and RPC handlers. This is the run start time, rather than the
         start time of the current Step or attempt.
+
+        .. versionadded:: 1.28.0
 
         Returns:
             A timezone-aware UTC datetime with one-second precision.
@@ -128,7 +153,10 @@ class Context(Protocol):
         """Return the current Step execution's protocol identifier.
 
         Returns:
-            The Step type and execution number encoded by Dex.
+            The Step type and execution number encoded by Dex. Retries of the
+            same Step execution share it; use attempt to distinguish retries
+            and run_id to distinguish runs. A re-run after time travel keeps
+            the run ID and can reuse this ID, so a key built from both repeats.
         """
         ...
 
@@ -169,6 +197,15 @@ class Context(Protocol):
         RetryPolicy total duration does not shorten a running attempt. Use this
         inside ``wait_for``, ``execute``, or a Flow timeout handler to budget
         external work; each retry receives its own effective deadline.
+
+        The deadline is hand-out time plus the method timeout. Waiting for locks
+        or a Worker does not count. Do not persist it as a retry checkpoint;
+        each retry must use its newly supplied deadline.
+
+        .. versionadded:: 1.28.0
+
+        .. versionchanged:: 1.35.0
+           Retry total duration no longer shortens the attempt deadline.
 
         Returns:
             A timezone-aware UTC datetime with microsecond precision, or ``None``
@@ -380,7 +417,7 @@ class AsyncContext(Context, Protocol):
 
         Calling this method without ``value`` clears prior persisted details.
         Passing any value, including Python ``None``, persists a present Value.
-        Local activity execution ignores heartbeat frames.
+        Heartbeat frames report progress in both durability modes.
 
         Args:
             value: Optional codec-supported checkpoint value.

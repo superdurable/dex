@@ -16,9 +16,8 @@ import java.time.Duration;
  * Requests a specific delay before retrying a failed Step method.
  *
  * <p>Throw the value returned by {@link #after(Duration, Throwable)} from wait-for or execute. On
- * Temporal, the delay overrides only the next retry interval; retry limits and timeouts remain
- * unchanged, and the current attempt failure remains the reported Worker error. Cadence rejects
- * dynamic retry intervals with a Flow validation error.
+ * Dex, the delay overrides only the next retry interval; retry limits and timeouts remain
+ * unchanged, and the current attempt failure remains the reported Worker error.
  *
  * <pre>{@code
  * throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);

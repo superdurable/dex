@@ -28,6 +28,17 @@ import java.util.Objects;
  * Durations describe method timeouts, not the potentially much longer time spent waiting for
  * durable timer or Channel conditions.
  *
+ * <p>With Server protocol 4 (server-zd v0.1.17, required by SDK 1.35.0): method and heartbeat
+ * timeouts start when Dex hands the attempt to a Worker. Lock waits and task queue waits do not
+ * consume either timeout or a retry. Each retry receives a fresh method timeout. Retry total
+ * duration is independent; see {@link RetryPolicy}. Both durability modes use the same timeouts
+ * and retry policy.
+ *
+ * <p>WaitFor and Execute receive independent state snapshots. Dex captures each method's first
+ * snapshot at Worker hand-out; retries and returned attempts reuse it. Execute's snapshot is taken
+ * after winning Channel conditions consume their messages. Selecting an Attribute lock does not
+ * load AttributeMap values. Request the appropriate map or instance loads separately.
+ *
  * <pre>{@code
  * public StepOptions getStepOptions() {
  *     return StepOptions.newBuilder()
@@ -160,7 +171,8 @@ public final class StepOptions {
          * Sets the maximum duration of one wait-for method attempt.
          *
          * <p>An attempt defaults to two hours. This setting applies to every attempt with either
-         * Step durability.
+         * Step durability. The server imposes no additional method-timeout cap. Values must be
+         * nonnegative whole seconds within the signed int32 range; zero selects the default.
          *
          * @param value the method timeout, or {@code null} for the server default
          * @return this builder
@@ -174,7 +186,8 @@ public final class StepOptions {
          * Sets the maximum duration of one execute method attempt.
          *
          * <p>An attempt defaults to two hours. This setting applies to every attempt with either
-         * Step durability.
+         * Step durability. The server imposes no additional method-timeout cap. Values must be
+         * nonnegative whole seconds within the signed int32 range; zero selects the default.
          *
          * @param value the method timeout, or {@code null} for the server default
          * @return this builder
@@ -193,7 +206,9 @@ public final class StepOptions {
          * must be whole seconds within the signed int32 range and satisfy the server-configured
          * minimum, which defaults to ten seconds. This setting applies to every attempt with either
          * Step durability. Once cancellation reaches the Java Worker, Dex interrupts the
-         * handler thread.
+         * handler thread. A healthy silent external call must fit inside this timeout; increase
+         * it or report progress during the call. Use the method timeout to bound the entire
+         * attempt.
          *
          * @param value the heartbeat timeout, or {@code null} for one minute
          * @return this builder
@@ -206,6 +221,8 @@ public final class StepOptions {
         /**
          * Sets the retry policy for wait-for method failures.
          *
+         * <p>See {@link RetryPolicy} for defaults, attempt counting, backoff, and total duration.
+         *
          * @param value the retry policy, or {@code null} for the server default
          * @return this builder
          */
@@ -216,6 +233,8 @@ public final class StepOptions {
 
         /**
          * Sets the retry policy for execute method failures.
+         *
+         * <p>See {@link RetryPolicy} for defaults, attempt counting, backoff, and total duration.
          *
          * @param value the retry policy, or {@code null} for the server default
          * @return this builder

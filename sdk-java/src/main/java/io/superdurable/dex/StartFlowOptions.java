@@ -190,6 +190,9 @@ public final class StartFlowOptions {
         /**
          * Delays creation of the first Step execution.
          *
+         * <p>The Server currently rejects a positive delay with INVALID_ARGUMENT. Leave this unset
+         * or zero, and start the Flow when it should begin.
+         *
          * @param value a nonnegative whole-second delay, or {@code null} for no explicit delay
          * @return this builder
          */
@@ -211,6 +214,9 @@ public final class StartFlowOptions {
 
         /**
          * Sets retry behavior for abnormal Flow completion.
+         *
+         * <p>The Server currently rejects a Flow retry policy with INVALID_ARGUMENT, so leave this
+         * unset. Configure retries on Step methods through {@link StepOptions} instead.
          *
          * @param value the Flow retry policy, or {@code null} for no explicit policy
          * @return this builder

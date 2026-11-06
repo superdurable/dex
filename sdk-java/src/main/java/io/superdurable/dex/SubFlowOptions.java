@@ -168,6 +168,9 @@ public final class SubFlowOptions {
         /**
          * Sets the delay before the SubFlow starts.
          *
+         * <p>The Server currently rejects a WaitFor result whose SubFlow sets a positive start
+         * delay. Leave this unset or zero.
+         *
          * @param value a nonnegative whole-second duration, or {@code null} for no explicit delay
          * @return this builder
          * @throws IllegalArgumentException during condition mapping if the duration is unsupported
@@ -179,6 +182,10 @@ public final class SubFlowOptions {
 
         /**
          * Sets retry behavior for abnormal SubFlow completion.
+         *
+         * <p>The Server currently rejects a WaitFor result whose SubFlow sets a retry policy, so
+         * leave this unset. Configure retries on the SubFlow's Step methods through
+         * {@link StepOptions} instead.
          *
          * @param value the Flow retry policy, or {@code null} for no explicit policy
          * @return this builder

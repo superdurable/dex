@@ -18,6 +18,14 @@ package io.superdurable.dex;
  * of the surrounding {@link Wait}. Read the corresponding result only from the same Step's
  * {@link Step#execute} method.
  *
+ * <p>Use {@link Wait#allOf} to wait for all SubFlows, or {@link Wait#anyOf} to proceed when
+ * another condition wins. A SubFlow keeps running after its parent Step stops waiting for it.
+ * Results for unfinished SubFlows are running snapshots, not successful terminal outputs.
+ * Use {@link #getFlowId(Context, int)} and {@link Client#stopFlow(String)} to stop leftover work.
+ * The generated Flow ID combines the parent Flow ID, Step execution ID, and SubFlow index.
+ * Retried starts are idempotent through the generated request ID; {@link SubFlowReusePolicy}
+ * controls reuse when a later start uses that same Flow ID with a different request ID.
+ *
  * <pre>{@code
  * public Wait waitFor(Context context, Order input) {
  *     return Wait.until(SubFlow.run(ChargeOrderFlow.class, input));

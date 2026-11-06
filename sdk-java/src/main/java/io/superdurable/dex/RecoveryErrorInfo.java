@@ -46,6 +46,10 @@ public final class RecoveryErrorInfo {
      *
      * <p>{@link StepAttemptProgress#NOT_STARTED} means the handler did not run in any attempt.
      * Other values require recovery code to allow for side effects from an incomplete attempt.
+     * NOT_COMPLETED means at least one attempt may have run, but none completed. Reconcile with
+     * the external system or repeat using an idempotency key. UNSPECIFIED means progress was not
+     * recorded and must be treated like NOT_COMPLETED. ASYNC always reports NOT_COMPLETED.
+     * See {@link StepAttemptProgress} for conservative cases where the handler never ran.
      *
      * <pre>{@code
      * RecoveryErrorInfo error = context.getRecoveryError();
@@ -55,6 +59,7 @@ public final class RecoveryErrorInfo {
      * }</pre>
      *
      * @return the progress reported by the Server; never null
+     * @since 1.35.0
      */
     public StepAttemptProgress getAttemptProgress() {
         return attemptProgress;

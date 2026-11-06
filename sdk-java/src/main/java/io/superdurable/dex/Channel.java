@@ -20,6 +20,13 @@ import java.util.Objects;
  * publish messages, while Step wait methods create conditions describing how many messages must be
  * available. Condition results are consumed from the current invocation context.
  *
+ * <p>Messages are FIFO within one Channel. Publishing from a handler stages a durable effect
+ * committed with its successful result; a failed invocation does not commit that publication.
+ * Durable waits do not occupy a Worker thread. Read consumed condition results in Execute;
+ * pending-message snapshots require an explicit load in the handler options. A message belongs
+ * to one Flow execution and is consumed by one matching wait, once. Publications can arrive before
+ * any Step waits; Dex retains them until consumption or deletion.
+ *
  * <pre>{@code
  * private final Channel<String> approvals = Channel.define("approvals", String.class);
  *
@@ -80,6 +87,13 @@ public final class Channel<T> extends PersistenceDefinition {
      * Stages deletion of one pending message from a Step, timeout handler, or RPC.
      *
      * <p>Step and timeout-handler deletions are best-effort when the message is already absent.
+     * Dex applies successful effects in order: Attribute writes, Channel deletions, Channel
+     * publications, then the Step decision. A missing message is a no-op for Steps and timeout
+     * handlers. A transactional RPC instead fails with
+     * {@link io.superdurable.dex.exceptions.ChannelMessageNotFoundException} and commits no writes.
+     * Nontransactional RPCs may commit other effects even when the message is absent; enable
+     * {@link RPC#isTransactional()} when deletion must be atomic with all other effects.
+     * Known message IDs can be deleted without loading pending messages.
      *
      * @param context the handler invocation context
      * @param messageId the nonblank server-assigned message ID
@@ -103,6 +117,10 @@ public final class Channel<T> extends PersistenceDefinition {
      *
      * <p>Select this Channel in the handler's options. The snapshot does not change after staged
      * publications or deletions in the same handler.
+     * Other invocations can change the queue while the handler runs, so the snapshot can be stale.
+     * A loaded empty Channel returns an empty list. Reading this snapshot does not consume
+     * messages.
+     * Use a shared Attribute lock across cooperating writers when queue stability is required.
      *
      * @param context the handler invocation context
      * @return immutable pending message IDs and decoded values

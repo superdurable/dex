@@ -22,6 +22,20 @@ class PullWorkerOptions:
     one task at a time.
     Handlers may run concurrently and must synchronize shared state.
 
+    The Server queues Steps until a supporting Worker has a free slot; waiting
+    does not consume a Step retry. Reserve RPC slots when long Steps could occupy
+    all shared slots. RPC_ONLY slots remain unavailable to Steps even when idle.
+    Readiness requires one registered STEP_AND_RPC stream and, when reserved,
+    one RPC_ONLY stream. It does not require every execution slot to register.
+    Stop preserves latched registration readiness, so combine readiness checks
+    with application lifecycle state before routing work to a stopping process.
+
+    .. versionchanged:: 1.35.0
+       Each slot owns one stream. RPC reservation uses RPC_ONLY streams instead
+       of declining Steps. idle_streams_per_queue is deprecated and ignored.
+       Start fails above matching.maxConcurrentTasksCap. Tasks received during
+       stop return to Dex without consuming a retry.
+
     Attributes:
         max_concurrent_tasks: Execution slots, each owning one long-lived poll
             stream. Zero uses the CPU count. Negative values are invalid. Start
@@ -43,11 +57,14 @@ class PullWorkerOptions:
         stop_drain_timeout: Grace period for active tasks on stop. Zero uses 30
             seconds. Idle streams half-close immediately. Busy streams send final
             output before half-closing. Tasks arriving after stop begins are dropped.
+            Dropped unstarted tasks return to Dex without consuming a retry.
             On timeout a busy stream is reset, its handler is canceled, and stop
             waits for the handler to return. Negative values are invalid.
             Busy Reconnect waits this long for server EOF after
             the final frame. During Stop, half-closed streams use the remaining
-            drain deadline.
+            drain deadline. A stream awaiting final-output confirmation gets up
+            to five additional seconds. Synchronous handlers cannot be interrupted
+            forcibly; an unresponsive handler can delay stop indefinitely.
 
         stop_on_permanent_stream_rejection: Whether the first permanent rejection
             leaving a slot kind without a registered stream drains the Worker and

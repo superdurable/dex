@@ -15,26 +15,65 @@ import { requireName } from "./validation.js";
 /**
  * Controls when a Step handler result is durably acknowledged.
  * Async gives lower latency and faster single Flows; sustained throughput is about the same as sync.
+ * `sync` persists the attempt start before hand-out and the result before advancing the Flow.
+ * `async` hands out work and advances before persistence; commits are batched, normally within 20 ms.
+ * A server failure can replay a recent result and work started from it.
+ * If an async start was not persisted, the same attempt number can run again without consuming a retry.
+ * Those executions can overlap, observe different input, and repeat Stream writes under the same source.
+ * Both modes use the same retry, method timeout, heartbeat timeout, and checkpoint settings.
+ * Cancellation is cooperative, so even sync attempts can overlap with retries or recovery handlers.
+ * Keep external effects idempotent. Prefer sync for costly or replay-sensitive operations.
+ * Durability is fixed when a method becomes pending; configuration changes affect later methods only.
+ * Changed in SDK v1.35.0: attempt starts follow the hand-out and persistence rules above.
  */
 export type StepDurability = "sync" | "async";
 /** Controls whether exhausted `waitFor` failures fail the Flow or run `execute`. */
 export type WaitForFailurePolicy = "failFlow" | "proceed";
 
-/** Configures exponential retries for a Step handler or Flow. */
+/**
+ * Configures exponential retries for a Step handler or Flow.
+ *
+ * Step methods default to 1 second initially, multiplier 2, maximum interval 100 seconds,
+ * unlimited attempts within a four-hour retry duration. Set maximumAttempts to 1 to disable retries.
+ * `waitFor` and `execute` have independent policies and one-based attempt counts.
+ * Duration fields use milliseconds but must be nonnegative whole seconds; invalid durations
+ * raise RangeError when the SDK maps the options. Zero uses the server default.
+ * A positive retryAfter delay from a handler overrides the next backoff interval.
+ * The type is also accepted by Flow and SubFlow start options for source compatibility,
+ * but the current Dex Server rejects a supplied Flow retry policy. Omit it and use Step retries.
+ *
+ * @example
+ * ```ts
+ * const retry: RetryPolicy = {
+ *   initialIntervalMs: 1_000,
+ *   backoffCoefficient: 2,
+ *   maximumIntervalMs: 30_000,
+ *   maximumAttempts: 5,
+ *   totalDurationMs: 10 * 60_000,
+ * };
+ * const options: StepOptions = { executeRetry: retry, executeMethodTimeoutMs: 60_000 };
+ * ```
+ */
 export interface RetryPolicy {
-  /** Delay before the first retry in milliseconds. */
+  /** Delay before the first retry in milliseconds; omitted or zero defaults to 1,000. */
   readonly initialIntervalMs?: number;
-  /** Retry-delay multiplier; uses the server default when omitted. */
+  /** Retry-delay multiplier; omitted or zero defaults to 2. Each delay is capped by maximumIntervalMs. */
   readonly backoffCoefficient?: number;
-  /** Upper bound for one retry delay in milliseconds. */
+  /** Upper bound for one retry delay in milliseconds; omitted or zero defaults to 100,000. */
   readonly maximumIntervalMs?: number;
-  /** Total attempt limit including the initial call. */
+  /** Total attempt limit including the initial call; omitted or zero imposes no attempt-count limit. */
   readonly maximumAttempts?: number;
   /**
    * Retry elapsed-time limit in milliseconds; defaults to four hours when omitted.
    * For a Step, counted from the first hand-out to a Worker.
    * Checked only after an attempt fails to decide whether another retry can be scheduled.
    * It never ends a running Step attempt; use the method timeout to bound an attempt.
+   * Returning attempt 1 without running resets the clock. Initial queue and lock waits do not count.
+   * Later queue waits do count, but Dex does not recheck the limit while a retry is queued.
+   * A retry whose backoff fits the budget can therefore start or finish after the duration expires.
+   * After a long queue wait, its failure may leave no budget for another retry.
+   * Changed in SDK v1.35.0: requires Server protocol 4; earlier servers could shorten an attempt
+   * deadline to the remaining retry duration. Upgrade the Server before the SDK.
    */
   readonly totalDurationMs?: number;
 }
@@ -54,6 +93,7 @@ export const ExecuteFailure = Object.freeze({
    *
    * The fallback Step receives the failing Step's input. Registry rejects a fallback whose
    * built-in scalar input codec differs from the failing Step's. Other codecs are not compared.
+   * Changed in SDK v1.28.0: accepts registered instances and StepRef as well as Step classes.
    * @typeParam Input - Fallback Step input type.
    * @param step - Fallback class, registered instance, or StepRef; validated at registration.
    * @param options - Optional options for the fallback movement.
@@ -67,13 +107,48 @@ export const ExecuteFailure = Object.freeze({
   },
 });
 
-/** Configures timeouts, retries, durability, locks, and failure routing for a Step. */
+/**
+ * Configures timeouts, retries, durability, locks, and failure routing for a Step.
+ *
+ * Omitted or zero timeouts use two hours per method attempt and one minute without a heartbeat.
+ * Both durability modes use these defaults. Durations must be nonnegative whole seconds.
+ * Timeouts begin at hand-out to a Worker, excluding queue and lock waits.
+ * A timed-out handler receives cancellation; it must cooperate with cancellationSignal.
+ * Returning a Wait ends the waitFor method attempt; waiting on its conditions does not occupy a Worker.
+ * A retry reuses the first attempt's loaded Attribute and Channel snapshot, including selections.
+ * It does not see later writes. Wait on a Channel in a subsequent Step to observe new state.
+ * Attribute locks remain held across retries, backoff, and returned tasks until the method ends.
+ * Conflicting Steps wait; an RPC that requests a held lock reports RpcLockConflictError.
+ * Keep lock scope narrow and retry budgets bounded.
+ * Singleton Attributes are loaded automatically; select AttributeMaps and pending Channel messages explicitly.
+ * Omitted waitForFailure fails the Flow; `proceed` runs execute, which can inspect waitForMethodFailed().
+ * Without executeFailure, exhausted execute retries fail the Flow.
+ * Changed in SDK v1.35.0: unavailable Workers or unsupported Steps wait durably without consuming retries.
+ * A handed-out interrupted attempt consumes a retry, except an unpersisted async start as in StepDurability.
+ *
+ * @example
+ * ```ts
+ * const options: StepOptions = {
+ *   executeMethodTimeoutMs: 120_000,
+ *   heartbeatTimeoutMs: 120_000,
+ *   executeRetry: { maximumAttempts: 3, totalDurationMs: 600_000 },
+ *   executeDurability: "sync",
+ * };
+ * ```
+ */
 export interface StepOptions {
   /** Regular `waitFor` attempt limit in milliseconds; defaults to two hours. */
   readonly waitForMethodTimeoutMs?: number;
   /** Regular `execute` attempt limit in milliseconds; defaults to two hours. */
   readonly executeMethodTimeoutMs?: number;
-  /** Regular heartbeat timeout in milliseconds; requires whole seconds and defaults to one minute. */
+  /**
+   * Regular heartbeat timeout in milliseconds; requires whole seconds and defaults to one minute.
+   * The server's default minimum positive value is 10,000 ms; smaller values are rejected.
+   * Record explicit heartbeats or write Stream frames before this interval expires in either mode.
+   * Only explicit heartbeat values checkpoint progress; a Stream frame preserves the last checkpoint.
+   * Raise this interval for healthy external calls that can remain silent longer than one minute.
+   * The method timeout still bounds the whole attempt.
+   */
   readonly heartbeatTimeoutMs?: number;
   /** Optional retry policy for `waitFor`. */
   readonly waitForRetry?: RetryPolicy;
@@ -190,6 +265,7 @@ export type StepClass<Input> = abstract new (...arguments_: any[]) => Step<Input
  * ```ts
  * const movement = StepMovement.of(new StepRef("Charge"), { orderId: "42" });
  * ```
+ * @since 1.28.0
  */
 export class StepRef {
   /**
@@ -211,6 +287,7 @@ export class StepRef {
  * Class targets require exactly one registered instance. When a class is
  * ambiguous, use its registered instance or a StepRef instead.
  * @typeParam Input - Destination input; StepRef inputs are checked at runtime.
+ * @since 1.28.0
  */
 export type StepTarget<Input> = StepClass<Input> | Step<Input> | StepRef;
 
@@ -230,6 +307,8 @@ declare const startInputType: unique symbol;
 
 /**
  * Builds the ordered Step definitions for a Flow.
+ * Changed in SDK v1.28.0: distinct instances of one Step class can be registered with unique Step types.
+ * Address an ambiguous class by its registered instance or a StepRef.
  * @typeParam StartInput - Input type of the optional starting Step.
  */
 export class StepList<StartInput> {
@@ -296,6 +375,7 @@ export class StepList<StartInput> {
 
 /**
  * Schedules one registered Step with typed input and optional options.
+ * Changed in SDK v1.28.0: accepts registered instances and StepRef as well as Step classes.
  * @typeParam Input - Destination Step input type.
  */
 export interface StepMovement<Input> {
@@ -318,6 +398,7 @@ export const StepMovement = Object.freeze({
    * The Worker validates the target when it applies the handler result that returns
    * this movement. An unknown StepRef, ambiguous class, or unregistered instance then
    * fails that result with InvalidStepResultError.
+   * Changed in SDK v1.28.0: accepts registered instances and StepRef as well as Step classes.
    * @typeParam Input - Destination Step input type.
    * @param step - Destination class, registered instance, or StepRef in this Flow.
    * @param input - Typed destination input.
@@ -388,6 +469,7 @@ export type StepDecision = (
  * The Worker validates the target when it applies the returned decision. An unknown
  * StepRef, ambiguous class, or unregistered instance fails the handler result with
  * InvalidStepResultError.
+ * Changed in SDK v1.28.0: accepts registered instances and StepRef as well as Step classes.
  * @typeParam Input - Destination Step input type.
  * @param step - Registered destination class, instance, or StepRef.
  * @param input - Typed destination input.
@@ -457,6 +539,7 @@ export const deadEnd = (): StepDecision => ({ kind: "deadEnd" });
  * Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
  * The Worker validates each target when it applies the returned decision; an invalid
  * target fails the handler result with InvalidStepResultError.
+ * Changed in SDK v1.28.0: accepts registered instances and StepRef as well as Step classes.
  * @param decision - Decision to copy.
  * @param steps - Registered instances, StepRef values, or unambiguous Step classes.
  * @returns A new decision containing the combined Flow-wide selectors.
@@ -477,6 +560,7 @@ export const withCancelingSteps = (
  *
  * A sibling has the same `Context.fromStepExecutionId` as the execution returning
  * the decision. Snapshot and no-op behavior match {@link withCancelingSteps}.
+ * Changed in SDK v1.28.0: accepts registered instances and StepRef as well as Step classes.
  * @param decision - Decision to copy.
  * @param steps - Registered instances, StepRef values, or unambiguous Step classes.
  * @returns A new decision containing the combined sibling selectors.

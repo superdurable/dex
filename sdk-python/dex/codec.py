@@ -289,6 +289,10 @@ class JsonCodec(Generic[ValueT]):
 class CodecRegistry:
     """Resolve codecs for type hints used by registered SDK definitions.
 
+    .. versionchanged:: 1.28.0
+       Added parameterized generic dataclasses, optional fields, renamed JSON
+       fields, and opt-in omission of default values.
+
     Explicit registrations take precedence over built-ins. The default registry
     supports primitive types, ``None``, ``datetime``, dataclasses, enums, and typed
     list, tuple, mapping, and sequence containers. Parameterized generic

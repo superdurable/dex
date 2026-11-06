@@ -75,6 +75,30 @@ class IndexType(Enum):
 class AttributeIndex:
     """Configure the search index for an Attribute or AttributeMap.
 
+    Reuse generic typed index keys across Flow types and include FlowType in
+    searches to distinguish applications. Index capacity belongs to the tenant's
+    shared registry, not to an individual Flow. Worker startup synchronizes keys
+    and fails if a new key exceeds the configured backend's capacity. Existing
+    keys can be registered again without consuming another slot.
+
+    The PostgreSQL search backend allows 10 KEYWORD keys and three keys each for
+    the other index types per tenant. KEYWORD values and each KEYWORD_ARRAY
+    element are limited to 1024 UTF-8 bytes. Other backends can have different
+    limits. Validate byte lengths before a write. Client writes fail with
+    DexServiceError; an oversized indexed value in a Step result fails the attempt
+    without retry. Oversized initial Attributes or RPC writes reject the request
+    without committing its effects. These limits do not constrain non-indexed
+    strings or FULL_TEXT values. A previously committed oversized document can
+    be absent from search while its Flow state remains readable.
+    The registry has no key deletion operation, so plan a shared pool before
+    registering new names.
+
+    An AttributeMap index holds only the last written instance's value under its
+    shared index_key. It cannot search every matching map instance. Use a singleton
+    KEYWORD_ARRAY Attribute when the search must cover a collection of strings.
+
+    Servers may enforce Attribute index capacity and indexed Keyword byte limits.
+
     Attributes:
         type: The value representation accepted by the search index.
         index_key: The physical search key. An empty value uses the Attribute name
@@ -93,6 +117,13 @@ class Attribute(Generic[ValueT]):
     Declare Attributes once in a Flow's ``PersistenceSchema`` and reuse the same
     definition from Steps, RPCs, and Client calls. Values are read and written
     through a handler :class:`Context`; Client methods provide external access.
+
+    Ordinary Attributes are loaded into each handler snapshot automatically.
+    Writes are staged and become durable with the handler's successful result.
+    Concurrent read-modify-write handlers must cooperate on Attribute locks;
+    writes alone do not acquire an application lock. AttributeMap values instead
+    require explicit loads. Missing loads differ from absent stored values.
+    The hard-delete storage behavior below is an exception to staged writes.
 
     Set ``sync_to_attribute_store`` to project every write asynchronously through
     the Flow's configured Attribute Store. Projection is latest-state only, deletion
@@ -266,6 +297,10 @@ class AttributeMap(Generic[ValueT]):
     AttributeMap instances share one schema definition while keeping independent
     values and locks. Declare the map in ``PersistenceSchema`` before using it.
     Instance keys must be non-empty and must not contain ``/``.
+    Values load only when selected through the handler's load options. Reading
+    an unselected instance raises AttributeMapNotLoadedError; it does not prove
+    that the instance is absent. Loads provide snapshots, not mutual exclusion.
+    For read-modify-write, select both the exact instance load and its lock.
     Synced instances use their physical Attribute names as target columns. Projection
     is asynchronous and latest-state only, deletion projects SQL NULL, and failures
     do not roll back Flow Attributes.

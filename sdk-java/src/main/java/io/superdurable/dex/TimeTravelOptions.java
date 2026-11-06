@@ -16,15 +16,15 @@ import java.time.Instant;
  * Selects a historical point and replay behavior for {@link Client#timeTravel}.
  *
  * <p>Create the builder with one {@link TimeTravelType}, then set the selector that corresponds to that
- * type. Time travel creates a new run of the Flow. Writes after the selected point are reapplied by default
- * unless explicitly skipped.
+ * type. Time travel creates a new run attempt of the Flow under the same run ID. Writes after the
+ * selected point are reapplied by default unless explicitly skipped.
  *
  * <pre>{@code
  * TimeTravelOptions options = TimeTravelOptions.newBuilder(TimeTravelType.STEP_TYPE)
  *         .stepType("ChargeOrder")
  *         .reason("retry after operator review")
  *         .build();
- * String newRunId = client.timeTravel("order-123", options);
+ * String runId = client.timeTravel("order-123", options);
  * }</pre>
  */
 public final class TimeTravelOptions {
