@@ -122,19 +122,25 @@ class Client:
         blob_cache: BlobCache,
         options: ClientOptions | None = None,
     ) -> None:
-        """Construct a Client and its lazy plaintext gRPC channel.
+        """Construct a Client and its lazy gRPC channel, plaintext unless TLS is set.
 
         Args:
             registry: The Flow Registry used for call validation and codecs.
             blob_cache: An open cache used to hydrate large response values.
-            options: Service address and bearer credential;
+            options: Service address, optional TLS, and bearer credential;
                 ``None`` uses defaults and sends no authorization metadata.
+
+        Raises:
+            ValueError: If the configured TLS address, server name, or CA bundle
+                is invalid, or default roots cannot be loaded.
         """
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or ClientOptions()
         self._channel = sync_channel(
-            self.options.server_address, self.options.credential
+            self.options.server_address,
+            self.options.credential,
+            self.options.flow_service_tls,
         )
         self._service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._channel

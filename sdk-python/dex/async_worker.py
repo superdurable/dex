@@ -68,7 +68,8 @@ class AsyncWorker:
                 ``None`` uses defaults and sends no authorization metadata.
 
         Raises:
-            ValueError: If the pull Worker ID is invalid.
+            ValueError: If the pull Worker ID or configured TLS address, server
+                name, or CA bundle is invalid, or default roots cannot be loaded.
         """
         self.registry = registry
         self.blob_cache = blob_cache
@@ -81,7 +82,9 @@ class AsyncWorker:
             else None
         )
         self._flow_channel = async_channel(
-            self.options.server_address, self._credential_runner
+            self.options.server_address,
+            self._credential_runner,
+            self.options.flow_service_tls,
         )
         self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
@@ -104,6 +107,7 @@ class AsyncWorker:
             None,
             app_worker_id,
             self._credential_runner,
+            self.options.flow_service_tls,
         )
         self._stopped = asyncio.Event()
 

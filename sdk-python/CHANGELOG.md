@@ -4,6 +4,10 @@
 
 ### Added and fixed
 
+- Add `FlowServiceTlsOptions` to Client and Worker options for verified TLS 1.2+
+  connections, including async APIs and pull streams. Optional PEM roots add to
+  default trust, and an optional server name controls verification and authority.
+
 - Add `Client.get_attributes` and `AsyncClient.get_attributes`, which read
   committed Attribute and AttributeMap instance values of the current or latest
   Flow run in one request, without an RPC or a Worker. Select a map instance

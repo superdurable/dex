@@ -11,6 +11,7 @@
 from dataclasses import dataclass
 
 from dex.credential import Credential
+from dex.flow_service_tls_options import FlowServiceTlsOptions
 
 
 @dataclass(frozen=True)
@@ -18,8 +19,11 @@ class ClientOptions:
     """Configure FlowService connectivity and bearer credentials.
 
     Attributes:
-        server_address: The plaintext gRPC target for Dex. Defaults to
-            ``"localhost:8801"`` and must not include an HTTP scheme.
+        server_address: The Dex gRPC target. Defaults to ``"localhost:8801"``
+            and must not include an HTTP scheme. Plaintext unless TLS is set.
+        flow_service_tls: TLS for all outbound FlowService and task connections.
+            Defaults to ``None`` for plaintext. See ``FlowServiceTlsOptions``
+            for trust, address validation, and a complete example.
         credential: Supplies the current bearer token for every FlowService call.
             ``None`` sends no authorization metadata. A token error fails the
             call before contacting Dex. AsyncClient accepts an awaitable token
@@ -29,3 +33,4 @@ class ClientOptions:
 
     server_address: str = "localhost:8801"
     credential: Credential | None = None
+    flow_service_tls: FlowServiceTlsOptions | None = None

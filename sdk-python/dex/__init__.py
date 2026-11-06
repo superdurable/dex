@@ -68,6 +68,7 @@ from dex.flow_options import (
     TimeTravelStepMethod,
     TimeTravelType,
 )
+from dex.flow_service_tls_options import FlowServiceTlsOptions
 from dex.flow_result import FlowResult, StepCompletion
 from dex.pull_registration import (
     PullQueueRegistrationState,
@@ -179,6 +180,7 @@ __all__ = [
     "FlowErrorType",
     "FlowInfo",
     "FlowResult",
+    "FlowServiceTlsOptions",
     "FlowNotActiveOrNotFoundError",
     "FlowNotFoundError",
     "FlowStatus",

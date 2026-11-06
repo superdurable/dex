@@ -23,7 +23,9 @@ from typing import Any, NamedTuple, cast
 
 import grpc
 
+from dex._flow_service_tls import flow_service_transport
 from dex.credential import Credential
+from dex.flow_service_tls_options import FlowServiceTlsOptions
 
 _TOKEN_WORKERS = 4
 
@@ -318,16 +320,47 @@ class _AsyncCredentialInterceptor(grpc.aio.UnaryUnaryClientInterceptor):
         return call
 
 
-def sync_channel(server_address: str, credential: Credential | None) -> grpc.Channel:
-    channel = grpc.insecure_channel(server_address)
+def sync_channel(
+    server_address: str,
+    credential: Credential | None,
+    flow_service_tls: FlowServiceTlsOptions | None = None,
+) -> grpc.Channel:
+    transport = flow_service_transport(server_address, flow_service_tls)
+    channel = (
+        grpc.insecure_channel(server_address)
+        if transport.credentials is None
+        else grpc.secure_channel(
+            transport.target, transport.credentials, options=transport.channel_options
+        )
+    )
     if credential is None:
         return channel
     return grpc.intercept_channel(channel, _SyncCredentialInterceptor(credential))
 
 
 def async_channel(
-    server_address: str, credential_runner: AsyncCredentialRunner | None
+    server_address: str,
+    credential_runner: AsyncCredentialRunner | None,
+    flow_service_tls: FlowServiceTlsOptions | None = None,
 ) -> grpc.aio.Channel:
+    transport = flow_service_transport(server_address, flow_service_tls)
+    if transport.credentials is not None:
+        interceptors = (
+            [
+                cast(
+                    grpc.aio.ClientInterceptor,
+                    _AsyncCredentialInterceptor(credential_runner),
+                )
+            ]
+            if credential_runner is not None
+            else None
+        )
+        return grpc.aio.secure_channel(
+            transport.target,
+            transport.credentials,
+            options=transport.channel_options,
+            interceptors=interceptors,
+        )
     if credential_runner is None:
         return grpc.aio.insecure_channel(server_address)
     return grpc.aio.insecure_channel(

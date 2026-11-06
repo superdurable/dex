@@ -122,13 +122,17 @@ class AsyncClient:
         blob_cache: BlobCache,
         options: ClientOptions | None = None,
     ) -> None:
-        """Construct an AsyncClient and its lazy plaintext gRPC channel.
+        """Construct an AsyncClient and its lazy gRPC channel, plaintext unless TLS is set.
 
         Args:
             registry: The Flow Registry used for validation and codecs.
             blob_cache: An open cache used for asynchronous hydration.
-            options: Service address and bearer credential;
+            options: Service address, optional TLS, and bearer credential;
                 ``None`` uses defaults and sends no authorization metadata.
+
+        Raises:
+            ValueError: If the configured TLS address, server name, or CA bundle
+                is invalid, or default roots cannot be loaded.
         """
         self.registry = registry
         self.blob_cache = blob_cache
@@ -139,7 +143,9 @@ class AsyncClient:
             else None
         )
         self._channel = async_channel(
-            self.options.server_address, self._credential_runner
+            self.options.server_address,
+            self._credential_runner,
+            self.options.flow_service_tls,
         )
         self._service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._channel

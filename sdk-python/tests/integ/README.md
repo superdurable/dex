@@ -13,6 +13,18 @@ Run the complete suite against a fresh `dexcli dev` environment:
 The suite always runs pull Workers against server-zd. Set
 `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
 
+The TLS transport scenarios start a separate authenticated server-zd behind a
+TLS proxy. They generate temporary CA and server certificates with the
+`openssl` CLI; no private keys are checked in. They cover sync and async Flow
+execution, pull streams, large-value hydration, bearer authentication, hostname
+and CA verification, DNS targets, server name overrides, preservation of default
+trust with added CAs, and the plaintext default. Contract tests also reject
+servers without ALPN h2. To run only the TLS integration scenarios:
+
+```shell
+./run-integration-tests.sh tests/integ/test_flow_service_tls_runtime.py
+```
+
 The compile-oriented call-site modules remain part of strict static checking:
 
 ```shell

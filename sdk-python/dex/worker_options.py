@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from dex.credential import Credential
+from dex.flow_service_tls_options import FlowServiceTlsOptions
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,9 @@ class WorkerOptions:
         pull: Outbound polling options. Defaults to ``PullWorkerOptions()``.
             ``None`` is invalid because push Workers are no longer supported.
             Workers connect to ``server_address`` without an inbound listener.
+        flow_service_tls: TLS for all outbound FlowService and task connections.
+            Defaults to ``None`` for plaintext. See ``FlowServiceTlsOptions``
+            for trust, address validation, and a complete example.
         credential: Supplies the current bearer token for FlowService calls and
             each pull stream open. ``None`` sends no authorization metadata.
             Token errors fail calls before Dex is contacted. Protect the plaintext
@@ -124,6 +128,7 @@ class WorkerOptions:
     attribute_index_sync_timeout: timedelta = timedelta(minutes=2)
     pull: PullWorkerOptions = field(default_factory=PullWorkerOptions)
     credential: Credential | None = None
+    flow_service_tls: FlowServiceTlsOptions | None = None
 
     def __post_init__(self) -> None:
         if self.pull is None:
