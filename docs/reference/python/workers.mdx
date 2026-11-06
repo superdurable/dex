@@ -97,20 +97,17 @@ has no effect.
 The reserve-decline counter, **pull_reserved_rpc_declines**, is deprecated. It remains for
 source compatibility and always reads zero.
 
-This diagnostics helper exposes registration readiness and the deprecated
-reserve-decline counter. A full Worker stays ready.
+This diagnostics helper exposes registration readiness. A full Worker stays ready.
 
 ```python
 @dataclass(frozen=True)
 class PullGreetingDiagnostics:
     is_ready: bool
-    reserved_rpc_declines: int
 
 
 def get_pull_greeting_diagnostics(worker: AsyncWorker) -> PullGreetingDiagnostics:
     return PullGreetingDiagnostics(
         is_ready=worker.pull_registration_state().is_ready,
-        reserved_rpc_declines=worker.pull_reserved_rpc_declines,
     )
 ```
 

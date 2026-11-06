@@ -69,9 +69,10 @@ public final class PullGreetingExample {
 
     public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
         return new PullGreetingDiagnostics(
-                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+                worker.getPullRegistrationState().isReady(), 0L);
     }
 
+    // reservedRpcDeclines is deprecated and always 0: reserved execution slots never decline tasks.
     public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
     }
 
@@ -131,13 +132,13 @@ has no effect.
 The reserve-decline counter, **getPullReservedRpcDeclines()**, is deprecated. It remains for
 source compatibility and always reads zero.
 
-This diagnostics helper exposes registration readiness and the deprecated
-reserve-decline counter. A full Worker stays ready.
+This diagnostics helper exposes registration readiness. Its reserve-decline field
+is always zero. A full Worker stays ready.
 
 ```java
     public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
         return new PullGreetingDiagnostics(
-                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+                worker.getPullRegistrationState().isReady(), 0L);
     }
 
     public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
