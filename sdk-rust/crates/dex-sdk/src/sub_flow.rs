@@ -96,8 +96,9 @@ impl SubFlowOptions {
     /// Sets a whole-Flow retry policy for the SubFlow.
     ///
     /// The Server does not support whole-Flow retry. It rejects a Step result that requests a
-    /// SubFlow with this option as invalid input, so that Step attempt fails. Configure [`crate::RetryPolicy`] on the SubFlow's Step methods
-    /// through [`crate::StepOptions`] instead.
+    /// SubFlow with this option as invalid input, so that Step attempt fails. Configure
+    /// [`crate::RetryPolicy`] on the SubFlow's Step methods through [`crate::StepOptions`]
+    /// instead.
     pub fn retry_policy(mut self, value: RetryPolicy) -> Self {
         self.retry_policy = Some(value);
         self
