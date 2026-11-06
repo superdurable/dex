@@ -110,7 +110,7 @@ impl CommitConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct LeaseConfig {
-    /// Defaults to 10 s, or 30 s for `dev` unless its `--config` file sets it; owner renews after one third of this interval and stops serving when validity ends.
+    /// Defaults to 10 s, or 30 s for `dev` and `local` unless the `--config` file sets it; owner renews after one third of this interval and stops serving when validity ends.
     ///
     /// Validity ends this long after the last successful renewal was sent, on the local monotonic
     /// clock. Each renewal attempt times out after one sixth of this interval, from 1 s to 5 s,
@@ -124,9 +124,10 @@ pub struct LeaseConfig {
     pub duration: Duration,
     /// Defaults to false; when true, startup fails if another unexpired owner holds the lease.
     ///
-    /// `dev` ignores it while it holds the exclusive lock on `<data-dir>/dev.lock`: no other process
-    /// can then write its embedded object store, so a held lease belongs to a stopped process, and
-    /// `dev` takes it over at once. Where the filesystem cannot lock files, `dev` waits like `serve`.
+    /// `dev` and `local` ignore it while they hold the exclusive lock on `<data-dir>/dev.lock`: no
+    /// other process can then write its embedded object store, so a held lease belongs to a
+    /// stopped process, and `dev` or `local` takes it over at once. Where the filesystem cannot
+    /// lock files, `dev` and `local` wait like `serve`.
     pub fail_if_held: bool,
 }
 

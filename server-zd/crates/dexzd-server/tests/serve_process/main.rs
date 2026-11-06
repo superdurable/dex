@@ -17,6 +17,7 @@ mod dev_soak;
 mod harness;
 mod lease_release;
 mod lease_validity;
+mod local_command;
 mod metrics;
 mod object_store_compatibility;
 mod purging_reads;

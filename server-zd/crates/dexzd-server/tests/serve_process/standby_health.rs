@@ -148,15 +148,15 @@ async fn cancelled_dev_start_releases_the_grpc_listener() {
     )
     .expect("the dev overrides are written");
 
+    let waiting_address = free_loopback_address();
     let waiting_options = DevCommandOptions {
         data_dir: directory.path().join("data"),
-        listen: free_loopback_address(),
+        listen: Some(waiting_address),
         log_dir: None,
         config: Some(config_path),
         attribute_store_config: None,
         durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
     };
-    let waiting_address = waiting_options.listen;
     let waiting = tokio::spawn(async move { start_dev_server(&waiting_options).await });
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {

@@ -45,6 +45,8 @@ const FIRST_STEP: &str = "RunningStep";
 const NEXT_STEP: &str = "NextStep";
 const RECOVERY_STEP: &str = "RecoverStep";
 const BUDGET: Duration = Duration::from_secs(45);
+/// Longer than the 2-second `dev` drain and well inside the 30-second `local` drain.
+const LOCAL_DRAINED_ATTEMPT_DURATION: Duration = Duration::from_secs(5);
 /// The longest s3local delay; clearing the fault rules releases a held write earlier.
 const HELD_WRITE_MILLISECONDS: u64 = 600_000;
 
@@ -56,6 +58,79 @@ async fn sigterm_drains_ten_second_sync_attempt_without_retry() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sigterm_drains_ten_second_async_attempt_without_retry() {
     survives_planned_stop(StepDurability::Async, false).await;
+}
+
+/// `local` keeps the 30-second `serve` drain, so an attempt longer than the 2-second `dev` drain commits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_drains_an_attempt_longer_than_the_dev_drain_and_restarts_on_its_data_directory() {
+    let directory = TempDir::new().expect("create a unique test directory");
+    let data_directory = directory.path().join("data");
+    let config_path = directory.path().join("local.yaml");
+    std::fs::write(&config_path, "cluster:\n  partitionCount: 16\n")
+        .expect("the local overrides are written");
+    let mut active = ServeProcess::spawn_local(
+        &data_directory,
+        &config_path,
+        free_loopback_address(),
+        directory.path().join("active.log"),
+    );
+    let channel = active.wait_until_serving().await;
+    let mut worker = DrainWorker::start(channel.clone()).await;
+    start_flow(channel, StepDurability::Sync).await;
+    let task = worker.next_execute().await;
+    assert_eq!(execute_request(&task).step_type, FIRST_STEP);
+    active.send_sigterm(BUDGET).await;
+    worker
+        .heartbeat_until(
+            &task,
+            active.wait_for_log_line("Step attempt drain started", BUDGET),
+        )
+        .await;
+    // Timing from the drain start proves the drain outlives the 2-second dev default.
+    worker
+        .complete_after(&task, LOCAL_DRAINED_ATTEMPT_DURATION, None)
+        .await;
+    let status = active.wait_for_exit(BUDGET).await;
+    assert_eq!(status.code(), Some(0), "{}", active.log());
+    let active_log = active.log();
+    assert!(
+        active_log.contains("attempts_finished=1 attempts_running=0"),
+        "{active_log}"
+    );
+    assert!(active_log.contains("outcome=completed"), "{active_log}");
+
+    let mut restarted = ServeProcess::spawn_local(
+        &data_directory,
+        &config_path,
+        free_loopback_address(),
+        directory.path().join("restarted.log"),
+    );
+    let restarted_channel = restarted.wait_until_serving().await;
+    let restarted_log = restarted.log();
+    assert!(
+        !restarted_log.contains("taking over the node lease of a stopped process"),
+        "a graceful stop releases the lease:\n{restarted_log}"
+    );
+    let mut restarted_worker = DrainWorker::start(restarted_channel.clone()).await;
+    let next = restarted_worker.next_execute().await;
+    assert_eq!(execute_request(&next).step_type, NEXT_STEP);
+    restarted_worker.complete(&next, close_flow());
+    assert_completed(restarted_channel.clone()).await;
+    assert_first_step_completed_on_first_attempt(
+        restarted_channel,
+        &execute_request(&task)
+            .context
+            .as_ref()
+            .expect("Execute carries context")
+            .step_execution_id,
+    )
+    .await;
+    assert_eq!(
+        restarted.terminate(BUDGET).await.code(),
+        Some(0),
+        "{}",
+        restarted.log()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

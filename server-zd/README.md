@@ -197,8 +197,9 @@ On Linux, the scrape also includes `process_resident_memory_bytes`, `process_cpu
 
 ## Running
 
-`dex-server-zd` has two commands: `serve` for a Server node on external object storage and `dev`
-for local development.
+`dex-server-zd` has three commands: `serve` for a Server node on external object storage, `dev`
+for local development, and `local` for one production node with an embedded object store on local
+disk.
 
 ### serve
 
@@ -211,7 +212,7 @@ with its default. Set at least `cluster.nodeId`, `objectStore.bucket`, and
 `localStorage.directory`. Unknown keys and a `dev` section with non-default values fail startup.
 An invalid value fails startup with the YAML path of the rejected field.
 
-`streamStore.backend` defaults to `memory` in `serve` and `dev`. Stream messages live only in the
+`streamStore.backend` defaults to `memory` in `serve`, `dev`, and `local`. Stream messages live only in the
 active process and are lost on restart, standby takeover, or step down; trimming can also drop
 older messages. With `backend: disabled`, WriteStream, ReadStream, and ListStreamMessages return
 `FailedPrecondition` with the `UNCATEGORIZED` sub-status, a Step Stream write is dropped with a
@@ -483,7 +484,8 @@ and their results commit, up to `lifecycle.attemptDrainTimeout` (default 30s; 0s
 Heartbeats and Step method timeouts still apply during the drain. A step-down uses the same drain;
 a hot standby can take over only after the active releases its lease. During the drain, new Flow
 RPCs answer UNAVAILABLE and new Steps wait for the successor. `dex-server-zd dev` defaults to a
-2s drain so that it stops within the 10-second budget of `dexcli dev`.
+2s drain so that it stops within the 10-second budget of `dexcli dev`. `dex-server-zd local` keeps
+the 30s default.
 
 The following teardown takes up to about 15 seconds. Workers reconnect, long polls and waiting
 ReadStream calls close, and in-flight RPCs get 4 seconds to finish. Then effects and the engine
@@ -766,8 +768,9 @@ dex-server-zd dev --data-dir ./zd-data [--listen 127.0.0.1:8801] [--log-dir <dir
 
 `dev` runs one node with an embedded s3local whose data lives under `<data-dir>/s3`, and keeps local
 state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these flags. It fixes the
-node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
-rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
+node ID to `dev`, anonymous credentials, and the embedded endpoint, and it rejects
+`objectStore.hardDeleteStore`. An explicit `--listen` overrides `api.listen` from `--config`;
+without either, it listens on `127.0.0.1:8801`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
 `--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
 file, which must define at least one store; the `--config` file must not also set `attributeStore`.
@@ -812,6 +815,40 @@ for the lease, even after a crash. The takeover raises the node epoch, as any ta
 filesystem that cannot lock files, `dev` logs a warning and waits for a held lease to expire, up to
 31 seconds.
 
+### local
+
+```bash
+dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>] [--durability strict|process-crash-safe|relaxed]
+```
+
+`local` runs one production node on the embedded s3local of `dev`. It takes the flags of `dev` and
+uses the same data directory layout: the object store under `<data-dir>/s3`, the local store under
+`<data-dir>/store`, and the lock file `<data-dir>/dev.lock`. Either command can serve a data
+directory that the other one wrote, and the shared lock keeps a `dev` and a `local` process from
+serving one directory at once. On a filesystem without file locks, the commands cannot exclude
+each other and a restart waits for the previous lease to expire, so run only one process per data
+directory there. The fixed values of `dev` apply too: node ID `dev`, the embedded endpoint,
+anonymous credentials, `standby.mode: cold` only, and no `objectStore.hardDeleteStore`. The `dev`
+section, such as `dev.durabilityMode`, configures `local` as well. The node ID, the `dex-dev`
+bucket, `dev.lock`, and the `dev` section keep their `dev` names on purpose, so a data directory
+moves between the two commands.
+
+`local` differs from `dev` only in the defaults that `dev` shortens for development:
+
+| Setting | `dev` | `local` | `serve` |
+| --- | --- | --- | --- |
+| `lifecycle.attemptDrainTimeout` | 2s | 30s | 30s |
+
+It keeps the other `dev` defaults because they follow from one node on an embedded store:
+`dev.durabilityMode: strict`, a 30-second `lease.duration` (no standby), the memory Stream Store,
+and a held-lease takeover while it holds the lock. Like `dev`, it listens on `127.0.0.1:8801` by
+default and has no authenticators unless `--config` sets them. Pass `--listen 0.0.0.0:8801`, or set
+`api.listen` in `--config`, to serve other hosts; `--listen` wins when both are set. `dev` and
+`local` log a startup warning when they listen on a non-loopback address without authenticators.
+
+Stream messages in the memory backend are lost on every restart. To back up a `local` node, stop
+it with SIGTERM and copy the whole data directory.
+
 ## Stable command-line interface
 
 These commands and flags are part of the Beta compatibility interface. Applications can invoke
@@ -821,13 +858,14 @@ them without depending on the implementation of the server:
 | --- | --- | --- |
 | `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
 | `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
-| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; overrides `api.listen` from `--config`; defaults to `api.listen` when `--config` sets it, otherwise `127.0.0.1:8801`. |
 | `dev` | `--config <file>` | Optional YAML configuration overrides. |
 | `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
 | `dev` | `--attribute-store-config <file>` | Optional Go Server YAML file whose `attributeStore` section configures Attribute synchronization. |
-| Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
+| `local` | Every `dev` flag above | Same meaning and default as for `dev`. |
+| All | `--version` | Prints `dex-server-zd X.Y.Z`. |
 
-SIGTERM stops `dev` and exits with status 0.
+SIGTERM stops `dev` and `local` and exits with status 0.
 
 ## Development
 

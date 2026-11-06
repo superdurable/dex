@@ -1,5 +1,5 @@
 # Run a node with: dex-server-zd serve --config <this file>
-# Set cluster.nodeId, objectStore.bucket, and localStorage.directory for production; dev flags supply local values.
+# Set cluster.nodeId, objectStore.bucket, and localStorage.directory for production; dev and local flags supply local values.
 cluster:
   nodeId: ""
   partitionCount: 1024

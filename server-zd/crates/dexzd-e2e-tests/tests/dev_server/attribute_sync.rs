@@ -545,7 +545,7 @@ async fn failed_dev_server_start(yaml: &str) -> String {
         .expect("a free loopback port exists");
     match dexzd_server::start_dev_server(&DevCommandOptions {
         data_dir: data_directory.path().to_path_buf(),
-        listen,
+        listen: Some(listen),
         log_dir: None,
         config: Some(config_path),
         attribute_store_config: None,

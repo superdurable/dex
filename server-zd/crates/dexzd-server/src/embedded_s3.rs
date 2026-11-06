@@ -19,10 +19,10 @@ use tokio::net::TcpListener;
 use crate::ServerError;
 use crate::config::{DevConfig, DevDurabilityMode};
 
-/// Lock file under the dev data directory; its holder is the only process serving that directory.
+/// Lock file under the dev or local data directory; its holder is the only process serving that directory.
 const DATA_DIRECTORY_LOCK_FILE_NAME: &str = "dev.lock";
 
-/// The in-process S3 emulator of `dex-server-zd dev`.
+/// The in-process S3 emulator of `dex-server-zd dev` and `dex-server-zd local`.
 ///
 /// The engine uses the production S3 client over HTTP to reach it.
 pub(crate) struct EmbeddedS3 {
@@ -65,7 +65,7 @@ impl EmbeddedS3 {
         if matches!(data_directory_lock, DataDirectoryLock::Unsupported) {
             tracing::warn!(
                 data_directory = %config.data_directory.display(),
-                "the dev data directory cannot be locked; a restart waits for the previous node lease to expire"
+                "the data directory cannot be locked; a restart waits for the previous node lease to expire"
             );
         }
         let durability = match config.durability_mode {
@@ -151,9 +151,9 @@ fn store_open_failure_detail(error: StoreError, data_directory: &Path) -> String
     match error {
         // The local store kept state that the rolled-back object store lost, so both must go.
         StoreError::UncleanRelaxedSession { .. } => format!(
-            "the previous dev run in relaxed durability mode did not stop cleanly, so the embedded \
-             object store lost recent writes; delete the whole data directory {} to start empty, \
-             and use the default strict or the processCrashSafe durability mode to survive \
+            "the previous dev or local run in relaxed durability mode did not stop cleanly, so the \
+             embedded object store lost recent writes; delete the whole data directory {} to start \
+             empty, and use the default strict or the processCrashSafe durability mode to survive \
              abrupt exits",
             data_directory.display()
         ),
@@ -207,8 +207,8 @@ fn lock_data_directory(data_directory: &Path) -> Result<DataDirectoryLock, Serve
         }),
         LockAttemptOutcome::Unsupported => Ok(DataDirectoryLock::Unsupported),
         LockAttemptOutcome::HeldByAnotherProcess => Err(lock_failure(format!(
-            "another dex-server-zd dev process holds {}; stop it before starting another on this \
-             data directory",
+            "another dex-server-zd dev or local process holds {}; stop it before starting another \
+             on this data directory",
             lock_path.display()
         ))),
     }
@@ -276,7 +276,7 @@ mod tests {
         assert!(
             second
                 .to_string()
-                .contains("another dex-server-zd dev process holds"),
+                .contains("another dex-server-zd dev or local process holds"),
             "{second}"
         );
         drop(first);

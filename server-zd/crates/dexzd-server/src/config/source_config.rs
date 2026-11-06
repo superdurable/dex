@@ -7,20 +7,54 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{
-    AttributeStoreConfig, Config, CredentialSource, DevConfig, DevDurabilityMode,
+    AttributeStoreConfig, Config, CredentialSource, DevConfig, DevDurabilityMode, LifecycleConfig,
     ObjectStoreCredentials, SearchBackend, StandbyMode,
 };
 use crate::DevCommandOptions;
 
 const EMBEDDED_S3_ENDPOINT_PENDING: &str = "http://127.0.0.1:0";
-/// Dev has no standby, so a longer lease rides out host stalls; only crash restarts wait longer.
-const DEV_LEASE_DURATION: Duration = Duration::from_secs(30);
+/// Listen address of `dev` and `local` when neither `--listen` nor `api.listen` sets one.
+const SINGLE_NODE_DEFAULT_LISTEN: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8801);
+/// A single node has no standby, so a longer lease rides out host stalls; only crash restarts wait longer.
+const SINGLE_NODE_LEASE_DURATION: Duration = Duration::from_secs(30);
 /// Keeps the drain and teardown inside the 10-second stop budget of dexcli dev.
 const DEV_ATTEMPT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Selects the defaults of a single-node command that serves an embedded object store in `--data-dir`.
+///
+/// Both profiles share the data directory layout, its lock, and the node identity, so either
+/// command can serve a data directory that the other one wrote.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SingleNodeProfile {
+    /// `dex-server-zd dev`: development defaults, such as a 2-second Step attempt drain.
+    Dev,
+    /// `dex-server-zd local`: single-node production, with the `serve` defaults where `dev` differs.
+    Local,
+}
+
+impl SingleNodeProfile {
+    /// Returns the command name that selects this profile: `dev` or `local`.
+    pub fn command_name(self) -> &'static str {
+        match self {
+            Self::Dev => "dev",
+            Self::Local => "local",
+        }
+    }
+
+    /// Returns `lifecycle.attemptDrainTimeout` for when the overrides do not set it.
+    fn default_attempt_drain_timeout(self) -> Duration {
+        match self {
+            Self::Dev => DEV_ATTEMPT_DRAIN_TIMEOUT,
+            Self::Local => LifecycleConfig::default().attempt_drain_timeout,
+        }
+    }
+}
 
 /// Reports a YAML, filesystem, environment, or field validation failure.
 #[derive(Debug, thiserror::Error)]
@@ -98,7 +132,7 @@ impl Config {
         if dev_paths != DevConfig::default() {
             return Err(ConfigError::Invalid {
                 field: "dev",
-                message: "applies only to dex-server-zd dev; remove it from a serve configuration"
+                message: "applies only to dex-server-zd dev and local; remove it from a serve configuration"
                     .to_owned(),
             });
         }
@@ -109,6 +143,22 @@ impl Config {
 
     /// Loads optional YAML, applies the fixed dev flags, then resolves credentials and validates the result.
     pub fn load_dev(options: &DevCommandOptions) -> Result<Self, ConfigError> {
+        Self::load_single_node(options, SingleNodeProfile::Dev)
+    }
+
+    /// Loads optional YAML, applies the fixed `local` flags, then resolves credentials and
+    /// validates the result. Unlike `dev`, it keeps the `serve` Step attempt drain default.
+    #[cfg(test)]
+    pub(crate) fn load_local(options: &DevCommandOptions) -> Result<Self, ConfigError> {
+        Self::load_single_node(options, SingleNodeProfile::Local)
+    }
+
+    /// Loads optional YAML, applies the fixed single-node flags and the defaults of `profile`,
+    /// then resolves credentials and validates the result.
+    pub fn load_single_node(
+        options: &DevCommandOptions,
+        profile: SingleNodeProfile,
+    ) -> Result<Self, ConfigError> {
         if options.data_dir.as_os_str().is_empty() {
             return Err(ConfigError::Invalid {
                 field: "dev.dataDirectory",
@@ -130,6 +180,7 @@ impl Config {
             has_yaml_key(override_document.as_ref(), &["attributeStore"]);
         let has_lease_duration_override =
             has_yaml_key(override_document.as_ref(), &["lease", "duration"]);
+        let has_listen_override = has_yaml_key(override_document.as_ref(), &["api", "listen"]);
         let has_attempt_drain_timeout_override = has_yaml_key(
             override_document.as_ref(),
             &["lifecycle", "attemptDrainTimeout"],
@@ -147,18 +198,28 @@ impl Config {
         if configuration.standby.mode == StandbyMode::Hot {
             return Err(ConfigError::Invalid {
                 field: "standby.mode",
-                message: "dev runs a single process, so it accepts only cold".to_owned(),
+                message: format!(
+                    "{} runs a single process, so it accepts only cold",
+                    profile.command_name()
+                ),
             });
         }
         if configuration.object_store.hard_delete_store.is_some() {
             return Err(ConfigError::Invalid {
                 field: "objectStore.hardDeleteStore",
-                message: "dev mode uses the embedded object store for hard-delete values"
-                    .to_owned(),
+                message: format!(
+                    "{} mode uses the embedded object store for hard-delete values",
+                    profile.command_name()
+                ),
             });
         }
+        // The first start records the node ID, so `local` keeps `dev` to serve dev data directories.
         configuration.cluster.node_id = "dev".to_owned();
-        configuration.api.listen = options.listen;
+        configuration.api.listen = match options.listen {
+            Some(listen) => listen,
+            None if has_listen_override => configuration.api.listen,
+            None => SINGLE_NODE_DEFAULT_LISTEN,
+        };
         configuration
             .dev
             .data_directory
@@ -170,10 +231,10 @@ impl Config {
         }
         configuration.local_storage.directory = options.data_dir.join("store");
         if !has_lease_duration_override {
-            configuration.lease.duration = DEV_LEASE_DURATION;
+            configuration.lease.duration = SINGLE_NODE_LEASE_DURATION;
         }
         if !has_attempt_drain_timeout_override {
-            configuration.lifecycle.attempt_drain_timeout = DEV_ATTEMPT_DRAIN_TIMEOUT;
+            configuration.lifecycle.attempt_drain_timeout = profile.default_attempt_drain_timeout();
         }
         if configuration.object_store.bucket.is_empty() {
             configuration.object_store.bucket = "dex-dev".to_owned();

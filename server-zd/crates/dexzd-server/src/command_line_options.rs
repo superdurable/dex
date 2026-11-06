@@ -31,19 +31,28 @@ pub struct CommandLineOptions {
 pub enum ServerCommand {
     /// Runs a single-node development Server with an embedded S3 emulator.
     Dev(DevCommandOptions),
+    /// Runs a single-node production Server with an embedded local object store on --data-dir.
+    ///
+    /// It takes the flags and data directory of `dev`, with production defaults such as a
+    /// 30-second Step attempt drain.
+    Local(DevCommandOptions),
     /// Runs a Server node from a YAML configuration file against external object storage.
     Serve(ServeCommandOptions),
 }
 
 /// Options of `dex-server-zd dev`. `dexcli dev -engine zd` depends on these exact flags.
+/// `dex-server-zd local` takes the same flags.
 #[derive(Debug, Args)]
 pub struct DevCommandOptions {
     /// Directory for all local state: the embedded S3 emulator data and the local state store.
     #[arg(long)]
     pub data_dir: PathBuf,
     /// Plaintext gRPC address that serves FlowService and WorkerTaskService.
-    #[arg(long, default_value = "127.0.0.1:8801")]
-    pub listen: SocketAddr,
+    ///
+    /// Overrides `api.listen` from `--config`. [default: 127.0.0.1:8801, or `api.listen` when
+    /// `--config` sets it]
+    #[arg(long)]
+    pub listen: Option<SocketAddr>,
     /// Optional directory that also receives `dex-server-zd.log`.
     #[arg(long)]
     pub log_dir: Option<PathBuf>,
@@ -98,7 +107,10 @@ mod tests {
             panic!("dev parses as the dev command");
         };
         assert_eq!(dev.data_dir.to_str(), Some("/tmp/zd"));
-        assert_eq!(dev.listen.to_string(), "127.0.0.1:9901");
+        assert_eq!(
+            dev.listen.map(|listen| listen.to_string()).as_deref(),
+            Some("127.0.0.1:9901")
+        );
         assert_eq!(dev.log_dir.unwrap().to_str(), Some("/tmp/zd-logs"));
         assert_eq!(dev.config.unwrap().to_str(), Some("/tmp/zd.yaml"));
         assert_eq!(
@@ -146,14 +158,17 @@ mod tests {
     }
 
     #[test]
-    fn dev_command_defaults_the_listen_address() {
+    fn dev_command_leaves_an_absent_listen_address_to_the_configuration() {
         let options =
             CommandLineOptions::try_parse_from(["dex-server-zd", "dev", "--data-dir", "/tmp/zd"])
                 .unwrap();
         let ServerCommand::Dev(dev) = options.command else {
             panic!("dev parses as the dev command");
         };
-        assert_eq!(dev.listen.to_string(), "127.0.0.1:8801");
+        assert!(
+            dev.listen.is_none(),
+            "the configuration supplies the default listen address"
+        );
         assert!(dev.log_dir.is_none());
         assert!(dev.durability.is_none());
     }
@@ -169,6 +184,72 @@ mod tests {
                 "/tmp/zd",
                 "--listen",
                 "localhost",
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn local_command_accepts_the_flags_and_defaults_of_dev() {
+        let options = CommandLineOptions::try_parse_from([
+            "dex-server-zd",
+            "local",
+            "--data-dir",
+            "/var/lib/dex",
+            "--listen",
+            "127.0.0.1:9901",
+            "--log-dir",
+            "/var/log/dex",
+            "--config",
+            "/etc/dex/local.yaml",
+            "--attribute-store-config",
+            "/etc/dex/dex.yaml",
+            "--durability",
+            "relaxed",
+        ])
+        .unwrap();
+        let ServerCommand::Local(local) = options.command else {
+            panic!("local parses as the local command");
+        };
+        assert_eq!(local.data_dir.to_str(), Some("/var/lib/dex"));
+        assert_eq!(
+            local.listen.map(|listen| listen.to_string()).as_deref(),
+            Some("127.0.0.1:9901")
+        );
+        assert_eq!(local.log_dir.unwrap().to_str(), Some("/var/log/dex"));
+        assert_eq!(local.config.unwrap().to_str(), Some("/etc/dex/local.yaml"));
+        assert_eq!(
+            local.attribute_store_config.unwrap().to_str(),
+            Some("/etc/dex/dex.yaml")
+        );
+        assert_eq!(local.durability, Some(DevDurabilityMode::Relaxed));
+
+        let defaults = CommandLineOptions::try_parse_from([
+            "dex-server-zd",
+            "local",
+            "--data-dir",
+            "/var/lib/dex",
+        ])
+        .unwrap();
+        let ServerCommand::Local(local) = defaults.command else {
+            panic!("local parses as the local command");
+        };
+        assert!(
+            local.listen.is_none(),
+            "the configuration supplies the default listen address"
+        );
+        assert!(local.log_dir.is_none());
+        assert!(local.config.is_none());
+        assert!(local.durability.is_none());
+        assert!(CommandLineOptions::try_parse_from(["dex-server-zd", "local"]).is_err());
+        assert!(
+            CommandLineOptions::try_parse_from([
+                "dex-server-zd",
+                "local",
+                "--data-dir",
+                "/var/lib/dex",
+                "--durability",
+                "fsync",
             ])
             .is_err()
         );

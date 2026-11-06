@@ -14,7 +14,9 @@ command log in object storage.
 server-zd serves the **FlowService**, **WorkerTaskService**, and **AdminService** API. It supports
 only [pull Workers](/production/pull-workers). Run [Dex Web](/production/dex-web)
 as a separate process; server-zd does not serve it. For local development, run
-**dexcli dev**, which starts server-zd and Dex Web. This page covers server-zd
+**dexcli dev**, which starts server-zd and Dex Web. To run one production node
+on local disk without external object storage, see
+[Single node on local disk](#single-node-local). This page covers server-zd
 0.1.
 
 ## Unsupported features
@@ -84,6 +86,113 @@ One object storage prefix holds one Dex cluster, and a cluster runs one node.
 The first start records **cluster.nodeId** and **cluster.partitionCount**.
 Neither can change later. A start with a different node ID fails and names the
 recorded one. Never point two deployments at the same prefix.
+
+## Single node on local disk {#single-node-local}
+
+**dex-server-zd local** runs one production node without external object
+storage. It starts an embedded s3local object store in the same process and
+keeps all data in one directory on local disk:
+
+~~~bash
+dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>] [--durability strict|process-crash-safe|relaxed]
+~~~
+
+The data directory holds the embedded object store in **s3**, the local store in
+**store**, and the lock file **dev.lock**. The embedded object store is the
+source of truth, as the bucket is for **serve**. Put the data directory on a
+persistent disk. **--log-dir** also writes the log to
+**dex-server-zd.log** in that directory.
+
+The optional **--config** file holds overrides. It uses the keys of the
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml).
+Put only the keys you want to change in it. Every key in the file replaces the
+single-node default. Do not copy the whole example. A copy sets **api.listen**
+to **0.0.0.0:8801**, which has no authentication unless the file also
+configures authenticators. It also sets **lease.duration** to 10 seconds.
+**local** sets the object storage connection, the node ID **dev**, and the
+local store directory itself. **--listen** overrides **api.listen** from the
+file. The first start records **cluster.partitionCount**, which cannot change
+later.
+
+The optional **--attribute-store-config** flag reads only the
+**attributeStore** section of a YAML file. That section must define at least
+one store. The **--config** file must not also set **attributeStore**.
+
+The node ID **dev**, the bucket **dex-dev**, the lock file **dev.lock**, and the
+**dev** section of the overrides keep their **dev** names on purpose. **local**
+shares them with **dev**, so a data directory can move between the two
+commands.
+
+### Durability {#single-node-local-durability}
+
+**dev.durabilityMode** selects how the embedded object store writes
+acknowledged data. The **--durability** flag overrides it with the same modes,
+spelled **strict**, **process-crash-safe**, and **relaxed**.
+
+| Mode | Survives | Cost |
+| --- | --- | --- |
+| **strict** (default) | A process kill, a host crash, and power loss. | Every write is flushed with fsync before the reply. |
+| **processCrashSafe** | A process kill. A host crash or power loss can lose recent writes. | Faster. Every write reaches the files before the reply, without fsync. |
+| **relaxed** | Only a graceful stop. | Writes stay in memory until a graceful stop. After an abrupt exit, every start fails until you delete the data directory. |
+
+Keep the default **strict** mode in production.
+
+### One node {#single-node-local-one-node}
+
+**local** runs exactly one node. It holds an exclusive lock on **dev.lock** for
+its whole run, so a second **local** or **dev** process on the same data
+directory fails to start. It has no standby. It rejects **standby.mode: hot**
+and **objectStore.hardDeleteStore**. While it holds the lock, no other process
+can write its object store. A restart after a crash therefore takes over the
+held lease at once. **lease.duration** defaults to 30 seconds. On a filesystem
+without file locks, the commands cannot exclude each other, and a restart waits
+for the previous lease to expire. Run only one process per data directory
+there.
+
+On SIGTERM, **local** drains running Step attempts for up to
+**lifecycle.attemptDrainTimeout**, 30 seconds by default, and then stops as
+described in [Graceful shutdown](#graceful-shutdown). Give a service manager at
+least 45 seconds to stop it.
+
+[Streams](#streams) use the **memory** backend by default, as in **serve**.
+Stream messages are lost when the process stops or restarts.
+
+**local** listens on **127.0.0.1:8801** by default, so only the same host can
+reach it. To serve clients and Workers on other hosts, pass
+**--listen 0.0.0.0:8801** or set **api.listen** in the overrides. **local** has
+no [authentication](#authentication) unless the overrides configure
+authenticators. When it listens on a non-loopback address without
+authenticators, it logs a warning at startup. Configure authentication before
+you expose it. Set **metrics.listen** in the overrides to enable
+[metrics](#metrics).
+
+### Back up and restore {#single-node-local-backup}
+
+To back up, stop **local** with SIGTERM, wait for it to exit, and copy the
+whole data directory. A copy of a running data directory can be inconsistent.
+To restore, stop **local**, replace the data directory with the copy, and
+start **local** again. Writes acknowledged after the backup are lost.
+
+The general rules in [Backup and restore](#backup-and-restore) apply too. With a
+PostgreSQL or ParadeDB search backend, the restored data directory needs a new
+**search.postgresSchema** or **search.paradeDbSchema**, as that section
+explains.
+
+### Compared with dev and serve {#single-node-local-commands}
+
+| | **dev** | **local** | **serve** |
+| --- | --- | --- | --- |
+| Purpose | Development, started by **dexcli dev**. | Single-node production. | Production on external object storage. |
+| Object storage | Embedded, in the data directory. | Embedded, in the data directory. | An external S3 or S3-compatible bucket. |
+| Nodes | One. | One. | One active process, with optional hot standbys. |
+| Step attempt drain on stop | 2 seconds. | 30 seconds. | 30 seconds. |
+| Lease duration | 30 seconds. | 30 seconds. | 10 seconds. |
+| Default listen address | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
+| Configuration | Flags and an optional overrides file. | Flags and an optional overrides file. | One YAML file. |
+
+**dev** and **local** use the same data directory layout. Either command can
+serve a data directory that the other one wrote. Stop one before you start the
+other.
 
 ## Kubernetes deployment
 
@@ -201,7 +310,8 @@ attempt draining. Step method and heartbeat timeouts still apply during the
 drain; the drain does not extend them. Choose a drain timeout long enough for
 the remaining execution time of the Step methods you want to finish.
 **dexcli dev** uses a **2s** drain unless its configuration sets this field,
-because it stops the server after 10 seconds.
+because it stops the server after 10 seconds. **dex-server-zd local** keeps
+the **30s** default.
 
 Set Kubernetes **terminationGracePeriodSeconds** longer than the drain timeout,
 with at least 15 extra seconds for teardown. For the default **30s** drain,
@@ -381,6 +491,8 @@ loss can lose recent writes. The **--durability** flag of **dex-server-zd dev**
 overrides the setting. After an abrupt exit in **relaxed** mode, the dev node
 refuses to start until you delete its data directory. See
 [local development](/production/dex-web#run-against-server-zd).
+**dex-server-zd local** uses the same lease default, lock, takeover, and
+durability modes. See [Single node on local disk](#single-node-local).
 
 Data safety does not depend on the duration. Each lease acquisition raises the
 node epoch, and every log write is conditional. Together they fence a process
@@ -451,8 +563,8 @@ The other **standby** fields have defaults that fit most deployments:
 | **laggingTakeoverDelay** | 1500ms | Hot mode only. How long a standby that is not hot waits before it takes an available lease. |
 | **behindLagThreshold** | 10s | Hot mode only. The lag above which a standby is behind instead of hot. |
 
-**hot** needs **lease.failIfHeld** set to false. **dex-server-zd dev** accepts
-only **cold**. In hot mode, **stepDownHoldOff** must be longer than
+**hot** needs **lease.failIfHeld** set to false. **dex-server-zd dev** and
+**dex-server-zd local** accept only **cold**. In hot mode, **stepDownHoldOff** must be longer than
 **laggingTakeoverDelay** plus **heldLeasePollInterval**. A release without hot
 standby rejects a configuration that has a **standby** section. Upgrade every
 process before you add the section.

@@ -29,7 +29,7 @@ pub enum StandbyMode {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct StandbyConfig {
     /// Defaults to `cold`, the behavior of earlier releases. `hot` follows the log while waiting.
-    /// `hot` needs `lease.failIfHeld: false`; `dev` accepts only `cold`.
+    /// `hot` needs `lease.failIfHeld: false`; `dev` and `local` accept only `cold`.
     pub mode: StandbyMode,
     /// Defaults to 250 ms; must be positive. In `hot` mode, how often a waiting process reads a
     /// lease that another process holds. The interval is at most a third of `lease.duration`.
