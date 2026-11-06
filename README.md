@@ -51,7 +51,7 @@ Key idea:
 * Dex SDKs cache the attribute values in local disk to reduce network transport for large values.
 
 The actual benefits:
-1. Much higher performance & throughput, with low latency. See our performance [benchmark](./benchmark) that a very regular AWS EC2 instance can serve 10K to 50K reads/writes per second.
+1. High throughput with low latency. In our [benchmark](./benchmark), one server-zd node on a 16-vCPU AWS c7gd.4xlarge peaked at about 11K Steps/s, 12K Attribute-updating RPCs/s, and 49K Attribute-reading RPCs/s. A 2-vCPU c7gd.large peaked at about 1.4K Steps/s and 7.4K Attribute-reading RPCs/s.
 2. A strong support for the above "Data native". So you can just use Dex as a KV storage. Like you want to store the whole LLM context or thousands of messages in your agent run, you don't need another database.
 3. Easy to operate. S3 is all you need.
 
