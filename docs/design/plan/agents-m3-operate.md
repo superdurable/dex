@@ -55,6 +55,26 @@ M3 implementation starts after these M2 items close. Design can proceed now.
 | Published crash matrix | Not published. Worker-kill tests exist per core. [#1282](https://github.com/superdurable/dex/issues/1282) is open, and no agent-level test restarts or fails over the server |
 | Cost of the SYNC start commit | Not measured. [#1266](https://github.com/superdurable/dex/issues/1266) is open |
 
+## Relation to the parent's M3
+
+This plan is not built on the parent's M3, and no item here waits for another M3
+row. It takes a subset of that milestone, adds items the parent lacks, and leaves
+the rest proposed.
+
+| Parent M3 row | Here |
+| --- | --- |
+| Engine fix for single-attempt exactly-once | Done (#1253, #1265) |
+| Enforce `limits.maxFlowStateBytes` | Done (#1234) |
+| Dex Web agent view | O2 |
+| Budgets, cost estimates, and budget interrupts | O4 |
+| Exit: load test of 10,000 sessions | O5, separated from concurrency groups, limits, and the view |
+| Connector host SubFlows | Dropped: Python and TypeScript Connector packages exist |
+| Tool calling in the `llm` connector | Out of scope. Stepwise calls models in-process, so O1 does not need it |
+| Step concurrency groups, archived AttributeMap instances, ForkFlow, sub-agents, Dex MCP server, AG-UI, asynchronous model calls, trajectory export, Step attempt spans, adapter pin test | Out of scope, still proposed in the parent |
+
+Not in the parent's M3: connector tools as a tool source (O1), adapter session
+lifetime (O3), and the harness segment limit (O6).
+
 ## Scope
 
 | Item | What | Depth here |
