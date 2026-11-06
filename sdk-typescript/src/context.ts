@@ -73,8 +73,11 @@ export interface Context {
   readonly flowId: string;
   /**
    * Current server-assigned run ID.
-   * A replacement run, including one created by timeTravel, has a new ID while flowId stays stable.
+   * Client.timeTravel keeps this run ID and increments the run attempt; flowId also stays stable.
    * Use flowId for application identity and runId when an operation must address this exact run.
+   * Work re-run after timeTravel sees the same runId and Step execution IDs.
+   * An idempotency key built only from these IDs therefore matches the earlier run's key.
+   * This Context does not expose the run attempt; add your own discriminator when re-runs must differ.
    */
   readonly runId: string;
   /** UTC timestamp at which the current Flow run started. */

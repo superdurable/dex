@@ -73,7 +73,7 @@ export const ConditionCombination = Object.freeze({
  * Return the condition in a Wait from waitFor; Dex persists the wait and releases the Worker.
  * The Timer delay starts when Dex applies that Wait, not when this definition object is constructed.
  * A zero delay is immediately ready. Use a stable conditionId to address it with Client.skipTimer.
- * Wait.anyCombinationOf requires a nonempty condition ID unique across its alternatives.
+ * Wait.anyCombinationOf requires a nonempty condition ID, unique per distinct condition.
  *
  * @example
  * ```ts

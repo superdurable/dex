@@ -58,7 +58,7 @@ export type IndexType = (typeof IndexType)[keyof typeof IndexType];
  * Use a singleton KEYWORD_ARRAY Attribute to index a collection instead.
  * Renaming a key does not backfill existing Flows. Do not index secrets or personal information.
  *
- * Changed in SDK v1.30.0: servers can enforce index capacity and Keyword length limits.
+ * SDK v1.30.0 recognizes the index capacity and Keyword length sub-statuses that servers can return.
  * With PostgreSQL search, the shared registry allows 10 Keyword keys and 3 of each other type.
  * Registrations are permanent; exceeding capacity fails Worker startup with FAILED_PRECONDITION
  * and ATTRIBUTE_INDEX_CAPACITY_EXCEEDED. Existing keys can be registered again.

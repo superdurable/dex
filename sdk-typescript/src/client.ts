@@ -138,10 +138,9 @@ const defaultServerAddress = "localhost:8801";
  * The constructor performs no I/O. This SDK requires protocol 4.
  * After an incompatible Server answers, every later call fails with a new Error that has the same message.
  * A transport failure during negotiation rejects with the usual DexServiceError and is retried on the next call.
- * Changed in SDK v1.35.0: protocol 4 requires server-zd v0.1.17 or later; upgrade the Server first.
- * Service errors retain code, subStatus, detail, operation, flowId, and the original cause.
- * Do not replace WorkerInvocationError or transport failures with a not-found result.
  * Wait methods with a request timeout bound negotiation by that timeout and reject with RequestTimeoutError.
+ * Service errors retain code, subStatus, detail, operation, flowId, and the original cause.
+ * Changed in SDK v1.35.0: protocol 4 requires server-zd v0.1.17 or later; upgrade the Server first.
  *
  * @example
  * ```ts
@@ -782,8 +781,8 @@ export class Client {
    * A long-poll timeout does not stop the Flow; call again to continue waiting.
    * @param flowId - Non-empty existing Flow ID.
    * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
+   * @returns The closed Flow's status, error fields, and immutable Step completions in server collection order.
    * @throws {@link FlowNotFoundError} when no retained target exists.
-   * @returns Immutable Step completions in server collection order.
    * @throws {@link LongPollTimeoutError} when the Flow remains open at timeout.
    * @throws {@link ValueMappingError} when Dex returns malformed blob-backed output.
    */
@@ -1100,10 +1099,12 @@ export class Client {
   }
 
   /**
-   * Creates a new run from a selected point in existing Flow history.
-   * @param flowId - Non-empty Flow ID whose history supplies the new run.
+   * Rewinds a Flow to a selected point in its history and re-runs it from there.
+   * Time travel keeps the Flow ID and run ID and starts a new run attempt.
+   * Re-run Steps reuse their Step execution IDs, so keys built only from IDs repeat.
+   * @param flowId - Non-empty Flow ID whose history supplies the time travel point.
    * @param options - Time travel selector, reason, and replay controls.
-   * @returns The new server-assigned run ID; the Flow ID remains unchanged.
+   * @returns The Flow's server-assigned run ID, which time travel leaves unchanged.
    */
   public async timeTravel(flowId: string, options: TimeTravelOptions): Promise<string> {
     const response = await this.unary<ResetFlowResponse>(
@@ -1159,11 +1160,11 @@ export class Client {
    * Waits until one Step execution completes or its request budget expires.
    * The current Server reads state without Request ID deduplication; requestId is a compatibility field.
    * An omitted or zero request timeout waits indefinitely across transparent reattachments.
-   * @throws {@link FlowClosingError} when Flow close cleanup rejects the wait.
-   * @throws {@link FlowNotActiveOrNotFoundError} when no active target exists.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
    * @param options - Optional Request ID, request timeout, and internal handler timeout.
+   * @throws {@link FlowClosingError} when Flow close cleanup rejects the wait.
+   * @throws {@link FlowNotActiveOrNotFoundError} when no active target exists.
    * @throws {@link RequestTimeoutError} when a positive request timeout expires first.
    */
   public async waitForStepCompletion(

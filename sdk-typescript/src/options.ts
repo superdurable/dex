@@ -498,7 +498,7 @@ export const TimerId = Object.freeze({
   },
 });
 
-/** Selects the historical point from which time travel creates a new run. */
+/** Selects the historical point from which time travel re-runs the Flow in a new run attempt. */
 export const TimeTravelType = Object.freeze({
   /** Restarts from the beginning of the Flow. */
   BEGINNING: "beginning",
@@ -524,7 +524,7 @@ export const TimeTravelStepMethod = Object.freeze({
 /** Represents a value from {@link TimeTravelStepMethod}. */
 export type TimeTravelStepMethod = (typeof TimeTravelStepMethod)[keyof typeof TimeTravelStepMethod];
 
-/** Configures creation of a new run from existing Flow history. */
+/** Configures a time travel that re-runs a Flow from its existing history under the same run ID. */
 export interface TimeTravelOptions {
   /** Time travel point selector kind. */
   readonly type: TimeTravelType;
@@ -625,7 +625,9 @@ export interface PullWorkerOptions {
    * ```ts
    * const pull: PullWorkerOptions = { maxConcurrentTasks: 8, reservedRpcTasks: 2 };
    * ```
-   * @since 1.35.0
+   * Changed in SDK v1.35.0: reserved slots open RPC_ONLY streams that take only RPCs,
+   * and Steps are no longer declined for capacity. Earlier versions declined Step tasks
+   * once busy handlers reached maxConcurrentTasks minus this reserve.
    */
   readonly reservedRpcTasks?: number;
   /**

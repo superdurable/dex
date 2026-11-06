@@ -118,7 +118,7 @@ export const ExecuteFailure = Object.freeze({
  * A retry reuses the first attempt's loaded Attribute and Channel snapshot, including selections.
  * It does not see later writes. Wait on a Channel in a subsequent Step to observe new state.
  * Attribute locks remain held across retries, backoff, and returned tasks until the method ends.
- * Conflicting Steps wait; a writing RPC that needs a held lock reports RpcLockConflictError.
+ * Conflicting Steps wait; an RPC that requests a held lock reports RpcLockConflictError.
  * Keep lock scope narrow and retry budgets bounded.
  * Singleton Attributes are loaded automatically; select AttributeMaps and pending Channel messages explicitly.
  * Omitted waitForFailure fails the Flow; `proceed` runs execute, which can inspect waitForMethodFailed().
