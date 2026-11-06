@@ -114,9 +114,9 @@ local store directory itself. **--listen** overrides **api.listen** from the
 file. The first start records **cluster.partitionCount**, which cannot change
 later.
 
-The optional **--attribute-store-config** file is a Go Server configuration
-file. **local** reads only its **attributeStore** section, which must define at
-least one store. The **--config** file must not also set **attributeStore**.
+The optional **--attribute-store-config** flag reads only the
+**attributeStore** section of a YAML file. That section must define at least
+one store. The **--config** file must not also set **attributeStore**.
 
 The node ID **dev**, the bucket **dex-dev**, the lock file **dev.lock**, and the
 **dev** section of the overrides keep their **dev** names on purpose. **local**

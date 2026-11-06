@@ -97,7 +97,7 @@ dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] 
 由 **local** 自己设置。**--listen** 会覆盖文件中的 **api.listen**。第一次启动会记录
 **cluster.partitionCount**，之后不能修改。
 
-可选的 **--attribute-store-config** 文件是 Go Server 的配置文件。**local** 只读取其中的
+可选的 **--attribute-store-config** 只读取一个 YAML 文件中的
 **attributeStore** 段，该段至少要定义一个 store。**--config** 文件不能再设置
 **attributeStore**。
 
