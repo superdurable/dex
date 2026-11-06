@@ -742,7 +742,10 @@ def test_poll_channel_accepts_only_identity_encoding() -> None:
         _pull_worker.outbound_worker_task_channel("127.0.0.1:1")
     insecure_channel.assert_called_once_with(
         "127.0.0.1:1",
-        options=(("grpc.compression_enabled_algorithms_bitset", 1),),
+        options=(
+            ("grpc.compression_enabled_algorithms_bitset", 1),
+            ("grpc.max_receive_message_length", 32 << 20),
+        ),
     )
 
 

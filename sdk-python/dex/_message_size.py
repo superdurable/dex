@@ -13,27 +13,26 @@ from typing import cast
 import grpc
 from grpc_status import rpc_status
 
+#: The gRPC receive limit of a Client or Worker whose ``grpc_max_message_bytes`` is zero.
+#:
+#: The limit applies to every message the SDK receives: Client responses such as RPC
+#: results and state reads, responses to the Worker's FlowService calls such as LoadBlobs,
+#: and the Step and RPC invocations that Dex sends to a Worker. The default is 32 MiB,
+#: which matches the Dex server's default ``api.grpcMaxMessageBytes``. With the default,
+#: the SDK keeps gRPC's unlimited send limit, so the Dex server's receive limit bounds what
+#: the SDK sends. A positive ``grpc_max_message_bytes`` limits both directions.
+#:
+#: A message carries one or more application values plus an envelope of metadata. Keep the
+#: limit above the largest application value by an explicit margin. The default leaves
+#: 16 MiB of headroom for values up to 16 MiB. When an application needs larger values,
+#: raise both ``grpc_max_message_bytes`` and the server's ``api.grpcMaxMessageBytes``,
+#: because each hop applies the smaller limit of its ends.
+#:
+#: Example:
+#:     >>> options = ClientOptions(grpc_max_message_bytes=2 * DEFAULT_GRPC_MAX_MESSAGE_BYTES)
+#:
+#: .. versionadded:: 1.38.0
 DEFAULT_GRPC_MAX_MESSAGE_BYTES = 32 << 20
-"""The gRPC receive limit of a Client or Worker whose ``grpc_max_message_bytes`` is zero.
-
-The limit applies to every message the SDK receives: Client responses such as RPC
-results and state reads, responses to the Worker's FlowService calls such as LoadBlobs,
-and the Step and RPC invocations that Dex sends to a Worker. The default is 32 MiB,
-which matches the Dex server's default ``api.grpcMaxMessageBytes``. With the default,
-the SDK keeps gRPC's unlimited send limit, so the Dex server's receive limit bounds what
-the SDK sends. A positive ``grpc_max_message_bytes`` limits both directions.
-
-A message carries one or more application values plus an envelope of metadata. Keep the
-limit above the largest application value by an explicit margin. The default leaves
-16 MiB of headroom for values up to 16 MiB. When an application needs larger values,
-raise both ``grpc_max_message_bytes`` and the server's ``api.grpcMaxMessageBytes``,
-because each hop applies the smaller limit of its ends.
-
-Example:
-    >>> options = ClientOptions(grpc_max_message_bytes=2 * DEFAULT_GRPC_MAX_MESSAGE_BYTES)
-
-.. versionadded:: 1.38.0
-"""
 
 
 def validate_grpc_max_message_bytes(configured: int) -> None:
