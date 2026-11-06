@@ -35,6 +35,7 @@ Modeling:
 - [ ] Every RPC name starts with a concrete action verb. Names are complete and precise, not generic.
 - [ ] Every top-level Flow boundary is justified; no pair of Flows calls each other on frequent events.
 - [ ] One owning Flow starts dependent work; the API handler never chains starts.
+- [ ] WaitFor calls no external system; provider calls are in Execute.
 - [ ] No external polling in WaitFor or through a Timer loop; external waits use the Polling pattern.
 - [ ] No other Flow is started or mutated from WaitFor.
 

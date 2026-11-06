@@ -114,7 +114,7 @@ Rules:
 For non-trivial work, run the [design review](references/core/self-check.md#design-review), then write the Flow model before code. These rules apply everywhere:
 
 - **Names.** Name Flow types after their domain. Start every RPC name with a concrete action verb and its subject, such as `getQueuedMessages`. Prefer complete, precise names to short or generic ones such as `Get`, `Update`, `Manager`, `Data`, or `Handler`.
-- **WaitFor versus Execute.** Execute does work; WaitFor waits durably. Keep every external mutation idempotent or compensatable, wherever it runs. Never poll a provider from WaitFor or with a Timer loop; use the [Polling pattern](references/core/patterns.md#polling).
+- **WaitFor versus Execute.** Execute does work; WaitFor only declares the wait and may write Dex state for it. WaitFor never calls an external system. Keep every provider call in Execute, idempotent or compensatable. Never poll a provider from WaitFor or with a Timer loop; use the [Polling pattern](references/core/patterns.md#polling).
 - **Commit boundaries.** Each WaitFor, Execute, and RPC call commits separately. Give a provider action its own Step when its success deserves its own checkpoint, retry policy, failure route, or audit boundary.
 - **One owning Flow.** Start one domain-named Flow at the API boundary for a multi-step mutation. Never chain dependent starts in the API handler. See [flow.md](references/core/flow.md#own-downstream-starts-durably).
 - **No SubFlows by default.** Use parallel Steps in one lifecycle, or a separate top-level Flow for a separate owner. See [subflow.md](references/core/subflow.md#evolution-gate).

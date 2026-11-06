@@ -72,9 +72,10 @@ export async function startDexApplication(serverAddress: string, blobCacheDirect
   }
   const client = new Client(registry, blobCache, { serverAddress });
 
+  // Call stop after the application stops admitting new requests.
   async function stop(): Promise<void> {
-    await client.close();
     await worker.close();
+    await client.close();
     blobCache.close();
   }
 
@@ -134,9 +135,10 @@ application's configuration.
 - `PullWorkerOptions.maxConcurrentTasks` is the slot count.
   `reservedRpcTasks` keeps some slots for RPCs only. Steps are never declined
   for capacity. A reserved slot cannot bypass an Attribute lock held by a Step.
-- On shutdown call `client.close()`, then `worker.close()`, then
-  `blobCache.close()`. `worker.close()` stops taking tasks and lets running
-  handlers finish within the drain timeout. Handlers still running at the
+- On shutdown, stop admitting new requests, then call `worker.close()`, then
+  `client.close()`, then `blobCache.close()`. Running handlers may still use
+  the Client and the cache while they drain. `worker.close()` stops taking
+  tasks and lets running handlers finish within the drain timeout. Handlers still running at the
   deadline are canceled, and Dex treats those attempts as possibly run.
 - Use a fresh `appWorkerID` after every restart if you set one.
 
@@ -213,6 +215,6 @@ Details: [Server authentication reference](https://docs.superdurable.io/referenc
       `jsonCodec` where data is untrusted.
 - [ ] Every Promise is awaited. Heartbeats use `AsyncContext`.
 - [ ] Worker startup waits for registration with a deadline and closes on
-      failure. Shutdown closes Client, Worker, then BlobCache.
+      failure. Shutdown stops admission, then closes Worker, Client, and BlobCache.
 - [ ] Client calls handle typed errors ([error handling](error-handling.md)).
 - [ ] Tests follow [testing](testing.md).

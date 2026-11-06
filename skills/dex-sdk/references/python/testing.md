@@ -91,6 +91,15 @@ from the application's composition module.
 Worker with `asyncio.create_subprocess_exec`, send `SIGKILL` at the boundary
 under test, and start a replacement Worker with the same definitions.
 
+- Keep every test parallel-safe. Never stop a Worker that other tests share. A
+  replacement test starts the replacement Worker before it stops the old one,
+  or starts its own Worker. A crash test kills only its own subprocess.
+- To act while a Step runs, have the fake set an `asyncio.Event` (or a
+  `threading.Event` for the sync surface) when it is called, and wait on it
+  with `asyncio.wait_for(event.wait(), timeout)`. Never sleep to guess.
+- Fakes record every call and never deduplicate, so a test can count
+  duplicate effects.
+
 ## Scenarios
 
 Run the core scenarios. When the product ships both surfaces, run them on the

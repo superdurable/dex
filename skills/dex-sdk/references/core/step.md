@@ -20,13 +20,22 @@ Each WaitFor call, each Execute call, and each RPC call is a separate commit bou
 
 ## WaitFor versus Execute
 
-Use Execute for work and WaitFor for durable waiting. This is a modeling convention, not an SDK limit.
+Use Execute for work and WaitFor for durable waiting. One rule holds in every SDK:
 
-- Either phase may query or mutate an external provider when that is needed to establish or reconcile its transition. Keep every external mutation idempotent or compensatable, including one made from WaitFor.
+- WaitFor declares the Wait. It may write the Dex state needed to establish the wait: Attributes, Channel publications, and Step execution local values.
+- WaitFor never calls an external system. No provider query, no provider mutation, and no irreversible side effect. Put every provider call in Execute, and keep it idempotent or compensatable there.
+- WaitFor may run more than once, because a failed WaitFor retries. Keep it cheap, deterministic, and safe to repeat.
 - Never poll a provider from WaitFor or with a Timer loop. Waiting for an external system uses the [Polling pattern](patterns.md#polling): one long-running Execute that loops and heartbeats.
-- Never start or mutate another Flow from WaitFor.
-- Keep WaitFor cheap. It may prepare durable state needed to establish the wait.
-- To pass a value that WaitFor computed to Execute of the same Step execution, use the Step execution local value on the Context. Do not copy Step input into it.
+- Never use the Client from WaitFor to start or mutate another Flow. To wait on a child Flow, return a SubFlow Condition.
+- To pass a value that WaitFor computed to Execute of the same Step execution, use a Step execution local value. See [Step execution local values](#step-execution-local-values).
+
+### Step execution local values
+
+- A Step execution local value is scoped to one Step execution. Only the WaitFor and Execute calls of that execution can read it. Other Steps, RPCs, and Clients cannot.
+- It is durable. Dex commits it with the result of the method that wrote it and stores it in the Step execution record. A later call of the same execution reads it even on another Worker or after a Worker restart.
+- A write from a failed call is discarded with the call's other staged changes.
+- The value is encoded with the payload codec, like an Attribute value. Keep it small.
+- Do not copy Step input into it, and do not use it for state another Step or a Client needs. Use an Attribute for that.
 
 ## Split Steps by recovery boundary
 

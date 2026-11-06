@@ -91,8 +91,10 @@ impl Step for AwaitApproval {
 - The start Step's `Input` equals the Flow's `StartInput`.
 - `wait_for` defaults to `Wait::skip_immediately()`; omit it when the Step
   needs no wait.
-- `wait_for` declares durable readiness. It may write Attributes, but it never
-  calls external systems. External effects belong in `execute`.
+- `wait_for` declares durable readiness. It may write Attributes, publish, and
+  set Step execution local values, but it never calls an external system.
+  External effects belong in `execute`. See the
+  [WaitFor rule](../core/step.md#waitfor-versus-execute).
 - `execute` returns one `StepDecision`. Returning `Err(HandlerError)` fails the
   attempt and discards everything the attempt staged.
 - Every `Context` read or write returns `HandlerResult`; propagate it with `?`.
@@ -412,9 +414,12 @@ fn execute(&self, context: &mut Context, pages: Self::Input) -> HandlerResult<St
   keys.
 - `context.record_event(name, value)?` adds a business milestone to Flow
   history.
-- `set_step_execution_local` passes process-local data from `wait_for` to
-  `execute` of the same execution. It is lost when another Worker runs
-  `execute`; rebuild it from durable state when absent.
+- `set_step_execution_local` passes a value from `wait_for` to `execute` of
+  the same Step execution. Dex commits it with the method's result and stores
+  it in the Step record, so `execute` reads it even on another Worker.
+  `step_execution_local` returns an error when the key is absent. Only that
+  Step execution can read it; use an Attribute for state another Step or a
+  Client needs. See [Step execution local values](../core/step.md#step-execution-local-values).
 
 ## Client
 
@@ -438,8 +443,11 @@ executor threads.
 
 - `start_flow` checks that the Flow value's Rust type is the registered one;
   pass any instance of it, such as `&OrderFlow::default()`.
-- Start options also set the timeout, start delay, ID reuse policy, initial
-  Attributes, and config override.
+- Start options also set the timeout, ID reuse policy, initial Attributes,
+  and config override.
+- Never set a positive start delay (`start_delay`). The Server rejects it with
+  INVALID_ARGUMENT. To delay the first work, start the Flow at once and have
+  the start Step wait on a Timer.
 - The Client has no direct write. Write Flow state through an RPC.
 - Wait options take `request_timeout`. `SdkError::RequestTimeout` means only
   the caller's budget ran out.

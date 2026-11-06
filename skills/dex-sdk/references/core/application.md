@@ -25,7 +25,7 @@ dexcli, Dex Web  ------------>  Dex Server
 - Construct the Worker and the Client from the same registry, payload codecs, and blob cache configuration.
 - Inject dependencies through constructors. Keep Flow and Step objects free of per-request mutable state.
 - Start the Worker and wait for its registration before accepting application requests.
-- Stop the Worker gracefully before process exit, and close the Client.
+- Shut down in this order before process exit: stop admitting new requests, stop the Worker and wait for its handlers to drain, then close the Client and the blob cache. See [Graceful shutdown](#graceful-shutdown).
 - Indexed Attributes are registered when the Worker starts. A registration the Server rejects stops the Worker from starting.
 
 ## First vertical slice
@@ -83,6 +83,7 @@ A complete change includes typed inputs, outputs, and failures; Flow and Step de
 - A handler still running at the drain deadline is canceled, and Dex fails that attempt as possibly run, which consumes a retry.
 - A routine deployment whose handlers finish within the drain timeout therefore costs no retry. Keep handlers responsive to cancellation and let shutdown finish before the process exits.
 - For a rolling deployment, start the new Workers and wait for their registration before stopping the old ones.
+- Close the Client and the blob cache only after the Worker has drained. A draining handler may still call the shared Client, for example to start or call another Flow, and calls on a closed Client fail.
 
 ## Credentials and transport
 

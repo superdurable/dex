@@ -452,7 +452,7 @@ The Flow writes to a Stream. The caller reads forward with a resume token and pa
 One Flow per entity, with a SQL projection for queries. Go folder: `entity-store`.
 
 - Use when an entity needs durable state and RPC updates, and the application needs database queries over latest state.
-- The Flow ID is the entity ID. It becomes the table's primary key, or its key columns with a `rowKey` template.
+- The Flow ID is the entity ID. It becomes the table's primary key, or its key columns with a row key template.
 - Mark the projected Attributes for sync, and select the Attribute Store in the Flow configuration at start.
 - Update through a typed RPC that validates, then writes every projected Attribute. Read authoritative state from the Flow.
 - The SQL table is an asynchronous latest-state projection. Never make a Flow decision from it. Deleting an Attribute keeps the row and projects NULL.

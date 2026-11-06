@@ -9,7 +9,10 @@ Use a real Dex Server integration test whenever behavior crosses a Worker, Clien
 - Build the same registry, payload codecs, and blob cache configuration the application uses.
 - Start the Worker and wait for its registration. Drive the Flow only through public Client APIs or the application boundary.
 - Give every test a unique Flow ID.
+- Every integration test must be able to run in parallel with the others. A test never stops, kills, or reconfigures a Worker that other tests share. A Worker replacement test starts the replacement Worker before it stops the old one, or starts its own Worker for the test. A crash or kill test always uses its own Worker process.
 - Wait for asynchronous state with bounded polling or a Dex wait API. Never use a fixed sleep to guess convergence.
+- To test behavior while a Step is running, such as drain, cancellation, or Worker replacement, have the Step or its fake signal that it started. Wait on that signal with a deadline, then act. Never sleep to guess that the Step started.
+- Fakes for external effects record every call and never deduplicate. A test can then see a duplicate effect and assert how many times it happened.
 - Stop every process you started.
 
 ## Assertions
@@ -46,6 +49,20 @@ Worker lifecycle:
 - Disconnect after an external effect but before its result reaches Dex, and verify idempotent replay.
 - With authentication on, verify Client and Worker calls carry credentials, a missing or bad credential is rejected, and a rotated token works after reconnect.
 
+### Worker registration, readiness, and connection failures
+
+These tests cover the failure paths of the Worker and Client connections. Read the language testing file for the API names.
+
+- Registration wait: verify the bounded registration wait succeeds only after every queue registers. Cancel the wait and assert the Worker keeps running. Cancelling the wait never stops the Worker.
+- Replacement: assert replacement Workers register before the old Workers stop.
+- Readiness: after the Worker is ready, disconnect and reconnect its streams. Assert the readiness probe stays ready through the transient disconnect. Stopping the Worker alone keeps the last readiness snapshot; the application's shutdown health removes readiness.
+- Stream rejection: reject a surplus stream while another registered stream remains, then reject the last remaining stream permanently. Only losing the last stream changes readiness or triggers the opt-in shutdown.
+- Rejection handling: test the default behavior, which keeps retrying, separately from the opt-in shutdown on permanent rejection. Cover handler drain, cancellation, and the language's typed registration error.
+- Token refresh: with a credential that exchanges a key for access tokens, run a local token endpoint fixture. Verify that concurrent first calls share one exchange and that a refresh keeps calls on a valid token. Reject one call with UNAUTHENTICATED and assert a single retry with a fresh token. Reject a Worker stream and assert one reconnect, then the ordinary permanent-rejection path on a second rejection. Assert that a bad token endpoint response fails the call.
+- Redaction: assert that errors and logs never contain the key or an access token.
+- Capacity errors: inject RESOURCE_EXHAUSTED at the service boundary. Verify the error classification, the retry hint when one is present, bounded backoff, the overall deadline, and reconciliation of a mutation without duplicate effects.
+- Controlled fixture: a real Server cannot always induce a rejection, a reconnect, or a capacity error on demand. For those cases only, use a controllable service fixture. Keep real-Server tests for registration and for the underlying start, RPC, and search operations.
+
 ### StartFlow ordering and retry identity
 
 - Assert StartFlow is the first Dex call of a normal start, with no read, search, or status call for duplicate protection.
@@ -81,6 +98,6 @@ For every entity whose contract allows reads after closure:
 
 - Large Attributes: replace the serving Worker and verify a cold-cache load.
 - AttributeMap concurrency: race writers on one instance and verify the lock-protected invariant.
-- Attribute Store sync: verify the Flow stays authoritative and the projection reconciles after a transient failure. With a `rowKey` store, verify matching Flow IDs land in the key columns and a non-matching ID writes no row; verify instance rewrite and delete in an AttributeMap table.
+- Attribute Store sync: verify the Flow stays authoritative and the projection reconciles after a transient failure. With a row key template, verify matching Flow IDs land in the key columns and a non-matching ID writes no row; verify instance rewrite and delete in an AttributeMap table.
 - Versions: start a Flow on the old Worker, deploy the new registry, and finish that same execution. A test that starts after deployment does not prove open-Flow compatibility.
 - Recovery: time travel a failed Flow after a fix and verify the new run attempt.

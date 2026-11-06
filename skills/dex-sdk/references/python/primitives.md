@@ -278,5 +278,10 @@ class ChargeInBatches(Step[OrderRequest]):
 - `context.deadline` is the current attempt's deadline as a UTC `datetime`, or
   `None` (RPCs and tasks without one).
 - `context.recovery_error` is set only on a recovery path.
-- `set_step_execution_local` keeps process-local, in-memory data for one Step
-  execution. It is lost on Worker restart; never use it as durable state.
+- `set_step_execution_local` passes a value from `wait_for` to `execute` of
+  the same Step execution. Dex encodes it with the payload codec, commits it
+  with the method's result, and stores it in the Step record, so `execute`
+  reads it even on another Worker. `get_step_execution_local` returns `None`
+  when the key is absent. Only that Step execution can read it; use an
+  Attribute for state another Step or a Client needs. See
+  [Step execution local values](../core/step.md#step-execution-local-values).

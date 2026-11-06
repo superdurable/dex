@@ -41,8 +41,8 @@ async function withEnvironment(
     await worker.waitPullRegistered({ timeoutMs: 30_000 });
     await run({ client, newFlowId: (prefix) => `${prefix}-${randomUUID()}` });
   } finally {
-    await client.close();
     await worker.close();
+    await client.close();
     blobCache.close();
     await rm(cacheDirectory, { recursive: true, force: true });
   }
@@ -65,16 +65,21 @@ test("greeting completes and rejects a duplicate Flow ID", async () => {
 - Use `node:test` or the project's framework. Generate Flow IDs with
   `randomUUID()`.
 - Give each environment its own `mkdtemp` BlobCache directory. Close the
-  Client, the Worker, and then the BlobCache in `finally`.
+  Worker, then the Client, and then the BlobCache in `finally`.
 - Bound every wait: `waitForFlow(flowId, timeoutMs)`, `requestTimeoutMs` on
   match waits, and a deadline on any polling helper.
 - Assert typed failures with `assert.rejects(promise, ErrorClass)`.
 
 ## Worker replacement and crashes
 
-- Replacement: close the Worker at a durable boundary, start a new `Worker`
-  with the same Flow instances and a new BlobCache handle, then finish the
-  Flow.
+- Replacement: start a new `Worker` with the same Flow instances and a new
+  BlobCache handle, then close the old Worker at a durable boundary, and
+  finish the Flow. Starting the replacement first, or using a Worker of the
+  test's own, keeps the test parallel-safe. Never close a shared Worker.
+- To act while a Step runs, have the fake resolve a `started` promise when it
+  is called, and await it with a deadline. Never sleep to guess.
+- Fakes record every call and never deduplicate, so a test can count
+  duplicate effects.
 - `worker.close()` drains running handlers, so it cannot simulate a crash.
   Run the Worker in a child process (`child_process.spawn`) and kill it with
   `SIGKILL` mid-handler.

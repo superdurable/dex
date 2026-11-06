@@ -164,10 +164,11 @@ public final class DexRuntime implements AutoCloseable {
     }
 
     @Override
+    // Call close after the service stops admitting new requests.
     public void close() throws InterruptedException {
-        client.close();
         worker.close();
         workerThread.join();
+        client.close();
         blobCache.close();
     }
 }
@@ -182,7 +183,9 @@ Rules:
   On `InterruptedException`, restore the interrupt flag.
 - Use `worker.getPullRegistrationState().isReady()` for a readiness probe.
 - `close()` (or `stop()`) lets running handlers finish and send their results.
-  Close the Client and Worker before the `BlobCache`.
+- Shut down in this order: stop admitting new requests, close the Worker and
+  join its thread, then close the Client and the `BlobCache`. Running handlers
+  may still use the Client and the cache while they drain.
 - Share one disk `BlobCache` between the Worker and Client. Never create one per
   request. Size its directory for active large payloads.
 - `maxConcurrentTasks` bounds parallel handlers in this process. Optional

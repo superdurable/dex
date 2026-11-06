@@ -96,8 +96,8 @@ func StartApplication(flowServiceAddress string, cacheDir string, shipping Shipp
 	return application, nil
 }
 
+// Stop runs after the application stops admitting new requests.
 func (application *Application) Stop(ctx context.Context) error {
-	clientErr := application.client.Close()
 	stopErr := application.worker.Stop(ctx)
 	var runErr error
 	select {
@@ -105,7 +105,8 @@ func (application *Application) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		runErr = ctx.Err()
 	}
-	return errors.Join(clientErr, stopErr, runErr, application.cache.Close())
+	clientErr := application.client.Close()
+	return errors.Join(stopErr, runErr, clientErr, application.cache.Close())
 }
 ```
 
@@ -124,7 +125,10 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 - `Worker.Stop(ctx)` takes no new tasks and lets running handlers finish. It
   cancels handlers still running at the drain deadline, and Dex fails those
   attempts as possibly run. Handlers must honor `ctx` cancellation.
-- Close the Client, stop the Worker, then close the BlobCache.
+- Shut down in this order: stop admitting new requests, stop the Worker and
+  wait for its handlers to drain, then close the Client and the BlobCache.
+  Running handlers may still use the Client and the cache while they drain,
+  and calls on a closed Client fail.
 - `PullWorkerOptions.MaxConcurrentTasks` is the number of execution slots. A
   slot runs every task it receives; Dex never declines a Step for capacity.
   `ReservedRPCTasks` keeps some slots for RPCs only, so RPCs stay responsive

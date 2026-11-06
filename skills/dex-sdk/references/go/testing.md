@@ -92,6 +92,13 @@ Flows by type.
   `Execute`. Run the Worker as a subprocess and send `SIGKILL`.
 - Replace the Worker with one built from identical definitions, then prove the
   Flow resumes from its last durable boundary.
+- Keep every test parallel-safe. Never stop the shared `testApplication`
+  Worker. A replacement test starts the replacement Worker before it stops the
+  old one, or starts its own Worker. A crash test kills only its own subprocess.
+- To act while a Step runs, have the fake close a `started` channel when it is
+  called, and wait on it under a `context.WithTimeout`. Never sleep to guess.
+- Fakes record every call and never deduplicate, so a test can count
+  duplicate effects.
 - To prove a type rename is safe, start a Flow on the old code, stop at a
   durable boundary, and finish it on the renamed code.
 

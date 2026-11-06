@@ -101,9 +101,9 @@ async def run_application(flows: list[Flow[object]], server_address: str) -> Non
         await worker.wait_pull_registered(timeout=30)
         await serve_http_until_shutdown(client)
     finally:
-        await client.close()
         await worker.close()
         await worker_task
+        await client.close()
         cache.close()
 
 
@@ -113,7 +113,7 @@ async def serve_http_until_shutdown(client: AsyncClient) -> None:
 
 The sync surface starts `Worker.start()` on a `threading.Thread`, calls
 `worker.wait_pull_registered(timeout=...)` on the main thread, and on shutdown
-closes the Client, closes the Worker, joins the thread, and closes the cache.
+closes the Worker, joins the thread, closes the Client, and closes the cache.
 See the [async composition](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/app.py)
 and the [sync composition](https://github.com/superdurable/dex/blob/main/examples/python/sync-python/sync_examples/app.py).
 
@@ -128,6 +128,9 @@ and the [sync composition](https://github.com/superdurable/dex/blob/main/example
   `TimeoutError` on expiry. Probe later readiness with
   `pull_registration_state().is_ready`.
 - Always call `stop` or `close` (awaited on the async surface).
+- Shut down in this order: stop admitting new requests, close the Worker and
+  await its task, then close the Client and the cache. Running handlers may
+  still use the Client and the cache while they drain.
 - `PullWorkerOptions` sets `max_concurrent_tasks`, `reserved_rpc_tasks`, and
   the drain timeout. See
   [Python Workers](https://docs.superdurable.io/reference/python/workers).

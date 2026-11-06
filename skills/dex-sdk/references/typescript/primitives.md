@@ -208,8 +208,13 @@ class RecordChargeFailure implements Step<Order> {
 - `stream.write` counts as liveness but does not replace a checkpoint.
 - Check `context.cancellationSignal.aborted` between work units and pass the
   signal to `fetch` and other abort-aware calls.
-- `context.setStepExecutionLocal` and `getStepExecutionLocal` pass
-  process-local data from `waitFor` to `execute`. Treat absence as normal.
+- `context.setStepExecutionLocal(key, value, codec)` and
+  `getStepExecutionLocal(key, codec)` pass a value from `waitFor` to
+  `execute` of the same Step execution. Dex commits it with the method's
+  result and stores it in the Step record, so `execute` reads it even on
+  another Worker. Absence returns `undefined`. Only that Step execution can
+  read it; use an Attribute for state another Step or a Client needs. See
+  [Step execution local values](../core/step.md#step-execution-local-values).
 
 ## Attribute and AttributeMap
 
@@ -398,22 +403,36 @@ class RunChildren implements Step<number> {
 ## Client
 
 ```typescript
-export async function runOrder(client: Client, orderFlow: OrderFlow): Promise<string> {
-  const runId = await client.startFlow(orderFlow, "order-42", { orderId: "42", amountCents: 100 }, {
+export async function approveOrder(client: Client, orderFlow: OrderFlow): Promise<string> {
+  await client.startFlow(orderFlow, "order-42", { orderId: "42", amountCents: 100 }, {
     requestId: "start-order-42",
     ignoreAlreadyStarted: true,
   });
-  await client.invokeRPC(orderFlow.submitApproval, "order-42", "approved");
-  await client.waitForAttributeMatch("order-42", orderStatus, AttributeMatch.equalTo("charged"), {
-    requestTimeoutMs: 30_000,
-  });
-  await client.waitForStepCompletion("order-42", StepExecutionId.of("ChargeOrder"), {
-    requestTimeoutMs: 30_000,
-  });
-  const info = await client.describeFlow("order-42");
-  return `${runId} ${info.status}`;
+  try {
+    await client.invokeRPC(orderFlow.submitApproval, "order-42", "approved");
+  } catch (error: unknown) {
+    // A replay can find the Flow already closed; its terminal result decides.
+    if (!(error instanceof FlowNotActiveOrNotFoundError) && !(error instanceof FlowClosingError)) {
+      throw error;
+    }
+  }
+  const result = await client.waitForFlow("order-42", 60_000);
+  if (result.status !== "completed") {
+    throw new Error(`order-42 ended ${result.status}`);
+  }
+  return result.singleOutput(stringCodec);
 }
 ```
+
+- The contract of `approveOrder` is the Flow's terminal result, so it waits
+  with `waitForFlow`. `ChargeOrder` completes the Flow right after it writes
+  `orderStatus`. A `waitForAttributeMatch` or `waitForStepCompletion` issued
+  after the RPC can therefore find the Flow already closed and throw. Use those
+  waits only for a milestone of a Flow that stays open, and handle the
+  closed-Flow error by reading the terminal state.
+- Replaying `approveOrder` after a lost response is safe. The start attaches to
+  the existing run, the approval RPC may find the Flow closed, and the terminal
+  result decides.
 
 - `startFlow(flow, flowId, input, options)` resolves to the run ID once Dex
   accepts the start.

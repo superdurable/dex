@@ -80,8 +80,10 @@ public class OrderFlow implements Flow<OrderRequest> {
 - Omit `waitFor` when the Step needs no wait. Dex then runs `execute`
   immediately without a WaitFor invocation. `Wait.skipImmediately()` is the
   explicit form.
-- `waitFor` declares durable readiness. It may write Attributes, but it never
-  calls external systems. External effects belong in `execute`.
+- `waitFor` declares durable readiness. It may write Attributes, publish, and
+  set Step execution local values, but it never calls an external system.
+  External effects belong in `execute`. See the
+  [WaitFor rule](../core/step.md#waitfor-versus-execute).
 - `execute` returns exactly one `StepDecision`. Throwing an exception fails the
   attempt and discards everything the attempt staged.
 - A Step class is the target of a decision: `StepDecision.goTo(ChargePayment.class, input)`.
@@ -398,9 +400,12 @@ public StepDecision execute(Context context, Integer pages) {
   keys.
 - `context.recordEvent(name, value, Type.class)` adds a business milestone to
   Flow history.
-- `setStepExecutionLocal` passes process-local data from `waitFor` to `execute`
-  of the same execution. It is lost when another Worker runs `execute`; rebuild
-  it from durable state when absent.
+- `setStepExecutionLocal` passes a value from `waitFor` to `execute` of the
+  same Step execution. Dex commits it with the method's result and stores it
+  in the Step record, so `execute` reads it even on another Worker.
+  `getStepExecutionLocal` returns `null` when the key is absent. Only that
+  Step execution can read it; use an Attribute for state another Step or a
+  Client needs. See [Step execution local values](../core/step.md#step-execution-local-values).
 
 ## Client
 
@@ -419,8 +424,11 @@ Use the Client at the service boundary only. Every call blocks.
 | Search | `client.searchFlows(query, pageSize)` |
 | Stop | `client.stopFlow(flowId[, StopFlowOptions])` |
 
-- Start options also set the timeout, start delay, ID reuse policy, initial
-  Attributes, and config override.
+- Start options also set the timeout, ID reuse policy, initial Attributes,
+  and config override.
+- Never set a positive start delay (`startDelay`). The Server rejects it with
+  INVALID_ARGUMENT. To delay the first work, start the Flow at once and have
+  the start Step wait on a Timer.
 - The Client has no direct write. Write Flow state through an RPC.
 - Wait options take a request timeout. `RequestTimeoutException` means only
   the caller's budget ran out. See [../core/client.md](../core/client.md)

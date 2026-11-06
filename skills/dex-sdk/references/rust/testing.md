@@ -149,8 +149,16 @@ Report the last observed value in the panic message.
 Cover the scenario list in [../core/testing.md](../core/testing.md). In
 this language:
 
-- Worker replacement: stop the Worker while the Flow waits or retries, start
-  a new Worker with the same Registry, and assert progress continues.
+- Worker replacement: while the Flow waits or retries, start a new Worker
+  with the same Registry, then stop the old Worker, and assert progress
+  continues. Start the replacement first, or give the test its own Worker, so
+  the test can run in parallel with the others. Never stop a shared Worker.
+- Running Steps: to test drain, cancellation, or replacement while a Step
+  runs, have the fake signal an `std::sync::mpsc` sender when it is called, and wait
+  with `recv_timeout`. Never sleep to guess that the Step
+  started.
+- Fakes record every call and never deduplicate, so a test can count
+  duplicate effects.
 - Timers: assert a generous bound, and use `client.skip_timer` to shorten long ones.
 - Failure paths: make the fake dependency fail deterministically and assert
   the recovery Step or the terminal status.
