@@ -42,6 +42,12 @@ Read the [Java SDK API reference](pathname:///api/java/latest/) for the latest r
 
 Versioned snapshots: [1.35.0](pathname:///api/java/1.35/), [1.32.0](pathname:///api/java/1.32/), [1.31.0](pathname:///api/java/1.31/), [1.30.0](pathname:///api/java/1.30/), [1.29.0](pathname:///api/java/1.29/).
 
+## RPC stubs and Kotlin {#rpc-stubs-and-kotlin}
+
+**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its
+RPC methods must not be final. Kotlin makes both final by default, so declare
+the Flow class and its RPC methods with **open**.
+
 ## Pages
 
 - [Workers](/reference/java/workers): Java names for Worker readiness,

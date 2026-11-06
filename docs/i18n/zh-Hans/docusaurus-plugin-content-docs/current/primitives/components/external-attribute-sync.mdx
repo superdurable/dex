@@ -5,20 +5,15 @@ sidebar_label: External Attribute Sync
 
 # External Attribute Sync
 
-External Attribute Sync 会把选定的 Flow Attribute 写入你自己的 PostgreSQL 表。每个目标称为一个
-Attribute Store。Dex 以异步方式逐个 Flow 写入最新状态，并采用至少一次尝试语义，因此每种目标写入都具有幂等性。
+External Attribute Sync 会把选定的 Flow Attribute 写入你自己的 PostgreSQL 表。每个目标称为一个 Attribute Store。Dex 以异步方式逐个 Flow 写入最新状态，并采用至少一次尝试语义，因此每种目标写入都具有幂等性。
 
-目前只支持 PostgreSQL 作为 Attribute Store。Redis 支持由
-[issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。
+目前只支持 PostgreSQL 作为 Attribute Store。Redis 支持由 [issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。
 
 Dex 不会创建、迁移或回填目标。请在启动 server 前创建 SQL 表。
 
 ## 与其他组件的关系
 
-External Attribute Sync 是 [server](/primitives/components/server) 的功能。Flow 用
-**syncToAttributeStore** 标记 Attribute，并在 **FlowConfig** 中列出已配置的 store 名称。
-server-zd 随后把这个 Attribute 写入该 store 的表。你的 [应用](/primitives/components/application)
-和报表用 SQL 查询这些表。
+External Attribute Sync 是 [server](/primitives/components/server) 的功能。Flow 用 **syncToAttributeStore** 标记 Attribute，并在 **FlowConfig** 中列出已配置的 store 名称。server-zd 随后把这个 Attribute 写入该 store 的表。你的 [应用](/primitives/components/application) 和报表用 SQL 查询这些表。
 
 ## 配置
 
@@ -50,33 +45,22 @@ attributeStore:
     totalDuration: 1h
 ```
 
-每个 store 都必须配置 **type: postgres**、**tableName** 和 DSN（**dsn** 或环境变量）。
-server-zd 绝不会记录 DSN。**tableName** 接受 **table** 或 **schema.table**。Dex 会解析并引用
-标识符，Attribute value 始终通过 driver 参数传递。每个键及其默认值见
-英文的 [Attribute Store sync configuration](/reference/server/attribute-store-sync#attribute-store-configuration)。
+每个 store 都必须配置 **type: postgres**、**tableName** 和 DSN（**dsn** 或环境变量）。server-zd 绝不会记录 DSN。**tableName** 接受 **table** 或 **schema.table**。Dex 会解析并引用标识符，Attribute value 始终通过 driver 参数传递。每个键及其默认值见英文的 [Attribute Store sync configuration](/reference/server/attribute-store-sync#attribute-store-configuration)。
 
 ## 交付与重试
 
-Attribute Sync 保存最新状态，而不是 event history。发生不确定失败后，后续写入可能
-重复。因此 upsert 使用 Flow ID 作为幂等 key。
+Attribute Sync 保存最新状态，而不是 event history。发生不确定失败后，后续写入可能重复。因此 upsert 使用 Flow ID 作为幂等 key。
 
-写入从不阻塞 Step、RPC 或 SetAttributes 的提交。失败的写入会重试到
-**syncRetryPolicy.totalDuration**，之后丢弃并输出 error log。Dex 不会自动重放旧
-Attribute，也不会为新配置的 store 自动 backfill。过滤写入、目标缺失和重试耗尽都会输出
-error log。
+写入从不阻塞 Step、RPC 或 SetAttributes 的提交。失败的写入会重试到 **syncRetryPolicy.totalDuration**，之后丢弃并输出 error log。Dex 不会自动重放旧 Attribute，也不会为新配置的 store 自动 backfill。过滤写入、目标缺失和重试耗尽都会输出 error log。
 
-fencing 表、关闭行为、重试、metrics、row key、AttributeMap 表和 SQL 类型契约详见英文 Server 参考中的
-[Attribute Store sync](/reference/server/attribute-store-sync)。
+fencing 表、关闭行为、重试、metrics、row key、AttributeMap 表和 SQL 类型契约详见英文 Server 参考中的 [Attribute Store sync](/reference/server/attribute-store-sync)。
 
 ## 本地开发 {#attribute-store-local-development}
 
-**dex-server-zd dev** 在本地运行一个使用内嵌对象存储的节点。它的
-**--attribute-store-config** 参数只读取 YAML 文件中的 **attributeStore** 一节。
-这一节至少要定义一个 store。**--config** 覆盖文件不能同时设置 **attributeStore**。
+**dex-server-zd dev** 在本地运行一个使用内嵌对象存储的节点。它的 **--attribute-store-config** 参数只读取 YAML 文件中的 **attributeStore** 一节。这一节至少要定义一个 store。**--config** 覆盖文件不能同时设置 **attributeStore**。
 
 ~~~bash
 dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-store.yaml
 ~~~
 
-数据库仍然需要这些表和 fencing 表。**dexcli dev --attribute-store-config**
-会把文件传给这个参数。
+数据库仍然需要这些表和 fencing 表。**dexcli dev --attribute-store-config** 会把文件传给这个参数。

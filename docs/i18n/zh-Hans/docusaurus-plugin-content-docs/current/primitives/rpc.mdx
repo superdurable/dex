@@ -8,17 +8,38 @@ import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDia
 
 # RPC
 
-RPC 是 “Remote Procedure Call” 的缩写，允许外部系统与 Flow execution 交互。
+**RPC**（Remote Procedure Call）让 Flow 外的代码与正在运行的 Flow execution 交互。web handler、另一个服务或运维工具通过 [Client](/primitives/client) 调用它。
 
 **Client** 发起 RPC。**Dex Server** 将它发送给 **Worker**。**Worker** 执行后，将结果返回给 **Dex Server** 持久化。**Dex Server** 再将输出返回给 **Client**。
 
 <RpcRequestDiagram markdownDescription="Client 将 RPC 请求发送给 Dex Server，由 Dex Server 转发给 Application Worker。Worker 通过 Dex Server 将结果返回给 Client。" />
 
+## 什么时候用 RPC
+
+Flow 外的事情要改变 Flow，或者要问 Flow 一个问题时，用 RPC。例如一次审批、用户按下 Stop，或者请求查看 Flow 状态。
+
+RPC handler 可以做四件事：
+
+- 读写 [Attribute](/primitives/attribute)；
+- 向 [Channel](/primitives/channel) 发布消息；
+- 启动新的 [Step](/primitives/step)；
+- 取消正在运行的 Step。
+
+<a id="read-only-rpcs-and-terminal-flows"></a>
+
+只是读取时，Client 可以不用 RPC，见[什么时候读取需要 RPC](/primitives/client#related-primitives)。见 [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows)。
+
+## 保证
+
+每次 RPC 调用和 Step 方法一样提交：它的 Attribute 写入和 Channel 发布只在成功时与结果一起 commit。见 [Step 的保证](/primitives/step#guarantees)。
+
+<a id="rpc-timeout"></a>
+
+RPC 和 Step 一样在 Worker 上运行。每次 handler 调用都受 timeout 限制。见 [RPC timeout](/reference/server/runtime-data#rpc-timeout)。
+
 ## 定义和调用 RPC
 
-RPC 可以通过 Attribute 读取和写入 durable state、向 Channel publish，也可以 trigger 一个全新的 Step 来运行。
-
-每次 RPC 调用都是一个 commit 边界。Dex Server 会暂存 RPC 中的 Attribute 写入和 Channel publish，并只在 method 成功返回时，将它们与 RPC result 一起 commit。如果 RPC 失败，这些 durable 变更都不会被 commit。外部 API 调用不在这个原子边界内。
+这个 RPC 写一个 Attribute，发布一条 Channel 消息，并启动一个 Step：
 
 <SdkTabs
   examples={{
@@ -104,15 +125,7 @@ impl RpcFlow {
 </SdkSnippet>
 </SdkTabs>
 
-### Java 和 Kotlin
-
-**Client.newRpcStub** 会创建 Flow 的子类。Java Flow class 和它的 RPC method 都不能是 final。Kotlin 默认将两者都设为 final，所以要将 Flow class 和它的 RPC method 声明为 **open**。
-
-### TypeScript codec
-
-TypeScript 未设置 **inputCodec** 或 **outputCodec** 时会使用 JSON。input 或 output 不是 JSON 时需要提供 codec，包括 string、number、boolean 和 bigint 等 scalar value。
-
-然后像下面的例子一样调用 RPC：
+然后从 Client 调用这个 RPC：
 
 <SdkTabs
   examples={{
@@ -167,581 +180,33 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+<a id="java-和-kotlin"></a>
+<a id="typescript-codec"></a>
+
+Java、Kotlin 和 TypeScript 还有额外的 RPC 规则，见 [RPC stubs and Kotlin](/reference/java/#rpc-stubs-and-kotlin) 和 [RPC codecs](/reference/typescript/#rpc-codecs)。
+
 ## 取消正在运行的 Step {#cancel-running-steps}
 
-RPC result 可以取消所在 Flow 中 active 的 Step。当外部请求让进行中的工作失去意义时使用它，例如报告或模型调用还在运行，用户按下了 Stop。
+<a id="cancel-race"></a>
+<a id="cancel-honour"></a>
 
-按 Step type 选择要取消的 Step：Python 用 **with_canceling_steps**，Go 用 **CancelSteps**，Java 用 **withCancelingSteps**，TypeScript 用 **cancelingSteps**，Rust 用 **cancel_step**。选择范围是整个 Flow。RPC 没有 parent Step execution，所以不能取消 sibling Step。Step 也可以用同样的方式在 [StepDecision](/primitives/step/step-decision#cancellation-on-stepdecision) 中取消其他 Step。
+RPC 的结果可以按 Step type 取消所在 Flow 中的活跃 Step。外部请求让进行中的工作失去意义时用它，例如报告或模型调用运行时用户按下 Stop。Dex 在 commit 这个 RPC 时执行取消。Step 代码必须检查取消并停下。示例见 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps)，与先完成的 Step 的竞争见 [Resolve the race from committed state](/reference/server/runtime-data#cancel-race)，各 SDK 如何传递取消见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)。
 
-示例中，**GenerateReport** 逐节生成报告。**stop_report** RPC 取消它，并启动 **FinishReportStop**。
+## Lock 和 transactional RPC {#transactional-reads-and-writes}
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
-    go: 'examples/go/primitives/rpc-canceling-steps',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
-    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
-    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
-  }}>
-<SdkSnippet lang="python">
+<a id="attribute-locks"></a>
 
-```python
-@rpc(timeout=timedelta(seconds=30))
-def stop_report(self, context: Context, input: None) -> RPCResult[bool]:
-    if REPORT_STATUS.get(context) in (REPORT_READY, REPORT_STOPPED):
-        return RPCResult(False)
-    return RPCResult(
-        True,
-        next_steps=(StepMovement.of(FinishReportStop, None),),
-    ).with_canceling_steps(GenerateReport)
-```
+并发的 Step 和 RPC 可能修改同一份状态。RPC 可以获取 [Attribute lock](/primitives/attribute#locking)，与它们依次执行。RPC 拿不到 lock 会立即失败，由调用方重试。见 [Locks](/reference/server/runtime-data#attribute-locks) 和 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。
 
-</SdkSnippet>
-  <SdkSnippet lang="go">
+**transactional** RPC 在 Dex commit 它时多做一次检查。如果它删除的 Channel 消息已经不在队列中，RPC 失败，什么也不 commit。非 transactional RPC 会跳过缺失的删除，commit 其余变更。持有 lock 的 RPC 总是 transactional。见 [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes)。
 
-```go
-func (*ReportGenerationFlow) StopReport(ctx dex.Context, _ dex.None) (*dex.RPCResult[bool], error) {
-	status, err := getReportStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if status == ReportReady || status == ReportStopped {
-		return &dex.RPCResult[bool]{Output: false}, nil
-	}
-	result := &dex.RPCResult[bool]{
-		Output:    true,
-		NextSteps: []dex.StepMovement{dex.MovementOf(FinishReportStop{}, nil)},
-	}
-	return result.CancelSteps(GenerateReport{}), nil
-}
-```
+<a id="load-collection-state"></a>
+<a id="运行时选择-map-instance"></a>
 
-</SdkSnippet>
-  <SdkSnippet lang="java">
+## 加载集合
 
-```java
-@RPC(timeoutSeconds = 30)
-public RPCResult<Boolean> stopReport(final Context context) {
-    final String status = reportStatus.get(context);
-    if (REPORT_READY.equals(status) || REPORT_STOPPED.equals(status)) {
-        return RPCResult.of(false);
-    }
-    return RPCResult.of(true, StepMovement.of(FinishReportStop.class, null))
-            .withCancelingSteps(GenerateReport.class);
-}
-```
+RPC 会收到普通 Attribute 和 Channel 大小。只有声明之后，它才加载 AttributeMap 条目和待处理的 Channel 消息。这样不用这些大集合的 RPC 就不会带上它们。见 [Selective state loading](/reference/server/runtime-data#load-collection-state) 和 [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances)。
 
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
+## 参考
 
-```typescript
-@rpc({ inputCodec: voidCodec, outputCodec: booleanCodec, timeoutMs: 30_000 })
-public stopReport(context: Context, _input: void): RPCResult<boolean> {
-  const status = reportStatus.get(context);
-  if (status === REPORT_READY || status === REPORT_STOPPED) {
-    return { output: false };
-  }
-  return {
-    output: true,
-    nextSteps: [StepMovement.of(FinishReportStop, undefined)],
-    cancelingSteps: [GenerateReport],
-  };
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn stop_report(&self, context: &mut Context, _input: ()) -> HandlerResult<RpcResult<bool>> {
-    let status = REPORT_STATUS.get(context)?;
-    if matches!(status.as_deref(), Some(REPORT_READY | REPORT_STOPPED)) {
-        return Ok(RpcResult::new(false));
-    }
-    Ok(RpcResult::new(true)
-        .then(StepMovement::to(&self.finish_report_stop, ()))
-        .cancel_step(&self.generate_report))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Dex 在 commit RPC 时执行取消。它先 commit RPC 的 Attribute 写入和 Channel publish，再执行取消，最后启动 RPC 的 next Step。这些变更一起 commit，要么全部生效，要么全部不生效。RPC 自己启动的 next Step 不会被取消，即使它的 Step type 在选择范围内。已经结束的 Step 会被跳过，没有 active Step 的 type 也一样。
-
-取消会结束所选 type 的每个 active Step：正在等待的、正在等待重试的，以及 attempt 正在 Worker 上运行的。对于正在运行的 attempt，Dex 会向该 Worker 发送取消。被取消的 Step 不会重试，它的 failure route 也不会运行。被取消的 attempt 之后返回的任何内容都会被 Dex 丢弃，包括它的 StepDecision 和 Attribute 写入。
-
-### 根据已提交的状态处理竞争 {#cancel-race}
-
-RPC handler 启动时读取 Flow 的一份 snapshot，Dex 之后才 commit 它的 result。要取消哪些 Step 是在 commit 时决定的，而不是根据 snapshot。在这两个时刻之间，被选中的 Step 可能已经结束并 commit 了自己的 result，这时取消找不到可取消的 Step。所选 type 的新 Step 也可能已经启动，取消同样会结束它。这两种情况下 Dex 都不会拒绝这次 RPC。所以 handler 不能假设它看到的 Step 仍在运行，也不能假设那个 Step 的工作没有 commit。
-
-不要在 RPC handler 中决定结果。从 RPC 启动一个后续 Step，让它读取已提交的状态。示例中，**FinishReportStop** 检查报告是否在取消之前已经 commit。如果已经 commit，说明 Stop 来得太晚，Flow 会继续交付报告。否则，它记录报告已停止。
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
-    go: 'examples/go/primitives/rpc-canceling-steps',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
-    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
-    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: None) -> StepDecision:
-    # The report can commit after stop_report read its snapshot.
-    if REPORT_STATUS.get(context) == REPORT_READY:
-        return dead_end()
-    REPORT_STATUS.set(context, REPORT_STOPPED)
-    return graceful_complete(REPORT_STOPPED)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (FinishReportStop) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	status, err := getReportStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// The report can commit after StopReport read its snapshot.
-	if status == ReportReady {
-		return dex.DeadEnd(), nil
-	}
-	if err := ReportStatus.Set(ctx, ReportStopped); err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(ReportStopped), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Void input) {
-    // The report can commit after stopReport read its snapshot.
-    if (REPORT_READY.equals(reportStatus.get(context))) {
-        return StepDecision.deadEnd();
-    }
-    reportStatus.set(context, REPORT_STOPPED);
-    return StepDecision.gracefulComplete(REPORT_STOPPED);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(context: Context, _input: void): StepDecision {
-  // The report can commit after stopReport read its snapshot.
-  if (reportStatus.get(context) === REPORT_READY) {
-    return deadEnd();
-  }
-  reportStatus.set(context, REPORT_STOPPED);
-  return gracefulComplete(REPORT_STOPPED);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-    // The report can commit after stop_report read its snapshot.
-    if REPORT_STATUS.get(context)?.as_deref() == Some(REPORT_READY) {
-        return Ok(StepDecision::dead_end());
-    }
-    REPORT_STATUS.set(context, REPORT_STOPPED.to_string())?;
-    Ok(StepDecision::graceful_complete(REPORT_STOPPED.to_string()))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-[Attribute lock](/primitives/attribute#locking) 本身不能消除这个时间差。它只让 RPC 与声明了相同 lock 的 Step method 串行执行。
-
-### 让 Step 停下来 {#cancel-honour}
-
-Dex 无法停止忽略取消的代码。Step 代码必须检查取消并返回：
-
-- Python：使用 **AsyncWorker** 时，Dex 会取消 handler 的 task，下一个 await 会抛出 **CancelledError**。使用 **Worker** 时，handler 运行在线程上，必须检查 **is_cancellation_requested**。
-- Go：Dex 会取消 handler 的 **Context**。把它传给接受 context 的调用，或在 **Done** 上 select。
-- Java：Dex 会中断 handler 线程。阻塞调用会抛出 **InterruptedException**，**isCancellationRequested** 返回 true。
-- TypeScript：Dex 会 abort **context.cancellationSignal**。把它传给接受 **AbortSignal** 的调用。
-- Rust：检查 **is_cancelled**，或阻塞在 **wait_for_cancellation**。
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
-    go: 'examples/go/primitives/rpc-canceling-steps',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
-    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
-    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-for section in range(1, SECTION_COUNT + 1):
-    # A Stop cancels this task, so the await raises CancelledError.
-    await asyncio.sleep(SECTION_WORK.total_seconds())
-    REPORT_PROGRESS.write(context, section)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-for section := 1; section <= sectionCount; section++ {
-	select {
-	case <-ctx.Done():
-		// A Stop cancels ctx; the result of this attempt is discarded.
-		return nil, ctx.Err()
-	case <-time.After(sectionWork):
-	}
-	if err := ReportProgress.Write(ctx, section); err != nil {
-		return nil, err
-	}
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-for (int section = 1; section <= SECTION_COUNT; section++) {
-    try {
-        Thread.sleep(SECTION_WORK.toMillis());
-    } catch (final InterruptedException interrupted) {
-        // A Stop interrupts this thread; the result of this attempt is discarded.
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("report generation canceled", interrupted);
-    }
-    reportProgress.write(context, section);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-for (let section = 1; section <= SECTION_COUNT; section++) {
-  // A Stop aborts the signal, so this await rejects with an AbortError.
-  await setTimeout(SECTION_WORK_MS, undefined, { signal: context.cancellationSignal });
-  reportProgress.write(context, section);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-for section in 1..=SECTION_COUNT {
-    // A Stop cancels this attempt, and Dex discards its result.
-    if context.is_cancelled() {
-        return Ok(StepDecision::dead_end());
-    }
-    thread::sleep(SECTION_WORK);
-    REPORT_PROGRESS.write(context, section)?;
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Dex 会等待被取消的 attempt 结束，大约一秒。如果 handler 仍在运行，Dex 会关闭承载它的 Worker stream。handler 会在 Worker 进程中一直运行到返回，它的外部调用仍然会生效。被取消的 attempt 在停下之前也可能已经完成了部分工作。请让它的外部副作用保持幂等。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
-
-## 只读 RPC 与 terminal Flow {#read-only-rpcs-and-terminal-flows}
-
-从 Flow 外读取已存储的 Attribute 值，不需要只读 RPC。Client 的 **GetAttributes** 直接读取已提交的值，不经过 Worker。见[读取 Attribute](/primitives/client/basic#read-attributes)。当读取需要 Flow 内的逻辑，例如 validation、authorization、Channel 消息或派生视图时，使用只读 RPC。
-
-没有 Attribute lock 且没有启用 transactional execution 的 RPC 会先读取 Flow。如果 handler 只返回 output，不产生 durable effect，Dex 不会改变 Flow，而是直接返回 output。这次读取可以到达仍在 retention 内的 terminal execution。因此，只读 RPC 成功并不能证明 Flow 仍处于 active 状态。
-
-Attribute lock 和显式 transactional execution 都要求 active execution。非 transactional handler 如果返回 Attribute write、Channel operation、event 或 Step movement，也需要 active execution，因为 Dex 必须在 handler 返回后把这些 effect commit 到 Flow。Terminal Flow 会拒绝这次 commit，即使 Worker handler 可能已经运行。Server 也可以配置为以 transactional 方式执行所有 RPC；该路径同样要求 active execution。
-
-响应需要当前 execution status 时，请使用 Flow lifecycle API。Application snapshot RPC 读取的是 Flow 捕获的 durable application state；它不能根据 RPC 是否成功推断 terminal status。**FlowNotActiveOrNotFoundError** 表示目标不存在，或所选操作无法使用已结束的 execution。Java 使用 **FlowNotActiveOrNotFoundException**；Rust 使用 **SdkError::FlowNotActiveOrNotFound**。仅凭这个错误无法区分 Flow 不存在和已结束。
-
-对于已确认没有锁、事务和持久化副作用，且 Server 未强制 transactional 执行的只读 RPC，仍被保留的 terminal execution 可以读取。在这个读取边界，直接把此错误处理为没有可读取的目标，并保留应用契约中“不存在”或“保留期结束后不可用”的结果。不要仅为区分不存在和已结束而增加 lifecycle 查询、带短超时的 **WaitForFlow**、重试或历史 Step 输出解码。其他服务错误和 Worker 错误应保持独立。
-
-对于 mutation 和要求 active execution 的 RPC，同一错误可能表示 Flow 已结束或不存在。按该操作的业务契约处理；此错误不能证明请求的操作已成功。
-
-普通只读 RPC 无需先搜索 Run ID。SDK 暴露可选 Run ID 时，省略它即可让 Server 为本次调用解析并固定当前 execution。只有应用必须在 Flow ID 重用场景下精确指定某次 execution 时，才需要提供 Run ID。
-
-## 选择性加载 RPC 状态 {#load-collection-state}
-
-每个 RPC 都会收到普通 Attribute value 和 Channel size metadata。读取 AttributeMap entry 或 pending Channel message 时必须显式加载，避免不使用这些大型 collection 的 RPC 仍要接收它们。
-
-Handler 需要所有当前 instance 时，加载整个 AttributeMap 或 ChannelMap；只需要已知 key 时，加载指定 map instance。需要 pending message 的 ID 或 Value 时，加载对应 Channel。Channel size、ChannelMap key 和 size 无需加载 pending message 即可读取。
-
-所有 SDK 都在 RPC definition 上声明 load。Go 在 **GetRPCs** 中将 **RPCOptions** 传给 **DefineRPC**。Dex Server 会根据 Flow persistence schema 验证 requested definition，并随 RPC snapshot 返回已加载范围。Handler 读取选择性加载的 collection 时，SDK 会检查这个范围。
-
-如果 **AttributeMap** entry 或 instance 不在该范围内，SDK 会抛出 **AttributeMapNotLoadedError**。如果 pending message 不在该范围内，SDK 会抛出 **ChannelMessagesNotLoadedError**。Java 使用 **AttributeMapNotLoadedException** 和 **ChannelMessagesNotLoadedException**。对于 Go，**dexcli visualize** 会报告读取未选择状态的 RPC。见[状态加载](/reference/web/flow-visualization#state-loads)。
-
-显式加载的 collection 可以为空，这不是错误。空的 pending-message snapshot 会返回空列表。不存在的 **AttributeMap** entry 会使用 SDK 正常的缺失值语义。Load 会建立一份 input snapshot。它不会消费 message，也不会使 RPC 具备 transactional 语义或阻止并发 operation。
-
-### 运行时选择 map instance
-
-RPC definition options 用于每次调用都相同的固定行为，包括 timeout、普通 Attribute lock、transactionality、whole-map load、singleton Channel load 和固定 exact-instance load。Go 将这个类型命名为 **RPCOptions**。
-
-当应用 adapter 根据 request data 选择 AttributeMap 或 ChannelMap instance 时，使用 **RPCInvokeOptions**。Rust 使用 **RpcInvokeOptions**。Invocation options 只能增加 exact AttributeMap load、exact ChannelMap load 和 AttributeMap instance lock。Dex 会把它们与注册配置 union、排序并去重，不能替换或清除注册配置。
-
-Load 和 lock 相互独立。只读 lookup 只需要 exact load。Read-modify-write RPC 必须为同一个 AttributeMap instance 同时增加 load 和 lock。SDK 会在网络调用前验证 Flow ownership、definition kind，以及 instance 是否非空且不含斜线。
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/patterns/hash-partitioned-attribute-map/controller.py',
-    go: 'examples/go/patterns/hash-partitioned-attribute-map/controller.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java',
-    typescript: 'examples/typescript/src/patterns/hash-partitioned-attribute-map/controller.ts',
-    rust: 'examples/rust/src/patterns/hash_partitioned_attribute_map/controller.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-options=RPCInvokeOptions(
-    lock_attribute_map_instances=(
-        flow.customer_profiles_by_email_partition.lock(partition_name),
-    ),
-    load_attribute_map_instances=(
-        flow.customer_profiles_by_email_partition.load(partition_name),
-    ),
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-dex.RPCInvokeOptions{
-	LockAttributeMapInstances: []dex.AttributeLock{
-		dex.LockAttributeMap(CustomerProfilesByEmailPartition, partitionName),
-	},
-	LoadAttributeMapInstances: []dex.AttributeMapLoad{
-		CustomerProfilesByEmailPartition.Load(partitionName),
-	},
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
-        .addLockAttributeMapInstance(
-                flow.customerProfilesByEmailPartition,
-                partition.partitionName)
-        .addLoadAttributeMapInstance(
-                flow.customerProfilesByEmailPartition,
-                partition.partitionName)
-        .build();
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-{
-  lockAttributeMapInstances: [profiles.lock(partitionName)],
-  loadAttributeMapInstances: [profiles.load(partitionName)],
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-RpcInvokeOptions::new()
-    .lock_attribute_map_instance(
-        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.lock(&partition.partition_name),
-    )
-    .load_attribute_map_instance(
-        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.load(partition.partition_name),
-    )
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-完整 lookup 和 upsert 示例见 [Hash 分区 AttributeMap](/design-patterns/hash-partitioned-attribute-map)，动态分页 load 示例见 [顺序分块 AttributeMap](/design-patterns/sequentially-chunked-attribute-map)。
-
-## Transactional read 与 write {#transactional-reads-and-writes}
-
-Transactional RPC 会把 RPC 的 read 和 write 作为一个 atomic operation 执行。
-
-持有 Attribute lock 的 RPC 已经隐式具备 transactional 语义。也可以设置 **is_transactional=true**，显式启用 transactional RPC。这对 Channel message deletion 尤其有用，因为 Dex 会在 commit 任何 write 前验证 message 是否仍处于 pending 状态。
-
-Caller 只传 pending message ID。RPC 加载 source Channel，从 snapshot 读取原始 Value，再暂存 deletion 和 destination publication。如果 concurrent consumer 已取走该消息，deletion validation 会失败，因此 Dex 不会 commit 任何一项 effect：
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-    go: 'examples/go/primitives/channel/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
-    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
-    rust: 'examples/rust/src/primitives/channel/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-@rpc(is_transactional=True, load_channels=(queued_messages,))
-def move_queued_message_to_prioritized_messages(
-    self, context: Context, queued_message: QueuedMessageReference
-) -> None:
-    message_to_prioritize = self.queued_messages.find_pending_message(
-        context, queued_message.message_id
-    )
-    self.queued_messages.delete(context, queued_message.message_id)
-    if message_to_prioritize is not None:
-        self.prioritized_messages.publish(context, message_to_prioritize.value)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{
-		dex.DefineRPC(flow.PublishApprovalMessage, nil),
-		dex.DefineRPC(flow.EnqueueChannelMessage, nil),
-		dex.DefineRPC(flow.GetQueuedMessages, &dex.RPCOptions{
-			LoadChannels: []dex.ChannelDef{QueuedMessages},
-		}),
-		dex.DefineRPC(flow.DeleteQueuedMessage, &dex.RPCOptions{
-			IsTransactional: true,
-			LoadChannels:    []dex.ChannelDef{QueuedMessages},
-		}),
-		dex.DefineRPC(flow.GetPrioritizedMessages, &dex.RPCOptions{
-			LoadChannels: []dex.ChannelDef{PrioritizedMessages},
-		}),
-		dex.DefineRPC(flow.MoveQueuedMessageToPrioritizedMessages, &dex.RPCOptions{
-			IsTransactional: true,
-			LoadChannels:    []dex.ChannelDef{QueuedMessages},
-		}),
-	}
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-@RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
-public void moveQueuedMessageToPrioritizedMessages(
-        final Context context,
-        final QueuedMessageReference queuedMessageReference) {
-    final ChannelMessage<String> messageToPrioritize =
-            queuedMessages.findPendingMessage(context, queuedMessageReference.messageId);
-    queuedMessages.delete(context, queuedMessageReference.messageId);
-    if (messageToPrioritize != null) {
-        prioritizedMessages.publish(context, messageToPrioritize.getValue());
-    }
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-@rpc({
-  isTransactional: true,
-  loadChannels: [queuedMessages],
-  inputCodec: queuedMessageReferenceCodec,
-})
-public moveQueuedMessageToPrioritizedMessages(
-  context: Context,
-  queuedMessage: QueuedMessageReference,
-): void {
-  const messageToPrioritize = queuedMessages.findPendingMessage(
-    context,
-    queuedMessage.messageId,
-  );
-  queuedMessages.delete(context, queuedMessage.messageId);
-  if (messageToPrioritize !== undefined) {
-    prioritizedMessages.publish(context, messageToPrioritize.value);
-  }
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-fn rpcs(&self) -> RpcList<Self> {
-    RpcList::new()
-        .procedure_without_input(PUBLISH_APPROVAL_MESSAGE, Self::publish_approval_message)
-        .procedure(
-            MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES
-                .is_transactional()
-                .load_channel(&QUEUED_MESSAGES),
-            Self::move_queued_message_to_prioritized_messages,
-        )
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Transactional commit 不会在 handler 运行期间提供 isolation。如果决策依赖整个 loaded Channel、ChannelMap 或 AttributeMap 保持不变，所有协作的 Step 与 RPC writer 都必须使用同一把 Attribute lock。该 lock 提供 isolation，并隐式使 RPC 具备 transactional 语义；它不会加载 collection content。
-
-Non-transactional RPC 遇到 missing deletion 时会把它当作 no-op，仍然 commit 其他成功的 effect。
-
-## RPC timeout
-
-RPC timeout 限制一次 Worker handler invocation。
-
-所有 SDK 都在 RPC definition 上声明 timeout。Go 将静态 **RPCOptions** 传给 **DefineRPC**。Client invocation 不能覆盖它，但 caller context 可以更早停止等待。应用不设置 timeout 时，Dex Server 使用默认值 60 秒，由 **api.defaultRpcTimeout** 设置。显式设置的 timeout 没有上限。
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc',
-    go: 'examples/go/primitives/rpc',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
-    typescript: 'examples/typescript/src/primitives/rpc',
-    rust: 'examples/rust/src/primitives/rpc',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-@rpc(timeout=timedelta(seconds=30))
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{
-		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
-	}
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-@RPC(timeoutSeconds = 30)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-@rpc({ inputCodec: stringCodec, outputCodec: stringCodec, timeoutMs: 30_000 })
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trigger)
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## Attribute locks
-
-Attribute lock 请参阅 [Locking](/primitives/attribute#locking)。
+[Data primitive semantics](/reference/server/runtime-data#rpcs) 详细说明取消、已关闭 Flow 上的只读 RPC、状态加载、transactional RPC 和 timeout。

@@ -41,6 +41,12 @@ Read the [TypeScript SDK API reference](pathname:///api/typescript/latest/) for 
 
 Versioned snapshots: [1.35.0](pathname:///api/typescript/1.35/), [1.32.0](pathname:///api/typescript/1.32/), [1.30.0](pathname:///api/typescript/1.30/), [1.29.0](pathname:///api/typescript/1.29/), [1.28.1](pathname:///api/typescript/1.28/).
 
+## RPC codecs {#rpc-codecs}
+
+TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide
+a codec when the input or output is not JSON, including scalar values such as
+strings, numbers, booleans, and bigints.
+
 ## Pages
 
 - [Workers](/reference/typescript/workers): TypeScript names for Worker

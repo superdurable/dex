@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.69.2 - 2026-11-06
+
+- Point the Core operations link for the full Custom Attribute Store contract at **/reference/server/attribute-store-sync**, where the table contract now lives. Synchronize the bundle and plugin manifests at 0.69.2.
+
 ## 0.69.1 - 2026-11-06
 
 - Update the docs links for the new docs layout. The server-zd operation guide moved to the Developer Reference under **/reference/server/**, split by topic. Pull Worker details moved to **/reference/server/workers**. Application operations moved to the Application component at **/primitives/components/application**. The CLI and Flow visualization references moved to **/reference/cli** and **/reference/web/flow-visualization**. The Custom Attribute Store contract moved to **/reference/server/attribute-store-sync**. The old URLs still resolve. Synchronize the bundle and plugin manifests at 0.69.1.

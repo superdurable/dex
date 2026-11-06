@@ -5,9 +5,77 @@ sidebar_label: Workers
 
 # Rust Workers
 
-This page lists the Rust names for the Worker settings and diagnostics. The
+This page shows how to start a Rust Worker. It lists the Rust names for the
+Worker settings and diagnostics. The
 [Workers and the task queue](/reference/server/workers) page describes their
 behavior for every SDK.
+
+## Start a Worker
+
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
+and keeps one slot for RPCs. See the [Rust SDK README](https://github.com/superdurable/dex/blob/main/sdk-rust/README.md#pull-mode) for
+startup details.
+
+```rust
+pub type RunningPullGreeting = (Arc<Worker>, Client, JoinHandle<SdkResult<()>>);
+
+pub fn start_pull_greeting(
+    cache: Arc<BlobCache>,
+    server_address: &str,
+) -> Result<RunningPullGreeting, Box<dyn Error + Send + Sync>> {
+    let registry = Registry::new().register(GreetingFlow::default())?;
+    let worker = Arc::new(Worker::try_new(
+        registry.clone(),
+        Arc::clone(&cache),
+        WorkerOptions::new().server_address(server_address).pull(
+            PullWorkerOptions::new()
+                .max_concurrent_tasks(8)
+                // This slot accepts only RPCs; the other seven accept Steps and RPCs.
+                .reserved_rpc_tasks(1),
+        ),
+    )?);
+    let client = Client::try_new(
+        registry,
+        cache,
+        ClientOptions::new().server_address(server_address),
+    )?;
+    let startup_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let running_worker = Arc::clone(&worker);
+    let worker_thread = thread::spawn(move || running_worker.start());
+    let startup_result: Result<(), Box<dyn Error + Send + Sync>> =
+        startup_runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(30), worker.wait_pull_registered()).await??;
+            Ok(())
+        });
+    if let Err(failure) = startup_result {
+        match stop_pull_greeting(worker, client, worker_thread) {
+            Ok(Ok(())) => {}
+            Ok(Err(cleanup_failure)) => {
+                eprintln!("pull Worker cleanup failed: {cleanup_failure}");
+            }
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+        return Err(failure);
+    }
+    Ok((worker, client, worker_thread))
+}
+
+pub fn stop_pull_greeting(
+    worker: Arc<Worker>,
+    client: Client,
+    worker_thread: JoinHandle<SdkResult<()>>,
+) -> thread::Result<SdkResult<()>> {
+    worker.stop();
+    let worker_result = worker_thread.join();
+    drop(client);
+    worker_result
+}
+```
+
+Example: [examples/rust/src/production/pull_workers.rs](https://github.com/superdurable/dex/blob/main/examples/rust/src/production/pull_workers.rs)
 
 ## Readiness
 
@@ -50,19 +118,20 @@ has no effect.
 The reserve-decline counter, **pull_reserved_rpc_declines()**, is deprecated. It remains for
 source compatibility and always reads zero.
 
-This diagnostics helper exposes registration readiness and the deprecated
-reserve-decline counter. A full Worker stays ready.
+This diagnostics helper exposes registration readiness. Its reserve-decline field
+is always zero. A full Worker stays ready.
 
 ```rust
 pub struct PullGreetingDiagnostics {
     pub is_ready: bool,
+    /// Deprecated: reserved slots never decline for capacity; this value is always zero.
     pub reserved_rpc_declines: u64,
 }
 
 pub fn get_pull_greeting_diagnostics(worker: &Worker) -> PullGreetingDiagnostics {
     PullGreetingDiagnostics {
         is_ready: worker.pull_registration_state().is_ready,
-        reserved_rpc_declines: worker.pull_reserved_rpc_declines(),
+        reserved_rpc_declines: 0,
     }
 }
 ```

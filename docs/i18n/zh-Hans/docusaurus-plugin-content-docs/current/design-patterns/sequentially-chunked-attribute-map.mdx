@@ -19,7 +19,7 @@ slug: /design-patterns/sequentially-chunked-attribute-map
 
 **RegisterSubscriber** 会锁定 state 和 **current** instance。普通调用只重写一个有上限的 chunk。如果 **current** 已有 100 条记录，同一个 commit 会写入 archive chunk、创建新的 **current**，并推进 state。
 
-并发 append 可能收到 lock-conflict 错误。收到后重试，见 [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。
+并发 append 可能收到 lock-conflict 错误。收到后重试，见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/reference/server/runtime-data#whole-map-coordination)。
 
 **GetSubscriberPage** 默认从 **current** 开始，也可以接收 page token。应用 adapter 使用 **RPCInvokeOptions** 只加载目标 instance。每页按 newest-first 返回，并带上更旧一页的 token。
 
