@@ -21,7 +21,7 @@
     "@ai-sdk/react": "4.0.163",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@superdurable/dex": "1.35.0",
-    "@superdurable/dex-agents": "file:../../agents/typescript/core",
+    "@superdurable/dex-agents": "0.2.0",
     "ai": "7.0.159",
     "express": "^5.1.0",
     "react": "19.2.1",

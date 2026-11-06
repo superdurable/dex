@@ -7,7 +7,7 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "dex-agents[litellm,mcp]",
+    "dex-agents[litellm,mcp]==0.2.0",
     "dex-python-sdk==1.35.0",
     "flask>=3.0,<4",
     "mcp>=2.3,<3",
@@ -29,10 +29,6 @@ dev = [
 [tool.uv]
 package = false
 required-version = "==0.12.2"
-
-# Until dex-agents 0.2.0 is on PyPI; then dex-agents[litellm,mcp]==0.2.0 replaces this source.
-[tool.uv.sources]
-dex-agents = { path = "../../agents/python/core" }
 
 [tool.pytest.ini_options]
 pythonpath = [".", "sync-python"]
