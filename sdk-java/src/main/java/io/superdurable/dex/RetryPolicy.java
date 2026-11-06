@@ -26,13 +26,14 @@ import java.time.Duration;
  * interval, and no attempt-count limit within the four-hour retry duration. Maximum attempts
  * includes the initial attempt; set it to one to disable retries. A positive
  * {@link io.superdurable.dex.exceptions.RetryAfterException} delay overrides the next backoff.
- * Flow retry policies use the interval and attempt settings but ignore total duration.
+ * The Server rejects a retry policy on a Flow or SubFlow start with INVALID_ARGUMENT. Configure
+ * retries on each Step method through {@link StepOptions} instead.
  * Durations sent by this SDK must be nonnegative whole seconds within the signed int32 range;
  * invalid durations fail when the policy is mapped for a request or Worker result.
  *
- * <p>Changed in 1.35.0: Step retry duration starts at the first Worker hand-out rather than
- * while the Step waits for a Worker. It gates scheduling a retry and never shortens an attempt's
- * method timeout.
+ * <p>With Server protocol 4 (server-zd v0.1.17, required by SDK 1.35.0): Step retry duration
+ * starts at the first Worker hand-out rather than while the Step waits for a Worker. It gates
+ * scheduling a retry and never shortens an attempt's method timeout.
  *
  * <pre>{@code
  * RetryPolicy retry = RetryPolicy.newBuilder()
@@ -163,10 +164,10 @@ public final class RetryPolicy {
          * it. Dex checks whether the next backoff fits within the budget when scheduling a retry;
          * it does not check the budget again at dispatch. A queued retry may therefore start or end
          * after the budget expires. Set the method timeout to bound each running attempt.
-         * Zero selects the four-hour default. Flow retry policies ignore this field.
+         * Zero selects the four-hour default.
          *
-         * <p>Changed in 1.35.0: this budget only gates scheduling another retry; it no longer
-         * ends or shortens a running Step attempt.
+         * <p>With Server protocol 4 (server-zd v0.1.17, required by SDK 1.35.0): this budget only
+         * gates scheduling another retry; it no longer ends or shortens a running Step attempt.
          *
          * @param value the total retry duration, or {@code null} for the server default
          * @return this builder

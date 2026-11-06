@@ -1032,7 +1032,6 @@ public final class Client implements AutoCloseable {
      * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
      *     the same Attribute or AttributeMap instance are rejected
      * @return the decoded values, with one entry for every read
-     * @since 1.31.0
      * @throws IllegalArgumentException before any request when {@code flowId} is blank, no read is
      *     passed, a read is {@code null} or is not an {@link Attribute} or
      *     {@link AttributeMapInstance}, or two reads select the same physical key
@@ -1048,6 +1047,7 @@ public final class Client implements AutoCloseable {
      *     request; the exception keeps the gRPC code and Dex sub-status, and both its message and
      *     its {@link DexServiceException#getDetail() detail} start with the call context, such as
      *     {@code getAttributes Flow order-42 Attributes order-status}, before the Server detail
+     * @since 1.31.0
      */
     public AttributeValues getAttributes(final String flowId, final AttributeRead<?>... reads) {
         return getAttributes(
@@ -1077,7 +1077,6 @@ public final class Client implements AutoCloseable {
      * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
      *     the same Attribute or AttributeMap instance are rejected
      * @return the decoded values, with one entry for every read
-     * @since 1.31.0
      * @throws IllegalArgumentException before any request when {@code flowId} is blank,
      *     {@code reads} is {@code null} or empty, a read is {@code null} or is not an
      *     {@link Attribute} or {@link AttributeMapInstance}, or two reads select the same physical
@@ -1092,6 +1091,7 @@ public final class Client implements AutoCloseable {
      *     without a value, or if the Dex Server does not support protocol version 4
      * @throws DexServiceException for other FlowService failures, including a failed LoadBlobs
      *     request; both its message and its detail start with the call context
+     * @since 1.31.0
      */
     public AttributeValues getAttributes(
             final String flowId,
@@ -1312,11 +1312,15 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Creates a new run from a selected point in an existing Flow's history.
+     * Creates a new run attempt from a selected point in an existing Flow's history.
+     *
+     * <p>The run ID stays the same and the run attempt increases by one. Step execution IDs
+     * replayed after the selected point repeat, so effect keys built only from the Flow, run, and
+     * Step execution IDs treat the re-run as a duplicate.
      *
      * @param flowId the target Flow ID
      * @param options the time travel point and replay behavior
-     * @return the server-assigned run ID of the new execution
+     * @return the run ID of the time-traveled Flow, which is unchanged by time travel
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
      * @throws IllegalStateException if the Dex Server does not support protocol version 4

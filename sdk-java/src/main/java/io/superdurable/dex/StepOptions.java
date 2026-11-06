@@ -28,10 +28,11 @@ import java.util.Objects;
  * Durations describe method timeouts, not the potentially much longer time spent waiting for
  * durable timer or Channel conditions.
  *
- * <p>Changed in 1.35.0: method and heartbeat timeouts start when Dex hands the attempt to a
- * Worker. Lock waits and task queue waits do not consume either timeout or a retry. Each retry
- * receives a fresh method timeout. Retry total duration is independent; see {@link RetryPolicy}.
- * Both durability modes use the same timeouts and retry policy.
+ * <p>With Server protocol 4 (server-zd v0.1.17, required by SDK 1.35.0): method and heartbeat
+ * timeouts start when Dex hands the attempt to a Worker. Lock waits and task queue waits do not
+ * consume either timeout or a retry. Each retry receives a fresh method timeout. Retry total
+ * duration is independent; see {@link RetryPolicy}. Both durability modes use the same timeouts
+ * and retry policy.
  *
  * <p>WaitFor and Execute receive independent state snapshots. Dex captures each method's first
  * snapshot at Worker hand-out; retries and returned attempts reuse it. Execute's snapshot is taken
@@ -206,7 +207,8 @@ public final class StepOptions {
          * minimum, which defaults to ten seconds. This setting applies to every attempt with either
          * Step durability. Once cancellation reaches the Java Worker, Dex interrupts the
          * handler thread. A healthy silent external call must fit inside this timeout; increase
-         * it or report progress during the call. Use the method timeout to bound the entire attempt.
+         * it or report progress during the call. Use the method timeout to bound the entire
+         * attempt.
          *
          * @param value the heartbeat timeout, or {@code null} for one minute
          * @return this builder

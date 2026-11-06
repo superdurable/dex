@@ -31,8 +31,8 @@ package io.superdurable.dex;
  * Optional<Note> note = values.get(orderFlow.notes.instance("n1"));
  * }</pre>
  *
- * @since 1.31.0
  * @param <T> the Java value type of the selected Attribute or AttributeMap instance
+ * @since 1.31.0
  */
 public interface AttributeRead<T> {
 }

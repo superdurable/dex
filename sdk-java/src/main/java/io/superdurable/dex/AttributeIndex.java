@@ -22,10 +22,11 @@ package io.superdurable.dex;
  * across Flow types. Two distinct indexed fields in one Flow need different slots. Reuse across
  * Flow types requires the same index type; their business meanings may differ.
  *
- * <p>Changed in 1.30.0: servers can enforce index capacity and Keyword length limits.
- * PostgreSQL search provides 10 KEYWORD slots and three each for INT, DATETIME, DOUBLE, BOOL,
- * KEYWORD_ARRAY, and FULL_TEXT per tenant. System indexes do not consume these slots. Index
- * registration beyond capacity fails with FAILED_PRECONDITION and can prevent Worker startup.
+ * <p>With server-zd's PostgreSQL search backend: the server enforces index capacity and Keyword
+ * length limits. PostgreSQL search provides 10 KEYWORD slots and three each for INT, DATETIME,
+ * DOUBLE, BOOL, KEYWORD_ARRAY, and FULL_TEXT per tenant. System indexes do not consume these
+ * slots. Index registration beyond capacity fails with FAILED_PRECONDITION and can prevent Worker
+ * startup.
  * Registrations cannot be deleted; plan the shared pool before registering application indexes.
  * PostgreSQL limits a KEYWORD value or each KEYWORD_ARRAY element to 1024 UTF-8 bytes.
  * An oversized new write fails with INVALID_ARGUMENT; a rejected Step result fails the Step.
@@ -36,10 +37,11 @@ package io.superdurable.dex;
  * Attribute<String> customer = Attribute.define(
  *         "customer",
  *         String.class,
- *         new AttributeIndex(AttributeIndex.Type.KEYWORD));
- * Attribute<String> indexedCustomer = Attribute.define(
- *         "indexed-customer", String.class,
  *         new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
+ * Attribute<String> region = Attribute.define(
+ *         "region",
+ *         String.class,
+ *         new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword2"));
  * }</pre>
  */
 public final class AttributeIndex {

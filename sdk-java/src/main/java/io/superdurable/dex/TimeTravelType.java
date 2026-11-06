@@ -11,7 +11,7 @@
 package io.superdurable.dex;
 
 /**
- * Selects the historical point from which a Flow resumes in a new run.
+ * Selects the historical point from which a Flow resumes in a new run attempt of the same run.
  *
  * <p>Create {@link TimeTravelOptions} with the matching selector method for the chosen value.
  * {@link #STEP_EXECUTION_ID} also requires a {@link TimeTravelStepMethod}.

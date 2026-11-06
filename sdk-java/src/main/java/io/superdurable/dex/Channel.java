@@ -118,7 +118,8 @@ public final class Channel<T> extends PersistenceDefinition {
      * <p>Select this Channel in the handler's options. The snapshot does not change after staged
      * publications or deletions in the same handler.
      * Other invocations can change the queue while the handler runs, so the snapshot can be stale.
-     * A loaded empty Channel returns an empty list. Reading this snapshot does not consume messages.
+     * A loaded empty Channel returns an empty list. Reading this snapshot does not consume
+     * messages.
      * Use a shared Attribute lock across cooperating writers when queue stability is required.
      *
      * @param context the handler invocation context

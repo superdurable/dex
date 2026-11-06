@@ -20,8 +20,9 @@ package io.superdurable.dex;
  * state when a consumer must recover from lost progress messages.
  *
  * <p>Step messages have source {@code #StepExecutionID}, shared by every attempt of that
- * Step execution. A source is informational and does not deduplicate writes. Changed in 1.35.0:
- * ASYNC can rerun the same attempt number after a server failure and repeat messages in that source.
+ * Step execution. A source is informational and does not deduplicate writes. With Server
+ * protocol 4 (server-zd v0.1.17, required by SDK 1.35.0), ASYNC can rerun the same attempt number
+ * after a server failure and repeat messages in that source.
  *
  * <pre>{@code
  * private final Stream<String> progress = Stream.define("progress", String.class, 1048576L);
@@ -66,7 +67,8 @@ public final class Stream<T> extends PersistenceDefinition {
      * @param streamCapacityBytes the positive approximate shared byte budget
      * @param <T> the message type
      * @return an immutable Stream definition
-     * @throws IllegalArgumentException if the name is invalid, the class is null, or capacity is not positive
+     * @throws IllegalArgumentException if the name is invalid, the class is null, or capacity is
+     *     not positive
      */
     public static <T> Stream<T> define(
             final String name,
@@ -82,7 +84,8 @@ public final class Stream<T> extends PersistenceDefinition {
      * Stream. Each frame also acts as an implicit Step heartbeat. Storage failures do not fail
      * the Step, but local validation, serialization, or transport failures may throw.
      * A write preserves the last explicit heartbeat checkpoint, including a cleared checkpoint.
-     * Use {@link BufferedTextStream} for small text deltas instead of writing each token separately.
+     * Use {@link BufferedTextStream} for small text deltas instead of writing each token
+     * separately.
      *
      * @param context the current Step Context; RPC and Flow timeout Contexts are rejected
      * @param value the typed message to append

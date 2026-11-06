@@ -43,8 +43,10 @@ public interface Context {
      * Returns the current Flow run ID.
      *
      * <p>The Flow ID identifies the logical Flow; the run ID identifies this execution. Time
-     * travel creates a new run ID. Use the Flow ID and Step execution ID for effect deduplication
-     * within one Step execution, rather than the attempt number.
+     * travel keeps the run ID and starts a new run attempt. Use the Flow ID and Step execution ID
+     * for effect deduplication within one Step execution, rather than the attempt number. A re-run
+     * after time travel reuses the same Flow, run, and Step execution IDs, so a key built only from
+     * them treats the re-run as a duplicate. The Java Context does not expose the run attempt.
      *
      * @return the run ID
      */
@@ -97,8 +99,9 @@ public interface Context {
      * Returns the one-based attempt number of the current method invocation.
      *
      * <p>WaitFor and Execute count independently. A normal failed attempt consumes a retry.
-     * Changed in 1.35.0: an ASYNC start lost in a server failure can rerun with the same attempt
-     * number, possibly overlapping its previous execution. This number is not a deduplication key.
+     * With Server protocol 4 (server-zd v0.1.17, required by SDK 1.35.0): an ASYNC start lost in
+     * a server failure can rerun with the same attempt number, possibly overlapping its previous
+     * execution. This number is not a deduplication key.
      *
      * @return the current attempt number
      */
