@@ -1658,7 +1658,8 @@ carry content, because 1.36.0 recorded content as events.
 --engine zd` engine. It reads `DEXCLI` and expects `dex-server-zd` next to it
 (or `DEX_SERVER_ZD_BINARY`). The engine runs with
 `dev.durabilityMode: processCrashSafe`, which skips fsync and survives a
-process kill, through a `-zd-config` file that works with any `dexcli`. A
+process kill, through a `-zd-config` file that also works with `dexcli`
+releases that predate `--durability`. A
 `server_zd_config` file of your own replaces it, so set `dev.durabilityMode`
 there too. The Worker runs in a child process in its own process group, so a
 test can SIGKILL it at an exact moment.

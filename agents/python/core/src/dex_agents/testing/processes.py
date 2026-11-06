@@ -120,7 +120,7 @@ def resolve_server_zd_path(dexcli: Path) -> Path:
 
 # How many times PrivateDexEngine.start tries, each on new free ports, as the TypeScript core does.
 _ENGINE_START_ATTEMPTS = 3
-# A config file, unlike dexcli's --durability flag, also works with an older dexcli.
+# A config file also works with dexcli releases that predate --durability.
 _PROCESS_CRASH_SAFE_SERVER_ZD_CONFIG = "dev:\n  durabilityMode: processCrashSafe\n"
 
 

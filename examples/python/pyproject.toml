@@ -8,7 +8,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "dex-agents[litellm,mcp]",
-    "dex-python-sdk==1.30.0",
+    "dex-python-sdk==1.35.0",
     "flask>=3.0,<4",
     "mcp>=2.3,<3",
     "pydantic>=2.10.6,<3",

@@ -74,7 +74,13 @@ class AgentTestStack:
             worker_cwd: Working directory that makes ``worker_module`` importable.
             worker_env: Environment variables for every Worker child.
             server_zd_config: ``dex-server-zd`` YAML overrides for the engine,
-                such as a disabled Stream Store. ``None`` uses none.
+                such as a disabled Stream Store. ``None`` writes
+                ``zd-overrides.yaml`` with only
+                ``dev.durabilityMode: processCrashSafe``, which skips fsync and
+                survives a process kill, but not a host crash. A file of your
+                own replaces it, so set ``dev.durabilityMode`` there too, or the
+                engine uses the slower ``strict`` default of ``dex-server-zd``
+                0.1.18 and later.
         """
         self._state_dir = state_dir
         self._flows = tuple(flows)

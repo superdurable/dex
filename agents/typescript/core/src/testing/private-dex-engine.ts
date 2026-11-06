@@ -15,7 +15,7 @@ import { ChildProcessGroup } from "./child-process-group.js";
 
 const engineReadyLine = "Dex development environment is ready";
 const startAttempts = 3;
-// A config file, unlike dexcli's --durability flag, also works with an older dexcli.
+// A config file also works with dexcli releases that predate --durability.
 const processCrashSafeServerZdConfig = "dev:\n  durabilityMode: processCrashSafe\n";
 
 /** Options of {@link PrivateDexEngine.start}. */

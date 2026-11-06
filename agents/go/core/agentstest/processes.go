@@ -214,7 +214,8 @@ func (process *KillableProcess) ReadLog() (string, error) {
 	return string(content[process.logOffset:]), nil
 }
 
-// processCrashSafeServerZDConfig skips fsync; a config file, unlike --durability, works with an older dexcli.
+// processCrashSafeServerZDConfig skips fsync; a config file also works with dexcli releases that predate
+// --durability.
 const processCrashSafeServerZDConfig = "dev:\n  durabilityMode: processCrashSafe\n"
 
 // PrivateDexEngine runs one dexcli dev engine on free ports with its state in a directory.
@@ -225,7 +226,7 @@ type PrivateDexEngine struct {
 	stateDir string
 	dexcli   string
 	serverZD string
-	// serverZDConfig is a dex-server-zd YAML file, or "" for the defaults.
+	// serverZDConfig is a dex-server-zd YAML file, or "" for the processCrashSafe file Start writes.
 	serverZDConfig string
 	dexPort        int
 	webPort        int

@@ -1742,7 +1742,7 @@ real Dex Server with no model key:
 
 | Export | Purpose |
 | --- | --- |
-| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli`. The engine runs with `dev.durabilityMode: processCrashSafe`, which skips fsync and survives a process kill, through a `-zd-config` file that works with any `dexcli`. `serverZdConfigPath` passes `dex-server-zd` overrides instead, such as a disabled Stream Store; set `dev.durabilityMode` there too |
+| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli`. The engine runs with `dev.durabilityMode: processCrashSafe`, which skips fsync and survives a process kill, through a `-zd-config` file that also works with `dexcli` releases that predate `--durability`. `serverZdConfigPath` passes `dex-server-zd` overrides instead, such as a disabled Stream Store; set `dev.durabilityMode` there too |
 | `KillableWorkerProcess.start({ entryModulePath, serverAddress, logPath, environment })` | Worker child in its own process group; `kill()` sends SIGKILL to the group, `stop()` drains |
 | `runAgentWorkerProcess(flows)` | Body of the Worker child module; 8 concurrent tasks; prints `dex-agents test Worker ready` once registered |
 | `AgentTestEnvironment.start({ serverAddress, flows, isWorkerInProcess })` | Registry, BlobCache, Client, and optional in-process Worker with 8 concurrent tasks |

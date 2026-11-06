@@ -128,8 +128,7 @@ export async function runPaddedSession(
   const configDirectory = mkdtempSync(join(tmpdir(), "dex-agents-storage-session-"));
   const configPath = join(configDirectory, "server-zd.yaml");
   if (serverZdConfig !== undefined) {
-    // A config of its own replaces the test engine's process-crash-safe durability.
-    writeFileSync(configPath, `${serverZdConfig}dev:\n  durabilityMode: processCrashSafe\n`);
+    writeFileSync(configPath, withProcessCrashSafeDurability(serverZdConfig));
   }
   const engine = await PrivateDexEngine.start(
     serverZdConfig === undefined ? {} : { serverZdConfigPath: configPath },
@@ -257,3 +256,11 @@ export function storedBytesPerMessage(messages: readonly AgentMessage[]): number
   return storedBytes / messages.length;
 }
 
+/** Adds process-crash-safe durability, which a config of its own replaces, unless it sets `dev`. */
+function withProcessCrashSafeDurability(serverZdConfig: string): string {
+  if (/^dev\s*:/m.test(serverZdConfig)) {
+    return serverZdConfig;
+  }
+  const separator = serverZdConfig === "" || serverZdConfig.endsWith("\n") ? "" : "\n";
+  return `${serverZdConfig}${separator}dev:\n  durabilityMode: processCrashSafe\n`;
+}
