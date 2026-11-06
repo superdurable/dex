@@ -141,6 +141,10 @@ public final class Worker implements AutoCloseable {
      * Attribute indexes and opening the pull streams. If the waiting thread is interrupted, the worker
      * stops and restores the thread's interruption status before returning.
      *
+     * <p>Changed in 1.35.0: startup requires protocol 4 (server-zd 0.1.17 or newer) and fails
+     * without background retry if maxConcurrentTasks exceeds matching.maxConcurrentTasksCap.
+     * Readiness is based on registered slot kinds rather than individual routing queues.
+     *
      * @throws PullRegistrationError if an uncovered permanent stream rejection stops the Worker
      *     with stopOnPermanentStreamRejection enabled, before or after readiness
      * @throws IllegalStateException if the worker was already started or startup fails
@@ -184,6 +188,9 @@ public final class Worker implements AutoCloseable {
      * boolean isReady = worker.getPullRegistrationState().isReady();
      * }</pre>
      *
+     * <p>Changed in 1.35.0: registration covers STEP_AND_RPC and optional RPC_ONLY slot kinds.
+     * It does not depend on a free execution slot; a fully busy Worker remains ready.
+     *
      * @param timeout the nonnull, nonnegative maximum wait duration
      * @throws InterruptedException if the waiting thread is interrupted
      * @throws TimeoutException if the timeout expires before readiness
@@ -204,6 +211,7 @@ public final class Worker implements AutoCloseable {
      *
      * <p>Reserved execution slots prevent capacity declines. This method remains safe to call
      * concurrently and after shutdown.
+     * Changed in 1.35.0: this counter is deprecated and always returns zero.
      *
      * @return always zero
      * @deprecated reserved slots no longer decline tasks for capacity
@@ -279,6 +287,10 @@ public final class Worker implements AutoCloseable {
      * <p>The method is idempotent. The Worker drains for the configured stop timeout, then cancels
      * remaining handlers and waits for them to return. A handler ignoring cancellation can block
      * Stop. Interruption status is preserved.
+     *
+     * <p>Changed in 1.35.0: tasks returned during graceful shutdown without running consume no
+     * retry. Handlers finishing within the drain timeout send their results normally. Cancellation
+     * at the drain deadline fails an unfinished attempt as possibly run and consumes a retry.
      *
      * <p>Stop starts no new task. Idle streams half-close immediately and drop later task frames.
      * Busy streams finish their handler and send its final output before half-closing. Streams keep

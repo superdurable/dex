@@ -22,6 +22,19 @@ import java.util.concurrent.TimeUnit;
  * the handler or pass the method as a text-delta callback. The first nonempty chunk starts a
  * one-shot timer. The Worker automatically stops the timer and flushes remaining text before the
  * handler result or error is sent. Chunks are concatenated without separators and never split.
+ *
+ * <p>Empty chunks produce no message or implicit heartbeat. Unsent text is not restored on
+ * retry; previously emitted batches can repeat. This helper provides the same best-effort delivery
+ * as {@link Stream#write(Context, Object)}, not a durable checkpoint.
+ *
+ * <pre>{@code
+ * public StepDecision execute(Context context, String input) {
+ *     BufferedTextStream writer = BufferedTextStream.create(context, progress);
+ *     writer.write("Processing ");
+ *     writer.write(input);
+ *     return StepDecision.gracefulComplete(input);
+ * }
+ * }</pre>
  */
 public final class BufferedTextStream implements StepOutputFinalizer {
     /** Default one-shot flush interval. */

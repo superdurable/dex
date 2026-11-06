@@ -22,6 +22,12 @@ import java.time.Duration;
  * satisfied, Dex invokes the Step through an available Worker. Add a stable condition ID when
  * application code needs to inspect or skip a specific timer later.
  *
+ * <p>The delay starts when Dex applies the successful WaitFor result, not when this factory
+ * is called. This SDK sends whole seconds and discards fractional seconds. A zero duration is
+ * immediately eligible. Inspect the winning timer with {@link Context#hasTimerFired(int)} or
+ * make it eligible early with {@link Client#skipTimer}. Handler scheduling can occur later when
+ * a Worker becomes available; the timer does not promise an exact Java invocation time.
+ *
  * <pre>{@code
  * public Wait waitFor(Context context, Order input) {
  *     return Wait.until(Timer.byDuration(Duration.ofMinutes(10), "payment-timeout"));

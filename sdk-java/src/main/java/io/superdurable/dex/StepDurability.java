@@ -31,6 +31,13 @@ package io.superdurable.dex;
  * {@link StepOptions.Builder#executeDurability} to override one method on a specific Step; these
  * method-level choices take precedence over the Flow configuration.
  *
+ * <p>Changed in 1.35.0: SYNC also persists the attempt start before handing the task to a
+ * Worker. ASYNC can hand it out before the start is persisted. A server failure can roll back
+ * that ASYNC start and rerun the same attempt number without consuming a retry, possibly with
+ * different input. The two executions can overlap. An unpersisted ASYNC result can also replay
+ * later work that already started from it. Stream writes can repeat under the same source.
+ * A Worker disconnection after hand-out fails the attempt and consumes a retry in both modes.
+ *
  * <p>Wait-for and execute failure policies do not change this precedence. A Flow-wide asynchronous
  * default therefore applies to methods with failure policies unless the Step method overrides it.
  *

@@ -37,6 +37,8 @@ public final class PullRegistrationError extends IllegalStateException {
     /**
      * Returns the rejected slot kind through the legacy queue accessor.
      *
+     * <p>Changed in 1.35.0: this returns a slot kind instead of a Flow type or app Worker ID.
+     *
      * @return the slot kind name, rather than a single routing queue
      */
     public String getQueue() {

@@ -31,6 +31,8 @@ public final class PullQueueRegistrationState {
     /**
      * Returns the slot kind through the legacy queue accessor.
      *
+     * <p>Changed in 1.35.0: this returns a slot kind instead of a Flow type or app Worker ID.
+     *
      * @return POLL_WORKER_SLOT_KIND_STEP_AND_RPC or POLL_WORKER_SLOT_KIND_RPC_ONLY
      */
     public String getQueue() {

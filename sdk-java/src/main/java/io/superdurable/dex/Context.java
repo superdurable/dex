@@ -42,6 +42,10 @@ public interface Context {
     /**
      * Returns the current Flow run ID.
      *
+     * <p>The Flow ID identifies the logical Flow; the run ID identifies this execution. Time
+     * travel creates a new run ID. Use the Flow ID and Step execution ID for effect deduplication
+     * within one Step execution, rather than the attempt number.
+     *
      * @return the run ID
      */
     String getRunId();
@@ -81,12 +85,20 @@ public interface Context {
     /**
      * Returns when the first attempt of the current method began.
      *
+     * <p>This is metadata supplied by Dex, not the current attempt deadline. The Java Context
+     * does not expose an absolute deadline accessor. Configure method timeouts through
+     * {@link StepOptions} and honor interruption when Dex cancels an expired invocation.
+     *
      * @return the first-attempt timestamp
      */
     Instant getFirstAttemptAt();
 
     /**
      * Returns the one-based attempt number of the current method invocation.
+     *
+     * <p>WaitFor and Execute count independently. A normal failed attempt consumes a retry.
+     * Changed in 1.35.0: an ASYNC start lost in a server failure can rerun with the same attempt
+     * number, possibly overlapping its previous execution. This number is not a deduplication key.
      *
      * @return the current attempt number
      */
@@ -139,6 +151,8 @@ public interface Context {
      * write also acts as a heartbeat and preserves the most recently reported details. Heartbeats
      * behave the same with either Step durability. This method sends directly
      * on the invocation's response stream and must be called only from the handler thread.
+     * Returning confirms local sending only; it does not acknowledge checkpoint storage, including
+     * for SYNC Steps. A retry can therefore receive an older checkpoint.
      *
      * <pre>{@code
      * public StepDecision execute(Context context, Batch input) {

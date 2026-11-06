@@ -15,7 +15,26 @@ package io.superdurable.dex;
  *
  * <p>Register the exact definition in one {@link PersistenceSchema}. All instances of that Flow
  * type share the approximate byte budget. Step writes are immediate and do not roll back when the
- * handler later fails.
+ * handler later fails. A disabled, full, unavailable, or rejecting Stream Store can drop
+ * messages without failing the Step. Use Attributes, an RPC, or the Flow result as authoritative
+ * state when a consumer must recover from lost progress messages.
+ *
+ * <p>Step messages have source {@code #StepExecutionID}, shared by every attempt of that
+ * Step execution. A source is informational and does not deduplicate writes. Changed in 1.35.0:
+ * ASYNC can rerun the same attempt number after a server failure and repeat messages in that source.
+ *
+ * <pre>{@code
+ * private final Stream<String> progress = Stream.define("progress", String.class, 1048576L);
+ *
+ * public PersistenceSchema getPersistenceSchema() {
+ *     return PersistenceSchema.of(progress);
+ * }
+ *
+ * public StepDecision execute(Context context, String input) {
+ *     progress.write(context, "Processing " + input);
+ *     return StepDecision.gracefulComplete(input);
+ * }
+ * }</pre>
  *
  * @param <T> the message type
  */
@@ -47,6 +66,7 @@ public final class Stream<T> extends PersistenceDefinition {
      * @param streamCapacityBytes the positive approximate shared byte budget
      * @param <T> the message type
      * @return an immutable Stream definition
+     * @throws IllegalArgumentException if the name is invalid, the class is null, or capacity is not positive
      */
     public static <T> Stream<T> define(
             final String name,
@@ -59,8 +79,10 @@ public final class Stream<T> extends PersistenceDefinition {
      * Appends one message immediately from the current Step execution.
      *
      * <p>This method sends a fire-and-forget frame to Dex. It may be called repeatedly for the same
-     * Stream. Each frame also acts as an implicit activity heartbeat. Storage failures do not fail
+     * Stream. Each frame also acts as an implicit Step heartbeat. Storage failures do not fail
      * the Step, but local validation, serialization, or transport failures may throw.
+     * A write preserves the last explicit heartbeat checkpoint, including a cleared checkpoint.
+     * Use {@link BufferedTextStream} for small text deltas instead of writing each token separately.
      *
      * @param context the current Step Context; RPC and Flow timeout Contexts are rejected
      * @param value the typed message to append

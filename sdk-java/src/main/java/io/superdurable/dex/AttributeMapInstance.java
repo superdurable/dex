@@ -32,6 +32,7 @@ package io.superdurable.dex;
  * Optional<Note> firstNote = values.get(notes.instance("n1"));
  * }</pre>
  *
+ * @since 1.31.0
  * @param <T> the Java value type stored in every instance of the AttributeMap
  */
 public final class AttributeMapInstance<T> implements AttributeRead<T> {

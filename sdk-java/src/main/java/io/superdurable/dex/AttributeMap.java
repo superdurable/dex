@@ -256,6 +256,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      *
      * @param instance the non-blank logical instance key; it must not contain {@code /}
      * @return an immutable selector for this AttributeMap object and {@code instance}
+     * @since 1.31.0
      * @throws IllegalArgumentException if {@code instance} is {@code null}, blank, or contains
      *     {@code /}
      */

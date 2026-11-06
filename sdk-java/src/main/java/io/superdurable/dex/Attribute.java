@@ -22,6 +22,11 @@ import java.util.Objects;
  * concrete class whose field is a {@code List<String>}, or use {@code String[]} when an array fits
  * the data model.
  *
+ * <p>Writes through a handler Context are staged until its successful result is committed;
+ * reads in that invocation also see its staged writes. A failed invocation does not commit them.
+ * External readers use {@link Client#getAttributes(String, AttributeRead...)} for committed state.
+ * Concurrent writers that need serialization must participate in {@link AttributeLock} locking.
+ *
  * <pre>{@code
  * private final Attribute<Integer> counter =
  *         Attribute.define("counter", Integer.class);

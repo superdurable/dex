@@ -103,12 +103,24 @@ import java.util.concurrent.locks.ReentrantLock;
  * request does. The next call retries the check. The check counts against the call's request
  * timeout and gRPC Context deadline.
  *
+ * <p>Changed in 1.35.0: the minimum server protocol is 4 (server-zd 0.1.17 or newer).
+ * Upgrade the server before upgrading the SDK. A Step with no available Worker now waits in
+ * Dex's durable queue without consuming a retry. RPC calls still require an available Worker
+ * and fail rather than queue indefinitely.
+ *
  * <p>All network methods block the calling thread until the gRPC request completes. Create one
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
  * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
  * by the client. Service failures use typed {@link DexServiceException} subclasses. Long-poll
  * operations can throw {@link LongPollTimeoutException}. {@link #waitForFlow(String)} returns a
  * {@link FlowResult} for every terminal status.
+ *
+ * <p>A {@link io.superdurable.dex.exceptions.FlowClosingException} means Dex rejected a request
+ * during Flow close. Re-read retained terminal state before deciding what to do next. This error
+ * does not prove an earlier request succeeded. Use named exception classes and their status
+ * accessors rather than matching message text. Durable Step and Attribute waits transparently
+ * reattach after transport long-poll expiry; {@link RequestTimeoutException} means the total
+ * caller-visible request budget expired, not that the Flow or awaited condition failed.
  *
  * <pre>{@code
  * Registry registry = new Registry(Collections.<Flow<?>>singletonList(orderFlow));
@@ -194,6 +206,11 @@ public final class Client implements AutoCloseable {
     /**
      * Starts a registered Flow using default start options.
      *
+     * <p>Returns after Dex accepts the start, without waiting for a Step to run or the Flow to
+     * complete. No Flow timeout is set by default. Use {@link StartFlowOptions} for timeouts,
+     * request deduplication, and Flow ID reuse, then {@link #waitForFlow(String)} for completion.
+     * The class example shows this start, RPC, and completion lifecycle.
+     *
      * @param flow the exact Flow instance registered with this client
      * @param flowId the nonblank application-assigned Flow ID
      * @param input the typed start-Step input, or {@code null} for a Flow without a start Step
@@ -214,6 +231,12 @@ public final class Client implements AutoCloseable {
 
     /**
      * Starts a registered Flow with explicit start options.
+     *
+     * <p>Acceptance and completion have the same meaning as
+     * {@link #startFlow(Flow, String, Object)}. Initial Attributes are part of the accepted start.
+     * Reuse a request ID only for the same logical start; see {@link StartFlowOptions}.
+     * To make a lost-response retry return the existing run, supply that same request ID and
+     * enable {@link StartFlowOptions.Builder#ignoreAlreadyStarted(boolean)} together.
      *
      * @param flow the exact Flow instance registered with this client
      * @param flowId the nonblank application-assigned Flow ID
@@ -506,10 +529,15 @@ public final class Client implements AutoCloseable {
     /**
      * Invokes a function-style RPC with one input and returns its typed output.
      *
-     * <p>A non-transactional RPC without Attribute locks starts from a backend query. A
+     * <p>A non-transactional RPC without Attribute locks starts with a read-only invocation. A
      * retained terminal execution can serve the query when the handler returns no durable effects.
      * Locks, transactional execution, returned effects, or server policy can require an active
      * execution.
+     *
+     * <p>The call blocks until the output is decoded. RPCs do not use Step retry policies.
+     * A lock conflict fails immediately; retry that exception with application backoff and keep
+     * the operation idempotent. No available Worker produces a service error after the dispatch
+     * wait, which is bounded by the caller's deadline. The class example shows a typed stub call.
      *
      * @param rpcStubMethod a direct method reference from a stub created by this client
      * @param input the typed RPC input
@@ -853,6 +881,12 @@ public final class Client implements AutoCloseable {
     /**
      * Stops a running Flow with explicit terminal behavior.
      *
+     * <p>The default is cooperative cancellation; {@link StopType} also supports termination
+     * and failure. This request does not wait for application threads or external side effects
+     * to stop. Handlers must honor interruption and keep effects idempotent. Use
+     * {@link #waitForFlow(String)} to observe the terminal Flow result. See
+     * {@link StopFlowOptions} for a complete stop example.
+     *
      * @param flowId the target Flow ID
      * @param stopOptions the stop mode and optional reason
      * @throws FlowNotActiveOrNotFoundException if the target Flow has no active execution
@@ -869,6 +903,11 @@ public final class Client implements AutoCloseable {
 
     /**
      * Blocks until a Flow reaches any terminal status.
+     *
+     * <p>Returns failed, canceled, timed-out, and terminated results as well as successful ones;
+     * inspect {@link FlowResult#getStatus()} before decoding completion outputs. This overload
+     * imposes no overall timeout. A transport or caller deadline can still end the request.
+     * Use the duration overload for a bounded long poll. The class example shows a completion wait.
      *
      * @param flowId the target Flow ID
      * @return the terminal Flow result
@@ -938,6 +977,9 @@ public final class Client implements AutoCloseable {
      * selected with {@link AttributeMap#instance(String)}. To read one value, pass a single read.
      * The returned {@link AttributeValues} maps each read to an {@link Optional} of its typed
      * value. An unset Attribute or AttributeMap instance reads as {@link Optional#empty()}.
+     * A stored value that decodes to null also reads as Optional.empty() because Optional cannot
+     * hold null. Empty strings, zero, and false remain present values.
+     * The read acquires no Attribute locks; use an RPC for an atomic read-modify-write.
      *
      * <p>The Client sends all keys in one FlowService request, so every value comes from the same
      * committed state. No Worker runs, so the call works while no Worker is available. The read
@@ -990,6 +1032,7 @@ public final class Client implements AutoCloseable {
      * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
      *     the same Attribute or AttributeMap instance are rejected
      * @return the decoded values, with one entry for every read
+     * @since 1.31.0
      * @throws IllegalArgumentException before any request when {@code flowId} is blank, no read is
      *     passed, a read is {@code null} or is not an {@link Attribute} or
      *     {@link AttributeMapInstance}, or two reads select the same physical key
@@ -1034,6 +1077,7 @@ public final class Client implements AutoCloseable {
      * @param reads at least one {@link Attribute} or {@link AttributeMapInstance}; two reads of
      *     the same Attribute or AttributeMap instance are rejected
      * @return the decoded values, with one entry for every read
+     * @since 1.31.0
      * @throws IllegalArgumentException before any request when {@code flowId} is blank,
      *     {@code reads} is {@code null} or empty, a read is {@code null} or is not an
      *     {@link Attribute} or {@link AttributeMapInstance}, or two reads select the same physical
@@ -1335,7 +1379,8 @@ public final class Client implements AutoCloseable {
      * Blocks until a specific Step execution completes or its caller-visible request expires.
      * The server derives a stable Request ID from the Step execution when none is supplied.
      * Request timeout covers transparent transport reattachments. Internal handler timeout controls
-     * Temporal Update generation rollover and does not end this request.
+     * the lifetime of each server-side wait and does not end this request. An active caller
+     * transparently reattaches when that wait ends.
      *
      * @param flowId the target Flow ID
      * @param stepExecutionId the Step execution to observe
@@ -1390,8 +1435,13 @@ public final class Client implements AutoCloseable {
     /**
      * Blocks until a singleton Attribute satisfies a scalar match or its request timeout expires.
      * The server derives a stable Request ID from the condition when none is supplied.
+     * Missing Attributes never match. Strings and booleans support equality and inequality;
+     * numeric values also support ordered comparisons. The returned value is current state when
+     * the condition matches, so rapid revisions may coalesce. See {@link AttributeMatch} for
+     * constructing typed conditions.
      * Request timeout covers transparent transport reattachments. Internal handler timeout controls
-     * Temporal Update generation rollover and does not end this request.
+     * the lifetime of each server-side wait and does not end this request. An active caller
+     * transparently reattaches when that wait ends.
      *
      * @param flowId the target Flow ID
      * @param attribute the registered Attribute definition
