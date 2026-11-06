@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.67.0 - 2026-11-05
+
+- Describe Dex as source-available instead of open-source in the skill descriptions, the `dex-app-builder` guidance, and the repository agent rules, because the Dex server engine is under the Sustainable Use License. Rename the "Open-source product boundary" rule to "Public product boundary" with the same meaning, and update the matching `check-package.py` statement. The Dex Connector library keeps its description as open source because it is MIT-licensed. Synchronize the bundle and plugin manifests at 0.67.0.
+
 ## 0.66.0 - 2026-11-02
 
 - Correct the Core AI agents guidance that said never to cancel an in-flight model or tool invocation. Steering still applies at safe Step boundaries and never abandons a started side effect. A user's Stop may cancel Steps that have no external effect or are only waiting, such as model calls and Timer waits, with RPC canceling steps, then resolve the turn from committed state in a follow-up Step; a started non-idempotent tool runs to the end. Describe the race between the RPC's snapshot and a Step that commits first, and resolve it with a stop request that every loop Step checks, an idempotent resolution Step, and a shared turn state lock.

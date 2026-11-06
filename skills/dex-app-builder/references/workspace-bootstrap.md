@@ -25,7 +25,7 @@ requested standalone `dex-sdk` project without those capabilities.
 
 ## Effectively empty repository
 
-Create a Go application that depends only on open-source Dex:
+Create a Go application that depends only on source-available Dex:
 
 1. Install `dexcli` with the supported package for the platform (on macOS,
    `brew install superdurable/tap/dexcli`) and run `dexcli version`.

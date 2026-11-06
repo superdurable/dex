@@ -13,7 +13,7 @@ publisher, while the stable plugin ID remains `superdurable-dex`.
 
 | Skill | Responsibility |
 | --- | --- |
-| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a Go backend and UI, and verify locally with open-source Dex. |
+| `dex-app-builder` | Discover the business process, model Flows and FDG, implement a Go backend and UI, and verify locally with source-available Dex. |
 | `dex-sdk` | Implement, debug, test, and operate Dex applications in Python, Go, Java, TypeScript, or Rust. |
 | `dex-connector-contributor` | Create, verify, and upstream official connector operations, Triggers, and configuration UI units. |
 
@@ -287,7 +287,7 @@ The project dependency and lockfile remain authoritative when versions differ.
 
 ## Dex App Builder
 
-`dex-app-builder` builds a Dex application with open-source Dex only: the Dex
+`dex-app-builder` builds a Dex application with source-available Dex only: the Dex
 Go SDK, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server
 (server-zd), Dex Web, and released official connectors.
 

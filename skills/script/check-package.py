@@ -112,7 +112,7 @@ SOURCE_MARKER = re.compile(r"<!-- dex-source: ([^\s]+) -->")
 FLOATING_SOURCE_LINK = re.compile(
     r"https://github\.com/superdurable/dex/(?:blob|tree)/main/"
 )
-# Dex Skills documents open-source Dex only; reject a downstream product name.
+# Dex Skills documents source-available Dex only; reject a downstream product name.
 DOWNSTREAM_PRODUCT_NAME = re.compile(r"super[\s_-]*verse", re.IGNORECASE)
 
 
@@ -480,7 +480,7 @@ def check_app_builder() -> None:
         "## Deployed configuration and credential boundary",
         "plaintext development store",
         "Business code neither reads credential objects",
-        "Open-source Dex provides no deployed Connector configuration",
+        "Source-available Dex provides no deployed Connector configuration",
         "`sdkgo/projectconfig`",
         "`projectconfig.LoadFromEnvironment`",
         "`NewProjectConnection(project, connectionName)`",
