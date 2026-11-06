@@ -86,7 +86,7 @@ the harness segment limit (O6).
 | O4 | Spend limits | Scope |
 | O5 | Session scale test | Scope |
 | O6 | Harness segment limit | Scope |
-| O7 | Stream durability | Requirement first, needs an owner decision |
+| O7 | Stream durability | Closed, no requirement |
 
 ## O1. Connector tools
 
@@ -449,12 +449,10 @@ guarantee.
 
 ## O7. Stream durability
 
-No design yet. The Stream primitive says it "gives up durability for speed", and
-[#1275](https://github.com/superdurable/dex/pull/1275) kept memory and best effort.
-Clients recover from a snapshot. After a takeover, a client loses partial text of the
-running attempt and the event tail, and the final message survives in Attributes.
-
-Needs: a stated requirement that this does not meet. Without one, this item closes.
+Closed. The Stream primitive says it "gives up durability for speed", and
+[#1275](https://github.com/superdurable/dex/pull/1275) kept memory and best effort. After a
+takeover, a client loses partial text of the running attempt and the event tail. The final
+message survives in Attributes, and clients recover from a snapshot. No requirement needs more.
 
 ## Prior art
 
@@ -498,20 +496,38 @@ O2 is the UI work of this plan.
 
 Native Dex Web units are the standard. The view works with Workers down, except for actions that need an RPC, which are disabled with a reason.
 
-## Decisions for the owner
+## Decisions
 
-1. **Fence and effect class.** May a fenced Mutation run in `CallTool` with retries?
-2. **Fence after #1253.** The engine now refuses to rerun a started attempt under the
-   same number. Should the fence stay as it is?
-3. **Approval marker.** Add an optional manifest field for high-risk operations,
-   leaving the core's rule unchanged?
-4. **Write ordering.** Run writes of one turn in order, instead of in parallel?
-5. **Action permission from the agent view.** The agent view invokes `resolve_interrupt`
-   directly and takes its permission from the Action declaration. Does that fit the
-   Action gateway model?
-6. **Indexed Attribute.** Add `AgentAttention` to the persisted schema?
-7. **Retention.** May adapters have retention without a summary?
-8. **Streams.** Is there a requirement for O7, or does it close?
+**Decided, with reasons.**
+
+1. **A fenced Mutation runs in `CallTool` with retries.** The fence refuses a second send,
+   so a retry reads back instead of sending. This settles more calls than recording
+   `outcome_unknown` at once. It depends on the fence spike (O1-3, O1-4).
+2. **The single-dispatch fence stays.** #1253 stops the same attempt being delivered again.
+   The fence stops a later attempt from sending again. A retry after a Worker death is a
+   new attempt, so #1253 does not replace it.
+3. **High-risk operations carry an optional manifest marker.** Mutations run without
+   approval by default, because approving every message makes an always-on agent unusable.
+   The core's approval rule does not change. Only reviewed operations are offered to agents.
+4. **Python and TypeScript gain Actions.** This is a port of the Go design to two SDKs and
+   two analyzers. It goes through normal SDK review.
+5. **O7 closes.** No requirement exists that Streams do not meet. A new requirement reopens it.
+
+**Still to settle before review.**
+
+6. **Write ordering in one turn.** See O1, "Write ordering".
+7. **`AgentAttention`.** See O2, "Rules for `AgentAttention`".
+
+**For the owner.**
+
+8. **Action permission from the agent view.** Approvals are per tool call and an Action is
+   per run, so the agent view invokes `resolve_interrupt` directly and takes its permission
+   from the Action declaration. The Dex Web reference says an Action gateway authorizes the
+   selected RPC. Does this direct call fit that model, or should it pass through the gateway?
+9. **Retention without a summary, after O3 is measured.** The current rule deletes a chunk
+   only behind a summary, so adapters never run retention. If the measurement confirms a hard
+   session lifetime, the options are compaction per adapter, or retention without a summary
+   for adapters. The second changes a rule set in the M2 review.
 
 ## Non-goals
 
