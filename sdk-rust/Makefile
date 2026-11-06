@@ -17,5 +17,5 @@ integration-test:
 	./run-integration-tests.sh
 
 unit-test:
-	cargo test --locked -p dex-sdk --lib --test compile_contracts --test error_contracts
+	cargo test --locked -p dex-sdk --lib --test compile_contracts --test error_contracts --test flow_service_tls
 	cargo test --locked -p dex-sdk --doc

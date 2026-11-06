@@ -45,8 +45,8 @@ pub use api_key_credential::{ApiKeyCredential, ApiKeyCredentialBuilder, ApiKeyCr
 /// should refresh in the background and return a cached token. An error fails the request locally
 /// with gRPC `Unauthenticated`. Pull Worker streams evaluate the token when each stream opens; a
 /// failed open normally backs off for about one minute. An API-key credential can reconnect once
-/// immediately after a token rejection. The token travels over Dex's plaintext gRPC connection,
-/// so protect the network path.
+/// immediately after a token rejection. The token travels over the configured FlowService connection.
+/// Enable [`crate::FlowServiceTlsOptions`] to protect it on the network.
 ///
 /// ```no_run
 /// use std::sync::{Arc, RwLock};

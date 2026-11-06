@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use crate::Credential;
+use crate::{Credential, FlowServiceTlsOptions};
 
 #[derive(Clone, Debug)]
 /// Configures how a [`crate::Client`] reaches Dex.
@@ -18,6 +18,7 @@ use crate::Credential;
 pub struct ClientOptions {
     server_address: String,
     credential: Option<Arc<dyn Credential>>,
+    flow_service_tls: Option<FlowServiceTlsOptions>,
 }
 
 impl ClientOptions {
@@ -26,20 +27,34 @@ impl ClientOptions {
         Self {
             server_address: "127.0.0.1:8801".to_string(),
             credential: None,
+            flow_service_tls: None,
         }
     }
 
-    /// Sets the plaintext gRPC `host:port` used for every client request.
+    /// Sets the FlowService address used for every Client request.
+    ///
+    /// With TLS, accepts `host:port`, `dns:///host:port`, or `dns://authority/host:port`.
     pub fn server_address(mut self, value: impl Into<String>) -> Self {
         self.server_address = value.into();
+        self
+    }
+
+    /// Enables TLS for every outbound Client FlowService connection.
+    ///
+    /// Omitted by default, preserving plaintext gRPC. Takes ownership of `value` and returns
+    /// these options with TLS enabled. [`crate::Client::try_new`] validates the address,
+    /// additional roots, and server name, returning [`crate::SdkError::InvalidArgument`] for
+    /// invalid input. See [`FlowServiceTlsOptions`] for defaults and a complete example.
+    pub fn flow_service_tls(mut self, value: FlowServiceTlsOptions) -> Self {
+        self.flow_service_tls = Some(value);
         self
     }
 
     /// Sends a bearer token before every FlowService request.
     ///
     /// The default sends no authorization metadata. The credential may be called concurrently;
-    /// its error fails the request locally. The token uses the plaintext Dex connection, so
-    /// protect the network path. See [`crate::FileCredential`] for file rotation.
+    /// its error fails the request locally. The token uses the configured Dex connection. Enable
+    /// TLS with [`Self::flow_service_tls`] to protect it. See [`crate::FileCredential`] for file rotation.
     pub fn credential(mut self, value: Arc<dyn Credential>) -> Self {
         self.credential = Some(value);
         self
@@ -47,6 +62,10 @@ impl ClientOptions {
 
     pub(crate) fn server_address_value(&self) -> &str {
         &self.server_address
+    }
+
+    pub(crate) fn flow_service_tls_value(&self) -> Option<&FlowServiceTlsOptions> {
+        self.flow_service_tls.as_ref()
     }
 
     pub(crate) fn credential_value(&self) -> Option<Arc<dyn Credential>> {
