@@ -19,31 +19,44 @@ comments describe each API in its own language.
 
 **StartFlowOptions** can set initial Attributes when the Flow is created.
 Initial values and Flow creation are one operation, so the first Step sees them
-immediately. See [Flow options](/primitives/flow/flow-options#attributes).
+immediately. See [Attributes](/reference/server/runtime-steps#attributes) in
+StartFlowOptions.
 
 Applications use Flow RPCs to write Attributes after a Flow starts. A Client can
 also use **WaitForAttributeMatch** to wait until a singleton Attribute or one
 AttributeMap instance satisfies a scalar comparison. The call returns the
 matched current value. See
-[Client](/primitives/client/advanced#wait-for-an-attribute-match).
+[Wait for an Attribute match](/reference/server/runtime-client#wait-for-an-attribute-match).
 
 ### Read Attributes from outside a Flow {#read-attributes-from-outside-a-flow}
 
 Application code outside the Flow reads Attribute values with the Client's
 **GetAttributes** call. One call reads any mix of singleton Attributes and
-AttributeMap instances, and all values come from the same commit. Dex Server
-answers the read itself, so no RPC handler or Worker runs.
+AttributeMap instances.
 
-The call reads the current run, or the latest run when no run is open. A closed
-run stays readable until Dex purges it. The call sees only committed state,
-while an RPC handler also sees its own earlier writes in the same invocation.
-Dex Server resolves hard-delete values before it responds, and a deleted value
-reads as unset, like any Attribute without a stored value.
+The read has these semantics:
+
+- **One commit.** The Client sends every read in one server request. All values
+  come from the same committed state.
+- **Current or latest run.** The call reads the current run, or the latest run
+  when no run is open. A closed run stays readable until Dex purges it.
+- **No Worker.** The server answers the read itself. It dispatches nothing to a
+  Worker, uses no Worker capacity, and works while no Worker is running.
+- **Committed state only.** The call does not see writes that a running Step or
+  RPC has made but not yet committed. An RPC handler, by contrast, also sees
+  the writes it made earlier in the same invocation.
+- **No locks.** **GetAttributes** takes no Attribute locks. Use an RPC for a
+  read-modify-write.
+- **Large and hard-delete values.** The server resolves
+  [hard-delete](#hard-delete-attributes) values before it
+  responds, and a deleted value reads as unset. The Client loads other large
+  values from blob storage, then decodes every value with its definition. The
+  call returns values only after all of them decode.
 
 An RPC remains the right choice when the read needs Flow-side validation,
 authorization, a derived view, or Attribute locks. See
-[Client: Read Attributes](/primitives/client/basic#read-attributes) for the
-example, the unset value in each SDK, and the errors.
+[Client requests: Read Attributes](/reference/server/runtime-client#read-attributes)
+for the example, the unset value in each SDK, and the errors.
 
 ### Indexes {#attribute-indexes}
 
@@ -645,7 +658,7 @@ type: **with_canceling_steps** in Python, **CancelSteps** in Go,
 **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no
 parent Step execution, so it cannot cancel sibling Steps. A Step can cancel
 other Steps the same way from its
-[StepDecision](/primitives/step/step-decision#cancellation-on-stepdecision).
+[StepDecision](/reference/server/runtime-steps#cancellation-on-stepdecision).
 
 In the example, **GenerateReport** writes a report section by section. The
 **stop_report** RPC cancels it and starts **FinishReportStop**.
@@ -957,7 +970,7 @@ still running, Dex closes the Worker stream that carried it. The handler keeps
 running inside the Worker process until it returns, and its external calls
 still take effect. A canceled attempt may also have done part of its work before
 it stopped. Keep its external effects idempotent. See
-[Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
+[Failure and redelivery](/reference/server/runtime-steps#failure-and-redelivery).
 
 ### Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
 

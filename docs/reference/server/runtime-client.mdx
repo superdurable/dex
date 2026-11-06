@@ -17,7 +17,7 @@ accepts the request. It takes a registered Flow, a business **Flow ID**, the
 start Step input, and **StartFlowOptions**.
 
 The Flow ID is the identity your application chooses. The server creates the
-Run ID. See [Flow options](/primitives/flow/flow-options) for the timeout,
+Run ID. See [StartFlowOptions](/reference/server/runtime-steps#start-flow-options) for the timeout,
 request idempotency, ID reuse, retry, initial Attributes, and configuration
 overrides.
 
@@ -53,24 +53,9 @@ outside the Flow. Pass one read per value: a singleton Attribute, or one
 AttributeMap instance. The API has only a batch form. To read one value, pass
 one read.
 
-The read has these semantics:
-
-- **One commit.** The Client sends every read in one server request. All values
-  come from the same committed state.
-- **Current or latest run.** The call reads the current run, or the latest run
-  when no run is open. A closed run stays readable until Dex purges it.
-- **No Worker.** The server answers the read itself. It dispatches nothing to a
-  Worker, uses no Worker capacity, and works while no Worker is running.
-- **Committed state only.** The call does not see writes that a running Step or
-  RPC has made but not yet committed. An RPC handler, by contrast, also sees
-  the writes it made earlier in the same invocation.
-- **No locks.** **GetAttributes** takes no Attribute locks. Use an RPC for a
-  read-modify-write.
-- **Large and hard-delete values.** The server resolves
-  [hard-delete](/primitives/attribute#hard-delete-attributes) values before it
-  responds, and a deleted value reads as unset. The Client loads other large
-  values from blob storage, then decodes every value with its definition. The
-  call returns values only after all of them decode.
+See [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)
+for the read semantics: one commit, the current or latest run, no Worker,
+committed state only, no locks, and large and hard-delete values.
 
 The Rust call blocks the calling thread, like every other Rust Client method. It
 takes a tuple of 1 to 12 reads and returns a tuple of the same size. To read
@@ -334,11 +319,9 @@ condition index.
 
 ## Update FlowConfig {#update-flowconfig}
 
-**UpdateFlowConfig** changes the **FlowConfig** of an active Flow. Send only the
-fields you want to change. The update does not change the Flow's Worker routing.
-See
-[Update FlowConfig with a Client](/primitives/flow/flow-options#update-flow-config-with-a-client)
-for the fields.
+**UpdateFlowConfig** changes the **FlowConfig** of an active Flow. See
+[Update FlowConfig with a Client](/reference/server/runtime-steps#update-flow-config-with-a-client)
+for the merge rules and the fields.
 
 ## TriggerContinueAsNew {#trigger-continue-as-new}
 
