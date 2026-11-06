@@ -103,6 +103,31 @@ dexcli dev --flow-rendering-dir ./build
 
 Version 1 仍是默认 analyzer schema，并支持 Go 与 Python。Version 2 第一版只支持 Go。Version 1 与 Version 2 definition 可以共存。Dex Web 会在启动时拒绝格式错误的 Version 2 文件，以及同一 Flow type 的多个有效 Version 2 definition。例如，两个 package main 二进制都定义了 **main.Flow** 时，它们会解析为同一个 Flow type，错误信息会列出这两个文件。Analyzer 输出中的 **valid: false** 文件仍可在 **v1** Flow Rendering 中查看 diagnostic，但不会作为 **v2** Flow type 出现。
 
+## 用 dexcli web 查看远程 server {#dexcli-web}
+
+**dexcli web** 用同一个内嵌 UI 连接已有的 server。它不会启动 server。它连接全局 **--server**
+地址，使用与其他 **dexcli** 命令相同的 TLS 和 credential 设置。
+
+远程 server 的 FlowService 端口只绑定在远程主机的 loopback 地址上时，请通过 SSH tunnel 访问它。
+保持 tunnel 运行，然后在本机启动 Dex Web：
+
+~~~bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:8801 web
+~~~
+
+打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)。该命令接受 **--bind-address**（默认
+**127.0.0.1**）、**--web-port**（默认 **8802**）、**--flow-rendering-dir** 和 **--open**
+（默认 true）。Ctrl+C 会停止 Dex Web，server 继续运行。
+
+打印地址之前，**dexcli web** 会调用 FlowService **HealthCheck**。server 或 tunnel 不可达时，
+命令会失败。它还会检查协议兼容性，不兼容时打印警告。**--timeout** 只限制这些启动检查，不限制
+运行中的 Dex Web。Connector 设置被禁用，因为 Connector 配置属于本地 **dexcli dev** 环境。
+
+Dex Web 没有身份认证。任何能访问其端口的人都可以用你的 credential 操作 server 上的 Flow。
+请让 **--bind-address** 保持为 loopback 地址；使用其他地址时 **dexcli web** 会打印警告。
+同时让 server 的 FlowService 端口保持绑定在远程主机的 loopback 地址上，使 SSH tunnel 成为唯一入口。
+
 ## 具名 directive
 
 Version 2 directive 使用具名值。同一行内的参数位置没有语义。包含空格的字符串使用 JSON 双引号，多值使用 JSON array。

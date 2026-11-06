@@ -110,6 +110,23 @@ history and process listings. Without **--tls**, the FlowService connection is
 plaintext gRPC and the token crosses the network unencrypted. Enable TLS or
 protect the network path.
 
+## View a remote server in Dex Web {#web}
+
+**web** serves Dex Web against the existing server given by **--server**. It
+does not start a server. To reach a server whose FlowService port is bound only
+to the remote host's loopback address, open an SSH tunnel first:
+
+```bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:8801 web
+```
+
+Then open [http://127.0.0.1:8802](http://127.0.0.1:8802). Startup fails when **HealthCheck** cannot reach
+the server. **--timeout** bounds only the startup checks. Dex Web has no
+authentication, so keep **--bind-address** on loopback. See
+[View a remote server with dexcli web](/production/dex-web#dexcli-web) for every
+flag.
+
 ## Friendly Flow operations
 
 Use **flow search**, **summary**, **state**, **history**, and **inspect** for bounded JSON

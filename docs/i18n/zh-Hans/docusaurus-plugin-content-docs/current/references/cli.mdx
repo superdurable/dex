@@ -102,6 +102,20 @@ CLI 不提供原始 token flag，因为 command 参数可能出现在 shell hist
 未使用 **--tls** 时，FlowService 使用明文 gRPC connection，token 会以未加密形式经过网络。
 请启用 TLS 或保护其 network path。
 
+## 在 Dex Web 中查看远程 server {#web}
+
+**web** 让 Dex Web 连接 **--server** 指定的已有 server。它不会启动 server。要访问 FlowService
+端口只绑定在远程主机 loopback 地址上的 server，请先打开 SSH tunnel：
+
+```bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:8801 web
+```
+
+然后打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)。**HealthCheck** 无法访问 server 时，启动会失败。**--timeout**
+只限制启动检查。Dex Web 没有身份认证，所以请让 **--bind-address** 保持为 loopback 地址。
+全部 flag 见[用 dexcli web 查看远程 server](/production/dex-web#dexcli-web)。
+
 ## 易用的 Flow 操作
 
 使用 **flow search**、**summary**、**state**、**history** 和 **inspect** 获取有界的

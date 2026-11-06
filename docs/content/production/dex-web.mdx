@@ -117,6 +117,38 @@ Each definition uses the Flow type and Step types that your Workers register, as
 
 Version 1 remains the default analyzer schema and supports Go and Python. Version 2 currently supports Go only. Version 1 and Version 2 definition files can coexist. Dex Web rejects malformed Version 2 files and duplicate valid definitions for the same Flow type at startup. For example, two package-main binaries that both define **main.Flow** resolve to one Flow type, and the error names both files. An analyzer result with **valid: false** remains available on **v1** Flow Rendering but does not appear as a **v2** Flow type.
 
+## View a remote server with dexcli web {#dexcli-web}
+
+**dexcli web** serves the same embedded UI against an existing server. It does
+not start a server. It connects to the global **--server** address with the
+same TLS and credential settings as other **dexcli** commands.
+
+When the FlowService port of a remote server is bound only to the remote host's
+loopback address, reach it through an SSH tunnel. Keep the tunnel running, and
+start Dex Web on your workstation:
+
+~~~bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:8801 web
+~~~
+
+Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The command accepts
+**--bind-address** (default **127.0.0.1**), **--web-port** (default **8802**),
+**--flow-rendering-dir**, and **--open** (default true). Ctrl+C stops Dex Web,
+and the server keeps running.
+
+Before it prints its address, **dexcli web** calls FlowService **HealthCheck**.
+It fails when the server or the tunnel is unreachable. It also checks protocol
+compatibility and prints a warning on a mismatch. **--timeout** bounds only these
+startup checks, not the running Dex Web. Connector setup is disabled, because
+Connector configuration belongs to a local **dexcli dev** environment.
+
+Dex Web has no authentication. Anyone who can reach its port can operate Flows
+on the server with your credential. Keep **--bind-address** on a loopback
+address; **dexcli web** prints a warning for any other address. Keep the server's
+FlowService port bound to the remote host's loopback address too, so the SSH
+tunnel stays the only way in.
+
 ## Named directives
 
 Version 2 directives use named values. Parameter position within one line has no meaning. Quote strings containing spaces as JSON strings, and write multiple values as a JSON array.

@@ -304,6 +304,34 @@ protected network. The TLS settings apply to the FlowService connection only;
 the API key exchange at `--token-url` always verifies the token endpoint
 against the system root CAs.
 
+## View a remote server in Dex Web
+
+`dexcli web` serves the embedded Dex Web UI against the existing server given by
+`--server`, instead of starting one like `dexcli dev`. It uses the same TLS and
+credential settings as the other commands. When the remote FlowService port is
+bound only to the remote host's loopback address, open an SSH tunnel first:
+
+```bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:8801 web
+```
+
+Then browse http://127.0.0.1:8802. Flags: `--bind-address` (default
+`127.0.0.1`), `--web-port` (default `8802`; `0` picks a free port),
+`--flow-rendering-dir`, and `--open` (default true).
+
+Startup calls FlowService `HealthCheck` and fails when the server or tunnel is
+unreachable. It also runs the `version check` protocol negotiation and prints a
+warning on a mismatch. `--timeout` bounds only these startup checks; the running
+Web server and its FlowService connection are not limited by it. Connector setup
+is disabled because Connector configuration is local to `dexcli dev`. Ctrl+C
+stops Dex Web and leaves the server running.
+
+Dex Web has no authentication: anyone who can reach its port can operate Flows
+on the server with your credential. Keep `--bind-address` on loopback;
+`dexcli web` prints a warning for any other address. Keep the server's
+FlowService port bound to the remote host's loopback address too.
+
 ## Visualize Flow source
 
 Render a static possible-path graph from one Go, Python, or TypeScript Flow source file in
