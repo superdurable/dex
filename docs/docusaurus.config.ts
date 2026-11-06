@@ -191,6 +191,7 @@ const config: Config = {
         )],
       },
     ]),
+    './plugins/markdown-export/index.cjs',
     (context: LoadContext) =>
       clientRedirects(context, {
         id: 'default',

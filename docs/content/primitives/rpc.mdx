@@ -11,7 +11,7 @@ RPC stands for “Remote Procedure Call”. It allows external systems to intera
 
 A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Worker** runs it, then returns the result to **Dex Server** to persist. **Dex Server** then returns the output to the **Client**.
 
-<RpcRequestDiagram />
+<RpcRequestDiagram markdownDescription="A Client sends an RPC request to Dex Server, which routes it to the Application Worker. The Worker returns the result through Dex Server to the Client." />
 
 ## Define and Invoke an RPC
 

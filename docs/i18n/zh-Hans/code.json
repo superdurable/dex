@@ -42,5 +42,13 @@
   "reference.version.banner": {
     "message": "当前查看的是 {version}。最新版本为 {latest}。",
     "description": "Notice on an older Developer reference version"
+  },
+  "docs.markdown.view": {
+    "message": "查看 Markdown",
+    "description": "The visible label of the link that opens the Markdown export of a docs page"
+  },
+  "docs.markdown.view.newTab": {
+    "message": "查看 Markdown（在新标签页中打开）",
+    "description": "The accessible name of the link that opens the Markdown export of a docs page in a new tab"
   }
 }
