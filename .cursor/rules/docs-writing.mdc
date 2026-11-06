@@ -40,12 +40,15 @@ Each fact has one home. See Docs Information Placement in
   older servers or SDKs.
 - Say each thing once. Link to its single home instead of repeating it.
 - Version differences appear only in the Developer reference. Mark each one
-  "Since 1.NN" or "Changed in 1.NN".
+  "Since <component version>" or "Changed in <component version>". Use the
+  version of the component the page documents, such as "Since 1.35" for an
+  SDK, cli, or web, and "Since 0.1.17" for server-zd.
 
 ## Read pages for humans before merge
 
-- Pages for humans (Primitives, Components, and Design patterns) must be read
-  in a browser before merge. Run `cd docs && npm start`, which builds and
-  serves both locales. Read every changed page from top to bottom as a reader,
-  once in English and once in Simplified Chinese. Fix what you find. List the
-  pages you read in the pull request's Testing section.
+- Every changed page outside the Developer reference must be read in a
+  browser before merge. This includes Intro, Quick start, Primitives,
+  Components, Design patterns, and Use cases. Run `cd docs && npm start`,
+  which builds and serves both locales. Read every such page from top to
+  bottom as a reader, once in English and once in Simplified Chinese. Fix what
+  you find. List the pages you read in the pull request's Testing section.

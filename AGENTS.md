@@ -157,6 +157,10 @@ differences do not change skills. Put them in SDK doc comments and the docs
 Developer reference. Pure internal refactors and fixes that preserve
 application behavior do not change skills either.
 
+If a Dex change makes existing skills text wrong, remove or correct that text
+in the same work item. During the transition below, this is a PATCH bump. Do
+not add new volatile detail while doing so.
+
 Test each fact with one question: will this still hold in the next minor
 release? If yes, it may belong in skills. If no, it belongs in the Developer
 reference.
@@ -173,9 +177,10 @@ Transitional: phase P6 of the docs and skills cleanup replaces the skills
 validators. Until then, the existing validators must keep passing. They still
 pin `skills/DEX_BASELINE` and the other `DEX_*_BASELINE` files, check source
 excerpts against those release tags, and require a `VERSION` and
-`CHANGELOG.md` bump for any change under a skill directory. Avoid editing
-pinned skills content until P6 lands. Do not advance a baseline only because
-Dex released. See `skills/CONTRIBUTING.md`.
+`CHANGELOG.md` bump for any change under a skill directory. Until P6 lands,
+avoid editing pinned skills content, except to remove or correct text that a
+Dex change made wrong. Do not advance a baseline only because Dex released.
+See `skills/CONTRIBUTING.md`.
 
 ### Docs Information Placement
 
@@ -212,7 +217,8 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 - Until the versioned Developer reference exists, put volatile facts in the
   existing `docs/content/references/` and `docs/content/production/` pages.
   Phase P2 of the docs and skills cleanup moves them into the Developer
-  reference.
+  reference. Those pages stay in English and Simplified Chinese until they
+  move into the `reference-*` instances.
 
 #### Developer Reference Versions
 
@@ -226,6 +232,9 @@ build it.
 - Only the current version is edited by hand. Each minor release snapshots it
   automatically. Older versions change only to fix a factual error.
 - The site keeps the last 5 versions of each reference.
+- When a version leaves the site, redirect each of its URLs to the same page
+  in the latest version. If that page no longer exists, redirect to the
+  component's reference index. Docs URLs stay permanent.
 - SDKs, cli, and web are versioned by minor release. Until server-zd 1.0, each
   `0.1.N` server-zd release is one version. From 1.0 on, server-zd is
   versioned by minor release.
@@ -241,12 +250,15 @@ These rules add to `.cursor/rules/docs-writing.mdc`,
   older servers or SDKs.
 - Say each thing once. Link to its single home instead of repeating it.
 - Version differences appear only in the Developer reference. Mark each one
-  "Since 1.NN" or "Changed in 1.NN".
-- Pages for humans (Primitives, Components, and Design patterns) must be read
-  in a browser before merge. Run `cd docs && npm start`, which builds and
-  serves both locales. Read every changed page from top to bottom as a reader,
-  once in English and once in Simplified Chinese. Fix what you find. List the
-  pages you read in the pull request's Testing section.
+  "Since <component version>" or "Changed in <component version>". Use the
+  version of the component the page documents, such as "Since 1.35" for an
+  SDK, cli, or web, and "Since 0.1.17" for server-zd.
+- Every changed page outside the Developer reference must be read in a
+  browser before merge. This includes Intro, Quick start, Primitives,
+  Components, Design patterns, and Use cases. Run `cd docs && npm start`,
+  which builds and serves both locales. Read every such page from top to
+  bottom as a reader, once in English and once in Simplified Chinese. Fix what
+  you find. List the pages you read in the pull request's Testing section.
 - Every docs page outside the Developer reference ships in English and
   Simplified Chinese (`zh-Hans`). This includes Intro, Quick start,
   Primitives, Components, Design patterns, and Use cases. Keep both locales in

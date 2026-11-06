@@ -103,8 +103,9 @@ current instructions.
 
 Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
 changes: a rule, a Primitive concept or relation, a Component, a design
-pattern, skill routing, or packaging. Typo fixes, link repairs, and wording
-clarifications wait for the next such release. Keep every plugin and
+pattern, skill routing, or packaging. After phase P6 of the docs and skills
+cleanup, a typo, link, or wording-only change needs no bump. Until P6, see the
+transitional rule below. Keep every plugin and
 marketplace manifest on that exact version where the format supports a
 version.
 
@@ -115,7 +116,9 @@ version.
 
 Transitional: until phase P6, Skills CI still requires every change under
 `dex-sdk/`, `dex-app-builder/`, or `dex-connector-contributor/` to update
-`VERSION` and `CHANGELOG.md`.
+`VERSION` and `CHANGELOG.md`. Until then, a typo, link, or wording-only change
+either waits and is batched into the next stable-content change, or bumps
+PATCH as CI requires. After P6, such a change needs no bump.
 
 After a pull request lands on Dex `main`, the skills mirror syncs the package.
 The mirror's Release workflow validates it and creates `v<version>` from the

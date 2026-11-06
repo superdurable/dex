@@ -100,8 +100,9 @@ repository; the coding-agent host supplies the installed Dex Skills release.
 
 Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
 changes: a rule, a Primitive concept or relation, a Component, a design
-pattern, skill routing, or packaging. Typo fixes, link repairs, and wording
-clarifications wait for the next such release. A Dex release never requires a
+pattern, skill routing, or packaging. After phase P6 of the docs and skills
+cleanup, a typo, link, or wording-only change needs no bump. Until P6, see the
+transitional rule below. A Dex release never requires a
 skills change. Dex Web is released as its own `web/vX.Y.Z` standalone binary
 and image, and `dexcli dev` embeds it.
 
@@ -109,5 +110,8 @@ Transitional: phase P6 of the docs and skills cleanup replaces the validators.
 Until then, the existing validators must keep passing. They still pin
 `DEX_BASELINE` and the other `DEX_*_BASELINE` files, check source excerpts
 against those release tags, and require a `VERSION` and `CHANGELOG.md` bump for
-any change under a skill directory. Avoid editing pinned skills content until
-P6 lands. Do not advance a baseline only because Dex released.
+any change under a skill directory. Until then, a typo, link, or wording-only
+change either waits and is batched into the next stable-content change, or
+bumps PATCH as CI requires. Avoid editing pinned skills content until P6 lands,
+except to remove or correct text that a Dex change made wrong; that is a PATCH
+bump. Do not advance a baseline only because Dex released.
