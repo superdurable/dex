@@ -187,7 +187,7 @@ export type IdReusePolicy = (typeof IdReusePolicy)[keyof typeof IdReusePolicy];
 export const FlowTimeoutPolicy = Object.freeze({
   /** Invokes `Flow.handleTimeout` when present, and fails otherwise. */
   DEFAULT: "default",
-  /** Fails with `FlowErrorType.FLOW_TIMEOUT` and permits Flow retries. */
+  /** Fails with `FlowErrorType.FLOW_TIMEOUT`; the current Server rejects Flow retry policies, so no Flow retry follows. */
   FAIL: "fail",
   /** Cancels without retrying the Flow. */
   CANCEL: "cancel",

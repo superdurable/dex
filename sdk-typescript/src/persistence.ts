@@ -202,7 +202,7 @@ export class Attribute<T> {
    *   the running Flow's stored value. A null initial value deletes it.
    * - Executions that reuse a Flow ID share the stored value.
    * - {@link Client.timeTravel} does not restore a deleted value. A deleted value reads as absent.
-   * - A Flow retry or a restarted SubFlow starts from the original initial value. If an
+   * - A restarted SubFlow starts from the original initial value. If an
    *   earlier run deleted that value, the new run reads it as absent.
    * - Removing {@link Attribute.hardDeleteOnNull} from a definition leaves the stored value in place
    *   until Dex removes the Flow. Delete the value with the hard-delete definition first.
@@ -421,7 +421,7 @@ export class AttributeMap<T> {
    *   the running Flow's stored value. A null initial value deletes it.
    * - Executions that reuse a Flow ID share the stored values.
    * - {@link Client.timeTravel} does not restore a deleted value. A deleted instance reads as absent.
-   * - A Flow retry or a restarted SubFlow starts from the original initial value. If an
+   * - A restarted SubFlow starts from the original initial value. If an
    *   earlier run deleted that value, the new run reads it as absent.
    * - Removing {@link AttributeMap.hardDeleteOnNull} from a definition leaves the stored value in place
    *   until Dex removes the Flow. Delete the value with the hard-delete definition first.
