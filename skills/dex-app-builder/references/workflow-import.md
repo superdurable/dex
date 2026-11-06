@@ -94,7 +94,7 @@ application's owning documentation.
 
 Read release-tagged connector files in this order: the web view of the
 component tag; then a local clone of the official connector library, after
-`git tag -l <directory>/go/<version>` (`<directory>/<version>` through v0.22.x)
+`git tag -l <directory>/go/<version>` (some older releases use `<directory>/<version>`)
 confirms the tag, through
 `git show <that tag>:<directory>/<file>`, never the working tree or
 `main`; otherwise record a `blocked` verification row and write no design
@@ -102,8 +102,8 @@ fields for that operation. Record which source you used. In zsh, write a tag
 held in a variable as `"${TAG}:path"`, because `$TAG:` is parsed as a modifier:
 
 ```bash
-TAG=connectors/google/gmail/v0.21.0
-git -C /path/to/dex-connectors-library show "${TAG}:connectors/google/gmail/connector.yaml"
+TAG=<directory>/go/<version>
+git -C /path/to/dex-connectors-library show "${TAG}:<directory>/connector.yaml"
 ```
 
 Dependency source, such as a LangChain provider library, nodemailer, or the
@@ -238,11 +238,11 @@ rather than the source's run counts.
 
 ## 5. Map the execution model
 
-Model the Flows with [Flow modeling](../../dex-sdk/references/core/modeling.md)
-and [pattern selection](../../dex-sdk/references/core/patterns.md):
+Model the Flows with the [Dex SDK](../../dex-sdk/SKILL.md) Flow modeling and
+[design pattern](../../dex-sdk/references/core/patterns.md) rules:
 
-- A schedule becomes a scheduler Flow on the Cron pattern in [Go
-  patterns](../../dex-sdk/references/go/patterns.md#durable-timer). Persist the
+- A schedule becomes a scheduler Flow on the durable Timer (cron) pattern in the [Dex SDK
+  patterns](../../dex-sdk/references/core/patterns.md). Persist the
   next occurrence instant and arm a Timer for the remaining duration. An Execute
   Step starts one run Flow per occurrence through a Client injected as a lazy
   provider, because the Client is created after the Registry. Each run has its
@@ -358,7 +358,7 @@ external API is not a mapping. It is a `blocked` row and a connector
 contribution under Connector Contributor. A request to an
 organization-controlled internal service follows the [internal connector
 library decision](connector-architecture.md#internal-connector-library-decision);
-the current catalog has no generic HTTP connector.
+check the catalog for whether a generic HTTP connector is released.
 
 Read, at the tag, the operation's `connector.yaml` (branches, idempotency, and
 execution policy) and its Go input and output types and validation function,
