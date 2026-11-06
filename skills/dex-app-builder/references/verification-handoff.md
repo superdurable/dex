@@ -86,7 +86,10 @@ behavior crosses a Client, Worker, wait, RPC, Channel, Timer, Stream, retry,
 provider, or process boundary. Use deadline-based polling, never fixed sleeps.
 Report Flow IDs and status on failure. Never hide or skip a failing check. The
 Dex SDK testing rules cover start ordering, downstream start recovery, and
-terminal reads.
+terminal reads. Follow the Dex SDK read-after-write rules for every write
+followed by a read: assert a strongly consistent RPC read on the first read,
+confirm triggered business work separately, and add no callbacks or polling to
+strong write and read pairs.
 
 Cover what applies:
 
