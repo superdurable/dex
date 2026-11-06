@@ -1,0 +1,42 @@
+---
+title: Connector setup
+sidebar_label: Connector setup
+---
+
+# Connector setup
+
+A [Connector](/primitives/connector) integrates a Flow with an external
+provider. This page explains how Connectors fit into a Dex deployment and how
+you set them up.
+
+## How it fits with the other components
+
+Official Connectors are released separately from Dex. Your
+[application](/primitives/components/application) imports a Connector package.
+It runs the Connector's operations as Connector Steps. A Trigger turns a
+provider event into a Flow start or an RPC call. Credentials stay outside
+durable Flow state.
+
+## Find a Connector
+
+Browse the [Connector catalog](https://connectors.superdurable.io/). It lists the
+released Connectors, their operations, and their language support. The catalog
+is the reference for each Connector. The
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
+holds their source and runnable examples.
+
+## Set up Connectors locally
+
+For local development, [Dex Web](/primitives/components/web) configures
+Connector accounts and Trigger bindings for a Go application. It does this only
+in **dexcli dev**.
+
+1. Start **dexcli dev** with your Flow Definition Graph directory.
+2. Open the **Connectors** page in Dex Web and configure each account.
+3. Start your application with the connection file that Dex Web shows.
+
+The connection file holds plaintext secrets for local use only. Do not commit
+it or use it in production.
+
+[Local Connector setup](/reference/web/local-connector-setup) describes each step
+and its settings.

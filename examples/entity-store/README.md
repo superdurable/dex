@@ -25,7 +25,7 @@ dexcli dev --engine zd --attribute-store-config ./attribute-store.yaml
 
 server-zd also needs the `dexzd_attribute_sync_fencing` table in each synced
 database. `postgres/init.sql` creates it, and the Go Server ignores it. See
-[Fencing table](https://docs.superdurable.io/production/server-zd-operations#attribute-store-fencing-table).
+[Fencing table](https://docs.superdurable.io/reference/server/attribute-store-sync#attribute-store-fencing-table).
 
 Start any one language example according to its README, then create and update a
 profile through that example's HTTP server:

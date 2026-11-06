@@ -1,0 +1,103 @@
+---
+title: Application (Worker and Client)
+sidebar_label: Application
+---
+
+# Application (Worker and Client)
+
+Your Dex application is the code you deploy. It has two parts:
+
+- A **Worker** hosts Flow definitions. It runs **WaitFor**, **Execute**, and RPC
+  handlers when Dex hands it work.
+- A **Client** starts Flows, calls RPCs, reads Attributes, and searches Flows.
+  See [Client](/primitives/client).
+
+A process can run a Worker, a Client, or both.
+
+## How it fits with the other components
+
+Workers and Clients connect to the Dex Server (server-zd). Every Worker is a
+pull Worker. It opens outbound task streams to the server and never listens for
+calls. So a Worker needs no inbound port and can run behind NAT or a firewall.
+
+Dex sends every Flow, SubFlow, Step, and RPC call to your Workers. There is no
+Worker address to configure. A Flow that [Dex Web](/primitives/components/web)
+or **dexcli** starts also runs on your Workers.
+
+## Start a Worker {#enable-pull-mode}
+
+Give the Worker the server address. A Client needs only the server address too.
+The pull options are optional. They tune task capacity, registration, and
+shutdown.
+
+Each SDK reference has a runnable startup example:
+[Go](/reference/go/workers), [Python](/reference/python/workers),
+[Java](/reference/java/workers), [TypeScript](/reference/typescript/workers),
+and [Rust](/reference/rust/workers).
+
+## Capacity and shutdown
+
+A Worker opens one stream for each task slot. Dex sends a task only to a free
+slot. So a Worker never declines work for capacity. A Step that no Worker takes
+waits in a durable task queue. An RPC fails when no Worker takes it in time.
+Stop Workers gracefully during a deployment, so running tasks can finish.
+
+[Workers and the task queue](/reference/server/workers) describes readiness,
+routing, capacity, shutdown, and network settings.
+
+## Operate it in production
+
+Run the application like any production service. Record the deployed version.
+Expose useful logs. Keep its network path to the server healthy.
+
+When a Flow does not advance or fails, follow
+[Troubleshoot a Flow run](/reference/web/debugging).
+
+## Versioning Flow code
+
+Dex does not replay your Flow handler code to decide later transitions, so a
+deployment does not produce a user-code replay nondeterminism error. That does
+not remove compatibility work. Open Flows can still observe changed business
+rules, unavailable Step implementations, renamed RPCs, or incompatible data.
+
+### Lock business behavior at Flow start
+
+Persist a business version value when a Flow starts, such as an Attribute or a
+field in the start state. Branch on that stored value, not on the Worker build
+currently serving the call. Existing Flows keep their old behavior; new Flows
+can use the new behavior after deployment.
+
+Use this when a change alters a decision, payment rule, retry policy, deadline,
+or other customer-visible meaning. A code rollout alone is not a versioning
+strategy because a long-running Flow can call a newly deployed Worker later.
+
+### Evolve data and contracts additively
+
+Add optional fields. Readers must tolerate absent fields from older runs and
+ignore unknown fields sent by newer components. Supply a safe default for an
+absent field, and keep the previous meaning of existing field values. For an
+incompatible payload or output contract, introduce a new Step type or RPC name
+instead of silently changing the old one.
+
+### Keep old definitions until old Flows finish
+
+Do not delete or rename a Flow type, Step type, or RPC implementation while an
+open Flow can still call it. Deploy the new definition alongside the old one,
+route only new-version Flows to it, and keep the old implementation available
+through retries and any approved Time Travel recovery.
+
+During a rolling deployment, a pull Worker that lacks a requested Step or RPC
+can hand the call to another capable Worker without consuming a Step attempt.
+See [Routing and availability](/reference/server/workers#routing-and-availability).
+
+Before removing the old definition, search for the legacy Flow type and confirm
+that no running, waiting, retrying, or recoverable terminal Flow needs it. Keep
+the search result with the change record. The exact query depends on your
+visibility-store fields; begin with a bounded Flow-type search such as:
+
+~~~bash
+dexcli flow search --query 'FlowType = "OldFlowType"'
+~~~
+
+Only remove the old code after the result is empty or every remaining Flow has
+an explicitly approved retirement plan.

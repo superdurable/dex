@@ -8,8 +8,8 @@ sidebar_label: Deploy agents
 This page covers running [agent framework](/agent-frameworks) sessions in
 production. One Flow execution is one agent session. Every model call is a
 **RunModel** Step, and every tool call is its own Step. Server limits on this
-page are server-zd defaults. See [server-zd operation](/production/server-zd-operations)
-and [Pull Workers](/production/pull-workers) for the rest of the setup.
+page are server-zd defaults. See [Server reference](/reference/server/)
+and [Application](/primitives/components/application) for the rest of the setup.
 
 ## Install the packages {#install}
 
@@ -71,9 +71,9 @@ streamStore:
 
 The memory backend keeps Streams in the memory of the active server-zd process.
 A server-zd cluster has one active process, so a single node needs nothing more.
-A [standby](/production/server-zd-operations#hot-standby) holds no Streams. A
+A [standby](/reference/server/high-availability#hot-standby) holds no Streams. A
 process starts with empty Streams whenever it becomes active: after a restart,
-a standby takeover, or a [step down](/production/server-zd-operations#step-down). A standby answers Stream calls with **UNAVAILABLE**, and clients
+a standby takeover, or a [step down](/reference/server/high-availability#step-down). A standby answers Stream calls with **UNAVAILABLE**, and clients
 reconnect to the active process.
 
 Losing Stream data never loses a session. The conversation, tool calls, and
@@ -131,16 +131,16 @@ The tool calls of one model response run as parallel Steps. Give a Worker at
 least enough slots for the largest batch of tool calls that a model makes. The
 default task limit is the CPU count. Model calls mostly wait on the network, so
 agent Workers usually need a higher **maxConcurrentTasks**. See
-[capacity and shutdown](/production/pull-workers#capacity-and-shutdown) for the
+[capacity and shutdown](/reference/server/workers#capacity-and-shutdown) for the
 option names in each SDK.
 
-Keep the [RPC reserve](/production/pull-workers#reserved-rpc-capacity). A UI
+Keep the [RPC reserve](/reference/server/workers#reserved-rpc-capacity). A UI
 calls **get_agent_snapshot**, **send_user_message**, and **resolve_interrupt**
 as RPCs. Without a reserve, they wait behind model calls that fill the Worker.
 When you do not set it, the reserve is one slot if the task limit is at least
 two, otherwise zero. Steps never use reserved slots. A growing Step task queue
 means Steps need more capacity. See
-[Step task queue](/production/server-zd-operations#step-task-queue) for its
+[Step task queue](/reference/server/workers#step-task-queue) for its
 metrics.
 
 server-zd allows 256 streams for each app Worker ID by default
@@ -194,7 +194,7 @@ pool. Split along these lines when one kind of work crowds out another:
 ## Limits for long sessions {#limits}
 
 A session can stay open for months. These server-zd
-[limits](/production/server-zd-operations#limits) decide how far it grows.
+[limits](/reference/server/configuration#limits) decide how far it grows.
 
 | Key | Default | What it bounds |
 | --- | --- | --- |
@@ -243,12 +243,12 @@ as **send_user_message**, are not checked. Plan sessions to stay well below
 The Flow history keeps about the newest 10,000 events of a session. Read the
 conversation with **get_agent_snapshot** or **list_agent_messages**, not from
 Flow history. [Time travel](/primitives/client/advanced#time-travel) can target
-only a point inside the [history window](/production/server-zd-operations#history-window).
+only a point inside the [history window](/reference/server/configuration#history-window).
 Time travel to the beginning is always available.
 
 A session never completes by itself. Stop it with **StopFlow** when it is done.
 A stopped session, and its **get_agent_snapshot** RPC, stays available for the
-[retention](/production/server-zd-operations#retention) period. Then Dex purges
+[retention](/reference/server/configuration#retention) period. Then Dex purges
 it. Copy a transcript that must outlive the session with
 **list_agent_messages** before then.
 
@@ -358,7 +358,7 @@ a cancelled **CallTool** retries. A single-attempt tool that stops on
 cancellation records **outcome_unknown**. Set the drain timeout above your usual
 model and tool call times, and set the container's termination grace period
 above the drain timeout. Wait for the new Workers to
-[register](/production/pull-workers#readiness) before you stop the old ones.
+[register](/reference/server/workers#readiness) before you stop the old ones.
 
 ## Tool call limits {#tool-call-limits}
 
@@ -426,7 +426,7 @@ Keep tool Steps dispatchable, so calls do not wait long:
 - Keep at least one Worker of every agent Flow type running. When a pool scales
   to zero, a tool call waits in the queue until a Worker starts.
 - During a deploy, start the new Workers and wait for them to
-  [register](/production/pull-workers#readiness) before you stop the old ones.
+  [register](/reference/server/workers#readiness) before you stop the old ones.
 
 ### Reconcile outcome_unknown {#reconcile-outcome-unknown}
 
@@ -473,7 +473,7 @@ session can run on different versions.
   few chunks per Step. If a 0.1.0 Worker then runs a Step of that session, the
   turn fails, because it cannot read the moved messages.
 
-See [Versioning Flow code](/production/application-operations#versioning-flow-code)
+See [Versioning Flow code](/primitives/components/application#versioning-flow-code)
 for the general rules.
 
 ### Session settings during a rollout {#session-settings-rollout}
@@ -508,13 +508,13 @@ your own must hold a short-lived secret, store it in a
 delete it when the Flow no longer needs it.
 
 Workers and Clients authenticate to Dex Server with bearer credentials. See
-[authentication](/production/server-zd-operations#authentication).
+[authentication](/reference/server/authentication).
 
 ## Related
 
 - [Agent Frameworks](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
 - [Stream](/primitives/stream)
-- [Pull Workers](/production/pull-workers)
-- [server-zd operation](/production/server-zd-operations)
+- [Application](/primitives/components/application)
+- [Server reference](/reference/server/)
 - [Agents packages README](https://github.com/superdurable/dex/blob/main/agents/README.md)

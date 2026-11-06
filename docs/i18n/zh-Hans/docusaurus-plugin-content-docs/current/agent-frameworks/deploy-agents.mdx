@@ -8,8 +8,8 @@ sidebar_label: Deploy agents
 本页介绍如何在生产环境中运行 [agent framework](/agent-frameworks) 的 session。
 一次 Flow 执行就是一个 agent session。每次模型调用是一个 **RunModel** Step，每个
 tool call 是独立的 Step。本页中的服务器限制都是 server-zd 的默认值。其余配置见
-[server-zd 运维](/production/server-zd-operations) 和
-[拉取模式 Worker](/production/pull-workers)。
+[Server 参考](/reference/server/) 和
+[Application](/primitives/components/application)。
 
 ## 安装包 {#install}
 
@@ -63,9 +63,9 @@ streamStore:
 ```
 
 memory 后端把 Stream 保存在 active server-zd 进程的内存中。一个 server-zd 集群只有一个
-active 进程，所以单节点不需要额外配置。[standby](/production/server-zd-operations#hot-standby)
+active 进程，所以单节点不需要额外配置。[standby](/reference/server/high-availability#hot-standby)
 不保存 Stream。进程每次成为 active 进程时，Stream 都从空开始：重启之后、standby 接管之后，
-以及[让位](/production/server-zd-operations#step-down)之后。standby 对 Stream 调用返回
+以及[让位](/reference/server/high-availability#step-down)之后。standby 对 Stream 调用返回
 **UNAVAILABLE**，客户端会重新连接到 active 进程。
 
 丢失 Stream 数据不会丢失 session。对话、tool call 和待审批项都保存在 Attribute 中。
@@ -111,13 +111,13 @@ memory 后端把所有 Stream 都放在服务器内存中，所以服务器内�
 同一次模型响应中的 tool call 作为并行 Step 运行。Worker 的 slot 至少要够模型一次发出的
 最大一批 tool call。默认的 task 上限是 CPU 数量。模型调用大部分时间在等网络，所以 agent
 Worker 通常需要更高的 **maxConcurrentTasks**。各 SDK 的选项名见
-[容量和关闭](/production/pull-workers#容量和关闭)。
+[容量和关闭](/reference/server/workers#capacity-and-shutdown)。
 
-保留 [RPC 预留容量](/production/pull-workers#为-rpc-预留容量)。UI 以 RPC 的形式调用
+保留 [RPC 预留容量](/reference/server/workers#reserved-rpc-capacity)。UI 以 RPC 的形式调用
 **get_agent_snapshot**、**send_user_message** 和 **resolve_interrupt**。没有预留时，这些
 调用要排在占满 Worker 的模型调用后面。不设置时，task 上限至少为 2 则预留一个 slot，否则为零。
 Step 从不使用预留 slot。Step 任务队列持续增长，说明 Step 需要更多容量。相关指标见
-[Step 任务队列](/production/server-zd-operations#step-task-queue)。
+[Step 任务队列](/reference/server/workers#step-task-queue)。
 
 server-zd 默认为每个 app Worker ID 允许 256 个 stream
 （**matching.maxConcurrentTasksCap**）。一个 Worker 为每个 task slot 打开一个 stream，
@@ -160,7 +160,7 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 
 ## 长 session 的限制 {#limits}
 
-一个 session 可以持续几个月。以下 server-zd [限制](/production/server-zd-operations#limits)
+一个 session 可以持续几个月。以下 server-zd [限制](/reference/server/configuration#limits)
 决定它能增长到多大。
 
 | Key | 默认值 | 限制对象 |
@@ -197,11 +197,11 @@ session 超出预算后，这样的 Step 会失败且不重试。模型调用或
 Flow history 大约保留一个 session 最新的 10,000 个事件。读取对话用
 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
 [Time travel](/primitives/client/advanced#time-travel) 只能以
-[history 窗口](/production/server-zd-operations#history-window)内的时间点为目标。
+[history 窗口](/reference/server/configuration#history-window)内的时间点为目标。
 Time travel 到起点始终可用。
 
 session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 session 及其
-**get_agent_snapshot** RPC 在[保留期](/production/server-zd-operations#保留期)内仍可用，
+**get_agent_snapshot** RPC 在[保留期](/reference/server/configuration#retention)内仍可用，
 之后 Dex 会清除它。需要比 session 保存更久的对话记录，要在此之前用
 **list_agent_messages** 复制出来。
 
@@ -284,7 +284,7 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 优雅停止 Worker 时，它会在 drain 超时内等待正在运行的 handler，默认 30 秒，然后取消它们。
 被取消的模型调用会重新运行，被取消的 **CallTool** 会重试。因取消而停止的单次尝试 tool 会记录
 **outcome_unknown**。把 drain 超时设得比通常的模型调用和 tool call 时间长，再把容器的终止
-宽限期设得比 drain 超时长。先等新 Worker [注册](/production/pull-workers#readiness)完成，
+宽限期设得比 drain 超时长。先等新 Worker [注册](/reference/server/workers#readiness)完成，
 再停止旧 Worker。
 
 ## Tool call 的限制 {#tool-call-limits}
@@ -341,7 +341,7 @@ task 上限，或者一个 Worker 都没有运行时，就会这样。调用不�
 - 按[规划 Worker 容量](#size-workers)规划每个 Worker 池，并为最大的一批 tool call 留出余量。
 - 每个 agent Flow 类型至少保持一个 Worker 在运行。Worker 池缩容到零时，tool call 会在队列中等待，
   直到有 Worker 启动。
-- 部署时，先启动新 Worker，等它们[注册](/production/pull-workers#readiness)完成，再停止旧
+- 部署时，先启动新 Worker，等它们[注册](/reference/server/workers#readiness)完成，再停止旧
   Worker。
 
 ### 核对 outcome_unknown {#reconcile-outcome-unknown}
@@ -378,7 +378,7 @@ session 的两个 Step 可能运行在不同版本上。
   少量 chunk。此后如果 0.1.0 Worker 运行这个 session 的 Step，这一轮会失败，因为它读不到被移走
   的消息。
 
-通用规则见 [Flow 代码版本控制](/production/application-operations#versioning-flow-code)。
+通用规则见 [Flow 代码版本控制](/primitives/components/application#versioning-flow-code)。
 
 ### 滚动部署期间的 session settings {#session-settings-rollout}
 
@@ -405,13 +405,13 @@ settings 属于启动输入和 session 状态，**get_agent_snapshot** 和浏览
 删除它。
 
 Worker 和 Client 使用 bearer 凭证向 Dex Server 认证。见
-[身份验证](/production/server-zd-operations#身份验证)。
+[身份验证](/reference/server/authentication)。
 
 ## 相关内容
 
 - [Agent Framework](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
 - [Stream](/primitives/stream)
-- [拉取模式 Worker](/production/pull-workers)
-- [server-zd 运维](/production/server-zd-operations)
+- [Application](/primitives/components/application)
+- [Server 参考](/reference/server/)
 - [Agents 包 README](https://github.com/superdurable/dex/blob/main/agents/README.md)

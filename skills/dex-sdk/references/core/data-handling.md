@@ -167,7 +167,7 @@ Do not introduce an external projection merely to avoid repeat reads of unchange
 
 ### Row keys, column names, and AttributeMap tables
 
-A PostgreSQL store accepts three optional settings: `rowKey`, `columnNaming`, and `attributeMaps`. A store without them behaves as before. The full contract is in the [Custom Attribute Store](https://docs.superdurable.io/production/attribute-store) operations page.
+A PostgreSQL store accepts three optional settings: `rowKey`, `columnNaming`, and `attributeMaps`. A store without them behaves as before. The full contract is in the [Custom Attribute Store](https://docs.superdurable.io/reference/server/attribute-store-sync) operations page.
 
 ```yaml
 attributeStore:

@@ -39,7 +39,7 @@ Renaming a Rust struct does not necessarily rename the logical type if the SDK p
 
 Register old and new reachable definitions during a rolling change when open executions may reference both. Deploy Workers that can read existing durable payloads before controllers begin producing a new representation. Test with a Flow started by the old version, replace the Worker with the new version, and drive it to completion.
 
-Use the [Dex Application Operations versioning guidance](https://docs.superdurable.io/production/application-operations#versioning-flow-code) for the service-level procedure.
+Use the [Dex Application Operations versioning guidance](https://docs.superdurable.io/primitives/components/application#versioning-flow-code) for the service-level procedure.
 
 ## Updating the baseline
 

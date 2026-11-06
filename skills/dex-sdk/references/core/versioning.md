@@ -42,4 +42,4 @@ Changing a language SDK and changing the Flow model are separate decisions. Upgr
 - verify payload and error compatibility through the actual codec
 - verify timeout handlers, failure targets, and SubFlow options survive time travel to a point recorded by the old version
 
-Official operations guidance: https://docs.superdurable.io/production/application-operations#versioning-flow-code
+Official operations guidance: https://docs.superdurable.io/primitives/components/application#versioning-flow-code

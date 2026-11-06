@@ -4,201 +4,35 @@ title: Custom Attribute Store
 
 # Custom Attribute Store operations
 
-Custom Attribute Store projects selected Flow Attribute writes into PostgreSQL.
-Dex uses asynchronous, latest-state writes for one Flow at a time. Delivery is
-attempted at least once, so every destination write is idempotent.
-
-PostgreSQL is the only supported Attribute Store. Redis support is tracked in
-[issue 616](https://github.com/superdurable/dex/issues/616).
-
-Dex never creates, migrates, or backfills a destination. Create the SQL table
-before starting the server.
+This page moved. The [External Attribute Sync](/primitives/components/external-attribute-sync)
+component page covers configuration and delivery. The
+[Attribute Store sync](/reference/server/attribute-store-sync) reference holds
+the table contract. Each section below links to its new location.
 
 ## Configuration
 
-```yaml
-attributeStore:
-  stores:
-    reporting:
-      type: postgres
-      dsn: postgres://user:password@host/database
-      tableName: public.flow_attributes
-    orders:
-      type: postgres
-      dsn: postgres://user:password@host/database
-      tableName: public.orders
-      rowKey: order-{customer_id}-{order_id}
-      columnNaming: snake_case
-      attributeMaps:
-        LineItems:
-          tableName: public.order_line_items
-          instanceKeyColumn: line_item_id
-  schemaSyncInterval: 1m
-  syncBatchSize: 100
-  syncAttemptTimeout: 30s
-  syncRetryPolicy:
-    initialInterval: 100ms
-    maximumInterval: 30s
-    backoffCoefficient: 2
-    maximumAttempts: 0
-    totalDuration: 1h
-```
-
-Every store requires **type: postgres**, **tableName**, and a DSN, which is
-**dsn** or an environment variable. server-zd never logs DSNs. **tableName** accepts **table** or **schema.table**.
-Identifiers are parsed and quoted. Attribute values always use driver
-parameters. See
-[Attribute Store sync](/production/server-zd-operations#attribute-store-configuration)
-for every key and its default.
+Moved to [Configuration](/primitives/components/external-attribute-sync#configuration).
 
 ## Startup contracts
 
-The server connects, pings, and validates every destination during startup. One
-failure fails startup and closes already-opened clients.
-
-Without **rowKey**, each table must have exactly one character-compatible
-primary key. Dex discovers that key and stores the Flow ID in it. With
-**rowKey**, the primary key must be exactly the columns the template names, and
-each must be a character column.
-
-Every other required SQL column must have a default or generated value. This
-allows a partial insert to create a row. Attribute names match the remaining
-columns exactly, or by their snake_case form under **columnNaming**.
+Moved to [Startup contracts](/reference/server/attribute-store-sync#startup-contracts).
 
 ## Row keys and column naming
 
-A store accepts two optional settings. Without them, it writes each Flow ID to
-its single primary-key column.
-
-**rowKey** splits each Flow ID into primary-key columns. Use it when a business
-ID is part of the Flow ID and you query by that ID, or when several Flow types
-describe one entity. A template contains literal text and placeholders:
-
-- **\{column\}** stores the captured text in that primary-key column.
-- **\{*\}** matches text without storing it.
-- Each placeholder captures up to the next literal text. The last placeholder
-  captures the rest of the Flow ID.
-- Literal text must separate two placeholders, and no capture may be empty.
-
-For example, **order-\{customer_id\}-\{order_id\}** splits **order-c1-o-7** into
-**customer_id** c1 and **order_id** o-7. A Flow ID that does not match the
-template skips its whole batch with an error log, because a retry cannot change
-the result. Writes to a key column are filtered like Flow ID writes.
-
-Several stores may name the same table. Each upsert sets only the columns of its
-own batch, so two Flow types can write different columns of one row. For
-example, a store with **customer-\{customer_id\}** and another with
-**onboarding-\{customer_id\}-\{*\}** both write the row of one customer.
-
-**columnNaming: snake_case** writes each Attribute to the snake_case form of its
-name. Dex inserts an underscore before an upper-case letter that follows a
-lower-case letter or a digit, or that ends an acronym before a lower-case
-letter. Then it lower-cases every letter. **DeploymentURL** becomes
-**deployment_url**, **URLPath** becomes **url_path**, and **S3Bucket** becomes
-**s3_bucket**. When two Attribute names in one batch map to the same column, Dex
-filters both. The default writes each Attribute to the column with exactly its
-name.
+Moved to [Row keys and column naming](/reference/server/attribute-store-sync#row-keys-and-column-naming).
 
 ## AttributeMap tables
 
-**attributeMaps** writes each instance of an AttributeMap as one row of its own
-table, so SQL can query map instances such as the line items of an order or the
-members of a group. Each key is an AttributeMap name:
-
-- **tableName** selects the instance table, as **table** or **schema.table**.
-- **instanceKeyColumn** stores the instance key without its escaping: the
-  instance written as **LineItems/item%2F7** is stored as item/7.
-
-The instance table's primary key must be exactly the store's primary-key columns
-plus **instanceKeyColumn**, all character columns. With
-**order-\{customer_id\}-\{order_id\}**, the **LineItems** table needs the primary
-key **customer_id**, **order_id**, **line_item_id**. Every other required column
-must have a default or generated value. Dex checks the instance tables at startup
-and at every schema refresh, like the store's own table.
-
-Writing an instance replaces its row, and deleting the instance deletes the row.
-An instance is one complete value, so its row always equals the latest value:
-
-- A JSON object writes each top-level field to the column with the same name,
-  under **columnNaming**. A JSON number is written as an integer only where the
-  column takes one. Nested objects and arrays go to JSON or JSONB columns.
-- Any other value is written to a column named **value**.
-- Every other non-key, non-generated column that the value does not set returns
-  to its default, or NULL without one.
-- A field without a column is skipped. An instance table may store only part of
-  each value, so Dex logs a warning once per process for each such field.
-- A field that maps to a primary-key column is skipped. Dex logs an error only
-  when its value differs from the key.
-- A value that does not convert is logged as an error and skipped. The row still
-  records the instance.
-
-One batch writes the store row and all its instance rows in one transaction,
-with the latest value of each instance. Dex creates no foreign keys between the
-tables: a violated constraint would fail the whole batch and hold back the
-Flow's later writes until the retry budget runs out. Dex never deletes rows when
-a Flow closes.
-
-A Flow that selects several stores writes each AttributeMap only to the stores
-that declare it. Other stores treat its instances as ordinary Attributes.
+Moved to [AttributeMap tables](/reference/server/attribute-store-sync#attributemap-tables).
 
 ## SQL writes and schema refresh
 
-Each batch from one Flow is one upsert. With a **rowKey**, the upsert writes
-every key column and resolves conflicts on the whole primary key. Dex does not
-combine batches from different Flows and does not maintain a change log.
-
-Each store refreshes independently. The one-minute default receives uniform
-90–110% jitter every cycle. A successful metadata query atomically replaces the
-immutable in-memory schema snapshot. A failed query retains the previous
-snapshot and retries after the next interval.
-
-Adding nullable or defaulted columns is discovered without restarting the server.
-A batch that writes a column missing from the current snapshot, in the store's
-table or an AttributeMap table, refreshes that store's schema before it writes.
-A column that no refresh has found missing refreshes at once; a column that a
-refresh already found missing waits for the periodic refresh. An AttributeMap
-table may store only part of each value, so each field without a column
-triggers at most one refresh per process. Batches that arrive meanwhile wait
-for that refresh. A migration that adds a column
-therefore needs no server restart, as long as it completes before the Workers that
-write the column start.
-Removing or changing columns may cause later mutations to be filtered or
-retried, depending on whether local validation or SQL execution detects the
-change.
+Moved to [SQL writes and schema refresh](/reference/server/attribute-store-sync#sql-writes-and-schema-refresh).
 
 ### SQL type contract
 
-| Attribute value | PostgreSQL column |
-| --- | --- |
-| string | Character, varchar, or text; declared length is enforced |
-| int64 | Signed integer or scale-zero numeric; range and precision are enforced |
-| double | Floating or numeric |
-| bool | Boolean |
-| SDK datetime | Timestamp with time zone |
-| JSON object | JSON or JSONB after validation |
-| other object | bytea |
-| null | Nullable columns only |
-
-SDK datetime values may use RFC3339 strings or JSON epoch seconds. Dex rejects
-oversized strings or binary values, out-of-range integers, excess decimal
-precision, non-finite floating-point values, and invalid JSON.
-
-Missing columns, type mismatches, Flow ID and key column writes, Attribute names
-that share one column, and nulls for required columns are logged and filtered
-one field at a time. Valid fields in the same batch still
-write. If every field is filtered, the sync batch succeeds without executing SQL.
+Moved to [SQL type contract](/reference/server/attribute-store-sync#sql-type-contract).
 
 ## Delivery and retries
 
-Attribute Sync stores latest state, not an event history. A later write may
-repeat after an ambiguous failure. Upserts therefore use the Flow ID as their
-idempotency key.
-
-Writes never block a Step, RPC, or SetAttributes commit. Failed writes are
-retried until **syncRetryPolicy.totalDuration**, then dropped with an error log.
-Dex does not automatically replay old Attributes or backfill a newly configured
-store. Filtered writes, missing targets, and retry exhaustion emit error logs.
-
-See [Attribute Store sync](/production/server-zd-operations#attribute-store) in
-the server-zd operation guide for the fencing table, closing behavior,
-retries, and metrics.
+Moved to [Delivery and retries](/primitives/components/external-attribute-sync#delivery-and-retries).

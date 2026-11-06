@@ -77,7 +77,7 @@ types, unknown names, ambiguous class targets, and a Step or Flow object used
 where the analyzer cannot prove it is unchanged, for example a Step passed to
 an imported function or cast. Keep Step objects in the Flow file; the reference
 lists the exact allowed uses. See the
-[Flow visualization reference](https://docs.superdurable.io/references/flow-visualization).
+[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
 
 ## Minimal Flow
 

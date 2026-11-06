@@ -1,0 +1,110 @@
+---
+title: TypeScript Workers
+sidebar_label: Workers
+---
+
+# TypeScript Workers
+
+This page shows how to start a TypeScript Worker. It lists the TypeScript names for the
+Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Start a Worker
+
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
+and keeps one slot for RPCs. See the [TypeScript SDK README](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md#workers) for
+startup details.
+
+```typescript
+export async function startPullGreeting(
+  cache: BlobCache,
+  serverAddress: string,
+): Promise<{ flow: GreetingFlow; worker: Worker; client: Client }> {
+  const flow = new GreetingFlow();
+  const registry = new Registry([flow]);
+  const worker = new Worker(registry, cache, {
+    serverAddress,
+    pull: {
+      maxConcurrentTasks: 8,
+      // Keep one slot for RPCs so Flows stay responsive.
+      reservedRpcTasks: 1,
+    },
+  });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+  } catch (failure) {
+    try {
+      await worker.close();
+    } catch (cleanupFailure) {
+      throw new AggregateError([failure, cleanupFailure], "pull Worker startup and cleanup failed");
+    }
+    throw failure;
+  }
+  const client = new Client(registry, cache, { serverAddress });
+  return { flow, worker, client };
+}
+
+export async function stopPullGreeting(worker: Worker, client: Client): Promise<void> {
+  await client.close();
+  await worker.close();
+}
+```
+
+Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)
+
+## Readiness
+
+TypeScript exposes **waitPullRegistered**, **pullRegistrationState**, and
+**stopOnPermanentStreamRejection** in SDK 1.14.0. TypeScript waits accept an
+AbortSignal or timeout in milliseconds. Opt-in fatal rejections are returned by
+**run** after draining.
+
+A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
+kind.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```typescript
+export function isPullGreetingReady(worker: Worker): boolean {
+  return worker.pullRegistrationState().isReady;
+}
+```
+
+Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)
+
+## Capacity and shutdown
+
+| Setting | TypeScript name |
+| --- | --- |
+| Concurrent tasks | **maxConcurrentTasks** |
+| Reserved RPC slots | **reservedRpcTasks** |
+| Stop drain timeout | **stopDrainTimeoutMs** |
+| Shutdown | **close** |
+
+The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **pullReservedRpcDeclines**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+This diagnostics helper exposes registration readiness. A full Worker stays ready.
+
+```typescript
+export interface PullGreetingDiagnostics {
+  readonly isReady: boolean;
+}
+
+export function getPullGreetingDiagnostics(worker: Worker): PullGreetingDiagnostics {
+  return {
+    isReady: worker.pullRegistrationState().isReady,
+  };
+}
+```
+
+Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)

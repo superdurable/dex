@@ -27,6 +27,7 @@ MDX_UNSAFE = re.compile(r"[{}<>]")
 DOC_ROOTS = (
     "docs/content",
     "docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current",
+    "docs/reference",
 )
 
 

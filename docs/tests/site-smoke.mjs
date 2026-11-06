@@ -35,7 +35,16 @@ const home = await readFile(join(root, 'index.html'), 'utf8');
 const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
 const cron = await readFile(join(root, 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const whyDex = await readFile(join(root, 'intro', 'what-is-dex', 'index.html'), 'utf8');
-const production = await readFile(join(root, 'production', 'index.html'), 'utf8');
+const components = await readFile(join(root, 'primitives', 'components', 'index.html'), 'utf8');
+const referenceLanding = await readFile(join(root, 'reference', 'index.html'), 'utf8');
+const zhReferenceLanding = await readFile(join(root, 'zh-Hans', 'reference', 'index.html'), 'utf8');
+const serverReference = await readFile(join(root, 'reference', 'server', 'workers', 'index.html'), 'utf8');
+const zhServerReference = await readFile(join(root, 'zh-Hans', 'reference', 'server', 'workers', 'index.html'), 'utf8');
+const serverTransition = await readFile(join(root, 'production', 'server-zd-operations', 'index.html'), 'utf8');
+const zhPullWorkersTransition = await readFile(
+  join(root, 'zh-Hans', 'production', 'pull-workers', 'index.html'),
+  'utf8',
+);
 const dexSkills = await readFile(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
 const dexAppBuilder = await readFile(
   join(root, 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html'),
@@ -216,7 +225,32 @@ assert.match(whyDex, /flow-definition-canvas/);
 assert.match(whyDex, /OrderProcessingFlow/);
 assert.match(zhWhyDex, /flow-definition-canvas/);
 assert.match(zhWhyDex, /OrderProcessingFlow/);
-assert.match(production, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/production\/"/);
+assert.match(components, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/components\/"/);
+assert.match(referenceLanding, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/reference\/"/);
+assert.match(referenceLanding, /id="compatibility-matrix"/);
+assert.match(zhReferenceLanding, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/reference\/"/);
+assert.match(zhReferenceLanding, /id="compatibility-matrix"/);
+// The Developer reference is English only, so zh-Hans serves the English text at its own URL.
+assert.match(serverReference, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/reference\/server\/workers\/"/);
+assert.match(
+  zhServerReference,
+  /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/reference\/server\/workers\/"/,
+);
+assert.match(zhServerReference, /id="step-task-queue"/);
+assert.match(zhServerReference, /Workers and the task queue/);
+// Transition pages keep every old section id so inbound anchors still resolve.
+// The inventory lists the ids of the pages before they moved.
+const transitionAnchors = JSON.parse(await readFile(join(docsRoot, 'tests', 'transition-anchors.json'), 'utf8'));
+for (const [route, ids] of Object.entries(transitionAnchors)) {
+  const html = await readFile(join(root, ...route.split('/').filter(Boolean), 'index.html'), 'utf8');
+  assert.equal(metaRefreshTarget(html), undefined, `${route} must stay a transition page, not a redirect`);
+  for (const id of ids) {
+    assert.ok(html.includes(`id="${id}"`), `${route} lost the old anchor #${id}`);
+  }
+}
+assert.match(serverTransition, /href="\/reference\/server\/configuration\/#history-window"/);
+assert.match(zhPullWorkersTransition, /id="readiness"/);
+assert.match(zhPullWorkersTransition, /id="enable-pull-mode"/);
 assert.match(dexSkills, /Build with AI/);
 assert.match(dexSkills, /superdurable\/dex-skills/);
 assert.match(dexSkills, /dex-sdk/);
@@ -317,7 +351,12 @@ await Promise.all([
   access(join(root, 'primitives', 'index.html')),
   access(join(root, 'primitives', 'connector', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
-  access(join(root, 'references', 'cli', 'index.html')),
+  access(join(root, 'reference', 'cli', 'index.html')),
+  access(join(root, 'reference', 'web', 'flow-visualization', 'index.html')),
+  access(join(root, 'reference', 'go', 'workers', 'index.html')),
+  access(join(root, 'agent-frameworks', 'deploy-agents', 'index.html')),
+  access(join(root, 'zh-Hans', 'primitives', 'components', 'application', 'index.html')),
+  access(join(root, 'zh-Hans', 'reference', 'rust', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-sdk', 'index.html')),

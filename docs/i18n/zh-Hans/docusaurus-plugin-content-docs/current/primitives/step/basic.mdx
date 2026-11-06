@@ -672,4 +672,4 @@ Failure route 可以依赖 **NOT_STARTED** 表示工作没有运行，但不能�
 - 只有在这些限制之内，单次 attempt 的 Step 才算 at most once。被中断的 attempt 可能已经发出调用，被取消的执行也可能仍在运行。它的 failure route 可能在工作已经发生时运行，也可能在工作从未运行时运行。对 ASYNC 来说，同一个 attempt 编号还可能运行两次。
 - 对结果未知的情况做对账。当 failure route 看到 **NOT_COMPLETED** 时，先用幂等 key 或业务 key 到目标系统中检查，再决定是否重复或报告这个副作用。把查到的结果记录到 Flow 中。
 
-关于 agent 包中单次 attempt 的 tool Step，见 [Tool call limits](/production/agents#tool-call-limits)。
+关于 agent 包中单次 attempt 的 tool Step，见 [Tool call limits](/agent-frameworks/deploy-agents#tool-call-limits)。

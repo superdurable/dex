@@ -5,328 +5,56 @@ sidebar_label: Dex Web
 
 # Dex Web
 
-Dex Web 是 Dex 的操作员 UI。它作为单独的 **dex-web** 进程运行，并连接到某个 FlowService，
-例如 [server-zd](/production/server-zd-operations)。本地开发时，**dexcli dev** 会同时启动
-server-zd 和 Dex Web。
+本页已经移到英文的 [Dex Web reference](/reference/web/dex-web)。下面每一节都链接到新的位置。
 
 ## 运行 dex-web {#run-dex-web}
 
-**dex-web** 是内嵌 UI 的独立二进制文件。它提供 UI、**/api/**、**/healthz** 和 **/readyz**，
-不会启动 server。
-
-~~~bash
-dex-web --flow-service-address 127.0.0.1:8801
-~~~
-
-打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)。**superdurable/dex-web** 容器镜像运行同一个
-二进制文件。它绑定 **0.0.0.0:8802**，以 UID 和 GID 65532 运行，并包含系统 CA bundle。每次推送到 main
-分支都会发布 **superdurable/dex-web:latest**，每个 **web/vX.Y.Z** release 会发布
-**superdurable/dex-web:vX.Y.Z**。请以只读方式挂载 Flow Definition Graph 目录和 token 文件，
-并让该 UID 有读取权限。
-
-~~~bash
-docker run --rm -p 8802:8802 \
-  -e DEX_WEB_FLOW_SERVICE_ADDRESS=host.docker.internal:8801 \
-  superdurable/dex-web:latest
-~~~
-
-每项设置都接受命令行参数或环境变量，命令行参数优先于环境变量。启动之后设置不会改变，
-只有 credential 文件的内容例外。其他环境变量会被忽略，包括 **DEX_WEB_PORT** 这类 Kubernetes
-service-link 变量。
-
-| 参数 | 环境变量 | 默认值与含义 |
-| --- | --- | --- |
-| **--bind-address** | **DEX_WEB_BIND_ADDRESS** | **127.0.0.1**；镜像中设为 **0.0.0.0**。需要远程客户端连接时传入 **0.0.0.0**。 |
-| **--port** | **DEX_WEB_HTTP_PORT_NUMBER** | **8802**；HTTP 端口。 |
-| **--flow-service-address** | **DEX_WEB_FLOW_SERVICE_ADDRESS** | **127.0.0.1:8801**；FlowService 的 gRPC 地址。 |
-| **--flow-rendering-dir** | **DEX_WEB_FLOW_RENDERING_DIRECTORY** | 空；启用 **v2** 的 Flow Definition Graph JSON 目录。 |
-| **--tls** | **DEX_WEB_TLS** | **false**；加密并验证到 FlowService 的连接。 |
-| **--tls-ca-file** | **DEX_WEB_TLS_CA_FILE** | 空；加入系统根证书的 PEM 文件。需要 **--tls**。 |
-| **--tls-server-name** | **DEX_WEB_TLS_SERVER_NAME** | 空；覆盖用于校验 server 证书的名称。需要 **--tls**。 |
-| **--flow-service-credential-file** | **DEX_WEB_FLOW_SERVICE_CREDENTIAL_FILE** | 空；包含 Dex Web 发给 FlowService 的 bearer token 的文件。 |
-
-Start Flow 始终使用 pull Worker。两个旧版 Worker 路由选项已弃用且不再生效：**--start-flow-worker-target-pull**（**DEX_WEB_START_FLOW_WORKER_TARGET_PULL**）和 **--start-flow-worker-target-headless**（**DEX_WEB_START_FLOW_WORKER_TARGET_HEADLESS**）。Dex Web 仍接受它们，提供其中任一选项时会输出启动警告。
-
-credential 文件只包含一个 bearer token，前后的空白会被忽略。文件缺失或为空时启动失败。
-文件之后变空或不可读时，RPC 会失败，直到文件恢复。Dex Web 最多每秒检查一次文件中的新 token，
-因此外部 agent 可以通过它轮换短期 token。token 只保留在 Dex Web 进程中，不会到达浏览器。
-向远程 FlowService 发送 credential 时请使用 **--tls**。
-
-~~~bash
-dex-web --flow-service-address dex.example.com:443 --tls \
-  --flow-service-credential-file /var/run/secrets/dex/token
-~~~
-
-**/healthz** 只报告进程是否存活。**/readyz** 会验证当前 definition 快照，然后用配置的
-credential 调用 FlowService 的 **HealthCheck**。用 **/readyz** 控制流量，用 **/healthz**
-检测存活，这样 FlowService 故障不会导致 Dex Web 被重启。关闭时，Dex Web 最多等待十秒，让打开的
-HTTP 请求完成。
+已移到 [Run dex-web](/reference/web/dex-web#run-dex-web)。
 
 ### 访问控制 {#dex-web-access-control}
 
-Dex Web 没有最终用户身份认证。任何能访问其端口的人都能使用配置的 FlowService credential 操作，
-并且 Dex Web 可能显示 Flow 的 input、output、Attribute 和 Worker stack trace。请把它放在 TLS 和会强制
-认证的反向代理或网关之后，并按角色授权访问。不要把 Dex Web 或 FlowService 直接暴露到公网。
-请按照你的数据处理策略审计对生产 Flow 详情的访问。
+已移到 [Access control](/reference/web/dex-web#dex-web-access-control)。
 
 ### /api 请求 {#api-requests}
 
-**/api/** 下的 **POST**、**PUT**、**PATCH** 和 **DELETE** 请求（包括 Flow 搜索）必须发送
-**Content-Type: application/json**。缺少或使用其他 media type 会返回 HTTP 415。使用 **-d** 的
-**curl** 调用要加上这个 header：
-
-~~~bash
-curl -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8802/api/...
-~~~
-
-跨源的浏览器请求返回 HTTP 403。Dex Web 使用浏览器的 fetch metadata，因此同源请求在终止 TLS
-或改写 **Host** header 的代理之后也能工作，不需要 trusted-origin 配置。代理必须原样传递
-**Sec-Fetch-Site** 和 **Origin** header。对于不发送 fetch metadata 的客户端，**Origin** 的主机必须等于请求的
-**Host**，因此请配置代理保留公开的 **Host**。Forwarded header 不会覆盖这些检查。既不发送
-**Origin** 也不发送 **Sec-Fetch-Site** 的客户端（例如 **curl**）只要发送 JSON 就会被接受。
-
-这些检查不能防御 DNS rebinding。请在反向代理处限制可接受的主机名，并把对 Dex Web 端口的直接访问
-限制在可信客户端。FlowService 出错时，浏览器只看到通用消息，原始错误写入 Dex Web 日志。
-
-Dex Web 使用两个 URL 前缀。**v1** 是原有的 Flows 搜索、run 详情和 Flow Rendering。**v2** 是操作工作区：左边是 run 列表和过滤器，右边是该 Flow type 的 Flow Definition Graph。
-
-不带 JSON 目录启动 Dex 时，打开 **v1** 的 **/v1/flows**。使用 **--flow-rendering-dir** 启动时，默认打开 **v2** 的 **/v2**。右上角 Version 菜单可以回到 **v1**。
-
-```bash
-dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
-dexcli dev --flow-rendering-dir ./build
-```
-
-**v2** 按一个 Flow type 搜索 current run。画布使用该 Flow type 已生成的 definition，因此不必再选 JSON 文件。历史 run 仍在 **v1**。
-
-每个 definition 都使用 Worker 注册的 Flow type 和 Step type，规则见 [Flow 与 Step 名称](/references/flow-visualization#flow-and-step-names)。除非 analyzer 报告该页列出的名称诊断，Go Flow 不需要 **GetFlowType** 或 **GetStepType** override。请使用与 Dex Web 版本一致的 **dexcli** 生成 definition，并在升级后重新生成。
-
-Version 1 仍是默认 analyzer schema，并支持 Go 与 Python。Version 2 第一版只支持 Go。Version 1 与 Version 2 definition 可以共存。Dex Web 会在启动时拒绝格式错误的 Version 2 文件，以及同一 Flow type 的多个有效 Version 2 definition。例如，两个 package main 二进制都定义了 **main.Flow** 时，它们会解析为同一个 Flow type，错误信息会列出这两个文件。Analyzer 输出中的 **valid: false** 文件仍可在 **v1** Flow Rendering 中查看 diagnostic，但不会作为 **v2** Flow type 出现。
+已移到 [The /api requests](/reference/web/dex-web#api-requests)。
 
 ## 用 dexcli web 查看远程 server {#dexcli-web}
 
-**dexcli web** 用同一个内嵌 UI 连接已有的 server。它不会启动 server。它连接全局 **--server**
-地址，使用与其他 **dexcli** 命令相同的 TLS 和 credential 设置。
-
-远程 server 的 FlowService 端口只绑定在远程主机的 loopback 地址上时，请通过 SSH tunnel 访问它。
-**ssh -N** 会在前台持续运行，所以请在一个终端中打开 tunnel 并保持运行：
-
-~~~bash
-ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
-~~~
-
-在另一个终端中启动 Dex Web：
-
-~~~bash
-dexcli --server 127.0.0.1:8801 web
-~~~
-
-打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)。该命令接受 **--bind-address**（默认
-**127.0.0.1**）、**--web-port**（默认 **8802**）、**--flow-rendering-dir** 和 **--open**
-（默认 true；传 **--open=false** 不打开浏览器）。Ctrl+C 会停止 Dex Web，server 继续运行。
-
-正在运行的 **dexcli dev** 也会使用 8801 和 8802 端口。要同时运行两者，请换一个本地 tunnel 端口和
-Dex Web 端口：
-
-~~~bash
-ssh -N -L 18801:127.0.0.1:8801 operator@dex-host
-dexcli --server 127.0.0.1:18801 web --web-port 18802
-~~~
-
-打印地址之前，**dexcli web** 会调用 FlowService **HealthCheck**。server 或 tunnel 不可达时，
-命令会失败。它还会检查协议兼容性，不兼容时打印警告。**--timeout** 只限制这些启动检查，不限制
-运行中的 Dex Web。Connector 设置被禁用，因为 Connector 配置属于本地 **dexcli dev** 环境。
-
-Dex Web 没有身份认证。任何能访问其端口的人都可以用你的 credential 操作 server 上的 Flow。
-请让 **--bind-address** 保持为 loopback 地址；使用其他地址时 **dexcli web** 会打印警告。
-同时让 server 的 FlowService 端口保持绑定在远程主机的 loopback 地址上，使 SSH tunnel 成为唯一入口。
+已移到 [View a remote server with dexcli web](/reference/web/dex-web#dexcli-web)。
 
 ## 具名 directive
 
-Version 2 directive 使用具名值。同一行内的参数位置没有语义。包含空格的字符串使用 JSON 双引号，多值使用 JSON array。
-
-<SdkTabs examples={{go: 'examples/go/products/customer-refund/agentic/workflow.go'}}>
-<SdkSnippet lang="go">
-
-```go
-// dex:field attribute-key:customer-email value-type:string editable:false description:"Customer email" ui-slot:title
-// dex:field attribute-key:case-status value-type:string editable:false description:"Case status" ui-slot:status
-// dex:field attribute-key:in-email value-type:string editable:false description:"Customer request" ui-slot:subtitle
-// dex:field attribute-key:in-charge-ref value-type:string editable:false description:"Charge reference"
-// dex:field attribute-key:evidence-state value-type:string editable:false description:"Evidence state"
-// dex:field attribute-key:recommended-action value-type:string editable:false description:"Recommendation" ui-slot:recommendation
-// dex:field attribute-key:recommendation-rationale value-type:string editable:false description:"Recommendation rationale" ui-slot:reason
-// dex:field attribute-key:guardrail-verdict value-type:string editable:false description:"Guardrail verdict"
-// dex:field attribute-key:guardrail-rule value-type:string editable:false description:"Guardrail rule" ui-slot:reason
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-未知或重复参数、缺少必填参数以及非法 JSON 都会产生 blocking diagnostic。多条 indexed Attribute、field、Action 与 input 声明保留源码顺序；这个顺序就是列、详情字段、Action 和表单顺序，不需要额外的 order 属性。
-
-每个已注册 Step 都必须有一个 group 声明和一个 explanation 声明。explanation 用一句话说明该 Step 做什么。Group 顺序由第一个成员在 **GetSteps** 中的注册位置决定，组内 Step 顺序也使用 **GetSteps**。
-
-一个 group 应该只做一件事：它要么是一串相互衔接的 Step，要么是由同一个 Step 在其中做出的一次选择，例如 agent 可以挑选的一组工具。对于其他形态的 group，analyzer 会给出 **v2_step_group_shape** 警告，并列出该 group 互不相连的各个部分，方便你拆分。这个警告不会让定义失效。
-
-analyzer 只根据主线判断 group。失败处理 Step 是只有 failure transition 才能到达的 Step，可以直接到达，也可以经由其他失败处理 Step 到达。例如记录重试耗尽的 Step，或在崩溃后进行修复的 Step。在画布上，这些 Step 不属于任何 group，failure transition 也不会把 group 连在一起。失败处理 Step 不需要单独组成 group。
+已移到 [Named directives](/reference/web/dex-web#named-directives)。
 
 ## Flow 画布
 
-**v2** 画布为每个 Step 画一张卡片。卡片的图标说明由谁推进这个 Step：一个人、来自外部的消息、时间、子 Flow、AI 模型、通过 Connector 调用的应用，或 Flow 自身。
-
-由两个或更多 Step 组成、且是一串 Step 或一次选择的 group 是一个阶段。其他 group 会在带标签的区域内直接显示它的各个 Step。**Collapsed** 把每个阶段画成一张卡片。选择这张卡片或它的 **⊕**，阶段会在原位展开；选择展开阶段上的 **⊖** 即可收起。**Expanded** 展开所有阶段。这两个按钮还会把视图恢复到画布打开时的位置。
-
-每个 Step 只画一条进入的线：来自最后一个通向它的 Step 的 transition，并优先选择同一 group 中的 Step。其他 transition 都以 **↪** 标签显示在它离开的卡片上；选择标签即可查看它通向哪里。响应等待中 Step 的 Action、启动 Step 的 RPC，以及 Step 如何结束 Flow，也都以标签显示在卡片上。
-
-画布先画出 Flow 的主线。主线包括 Flow 有意到达的每个 Step，无论多少见，其中也包括业务拒绝、检查未通过，以及 RPC 让 Flow 进入的 Step。失败处理在 **Collapsed** 和 **Expanded** 中都会隐藏。有 failure transition 离开的 Step 卡片会显示 **⚠** 以及 failure transition 的数量。阶段卡片不显示这个数量，因此收起后的视图保持简洁。
-
-选择带 **⚠** 的卡片，即可在它旁边画出它的失败处理。它的失败会到达的 Step 显示为虚线卡片。直接通向主线 Step 的失败显示为虚线 **↪** 指示，**↩** 标签则指回主线。其他内容都不会移动。选择其他任何内容，失败处理会再次隐藏。
-
-如果一个 Step 自己捕获错误后再选择下一个 Step，这是一次普通决策，所以它仍然留在主线中。要隐藏这种处理，请返回该错误，让 Step 的 failure route 执行。
-
-选择一个运行后，包含等待中 Step 的阶段会自动展开，该 Step 会加上外框并标注 **now**。运行经过的失败处理，会画在失败进入它的那个 Step 旁边。
+已移到 [Flow canvas](/reference/web/dex-web#flow-canvas)。
 
 ## 启动 Flow
 
-当所选 definition 包含自动生成的 start schema 时，Run 工作区会显示 **Start Flow**。弹窗要求填写 Flow ID 和 start input。Flow 运行在连接到 server 的[拉取模式 Worker](/production/pull-workers) 上。它支持嵌套 object、array、string-key map、enum、boolean、datetime、optional field 和显式 null。固定数组保持声明的长度。Integer 在浏览器中一直保存为十进制文本，到序列化时才写入 JSON，因此 int64 不会损失精度。
-
-Go analyzer 从通过 **DefineStartStep** 注册的 Step 输入类型生成 schema。它遵循 JSON field name、忽略字段、pointer 和 **omitempty**，并支持嵌套或 imported struct、具名 string/integer constant、**time.Time**、普通数值宽度、slice、固定数组和 string-key map。递归或不支持的输入会产生 warning 并省略 start schema，但不会隐藏 definition 的其余部分。
-
-Server 会重新加载当前 definition revision，并在调用 **StartFlow** 前完整验证 input。未知 object field、缺失 required field、非法 null，以及 type、enum、range、datetime、array 或 map 错误都会被拒绝。Server 选择 start Step type 并生成 request ID。
-
-**POST /api/v2/start** 请求不需要 Worker target，Dex Web 会在 pull Worker 上启动 Flow。**workerTargetPull: true** 会被接受。**workerTargetPull: false** 返回 HTTP 400。Dex Web 启动 Flow 前不会检查 pull Worker 是否已注册，因为注册状态在 dispatch 前可能变化。参见[对接 server-zd](#run-against-server-zd)。
+已移到 [Start Flow](/reference/web/dex-web#start-flow)。
 
 ## Worker 路由
 
-Flow 详情显示 **Worker target**，其值为 **Pull**。它还显示以 Flow 类型命名的 **Flow type queue**，以及 **Sticky app Worker ID**，即最后被记录为处理该 Flow 的应用 Worker。
-
-活跃 Step 和 Step 历史记录显示 **WaitFor** 和 **Execute** 的路由信息。**Serving app Worker ID** 标识处理该方法的 Worker。**Queue source** 显示实际处理任务的队列：**Sticky queue** 或 **Flow type queue**。即使 Worker ID 与 **Dispatch sticky app Worker ID** 相同，该 Worker 也可能通过 Flow 类型队列处理任务。对于缺少队列元数据的旧记录，Dex 根据这些 ID 推断来源。待处理的分发在队列尚未确定时显示 **—**。失败的分发即使没有已知的处理 Worker，也可能显示队列来源。
-
-没有 Worker 接收的 Step 会在队列中等待，不会失败。没有可用 Worker、未知 RPC 名称耗尽分发等待时间这类分发失败，现在只适用于 RPC。Worker 断开连接仍会让已交出的 attempt 失败。旧的 Step 失败记录可能显示 **Unknown Step type: dispatch timed out**。RPC 历史记录显示已记录调用的处理应用 Worker ID。缺少路由元数据的旧运行显示 **—**。
-
-活跃 Step 显示当前的 **WaitFor invocation** 和 **Execute invocation**。**Phase** 是 **Pending**、**Running** 或 **Backoff**。**Attempt** 是正在等待或运行的 attempt。在 **Backoff** 期间，它是下一次 attempt。待处理的 attempt 显示 **Pending reason** 和 **Pending since**，以及已经等待的时长。原因是以下之一：
-
-- **Waiting for locks**：另一个 Step 或事务型 RPC 持有它的某个锁，或者更早的 Step 正在等待其中一个锁。
-- **Waiting for a Worker**：还没有该 Flow 类型的 Worker 接收这个 attempt。
-- **Waiting for a Worker that supports this Step type**：该 Flow 类型的 Worker 已经连接，但都不支持这个 Step 类型。该 Step 会一直排队，直到支持它的 Worker 连接、Flow 超时或 Flow 被停止。
-
-运行中的 attempt 显示 **Attempt started**。退避中的 attempt 显示 **Backoff ends**。旧版 Server 不报告 invocation，因此 Dex Web 不显示它们。
-
-Step 历史记录显示 **Scheduled**，即最后一次 attempt 开始待处理的时间。从 **Scheduled** 到 **Started** 的时间就是等待锁和 Worker 的时间。
+已移到 [Worker routing](/reference/web/dex-web#worker-routing)。
 
 ## 搜索与 Summary
 
-Indexed Attribute 声明绑定 Dex Attribute key、物理搜索 index key、index type、应用 value type 和 description。Analyzer 会把每个值与 Go 定义和 SDK 计算出的有效 index 配置比较。
-
-物理 key 可以是 **keyword2** 这样的通用 namespace 槽位。所选 Flow type 限定了它在当前 workspace 中的含义，因此不同 Flow type 复用同一个槽位时，UI 行为不变。
-
-**v2** 列表每次搜索一个 Flow type。过滤条件包括 Flow ID、execution status、开始和结束时间，以及声明的 indexed Attribute。Dex Web 会把这些控件编译成 visibility query，不接收浏览器提供的原始 query。不同字段使用 AND，同一字段的多个值使用 OR。
-
-每一行都会针对逻辑 Flow ID 的 current run 调用 **GetDexSummary**。该 RPC 接受 **dex.None** 并返回 **map[string]any**。Dex Web 最多并发加载八个 Summary，每次调用超时五秒，单条失败只影响对应行。Indexed Attribute 显示在 Summary 字段之前。
+已移到 [Search and Summary](/reference/web/dex-web#search-and-summary)。
 
 ## Display 与编辑
 
-点击一行会把 Flow ID 留在 URL 中，而不是 run ID。**GetDexDisplay**、Attribute 读取、编辑和 Action 都省略 run ID，因此 Dex 会定位 current run。刷新同一个 URL 总是指向该 Flow 的 current run。
-
-在 **v2** 中，选中 Step 会打开分为 **Definition** 与 **Execution** 的面板。Definition 展示 Step 的 **explanation**、WaitFor 与 Execute 分支；过长内容可滚动，以便 Execution 仍可见。Execute 分支超过三条时默认折叠。若该 Step 执行过多次，Execution 提供下拉框选择某次执行，再以与 **v1** Selected event 相同的结构化方式展示所选 WaitFor 或 Execute history 事件的 **Input**、**Output** 和 **Context**。执行 payload 默认 Details，可切换为已水合 payload 的 Raw JSON。十进制数字形式的 AttributeMap / ChannelMap instance 按数值排序，行为与 **v1** 一致。Execute 显示该次 run 决策里的 live next Steps，而不是 FDG 上的全部出口。使用 **Load more from previous run** 查看该 Step 更早的执行。
-
-字段还可以声明它所填充的 UI slot：**title**、**subtitle**、**status**、**recommendation** 或 **reason**。UI slot 说明该字段承担什么角色，因此一套模板可以服务所有 Flow，而每个 Flow 把自己的 Attribute 映射进去。UI slot 是可选的，多数字段不填任何 UI slot。
-
-run 列表的每一行读取 **title** 和 **status**；当 Flow 两者都未声明时，回退为 Flow ID 与 execution status。选中 run 的面板读取全部五个 UI slot，按 UI slot 顺序排在其余字段之前。**title**、**subtitle**、**status** 和 **recommendation** 各只允许一个字段。**reason** 允许多个，因为一条 recommendation 可以有不止一个依据。
-
-一行只携带 indexed Attribute 和 Summary 字段。若某个 UI slot 绑定的 Attribute 两者都不属于，它只在面板中显示，不在行中显示。UI slot 不是索引：它只说明值应出现在哪里，不表示该值可被搜索。
-
-其余 Display 字段按照 directive 行排序。String、integer、double、boolean 和 datetime 字段可以编辑。JSON、object、array 和 AttributeMap 只读。缺失字段必须返回 null。后端会拒绝遗漏、未声明或类型错误的值。
-
-只有 current run 仍为 active 时才能编辑。Dex Web 通过 **SetAttributes** 写入 Attribute；如果该 Attribute 已建立索引，还会附带声明的 index 配置。仅当被编辑的 Attribute 是 Action condition source 时，Dex Web 才会同时发送完整的 Action permission mapping；其它编辑不会发送。
+已移到 [Display and edits](/reference/web/dex-web#display-and-edits)。
 
 ## Action
 
-Action 是通过 **RPCOptions.Action** 注册的 RPC。**DefineAction** 接收 label、Attribute condition 和一个 **ActionRequiresPermission** option。Visualizer 会直接读取这个强类型 Go 注册。Dex Web 会在调用 RPC 前重新读取 condition Attribute。
-
-无输入 Action 接受 **dex.None**，直接显示为按钮。有输入 Action 接受具名 Go struct。来自用户的字段按 directive 顺序渲染控件；来自 Attribute 的字段保持隐藏，并使用当前选中 run 的 Attribute snapshot。
-
-来自用户的 string 字段可以声明 **capture:qr-code**。Dex Web 会保留文本框，继续支持扫码枪、粘贴和手工输入，同时增加 **Scan QR code** 按钮。打开扫码器后才会请求摄像头并加载 QR reader。扫描成功只会把解码后的文本回填到字段中，不会提交 Action；用户可以先检查值，再选择 Action。
-
-摄像头采集要求 HTTPS 或 localhost。权限被拒绝、没有摄像头、运行环境不支持或 host policy 阻止访问时，仍可手工输入。关闭扫码器、切换 run 或离开页面时会释放摄像头 track。扫码不会授予 permission、绕过 Action condition，也不会改变 RPC protocol。
-
-每个 Action 要求一个 permission，例如 **refund.manage**。Permission key 以小写字母开头，只包含小写字母、数字、点或连字符。当一次成功的 Worker invocation 写入 Action condition source 时，Worker 会在 response 中附带完整 mapping。无关写入和 query-only RPC 不会附带 mapping。
-
-Server 会把业务写入覆盖到权威 Attribute state 上，并与这些写入原子地计算 mapping。它对当前可用 Action 的 permission 排序、去重，再把新匹配的 permission 加入内部 KeywordList Search Attribute **DexWorkQueuePermissions**。permission 一旦加入，就会在该 Flow execution 中一直保留，即使当前已没有匹配的 Action。维护投影不要求应用 Step 锁住每个 Action source。
-
-permission 历史在该 Flow execution 内一直保留，并在完成后继续可搜索。Server 升级会保留仍然存在的 permission，但不会重建升级前已经删除的 permission。新的独立 Flow execution 会从自己的初始 Attribute 开始。修改后的 Action definition 会在后续 source write 发送 mapping 或新 Flow 启动时首次生效。删除或重命名 Action permission 不会清除已有 permission 历史中的旧值。
-
-Work Queue 会列出所选 Flow type 声明的 permission。在 **Working as** 中选择一个 permission 后，浏览器通过 **POST /api/v2/search** 的 **workQueuePermissions** 发送它。调用方也可以发送从多个用户 role 得到的多个 permission。只要 run 的 permission 历史包含任意一个请求 permission 就会匹配；这组 permission 与 Flow type 和其他 filter 之间使用 AND。
-
-permission 匹配表示某个 Action 当前可用或曾经可用，并不表示它现在仍然可用。带 key 的 gate 还需要它当前的 key，而列表读取的是最终一致的索引。当前真正可用的 Action 仍由打开后的该 run 决定。
-
-浏览器中的 condition 只控制展示。每个 Action RPC 都必须在修改持久化状态或发布 Channel message 前再次检查当前状态。当检查与 effect 必须保持原子性时，应使用 lock。
-
-Work Queue 不增加登录，也不执行授权。**Working as** 只是选择工作，不会授予所选 permission。可信应用边界仍负责用户认证、把 role 映射到 permission，并限制它发送哪些 permission。请把 Dex Web 部署在该边界之后。
+已移到 [Actions](/reference/web/dex-web#actions)。
 
 ## 对接 server-zd {#run-against-server-zd}
 
-[server-zd](/production/server-zd-operations) 本身不提供 Dex Web。
-用 **--flow-service-address** 指定 server-zd 的 gRPC 地址。
-server-zd 开启身份认证时，用 **--flow-service-credential-file** 指定包含 static token 或 service JWT
-的文件。Dex Web 还支持用 **--tls**、**--tls-ca-file** 和 **--tls-server-name**
-配置上游连接的 TLS。
-
-~~~bash
-dex-web --bind-address 0.0.0.0 --port 8802 \
-  --flow-service-address dex-server-zd:8801 \
-  --flow-service-credential-file /etc/dex/web-token
-~~~
-
-本地开发时，**dexcli dev** 会启动 server-zd 和 Dex Web。
-**--engine zd** 仍然接受，以兼容现有脚本。
-dexcli 的发布包已包含 **dex-server-zd**，因此用 Homebrew 安装 dexcli 后无需另外下载。
-要使用其他 **dex-server-zd** 二进制文件，传入 **--zd-binary** 或设置
-**DEX_SERVER_ZD_BINARY**。两者都未设置时，dexcli 先使用 dexcli 可执行文件旁边的
-**dex-server-zd**，再使用 PATH 中的 **dex-server-zd**。通过 **--zd-config** 传入一个
-server-zd YAML 文件，可以覆盖已关闭 Flow 的保留时间、Stream 或搜索 backend 等设置。
-[CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md#start-locally)
-列出了全部 flag。
-
-**dexcli dev** 的 **--durability** flag 决定 server-zd 如何保存已确认的写入。它接受三种模式：
-
-- **strict** 是默认模式。server-zd 在回复之前用 fsync 把每个写入刷到磁盘。进程被 kill、
-  主机崩溃或断电都不会丢失已确认的 Flow，下次启动会从同一个状态目录继续。
-- **process-crash-safe** 把每个已确认的写入写入文件，但不执行 fsync。进程被 kill 不会
-  丢失 Flow，但主机崩溃或断电可能丢失最近的写入。
-- **relaxed** 把写入保留在内存中，直到优雅停止。在 relaxed 模式下崩溃或被 kill 之后，
-  server-zd 会拒绝启动，直到你删除状态目录。
-
-每次 fsync 都要等待磁盘，所以 **strict** 更慢。在 macOS 上，一个 Flow 的耗时是
-**process-crash-safe** 的数倍，后者适合短期运行的测试服务器。这个 flag 会覆盖
-**--zd-config** 文件中的 **dev.durabilityMode**。不传这个 flag 时，server-zd 使用该设置，
-或者使用 **strict**。
-
-v0.1.4 之前的 server-zd release 默认使用 relaxed 模式。因此，这类 release 在崩溃或被
-kill 后留下的状态目录，在所有模式下都会被拒绝。请删除它，从空目录开始。早期 release
-优雅停止后留下的目录在所有模式下都可以使用。
-
-~~~bash
-dexcli dev --flow-rendering-dir ./build
-~~~
-
-Start Flow 使用 pull Worker，详见[启动 Flow](#启动-flow)。
+已移到 [Run against server-zd](/reference/web/dex-web#run-against-server-zd)。
 
 ### Run attempt {#run-attempts}
 
-Time travel 保留 run ID，并创建新的 run attempt。Run attempt 从 1
-开始编号。
-
-运行详情页用 **Run attempt** 选择器代替 **Run chain**。该页面可从 **v1** 的 run 打开，
-也可从 **v2** 的 **Inspect** 打开。选择较早的 attempt 会在页面 URL 中加入
-**?runAttempt=N**，并显示该 attempt 的历史。查看较早的 attempt 时，实时历史会停止。
-实时状态始终属于当前 attempt。从该视图发起的 time travel 会在所选 attempt 中查找。
-**TimeTravelFork** event 会链接到上一个 run attempt。
-
-run attempt 变化时，页面会重新加载完整历史，因为 fork 点之后的 event 已不属于当前
-attempt。
-
-**GET /api/flows/history** 接受可选的 **runAttempt**。值为零或未提供时选择当前
-attempt。每个 event 和 **GET /api/flows/summary** 都会返回 **runAttempt**。**POST /api/flows/time-travel** 接受可选的 **runAttempt**，并返回新的
-run attempt。
+已移到 [Run attempts](/reference/web/dex-web#run-attempts)。

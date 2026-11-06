@@ -288,8 +288,8 @@ Dex server 根据每条消息的 serialized value、Flow ID、source 和可配�
 
 Server 还会限制单条 Stream message 的大小，默认上限为 100 KiB。
 
-Server 把 **streamCapacityBytes** 限制在 **streamStore.maxStreamCapacityBytes** 以内，默认 64 MiB。它还用 **streamStore.maxTotalBytes** 限制一个 server 上所有 Stream 的内存，默认 1 GiB。超过这个总量的 Client 写入返回 **RESOURCE_EXHAUSTED**，随后后台 trim 会删除最大的 Stream 中最早的消息，直到这条消息放得下。稍等片刻后重试这次写入。见 [Stream](/production/server-zd-operations#streams)。
+Server 把 **streamCapacityBytes** 限制在 **streamStore.maxStreamCapacityBytes** 以内，默认 64 MiB。它还用 **streamStore.maxTotalBytes** 限制一个 server 上所有 Stream 的内存，默认 1 GiB。超过这个总量的 Client 写入返回 **RESOURCE_EXHAUSTED**，随后后台 trim 会删除最大的 Stream 中最早的消息，直到这条消息放得下。稍等片刻后重试这次写入。见 [Stream](/reference/server/configuration#streams)。
 
 ### Best-effort storage
 
-Stream Store 把消息保存在 active server 进程的内存中。无论是 **dexcli dev** 还是生产 server，**streamStore.backend** 的默认值都是 **memory**。server 进程重启或 standby 接管时，memory 中的内容会全部丢失。trim 或容量压力也可能删除或拒绝消息。运维人员可以把 backend 设为 **disabled**。这时 Client 的 Stream 写入和读取返回 **FAILED_PRECONDITION**，Step 写入会被丢弃，但不会让 Step 失败。见 [Stream](/production/server-zd-operations#streams)。
+Stream Store 把消息保存在 active server 进程的内存中。无论是 **dexcli dev** 还是生产 server，**streamStore.backend** 的默认值都是 **memory**。server 进程重启或 standby 接管时，memory 中的内容会全部丢失。trim 或容量压力也可能删除或拒绝消息。运维人员可以把 backend 设为 **disabled**。这时 Client 的 Stream 写入和读取返回 **FAILED_PRECONDITION**，Step 写入会被丢弃，但不会让 Step 失败。见 [Stream](/reference/server/configuration#streams)。

@@ -1,1829 +1,231 @@
 ---
-title: server-zd operation
-sidebar_label: server-zd operation
+title: server-zd operations
+sidebar_label: server-zd operations
 ---
 
-# server-zd operation
+# server-zd operations
 
-server-zd is a Dex Server whose only runtime dependency is object storage, such
-as Amazon S3 or an S3-compatible store. It keeps Flow state in a local store and
-commits every write to object storage before it acknowledges the write. The
-local disk is only a cache. A node rebuilds it from the latest snapshot and the
-command log in object storage.
-
-server-zd serves the **FlowService**, **WorkerTaskService**, and **AdminService** API. It supports
-only [pull Workers](/production/pull-workers). Run [Dex Web](/production/dex-web)
-as a separate process; server-zd does not serve it. For local development, run
-**dexcli dev**, which starts server-zd and Dex Web. To run one production node
-on local disk without external object storage, see
-[Single node on local disk](#single-node-local). This page covers server-zd
-0.1.
+This page moved. The [Server](/primitives/components/server) component page explains
+what server-zd is and how it fits with the other components. The
+[Server reference](/reference/server/) holds the operation details. Each
+section below links to its new location.
 
 ## Unsupported features
 
-server-zd rejects these options with **INVALID_ARGUMENT**:
-
-- A Flow start delay, which is **flow_start_delay_seconds** greater than zero.
-  Tracked in [issue 995](https://github.com/superdurable/dex/issues/995).
-- A Flow-level retry policy, which is **retry_policy** in the Flow start
-  options. Tracked in [issue 996](https://github.com/superdurable/dex/issues/996).
-  Step-level retry is supported.
-
-The only Attribute Store is PostgreSQL. Redis is tracked in
-[issue 616](https://github.com/superdurable/dex/issues/616).
+Moved to [Unsupported features](/reference/server/#unsupported-features).
 
 ## Install and start
 
-Each **server-zd/vX.Y.Z** GitHub Release publishes **dex-server-zd** archives
-for Linux amd64, Linux arm64, macOS amd64, and macOS arm64. The release also includes a
-**checksums.txt** file. Verify each archive against it before you extract it.
-Linux archives require glibc 2.28 or newer.
-
-The **dex-server-zd** container image is published for linux/amd64 and
-linux/arm64. It runs **serve** with the configuration file
-**/etc/dex-server-zd/config.yaml**. The process runs as UID 10001 and GID 10001.
-
-~~~bash
-dex-server-zd serve --config /etc/dex-server-zd/config.yaml
-~~~
-
-**serve** reads every setting from one YAML file. The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
-lists every key with its default. An unknown key fails startup. An invalid
-value also fails startup, and the error names the YAML path of the rejected
-field. The image includes the example at
-**/etc/dex-server-zd/dex-server-zd.example.yaml** for reference only.
+Moved to [Install and start](/reference/server/configuration#install-and-start).
 
 ## Minimal production configuration
 
-~~~yaml
-cluster:
-  nodeId: dex-zd
-objectStore:
-  region: us-east-1
-  bucket: BUCKET
-  prefix: PREFIX
-localStorage:
-  directory: /var/lib/dex-server-zd/store
-lease:
-  duration: 60s
-retention:
-  closedFlowDuration: 7days
-metrics:
-  listen: 0.0.0.0:9090
-~~~
-
-**cluster.nodeId**, **objectStore.bucket**, and **localStorage.directory** are
-required. Replace **BUCKET** and **PREFIX** with your bucket and key prefix.
-Leave **objectStore.endpoint** empty to use AWS endpoint resolution. For an
-S3-compatible store, set it to an HTTP or HTTPS URL. Set
-**objectStore.forcePathStyle** when that store needs path-style addressing.
-
-A node ID has 1 to 63 characters. It uses lowercase letters, digits, and
-hyphens, and it starts with a letter or a digit.
-
-One object storage prefix holds one Dex cluster, and a cluster runs one node.
-The first start records **cluster.nodeId** and **cluster.partitionCount**.
-Neither can change later. A start with a different node ID fails and names the
-recorded one. A start with a different partition count fails and reports both
-counts. Never point two deployments at the same prefix.
+Moved to [Minimal production configuration](/reference/server/configuration#minimal-production-configuration).
 
 ## Single node on local disk {#single-node-local}
 
-**dex-server-zd local** runs one production node without external object
-storage. It starts an embedded s3local object store in the same process and
-keeps all data in one directory on local disk:
-
-~~~bash
-dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>] [--durability strict|process-crash-safe|relaxed]
-~~~
-
-The data directory holds the embedded object store in **s3**, the local store in
-**store**, and the lock file **dev.lock**. The embedded object store is the
-source of truth, as the bucket is for **serve**. Put the data directory on a
-persistent disk. **--log-dir** also writes the log to
-**dex-server-zd.log** in that directory.
-
-The optional **--config** file holds overrides. It uses the keys of the
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml).
-Put only the keys you want to change in it. Every key in the file replaces the
-single-node default. Do not copy the whole example. A copy sets **api.listen**
-to **0.0.0.0:8801**, which has no authentication unless the file also
-configures authenticators. It also sets **lease.duration** to 10 seconds.
-**local** sets the object storage connection, the node ID **dev**, and the
-local store directory itself. **--listen** overrides **api.listen** from the
-file.
-
-The optional **--attribute-store-config** flag reads only the
-**attributeStore** section of a YAML file. That section must define at least
-one store. The **--config** file must not also set **attributeStore**.
-
-The node ID **dev**, the bucket **dex-dev**, the lock file **dev.lock**, and the
-**dev** section of the overrides keep their **dev** names on purpose. **local**
-shares them with **dev**, so a data directory can move between the two
-commands.
+Moved to [Single node on local disk](/reference/server/configuration#single-node-local).
 
 ### Partition count {#single-node-partition-count}
 
-Since server-zd v0.1.20, **dev** and **local** default
-**cluster.partitionCount** to 32. **serve** defaults it to 1024. One node owns
-every partition. The default number of applier lanes is the larger of 8 and the
-CPU count, at most the partition count, so 32 partitions lower it only on hosts
-with more than 32 CPUs. With the builtin search backend, fewer partitions also
-make each SearchFlows call scan less. Set **cluster.partitionCount** in the
-overrides to choose another power of two.
-
-The first start records the partition count, and it cannot change later. A
-later start with a different count fails. The error names the data directory
-and both counts, and asks for the recorded count.
-
-server-zd before v0.1.20 and dexcli before 1.37.0 created data directories with
-1024 partitions. To keep using such a directory, add this to the overrides.
-With **dexcli dev**, pass the file with **--zd-config**.
-
-~~~yaml
-cluster:
-  partitionCount: 1024
-~~~
-
-If you do not need its data, delete the data directory instead. The next start
-creates it with 32 partitions.
-
-An explicit **commit.applierLanes** must not exceed the partition count. If the
-overrides set it above 32 without **cluster.partitionCount**, **dev** and
-**local** fail to start. The error asks you either to set
-**cluster.partitionCount** or to lower **commit.applierLanes** to at most 32.
-Use 1024 for a data directory created before v0.1.20.
-
-To open a data directory created with 32 partitions using server-zd before
-v0.1.20 or dexcli before 1.37.0, set **cluster.partitionCount** to 32 in the
-overrides. Those releases default to 1024.
+Moved to [Partition count](/reference/server/configuration#single-node-partition-count).
 
 ### Durability {#single-node-local-durability}
 
-**dev.durabilityMode** selects how the embedded object store writes
-acknowledged data. The **--durability** flag overrides it with the same modes,
-spelled **strict**, **process-crash-safe**, and **relaxed**.
-
-| Mode | Survives | Cost |
-| --- | --- | --- |
-| **strict** (default) | A process kill, a host crash, and power loss. | Every write is flushed with fsync before the reply. |
-| **processCrashSafe** | A process kill. A host crash or power loss can lose recent writes. | Faster. Every write reaches the files before the reply, without fsync. |
-| **relaxed** | Only a graceful stop. | Writes stay in memory until a graceful stop. After an abrupt exit, every start fails until you delete the data directory. |
-
-Keep the default **strict** mode in production.
+Moved to [Durability](/reference/server/configuration#single-node-local-durability).
 
 ### One node {#single-node-local-one-node}
 
-**local** runs exactly one node. It holds an exclusive lock on **dev.lock** for
-its whole run, so a second **local** or **dev** process on the same data
-directory fails to start. It has no standby. It rejects **standby.mode: hot**
-and **objectStore.hardDeleteStore**. While it holds the lock, no other process
-can write its object store. A restart after a crash therefore takes over the
-held lease at once. **lease.duration** defaults to 30 seconds. On a filesystem
-without file locks, the commands cannot exclude each other, and a restart waits
-for the previous lease to expire. Run only one process per data directory
-there.
-
-On SIGTERM, **local** drains running Step attempts for up to
-**lifecycle.attemptDrainTimeout**, 30 seconds by default, and then stops as
-described in [Graceful shutdown](#graceful-shutdown). Give a service manager at
-least 45 seconds to stop it.
-
-[Streams](#streams) use the **memory** backend by default, as in **serve**.
-Stream messages are lost when the process stops or restarts.
-
-**local** listens on **127.0.0.1:8801** by default, so only the same host can
-reach it. To serve clients and Workers on other hosts, pass
-**--listen 0.0.0.0:8801** or set **api.listen** in the overrides. **local** has
-no [authentication](#authentication) unless the overrides configure
-authenticators. When it listens on a non-loopback address without
-authenticators, it logs a warning at startup. Configure authentication before
-you expose it. Set **metrics.listen** in the overrides to enable
-[metrics](#metrics).
+Moved to [One node](/reference/server/configuration#single-node-local-one-node).
 
 ### Back up and restore {#single-node-local-backup}
 
-To back up, stop **local** with SIGTERM, wait for it to exit, and copy the
-whole data directory. A copy of a running data directory can be inconsistent.
-To restore, stop **local**, replace the data directory with the copy, and
-start **local** again. Writes acknowledged after the backup are lost.
-
-The general rules in [Backup and restore](#backup-and-restore) apply too. With a
-PostgreSQL or ParadeDB search backend, the restored data directory needs a new
-**search.postgresSchema** or **search.paradeDbSchema**, as that section
-explains.
+Moved to [Back up and restore](/reference/server/configuration#single-node-local-backup).
 
 ### Compared with dev and serve {#single-node-local-commands}
 
-| | **dev** | **local** | **serve** |
-| --- | --- | --- | --- |
-| Purpose | Development, started by **dexcli dev**. | Single-node production. | Production on external object storage. |
-| Object storage | Embedded, in the data directory. | Embedded, in the data directory. | An external S3 or S3-compatible bucket. |
-| Nodes | One. | One. | One active process, with optional hot standbys. |
-| Step attempt drain on stop | 2 seconds. | 30 seconds. | 30 seconds. |
-| Lease duration | 30 seconds. | 30 seconds. | 10 seconds. |
-| Default partition count | 32 | 32 | 1024 |
-| Default listen address | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
-| Configuration | Flags and an optional overrides file. | Flags and an optional overrides file. | One YAML file. |
-
-**dev** and **local** use the same data directory layout. Either command can
-serve a data directory that the other one wrote. Stop one before you start the
-other.
+Moved to [Compared with dev and serve](/reference/server/configuration#single-node-local-commands).
 
 ## Kubernetes deployment
 
+Moved to [Kubernetes deployment](/reference/server/kubernetes).
+
 ### One replica in a StatefulSet
 
-Run server-zd as a StatefulSet with exactly one replica. A StatefulSet creates
-the replacement pod only after the old pod is gone. A Deployment can start a new
-pod while the old one still runs.
-
-Never force-delete the server pod. A force delete removes the pod from the API
-before Kubernetes confirms that its process stopped. On an unreachable node, the
-old process can keep running next to its replacement.
-
-This example uses a PersistentVolumeClaim for the local store and a ConfigMap
-named **dex-server-zd** that holds **config.yaml**. The image is the published
-multi-architecture release image for amd64 and arm64.
-
-~~~yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: dex-server-zd
-spec:
-  selector:
-    app: dex-server-zd
-  ports:
-    - name: grpc
-      port: 8801
-      targetPort: grpc
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: dex-server-zd
-spec:
-  serviceName: dex-server-zd
-  replicas: 1
-  selector:
-    matchLabels:
-      app: dex-server-zd
-  template:
-    metadata:
-      labels:
-        app: dex-server-zd
-    spec:
-      serviceAccountName: dex-server-zd
-      terminationGracePeriodSeconds: 45
-      securityContext:
-        runAsUser: 10001
-        runAsGroup: 10001
-        fsGroup: 10001
-      containers:
-        - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.3
-          ports:
-            - name: grpc
-              containerPort: 8801
-            - name: metrics
-              containerPort: 9090
-          startupProbe:
-            grpc:
-              port: 8801
-            periodSeconds: 5
-            failureThreshold: 60
-          readinessProbe:
-            grpc:
-              port: 8801
-            periodSeconds: 5
-          livenessProbe:
-            grpc:
-              port: 8801
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          volumeMounts:
-            - name: config
-              mountPath: /etc/dex-server-zd/config.yaml
-              subPath: config.yaml
-              readOnly: true
-            - name: data
-              mountPath: /var/lib/dex-server-zd
-      volumes:
-        - name: config
-          configMap:
-            name: dex-server-zd
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 20Gi
-~~~
+Moved to [One replica in a StatefulSet](/reference/server/kubernetes#one-replica-in-a-statefulset).
 
 ### Graceful shutdown {#graceful-shutdown}
 
-On SIGTERM, the node stops handing out new Step tasks and reports **NOT_SERVING**.
-It keeps its lease and pull Worker streams open while running attempts finish.
-Heartbeats, completions, and failures continue to commit. The node releases the
-lease only after those attempts finish and their results commit, or after
-**lifecycle.attemptDrainTimeout** expires. A hot standby follows the commits and
-takes over after the release.
-
-During the drain, new Flow RPCs answer **UNAVAILABLE**, and the SDKs retry them.
-Steps that are not yet handed to a Worker wait. The successor dispatches them
-after it takes the lease. A Step whose start was already being written when the
-drain began still goes to its Worker and is drained like a running attempt. So
-does a Step that a Worker took from the
-[Step task queue](#step-task-queue) before the drain began. Steps still in the
-task queue stay there for the successor.
-
-**lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
-attempt draining. Step method and heartbeat timeouts still apply during the
-drain; the drain does not extend them. Choose a drain timeout long enough for
-the remaining execution time of the Step methods you want to finish.
-**dexcli dev** uses a **2s** drain unless its configuration sets this field,
-because it stops the server after 10 seconds. **dex-server-zd local** keeps
-the **30s** default.
-
-Set Kubernetes **terminationGracePeriodSeconds** longer than the drain timeout,
-with at least 15 extra seconds for teardown. For the default **30s** drain,
-allow at least **45** seconds. Otherwise Kubernetes may kill the process before
-it can commit results and release its lease.
-
-After the attempt drain, Workers reconnect, long polls and the Stream Store
-close, and in-flight RPCs get up to 4 seconds to finish. Background work stops,
-then the engine releases the lease. Other open calls end with **UNAVAILABLE**
-so clients retry on the new active process. The metrics listener closes last.
-This teardown has a separate budget of about 15 seconds.
-
-The **Step attempt drain ended** log records **attempts_waited**,
-**attempts_finished**, and **attempts_running**, including attempts still waiting
-for their final commit. Its **outcome** field is **completed** when every attempt
-finished, **timed_out** when the drain timeout expired, or **node_stopped** when
-the node stopped for another reason first. With a **0s** timeout, the node logs
-**Step attempt drain disabled** instead.
-
-The process exits 0 when every step completes. A replacement process with the
-same **cluster.nodeId** then acquires the lease at once. The process exits 1
-when some shutdown step does not complete in time or fails, for example when
-object storage rejects the lease release. A replacement may then wait up to
-**lease.duration** plus about 1 second.
-
-Attempts that Dex has not handed to a Worker yet do not fail. The successor
-dispatches them. Attempts that are running when the process lets go of the
-lease are failed by the new active process with **NOT_COMPLETED**, and each
-consumes a retry.
-
-A SIGTERM during startup interrupts lease acquisition or recovery. If the node holds
-its lease, it stops startup and releases the lease within the shutdown budget.
-A failed release makes the process exit 1, and the next start may wait for the
-old lease to expire. If the outcome of a lease write is still unknown when the
-SIGTERM arrives, the process exits 0 without releasing that write, and the next
-start may wait for it to expire.
+Moved to [Graceful shutdown](/reference/server/kubernetes#graceful-shutdown).
 
 ### Local store volume
 
-The local store is a cache, because every acknowledged write is already in
-object storage. The volume type only changes restart time.
-
-With an emptyDir volume, a new pod restores the newest snapshot and replays the
-log written after it. An emptyDir survives a container restart in the same pod,
-but not a new pod. With a PersistentVolumeClaim, a new pod reuses the local store
-and replays only the log written since it stopped. Either way, the first snapshot
-after a restart uploads the full local checkpoint to object storage.
-
-Mount the volume at a parent directory, such as **/var/lib/dex-server-zd**. Set
-**localStorage.directory** to a subdirectory, such as
-**/var/lib/dex-server-zd/store**. When the node cannot reuse an existing local
-store, it renames the directory to a sibling with a **.discarded-** suffix and
-rebuilds it. This happens when RocksDB reports the store corrupt, missing
-files, or in an incompatible format while opening it, or when the store cannot
-be updated from the retained log. That rename fails when the directory is the
-mount point itself.
-
-Other errors that stop the node from opening the store fail startup and leave
-the directory in place. Examples are another process that holds the store open
-and a permission error. Stop the other process or fix the permissions, then
-restart. If the store itself cannot be read, for example after a disk error,
-stop the node, move or delete the store directory, and restart. The node then
-rebuilds the store from object storage.
-
-A store that is newer than the metadata in object storage is also set aside,
-and the node logs an error. That copy may be the only local evidence that the
-metadata went backwards.
-
-After each successful start, the node deletes older set-aside directories. It
-keeps the newest **localStorage.retainedSetAsideStoreCount** of them for
-diagnosis, 1 by default. A copy that the current start set aside always counts
-as the newest. Set the count to 0 to keep none. The node then deletes every
-copy at once, including a copy of a store that is newer than the metadata. The
-node logs each path it deletes. A failed deletion logs a warning and does not
-stop startup. The node deletes only directories that it set aside for this
-store. It never sets aside or deletes the active store while another process
-holds its lock. The node never opens a set-aside copy again. Cleanup does not
-check whether another tool has a set-aside copy open.
-
-Releases up to server-zd v0.1.2 never delete set-aside directories. The first
-successful start after an upgrade deletes all but the newest. To keep older
-copies, raise the count or move them out of the parent directory before you
-upgrade. Those releases also set the store aside after any open error; later
-releases do so only in the cases above.
-
-Size the volume for the live state, plus **localStorage.maxWalBytes** of
-write-ahead log (256 MiB by default), plus room for uncompacted files after a
-bulk replay. The node compacts the store after such a replay, which returns the
-directory to about the live state size.
-
-Also leave room for the retained set-aside copies. Each copy can be as large as
-the store was when the node set it aside. After a successful start, the volume
-holds at most **localStorage.retainedSetAsideStoreCount** copies. A start that
-sets the store aside holds one extra copy until it succeeds. Starts that fail
-after setting the store aside, such as a crash loop, add a copy each time until
-a start succeeds. With the default of 1, plan for at least two old copies next
-to the rebuilt store.
-
-To use an emptyDir instead of the claim template, replace **volumeClaimTemplates**
-with a volume like this:
-
-~~~yaml
-      volumes:
-        - name: data
-          emptyDir:
-            sizeLimit: 20Gi
-~~~
+Moved to [Local store volume](/reference/server/kubernetes#local-store-volume).
 
 ### Health checks
 
-Port 8801 serves the standard gRPC health service on **api.listen**. Health
-reports **NOT_SERVING** during startup, while the node waits for its lease and
-replays the log. It reports **SERVING** after recovery completes.
-
-Use gRPC health for all three probes:
-
-- The **startupProbe** holds off the liveness probe until the first **SERVING**.
-  Size it so that **failureThreshold** × **periodSeconds** is at least
-  **lease.duration** + 1 s + the worst-case recovery time. The lease part covers
-  a previous owner that did not release its lease. Recovery time grows with live
-  state and the log tail. A cold restore of an empty store took about 4 s; plan
-  for more with real data. The example allows 5 minutes.
-- The **readinessProbe** keeps traffic away while the node is not serving.
-- The **livenessProbe** restarts a node that stops answering. On a node that
-  never steps down, prefer gRPC health to a TCP probe: a stalled process can
-  still accept TCP connections in the kernel backlog while it serves nothing.
-
-A serving node that never steps down returns to **NOT_SERVING** only by
-exiting, because a lost lease ends the process. Liveness on gRPC health
-therefore does not cause restart loops for it. A
-[step down](#step-down) makes the active process report **NOT_SERVING** while
-it keeps running as a standby, and a liveness probe on gRPC health would restart
-it. A process that may step down needs the TCP or exec liveness probe of a
-standby.
-
-This probe set is for a single replica. A standby replica stays
-**NOT_SERVING** until it takes over, so it would never pass this startup probe.
-A standby needs a TCP or exec startup probe and liveness probe instead. See
-[hot standby](#hot-standby-health).
-
-The process exits on its own after a fatal error, such as a lost lease or a
-failed commit. During startup, transient or unknown-outcome object storage read errors are retried
-with jittered exponential backoff. **recovery.startupReadRetryBudget** sets a
-wall-clock window for each read, starting at its first transient or unknown-outcome failure. The
-default is 30 seconds and must be positive. Backoff and subsequent read calls
-count toward that read's window. Concurrent reads do not share time, and a later
-read gets a new window. The error names the operation, object key, and last error
-when the window expires. Missing required objects, corrupt data, access denial,
-and lost lease ownership fail startup without read retries. Lease validity or
-shutdown may end retries sooner. Lease renewal continues during recovery retries.
-The window bounds each read, not the whole startup. After the lease is acquired,
-startup has no overall time limit. A persistent outage still fails startup within
-one read's window, and lease renewal keeps the lease while slow reads make progress.
-The startup probe bounds the total startup time.
-If object storage is unreachable at startup, the conditional-write self-check
-also exits 1. If startup fails, the process exits 1. Kubernetes restarts the
-container with backoff.
+Moved to [Health checks](/reference/server/kubernetes#health-checks).
 
 ## Lease {#lease}
 
-The node holds a lease object in object storage. **lease.duration** defaults to
-10 seconds. The node renews the lease after one third of the duration.
-
-**dex-server-zd dev** defaults **lease.duration** to 30 seconds, unless its
-override file sets it. A dev node has no standby, so the longer lease costs no
-failover time. It lets the node ride out longer host stalls. A dev node holds an
-exclusive lock on **dev.lock** in its data directory, so a second dev process on
-that directory fails to start. While it holds the lock, a held lease belongs to
-a stopped process. The dev node then takes the lease over at once with a raised
-epoch, so a restart does not wait, even after a crash. On a filesystem that
-cannot lock files, the dev node logs a warning and waits for the lease to
-expire, up to 31 seconds. The default **dev.durabilityMode**, **strict**,
-flushes every write with fsync before the reply. It keeps every acknowledged
-write across such a crash or kill, and across a host crash or power loss.
-**processCrashSafe** skips fsync, so it is faster, but a host crash or power
-loss can lose recent writes. The **--durability** flag of **dex-server-zd dev**
-overrides the setting. After an abrupt exit in **relaxed** mode, the dev node
-refuses to start until you delete its data directory. See
-[local development](/production/dex-web#run-against-server-zd).
-**dex-server-zd local** uses the same lease default, lock, takeover, and
-durability modes. See [Single node on local disk](#single-node-local).
-
-Data safety does not depend on the duration. Each lease acquisition raises the
-node epoch, and every log write is conditional. Together they fence a process
-that lost its lease.
-
-The duration affects takeover time after a crash. A graceful shutdown releases
-the lease, so the replacement starts at once. After a crash, a SIGKILL, or the
-loss of a Kubernetes node, the replacement waits until the old lease expires,
-plus 1 second. That wait is at most **lease.duration** plus 1 second. Recovery
-starts after it. Recovery fails each attempt that a Worker had received with
-NOT_COMPLETED, and the attempt consumes a retry. The exception is an ASYNC
-attempt whose start was not yet durable when the node crashed. It runs again
-with the same attempt number and consumes no retry.
-
-The duration only partly affects object storage outages:
-
-- A renewal attempt that fails with a transient error, such as a 5xx or
-  throttling response, is retried after a backoff.
-- While another attempt still fits, each attempt is cut off after one sixth of
-  the duration, between 1 and 5 seconds. The last attempt may use all the
-  remaining time, so with a long lease it can run longer than 5 seconds.
-- Retries continue only while the next backoff ends before the renewal cutoff,
-  100 ms before the current lease period ends. When no retry fits, or the last
-  attempt fails, the node stops.
-- A renewal write that lands after its attempt was cut off still counts if a
-  later attempt finds it. A later attempt finds it by reading the lease after
-  its own write fails. The node adopts that write only before the renewal
-  cutoff.
-- A renewal lost to another holder, or a permanent storage error, stops the
-  node at once.
-- A log write that object storage does not accept within 10 seconds also stops
-  the node. This limit is fixed and does not depend on the lease duration.
-
-A longer lease therefore lets an idle node ride out a stalled object store or a
-stalled host for longer. After any of these stops, the process exits 1.
-
-For a single-replica deployment, set **lease.duration** to 60 seconds. Lease
-renewals then make about 180 PUT requests per hour, compared with about 1,080 at
-10 seconds. Keep the duration at or below about 120 seconds. A longer lease
-saves few requests, but the unavailable time after a crash keeps growing.
-
-By default, a starting node waits while another process holds the lease. Set
-**lease.failIfHeld** to true to fail startup instead.
+Moved to [Lease](/reference/server/high-availability#lease).
 
 ## Hot standby {#hot-standby}
 
-A standby is a second server-zd process with the same **nodeId** and object
-storage settings, but its own local store. It waits while the active process
-holds the lease. It takes over when the lease is released or expires.
-**standby.mode** chooses what the standby does while it waits:
-
-- **cold**, the default, waits idle. After it takes the lease, it opens or
-  restores its local store and replays the log, like a restart.
-- **hot** follows the node's log from object storage and applies each batch to
-  its local store. A takeover then replays only the last few batches.
-
-~~~yaml
-standby:
-  mode: hot
-~~~
-
-The other **standby** fields have defaults that fit most deployments:
-
-| Field | Default | Meaning |
-| --- | --- | --- |
-| **heldLeasePollInterval** | 250ms | Hot mode only. How often a standby reads a lease that another process holds. |
-| **stepDownHoldOff** | 5s | How long a process that [stepped down](#step-down) waits before it competes for the lease again. |
-| **laggingTakeoverDelay** | 1500ms | Hot mode only. How long a standby that is not hot waits before it takes an available lease. |
-| **behindLagThreshold** | 10s | Hot mode only. The lag above which a standby is behind instead of hot. |
-
-**hot** needs **lease.failIfHeld** set to false. **dex-server-zd dev** and
-**dex-server-zd local** accept only **cold**. In hot mode, **stepDownHoldOff** must be longer than
-**laggingTakeoverDelay** plus **heldLeasePollInterval**. A release without hot
-standby rejects a configuration that has a **standby** section. Upgrade every
-process before you add the section.
-
-A hot standby only reads object storage. It runs no Steps or timers, and it
-answers public API calls with **UNAVAILABLE**. Give it a local volume of the
-same size as the active process.
+Moved to [Hot standby](/reference/server/high-availability#hot-standby).
 
 ### Takeover {#hot-standby-takeover}
 
-A hot standby takes a released lease within about one
-**heldLeasePollInterval**. After a crash it still waits until the old lease
-expires, plus 1 second, as described in [Lease](#lease). It shortens the
-recovery after that wait, not the wait itself.
-
-Before it writes the lease, a hot standby waits 0 to 50 ms. A standby that is
-not hot waits about **laggingTakeoverDelay** first. A standby is not hot while
-it bootstraps from a snapshot, restarts after an error, or trails the log by
-more than **behindLagThreshold**. A hot standby therefore wins when there is
-one. The conditional lease write alone decides which process takes over.
-
-If a takeover fails before the standby holds the lease, the standby keeps
-following the log. It tries again after a backoff from 1 to 30 seconds. A
-failure after it holds the lease releases the lease and exits the process with
-status 1.
+Moved to [Takeover](/reference/server/high-availability#hot-standby-takeover).
 
 ### Health and probes {#hot-standby-health}
 
-A standby reports **NOT_SERVING** for the default service name,
-**dex.FlowService**, and **dex.WorkerTaskService**. A readiness probe on gRPC
-health therefore sends traffic only to the active process.
-
-The service name **dex.HotStandby** reports **SERVING** only on a hot standby.
-It reports **NOT_SERVING** on the active process, on a cold standby, and while
-a standby bootstraps, restarts, or is behind. Use it to check that a standby is
-ready to take over.
-
-A standby never passes a startup or liveness probe on gRPC health. Give it a
-TCP or exec startup probe and liveness probe.
-
-A standby closes each client connection after about 3 seconds. A client that
-reached it, such as through a Service endpoint that was not yet updated, then
-reconnects and reaches the active process.
-
-A process whose node lease is no longer valid, such as one resumed after a
-freeze longer than its lease, answers public API calls with **UNAVAILABLE** and
-readiness names with **NOT_SERVING** at once, before it exits. It answers no
-call from state that another process may have changed since, and it hands
-Workers no new task. Two kinds of open streams are exceptions until it stops
-serving moments later. An open **PollWorkerTask** stream still carries pings and
-the frames of a task that a Worker already runs. A gRPC health **Watch** stream
-keeps reporting its last status.
+Moved to [Health and probes](/reference/server/high-availability#hot-standby-health).
 
 ### Kubernetes {#hot-standby-kubernetes}
 
-Change the [StatefulSet example](#one-replica-in-a-statefulset) as follows:
-
-- Set **replicas** to 2 and **podManagementPolicy** to **Parallel**. Each pod
-  gets its own volume from the claim template.
-- Replace the gRPC **startupProbe** and **livenessProbe** with **tcpSocket**
-  probes on port 8801. Keep the gRPC **readinessProbe**.
-- Set the **updateStrategy** type to **OnDelete**. A rolling update waits for
-  each updated pod to become ready, and a standby never does.
-
-To update both pods:
-
-1. Delete the standby pod. Wait until **dexzd_hot_standby_state** with
-   **state="following"** is 1 on its replacement.
-2. Delete the active pod. Its graceful shutdown releases the lease, and the
-   updated standby takes over at once. Its replacement starts as the new
-   standby.
-
-Instead of deleting the active pod in step 2, you can
-[step it down](#step-down). It then keeps running until another process takes
-over.
+Moved to [Kubernetes](/reference/server/high-availability#hot-standby-kubernetes).
 
 ### Lease duration and alerts {#hot-standby-lease-and-alerts}
 
-Keep **lease.duration** at about 10 seconds, the default, when a standby is
-deployed. After a crash, the standby waits until the old lease expires, plus 1
-second, so the lease bounds the failover time. Do not lower it much when you use
-[Attribute Store sync](#attribute-store): a write transaction lasts at most a
-quarter of **lease.duration**, 2.5 seconds with a 10-second lease. See
-[Write timeout](#attribute-store-write-timeout).
-
-Alert when no standby is ready to take over, when a standby failed or keeps
-restarting, and when its lag grows:
-
-~~~text
-# No hot standby
-sum(dexzd_hot_standby_state{state="following"}) == 0
-
-# A standby failed or restarts
-max_over_time(dexzd_hot_standby_state{state=~"failed|restarting"}[5m]) == 1
-
-# A standby lag that keeps growing
-dexzd_hot_standby_lag_seconds > 5
-~~~
+Moved to [Lease duration and alerts](/reference/server/high-availability#hot-standby-lease-and-alerts).
 
 ## Step down the active process {#step-down}
 
-**dexcli admin step-down** asks the active process of a node ID to give up its
-lease. The process stops handing out new Step tasks and drains running attempts
-as described under [graceful shutdown](#graceful-shutdown), using the same
-**lifecycle.attemptDrainTimeout**. It keeps renewing the lease and accepting
-Worker heartbeats and final output until the drain ends. Busy Worker streams
-stay open until their results commit or the timeout expires.
-
-The process then releases the lease and keeps running as a standby. Calls that
-finish before the release keep their answers. Calls still open at the release
-answer **UNAVAILABLE**, so clients retry on the new active process. Attempts
-still running when the drain expires are interrupted. The new active process
-fails them with **NOT_COMPLETED**, consuming a retry according to their retry
-policy. Attempts not yet handed to a Worker do not fail; the new active process
-dispatches them. Another process with the same node ID, including a hot standby,
-can take the lease only after the active releases it, as after a graceful
-shutdown. The stepped-down process waits for a hold-off,
-**standby.stepDownHoldOff**, before it competes for the lease again. If no other
-process takes over in that time, it takes the lease back. With **standby.mode**
-set to **hot**, it follows the log as a [hot standby](#hot-standby) while it
-waits.
-
-**dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
-**holderProcessId** of the active process, and changes nothing. Every lease
-acquisition raises the node epoch. Both commands need an
-[admin credential](#admin-credentials). Step down also needs the **--yes** flag.
-
-~~~bash
-dexcli --server dex.example.internal:8801 admin describe \
-  --credential-file /run/secrets/dex/admin-token
-dexcli --server dex.example.internal:8801 admin step-down --yes \
-  --credential-file /run/secrets/dex/admin-token
-~~~
-
-Every step down request carries a precondition: the node ID and node epoch of
-the process to step down. A process that does not match answers
-**FAILED_PRECONDITION** and changes nothing. **dexcli admin step-down** combines
-its flags as follows:
-
-- Without **--expected-node-id** and **--expected-node-epoch**, it first
-  describes the active process and expects the node ID and node epoch that
-  describe returns.
-- With **--expected-node-id** alone, it describes first. If the server reports
-  another node ID, it refuses and steps nothing down. Otherwise it expects that
-  node ID and the described node epoch. Use this on a first run to guard against
-  a wrong **--server**.
-- With both flags, it sends them as they are and does not describe.
-- **--expected-node-epoch** alone is a usage error.
-
-A step down that reaches a standby connection of a process that has just taken
-over answers **FAILED_PRECONDITION** at once and changes nothing. Run it again;
-it then reaches the active process.
-
-If the first describe fails, the command steps nothing down. A step down in
-progress may be one that you or someone else already started. Wait past the
-hold-off, run **dexcli admin describe**, and step down again only if the
-switchover you wanted has not happened.
-
-After the release, the step down call watches the lease. It returns as soon as
-another process takes over. Otherwise it returns after the hold-off and one
-attempt to take the lease back. The call therefore lasts at most the attempt
-drain timeout, the commit drain bound, the release, the hold-off, and one lease
-acquisition attempt.
-
-There is one exception. The process competes for the lease again only after the
-local store of its stopped serving period has closed. If a stuck task keeps that
-store open, the process waits up to about 64 seconds after the release. If no
-other process has taken over by then, the call returns **INTERNAL**. Either way,
-the process then exits 1 without taking the lease. The restart releases the
-store. Meanwhile another process of the same node ID can take over.
-
-**dexcli admin step-down** waits up to 2 minutes unless you set **--timeout**.
-This covers the default **30s** attempt drain. If you raise
-**lifecycle.attemptDrainTimeout**, raise **--timeout** by at least the same
-amount. Otherwise the command may stop waiting before the step down finishes.
-Its output has these fields:
-
-- **expectedNodeId** and **expectedNodeEpoch** give the precondition that the
-  command sent.
-- **nodeId**, **releasedNodeEpoch**, and **leaseReacquisitionHoldOff** give the
-  node ID, the epoch of the released lease, and the hold-off.
-- **leaseHolderAfterStepDown** says which process held the lease when the call
-  returned:
-  - **takenOverByAnotherProcess**: another process took over.
-  - **takenBackByThisProcess**: no other process took over within the
-    hold-off, so the stepped-down process took the lease back.
-  - **unknown**: neither was confirmed, and **leaseHolderUnknownDetail** says
-    why.
-- **activeNodeEpoch** and **activeHolderProcessId** identify the process that
-  holds the lease, when it is known.
-
-Node epochs are printed as decimal strings.
+Moved to [Step down the active process](/reference/server/high-availability#step-down).
 
 ### Retry a step down safely {#retry-step-down}
 
-A step down that fails with **DEADLINE_EXCEEDED**, **CANCELLED**, or
-**UNAVAILABLE** has an unknown outcome. The error output says so and carries the
-**expectedNodeId** and **expectedNodeEpoch** that the call used.
-
-Retry only with those values, the ones that identify the process you originally
-meant to step down:
-
-~~~bash
-dexcli --server dex.example.internal:8801 admin step-down --yes \
-  --expected-node-id node-a --expected-node-epoch 7 \
-  --credential-file /run/secrets/dex/admin-token
-~~~
-
-Never retry with a node epoch that **dexcli admin describe** printed after the
-failed call. Describe always shows whichever process is active by then. Suppose
-the failed call did step down epoch 7, and a standby took over at epoch 8. A
-retry with epoch 8 would step down that standby. On a single replica, the same
-process may have taken the lease back at epoch 9, and a retry with epoch 9 would
-cause a second outage. A retry with the original epoch 7 fails with
-**FAILED_PRECONDITION** in both cases and changes nothing.
-
-Do not run the command again without these flags; it would describe and step
-down whichever process is active now.
-
-You can run **dexcli admin describe** to see what happened. A different node
-epoch or holder process ID means that the step down, or another takeover,
-already happened, so do not retry. Describe fails with **FAILED_PRECONDITION**
-while a step down or its hold-off is in progress, and with **UNAVAILABLE** when
-no server process is reachable. Then wait past the hold-off and describe again.
+Moved to [Retry a step down safely](/reference/server/high-availability#retry-step-down).
 
 ### Single replicas, probes, and access {#step-down-single-replica}
 
-On a single replica, no other process can take over. A step down stops serving
-for about one hold-off, and then the same process takes the lease back with a
-new node epoch.
-
-A stepped-down process reports **NOT_SERVING** while it keeps running. Before
-you step down a process, make sure that its liveness probe does not use gRPC
-health, as described in [health checks](#health-checks). Otherwise Kubernetes
-restarts the stepped-down process.
-
-Without authentication, anyone who can reach **api.listen** can step the node
-down, again and again. Configure [admin credentials](#admin-credentials), or
-restrict access to **api.listen**. A server without **AdminService** answers
-**UNIMPLEMENTED**.
+Moved to [Single replicas, probes, and access](/reference/server/high-availability#step-down-single-replica).
 
 ## Object storage
 
+Moved to [Object storage](/reference/server/object-storage).
+
 ### Credentials
 
-**objectStore.credentialsSource** selects the credentials:
-
-| Value | Credentials |
-| --- | --- |
-| **defaultChain** (default) | The AWS SDK default credential provider chain |
-| **environment** | **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID**, **DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY**, and the optional **DEX_ZD_OBJECT_STORE_SESSION_TOKEN** |
-| **anonymous** | Unsigned requests, for a local emulator or a bucket that allows anonymous access |
-
-On Amazon EKS, keep **defaultChain** and give the pod's service account an IAM
-role, for example through IAM Roles for Service Accounts or EKS Pod Identity.
+Moved to [Credentials](/reference/server/object-storage#credentials).
 
 ### Prefix-confined IAM policy {#iam-policy}
 
-For a shared bucket, set a non-empty **objectStore.prefix**. Then grant the
-server role only these actions. Replace **BUCKET** and **PREFIX/** with the
-bucket and the configured prefix, and keep the trailing slash.
-
-~~~json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::BUCKET",
-      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
-    },
-    {
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
-      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
-    }
-  ]
-}
-~~~
-
-The server lists only under its prefix, including when it checks for a missing
-object. With this grant, AWS S3 returns 404 for a missing object. Narrower grants
-can return 403. The server handles either response when the prefixed listing is
-allowed.
-
-The **s3:ListBucket** condition must use **StringLike** with the trailing
-wildcard shown above. An exact-prefix **StringEquals** grant is not supported. Neither is a policy without
-**s3:ListBucket**. With a non-empty prefix, startup lists under it first. A
-denied listing fails startup with a message that starts with this text:
-
-~~~text
-startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
-~~~
-
-Startup also writes and deletes a probe object under the prefix. It uses this to
-check that conditional writes work. No bucket-wide access or bucket
-administration action is needed.
-
-Hard-delete Attribute values use the primary bucket and prefix by default. To
-keep them in a separate place, configure **objectStore.hardDeleteStore** with its
-own **endpoint**, **region**, **bucket**, **prefix**, and **credentialsSource**. Its **environment**
-credentials use the **DEX_ZD_HARD_DELETE_STORE_** variables with the same
-suffixes. Grant the same policy for that bucket and prefix.
+Moved to [Prefix-confined IAM policy](/reference/server/object-storage#iam-policy).
 
 ### Encryption
 
-server-zd sends no server-side encryption headers, so the bucket's default
-encryption applies. Default SSE-KMS works. Conditional writes use **If-None-Match**
-and **If-Match**, and the server treats ETags as opaque values. It does not rely on
-ETags being MD5 digests.
-
-For a customer-managed KMS key, grant the role **kms:GenerateDataKey** and
-**kms:Decrypt** on that key. Allow both actions in the key policy too.
+Moved to [Encryption](/reference/server/object-storage#encryption).
 
 ### Versioning and lifecycle rules
 
-An unversioned bucket works. server-zd does not use object versions.
-
-If bucket versioning is on, every object the server deletes stays as a
-noncurrent version. This includes old log objects and snapshots, so storage only
-grows. Add a lifecycle rule that expires noncurrent versions. A noncurrent
-version of a hard-delete Attribute value also keeps the deleted value until the
-version expires.
-
-Add a rule that aborts incomplete multipart uploads after 1 to 7 days, whether or
-not versioning is on. A crash can leave an incomplete upload behind. A
-prefix-confined role cannot list or clean up those uploads.
-
-This lifecycle configuration covers both rules. Drop the second rule for an
-unversioned bucket.
-
-~~~json
-{
-  "Rules": [
-    {
-      "ID": "dex-server-zd-abort-incomplete-uploads",
-      "Status": "Enabled",
-      "Filter": { "Prefix": "PREFIX/" },
-      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
-    },
-    {
-      "ID": "dex-server-zd-expire-noncurrent-versions",
-      "Status": "Enabled",
-      "Filter": { "Prefix": "PREFIX/" },
-      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 },
-      "Expiration": { "ExpiredObjectDeleteMarker": true }
-    }
-  ]
-}
-~~~
+Moved to [Versioning and lifecycle rules](/reference/server/object-storage#versioning-and-lifecycle-rules).
 
 ## Retention
 
-**retention.closedFlowDuration** sets how long a closed Flow run stays
-available. It defaults to 7 days. After that time, the run and its retained data
-become eligible for deletion. Write the value as a duration, such as **72h** or
-**30days**.
-
-Each run records the value when it starts. A new value applies only to runs that
-start after the node restarts with it. Runs that already started keep their
-recorded duration.
-
-From server-zd v0.1.8, a transactional or locking RPC on a closed run returns
-NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A retry with an
-already recorded request ID returns its earlier reply. Other RPCs still run
-their handlers on a closed run that is not yet purged, so they can read it.
-server-zd rejects any write that such a handler returns.
+Moved to [Retention](/reference/server/configuration#retention).
 
 ## History window {#history-window}
 
-server-zd keeps a recent window of each run's history. The window holds the
-**FlowStart** event and about the newest 10,000 semantic events. Older events
-are pruned in chunks of 1,000. The window also shrinks when the superseded
-values kept for time travel exceed 256 MiB.
-
-History reads, such as **dexcli flow history --all**, return only the retained
-events. [Time travel](/primitives/client/advanced#time-travel) can target only
-a point inside the window. Time travel to the beginning is always available.
-
-Each history page also reports the range of event IDs that the window removed.
-Step method events record the event ID of the event that started their Step
-execution. Execute events also record the event ID of the Step's WaitFor
-completion. A client can use these IDs to tell a removed related event from one
-on another page.
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| **history.windowSemanticEvents** | 10000 | Approximate number of the newest semantic events kept in the window. Pruning starts when the window exceeds this value plus one prune chunk. A semantic event can appear as several CLI history rows. |
-| **history.pruneChunkSize** | 1000 | Old semantic events pruned at a time. Must not exceed **windowSemanticEvents**. |
-| **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. |
-
-Each run records these values when it starts. A new value applies only to runs
-that start after the node restarts with it.
+Moved to [History window](/reference/server/configuration#history-window).
 
 ## Limits {#limits}
 
-server-zd enforces these limits. A request that a limit rejects fails at once;
-it does not wait for capacity. The request ID limit never rejects a request; it
-evicts the oldest request IDs instead.
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |
-| **api.grpcMaxMessageBytes** | 33554432 (32 MiB) | Largest incoming or outgoing gRPC message. Must exceed **values.maxValueBytes**. |
-| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Storage budget of one Flow run. It counts current state, Attribute and Channel values, and the superseded values kept for time travel. server-zd checks it when a command increases the run's current storage while its total storage exceeds the budget. The checked commands are a Flow start, a Client Attribute write, a Client Channel publish, an RPC that changes Flow state, a Step heartbeat, and a Step completion. An RPC changes Flow state when it writes or deletes Attributes, publishes or deletes Channel messages, or starts or cancels Steps. The increase leaves out what a Step attempt holds only until its method ends, such as the Attributes and Channel messages it loaded and its locks. Such a Flow start, Client write, or RPC fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Client deletions, reads, and RPCs that change no Flow state still run. On a run over its budget, an RPC that changes no Flow state keeps no reply value or request ID for deduplication. A retry with the same request ID is then handled as a new RPC: it runs again while the Flow is running, and fails with NOT_FOUND once the Flow has closed, even if that RPC's own commit closed it. The history of a transactional RPC still records its output. A child Flow result that reaches its parent is not checked; **limits.maxChildFlowResultBytes** bounds it instead. |
-| **limits.maxChildFlowResultBytes** | 16777216 (16 MiB) | Largest total size of the result outputs that a child Flow delivers to its parent. A Step completion that would make a child Flow's collected outputs larger fails the attempt without retry. Unless the Step's failure policy recovers, the child Flow fails, and the parent receives that failure. A Flow without a parent has no such limit. |
-| **limits.maxFlowIdBytes** | 1000 | Longest Flow ID, in UTF-8 bytes. |
-| **limits.maxRequestIdsPerRun** | 1000 | Newest request IDs that one run keeps for deduplication. A retry with an older request ID runs as a new request. |
-| **limits.maxLongPollWaitersPerFlow** | 1000 | Most concurrent waits on one Flow, such as WaitForStepCompletion and WaitForAttributeMatch calls. A wait beyond it fails with RESOURCE_EXHAUSTED. |
-| **limits.maxLongPollWaitersPerNode** | 100000 | Most concurrent waits on the node. A wait beyond it fails with RESOURCE_EXHAUSTED. |
-| **limits.maxInFlightRpcsPerNode** | 1000 | Most shared transactional or locking RPC tasks in flight on the node. A new request ID beyond it fails with RESOURCE_EXHAUSTED. |
-
-Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
-**limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node
-restarts with it.
+Moved to [Limits](/reference/server/configuration#limits).
 
 ## Performance tuning {#performance-tuning}
 
-The defaults suit most nodes. Change these keys only when a load test shows a
-bottleneck. They change throughput and memory use, not Flow results. One
-exception: **commit.maxUnappliedBytes** bounds the backlog of accepted commands,
-so a smaller value makes more requests fail with UNAVAILABLE under load. Each
-key applies when the node starts.
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| **commit.applierLanes** | The larger of 8 and the CPUs available to the process, at most **cluster.partitionCount** and 1024 | Lanes that apply committed commands to the local store in parallel. One partition always uses the same lane, so its commands apply in order. Applying a command reads and writes the local store, so even a small host uses at least 8 lanes. An explicit value must be from 1 to the smaller of **cluster.partitionCount** and 1024. If the CPU count cannot be read, the default is 8. |
-| **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
-| **commit.batchWindow** | 20ms | How long an ASYNC command waits for more commands before its batch is sealed. A SYNC command seals its batch at once while the write pipeline has room. Both write the same data. The speculation limits apply to both, so Step proposals retry without failing the Step, while Client calls can get UNAVAILABLE. |
-| **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
-| **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Must be at least the smaller of **api.grpcMaxMessageBytes** and 32 MiB, so that the largest command can fit. |
-| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. |
-| **localStorage.maxBackgroundJobs** | Half the CPUs available to the process, from 2 to 1024 | Most RocksDB flushes and compactions that run at once. RocksDB starts one thread for each job. An explicit value must be from 1 to 1024. |
-| **localStorage.maxSubcompactions** | 1 | Threads that one RocksDB compaction may split into. A larger value can reduce write stalls under sustained writes. |
-
-The node logs the resolved **applierLanes** and **maxBackgroundJobs** values at
-startup.
+Moved to [Performance tuning](/reference/server/configuration#performance-tuning).
 
 ## Attribute Store sync {#attribute-store}
 
-server-zd v0.1.3 or later can sync Attributes to PostgreSQL. See
-[Custom Attribute Store](/production/attribute-store) for the table contract. A
-Flow marks an Attribute with **syncToAttributeStore** and lists a configured
-store name in its **FlowConfig**. server-zd then writes the Attribute to that
-store's tables.
+Moved to [Attribute Store sync](/reference/server/attribute-store-sync).
 
 ### Behavior {#attribute-store-behavior}
 
-- Only **type: postgres** is supported. Any other store type fails validation,
-  so startup fails.
-- Step, RPC, and SetAttributes commits never wait for the table write.
-- Rows normally appear within a second of the commit. Treat the table as
-  eventually consistent.
-- While a store is unavailable, Flows keep running. When the store recovers,
-  server-zd writes the backlog with the latest values.
-- Entries still pending **syncRetryPolicy.totalDuration** after they were first
-  marked are dropped. Later writes of the same Attributes sync normally.
-- After [time travel](/primitives/client/advanced#time-travel), server-zd
-  rewrites every row the run synced with the state after the time travel.
-- Each database needs a [fencing table](#attribute-store-fencing-table).
-- server-zd v0.1.3 closes a Flow without waiting for its synced Attributes.
-  Rows can land after the Flow completes.
-- server-zd v0.1.4 or later waits. A Step decision that
-  completes or fails the Flow, exhausted Step retries, or the Flow timeout stops
-  the Steps at once. The run then stays RUNNING until every pending write is
-  written or dropped. WaitForFlow returns only then. Entries written before
-  the wait ended are in the table. A dropped entry does not guarantee the row's
-  value, because earlier writes of the same run may have committed. If
-  **dexzd_attribute_sync_dropped_entries_total** increases, compare the affected
-  rows with the Flow's Attributes and write the Attributes again.
-- While a close waits, SetAttributes, PublishToChannel, and RPCs that are
-  neither transactional nor locking are accepted. Their synced writes extend
-  the wait, and they start no Step.
-  Transactional or locking RPCs, WaitForStepCompletion, WaitForAttribute, and
-  DeleteChannelMessage calls made during the wait fail with
-  FAILED_PRECONDITION.
-- In server-zd v0.1.4 or later, a natural close also waits for every
-  transactional or locking RPC admitted before it, even without an Attribute
-  Store. Such an RPC still commits, and its synced writes join the wait. The
-  close is recorded once those RPCs commit, fail, or time out.
-- **syncRetryPolicy.totalDuration** limits how long each pending write is
-  retried, not the whole close. During a PostgreSQL outage a close waits until
-  its pending writes are dropped. Every synced write accepted while the close
-  waits starts its own retry window and extends the wait.
-- StopFlow and Terminate never wait. StopFlow closes the run as soon as it
-  commits, even while a close waits, and the pending writes keep syncing after
-  the close. A later **SetAttributes** on that run returns NOT_FOUND. From
-  server-zd v0.1.5, it succeeds only when every write erases a currently stored
-  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) with
-  null. This exception applies only before the run is purged. It deletes the
-  stored objects without reopening the run. The run's Flow history records the
-  erase after the close. Write what a Flow needs before stopping it.
-- Pending writes for a store that is no longer configured are dropped at once
-  and counted in **dexzd_attribute_sync_dropped_entries_total**.
+Moved to [Behavior](/reference/server/attribute-store-sync#attribute-store-behavior).
 
 ### Configuration {#attribute-store-configuration}
 
-~~~yaml
-attributeStore:
-  stores:
-    orders:
-      type: postgres
-      dsn: ""
-      tableName: public.orders
-      rowKey: order-{order_id}
-      columnNaming: snake_case
-      attributeMaps:
-        Items:
-          tableName: public.order_items
-          instanceKeyColumn: item_key
-      fencingTableName: dexzd_attribute_sync_fencing
-  schemaSyncInterval: 1m
-  syncBatchSize: 100
-  syncAttemptTimeout: 30s
-  syncRetryPolicy:
-    initialInterval: 100ms
-    backoffCoefficient: 2.0
-    maximumInterval: 30s
-    maximumAttempts: 0
-    totalDuration: 1h
-~~~
-
-An explicit zero for a duration, **syncBatchSize**, or a retry policy field
-means its default.
-The
-[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
-shows the section with comments.
-
-| Key | Default | Notes |
-| --- | --- | --- |
-| **stores** | Empty | Maps each store name that a **FlowConfig** may list to a PostgreSQL destination. Empty disables sync and rejects every store name that a **FlowConfig** lists. |
-| **stores.NAME.type** | None | Must be **postgres**. |
-| **stores.NAME.dsn** | Empty | PostgreSQL connection string. When it is empty, server-zd reads an environment variable instead. Logs redact it. |
-| **stores.NAME.tableName** | None | Main table, as **table** or **schema.table**. |
-| **stores.NAME.rowKey**, **columnNaming**, and **attributeMaps** | Empty | See [Custom Attribute Store](/production/attribute-store). |
-| **stores.NAME.fencingTableName** | **dexzd_attribute_sync_fencing** | Exists only in server-zd. See [Fencing table](#attribute-store-fencing-table). |
-| **schemaSyncInterval** | 1m | Time between table schema refreshes, with 90–110% jitter. A write to an unknown column refreshes the schema at once. |
-| **syncBatchSize** | 100 | Most Attributes and AttributeMap instances of one run that one transaction writes. A run with more pending values uses several transactions. |
-| **syncAttemptTimeout** | 30s | Upper bound of one write transaction. See [Write timeout](#attribute-store-write-timeout). |
-| **syncRetryPolicy.initialInterval** | 100ms | Delay after the first failed write. |
-| **syncRetryPolicy.backoffCoefficient** | 2 | Multiplies the delay after each failed write. Must be positive and finite. |
-| **syncRetryPolicy.maximumInterval** | 30s | Longest delay between attempts. Must not be less than **initialInterval**. |
-| **syncRetryPolicy.maximumAttempts** | 0, unlimited | Consecutive failed writes of one run's entries, after which the entries are dropped. The count lives in memory, so it starts again after a restart. |
-| **syncRetryPolicy.totalDuration** | 1h | Entries still pending this long after they were first marked are dropped. |
-
-Leave **dsn** empty to keep the connection string out of the configuration file.
-server-zd then reads **DEX_ZD_ATTRIBUTE_STORE_DSN_** followed by the store name
-in upper case. Every character other than an ASCII letter or digit becomes an
-underscore. For the store **orders**, the variable is
-**DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS**. A store without a DSN in either place
-fails validation.
+Moved to [Configuration](/reference/server/attribute-store-sync#attribute-store-configuration).
 
 ### Fencing table {#attribute-store-fencing-table}
 
-Every write transaction raises a fencing token row to the node's epoch. A node
-that lost its [lease](#lease) therefore cannot overwrite newer values.
-
-Each database needs this table, named by **fencingTableName**. One table serves
-every store and every cluster in the database. server-zd never creates or alters
-tables. Create the table as the table owner before startup. Then grant
-**SELECT**, **INSERT**, and **UPDATE** on it to the role that server-zd connects
-as. Replace **dex** with that role.
-
-~~~sql
-CREATE TABLE dexzd_attribute_sync_fencing (
-  store_name text NOT NULL,
-  cluster_id text NOT NULL,
-  scope text NOT NULL,
-  fencing_token bigint NOT NULL,
-  updated_at timestamptz NOT NULL,
-  PRIMARY KEY (store_name, cluster_id, scope)
-);
-GRANT SELECT, INSERT, UPDATE ON dexzd_attribute_sync_fencing TO dex;
-~~~
-
-You may delete the rows of a permanently stopped cluster. Never delete the rows
-of a running cluster.
-
-Startup connects to every store and checks its tables. Any failure fails
-startup, including an unreachable store or a missing fencing table. For a
-missing fencing table, the error includes the **CREATE TABLE** statement.
-Startup does not check grants. Without them, the fencing table looks missing,
-or every write fails with a permission error.
+Moved to [Fencing table](/reference/server/attribute-store-sync#attribute-store-fencing-table).
 
 ### Write timeout {#attribute-store-write-timeout}
 
-A write transaction lasts at most **syncAttemptTimeout** or a quarter of
-**lease.duration**, whichever is smaller. A quarter of **lease.duration** is
-also the lease margin. A write starts only while more than the transaction
-timeout plus the margin of lease validity remains. The PostgreSQL
-**statement_timeout** equals the transaction timeout. A COMMIT sent just before
-the deadline therefore still lands before the lease ends.
-
-The timeout plus the margin is at most half of **lease.duration**. That is less
-than the two thirds of validity left when a lease renewal starts, so writes
-rarely wait for a renewal. With the default 10-second lease, a transaction lasts
-at most 2.5 seconds. With a 60-second lease, it lasts at most 15 seconds.
+Moved to [Write timeout](/reference/server/attribute-store-sync#attribute-store-write-timeout).
 
 ### Retries and dropped entries {#attribute-store-retries}
 
-Failed writes are retried with the **syncRetryPolicy** backoff until
-**totalDuration**. The failure decides what backs off:
-
-- **Store.** A connection failure, or another failure of the whole store, backs
-  off every run of that store.
-- **Run.** A failure caused by the written values or by a conflict with another
-  session backs off only that run. Other Flows keep syncing. Examples are a
-  constraint violation, a value too long for its column, a deadlock, and a
-  serialization failure.
-- **Timeout.** A transaction that exceeds the transaction timeout, for example
-  while it waits for a row lock, also backs off only that run.
-
-After a timeout, the run's retries use half as many statements per transaction,
-down to one. After a timeout, one statement writes all of the run's plain
-Attributes in one transaction, so the main row is not partly updated. Each AttributeMap
-instance is one statement, so a timed-out run's instances can land in different
-transactions. Each transaction that commits is acknowledged, so a retry writes
-only the rest.
-
-When three runs of a store time out with no commit in between, the whole store
-backs off. The retry after a store backoff starts with other runs than the one
-that failed. A newer run of the same Flow ID waits for the older run, so rows
-keep run order.
-
-Entries still pending **syncRetryPolicy.totalDuration** after they were first
-marked are dropped with an error log. Later writes of the same Attributes sync
-normally. **dexzd_attribute_sync_dropped_entries_total** counts dropped entries.
-It also counts entries that the store rejected with a non-retryable error.
+Moved to [Retries and dropped entries](/reference/server/attribute-store-sync#attribute-store-retries).
 
 ### Monitoring {#attribute-store-monitoring}
 
-| Metric | Meaning |
-| --- | --- |
-| **dexzd_attribute_sync_backlog_entries** | Entries waiting to be written, as of the last scan |
-| **dexzd_attribute_sync_oldest_pending_age_seconds** | Age of the oldest pending entry's retry window, 0 when none |
-| **dexzd_attribute_sync_write_failures_total** with **failure_kind** | Failed write transactions. **failure_kind** is **retryable** or **non_retryable**. Non-retryable failures drop their entries. |
-| **dexzd_attribute_sync_dropped_entries_total** | Entries dropped after the retry policy was exhausted or the store rejected them |
-| **dexzd_attribute_sync_fenced_writes_total** | Writes rejected because a newer owner raised the fencing token |
-
-~~~text
-# Dropped Attribute Sync entries
-increase(dexzd_attribute_sync_dropped_entries_total[10m]) > 0
-
-# Attribute Sync entries pending for more than 5 minutes
-dexzd_attribute_sync_oldest_pending_age_seconds > 300
-~~~
+Moved to [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring).
 
 ### Local development {#attribute-store-local-development}
 
-**dex-server-zd dev** runs one local node with embedded object storage. Its
-**--attribute-store-config** flag reads only the **attributeStore** section of a
-YAML file. That section must define at least one store. The
-**--config** overrides file must not also set **attributeStore**.
-
-~~~bash
-dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-store.yaml
-~~~
-
-The database still needs its tables and the fencing table.
-**dexcli dev --attribute-store-config** passes the file to this
-flag. It needs dexcli v1.19.0 or later.
+Moved to [Local development](/primitives/components/external-attribute-sync#attribute-store-local-development).
 
 ## Metrics {#metrics}
 
-Set **metrics.listen** to serve plain HTTP **GET /metrics** on its own listener,
-separate from **api.listen**. The default empty value disables it. The endpoint
-has no authentication, so never expose it publicly. In Kubernetes, bind it to
-**0.0.0.0:9090** and restrict access with a NetworkPolicy.
-
-The response uses the OpenMetrics text format. Metrics are available while the
-node recovers or waits for its lease. Every label value comes from a closed set.
-No series has a Flow, Flow type, partition, tenant, or key label.
-
-| What to watch | Metric family and labels |
-| --- | --- |
-| API requests and errors | **dexzd_api_requests_total** with **rpc_class** and **code** |
-| API latency | **dexzd_api_request_latency_seconds** with **rpc_class**; unary calls only |
-| Step failures | **dexzd_step_attempt_failures_total** with **durability** and **failure_kind**, which includes **started_attempt_interrupted**; **dexzd_step_retries_exhausted_total** with **durability** |
-| Returned attempts | **dexzd_step_attempts_returned_total** with **reason** |
-| Unsupported types | **dexzd_matching_unsupported_type_entries**; **dexzd_matching_unsupported_type_evictions_total** |
-| Worker stream protocol errors | **dexzd_worker_stream_protocol_errors_total** with **error** |
-| Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
-| Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
-| Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** (in-memory waiters only) |
-| Dropped Step Stream writes | **dexzd_step_stream_writes_dropped_total** with **reason** |
-| Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total**; **dexzd_step_task_queue_incomplete_seeks_total** |
-| Commit latency | **dexzd_commit_latency_seconds** |
-| Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
-| Lease and node state | **dexzd_node_role** with **role**; **dexzd_lease_epoch**; **dexzd_lease_renewals_total** with **outcome** |
-| Standby | **dexzd_hot_standby_state** with **state**; **dexzd_hot_standby_lag_seconds**; **dexzd_hot_standby_lag_batches**; **dexzd_hot_standby_error**; **dexzd_takeovers_total** with **standby_mode** and **store_source**; **dexzd_takeover_duration_seconds** |
-| Recovery | **dexzd_recovery_last_duration_seconds**; **dexzd_recovery_last_replayed_bytes** |
-| Timers | **dexzd_timer_lag_seconds** |
-| Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
-| Local disk | **dexzd_local_storage_bytes** |
-| Attribute Store sync | See [Monitoring](#attribute-store-monitoring) |
-| External search projection | See [Monitoring](#search-projection-monitoring) |
-
-**rpc_class** is one of **flow_write**, **flow_read**, **search**,
-**worker_poll**, and **worker_respond**. **code** is the gRPC status code in
-snake case, such as **ok** or **unavailable**. **role** is one of **starting**,
-**standby**, **recovering**, **serving**, and **draining**. **state** is one of
-**inactive**, **bootstrapping**, **following**, **behind**, **restarting**, and
-**failed**. Only **following** is hot. The active process and a cold standby
-report **inactive**. **standby_mode** is **hot** or **cold**.
-**store_source** is **hot_standby** when the node serves the store that its hot
-standby kept current, and **restored** when it opened its own store or restored
-a snapshot, such as when the standby store was missing or stale.
-**dexzd_takeover_duration_seconds** covers hot takeovers only, by
-**store_source**.
-
-**reason** of **dexzd_step_attempts_returned_total** counts attempts that went
-back to pending without consuming a retry. It is one of **unsupported** (a
-Worker declined the Step type), **legacy_no_capacity** (an older SDK Worker
-declined for capacity), and **not_delivered** (the task never reached the
-Worker). **legacy_no_capacity** should drop to zero once every SDK is
-upgraded. **error** of **dexzd_worker_stream_protocol_errors_total** is one
-of **no_capacity_on_reserved_slot**, **half_close_after_output**, and
-**reject_after_output**. With
-**no_capacity_on_reserved_slot**, a reserved-slot Worker declined a task for
-capacity. The attempt fails as not run, and the stream ends. With
-**half_close_after_output**, a Worker closed its stream after output but before
-the final result. The attempt fails with NOT_COMPLETED. With
-**reject_after_output**, a Worker declined a task after it had already sent
-output for it. The attempt fails as possibly run, with NOT_COMPLETED. The
-server ends that stream with INVALID_ARGUMENT, so it gets no further task.
-**dexzd_matching_unsupported_type_evictions_total** is a counter. A steady rise
-means you should raise **matching.unsupportedTypeCacheEntries**. An evicted pair is
-not sent to its Worker again until that Worker completes a Step. While the cache
-overflows, a type that a Worker declined can therefore be offered to it again
-after each Step it completes. Raise **matching.unsupportedTypeCacheEntries** when
-this counter rises or the server logs the full-cache WARN.
-
-Worker polls use one persistent stream, so there is no empty-poll count.
-**dexzd_worker_stream_events_total** counts each stream close and, with
-**event="delivered"**, every task frame sent, including RPC task frames. A returned attempt
-that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
-
-~~~text
-# Failed API calls by class and code
-sum by (rpc_class, code) (rate(dexzd_api_requests_total{code!="ok"}[5m]))
-
-# A node that is not serving
-dexzd_node_role{role="serving"} == 0
-
-# Failed lease renewals
-increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
-~~~
-
-The full catalog, with types, histogram buckets, and Linux process metrics, is
-in the
-[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/README.md#metrics).
+Moved to [Metrics](/reference/server/metrics).
 
 ## Pull Worker dispatch {#pull-worker-dispatch}
 
-For Worker setup and capacity planning, see [Pull Workers](/production/pull-workers).
-server-zd runs as one node, so it owns every Worker queue itself. Workers and
-Clients connect to **api.listen**, which is **0.0.0.0:8801** by default.
-
-~~~yaml
-matching:
-  dispatchWait: 10s
-  stickyWait: 5s
-  syncMatchWait: 200ms
-  headsResyncInterval: 5m
-  maxConcurrentTasksCap: 256
-  maxStreams: 100000
-  unsupportedTypeCacheEntries: 10000
-  maxQueueLength: 256
-  maxFlowTypes: 256
-  maxFlowTypeLength: 256
-  pingInterval: 20s
-~~~
-
-| Key | Default | Meaning |
-| --- | --- | --- |
-| **matching.dispatchWait** | 10s | Total time to find a Worker for one RPC. Steps do not use it; they wait in the durable task queue. |
-| **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
-| **matching.syncMatchWait** | 200ms | Time to try any Worker of the Flow type for a Step after the sticky wait, before the Step goes to the durable task queue. Must be greater than 0. |
-| **matching.headsResyncInterval** | 5m | Interval of a background check that finds queued tasks matching lost. 0 disables it. See [Step task queue](#step-task-queue). |
-| **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. Dex reports it to Workers at registration. |
-| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. Estimate it by total slots. |
-| **matching.unsupportedTypeCacheEntries** | 10000 | Most (tenant, Flow type, Step type or RPC name, app Worker ID) pairs that Dex remembers as unsupported. |
-| **matching.maxQueueLength** | 256 | Longest queue name, in characters. |
-| **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
-| **matching.maxFlowTypeLength** | 256 | Longest registered Flow type, in characters. |
-| **matching.pingInterval** | 20s | Interval between **Ping** frames on idle Worker streams. |
-
-A Worker that uses reserved-slot dispatch opens one stream for each execution
-slot. An idle stream is a free slot. It serves the Worker's sticky queue and
-every Flow type the Worker declares. Reserved RPC slots are RPC-only streams and
-never receive Steps. When a slot frees up, waiting RPCs get it before waiting
-Steps. Registration beyond **matching.maxConcurrentTasksCap** or
-**matching.maxStreams** gets **RESOURCE_EXHAUSTED**.
-
-When a Worker declines a Step type or an RPC name as unknown, Dex remembers the
-(tenant, Flow type, Step type or RPC name, app Worker ID) pair in a bounded
-cache and stops offering that type to that Worker. Dex drops the entry when
-every stream with that app Worker ID disconnects. A restarted Worker gets a new
-app Worker ID, so Dex does not exclude it. If you override the app Worker ID,
-set a new value after each process restart. Otherwise an upgraded process that
-reuses the ID during a rolling deploy is excluded by the old process's entry,
-until every stream with that ID is gone, including the upgraded process's own
-streams. If the cache evicts the entry first, Dex offers the type again after a
-Worker with that ID completes a Step. For an RPC, Dex tries other Workers within the caller's deadline. An RPC
-still fails with the existing error when no Worker supports it.
+Moved to [Pull Worker dispatch](/reference/server/workers#pull-worker-dispatch).
 
 ### Step task queue {#step-task-queue}
 
-A Step attempt that no Worker takes at once does not fail. It first tries a
-connected sticky Worker for up to **stickyWait**. It then tries any Worker of
-the Flow type for up to **syncMatchWait**. When the Step type already has a
-backlog that a connected Worker can run, a new Step goes straight to the queue.
-
-The attempt then waits in a durable task queue until a Worker takes it, the Flow
-times out, or the Flow stops. Queues are per tenant, Flow type, and Step type.
-A Step type that no connected Worker supports stays queued and does not block
-other Step types. Steps are dispatched roughly in the order they became ready;
-strict ordering is not guaranteed. Dex spreads each queue over partitions, and
-each node serves the partitions it owns.
-
-A freed Worker slot serves waiting RPCs first, then Steps waiting in memory,
-then the durable queue. Queue time does not count toward the method timeout or
-the heartbeat timeout.
-
-An RPC never queues. If no Worker is available within **dispatchWait**, an RPC
-caller receives an **Unavailable** error directly. An unknown RPC name keeps
-its existing error.
-
-Alert on **dexzd_step_task_queue_entries** and
-**dexzd_step_task_queue_oldest_age_seconds**, not on
-**dexzd_matching_queued_tasks**. **dexzd_matching_queued_tasks** now counts only
-in-memory waiters, which are Steps and RPCs that wait for a slot. It does not
-count the durable backlog.
-**dexzd_step_task_queue_entries** is a gauge of queued Step tasks in the
-partitions this node owns. **dexzd_step_task_queue_oldest_age_seconds** is a gauge
-of the age of the oldest one. **dexzd_matching_unserved_task_queues** is a gauge
-of queues with backlog that no connected Worker can serve. **reason** is
-**no_worker** or **no_supporting_worker**.
-
-After a restart or a failover, each partition joins
-**dexzd_step_task_queue_entries** only when its background count finishes, so
-the gauge can read low for a while. During that time, rely on
-**dexzd_step_task_queue_oldest_age_seconds**, which the rebuild keeps accurate
-from the first queued task of each queue.
-
-**matching.headsResyncInterval** sets a periodic background check. It only
-catches server bugs that lose queued tasks. **dexzd_matching_heads_restored_refs_total**
-is a counter that should stay 0. If it is ever nonzero, look for the WARN log
-line "periodic Heads restored a queued task that matching had lost" and report
-it as a bug. **dexzd_matching_heads_incomplete_scans_total** counts checks that did
-not finish. **dexzd_step_task_queue_incomplete_seeks_total** counts searches for the next
-queued task that passed too many deleted entries. Dex retries each one after a backoff. A
-steady increase means compaction falls behind.
-
-Current SDKs send upstream **Pong** frames every 20 seconds while a task runs.
-Configure load balancers and proxies for long-lived HTTP/2 streams, and set
-their idle timeouts above both 20 seconds and **matching.pingInterval**, with
-margin for network delays. Workers that use older SDKs need idle timeouts above
-the longest task duration. Preserve bidirectional streaming through the public
-endpoint.
+Moved to [Step task queue](/reference/server/workers#step-task-queue).
 
 ## Streams {#streams}
 
-Set **streamStore.backend** to **memory** (default) or **disabled** to control
-best-effort [Streams](/primitives/stream). Memory Streams live only in the
-active server process. They start empty after a restart, a standby takeover, or
-a step down, and trimming can remove older messages. While the backend is
-disabled, Client Stream writes and reads fail with **FAILED_PRECONDITION**. A
-Step Stream write is dropped and logged without failing the Step, and the server
-logs a warning at startup.
-
-The memory backend bounds the memory it uses:
-
-- **streamStore.maxTotalBytes** (default 1 GiB) caps the bytes held across every
-  Stream on the node. A Client write past it fails with **RESOURCE_EXHAUSTED**.
-  Background trimming then removes the oldest messages of the largest Streams
-  until usage falls to **trimTargetPercent** of the bound, or lower when the
-  rejected message needs more room. The client retries the write.
-- A message larger than its Stream's capacity can never fit. It fails with
-  **RESOURCE_EXHAUSTED** without trimming, and a retry fails again.
-- **streamStore.maxStreamCapacityBytes** (default 64 MiB) is the largest
-  capacity one Stream can use. A larger **streamCapacityBytes** is reduced to it.
-- Each message counts its Value, Flow ID, source, and
-  **estimatedMessageOverheadBytes** (default 512).
-- **backgroundTrimBatchSize**, **trimBatchYieldTime**, and **trimWorkers** pace
-  trimming.
-
-A Step Stream write that the server drops never fails the Step.
-**dexzd_step_stream_writes_dropped_total** counts these writes by **reason**:
-**disabled**, **invalid_argument**, **message_too_large**,
-**stream_capacity_exceeded**, **total_capacity_exceeded**, or **closed**.
+Moved to [Streams](/reference/server/configuration#streams).
 
 ## Authentication
 
-Public API authentication is off by default. Configure **auth.authenticators**
-to require a bearer credential on every **FlowService** and **WorkerTaskService** call.
-gRPC health needs no credential. Authenticators are tried in order.
-
-~~~yaml
-auth:
-  authenticators:
-    - kind: jwt
-      issuer: https://issuer.example.com
-      audiences: ["dex"]
-      adminAudiences: []
-      jwksURL: ""
-      allowInsecureJWKSURL: false
-      caFile: ""
-    - kind: staticTokens
-      file: /etc/dex-server-zd/tokens.yaml
-~~~
-
-**allowInsecureJWKSURL** allows a plain HTTP **jwksURL** on a trusted network. An empty **jwksURL**
-discovers the key set through the issuer's OpenID configuration. **caFile** adds
-a PEM bundle to the system roots. **adminAudiences** lists the audiences that
-authorize [admin calls](#admin-credentials).
-
-The static token file lists SHA-256 hashes, never plaintext tokens:
-
-~~~yaml
-tokens:
-  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-~~~
-
-The file must be valid at startup. Changes take effect within a second. A
-malformed update keeps the last valid content. An empty or missing file revokes
-every token.
-
-The server checks a credential once, when a call starts. An open pull Worker
-stream stays open after its token expires or is revoked. The Worker needs a valid
-credential when it reconnects.
-
-**api.listen** serves plaintext gRPC, so bearer credentials cross the network in
-clear text. Terminate TLS in front of the server, or restrict the network to
-trusted callers.
+Moved to [Authentication](/reference/server/authentication).
 
 ### Admin credentials {#admin-credentials}
 
-Admin calls, such as [describe and step down](#step-down), need their own
-credential. Each **jwt** authenticator can list **adminAudiences**: the JWT
-audiences that make a token of its issuer an admin credential. The list is empty
-by default, so no issuer authorizes admin calls until you configure one.
-
-~~~yaml
-auth:
-  authenticators:
-    - kind: jwt
-      issuer: https://issuer.example.com
-      audiences: ["dex"]
-      adminAudiences: ["dex-operators"]
-~~~
-
-When **auth.authenticators** is not empty, an admin call needs a JWT that its
-issuer's **jwt** authenticator accepts. One of the token's audiences must be in
-that authenticator's **adminAudiences**. Static tokens never authorize admin
-calls. A missing or invalid credential fails with **UNAUTHENTICATED**. A valid
-public API credential without an admin audience fails with
-**PERMISSION_DENIED**.
-
-Give **adminAudiences** only to an issuer that decides the audiences of its
-tokens itself. Never give them to an issuer that lets callers choose **aud**,
-such as Kubernetes projected service account tokens or a CI OIDC provider shared
-with other projects. Anyone who can get a token from such an issuer could ask
-for an admin audience and step the node down.
-
-**adminAudiences** applies only to **jwt** authenticators. Its entries must not
-be empty and must differ from the same authenticator's **audiences**, so a
-public API credential never authorizes an admin call.
-
-An issuer that only signs admin credentials can leave **audiences** empty when
-**adminAudiences** is set. Its tokens then never authorize **FlowService** or
-**WorkerTaskService** calls. If that issuer is the only authenticator, public API
-authentication is still on, so every **FlowService** and Worker call is denied.
-
-The API key exchange of **dexcli** sends only the server ID and the API key, so
-it cannot ask for an admin audience. An API key works for admin commands only if
-the token endpoint itself issues tokens with an admin audience for that key.
-
-When authentication is off, as on a local development server, admin calls need
-no credential. Anyone who can reach **api.listen** can then step the node down,
-again and again.
-
-server-zd validates **adminAudiences** at startup. It logs each authorized admin
-call with the caller's **iss** and **sub** claims. It logs denied admin calls as
-warnings, at most once every 10 seconds.
+Moved to [Admin credentials](/reference/server/authentication#admin-credentials).
 
 ## Server and SDK protocol compatibility
 
-server-zd and each SDK release declare inclusive protocol intervals. A Worker
-can start when those intervals overlap. It negotiates the highest common
-protocol, then synchronizes Attribute indexes, then binds WorkerTaskService. The
-server and SDK artifact versions are diagnostic and do not decide compatibility.
-
-server-zd protocol version 4 does not raise the minimum protocol. Older SDK
-Workers and Clients keep working on the new server. Their capacity rejections
-return the attempt without consuming a retry.
-**dexzd_step_attempts_returned_total** with **reason="legacy_no_capacity"**
-counts them. This compatibility lasts until server-zd 1.0.
-
-New SDKs require the new server. On an older server, a new SDK Worker fails to
-start and a new SDK Client fails its first call, each with a clear error.
-Upgrade the server first, then the SDKs, one at a time. You do not need to stop
-Workers.
-
-This server upgrade does not support mixed versions. Stop every old server
-process, including active, hot standby, and cold standby, before you start the
-new version. After the new version wrote to a storage prefix, an older server
-must not run on it again. Roll forward, or restore a backup taken before the
-upgrade into a new prefix. Set new configuration keys only after every process
-runs the new version, and remove them before any rollback. This applies to
-**matching.syncMatchWait** and **matching.headsResyncInterval**. Matching
-configuration rejects unknown keys.
-
-A later release that raises the minimum protocol needs the same care. Stop old
-Workers and their traffic before that server upgrade, or use isolated blue and
-green environments so deployments with disjoint intervals never communicate.
-Running Workers do not renegotiate after a server upgrade.
-
-Protocol compatibility covers the Worker-to-server API only. It does not
-replace the compatibility rules for open Flows, including Flow type names, Step
-graphs, and persisted payloads.
+Moved to [Server and SDK protocol compatibility](/reference/server/upgrades).
 
 ## Backup and restore
 
-The object storage prefix is the only source of truth. The local store is
-rebuilt from it. An external search projection is not rebuilt: after a restore,
-configure a new **search.paradeDbSchema** or **search.postgresSchema**, or a new
-database, so the server loads it from the restored state. See
-[Initial load](#search-projection-initial-load). Reusing the old schema fails:
-the restored node epoch is older than the one that the schema records, so the
-projection stops and SearchFlows returns **UNAVAILABLE**. With
-**search.backend: postgres**, reusing the old schema can also leave the
-database's Attribute registry version ahead of the restored registry. Startup
-then fails with an Attribute slot registry mismatch.
-When **objectStore.hardDeleteStore** is configured, its prefix
-holds hard-delete Attribute values. Protect it the same way.
-
-Protect the prefix with bucket versioning or with replication to another bucket.
-With versioning, the noncurrent-version expiry sets how far back you can
-restore. Replication is asynchronous, so a replica can lag the source.
-
-To restore:
-
-1. Stop server-zd. For example, scale the StatefulSet to 0 replicas and wait for
-   the pod to terminate.
-2. Restore every object under the prefix to the same point in time. Remove
-   objects written after that point.
-3. Empty the local store directory. With a PersistentVolumeClaim, delete the
-   directory contents or the claim. An emptyDir is already gone once the pod
-   terminates.
-4. Start server-zd. It recovers from the newest snapshot and the log in the
-   restored prefix.
-
-Writes acknowledged after the restore point are lost.
+Moved to [Backup and restore](/reference/server/object-storage#backup-and-restore).
 
 ## External search projection {#search-projection}
 
-With **search.backend: paradedb** or **search.backend: postgres**, SearchFlows
-reads a SQL copy of the committed search documents. This copy is the search
-projection.
+Moved to [External search projection](/reference/server/search#search-projection).
 
 ### How the projection works {#search-projection-behavior}
 
-- Each committed change to a run's search document appends an entry to a
-  durable outbox in the same local commit. A run purge appends one too.
-- The outbox is part of the replicated state. Snapshots and log replay restore
-  it after a restart or a takeover.
-- The node that holds the lease reads the outbox in commit order. It writes each
-  changed run's current document to SQL. Then it removes the written entries
-  with a logged acknowledgement.
-- Several changes to one run between two batches become one row write.
-- The projection is asynchronous. When the database is slow or unavailable,
-  commits continue and the outbox grows on the local disk. Search results lag,
-  but no change is lost and nothing is rebuilt. After the database recovers, the
-  projection continues from the oldest entry.
-- Each partition's SQL progress row records the writer's lease epoch. A former
-  lease holder with a lower epoch cannot write any more rows.
-- An outbox entry takes about 60 bytes. Size the local store volume for the
-  longest database outage you want to ride out.
+Moved to [How the projection works](/reference/server/search#search-projection-behavior).
 
 ### Initial load {#search-projection-initial-load}
 
-At startup, the node checks each partition's SQL progress against its committed
-state. It loads the partition when the progress cannot continue from the outbox:
-
-| Reason in the log | When it happens |
-| --- | --- |
-| **no_progress** | A new database or schema, a switch from builtin search, or a load that a crash interrupted |
-| **no_outbox_progress** | An older server release, which had no outbox, wrote the progress |
-| **enabled_after_progress** | The cluster switched from SQL search to builtin search and back to the same schema |
-| **acked_after_progress** | The database was restored to a point before entries that the cluster already acknowledged |
-| **ahead_of_committed_state** | A defensive check: the progress is ahead of committed state. After an object storage restore, use a new schema instead. |
-
-A load deletes the partition's rows and its progress in one transaction. Then it
-copies every current search document of the partition from one consistent view.
-Its last transaction records the new progress, so a crash during a load leads to
-another load. Later changes come from the outbox. Loads happen only at startup,
-never because the database is slow.
-
-The log shows **loading the partition into the SQL visibility projection** with
-the **reason** for each load. **dexzd_search_initial_loads_total** counts loads,
-and **dexzd_search_initial_load_pending_partitions** reaches 0 when every
-partition is loaded. SearchFlows waits for a partition that is loading, as
-described in [Read-your-writes](#search-projection-read-your-writes).
+Moved to [Initial load](/reference/server/search#search-projection-initial-load).
 
 ### Read-your-writes {#search-projection-read-your-writes}
 
-SearchFlows waits until the projection holds every outbox entry committed before
-the request. After a restart or a takeover, it also waits for entries already in
-the local store and for loading partitions. The wait lasts at most
-**search.readYourWritesWait**. When it
-expires, SearchFlows returns **UNAVAILABLE**. It never returns results that miss
-such a write. Retry the call with backoff.
-
-When the projection stops after an error it cannot retry, such as invalid
-committed state, SearchFlows returns **INTERNAL** until the server restarts.
-When the schema records a newer node epoch than this node's, the projection
-stops and SearchFlows returns **UNAVAILABLE**. A newer lease holder causes this,
-and so does a restored object storage prefix with a reused schema.
+Moved to [Read-your-writes](/reference/server/search#search-projection-read-your-writes).
 
 ### Configuration {#search-projection-configuration}
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| **search.readYourWritesWait** | **2s** | Longest SearchFlows wait for the projection |
-| **search.outboxBatchSize** | **1000** | Most outbox entries or loaded documents in one SQL transaction |
-| **search.outboxPollInterval** | **100ms** | How often an idle projection looks for entries. New commits wake it at once. |
-| **search.outboxAckInterval** | **1s** | Least time between two acknowledgements of one partition. Each acknowledgement is a logged command, so a node with 1,024 busy partitions logs up to 1,024 per second. |
-| **search.outboxMaxAckEntries** | **10000** | Most outbox entries that one acknowledgement deletes. A longer backlog is acknowledged in several commands. Must be at least **search.outboxBatchSize**. |
+Moved to [Configuration](/reference/server/search#search-projection-configuration).
 
 ### Monitoring {#search-projection-monitoring}
 
-| Metric | Meaning |
-| --- | --- |
-| **dexzd_search_outbox_oldest_entry_age_seconds** | Age of the oldest outbox entry that SQL does not hold yet, 0 when none. This is the projection lag. |
-| **dexzd_search_outbox_entries** | Entries that SQL does not hold yet, summed over partitions, as of each partition's last scan |
-| **dexzd_search_outbox_max_partition_entries** | The largest of those per-partition counts |
-| **dexzd_search_outbox_batches_total** with **outcome** | SQL transactions of the projection. Failed transactions are retried. |
-| **dexzd_search_outbox_projected_entries_total** | Outbox entries that committed SQL transactions covered |
-| **dexzd_search_outbox_projected_runs_total** | Rows written or deleted after changes of one run were combined |
-| **dexzd_search_outbox_ack_proposals_total** with **outcome** | Acknowledgement commands. Failed proposals are retried. |
-| **dexzd_search_initial_load_pending_partitions** | Partitions whose initial load has not finished |
-| **dexzd_search_initial_load_documents_total** | Documents that initial loads wrote |
-| **dexzd_search_initial_loads_total** | Partition loads started; the log gives each one's reason |
-| **dexzd_search_projection_mode_skipped_partitions_total** | Stopped partitions that kept their previous projection mode at startup; each one also logs an error |
-| **dexzd_search_skipped_documents_total** | Committed documents that SQL cannot store; search omits them |
-
-~~~text
-# Search results lag committed writes by more than 1 minute
-dexzd_search_outbox_oldest_entry_age_seconds > 60
-
-# Every projection transaction failed for 10 minutes
-increase(dexzd_search_outbox_batches_total{outcome="error"}[10m]) > 0
-  and increase(dexzd_search_outbox_batches_total{outcome="ok"}[10m]) == 0
-
-# Every acknowledgement failed for 10 minutes, so the outbox only grows
-increase(dexzd_search_outbox_ack_proposals_total{outcome="error"}[10m]) > 0
-  and increase(dexzd_search_outbox_ack_proposals_total{outcome="ok"}[10m]) == 0
-
-# An initial load is still running; alert when this lasts 30 minutes
-dexzd_search_initial_load_pending_partitions > 0
-~~~
+Moved to [Monitoring](/reference/server/search#search-projection-monitoring).
 
 ## PostgreSQL search
 
-Choose **search.backend: postgres** to run indexed search on PostgreSQL 15 or
-newer without extensions. It does not require **pg_search**, **btree_gin**, or
-any other extension. Choose ParadeDB when you need more indexed Attributes
-than the PostgreSQL slot limits allow.
-
-~~~yaml
-search:
-  backend: postgres
-  postgresConnectionString: "postgres://USER:PASSWORD@HOST:5432/DATABASE"
-  postgresConnectionPoolSize: 10
-  postgresSchema: public
-  readYourWritesWait: 2s
-~~~
-
-The server connects to **postgresConnectionString** using the PostgreSQL
-protocol. It neither binds nor advertises that address. Leave the field empty
-to read **DEX_ZD_POSTGRES_CONNECTION_STRING**. The connection supports the same
-TLS options as **paradeDbConnectionString**, and serialized configuration
-redacts it. The default pool size is 10, and the default schema is **public**.
-
-Each tenant has 10 Keyword slots and 3 slots each for Int, Datetime, Double,
-Bool, KeywordArray, and Text. Registrations take slots in registration order.
-System fields, including **DexWorkQueuePermissions**, do not consume slots.
-The registry is shared by the applications on the server. Registering another
-Attribute after a type reaches its limit returns **FAILED_PRECONDITION**.
-Startup also fails if the existing registry exceeds these limits. The registry
-has no delete operation. A full registry requires a new server.
-
-An indexed Keyword value or KeywordArray element may contain at most 1024
-UTF-8 bytes. A larger new write returns **INVALID_ARGUMENT**. A rejected
-Worker Step result causes that Step to fail. A previously committed document
-with an oversized value whose stored type matches its registered Keyword or
-KeywordArray type is omitted from search and recorded as a skipped document.
-Its Flow state remains committed. Unregistered keys do not trigger this skip.
-
-A newly registered Attribute uses the existing JSONB query path until its
-slot backfill finishes. Results stay correct during that window, but queries
-can be slower. Backfill commits bounded batches and resumes after a restart.
-It does not pause projection of other partitions. Unregistered index keys also
-use JSONB. **IS NULL**, **IS NOT NULL**, and negations use stored key presence,
-including when the stored type differs from the registered type. Int and Double
-values remain distinct. A scalar string stored under KeywordArray matches as
-one element. One mismatch has a stricter result: positive Keyword predicates
-do not match a stored KeywordArray. The document remains searchable, and
-negations retain the builtin evaluator result. Negative predicates,
-such as **!=** and **NOT IN**, often cannot use an index. Explicit
-**ORDER BY StartTime** and **ORDER BY CloseTime** sort all matching rows.
-Their cost grows with the number of matching rows.
-
-Text matches all query terms. It does not rank results by BM25 relevance.
-Both external search backends use the same
-[search projection](#search-projection) and **readYourWritesWait**.
-
-A schema records its search backend. Starting with a different backend fails.
-To switch between PostgreSQL and ParadeDB, select a new database or schema.
-The server loads it from committed state automatically.
-Existing ParadeDB version-three schemas gain the dialect marker without clearing
-data or changing their version. Older releases that accept schema version 3
-can still use them. PostgreSQL uses schema version 4; older releases reject it.
+Moved to [PostgreSQL search](/reference/server/search#postgresql-search).

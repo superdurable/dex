@@ -425,7 +425,7 @@ project (`node_modules` or `NODE_PATH`). It reads Step registration, direct
 `ExecuteFailure.proceedTo` in `getStepOptions`. WaitFor
 (`typescript_wait_for_unsupported`), several Flows in one file
 (`multiple_flows`), RPC and timeout handlers, handler resource access, SubFlows,
-and Version 2.0 views are not analyzed yet. See the [Flow visualization reference](../docs/content/references/flow-visualization.mdx).
+and Version 2.0 views are not analyzed yet. See the [Flow visualization reference](../docs/reference/web/flow-visualization.mdx).
 
 Flow Definition Graph 2.0 also records the registered Go start Step type and a
 recursive start-input schema. The analyzer follows JSON field names, ignored
