@@ -392,7 +392,7 @@ API → milestone wait succeeds → return confirmed persistence
 
 Wait only for the condition that establishes the response's promised outcome. If the response only acknowledges accepted background work, return immediately after the start without a wait. Bound required waits with a caller deadline or request timeout. A wait timeout does not undo the start or prove the database write failed; report completion as pending or unknown according to the API contract and preserve the same start identity for retries.
 
-See [Step completion waits](/primitives/client/advanced#wait-for-a-step) and [Attribute-match waits](/primitives/client/advanced#wait-for-an-attribute-match) for the language APIs. Attribute waits target an active run. If a Flow closes before the wait attaches, reconcile the actual wait error through the authoritative business record or a supported terminal read; do not assume the Attribute wait can query a closed run.
+See [Step completion waits](/reference/server/runtime-client#wait-for-a-step) and [Attribute-match waits](/reference/server/runtime-client#wait-for-an-attribute-match) for the language APIs. Attribute waits target an active run. If a Flow closes before the wait attaches, reconcile the actual wait error through the authoritative business record or a supported terminal read; do not assume the Attribute wait can query a closed run.
 
 #### Read only when the error outcome needs it {#start-error-reconciliation}
 

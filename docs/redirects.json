@@ -138,5 +138,21 @@
   {
     "from": "/zh-Hans/references/flow-visualization",
     "to": "/zh-Hans/reference/web/flow-visualization"
+  },
+  {
+    "from": "/primitives/client/basic",
+    "to": "/primitives/client"
+  },
+  {
+    "from": "/primitives/client/advanced",
+    "to": "/primitives/client"
+  },
+  {
+    "from": "/zh-Hans/primitives/client/basic",
+    "to": "/zh-Hans/primitives/client"
+  },
+  {
+    "from": "/zh-Hans/primitives/client/advanced",
+    "to": "/zh-Hans/primitives/client"
   }
 ]

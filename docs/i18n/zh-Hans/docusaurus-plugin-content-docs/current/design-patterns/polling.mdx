@@ -39,17 +39,15 @@ loop:
 interval + call timeout <= HeartbeatTimeout - 10s
 ```
 
-使用默认一分钟的 **HeartbeatTimeout** 和 10 秒的调用 timeout 时，间隔最多 40 秒，每一轮最多 50 秒。
+示例使用一分钟的 **HeartbeatTimeout** 和 10 秒的调用 timeout，所以间隔最多 40 秒。默认值和最小值见 [Heartbeat](/primitives/step/step-options#heartbeat)。
 
 根据等待场景选择间隔。用户正在等待时（例如等待刚启动的资源就绪），用几秒。构建这类长任务，用几十秒。
 
-## 限制
+## 限定等待时间 {#limits}
 
-**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。见 [Timeouts 和 total duration](/primitives/step/step-options#timeouts-and-total-duration)。
+**ExecuteMethodTimeout** 和 **TotalDuration** 使用同一个最长等待时间。Dex 会强制执行它们，所以 Step 不计算截止时间，checkpoint 和 Step input 也都不携带截止时间。**ExecuteRetry** 使用少量带退避的 attempt，用于处理临时错误和 Worker 崩溃。
 
-**TotalDuration** 只在失败之后决定是否 retry，所以最后一次 attempt 可能在它之后结束。有 Worker 可用时，总等待时间最多约为 **TotalDuration** 加一个 **ExecuteMethodTimeout**。
-
-Polling Step 可以使用任一种 durability。见 [Step options](/primitives/step/step-options#durability)。
+Dex 从不中断正在运行的 attempt，所以总等待时间可能略超过最长等待时间。两个设置如何配合，见 [Timeouts 和 total duration](/primitives/step/step-options#timeouts-and-total-duration)。Polling Step 可以使用任一种 [durability](/primitives/step/step-options#durability)。
 
 ## 等待超时之后
 

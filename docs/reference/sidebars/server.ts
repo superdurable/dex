@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
     'attribute-store-sync',
     'metrics',
     'upgrades',
+    'runtime-client',
   ],
 };
 

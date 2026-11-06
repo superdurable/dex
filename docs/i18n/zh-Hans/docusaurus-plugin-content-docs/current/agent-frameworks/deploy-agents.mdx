@@ -196,7 +196,7 @@ session 超出预算后，这样的 Step 会失败且不重试。模型调用或
 
 Flow history 大约保留一个 session 最新的 10,000 个事件。读取对话用
 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
-[Time travel](/primitives/client/advanced#time-travel) 只能以
+[Time travel](/reference/server/runtime-client#time-travel) 只能以
 [history 窗口](/reference/server/configuration#history-window)内的时间点为目标。
 Time travel 到起点始终可用。
 
