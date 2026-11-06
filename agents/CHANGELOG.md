@@ -4,7 +4,7 @@ All eleven Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## 0.2.0 (Unreleased)
+## 0.2.0 (2026-11-05)
 
 ### Tool calls that never ran
 
