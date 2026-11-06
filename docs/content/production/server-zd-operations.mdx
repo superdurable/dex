@@ -1330,7 +1330,10 @@ The memory backend bounds the memory it uses:
 - **streamStore.maxTotalBytes** (default 1 GiB) caps the bytes held across every
   Stream on the node. A Client write past it fails with **RESOURCE_EXHAUSTED**.
   Background trimming then removes the oldest messages of the largest Streams
-  until usage falls to **trimTargetPercent** of the bound.
+  until usage falls to **trimTargetPercent** of the bound, or lower when the
+  rejected message needs more room. The client retries the write.
+- A message larger than its Stream's capacity can never fit. It fails with
+  **RESOURCE_EXHAUSTED** without trimming, and a retry fails again.
 - **streamStore.maxStreamCapacityBytes** (default 64 MiB) is the largest
   capacity one Stream can use. A larger **streamCapacityBytes** is reduced to it.
 - Each message counts its Value, Flow ID, source, and

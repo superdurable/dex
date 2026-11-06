@@ -13,13 +13,18 @@ default). When usage reaches the high water mark, a pool of `trim_workers` owned
 background workers (4 by default) trims scopes in batches of
 `background_trim_batch_size` messages, pausing `trim_batch_yield_time` between
 batches, until usage reaches the low water mark. A write that cannot fit returns
-`StreamStoreError::CapacityExceeded` and schedules trimming.
+`StreamStoreError::CapacityExceeded` and schedules trimming deep enough to admit
+it; the caller retries, because the store never retries a write. A message whose
+charge exceeds the Stream's capacity can never fit and returns
+`StreamStoreError::MessageTooLarge` without trimming.
 
 `max_total_bytes` (1 GiB by default) bounds the bytes charged across every scope.
-A write past it returns `StreamStoreError::TotalCapacityExceeded`. Reaching the
-high water mark of that bound schedules a total trim, which removes the oldest
-messages of the largest scope, one batch at a time, until total usage reaches
-the low water mark. Trimming and scope removal release the total accounting
+A write past it returns `StreamStoreError::TotalCapacityExceeded` and schedules a
+total trim down to the low water mark, or lower when the rejected message needs
+more room. Reaching the high water mark also schedules one. A total trim removes
+the oldest messages of the largest scope, one batch at a time. Message identities
+come from one store-wide clock, so a scope removed by trimming and recreated
+never reuses an identity that a resume token already names. Trimming and scope removal release the total accounting
 under the same state lock as writes.
 
 `StreamStoreConfig` is disabled by default. Its default capacity fallback is

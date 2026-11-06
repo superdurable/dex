@@ -1103,7 +1103,10 @@ memory 后端会限制自己使用的内存：
 
 - **streamStore.maxTotalBytes**（默认 1 GiB）限制节点上所有 Stream 合计保存的字节数。
   超过它的 Client 写入返回 **RESOURCE_EXHAUSTED**。随后后台 trim 会删除最大的 Stream 中
-  最早的消息，直到用量降到上限的 **trimTargetPercent**。
+  最早的消息，直到用量降到上限的 **trimTargetPercent**；被拒绝的消息需要更多空间时会降得更低。
+  客户端随后重试这次写入。
+- 大于所属 Stream 容量的消息永远放不下。它直接返回 **RESOURCE_EXHAUSTED**，不会触发 trim，
+  重试也会失败。
 - **streamStore.maxStreamCapacityBytes**（默认 64 MiB）是单个 Stream 可用的最大容量。
   更大的 **streamCapacityBytes** 会被降到这个值。
 - 每条消息计入它的 Value、Flow ID、source 和 **estimatedMessageOverheadBytes**（默认 512）。

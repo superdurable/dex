@@ -286,7 +286,8 @@ pub enum StepStreamWriteDropReason {
     Disabled,
     /// The write had no Value, Step execution ID, or valid capacity.
     InvalidArgument,
-    /// The serialized Value exceeded streamStore.maxMessageBytes.
+    /// The serialized Value exceeded streamStore.maxMessageBytes, or the message exceeded its
+    /// Stream's capacity.
     MessageTooLarge,
     /// The Stream's capacity was full until background trimming caught up.
     StreamCapacityExceeded,

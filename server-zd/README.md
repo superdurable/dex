@@ -220,7 +220,9 @@ warning log without failing the Step, and startup logs a warning.
 The memory backend bounds its memory. `streamStore.maxTotalBytes` (default 1 GiB) caps the bytes
 charged across every Stream on the node. A write past it returns `ResourceExhausted` with the
 `UNCATEGORIZED` sub-status, and background trimming removes the oldest messages of the largest
-Streams until usage falls to `trimTargetPercent` of the bound. `streamStore.maxStreamCapacityBytes`
+Streams until usage falls to `trimTargetPercent` of the bound, or lower when the rejected message
+needs more room; the caller retries. A message whose charge exceeds its Stream's capacity can never
+fit and returns `ResourceExhausted` without trimming. `streamStore.maxStreamCapacityBytes`
 (default 64 MiB) clamps the capacity that a caller requests for one Stream. Each message is charged
 its serialized Value, Flow ID, source, and `estimatedMessageOverheadBytes`. Trimming removes up to
 `backgroundTrimBatchSize` messages per batch, pauses `trimBatchYieldTime` between batches, and runs

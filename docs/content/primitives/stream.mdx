@@ -340,11 +340,11 @@ Use **ReadStream** for forward, one-message-at-a-time consumption that can long-
 
 The Dex server calculates the estimated size from each message's serialized value, Flow ID, source, and configured per-message overhead.
 
-When usage reaches the trim trigger threshold, one background trimmer removes the oldest messages across all instances until usage reaches the trim target threshold. In rare cases, if trimming is too slow and usage reaches the capacity limit (**streamCapacityBytes**), the write request is rejected.
+When usage reaches the trim trigger threshold, background trimming removes the oldest messages across all instances until usage reaches the trim target threshold. A server runs several trim workers, but each Stream is trimmed by one job at a time. If trimming is too slow and usage reaches the capacity limit (**streamCapacityBytes**), the write request is rejected with **RESOURCE_EXHAUSTED**. The rejection also asks trimming to free room for that message, so a Client can retry the write. A message larger than the Stream's capacity is rejected the same way, but it can never fit, so do not retry it.
 
 The server also limits the size of each Stream message. The default is 100 KiB.
 
-The server caps **streamCapacityBytes** at **streamStore.maxStreamCapacityBytes**, which defaults to 64 MiB. It also caps the memory of all Streams on a server at **streamStore.maxTotalBytes**, which defaults to 1 GiB. A Client write past that total fails with **RESOURCE_EXHAUSTED**, and background trimming then removes the oldest messages of the largest Streams. See [Streams](/production/server-zd-operations#streams).
+The server caps **streamCapacityBytes** at **streamStore.maxStreamCapacityBytes**, which defaults to 64 MiB. It also caps the memory of all Streams on a server at **streamStore.maxTotalBytes**, which defaults to 1 GiB. A Client write past that total fails with **RESOURCE_EXHAUSTED**, and background trimming then removes the oldest messages of the largest Streams until the message fits. Retry the write after a short delay. See [Streams](/production/server-zd-operations#streams).
 
 ### Best-effort storage
 

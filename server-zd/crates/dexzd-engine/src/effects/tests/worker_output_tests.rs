@@ -93,8 +93,9 @@ async fn step_stream_writes_reach_the_stream_store_in_frame_order_including_fail
     let dropped = &harness.effect_context().metrics.step_stream_writes_dropped;
     assert_eq!(dropped.count(StepStreamWriteDropReason::InvalidArgument), 1);
     assert_eq!(
-        dropped.count(StepStreamWriteDropReason::StreamCapacityExceeded),
-        1
+        dropped.count(StepStreamWriteDropReason::MessageTooLarge),
+        1,
+        "a message larger than its Stream's capacity can never fit"
     );
     assert_eq!(dropped.count(StepStreamWriteDropReason::Disabled), 0);
     assert!(

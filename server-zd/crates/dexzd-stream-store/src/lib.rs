@@ -33,7 +33,8 @@ pub enum StreamStoreError {
     /// Invalid startup configuration has no gRPC mapping.
     #[error("invalid Stream Store configuration: {0}")]
     InvalidConfig(&'static str),
-    /// Oversized Values map to ResourceExhausted.
+    /// Oversized Values, or a charge above the Stream's capacity, map to ResourceExhausted.
+    /// The write can never succeed, so callers should not retry it.
     #[error("serialized Stream Value exceeds configured max_message_bytes")]
     MessageTooLarge,
     /// Exhausted capacity maps to ResourceExhausted.
@@ -102,7 +103,10 @@ struct StoreState {
     pending_trims: HashMap<ScopeKey, u64>,
     /// Sum of every scope's total_bytes.
     total_bytes: u64,
-    is_total_trim_pending: bool,
+    /// Bytes the pending total trim reduces total_bytes to; None when none is pending.
+    total_trim_target_bytes: Option<u64>,
+    /// Last issued message identity; store-wide, so a recreated scope never reuses one.
+    last_identity: (u64, u64),
     is_closed: bool,
 }
 
@@ -111,8 +115,6 @@ struct StreamScope {
     total_bytes: u64,
     fifo: VecDeque<Arc<StoredMessage>>,
     instances: HashMap<String, StreamInstance>,
-    last_milliseconds: u64,
-    last_sequence: u64,
 }
 
 struct StreamInstance {
@@ -140,7 +142,6 @@ enum TrimCommand {
 struct TrimSettings {
     batch_size: usize,
     batch_yield_time: Duration,
-    total_target_bytes: u64,
 }
 
 /// What one trim job reports after an atomic batch.
@@ -172,7 +173,6 @@ impl StreamStore {
         let settings = TrimSettings {
             batch_size: config.background_trim_batch_size,
             batch_yield_time: config.trim_batch_yield_time,
-            total_target_bytes: percentage_of(config.max_total_bytes, config.trim_target_percent),
         };
         let mut trim_workers = Vec::with_capacity(config.trim_workers);
         for _ in 0..config.trim_workers {
@@ -249,24 +249,29 @@ impl StreamStore {
         if state.is_closed {
             return Err(StreamStoreError::Closed);
         }
-        let max_total_bytes = self.config.max_total_bytes;
-        if charged_bytes > max_total_bytes.saturating_sub(state.total_bytes) {
-            schedule_total_trim(&mut state, &self.trim_sender);
-            return Err(StreamStoreError::TotalCapacityExceeded);
+        // Capacity never exceeds max_total_bytes, so this also rejects a charge that no trim can admit.
+        if charged_bytes > capacity {
+            return Err(StreamStoreError::MessageTooLarge);
         }
-        let scope = state.scopes.entry(scope_key.clone()).or_default();
-        let is_full = scope.total_bytes >= capacity
-            || charged_bytes > capacity.saturating_sub(scope.total_bytes);
-        if is_full {
-            schedule_trim(
+        let max_total_bytes = self.config.max_total_bytes;
+        let total_trim_target_bytes =
+            percentage_of(max_total_bytes, self.config.trim_target_percent);
+        if charged_bytes > max_total_bytes - state.total_bytes.min(max_total_bytes) {
+            schedule_total_trim(
                 &mut state,
                 &self.trim_sender,
-                scope_key,
-                percentage_of(capacity, self.config.trim_target_percent),
+                total_trim_target_bytes.min(max_total_bytes - charged_bytes),
             );
+            return Err(StreamStoreError::TotalCapacityExceeded);
+        }
+        let identity = state.next_identity();
+        let scope = state.scopes.entry(scope_key.clone()).or_default();
+        if charged_bytes > capacity - scope.total_bytes.min(capacity) {
+            let scope_target_bytes = percentage_of(capacity, self.config.trim_target_percent)
+                .min(capacity - charged_bytes);
+            schedule_trim(&mut state, &self.trim_sender, scope_key, scope_target_bytes);
             return Err(StreamStoreError::CapacityExceeded);
         }
-        let identity = scope.next_identity();
         let entry = Arc::new(StoredMessage {
             flow_id: input.flow_id.clone(),
             value: input.value,
@@ -284,7 +289,7 @@ impl StreamStore {
             scope.total_bytes >= percentage_of(capacity, self.config.trim_trigger_percent);
         state.total_bytes += charged_bytes;
         if state.total_bytes >= percentage_of(max_total_bytes, self.config.trim_trigger_percent) {
-            schedule_total_trim(&mut state, &self.trim_sender);
+            schedule_total_trim(&mut state, &self.trim_sender, total_trim_target_bytes);
         }
         if needs_trim {
             let base_target = percentage_of(capacity, self.config.trim_target_percent);
@@ -511,6 +516,24 @@ impl Drop for ReadWaiter {
     }
 }
 
+impl StoreState {
+    fn next_identity(&mut self) -> (u64, u64) {
+        let now_milliseconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch")
+            .as_millis() as u64;
+        let (last_milliseconds, last_sequence) = self.last_identity;
+        self.last_identity = if now_milliseconds > last_milliseconds {
+            (now_milliseconds, 0)
+        } else if last_sequence == u64::MAX {
+            (last_milliseconds + 1, 0)
+        } else {
+            (last_milliseconds, last_sequence + 1)
+        };
+        self.last_identity
+    }
+}
+
 impl StreamScope {
     fn instance(&mut self, flow_id: &str) -> &mut StreamInstance {
         self.instances.entry(flow_id.to_owned()).or_insert_with(|| {
@@ -521,23 +544,6 @@ impl StreamScope {
                 waiters: 0,
             }
         })
-    }
-
-    fn next_identity(&mut self) -> (u64, u64) {
-        let now_milliseconds = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after the Unix epoch")
-            .as_millis() as u64;
-        if now_milliseconds > self.last_milliseconds {
-            self.last_milliseconds = now_milliseconds;
-            self.last_sequence = 0;
-        } else if self.last_sequence == u64::MAX {
-            self.last_milliseconds += 1;
-            self.last_sequence = 0;
-        } else {
-            self.last_sequence += 1;
-        }
-        (self.last_milliseconds, self.last_sequence)
     }
 
     /// Removes up to `batch_size` oldest messages until `target_bytes`.
@@ -649,7 +655,7 @@ fn trim_scope_batch(
     TrimProgress::Complete
 }
 
-/// Trims the largest scope by one batch toward the process-wide trim target.
+/// Trims the largest scope by one batch toward the pending total trim target.
 fn trim_total_batch(state: &Mutex<StoreState>, settings: TrimSettings) -> TrimProgress {
     let mut state = state
         .lock()
@@ -657,9 +663,10 @@ fn trim_total_batch(state: &Mutex<StoreState>, settings: TrimSettings) -> TrimPr
     if state.is_closed {
         return TrimProgress::Closed;
     }
-    let excess_bytes = state
-        .total_bytes
-        .saturating_sub(settings.total_target_bytes);
+    let Some(target_bytes) = state.total_trim_target_bytes else {
+        return TrimProgress::Complete;
+    };
+    let excess_bytes = state.total_bytes.saturating_sub(target_bytes);
     let largest_scope_key = state
         .scopes
         .iter()
@@ -667,7 +674,7 @@ fn trim_total_batch(state: &Mutex<StoreState>, settings: TrimSettings) -> TrimPr
         .max_by_key(|(_, scope)| scope.total_bytes)
         .map(|(scope_key, _)| scope_key.clone());
     let Some(scope_key) = largest_scope_key.filter(|_| excess_bytes > 0) else {
-        state.is_total_trim_pending = false;
+        state.total_trim_target_bytes = None;
         return TrimProgress::Complete;
     };
     let scope = state
@@ -681,18 +688,24 @@ fn trim_total_batch(state: &Mutex<StoreState>, settings: TrimSettings) -> TrimPr
     if is_removable {
         state.scopes.remove(&scope_key);
     }
-    if state.total_bytes <= settings.total_target_bytes {
-        state.is_total_trim_pending = false;
+    if state.total_bytes <= target_bytes {
+        state.total_trim_target_bytes = None;
         return TrimProgress::Complete;
     }
     TrimProgress::Incomplete
 }
 
-fn schedule_total_trim(state: &mut StoreState, sender: &mpsc::UnboundedSender<TrimCommand>) {
-    if state.is_total_trim_pending {
+/// Requests a total trim down to `target_bytes`, lowering the target of a pending one.
+fn schedule_total_trim(
+    state: &mut StoreState,
+    sender: &mpsc::UnboundedSender<TrimCommand>,
+    target_bytes: u64,
+) {
+    if let Some(existing_target) = state.total_trim_target_bytes.as_mut() {
+        *existing_target = (*existing_target).min(target_bytes);
         return;
     }
-    state.is_total_trim_pending = true;
+    state.total_trim_target_bytes = Some(target_bytes);
     if sender.send(TrimCommand::Total).is_err() {
         tracing::warn!("Stream Store trim worker is unavailable");
     }
