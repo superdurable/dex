@@ -1,6 +1,6 @@
 ---
 description: Natural, concise product documentation voice
-globs: docs/content/**/*.mdx
+globs: docs/**/*.mdx
 alwaysApply: false
 ---
 
@@ -28,3 +28,24 @@ for locale file layout.
   what the diagram already shows.
 - Avoid bullet lists when a paragraph reads better. Avoid numbered lists unless
   order matters.
+
+## Concept pages and versions
+
+Each fact has one home. See Docs Information Placement in
+`.cursor/rules/project-core.mdc`.
+
+- Concept pages are the Primitives, Components, and Design pattern pages. Use
+  short sentences there. Put one idea in each sentence.
+- Concept pages contain no version numbers and no compatibility notes for
+  older servers or SDKs.
+- Say each thing once. Link to its single home instead of repeating it.
+- Version differences appear only in the Developer reference. Mark each one
+  "Since 1.NN" or "Changed in 1.NN".
+
+## Read pages for humans before merge
+
+- Pages for humans (Primitives, Components, and Design patterns) must be read
+  in a browser before merge. Run `cd docs && npm start`, which builds and
+  serves both locales. Read every changed page from top to bottom as a reader,
+  once in English and once in Simplified Chinese. Fix what you find. List the
+  pages you read in the pull request's Testing section.

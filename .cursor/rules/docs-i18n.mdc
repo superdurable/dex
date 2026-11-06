@@ -1,15 +1,23 @@
 ---
-description: Product docs ship in English and Simplified Chinese
+description: Docs outside the Developer reference ship in English and Simplified Chinese
 alwaysApply: true
 ---
 
 # Docs languages
 
-Product docs in `docs/content/` ship in **English** and **Simplified Chinese**
-(`zh-Hans`). The navbar language control (top right) persists the choice in
-`localStorage` (`docs-locale`) and cookie `superdurable-docs-locale`.
+Every docs page outside the Developer reference ships in **English** and
+**Simplified Chinese** (`zh-Hans`). This includes Intro, Quick start,
+Primitives, Components, Design patterns, and Use cases. The navbar language
+control (top right) persists the choice in `localStorage` (`docs-locale`) and
+cookie `superdurable-docs-locale`.
 
-When you add or change a page under `docs/content/`:
+The Developer reference is **English only**. It means the versioned
+`reference-*` docs instances and the generated API references. When a page
+moves into the Developer reference, it drops its Chinese copy. Redirect the old
+`zh-Hans` URL like any other moved page; see
+`.cursor/rules/docs-search-indexing.mdc`.
+
+When you add or change a bilingual page under `docs/content/`:
 
 1. Write English in `docs/content/...`.
 2. Write Chinese at the same relative path under

@@ -41,6 +41,27 @@ and Cursor. Its only public skills are `dex-sdk`, `dex-app-builder`, and
 - App Builder constraints are stricter: Go only, strict FDG 2.0, provider effects
   only in `Execute`, and no provider or Dex mutations in `WaitFor`.
 
+## Skill content: the stable layer for agents
+
+The Skills are the coding-agent version of Dex's stable docs layer. They cover
+the same scope as the docs Primitives, Components, and Design pattern pages.
+Write that content for agents: mental models, decision tables, rules,
+anti-patterns, code skeletons, and checklists. Keep every stable fact an agent
+needs to write correct code. Each rule must be complete without its links.
+
+A fact belongs here only if it will still hold in the next minor release.
+Skills contain no Dex version numbers and no release-tag pins. APIs,
+parameters, defaults, limits, configuration, flags, error codes, and version
+differences belong in SDK doc comments and the versioned docs Developer
+reference. Link to the Developer reference and to `examples/` for those
+details. Never link to the docs Primitives, Components, or Design pattern
+pages.
+
+Change the Skills only when a stable programming rule, a Primitive concept or
+relation, a Component, or a design pattern changes. Update the matching docs
+pages in the same pull request, or state in the pull request why they need no
+change. A skills change does not wait for a Dex release.
+
 ## Public product boundary
 
 Dex Skills is public Dex material and contains no information about any
@@ -77,8 +98,16 @@ depend on a repository-root file that an Agent Skills installer omits.
 Never add a skill submodule or a floating branch reference to an application
 repository; the coding-agent host supplies the installed Dex Skills release.
 
-Every skill change updates `VERSION` and `CHANGELOG.md`. Validate Dex SDK source
-excerpts against `DEX_BASELINE`, and validate Server and CLI guidance against
-`DEX_SERVER_BASELINE` (a published server-zd release) and `DEX_CLI_BASELINE`,
-and Dex Web guidance against `DEX_WEB_BASELINE`. Dex Web is released as its own
-`web/vX.Y.Z` standalone binary and image, and `dexcli dev` embeds it.
+Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
+changes: a rule, a Primitive concept or relation, a Component, a design
+pattern, skill routing, or packaging. Typo fixes, link repairs, and wording
+clarifications wait for the next such release. A Dex release never requires a
+skills change. Dex Web is released as its own `web/vX.Y.Z` standalone binary
+and image, and `dexcli dev` embeds it.
+
+Transitional: phase P6 of the docs and skills cleanup replaces the validators.
+Until then, the existing validators must keep passing. They still pin
+`DEX_BASELINE` and the other `DEX_*_BASELINE` files, check source excerpts
+against those release tags, and require a `VERSION` and `CHANGELOG.md` bump for
+any change under a skill directory. Avoid editing pinned skills content until
+P6 lands. Do not advance a baseline only because Dex released.
