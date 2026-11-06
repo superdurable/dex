@@ -82,7 +82,7 @@ the harness segment limit (O6).
 | --- | --- | --- |
 | O1 | Connector operations as agent tools | Design |
 | O2 | Operator view and inbox in Dex Web | Design |
-| O3 | Adapter session lifetime | Scope, urgent |
+| O3 | Session lifetime and failure handling | Measured, urgent |
 | O4 | Spend limits | Scope |
 | O5 | Session scale test | Scope |
 | O6 | Harness segment limit | Scope |
@@ -206,9 +206,10 @@ safely run again?
 
 The third row differs from the first mapping in #1132, which put any Mutation with
 `uncertain` in `NON_IDEMPOTENT_WRITE`. A fenced Mutation is safe to retry, because
-the fence refuses a second send and reads back instead. If it ran in
-`CallSingleAttemptTool`, a Worker death would record `outcome_unknown` where a
-retry and read-back could have settled the outcome.
+the fence refuses a second send. The clear gain is a write proven unsent, such as a 429:
+`CallTool` sends it on retry, while `CallSingleAttemptTool` ends `outcome_unknown` with
+nothing sent. Read-back helps only as far as the provider allows. With Slack, a kill while
+the provider holds the response still ends `outcome_unknown`.
 
 **Approval is a separate question from retry.** Approval asks whether the call
 should happen. Idempotency does not answer that: a refund with an idempotency key
@@ -274,19 +275,41 @@ should read. Bound the result per tool, and truncate with a note. This needs a d
 
 ### Exactly-once
 
-| Failure | What happens |
+Results from a spike on released 0.2.0 in Python, with the real Fence, a fake provider, and
+about 775 SIGKILLs over 913 runs. No run produced a second write. Five runs per case will not
+show rare races. TypeScript, real providers, and server crashes are not covered.
+
+| Failure | Fenced Mutation in `CallTool`, with the bridge fix |
 | --- | --- |
-| Worker dies before the provider call, query or idempotent write | Attempt fails `NOT_COMPLETED`, Execute retries, same key |
-| Worker dies during a fenced write | Next attempt sees the claim, reads back, and either settles or records `outcome_unknown` |
-| Worker dies during a single-attempt write | `outcome_unknown` |
+| Worker dies before the claim | `outcome_unknown`, 0 writes. No marker means the retry reads back and never sends |
+| Worker dies after the claim, before the provider receives it | `outcome_unknown`, 0 writes |
+| Worker dies after the provider accepted, read-back finds it | Settled as sent, 1 write |
+| Worker dies while the provider holds the response, read-back cannot find it | `outcome_unknown`, 1 write |
+| Provider returns 429 | Retried and sent, 1 write |
 | Tool Step never reaches a Worker | Waits in the durable queue |
 | `cancel_turn` during a started call | The Step runs to its end, as for any synchronous tool |
 
-**Risk to test first.** Reading the source confirms a conflict. A bare background heartbeat
-clears the fence's marker, and `_ToolStepHeartbeats` reads the last heartbeat value as a
-string, which a marker is not. Either the core stops background heartbeats during a fenced
-call, or the fence writes through `save_heartbeat_checkpoint`. The second needs a change in
-the fence too. If neither is clean, fenced Mutations stay in `CallSingleAttemptTool`.
+The claim may not be durable when the send happens: it was missing in all 30 runs of one case.
+Only the Fence's "no marker means read back" rule prevents a duplicate, so that rule must stay.
+
+**Two conflicts with the core, measured.**
+
+1. `_ToolStepHeartbeats` reads the last heartbeat value as a string. After a Marker heartbeat,
+   every later attempt raises before the tool runs, so on released code a retry never reads back
+   and an ordinary 429 ends `outcome_unknown`.
+2. A bare background heartbeat clears the marker. This cannot cause a second write, because a
+   missing marker means read back. It loses the provider ID or `canResend`. It needs a write
+   window longer than the first background heartbeat, about 34 seconds of budget, so most
+   30-second operations are not exposed.
+
+**Fix.** `ConnectorToolSource` gives the Fence a small context proxy that stores the Marker as a
+text checkpoint through `save_heartbeat_checkpoint`. It needs no Fence change and no core change
+beyond the `context` field. Its weakness is that it depends on which context methods the Fence
+calls, so a conformance test pins that. Rejected: changing the Fence, which each language would
+repeat; and suspending background heartbeats, which caused heartbeat timeouts.
+
+**One more core addition.** A tool cannot record `outcome_unknown` today. Add
+`ToolOutcomeUnknownError`, so `uncertain` maps to it directly.
 
 ### Tests
 
@@ -406,29 +429,55 @@ on `ResolveInterruptRequest`, and stays out of scope.
 
 ## O3. Adapter session lifetime
 
-Compaction ships for Stepwise. `ContextCompactionRunner` is public, but no adapter implements
-it. Retention deletes a chunk only once its messages are summarized, so it never runs on adapter
-sessions, and `retained_message_limit` has no effect without compaction.
+Measured at default limits with scripted models, in Python. Real models, TypeScript, and the
+Vercel and Claude adapters are not covered.
 
-A test on 0.2.0 in Python confirmed the limit, with a 4 MiB budget:
+| Framework, profile | Reaches 200k tokens | Reaches 1M tokens | Crosses 64 MiB |
+| --- | --- | --- | --- |
+| Pydantic AI, light | Turn 37 | Turn 182 | Turn 732 |
+| Pydantic AI, heavy | Turn 8 | Turn 38 | About turn 200 |
+| LangGraph, light | Turn 37 | Never | About turn 62 |
+| LangGraph, heavy | Turn 8 | Never | About turn 28 |
+| OpenAI Agents, light | Turn 36 | Never | About turn 72 |
+| OpenAI Agents, heavy | Turn 8 | Never | Turn 32 |
 
-- About 1.8 MB of messages filled the budget, because superseded values count.
-- The session does not end. `send_user_message` starts failing, and the session stays running
-  with no error recorded.
+Light is 2 KB in, 4 KB out, and two 8 KB tool results per turn. Heavy uses 50 KB tool results.
 
-That silent failure is the first thing to fix, whatever else happens. Next, measure a real
-adapter at the default limit. The model's context window may end these sessions first.
+**What ends a session.** On a 200k model the context window comes first, and every later turn
+fails with the provider's error. On a 1M model, LangGraph and OpenAI Agents reach the state limit
+first, because `FrameworkRunState` holds the whole conversation and is rewritten each tool round.
+Superseded values are 90 to 95 percent of their budget.
 
-Options once measured:
+**What the operator sees at the state limit.**
 
-1. Implement compaction at turn boundaries. Turn input comes from `turn.messages` and
-   `FrameworkRunState` is deleted at turn end, so this looks easy for most adapters. Claude
-   transcripts are the exception.
-2. Archive old messages to a hard-delete AttributeMap, which leaves the budget (tested) and keeps
-   the record. It has no time travel and needs a blob store. It keeps the owner's rule.
-3. Retention without a summary. This changes the owner's rule.
+- Most sessions close `FAILED` (23 of 27). The rest stay alive and unusable.
+- The Dex Web summary gives no reason. It is only in the last history event.
+- The snapshot can stay at `RUNNING_MODEL`.
+- Queued messages never run.
+- A model call can be paid for and its answer discarded, for up to 125 turns.
+- No API reports Flow state size, so nothing warns first.
+- Nothing tried recovered a session: not raising the limit, and not Time Travel.
 
-A deleted chunk counts until history prunes it, so relief lags for every runner.
+**A separate limit.** Python SDK gRPC channels use the default 4 MiB receive limit, and
+`ClientOptions` has no setting for it. `get_agent_snapshot` fails on heavy sessions from about turn
+20. A Worker with an empty blob cache loads every miss in one call, so it fails every turn of a
+long Pydantic AI session. Other SDKs are not measured.
+
+**Compaction alone does not fix this.** Stepwise with compaction reached the same limit at defaults.
+It stayed flat only with `history.maxRetainedSupersededBytes` lowered to 16 MiB.
+
+Order of work:
+
+1. Failure handling for every runner: a recorded reason, a warning before the limit, and a Flow
+   state size that an operator can read.
+2. The 4 MiB limit: chunk blob loads, and make the receive limit configurable.
+3. Stop rewriting the whole conversation in `FrameworkRunState`, or stop retaining its superseded
+   values. This is the main cause on LangGraph and OpenAI Agents.
+4. Compaction at turn boundaries for context. Turn input comes from `turn.messages`, so this looks
+   easy for most adapters. Claude transcripts are the exception.
+5. For long record keeping, archive old messages to a hard-delete AttributeMap, which leaves the
+   budget (tested). It has no time travel and needs a blob store. Retention without a summary is
+   the alternative, and it changes the rule from the M2 review.
 
 ## O4. Spend limits
 
@@ -516,8 +565,8 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 
 **Decided, with reasons.**
 
-1. **A fenced Mutation runs in `CallTool` with retries.** The fence refuses a second send, so a
-   retry reads back. This depends on resolving the heartbeat conflict (O1-3, O1-4).
+1. **A fenced Mutation runs in `CallTool` with retries, through a context proxy in the bridge.**
+   The spike showed no second write in 913 runs, and a proven-unsent write now retries.
 2. **The single-dispatch fence stays.** #1253 stops the same attempt being delivered again. The
    fence stops a later attempt from sending again.
 3. **High-risk operations carry an optional manifest marker.** Mutations run without approval by
@@ -532,8 +581,11 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 8. **Two changes to the Action route.** Return an RPC's output instead of 502, and accept an
    Action without a condition Attribute. Session RPCs check current state themselves, and the
    route is not authorization. Is that acceptable for `POST /api/v2/actions`?
-9. **Adapter session lifetime, after O3 is measured.** Option 2 keeps the current retention rule.
-   Option 3 changes it.
+9. **Superseded values in session state.** O3 shows they are most of the budget. May session
+   Attributes that are rewritten each round, such as `FrameworkRunState`, opt out of keeping
+   superseded values, or should the default history setting change?
+10. **Long record keeping.** Archive to a hard-delete AttributeMap keeps the current retention
+    rule. Retention without a summary changes it. Which does the owner prefer?
 
 ## Non-goals
 
