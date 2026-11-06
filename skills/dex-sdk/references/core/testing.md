@@ -1,86 +1,86 @@
 # Testing durable behavior
 
-Verify [read-after-write consistency](read-after-write.md#verification) with first-read assertions for direct RPC state, including loaded maps and queues. Use a controlled Step or projection gate to demonstrate that readable state does not imply downstream completion. Reserve bounded polling for documented eventual views and explicit asynchronous completion.
+Use a real Dex Server integration test whenever behavior crosses a Worker, Client, persistence boundary, wait, retry, Timer, RPC, Stream, or SubFlow. A handler-only unit test or a mock cannot prove durable coordination. Read the selected language's testing file for its harness and commands.
 
-Use a real Dex Server integration whenever behavior crosses a Worker, Client, persistence boundary, wait, retry, Timer, RPC, Stream, or SubFlow. A handler-only unit test cannot prove durable coordination.
+## Harness
 
-## Minimum integration harness
+- Start an isolated local Dex with `dexcli dev` on its own ports and data directory. Do not share the user's long-lived dev server.
+- A short-lived test server can use process-crash-safe durability to run faster. See [cli.md](cli.md#local-development-with-dexcli-dev).
+- Build the same registry, payload codecs, and blob cache configuration the application uses.
+- Start the Worker and wait for its registration. Drive the Flow only through public Client APIs or the application boundary.
+- Give every test a unique Flow ID.
+- Wait for asynchronous state with bounded polling or a Dex wait API. Never use a fixed sleep to guess convergence.
+- Stop every process you started.
 
-Start an isolated Dex development environment, construct the same registry and payload/blob configuration used by the application, start the Worker, and use a Client to drive the Flow through public APIs. Give every test a unique Flow ID and cleanly stop owned processes.
+## Assertions
 
-A local `dexcli dev` server defaults to strict durability, which flushes every write with fsync and makes each Flow several times slower on macOS. A short-lived test server that needs no host-crash safety can set `dev.durabilityMode: processCrashSafe` in the `--zd-config` file. That setting also works with older binaries; the `dexcli dev --durability process-crash-safe` flag needs cli-v1.35.0 or later. Keep strict for a server whose data you need. A test that reads a Stream needs the Stream Store, which `dexcli dev` defaults to memory; a server with the backend set to disabled rejects Client Stream calls.
-
- Do not use a fixed sleep to guess when asynchronous state has converged.
+- Assert the user-visible SDK error type, the final Flow status, the recovery Step, and the durable state. Do not just assert that an error occurred.
+- When an external effect has an unknown outcome, test that the code records and handles the unknown state.
+- After a direct-state RPC write, assert the read-only RPC and the Client Attribute read on the **first** read. No sleep or polling between write and read. Cover ordinary, transactional, and locked writes, loaded map instances, and pending queues.
+- Use a controlled gate on a later Step or projection writer to prove that readable direct state does not imply downstream completion. Release the gate, then confirm completion with a bounded condition.
+- Keep bounded polling for documented eventual views only: search and Attribute Store tables.
 
 ## Required scenarios
 
-- Start a Flow and verify typed terminal output.
-- Replace or restart the Worker while the Flow is waiting, then verify continuation from durable state.
-- Force a retryable Execute failure and verify retry count, heartbeat recovery, and exhausted-retry routing.
-- Publish Channel and ChannelMap messages through typed Flow RPCs and verify ordering, single consumption, stale message IDs, and terminal rejection.
-- Invoke read-only and mutating RPCs. After terminal status, verify query-only reads, not-active rejection of a non-transactional RPC's returned effects, and rejection of transactional or locked RPCs before handler execution. For transactional RPCs, verify all effects commit or none do.
-- Fire and skip Timers where supported; verify the business deadline and timeout-handler path.
-- Exercise parallel branches and SubFlows with a deliberate failure and cancellation policy.
-- Lose or reconnect a Stream consumer and recover canonical state through a typed snapshot RPC or a Client Attribute read.
-- Retry the same logical start with the same Flow ID and Request ID and verify it attaches or converges without duplicate effects.
-- Start the same Flow ID with a different Request ID and assert the language SDK's typed conflict.
-- Make start acceptance ambiguous, retry with the same identities, and verify correctness without an application-owned start-deduplication table.
-- Interact after terminal completion and assert the not-active or terminal behavior.
+Core behavior:
 
-### Pull Worker and authentication scenarios
+- Start a Flow and verify its typed terminal output.
+- Replace or restart the Worker while the Flow waits, then verify it continues from durable state.
+- Force a retryable Execute failure. Verify the retry count, resume from the heartbeat checkpoint, and the exhausted-retry route.
+- Let a handler exceed its heartbeat timeout and assert the retry.
+- Publish Channel and ChannelMap messages through typed RPCs. Verify order, single consumption, stale message IDs, and rejection after closure.
+- Invoke read-only and mutating RPCs. After closure, verify that query-only reads still work, that a non-transactional RPC's effects are rejected, and that transactional or locked RPCs are rejected before the handler. For transactional RPCs, verify all effects commit or none do.
+- Fire and skip Timers. Verify the business deadline and the timeout handler path.
+- Exercise parallel branches, and SubFlows if any, with a deliberate failure and cancellation.
+- Lose a Stream consumer and recover canonical state from a read-only RPC or a Client Attribute read.
 
-With a real Server, construct the Client and Worker with only the Server address; StartFlow and SubFlow always route to pull Workers. Stop one pull Worker during active work and verify another registered Worker takes the Flow type queue immediately when the prior app Worker ID has no connected streams. Start with no Worker and assert each unavailable Step dispatch consumes a configured retry, while an RPC caller receives Unavailable. Start an old and new pull Worker during a rolling deployment; request a Step type and RPC name that only the new Worker registers, then verify the old Worker declines them before application code, the replacement handles the Step without consuming its attempt, and an unserved RPC ends as named FailedPrecondition after the dispatch wait. Disconnect after an external effect but before its output reaches Dex and verify idempotent replay. For ASYNC, verify a retry receives the last recorded heartbeat. Let a handler exceed its HeartbeatTimeout and assert the expected retry; record heartbeats within the timeout, and verify server-zd cancels a pull handler even when it records none. Exercise Stop with an active handler and a half-closed stream, asserting the drain deadline bounds both.
+Worker lifecycle:
 
-On server-zd newer than v0.1.16, replace the no-Worker and unknown-Step assertions above. Start a Flow with no Worker and assert the Step stays pending with **Waiting for a Worker**, consumes no retry, and runs once a Worker starts. Request a Step type that only a not-yet-started Worker registers and assert it waits as **Waiting for a Worker that supports this Step type**, keeps its attempt number, and does not block other Step types. Keep the RPC assertions: an RPC with no Worker still gets Unavailable, and an unserved RPC name still gets the named FailedPrecondition. Disconnect a Worker after hand-out, for SYNC and ASYNC, and assert the attempt fails, consumes a retry, and the recovery path sees possibly-run progress. Stop a Worker with SDKs newer than Go, Java, Python, and TypeScript v1.32.0 and Rust v1.31.0 while a handler runs, and assert the handler finishes, its result commits, and no retry is consumed.
-
-For Go v1.13.0 and Java, Python, TypeScript, and Rust v1.14.0, verify the language's bounded pull registration wait succeeds only after all queues register, replacement Workers register before old Workers stop, and startup failures and permanent last-stream rejections return errors. Verify wait cancellation leaves the Worker running. After readiness, disconnect and reconnect streams and assert probes stay ready; Stop alone preserves the snapshot, while application shutdown health removes readiness. Exercise a rejected surplus stream with another registered stream, then a permanent rejection with no remaining stream: only the latter changes readiness or triggers opt-in shutdown. Test default retries separately from opt-in rejection shutdown, including handler drain, cancellation, and the typed **PullRegistrationError**. Verify TypeScript reports fatal rejection from **run()** while **start()** remains non-blocking, and Rust exposes it through **pull_registration_error()**. Use a controllable stream-service fixture for rejection and reconnect cases a real Server cannot deterministically induce, alongside real-Server registration tests. Follow the [language API names and readiness contract](pull-workers.md#startup-registration-and-readiness).
-
-With SDK v1.15.0, use a real Server with a long-running Step occupying **M − R** slots. Verify API-direct and transactional RPCs can use reserved slots and a declined Step is reassigned on the same attempt. Keep every Worker at its Step limit through the dispatch wait and assert **NO_WORKER_AVAILABLE** consumes an attempt. Cover explicit-zero opt-out, and reserve-decline counters excluding full-capacity and unknown-name rejections. In Dex Web v1.15.0, inspect sticky routing, replacement fallback, unavailable dispatch, and recorded RPCs; compare serving IDs with each dispatch's captured sticky ID.
-
-With SDKs newer than Go, Java, Python, and TypeScript v1.32.0 and Rust v1.31.0 on server-zd newer than v0.1.16, occupy all **M − R** Step slots with long-running Steps and assert that RPCs still run on the reserved RPC-only slots, a further Step waits pending without a decline or a consumed retry, and the deprecated reserve-decline counter stays zero. Assert readiness after one STEP_AND_RPC and, when reserved, one RPC_ONLY stream register, and that Worker start fails when its maximum concurrent task count exceeds the Server's **matching.maxConcurrentTasksCap**.
-
-With public authentication enabled, verify Client and Worker calls and pull streams carry credentials, an absent or failed credential is rejected, and a rotated file token takes effect on the next call or reconnect. Use a protected Web port when validating Dex Web; its FlowService credential is not user authentication. See [pull Worker behavior](pull-workers.md) and [public API authentication](operations.md#public-api-authentication).
-
-For an [API key Credential](operations.md#api-key-credential) with SDK v1.16.0, run a loopback HTTP token endpoint fixture in the test process. Verify the exchange request carries the expected server ID, concurrent first calls share one exchange, and a refresh keeps calls on the valid token. Reject one unary call with UNAUTHENTICATED and assert exactly one retry with a fresh token. Reject a pull stream and assert one immediate reconnect, then the ordinary permanent-rejection path on a second rejection. Verify that a redirect, a non-loopback HTTP URL, a malformed response, and an exchange timeout each fail. Assert that errors and logs never contain the API key or an access token. For **dexcli**, assert that mixing API key and bearer token settings exits with status 2.
-
-For Client API capacity handling, inject a **ResourceExhausted** response at the service boundary when real rate limits cannot be induced deterministically. Verify named-status classification, available retry hints, bounded backoff, deadline exhaustion, and mutation reconciliation without duplicate effects. Keep real-Server tests for the underlying start, RPC, and search operations.
+- Start a Flow with no Worker. Assert the Step stays pending, consumes no retry, and runs once a Worker starts.
+- Request a Step type that only a not-yet-started Worker registers. Assert it waits without blocking other Step types and keeps its attempt number.
+- Assert an RPC with no Worker gets UNAVAILABLE, and an unregistered RPC name gets FAILED_PRECONDITION.
+- Disconnect a Worker after hand-out, for SYNC and ASYNC. Assert the attempt fails, consumes a retry, and recovery sees NOT_COMPLETED.
+- Stop a Worker while a handler runs. Assert the handler finishes, its result commits, and no retry is consumed.
+- Fill every Step slot with long Steps. Assert RPCs still run on reserved slots and a further Step waits pending.
+- Run old and new Workers side by side. Assert a Step type only the new Worker registers runs there without consuming an attempt.
+- Disconnect after an external effect but before its result reaches Dex, and verify idempotent replay.
+- With authentication on, verify Client and Worker calls carry credentials, a missing or bad credential is rejected, and a rotated token works after reconnect.
 
 ### StartFlow ordering and retry identity
 
-Exercise the application's start boundary against a real Dex Server with its production registry and reuse policy. Observe calls without replacing the real start/RPC behavior. For a normal accepted start with no independently required business read, assert StartFlow is the first Dex operation and no read RPC, search, or status lookup occurs solely for duplicate/retry protection. Assert a successful accepted-start response performs no defensive follow-up RPC/status read to verify supplied identity or initial Attributes and launches no dependent Flow from the API handler. Check the DTO against validated input/known initial fields. Only an explicit admission/completion-result contract may add a subsequent wait or result call.
-
-When the reuse policy disallows another execution, verify the [start result matrix](error-handling.md#start-first-reconcile-only-after-an-error): the same Request ID with ignore-already-started enabled returns the existing execution without duplicate effects, both while active and after closure; the same ID with the option disabled still errors; a different ID still conflicts with the option enabled. Where the SDK generates Request IDs, omit the ID on separate calls and assert the conflict is not silently ignored.
-
-Inject a lost start response after Server acceptance, then retry with identical Flow ID, Request ID, and options and verify convergence without a mandatory preflight read. For an AlreadyStarted branch whose business contract permits reconciliation, assert that the typed snapshot RPC follows the failed start and that the returned facts actually establish the requested condition; test an existing snapshot that does not satisfy that condition as a conflict or unknown outcome. A spy/counter can verify ordering, but mock-only success cannot establish Server deduplication.
+- Assert StartFlow is the first Dex call of a normal start, with no read, search, or status call for duplicate protection.
+- Assert a successful accepted-start response makes no follow-up read to verify supplied identity or initial Attributes, and starts no dependent Flow from the API.
+- With a reuse policy that rejects another run: the same Request ID with ignore-already-started returns the existing run, while active and after closure; the same ID without the option errors; a different ID conflicts even with the option.
+- Lose the start response after acceptance, retry with identical identity and options, and verify convergence without a preflight read.
+- For an AlreadyStarted branch that may reconcile, assert the read follows the failed start and its facts prove the requested condition. Test a snapshot that does not satisfy it as a conflict or unknown outcome.
 
 ### Required post-start milestones
 
-For an API that promises a database source-of-truth write, exercise both a new start and matching-request deduplication against the real Server. Delay the commit and assert the response cannot claim that milestone before the committed Attribute or selected persistence Step completes. Once the wait succeeds, verify the actual business row. Cover wait-budget expiry while the Flow continues and retry with the same start identity; expiry must not create a replacement execution or report an unproven failed write. For the acceptance-only contract, assert no Attribute or Step-completion wait is issued.
+For an API that promises a committed source-of-truth write, test a new start and a deduplicated start. Delay the commit and assert the response cannot claim the milestone early. Verify the actual business row afterward. Let the wait budget expire while the Flow continues, retry with the same identity, and assert no replacement execution and no false failure. For an acceptance-only API, assert no wait is issued.
 
 ### Downstream start recovery
 
-For an operation that launches separately owned work, run a real-server application test that accepts the owning Flow, ends the API request, and then replaces the Worker before the downstream start executes; the owning Flow must still launch the work. Also inject a Worker crash after downstream acceptance but before the launching Step commits, replace it, and verify that the retried start uses the same identities/options and creates no duplicate execution or business effects. Assert downstream retry exhaustion reaches the declared recovery outcome and that the API never issues the dependent start. Use the selected language's crash harness guidance; a graceful Worker drain alone does not simulate this commit gap.
+For an operation that launches separately owned work:
+
+- Accept the owning Flow, end the API request, then replace the Worker before the downstream start. The owning Flow must still start it.
+- Crash the Worker after downstream acceptance but before the launching Step commits. Verify the retried start uses the same identity and creates no duplicate.
+- Assert downstream retry exhaustion reaches the declared recovery outcome, and the API never issues the dependent start.
+- A graceful Worker drain does not simulate this commit gap; kill the process.
 
 ### Terminal entity reads
 
-For every Flow-owned business entity whose contract permits reads after closure, run a real Dex Server integration test with the application's registry, Worker, and Server routing policy. Persist the final business snapshot, close the Flow, establish terminal status in the test harness, then call its typed `Get*` read-only RPC directly through the application read boundary. Cover each readable terminal outcome supported by the entity contract and assert the returned snapshot includes the final committed Attributes/AttributeMaps.
+For every entity whose contract allows reads after closure:
 
-For a nonexistent Flow ID, call the same query-only Get through the real application boundary and assert its typed missing/not-active error becomes the declared not-found result directly. Assert no lifecycle/status probe, search, history call, retry, or short-timeout wait is issued. Keep a Worker/service failure case distinct from not-found, and cover the application's retention/unavailable contract when relevant.
+- Persist the final snapshot, close the Flow, then call the business Get through the application boundary. Assert the final committed Attributes and map instances for each readable terminal outcome.
+- For a nonexistent Flow ID, assert the Get returns the declared not-found result directly, with no status probe, search, history call, retry, or short-timeout wait.
+- When the Get uses the Client Attribute read, run the same cases with no Worker running after closure. Assert unset values use the language's unset representation.
+- Assert the business read issues no WaitForFlow, history lookup, or Step-output decoding. A spy on the real Client boundary may count calls; count harness waits separately.
+- Keep a Worker or service failure distinct from not found.
 
-When the Get reads through the [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow), run the same scenarios with no Worker running after closure. Assert the closed run returns the final committed values, an unset Attribute or map instance uses the language's unset representation, and a nonexistent Flow ID returns the SDK's Flow-not-found error translated to the not-found result.
+### Data and versions
 
-Also assert that the business read performs no `WaitForFlow`, history lookup, or historical Step-output decoding. A test-side spy/counter or a guard that fails on those calls may observe the real Client boundary; keep the snapshot RPC on the real Server/Worker path. A harness wait used to establish closure is allowed and must be counted separately. A mock-only test or a handler invoked directly cannot prove terminal query support. If production policy forces active-only RPC execution, resolve that conflict explicitly before claiming the entity remains terminal-readable; do not make a history fallback pass the test.
-
-## Data and deployment scenarios
-
-For large Attributes, replace the serving Worker and verify cold BlobCache hydration. For AttributeMap concurrency, race writers on the same instance and verify the lock-protected invariant. For Attribute Store synchronization, verify the Flow remains authoritative and the projection can reconcile after a transient failure. Against a real destination table, also verify that each Flow ID format a `rowKey` store accepts lands in the expected key columns, that a Flow ID that does not match writes no row, and that rewriting and deleting an AttributeMap instance replaces and removes its row in an AttributeMap table.
-
-For version changes, run an open Flow on the old Worker, deploy the new registry, and finish that same execution. A test that starts only after deployment does not prove open-Flow compatibility.
-
-## Failure assertions
-
-Assert the user-visible SDK failure type, final Flow status, recovery Step, and durable state. Do not merely assert that an exception occurred. When an external effect has an unknown outcome, record and test that state rather than assuming success or failure.
-
-Read the selected language's **testing.md** for its harness, commands, and runnable sources.
-
-At the SDK API baseline, assert the combined missing/inactive type from the [public error table](error-handling.md#missing-or-inactive-target-errors) for a missing query target and for closed active-required operations. Keep separate Flow-not-found mappings distinct. Verify the selected language's metadata and cause/service extraction remain available; include sync and async surfaces where that SDK exposes both. These assertions do not permit lifecycle probes in the application query-only Get path.
+- Large Attributes: replace the serving Worker and verify a cold-cache load.
+- AttributeMap concurrency: race writers on one instance and verify the lock-protected invariant.
+- Attribute Store sync: verify the Flow stays authoritative and the projection reconciles after a transient failure. With a `rowKey` store, verify matching Flow IDs land in the key columns and a non-matching ID writes no row; verify instance rewrite and delete in an AttributeMap table.
+- Versions: start a Flow on the old Worker, deploy the new registry, and finish that same execution. A test that starts after deployment does not prove open-Flow compatibility.
+- Recovery: time travel a failed Flow after a fix and verify the new run attempt.
