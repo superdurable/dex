@@ -187,6 +187,7 @@ const config: Config = {
         editUrl: 'https://github.com/superdurable/dex/tree/main/docs/',
       },
     ]),
+    './plugins/markdown-export/index.cjs',
     (context: LoadContext) =>
       clientRedirects(context, {
         id: 'default',

@@ -26,7 +26,7 @@ Step 由一个原生 struct 或 class 实现，它的类型就是 **StepType**�
 
 Step 没有 **WaitFor** 时，**Execute** 立即运行。
 
-<StepWaitExecuteDiagram />
+<StepWaitExecuteDiagram markdownDescription="ExampleStep 的 WaitFor 返回一个 Wait，Dex 评估其中的 Timer、Channel 或 SubFlow 条件。条件满足后，Execute 返回 GoTo(Complete Flow, input + 1)。StepDecision 可以是 GoTo、GracefulComplete 或 ForceFail。" />
 
 下面这个 Step 等待一条审批消息，然后进入第二个 Step，由它完成 Flow。
 
@@ -208,7 +208,7 @@ impl Step for StepSecond {
 
 **Execute** 返回一个 **StepDecision**。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。
 
-<StepDecisionMovementsDiagram />
+<StepDecisionMovementsDiagram markdownDescription="GoTo：ExampleStep 返回 GoTo(Complete Flow)，完成 Flow。GoToMany：ExampleStep 启动 StepA 和 StepB，两者并行运行。循环：ExampleStep 转到 ProcessStep，ProcessStep 再回到 ExampleStep。" />
 
 决定也可以关闭 Flow 或结束一个分支：
 

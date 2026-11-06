@@ -13,7 +13,7 @@ Dex is a Durable Execution(D-Ex) platform.
 
 Dex is structural programming with only a few concepts as [primitives](/primitives). You use Dex to write a Flow filled with ordinary code: durable Steps, Attributes, RPCs, and durable conditions using Channels and Timers. Then you run Workers hosting your Flow. The Client calls Dex Server to start and interact with Flow instances. Dex Server dispatches Step and RPC invocation tasks to your Workers.
 
-<DexSystemDiagram />
+<DexSystemDiagram markdownDescription="An Application contains a Client, which starts and interacts with Flow instances, and a Worker, which hosts the Flow; both use the Dex SDK. The Application calls Dex Server with startFlow and invokeRPC, and Dex Server invokes Steps and RPCs on the Worker. Dex Server persists Flow instances and their execution." />
 
 A **Step** can optionally **WaitFor** some condition (**Channel**, **Timer**, or both) durably. When the condition is met, **Execute** is invoked. If there is no WaitFor, Execute is invoked directly.
 

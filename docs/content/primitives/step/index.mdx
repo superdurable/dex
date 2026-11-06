@@ -34,7 +34,7 @@ A Step has one or two methods.
 
 If a Step has no **WaitFor**, **Execute** runs immediately.
 
-<StepWaitExecuteDiagram />
+<StepWaitExecuteDiagram markdownDescription="The WaitFor of ExampleStep returns a Wait, and Dex evaluates its Timer, Channel, or SubFlow condition. When the condition is satisfied, Execute returns GoTo(Complete Flow, input + 1). A StepDecision can be GoTo, GracefulComplete, or ForceFail." />
 
 This Step waits for an approval message, then moves to a second Step that
 completes the Flow.
@@ -223,7 +223,7 @@ satisfied it, such as the Channel messages it consumed.
 several Steps at once. This is how you build branching, loops, and parallel
 work.
 
-<StepDecisionMovementsDiagram />
+<StepDecisionMovementsDiagram markdownDescription="GoTo: ExampleStep returns GoTo(Complete Flow), which completes the Flow. GoToMany: ExampleStep starts StepA and StepB, which run in parallel. Loop: ExampleStep goes to ProcessStep, and ProcessStep goes back to ExampleStep." />
 
 A decision can also close the Flow or end a branch:
 

@@ -1,3 +1,11 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
 import React, {type ReactNode} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
@@ -9,7 +17,6 @@ type PanelCopy = {
 };
 
 type Copy = {
-  label: string;
   goto: PanelCopy;
   loop: PanelCopy;
   parallel: PanelCopy;
@@ -20,7 +27,6 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'StepDecision movements: GoTo, GoToMany, and loop',
   goto: {title: 'GoTo', parallel: ''},
   loop: {title: 'Loop', parallel: ''},
   parallel: {title: 'GoToMany', parallel: 'both active'},
@@ -31,7 +37,6 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: 'StepDecision movement：GoTo、GoToMany 与循环',
   goto: {title: 'GoTo', parallel: ''},
   loop: {title: '循环', parallel: ''},
   parallel: {title: 'GoToMany', parallel: '同时 active'},
@@ -56,11 +61,11 @@ function MovementPanel({
   );
 }
 
-export default function StepDecisionMovementsDiagram(): ReactNode {
+export default function StepDecisionMovementsDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = i18n.currentLocale === 'zh-Hans' ? ZH : EN;
   return (
-    <div className="exec-diagram" role="img" aria-label={copy.label}>
+    <div className="exec-diagram" role="img" aria-label={markdownDescription}>
       <div className="flow-graph-grid flow-graph-grid-movements">
         <MovementPanel title={copy.goto.title}>
           <StepCard name="ExampleStep" executeOnly execute={`GoTo(${copy.completeFlow})`} />

@@ -93,19 +93,16 @@ has no effect.
 The reserve-decline counter, **pullReservedRpcDeclines**, is deprecated. It remains for
 source compatibility and always reads zero.
 
-This diagnostics helper exposes registration readiness and the deprecated
-reserve-decline counter. A full Worker stays ready.
+This diagnostics helper exposes registration readiness. A full Worker stays ready.
 
 ```typescript
 export interface PullGreetingDiagnostics {
   readonly isReady: boolean;
-  readonly reservedRpcDeclines: number;
 }
 
 export function getPullGreetingDiagnostics(worker: Worker): PullGreetingDiagnostics {
   return {
     isReady: worker.pullRegistrationState().isReady,
-    reservedRpcDeclines: worker.pullReservedRpcDeclines,
   };
 }
 ```
