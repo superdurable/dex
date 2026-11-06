@@ -23,7 +23,9 @@ SKILLS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SKILLS_ROOT.parent
 DOC_MAP = SKILLS_ROOT / "doc-map.yaml"
 SKILL_DIRECTORIES = ("dex-app-builder/", "dex-sdk/", "dex-connector-contributor/")
-OPT_OUT = re.compile(r"^\s*doc-map:\s*no change needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
+# Skills CI triggers on these folders; keep them in step with .github/workflows/skills-ci.yml.
+DOCS_DIRECTORIES = ("docs/content/primitives/", "docs/content/design-patterns/")
+OPT_OUT = re.compile(r"^\s*(?:[-*]\s+)?doc-map:\s*no change needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
 SKILL_LINE = re.compile(r"^- skill:\s*(\S+)\s*$")
 DOCS_LINE = re.compile(r"^  docs:\s*$")
 DOC_LINE = re.compile(r"^    - (\S+)\s*$")
@@ -114,8 +116,8 @@ def validate_entries(entries: list[DocMapEntry], repo_root: Path) -> list[str]:
         if len(set(entry.docs)) != len(entry.docs):
             problems.append(f"{location}: lists a docs page twice")
         for doc in entry.docs:
-            if not doc.startswith("docs/content/") or not (repo_root / doc).is_file():
-                problems.append(f"{location}: docs page must be an existing file under docs/content/: {doc}")
+            if not doc.startswith(DOCS_DIRECTORIES) or not (repo_root / doc).is_file():
+                problems.append(f"{location}: docs page must be an existing file under {' or '.join(DOCS_DIRECTORIES)}: {doc}")
     return problems
 
 

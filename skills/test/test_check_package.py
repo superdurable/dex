@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -79,9 +80,16 @@ class DexVersionTest(unittest.TestCase):
             "Dex Web v2 shows the Run.",
             "Bind to 0.0.0.0:8080.",
             "Retry with a backoff coefficient of 2.0.",
+            "Set index: 2.0 in the codex = 1.2 table.",
+            "The Schedule Trigger `typeVersion` 1.4 runs.",
         ):
             with self.subTest(line=line):
                 self.assertEqual(CHECKER.find_dex_versions(line), [])
+
+    def test_checks_only_dex_releases_in_n8n_documents(self):
+        self.assertEqual(CHECKER.find_dex_versions("Before v4.4 the HTTP Request node resent credentials.", True), [])
+        self.assertTrue(CHECKER.find_dex_versions("Pin sdk-go/v1.35.0 for the backend.", True))
+        self.assertTrue(CHECKER.find_dex_versions("Before v4.4 the HTTP Request node resent credentials."))
 
 
 class BoundaryTest(unittest.TestCase):
@@ -109,9 +117,21 @@ class MarkdownAnchorTest(unittest.TestCase):
         )
 
 
+class FrontMatterTest(unittest.TestCase):
+    def test_joins_block_scalar_descriptions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            skill = Path(directory) / "SKILL.md"
+            skill.write_text("---\nname: dex-sdk\ndescription: >-\n  Build Dex apps.\n  Use for SDK work.\n---\n# Dex SDK\n")
+            self.assertEqual(
+                CHECKER.parse_front_matter(skill),
+                {"name": "dex-sdk", "description": "Build Dex apps. Use for SDK work."},
+            )
+
+
 class ReleaseOptOutTest(unittest.TestCase):
     def test_requires_a_reason(self):
         self.assertTrue(CHECKER.RELEASE_OPT_OUT.search("Summary\n\nskills-release: no bump needed: typo only\n"))
+        self.assertTrue(CHECKER.RELEASE_OPT_OUT.search("- skills-release: no bump needed: link fix\n"))
         self.assertFalse(CHECKER.RELEASE_OPT_OUT.search("skills-release: no bump needed:\n"))
 
 

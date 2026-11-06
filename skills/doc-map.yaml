@@ -5,8 +5,11 @@
 # 'doc-map: no change needed: <reason>'. script/check-doc-map.py enforces it.
 #
 # Format: a list of entries. 'skill' is relative to skills/; each 'docs' path
-# is relative to the repository root and lives under docs/content/. Only the
-# English docs pages are listed.
+# is relative to the repository root and lives under docs/content/primitives/
+# or docs/content/design-patterns/, the folders that trigger Skills CI. Only the
+# English docs pages are listed. Skills files with no docs counterpart are left
+# out: dex-app-builder/SKILL.md, product-discovery.md, workflow-import.md,
+# n8n-semantics.md, and dex-connector-contributor/SKILL.md.
 
 - skill: dex-sdk/references/core/flow.md
   docs:
@@ -131,6 +134,10 @@
     - docs/content/design-patterns/sequentially-chunked-attribute-map.mdx
     - docs/content/design-patterns/entity-store.mdx
 
+- skill: dex-app-builder/references/backend-implementation.md
+  docs:
+    - docs/content/primitives/components/application.mdx
+
 - skill: dex-app-builder/references/connector-architecture.md
   docs:
     - docs/content/primitives/connector.mdx
@@ -139,3 +146,21 @@
 - skill: dex-app-builder/references/dex-web-v2.md
   docs:
     - docs/content/primitives/components/web.mdx
+
+- skill: dex-app-builder/references/fdg-authoring.md
+  docs:
+    - docs/content/primitives/components/web.mdx
+
+- skill: dex-app-builder/references/ui-workflow.md
+  docs:
+    - docs/content/primitives/components/web.mdx
+
+- skill: dex-app-builder/references/verification-handoff.md
+  docs:
+    - docs/content/primitives/components/cli.mdx
+    - docs/content/primitives/components/web.mdx
+    - docs/content/primitives/components/server.mdx
+
+- skill: dex-app-builder/references/workspace-bootstrap.md
+  docs:
+    - docs/content/primitives/components/application.mdx

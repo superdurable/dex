@@ -51,6 +51,17 @@ class ValidateEntriesTest(unittest.TestCase):
         self.assertTrue(any("patterns.md" in problem and "existing file" in problem for problem in problems))
         self.assertTrue(any("duplicate skill entry" in problem for problem in problems))
 
+    def test_rejects_docs_outside_the_mapped_folders(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "skills/dex-sdk").mkdir(parents=True)
+            (root / "skills/dex-sdk/SKILL.md").write_text("sdk\n")
+            (root / "docs/content/reference").mkdir(parents=True)
+            (root / "docs/content/reference/index.mdx").write_text("reference\n")
+            entries = CHECKER.parse_doc_map("- skill: dex-sdk/SKILL.md\n  docs:\n    - docs/content/reference/index.mdx\n")
+            problems = CHECKER.validate_entries(entries, root)
+        self.assertEqual(len(problems), 1)
+
 
 class FindUnpairedChangesTest(unittest.TestCase):
     def setUp(self):
@@ -75,6 +86,7 @@ class FindUnpairedChangesTest(unittest.TestCase):
 
     def test_opt_out_requires_a_reason(self):
         self.assertTrue(CHECKER.OPT_OUT.search("Summary\ndoc-map: no change needed: link fix only\n"))
+        self.assertTrue(CHECKER.OPT_OUT.search("* doc-map: no change needed: link fix only\n"))
         self.assertFalse(CHECKER.OPT_OUT.search("doc-map: no change needed:\nnext line\n"))
 
 

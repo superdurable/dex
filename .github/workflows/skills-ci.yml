@@ -6,14 +6,17 @@ on:
     types: [opened, synchronize, reopened, edited]
     paths:
       - 'skills/**'
-      - 'docs/content/**'
+      # The doc-map folders; keep them in step with DOCS_DIRECTORIES in check-doc-map.py.
+      - 'docs/content/primitives/**'
+      - 'docs/content/design-patterns/**'
       - '.github/workflows/skills-ci.yml'
   push:
     branches:
       - main
     paths:
       - 'skills/**'
-      - 'docs/content/**'
+      - 'docs/content/primitives/**'
+      - 'docs/content/design-patterns/**'
       - '.github/workflows/skills-ci.yml'
 
 permissions:

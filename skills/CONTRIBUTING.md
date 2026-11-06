@@ -43,7 +43,8 @@ never requires a skills change.
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
 stable knowledge. Each entry names one skills file, relative to this
-directory, and the English docs pages under `docs/content/` that it mirrors.
+directory, and the English docs pages under `docs/content/primitives/` or
+`docs/content/design-patterns/` that it mirrors.
 Skills CI fails a pull request that changes a mapped file on one side but none
 of its counterparts. When the other side really needs no change, add this line
 to the pull request description and re-run Skills CI and Check Gate CI:
@@ -70,6 +71,7 @@ otherwise miss:
   Temporal or Cadence backend term.
 - Skill content has no Dex version numbers, release tags, or dependency pins.
   Standards and toolchain versions, such as FDG 2.0 or Node 22, are allowed.
+  The two App Builder n8n references may cite n8n releases and node versions.
 
 It does not check exact file lists or sentences.
 
