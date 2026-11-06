@@ -53,7 +53,7 @@ store's tables.
   commits, even while a close waits, and the pending writes keep syncing after
   the close. A later **SetAttributes** on that run returns NOT_FOUND. From
   server-zd v0.1.5, it succeeds only when every write erases a currently stored
-  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) with
+  [hard-delete Attribute](/reference/server/runtime-data#hard-delete-attributes) with
   null. This exception applies only before the run is purged. It deletes the
   stored objects without reopening the run. The run's Flow history records the
   erase after the close. Write what a Flow needs before stopping it.

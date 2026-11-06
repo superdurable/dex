@@ -277,6 +277,14 @@ The memory backend bounds the memory it uses:
   capacity one Stream can use. A larger **streamCapacityBytes** is reduced to it.
 - Each message counts its Value, Flow ID, source, and
   **estimatedMessageOverheadBytes** (default 512).
+- **streamStore.maxMessageBytes** (default 100 KiB) caps the size of one
+  Stream message.
+- Background trimming starts when a Stream reaches **trimTriggerPercent**
+  (default 90) of its capacity, or all Streams reach that share of
+  **maxTotalBytes**. It trims down to **trimTargetPercent** (default 80).
+- **streamStore.maxReadMessages** (default 1000, at most 1000) is the largest
+  **ListStreamMessages** page size. A larger page size fails with
+  **INVALID_ARGUMENT**.
 - **backgroundTrimBatchSize**, **trimBatchYieldTime**, and **trimWorkers** pace
   trimming.
 

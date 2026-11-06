@@ -6,21 +6,30 @@ slug: /primitives/attribute
 
 # Attribute
 
-An **Attribute** lets you store data within a Flow execution, as persistence storage.
+An **Attribute** is durable data that belongs to one Flow execution. Steps and
+RPCs read and write it. Dex stores it with the Flow, so you do not need a
+database for intermediate state.
 
-This is especially useful for intermediate data during a Flow execution. It eliminates the work of setting up and managing a database dependency.
+An Attribute lives as long as its Flow. Dex deletes it when it deletes the Flow,
+after the retention period that follows Flow closure. To keep the data longer,
+sync it to your own database.
 
-Dex Attribute is not to replace your databases. An obvious limitation is that Attribute exists only for the lifetime of its Flow execution. Dex deletes it when it deletes the Flow execution, after the configurable retention period following Flow closure.
+## When to use an Attribute
 
-However, Dex allows you to sync Attribute values to your application database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
+Use an Attribute for state that the Flow decides on: an order status, a
+counter, a customer profile, or the result of an earlier Step. Use a
+[Channel](/primitives/channel) for messages that a Step waits for and consumes.
+Use a [Stream](/primitives/stream) for live progress that a user can afford to
+lose.
 
 ## Use an Attribute {#define-an-attribute}
 
-Define Attributes as part of the persistence schema of a Flow.
+Declare each Attribute in the Flow's persistence schema. A Step or RPC can then
+read or write it. The Worker rejects an Attribute that the schema does not
+declare. Setting an Attribute to null deletes it.
 
-Then you can use the attribute within Step or RPC implementation to read or write the attribute. An attribute must be declared via PersistenceSchema before use. Otherwise, the worker will reject the operations.
-
-When updating an attribute, setting it to null will delete it.
+Dex commits a handler's Attribute writes together with its result. When a Step
+or RPC fails, its writes are discarded.
 
 <SdkTabs
   examples={{
@@ -250,9 +259,10 @@ impl Step for AttributeStep {
 
 ## AttributeMap {#attributemap}
 
-An **AttributeMap** is a family of Attributes with keys decided at runtime. Use one when a Flow needs a changing set of small values, such as the status of each payment or each item in an order.
-
-The reason for **AttributeMap** is to efficiently store a collection of data. Each Attribute is stored as a blob in Dex Server. Putting all data into a single Attribute means every update rewrites the whole blob. AttributeMap lets Dex Server store each instance as an independent blob for higher efficiency.
+An **AttributeMap** is a set of Attributes with keys chosen at run time. Use it
+for values that grow with your data, such as the status of each payment in an
+order. Dex stores each key separately, so a write does not rewrite the whole
+collection.
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -306,559 +316,27 @@ self.progress
 </SdkSnippet>
 </SdkTabs>
 
-## Initial Attribute values {#initial-attribute-values}
-
-**StartFlowOptions** can set initial Attributes when the Flow is created. Initial values and Flow creation are one operation, so the first Step sees them immediately. See [Flow options](/primitives/flow/flow-options#attributes).
-
-Applications use Flow RPCs to write Attributes after a Flow starts. To read them from outside the Flow, see [Read Attributes from outside a Flow](#read-from-outside-a-flow). A Client can also use **WaitForAttributeMatch** to wait until a singleton Attribute or one AttributeMap instance satisfies a scalar comparison. The call returns the matched current value. See [Client](/primitives/client/advanced#wait-for-an-attribute-match).
-
-## Read Attributes from outside a Flow {#read-from-outside-a-flow}
-
-Application code outside the Flow reads Attribute values with the Client's **GetAttributes** call. One call reads any mix of singleton Attributes and AttributeMap instances, and all values come from the same commit. Dex Server answers the read itself, so no RPC handler or Worker runs.
-
-The call reads the current run, or the latest run when no run is open. A closed run stays readable until Dex purges it. The call sees only committed state, while an RPC handler also sees its own earlier writes in the same invocation. Dex Server resolves hard-delete values before it responds, and a deleted value reads as unset, like any Attribute without a stored value.
-
-An RPC remains the right choice when the read needs Flow-side validation, authorization, a derived view, or Attribute locks. See [Client: Read Attributes](/primitives/client/basic#read-attributes) for the example, the unset value in each SDK, and the errors.
-
-## Indexed Attributes {#indexed-attributes}
-
-Dex lets you configure indexes for Attributes. With indexing, you can use the field in **SearchFlows** queries to find the Flow executions that match the query.
-
-| Index type | Value |
-| --- | --- |
-| **KEYWORD** | One exact string. |
-| **FULL_TEXT** | Text for tokenized search. |
-| **KEYWORD_ARRAY** | A list of exact strings. |
-| **INT**, **DOUBLE**, **BOOL** | The corresponding scalar value. |
-| **DATETIME** | A date and time value. |
-
-An **index key** is the key in the search schema and the key you use in a query. Index keys consume a finite, namespace-level Search Attribute pool and are shared across Flow types.
-
-The SDK defaults a regular Attribute's index key to its Attribute name. For application indexes, always override that default with an explicit generic numbered key. Keep business names on Attributes and share one typed slot pool across every Flow type in the namespace. Two logical indexed fields in the same Flow need different slots. Reuse a slot across Flow types only with the same index type; its business meaning can differ. Dex system indexes keep their reserved names.
-
-| Index type | Application index keys |
-| --- | --- |
-| **KEYWORD** | **keyword1**, **keyword2**, … |
-| **KEYWORD_ARRAY** | **keywordList1**, **keywordList2**, … |
-| **FULL_TEXT** | **text1**, **text2**, … |
-| **INT** | **int1**, **int2**, … |
-| **BOOL** | **bool1**, **bool2**, … |
-| **DOUBLE** | **double1**, **double2**, … |
-| **DATETIME** | **datetime1**, **datetime2**, … |
-
-Renaming an index does not backfill existing Flow executions. Validate changed example schemas in a fresh local **dexcli dev** instance. Plan any existing deployment migration separately.
-
-A generic key can have a different business meaning in each Flow type. Application run queries must constrain **FlowType**. Keep the query unchanged across pages. Dex Web already scopes searches to the selected Flow type. Parenthesize caller filters before combining them with the application scope so an OR cannot bypass it. Do not index sensitive data or PII. The customer-email value in the Customer Refund example is synthetic data only.
-
-<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
-<SdkSnippet lang="python">
-
-```python
-status = Attribute(
-    "primitive-attribute-status",
-    str,
-    index=AttributeIndex(IndexType.KEYWORD, "keyword1"),
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-var Status = dex.DefineAttribute[string](
-	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}),
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-private final Attribute<String> status = Attribute.define(
-        "primitive-attribute-status",
-        String.class,
-        new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword1"));
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
-  type: IndexType.KEYWORD,
-  indexKey: "keyword1",
-});
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-let status = Attribute::new("primitive-attribute-status")
-    .indexed(AttributeIndex::keyword().with_key("keyword1"));
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-For example, the status Attribute above uses **keyword1** as its index key. To find completed **AttributeFlow** executions, use this query:
-
-```text
-FlowType = 'AttributeFlow' AND keyword1 = 'completed'
-```
-
-Pass the query to **SearchFlows**:
-
-<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs' }}>
-<SdkSnippet lang="python">
-
-```python
-page = await app_state.client.search_flows(
-    "FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
-    20,
-    "",
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-page, err := controller.client.SearchFlows(
-	request.Request.Context(),
-	"FlowType = 'AttributeFlow' AND keyword1 = 'completed'",
-	20,
-	"",
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-final SearchFlowsPage page = client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-const page = await client.searchFlows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20, "");
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-client.search_flows("FlowType = 'AttributeFlow' AND keyword1 = 'completed'", 20)
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-An indexed **AttributeMap** must use an explicit index key. It is not an index over all Map instances. Each instance write updates the same search field, so one instance can replace the value written by another instance. The Map instance key is not searchable.
-
-This does not turn the Map into a **KEYWORD_ARRAY**. **KEYWORD_ARRAY** indexes the string array from one write; Dex does not combine the values from all Map instances. After the example below writes the payment instance with value authorized, you can query the current search value with:
-
-```text
-FlowType = 'AttributeFlow' AND keyword2 = 'authorized'
-```
-
-If another Map instance later writes a different value, that value replaces the search value for **keyword2**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.
-
-<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
-<SdkSnippet lang="python">
-
-```python
-progress = AttributeMap(
-    "primitive-attribute-progress",
-    str,
-    index=AttributeIndex(IndexType.KEYWORD, "keyword2"),
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-var Progress = dex.DefineAttributeMap[string](
-	"primitive-attribute-progress",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword2"}),
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-private final AttributeMap<String> progress =
-        AttributeMap.define(
-                "primitive-attribute-progress",
-                String.class,
-                new AttributeIndex(AttributeIndex.Type.KEYWORD, "keyword2"));
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
-  type: IndexType.KEYWORD,
-  indexKey: "keyword2",
-});
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-let progress = AttributeMap::new("primitive-attribute-progress")
-    .indexed(AttributeIndex::keyword().with_key("keyword2"));
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## Hard-delete Attributes {#hard-delete-attributes}
-
-Use a hard-delete Attribute for a short-lived secret, such as an API key that a Flow uses a few times and then discards.
-
-Dex stores every value of a hard-delete Attribute only in object storage, whatever the value size. Flow history keeps only a reference. Deleting the Attribute, or setting it to null, permanently deletes the stored value. After that, neither Dex APIs nor Flow history can recover it.
-
-From server-zd v0.1.5, a direct call to the FlowService **SetAttributes** API can erase a hard-delete Attribute after its Flow run closes and before the run is purged. The SDK Clients do not expose this API, so send it with **dexcli api call SetAttributes** or another FlowService client. Set every Attribute in the request to null. Each Attribute must still have a stored hard-delete value. The erase leaves the run closed and permanently deletes its stored objects. Other writes to a closed run return NOT_FOUND.
-
-Step and RPC handlers receive the value directly. The SDKs never write it to their local blob cache, and Dex Server never writes it to its blob cache.
-
-Enable it on the definition with **HardDeleteOnNull** in Go, **hardDeleteOnNull** in Java and TypeScript, and **hard_delete_on_null** in Python and Rust. The option works for both Attributes and AttributeMaps.
-
-<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
-<SdkSnippet lang="python">
-
-```python
-class AttributeFlow(Flow[str]):
-    model_api_key = Attribute(
-        "primitive-attribute-model-api-key",
-        str,
-        hard_delete_on_null=True,
-    )
-
-
-class AttributeStep(Step[str]):
-    def execute(self, context: Context, input: str) -> StepDecision:
-        self.flow.status.set(context, "completed")
-        # The Flow no longer needs the short-lived key, so delete it permanently.
-        self.flow.model_api_key.delete(context)
-        return graceful_complete(input)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-ModelAPIKey = dex.DefineAttribute[string](
-	"primitive-attribute-model-api-key",
-	dex.HardDeleteOnNull(),
-)
-
-func (attributeStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	if err := Status.Set(ctx, "completed"); err != nil {
-		return nil, err
-	}
-	// The Flow no longer needs the short-lived key, so delete it permanently.
-	if err := ModelAPIKey.Delete(ctx); err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(input), nil
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-private final Attribute<String> modelApiKey = Attribute.define(
-        "primitive-attribute-model-api-key",
-        String.class).hardDeleteOnNull();
-
-@Override
-public StepDecision execute(final Context context, final String input) {
-    status.set(context, "completed");
-    // The Flow no longer needs the short-lived key, so delete it permanently.
-    modelApiKey.delete(context);
-    return StepDecision.gracefulComplete(input);
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-const modelApiKey = new Attribute(
-  "primitive-attribute-model-api-key",
-  stringCodec,
-).hardDeleteOnNull();
-
-public execute(context: Context, input: string): StepDecision {
-  this.flow.status.set(context, "completed");
-  // The Flow no longer needs the short-lived key, so delete it permanently.
-  this.flow.modelApiKey.delete(context);
-  return gracefulComplete(input);
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-static MODEL_API_KEY: LazyLock<Attribute<String>> =
-    LazyLock::new(|| Attribute::new("primitive-attribute-model-api-key").hard_delete_on_null());
-
-fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-    STATUS.set(context, "completed".to_owned())?;
-    // The Flow no longer needs the short-lived key, so delete it permanently.
-    MODEL_API_KEY.delete(context)?;
-    Ok(StepDecision::graceful_complete(input))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-
-A hard-delete Attribute has these requirements:
-
-- Only string and object values are supported, including bytes. Numeric and Boolean value types are rejected.
-- It cannot be indexed or synced to an Attribute Store. **WaitForAttributeMatch** and Action conditions reject it.
-- A server that supports hard-delete Attributes, such as server-zd. The SDKs refuse to write the Attribute to an older server.
-
-Each Flow keeps one stored value per Attribute key and overwrites it in place. Plan for these consequences:
-
-- A Step or RPC attempt writes or deletes the stored value before its result is committed. A retried attempt, other Steps and RPCs, and Attribute reads can observe a write or deletion made by an attempt that later failed. Make handlers safe to repeat instead of relying on a read-modify-write of the Attribute.
-- When concurrent Steps or RPCs write the same key, the final value may not be the last committed write.
-- A Flow start or SubFlow start that fails because the Flow ID is already running still overwrites the running Flow's value. A null initial value deletes it.
-- Flows that reuse a Flow ID share the stored value.
-- A deleted value always reads as absent. Time travel does not restore it. A restarted SubFlow starts from the original initial value, so it reads as absent when an earlier run deleted that value.
-- Removing the option from a definition leaves the stored value in place until Dex removes the Flow. Delete the value with the hard-delete definition first.
-
-A value remains stored until it is deleted, or until Dex removes the Flow after its retention period. Object storage backups and bucket versioning outside Dex can keep copies. See [Object storage](/reference/server/object-storage).
-
-## Attribute Sync {#attribute-store-projection}
-
-Dex Attribute is not to replace your databases. Attribute Sync feature will sync the attribute values to your application database, without you writing a single line of code.
-
-So that you can store the attributes in your database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
-
-Mark each Attribute that should sync:
-
-<SdkTabs examples={{ python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs' }}>
-<SdkSnippet lang="python">
-
-```python
-display_name = Attribute("display_name", str, sync_to_attribute_store=True)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-var DisplayName = dex.DefineAttribute[string](
-	"display_name",
-	dex.SyncToAttributeStore(),
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-public final Attribute<String> displayName =
-        Attribute.define("display_name", String.class).syncToAttributeStore();
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-public readonly displayName = new Attribute("display_name", stringCodec)
-  .syncToAttributeStore();
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-static DISPLAY_NAME: LazyLock<Attribute<String>> =
-    LazyLock::new(|| Attribute::new("display_name").sync_to_attribute_store());
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-First, define an Attribute Store in a YAML file:
-
-```yaml
-attributeStore:
-  stores:
-    entityStore:
-      type: postgres
-      dsn: postgres://entity_store:entity_store@localhost:55432/entity_store?sslmode=disable
-      tableName: public.user_profiles
-```
-
-Only PostgreSQL is supported as an Attribute Store. Redis support is tracked in [issue 616](https://github.com/superdurable/dex/issues/616).
-Create the destination first. Attribute Sync writes latest state asynchronously
-and does not automatically backfill existing Flows. See
-[External Attribute Sync](/primitives/components/external-attribute-sync) for target
-contracts, type mappings, and retry behavior.
-
-Start the local server with the file:
-
-```bash
-dexcli dev --attribute-store-config ./attribute-store.yaml
-```
-
-Then choose the same store name when starting the Flow:
-
-<SdkTabs examples={{ python: 'examples/python/dex_examples/patterns/entity-store/controller.py', go: 'examples/go/patterns/entity-store/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/EntityStoreController.java', typescript: 'examples/typescript/src/patterns/entity-store/controller.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs' }}>
-<SdkSnippet lang="python">
-
-```python
-options = StartFlowOptions(
-    config_override=FlowConfig(attribute_store_names=["entityStore"]),
-)
-await client.start_flow(flow, user_id, None, options)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-options := dex.StartFlowOptions{
-	ConfigOverride: &dex.FlowConfig{
-		AttributeStoreNames: []string{"entityStore"},
-	},
-}
-_, err := client.StartFlow(ctx, flow, userID, nil, options)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-final StartFlowOptions options = StartFlowOptions.newBuilder()
-        .configOverride(FlowConfig.newBuilder()
-                .attributeStoreNames("entityStore")
-                .build())
-        .build();
-final String runId = client.startFlow(flow, userId, null, options);
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-const runId = await client.startFlow(flow, userId, undefined, {
-  configOverride: { attributeStoreNames: ["entityStore"] },
-});
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-let options = StartFlowOptions::new()
-    .config_override(FlowConfig::new().attribute_store_names(vec!["entityStore".to_owned()]));
-let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## Locking {#locking}
-
-Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
-
-An RPC that cannot get a lock fails with the error "RPC lock conflict: attribute key &lt;key&gt; is locked by a Step". A Step attempt takes its locks when Dex hands it to a Worker. A first attempt that no Worker took yet holds no locks, but later Steps that need the same lock wait behind it. A returned attempt, for example after a Worker declined its Step type, and a retry attempt keep their locks while they wait in the queue. When no Worker can run them, they hold the locks until the Flow times out or stops. Transactional RPCs on those keys get the lock conflict until the attempt runs and finishes.
-
-### Coordinate writes across the whole AttributeMap {#whole-map-coordination}
-
-An AttributeMap lock protects one exact instance. When an invariant spans several instances or the whole collection, register a separate singleton bool Attribute as its coordination key. For example, register **currentMessages** as an AttributeMap and **currentMessagesLock** as a non-map, non-indexed bool Attribute in the same **PersistenceSchema**.
-
-Every Step, timeout handler, and RPC that writes, deletes, archives, or otherwise changes the protected map must request the same singleton Attribute lock in its method-specific lock options. RPCs declare this fixed lock at registration time. A writer that requests only a map-instance lock does not conflict with the singleton lock. All participating writers serialize within that Flow execution; other Flow executions have their own locks.
-
-The bool value is not the lock state. Do not acquire or release the lock by reading or toggling the value. Dex acquires and releases it around the invocation; the coordination Attribute does not need a persisted value. Locking also does not load map entries. Declare exact instance loads, or a whole-map load when the operation must enumerate instances. RPC lock acquisition can return a lock-conflict error rather than queueing the caller.
-
-Keep per-instance locks for independent partition updates. Use the shared singleton lock when all affected writers must preserve a collection-wide invariant.
-
-### Lock **WaitFor**
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
-    go: 'examples/go/primitives/attribute/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
-    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
-    rust: 'examples/rust/src/primitives/attribute/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def get_step_options(self) -> StepOptions:
-    return StepOptions(
-        wait_for_lock_attributes=(
-            self.flow.status.lock(),
-            self.flow.progress.lock("payment"),
-        ),
-    )
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-func (attributeStep) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		WaitForLockAttributes: []dex.AttributeLock{
-			dex.LockAttribute(Status),
-			dex.LockAttributeMap(Progress, "payment"),
-		},
-	}
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-return StepOptions.newBuilder()
-        .addWaitForLock(AttributeLock.of(status))
-        .addWaitForLock(AttributeLock.of(progress, "payment"))
-        .build();
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-return {
-  waitForLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
-};
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-StepOptions::new()
-    .wait_for_lock(self.status.lock())
-    .wait_for_lock(self.progress.lock("payment"))
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-### Lock **Execute**
+## Read and search Attributes
+
+Code outside the Flow reads Attributes through the [Client](/primitives/client).
+Dex Server answers the read itself, without running a Worker. Use an
+[RPC](/primitives/rpc) instead when the read needs Flow logic, such as
+authorization or a derived view.
+
+An indexed Attribute can be used in **SearchFlows** queries to find Flow
+executions. The example above indexes the status Attribute. See
+[Indexes](/reference/server/runtime-data#attribute-indexes) for index types,
+index keys, and AttributeMap indexes.
+
+## Locks {#locking}
+
+Two Steps or RPCs can write the same Attribute at the same time. Use an
+**Attribute lock** to run them one after the other. Dex acquires the lock before
+the Step method or RPC starts and releases it when it finishes. A Step waits for
+its lock. An RPC that cannot get a lock fails, and you retry it.
+
+This Step locks a singleton Attribute and one AttributeMap instance while
+**Execute** runs:
 
 <SdkTabs
   examples={{
@@ -925,95 +403,29 @@ StepOptions::new()
 </SdkSnippet>
 </SdkTabs>
 
-### Lock an RPC
+See [Locks](/reference/server/runtime-data#attribute-locks) for lock timing,
+lock conflicts, and locking a whole AttributeMap.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
-    go: 'examples/go/primitives/attribute/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
-    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
-    rust: 'examples/rust/src/primitives/attribute/flow.rs',
-  }}>
-<SdkSnippet lang="python">
+## Short-lived secrets {#hard-delete-attributes}
 
-```python
-@rpc(lock_attributes=(status.lock(), progress.lock("payment")))
-def update_status(self, context: Context, input: str) -> RPCResult[str]:
-    self.status.set(context, input)
-    self.progress.set(context, "payment", input)
-    return RPCResult(input)
-```
+A **hard-delete Attribute** holds a short-lived secret, such as an API key that
+a Flow uses a few times and then discards. Deleting it erases the stored value
+permanently. Neither Dex APIs nor Flow history can recover it. Unlike other
+writes, a hard-delete write takes effect before the handler's result commits.
+See
+[Hard-delete Attributes](/reference/server/runtime-data#hard-delete-attributes)
+for the requirements and their consequences.
 
-</SdkSnippet>
-<SdkSnippet lang="go">
+## Keep data after the Flow {#attribute-store-projection}
 
-```go
-func (flow *AttributeFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{
-		dex.DefineRPC(flow.UpdateStatus, &dex.RPCOptions{
-			LockAttributes: []dex.AttributeLock{
-				dex.LockAttribute(Status),
-				dex.LockAttributeMap(Progress, "payment"),
-			},
-		}),
-	}
-}
-```
+Attribute Sync copies selected Attributes to a PostgreSQL table that you own.
+The table keeps the data after Dex deletes the Flow, and you can index it for
+your own queries. Dex writes the latest values asynchronously. See
+[External Attribute Sync](/primitives/components/external-attribute-sync) and
+the [Entity Store](/design-patterns/entity-store) pattern.
 
-</SdkSnippet>
-<SdkSnippet lang="java">
+## Reference
 
-```java
-@RPC(
-        lockAttributes = {"primitive-attribute-status"},
-        lockAttributeMaps = {
-            @RPCAttributeMapLock(
-                    attribute = "primitive-attribute-progress",
-                    instance = "payment")
-        })
-public RPCResult<String> updateStatus(final Context context, final String input) {
-    status.set(context, input);
-    progress.set(context, "payment", input);
-    return RPCResult.of(input);
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-@rpc({
-  inputCodec: stringCodec,
-  outputCodec: stringCodec,
-  lockAttributes: [status.lock(), progress.lock("payment")],
-})
-public updateStatus(context: Context, input: string): RPCResult<string> {
-  this.status.set(context, input);
-  this.progress.set(context, "payment", input);
-  return { output: input };
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-fn rpcs(&self) -> RpcList<Self> {
-    RpcList::new().function(
-        UPDATE_STATUS
-            .lock(self.status.lock())
-            .lock(self.progress.lock("payment")),
-        Self::update_status,
-    )
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-#### Lock conflicts {#rpc-lock-conflicts}
-
-RPC lock acquisition does not queue callers. When another Step execution or RPC holds a requested lock, the call fails with a lock-conflict error. The SDK exposes it as **RPCLockConflictError** in Go, **RpcLockConflictError** in Python and TypeScript, **RpcLockConflictException** in Java, and **SdkError::RpcLockConflict** in Rust.
-
-Retry specifically after that error, with application-appropriate backoff. Make the RPC idempotent so that a retry is safe. Successful calls serialize through the same locks, so concurrent requests do not lose or duplicate updates.
+[Data primitive semantics](/reference/server/runtime-data#attributes) covers
+initial values, Client reads, indexes, hard-delete Attributes, and locks in
+detail.

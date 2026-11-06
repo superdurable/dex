@@ -7,33 +7,9 @@ slug: /primitives/connector
 
 # Connector
 
-Connector 是把 Flow 与外部 provider 集成起来的独立 Dex primitive。它封装 typed
-operation、event ingress、authorization 和可选的 configuration UI，同时避免把
-provider credential 写入持久化 Flow state。
+**Connector** 是把 Flow 与外部 provider 集成起来的独立 Dex primitive，例如邮件、支付或新闻服务。它封装 typed operation、event ingress、authorization 和可选的 configuration UI。provider credential 不会进入持久化的 Flow state。
 
-官方 Connector 与 Dex 分别发布。
-
-:::note 语言支持
-
-Connector 支持 Go、Python 和 TypeScript。Java 和 Rust 暂不支持 Connector。
-
-支持按 Connector 和 capability 区分。每个语言 package 只实现该 Connector 为该语言列出的
-operation 和 Trigger。请使用 [Connector 目录](https://connectors.superdurable.io/) 中的语言筛选，查看每个 Connector
-在 Go、Python 和 TypeScript 中提供的内容。
-
-Go package 是每个 Connector 的 Go module。Python package 发布在 PyPI，名称为
-**dex-connector-&lt;slug&gt;**；TypeScript package 发布在 npm，名称为
-**@superdurable/connector-&lt;slug&gt;**。每个 Python 和 TypeScript package 都会重放经过 Go
-验证的 provider 场景。
-
-可运行示例位于 Connectors library：NewsAPI 的
-[Python 示例](https://github.com/superdurable/dex-connectors-library/tree/connectors/newsapi/python/v0.1.0/connectors/newsapi/python/examples/company_news)
-和
-[TypeScript 示例](https://github.com/superdurable/dex-connectors-library/tree/connectors/newsapi/typescript/v0.1.0/connectors/newsapi/typescript/examples/company-news)。
-Go 示例位于 **connectors/&lt;directory&gt;/go/examples/**。如果需要其他语言，请
-[提交 Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new)。
-
-:::
+官方 Connector 与 Dex 分别发布。自己编写 provider 集成代码之前，先查看 [Connector 目录](https://connectors.superdurable.io/)。
 
 ## Capabilities
 
@@ -43,62 +19,42 @@ Go 示例位于 **connectors/&lt;directory&gt;/go/examples/**。如果需要其�
 - **Trigger** 把 provider event 转换成 typed event，用于启动 Flow 或调用 typed RPC。
 - **Query** 通过 Connector Step 读取 provider state。
 - **Mutation** 修改 provider state，并显式处理 idempotency 和 uncertain outcome。
-- **UI** 提供可复用的 configuration unit，由 Dex Web 为 Step 或 Trigger binding
-  组合显示。
+- **UI** 提供可复用的 configuration unit，由 Dex Web 为 Step 或 Trigger binding 组合显示。
 
-Provider module 只需要提供自身所需的 capability。应用使用对应 module release
-生成的类型。
+provider module 只提供自己需要的 capability。应用使用对应 module release 生成的类型。
 
 ## Operation 是 Connector Step
 
-Operation-specific factory 会创建 Connector Step。应用把当前 Step input 映射为
-provider input，并把每个 required result branch 连接到另一个 Step。Provider call
-在 **Execute** 中运行，并使用 Dex 的 retry、timeout、durability 和 recovery 语义。
+operation-specific factory 会创建 Connector Step。应用把当前 Step input 映射为 provider input，并把每个 required result branch 连接到另一个 Step。provider call 在 **Execute** 中运行，所以和其他 [Step](/primitives/step) 一样享有 Dex 的 retry、timeout、durability 和 recovery。
 
-Connector result 包含当前 operation output、receipt、选中的 branch，以及存在时的
-安全 failure classification。它不会转发上一个 Step input。调用 Connector 前，应把
-业务上下文持久化到应用 Attribute，或通过应用 Step 显式传递。
+Connector result 包含 operation output、receipt、选中的 branch，以及存在时的安全 failure classification。它不会转发上一个 Step input。业务上下文要保存在 [Attribute](/primitives/attribute) 中，或者在调用 Connector 之前通过应用 Step 传递。
 
-Query 读取 provider state。Mutation 修改 provider state，并使用从 Step execution
-派生的稳定 idempotency key。如果已发出的 Mutation 无法确认结果，Connector 会选择
-uncertainty branch，使 Flow 先查询并 reconcile，而不是盲目重发。
+Query 读取 provider state。Mutation 修改 provider state，并使用从 Step execution 派生的稳定 idempotency key。Mutation 的结果无法确认时，Connector 选择 uncertainty branch。Flow 于是可以先查询并 reconcile，而不是盲目重发。
 
-默认只要求连接 happy-path branch。Optional branch 可以不连接；当 operation 选中
-未连接的 optional branch 时，Flow 会失败，并把 provider outcome 暴露给 recovery。
+只有 happy-path branch 必须连接。optional branch 可以不连接。如果 Connector 选中一个未连接的 branch，Flow 会失败，provider outcome 仍然可见，便于 recovery。
 
 ## Trigger 启动或更新 Flow
 
-Connector Trigger 是运行在 Flow 之外的长时间 event source。它保留 provider event
-ID 和发生时间，然后以 at-least-once 方式把 event 交给应用定义的 target。
+Connector Trigger 是运行在 Flow 之外的长时间 event source。它保留 provider event ID 和发生时间，并以 at-least-once 方式把每个 event 交给应用定义的 target。
 
-应用提供最终 filter、解析 Flow ID，并把 provider event 映射为 typed input。应用决定
-event 是启动 Flow，还是调用已有 Flow 的 typed RPC。Root start 使用 provider event
-ID 作为 request identity。RPC target 所需的重复投递处理保存在有界的应用 state 中。
+应用提供最终 filter、解析 Flow ID，并把 provider event 映射为 typed input。应用决定 event 是启动 Flow，还是调用已有 Flow 的 typed [RPC](/primitives/rpc)。启动 Flow 时使用 provider event ID 作为 request identity，所以重复的 event 不会再启动一个 Flow。RPC target 在自己的有界 state 中处理重复投递。
 
-本地 Trigger runner 会在向 provider acknowledgement 前持久化匹配的 event，并在
-process restart 后重放未完成的 delivery。
+本地 Trigger runner 在向 provider acknowledgement 之前持久化匹配的 event，并在重启后重放未完成的 delivery。
 
 ## Connection 与 configuration
 
-Flow definition 引用 logical connection name，而不是 credential。本地开发时，Dex
-Web 会读取这些静态引用，并显示在 **Connectors** 中。只有验证了精确的官方 module
-release 后，它才会写入 connection、operation 或 Trigger-binding configuration。
+Flow definition 引用 logical connection name，而不是 credential。本地开发时，Dex Web 在 **Connectors** 中列出这些名字。只有验证了精确的官方 module release 之后，它才会写入 connection、operation 或 Trigger-binding configuration。
 
-Connector Studio UI 运行在 opaque-origin sandbox 中。Provider command 由 Connector
-release 声明，并由 Dex Web host 执行。已保存的 credential 不会进入 iframe、Flow
-input、Attribute、result、receipt、Stream、日志或生成 artifact。
+Connector UI 运行在 opaque-origin sandbox iframe 中。Dex Web 执行 Connector release 声明的 provider command。已保存的 credential 不会进入 iframe、Flow input、Attribute、result、receipt、Stream、日志或生成的 artifact。Dex Web 与本地 credential storage 见 [Connector 组件](/primitives/components/connector)。
 
-Dex Web 与本地 credential storage 的使用方式见
-[Connector 组件](/primitives/components/connector)。
+## 语言
+
+Connector 支持 Go、Python 和 TypeScript。Java 和 Rust 暂不支持 Connector。每个语言 package 只实现该 Connector 为这个语言列出的 operation 和 Trigger。用 [Connector 目录](https://connectors.superdurable.io/) 中的语言筛选，查看每个 Connector 提供的内容。
+
+Go package 是每个 Connector 的 Go module。Python package 发布在 PyPI，名称为 **dex-connector-&lt;slug&gt;**。TypeScript package 发布在 npm，名称为 **@superdurable/connector-&lt;slug&gt;**。每个 Python 和 TypeScript package 都会重放经过 Go 验证的 provider 场景。可运行示例位于 [Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 的 **connectors/&lt;directory&gt;/&lt;language&gt;/examples/** 下。如果需要其他语言，请[提交 Dex Connectors Library issue](https://github.com/superdurable/dex-connectors-library/issues/new)。
 
 ## 使用或贡献 Connector
 
-编写 provider integration 前，先查看
-[已发布 Connector catalog](https://connectors.superdurable.io/)。
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-包含 manifest、生成 API、provider implementation、UI unit 和可运行示例。
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含 manifest、生成的 API、provider implementation、UI unit 和可运行示例。
 
-应用使用已发布 Connector 时，使用
-[Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、
-operation、Trigger 或 UI unit 时，使用
-[Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。
+应用使用已发布的 Connector 时，用 [Dex SDK skill](../build-with-ai/dex-developer-skill/dex-sdk.mdx)。新增或修改官方 Connector、operation、Trigger 或 UI unit 时，用 [Dex Connector Contributor skill](../build-with-ai/dex-developer-skill/dex-connector-contributor.mdx)。

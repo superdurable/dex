@@ -6,7 +6,19 @@ slug: /primitives/timer
 
 # Timer
 
-Timer 是持久化在 Dex Server 上的 **Durable Timer**。等待 Timer 时，Worker 端不会消耗任何资源。
+**Timer** 是由 Dex Server 保存的 durable timer。Step 在 **WaitFor** 中返回它，Timer 触发后运行 **Execute**。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
+
+## 什么时候用 Timer
+
+Timer 适合延迟、提醒或截止时间。把它和另一个 condition 组合，就能实现超时：一个 Step 同时等待 [Channel](/primitives/channel) 消息和 Timer，哪个先到就继续。
+
+## 保证
+
+server 把 Timer 和 Flow 一起保存。Worker 重启和 server failover 都不会丢失它。在 **Execute** 中，Step 检查它的 Timer 是否已触发。
+
+## 等待 Timer
+
+这个 Step 等待输入中给出的秒数：
 
 <SdkTabs
   examples={{
@@ -117,17 +129,26 @@ impl Step for TimerExampleStep {
 </SdkSnippet>
 </SdkTabs>
 
-## 如何跳过 Timer
+## 跳过 Timer
 
-可以用 Flow ID 和 Timer selector 调用 **SkipTimer** 跳过 Timer。被跳过的 Timer 就像已经触发一样。这有助于在测试模拟或生产运维中手动触发 Timer。
+Client 可以用 **SkipTimer** 跳过一个 Timer。它按 Flow ID、Step execution ID 和 condition 在 **WaitFor** 中的序号选择 Timer。被跳过的 Timer 等同于已经触发。在测试中可以用它；在生产中，也可以用它让等待中的 Step 提前运行。
 
-<SdkTabs>
+在 order-processing 示例的这个测试里，**Ship** Step 等待一个 Timer，测试跳过了它：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/tests/integ/test_order_processing.py',
+    go: 'examples/go/integ/order_processing_test.go',
+    java: 'examples/java/src/test/java/io/superdurable/dex/integ/OrderProcessingIntegTest.java',
+    typescript: 'examples/typescript/test/integ/order-processing.test.ts',
+    rust: 'examples/rust/tests/dex_integration.rs',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
-client.skip_timer(
+await client.skip_timer(
     flow_id,
-    StepExecutionId("TimerExampleStep"),
+    SHIP_STEP,
     TimerId.by_condition_index(0),
 )
 ```
@@ -136,12 +157,11 @@ client.skip_timer(
   <SdkSnippet lang="go">
 
 ```go
-timerIndex := int32(0)
-err := client.SkipTimer(
-	ctx,
+err := integClient.SkipTimer(
+	integrationContext(t),
 	flowID,
-	dex.StepExecutionID{StepType: "TimerExampleStep"},
-	dex.TimerID{Index: &timerIndex},
+	dex.StepExecutionID{StepType: orderprocessing.ShipStepType},
+	dex.TimerID{Index: new(int32)},
 )
 ```
 
@@ -149,9 +169,9 @@ err := client.SkipTimer(
   <SdkSnippet lang="java">
 
 ```java
-client.skipTimer(
+environment.client().skipTimer(
         flowId,
-        StepExecutionId.of("TimerExampleStep"),
+        StepExecutionId.of("Ship"),
         TimerId.byConditionIndex(0));
 ```
 
@@ -159,9 +179,9 @@ client.skipTimer(
   <SdkSnippet lang="typescript">
 
 ```typescript
-await client.skipTimer(
+await environment.client.skipTimer(
   flowId,
-  StepExecutionId.of("TimerExampleStep"),
+  StepExecutionId.of("Ship"),
   TimerId.byConditionIndex(0),
 );
 ```
@@ -170,12 +190,14 @@ await client.skipTimer(
   <SdkSnippet lang="rust">
 
 ```rust
-client.skip_timer(
-    &flow_id,
-    StepExecutionId::of(&TimerExampleStep),
+environment.client.skip_timer(
+    flow_id,
+    StepExecutionId::of(&Ship::default()),
     TimerId::by_condition_index(0),
-)?;
+)
 ```
 
 </SdkSnippet>
 </SdkTabs>
+
+Step 如何在 **WaitFor** 中组合 condition，见 [Step](/primitives/step)。
