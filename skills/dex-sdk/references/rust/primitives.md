@@ -492,6 +492,7 @@ building blocks:
 | Parallel SubFlows | `Wait::all_of(conditions)` built from `SubFlow::run` | `patterns/parallel_subflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, inactivity | Timer raced with Channels in `Wait::any_of` | `patterns/cron`, `patterns/reminders`, `patterns/inactiveness_tracker` |
+| Inbound event loop | RPCs publish; one Step waits on `Wait::any_of` over `replies.at_least(1)`, `resolutions.for_one()`, and a Timer, appends to the transcript, and loops back ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactiveness_tracker` |
 | Execute recovery | `on_execute_failure_proceed_to(&Recovery)` | `patterns/recovery` |
 | WaitFor recovery | `WaitForFailurePolicy::Proceed` plus `context.wait_for_method_failed()` | `primitives/proceed_on_wait_failure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
@@ -572,7 +573,12 @@ fn execute(&self, context: &mut Context, job_id: Self::Input) -> HandlerResult<S
 - "Not ready" stays inside the loop. Only transient provider failures return
   `Err`, so Step retry runs again.
 - Give each provider call its own timeout, and keep
-  `POLL_INTERVAL + call timeout` well inside the heartbeat timeout.
+  `POLL_INTERVAL + call timeout <= heartbeat timeout - 10 s`. With the
+  one-minute default and a 10-second call timeout, `POLL_INTERVAL` is at most
+  40 seconds. Keep the one-minute default unless a healthy call is silent
+  longer.
+- Keep `maximum_attempts` small, such as 3 to 5. `total_duration` bounds the
+  time; never use a large attempt count as a time bound.
 - `execute_method_timeout`, `total_duration`, and the failure route bound the
   whole wait. Never loop through a WaitFor Timer, `HandlerError::retry_after`,
   or a hand-written deadline.

@@ -16,6 +16,7 @@ idiom matters. Examples live under
 | Cron | [cron/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/cron/workflow.go) | Timer raced with trigger and skip Channels |
 | Reminder | [reminders/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/reminders/workflow.go) | Timer raced with an opt-out Channel |
 | Inactivity timer | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
+| Inbound event loop | Closest: the inactivity timer example | Skeleton below |
 | Execute failure recovery | [recovery/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/recovery/workflow.go) | `ProceedToOnExecuteFailure` |
 | WaitFor failure recovery | [proceed-on-wait-failure/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/proceed-on-wait-failure/workflow.go) | `ProceedOnWaitForFailure` plus `ctx.WaitForMethodFailed()` |
 | Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
@@ -147,9 +148,134 @@ func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDec
 
 - Bound each call with `context.WithTimeout(ctx, ...)`. Do not `select` on
   `ctx.Done()` around `time.Sleep`; Dex cancels `ctx` on expiry.
-- Keep `pollInterval + jobCallTimeout` well under `HeartbeatTimeout`.
+- Keep `pollInterval + jobCallTimeout <= HeartbeatTimeout - 10s`. With the
+  one-minute default and a 10-second call timeout, `pollInterval` is at most
+  40 seconds. Keep the one-minute default unless a healthy call is silent
+  longer.
+- `MaximumAttempts` stays small, such as 3 to 5. `TotalDuration` bounds the
+  time; never use a large attempt count as a time bound.
 - `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` hold the maximum wait.
   Never compute a deadline in the loop.
+
+## Inbound event loop
+
+The RPCs only validate and publish. The waiting Step consumes the messages,
+appends them to the transcript, and loops back to itself, which restarts the
+inactivity Timer. See [the rules](../core/patterns.md#inbound-event-loop).
+
+```go
+var (
+	Replies     = dex.DefineChannel[string]("replies")
+	Resolutions = dex.DefineChannel[string]("resolutions")
+	Transcript  = dex.DefineAttribute[[]string]("transcript")
+)
+
+const inactivityWindow = 24 * time.Hour
+
+type ConversationFlow struct {
+	dex.FlowDefaults
+}
+
+func (*ConversationFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(awaitInbound{}),
+		dex.DefineStep(resolveConversation{}),
+		dex.DefineStep(closeInactiveConversation{}),
+	}
+}
+
+func (*ConversationFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Transcript},
+		Channels:   []dex.ChannelDef{Replies, Resolutions},
+	}
+}
+
+func (flow *ConversationFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.SendReply, nil),
+		dex.DefineRPC(flow.ResolveConversation, nil),
+	}
+}
+
+// SendReply returns false for a rejected reply.
+func (*ConversationFlow) SendReply(ctx dex.Context, text string) (*dex.RPCResult[bool], error) {
+	if strings.TrimSpace(text) == "" {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	if err := Replies.Publish(ctx, text); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[bool]{Output: true}, nil
+}
+
+func (*ConversationFlow) ResolveConversation(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+	if err := Resolutions.Publish(ctx, reason); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+type awaitInbound struct {
+	dex.StepDefaults
+}
+
+func (awaitInbound) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+	// Replies are declared before Resolutions, so queued replies win first.
+	return dex.AnyOf(
+		Replies.AtLeast(1),
+		Resolutions.ForOne(),
+		dex.Timer(inactivityWindow),
+	), nil
+}
+
+func (awaitInbound) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GoTo(closeInactiveConversation{}, nil), nil
+	}
+	replies, err := Replies.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(replies) == 0 {
+		reasons, err := Resolutions.GetConditionResults(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return dex.GoTo(resolveConversation{}, reasons[0]), nil
+	}
+	transcript, err := Transcript.Get(ctx)
+	var notFound *dex.AttributeNotFoundError
+	if err != nil && !errors.As(err, &notFound) {
+		return nil, err
+	}
+	if err := Transcript.Set(ctx, append(transcript, replies...)); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(awaitInbound{}, nil), nil
+}
+
+type resolveConversation struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (resolveConversation) Execute(_ dex.Context, reason string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("resolved: " + reason), nil
+}
+
+type closeInactiveConversation struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (closeInactiveConversation) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("inactive"), nil
+}
+```
+
+- The Step locks nothing, because it is the only writer of `Transcript`. If
+  an RPC wrote `Transcript`, both would need its lock, and replies would fail
+  with lock conflicts while the Step runs.
+- `Replies.AtLeast(1)` takes every queued reply in one execution.
 
 ## Durable Timer
 

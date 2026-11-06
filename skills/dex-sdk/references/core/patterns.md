@@ -32,6 +32,7 @@ Each section names its Go folder. The other languages use the same folder name i
 | Recurring work at a fixed interval | [Cron schedule](#cron-schedule) |
 | Repeat until the recipient opts out | [Reminder](#reminder) |
 | Act after a period without activity | [Inactivity tracker](#inactivity-tracker) |
+| Take inbound messages or replies until a resolution or inactivity | [Inbound event loop](#inbound-event-loop) |
 | Recover when WaitFor fails | [WaitFor failure recovery](#waitfor-failure-recovery) |
 | Compensate after Execute retries are exhausted | [Execute failure recovery](#execute-failure-recovery) |
 | Escalate a failure to a person | [Manual recovery](#manual-recovery) |
@@ -214,8 +215,9 @@ StartJob.execute(request)
 
 AwaitJob options:
     execute method timeout   = maximum wait
-    execute retry            = a few attempts with backoff, total duration = maximum wait
-    heartbeat timeout        = short, so a stalled Worker is detected quickly
+    execute retry            = a few attempts (for example 3-5) with backoff,
+                               total duration = maximum wait
+    heartbeat timeout        = the one-minute default
     execute failure route    = RecordJobWaitFailure
 
 AwaitJob.execute(context, jobId)
@@ -233,7 +235,10 @@ RecordJobWaitFailure.execute(context)
 ```
 
 - "Not ready yet" is a normal loop branch, never an error.
-- Keep `interval + call timeout` comfortably below the heartbeat timeout. Use a few seconds when a user watches something they just started, and tens of seconds for long jobs.
+- Keep `interval + call timeout <= heartbeat timeout - 10 s`. With the one-minute default heartbeat timeout and a 10-second call timeout, the interval is at most 40 seconds.
+- Keep the one-minute heartbeat timeout default, so a stalled Worker is detected within a minute. Raise it only when a healthy call is silent longer.
+- Within that bound, use a few seconds when a user watches something they just started, and tens of seconds for long jobs.
+- The retry policy covers Worker crashes and transient errors. Use a few attempts, for example 3 to 5, with backoff, and set the total duration to the maximum wait. The total duration bounds the time. Never use a large attempt count as a time bound.
 - Use the language's plain sleep. Do not add cancellation-select machinery around it: the call has its own timeout, and after a canceled attempt the next call fails fast.
 - Every wait limit comes from the Step options, and Dex enforces each one. The Step code never computes a deadline, and neither the checkpoint nor the input carries one.
 - The checkpoint is only resume state, such as the last reported status.
@@ -298,6 +303,33 @@ rpc recordActivity -> Activity.publish()
 ```
 
 Keep the deadline in the Flow where the activity happens. A separate Flow that needs a message on every operation is the wrong boundary.
+
+### Inbound event loop
+
+Take inbound messages, such as replies in a conversation or ticket, until a resolution arrives or the conversation goes quiet. This extends the inactivity tracker. The closest runnable example is the Go folder `inactiveness-tracker-timer`.
+
+```text
+rpc sendReply(text)       -> validate text; if invalid: return a rejection
+                             Replies.publish(text); return accepted
+rpc resolve(reason)       -> Resolutions.publish(reason)
+
+AwaitInbound.waitFor      -> AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
+AwaitInbound.execute
+    if the Timer fired:    goTo(CloseInactive)
+    replies = Replies.conditionResults()
+    if replies is empty:   goTo(Resolve, Resolutions.conditionResults()[0])
+    Transcript.set(Transcript.get() + replies)
+    goTo(AwaitInbound)     // a new execution of the same Step: a fresh Timer
+```
+
+- The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
+- The waiting Step is the only writer of the transcript. It appends every message it consumed, then loops back to itself. The new execution registers a new wait, so the inactivity Timer restarts after each message.
+- Declare the reply Channel before the resolution Channel in AnyOf. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore always recorded first. If the order must differ, drain the pending replies before you resolve.
+- A Channel Condition consumes messages only when it wins. A reply that arrives during Execute stays queued for the next execution, so no reply is lost.
+- Use `AtLeast(1)` on the reply Channel to take every queued reply in one execution, or `ForOne` to take one at a time.
+- Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](#sequentially-chunked-attributemap).
+
+Why not write the transcript from the RPC: the waiting Step must then lock the transcript, and the RPC must lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC does, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
 
 ## Failure handling
 

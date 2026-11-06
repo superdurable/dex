@@ -16,6 +16,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | Cron | `Wait.any_of(Timer.by_duration(...), trigger.for_one(), skip.for_one())` | [cron](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/cron/cron_schedule_flow.py) |
 | Reminder | `Wait.any_of(Timer.by_duration(...), opt_out.for_one())` | [reminder](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/reminders/reminder_flow.py) |
 | Inactivity timer | `Wait.any_of(activity.for_one(), Timer.by_duration(...))` | [inactivity](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py) |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.any_of(replies.at_least(1), resolutions.for_one(), Timer.by_duration(...))` and loops back to itself; see below | closest: the inactivity example |
 | Execute failure recovery | `StepOptions(...).on_execute_failure_proceed_to(Compensate)` | [recovery](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py) |
 | WaitFor failure recovery | `StepOptions(wait_for_failure=WaitForFailurePolicy.PROCEED)`, then `context.wait_for_method_failed()` | [wait failure](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py) |
 | Manual recovery | failure route to a Step waiting on operator Channels; verb-named `@rpc` methods publish | [intervention](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py) |
@@ -111,10 +112,101 @@ class AwaitJob(Step[str]):
 
 - Bound each provider call with `asyncio.wait_for`; never block the event
   loop with a sync client.
+- Keep `POLL_INTERVAL + JOB_CALL_TIMEOUT <= heartbeat_timeout - 10 s`. With
+  the one-minute default and a 10-second call timeout, the interval is at most
+  40 seconds. Keep the one-minute default unless a healthy call is silent
+  longer.
+- `maximum_attempts` stays small, such as 3 to 5. `total_duration` bounds the
+  time; never use a large attempt count as a time bound.
 - Read the checkpoint with `context.get_last_heartbeat_value(T)` and write it
   with `await context.heartbeat(value)`.
 - A sync Worker writes the same loop as a generator: `yield heartbeat(state)`,
   `yield JOB_PROGRESS.write(context, status)`, and `time.sleep(...)`.
+
+## Inbound event loop
+
+The RPCs only validate and publish. The waiting Step consumes the messages,
+appends them to the transcript, and loops back to itself, which restarts the
+inactivity Timer. See [the rules](../core/patterns.md#inbound-event-loop).
+
+```python
+from datetime import timedelta
+
+from dex import (
+    Attribute, Channel, Context, Flow, PersistenceSchema, RPCResult, Step,
+    StepDecision, StepList, Timer, Wait, go_to, graceful_complete, rpc,
+)
+
+INACTIVITY_WINDOW = timedelta(hours=24)
+
+REPLIES = Channel("replies", str)
+RESOLUTIONS = Channel("resolutions", str)
+TRANSCRIPT = Attribute("transcript", list[str])
+
+
+class ResolveConversation(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        return graceful_complete(f"resolved: {input}")
+
+
+class CloseInactiveConversation(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete("inactive")
+
+
+class AwaitInbound(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        # Replies are declared before resolutions, so queued replies win first.
+        return Wait.any_of(
+            REPLIES.at_least(1),
+            RESOLUTIONS.for_one(),
+            Timer.by_duration(INACTIVITY_WINDOW),
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        if context.has_timer_fired():
+            return go_to(CloseInactiveConversation, None)
+        replies = REPLIES.results(context)
+        if not replies:
+            return go_to(ResolveConversation, RESOLUTIONS.results(context)[0])
+        try:
+            transcript = TRANSCRIPT.get(context)
+        except KeyError:
+            transcript = []
+        TRANSCRIPT.set(context, [*transcript, *replies])
+        return go_to(AwaitInbound, None)
+
+
+class ConversationFlow(Flow[None]):
+    def __init__(self) -> None:
+        self.await_inbound = AwaitInbound()
+        self.resolve_conversation = ResolveConversation()
+        self.close_inactive_conversation = CloseInactiveConversation()
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.await_inbound).other_steps(
+            self.resolve_conversation, self.close_inactive_conversation
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(TRANSCRIPT, REPLIES, RESOLUTIONS)
+
+    @rpc
+    def send_reply(self, context: Context, text: str) -> RPCResult[bool]:
+        if not text.strip():
+            return RPCResult(False)
+        REPLIES.publish(context, text)
+        return RPCResult(True)
+
+    @rpc
+    def resolve(self, context: Context, reason: str) -> None:
+        RESOLUTIONS.publish(context, reason)
+```
+
+- The Step locks nothing, because it is the only writer of `TRANSCRIPT`. If an
+  RPC wrote `TRANSCRIPT`, both would need its lock, and replies would fail
+  with `RpcLockConflictError` while the Step runs.
+- `REPLIES.at_least(1)` takes every queued reply in one execution.
 
 ## Python notes for the other patterns
 

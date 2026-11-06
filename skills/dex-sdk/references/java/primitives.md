@@ -473,6 +473,7 @@ building blocks:
 | Parallel SubFlows | `Wait.allOf(SubFlow.run(...), ...)` | `patterns/parallelsubflows` |
 | Polling | one long `execute` loop with heartbeat and bounded retry | `patterns/polling` |
 | Cron, reminder, inactivity | Timer raced with Channels in `Wait.anyOf` | `patterns/cron`, `patterns/reminders`, `patterns/inactivenesstracker` |
+| Inbound event loop | RPCs publish; one Step waits on `Wait.anyOf(replies.atLeast(1), resolutions.forOne(), Timer)`, appends to the transcript, and loops back ([rules](../core/patterns.md#inbound-event-loop)) | closest: `patterns/inactivenesstracker` |
 | Execute recovery | `onExecuteFailureProceedTo(Recovery.class)` | `patterns/recovery` |
 | WaitFor recovery | `waitForFailure(WaitForFailurePolicy.PROCEED)` plus `context.waitForMethodFailed()` | `primitives/proceedonwaitfailure` |
 | Manual recovery | recovery Step waits on retry and skip Channels | `patterns/intervention` |
@@ -516,8 +517,12 @@ one `execute` loops; it calls the provider with its own timeout, keeps "not
 ready" inside the loop, throws only transient errors, writes a Stream message
 or `recordHeartbeat` each round, then `Thread.sleep(interval)`. Restore the
 interrupt flag on `InterruptedException`. Bound the whole wait with
-`executeMethodTimeout`, `RetryPolicy.totalDuration`, and a failure route; keep
-`interval + call timeout` well inside `heartbeatTimeout`. Never loop through a
+`executeMethodTimeout`, `RetryPolicy.totalDuration`, and a failure route. Keep
+`interval + call timeout <= heartbeatTimeout - 10 s`: with the one-minute
+default and a 10-second call timeout, the interval is at most 40 seconds. Keep
+the one-minute default unless a healthy call is silent longer. Keep
+`maximumAttempts` small, such as 3 to 5; `totalDuration` bounds the time, never
+a large attempt count. Never loop through a
 WaitFor Timer, `RetryAfterException`, or a hand-written deadline. Copy the
 shape from
 [PollingFlow](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/polling/PollingFlow.java).
