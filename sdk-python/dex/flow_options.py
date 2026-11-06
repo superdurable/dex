@@ -302,14 +302,22 @@ class SubFlowOptions:
     The SubFlow inherits the parent's effective Flow configuration. ``None`` values
     preserve normal start defaults. Dex generates the Flow ID and request ID.
 
+    The Server validates these options when the ``wait_for`` result returns
+    them. A rejected value fails that ``wait_for`` attempt as an invalid
+    response. Dex retries it under the ``wait_for`` retry policy and then
+    applies the Step's ``wait_for`` failure policy. A retry that returns the
+    same options fails again.
+
     Attributes:
         timeout: Optional maximum SubFlow lifetime.
         timeout_policy: Action taken when a positive timeout expires.
         timeout_handler_options: Execute policy used when timeout policy is ``HANDLER``.
         start_delay: Optional delay before its starting Step. The current Server
-            rejects a positive value; use a Timer wait in the child instead.
+            rejects a positive value when it validates the ``wait_for`` result
+            that returns this Condition. Use a Timer wait in the child instead.
         retry_policy: Optional whole-Flow retry policy. The current Server rejects
-            a supplied policy; use StepOptions retry policies in the child instead.
+            a supplied policy when it validates the ``wait_for`` result. Use
+            StepOptions retry policies in the child instead.
         config_override: Fields applied over the inherited parent configuration.
         reuse_policy: Existing-execution resolution policy.
         condition_id: Stable ID required by ``Wait.any_combination_of``.
@@ -379,7 +387,7 @@ class SubFlowOptions:
 
 
 class TimeTravelType(Enum):
-    """Select the historical point from which time travel should create a new run.
+    """Select the historical point from which time travel re-runs the Flow.
 
     Attributes:
         BEGINNING: Restart from the beginning of the Flow.
@@ -408,10 +416,11 @@ class TimeTravelStepMethod(Enum):
 
 @dataclass(frozen=True)
 class TimeTravelOptions:
-    """Configure creation of a new run from existing Flow history.
+    """Configure a time travel that re-runs a Flow from a point in its history.
 
     Exactly one selector matching ``type`` must be set. The Client
     validates combinations before sending the request.
+    Time travel keeps the run ID, and a re-run can reuse Step execution IDs.
 
     Attributes:
         type: The time travel point selector kind.

@@ -326,8 +326,7 @@ class Worker:
         therefore return up to 5 seconds after the drain deadline.
 
         .. versionchanged:: 1.35.0
-           Running handlers drain and send output. Unstarted tasks return to Dex without
-           consuming a retry; a timed-out stream can still leave possibly run work.
+           Unstarted tasks return to Dex without consuming a retry.
 
         Raises:
             RuntimeError: If called on the pull Worker's ``start`` thread.

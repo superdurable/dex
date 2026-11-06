@@ -68,10 +68,9 @@ class DexServiceError(RuntimeError):
     mutation requires application idempotency. ValueMappingError and definition
     validation failures describe local mapping or schema problems instead.
 
-    .. versionchanged:: 1.30.0
-       Servers may reject excess Attribute index keys or oversized indexed Keyword
-       values. This SDK exposes those rejections as DexServiceError with
-       UNCATEGORIZED sub_status; the outer status and detail remain available.
+    Servers may reject excess Attribute index keys or oversized indexed Keyword
+    values. This SDK exposes those rejections as DexServiceError with
+    UNCATEGORIZED sub_status; the outer status and detail remain available.
 
     Examples:
         >>> import grpc

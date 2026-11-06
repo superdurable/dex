@@ -38,13 +38,18 @@ class StepAttemptProgress(Enum):
     the handler did not run. Other values require idempotent recovery or an
     application check for completed side effects.
 
+    Only a method with SYNC durability can report ``NOT_STARTED``. An ASYNC
+    method reports ``NOT_COMPLETED`` even when its handler never ran, because
+    Dex may not have persisted the attempt start.
+
     .. versionadded:: 1.35.0
 
     Attributes:
         UNSPECIFIED: An older Server or a failure recorded before upgrade supplied
             no progress. Treat it like
             ``NOT_COMPLETED`` because an attempt may have run.
-        NOT_STARTED: The handler did not run in any attempt.
+        NOT_STARTED: The handler did not run in any attempt. Reported only for
+            SYNC methods.
         NOT_COMPLETED: Some attempt may have run, but none completed.
 
     Examples:
@@ -65,6 +70,8 @@ class RecoveryErrorInfo:
     A Worker disconnect or crash after hand-out can leave external effects even
     when Dex recorded no completion. Treat NOT_COMPLETED and UNSPECIFIED as
     possibly run. Only NOT_STARTED permits assuming no handler attempt ran.
+    ASYNC methods never report NOT_STARTED, so their recovery must treat every
+    failure as possibly run.
 
     .. versionchanged:: 1.35.0
        Added attempt_progress, defaulting to UNSPECIFIED for source compatibility
@@ -107,9 +114,13 @@ class Context(Protocol):
     def run_id(self) -> str:
         """Return the current server-assigned run ID.
 
+        Time travel keeps the run ID and re-runs work within the same run.
+        An idempotency key built from the run ID therefore repeats after time
+        travel. Add an application value when a re-run must use a new key.
+
         Returns:
-            The current run ID. Time travel or a new run changes it; the Flow ID
-            remains stable across runs.
+            The current run ID. A new run changes it; time travel does not. The
+            Flow ID remains stable across runs.
         """
         ...
 
@@ -144,7 +155,8 @@ class Context(Protocol):
         Returns:
             The Step type and execution number encoded by Dex. Retries of the
             same Step execution share it; use attempt to distinguish retries
-            and run_id to distinguish runs.
+            and run_id to distinguish runs. A re-run after time travel keeps
+            the run ID and can reuse this ID, so a key built from both repeats.
         """
         ...
 

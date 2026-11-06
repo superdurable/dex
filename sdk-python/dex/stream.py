@@ -39,8 +39,8 @@ class Stream(Generic[ValueT]):
 
     Step source metadata is #StepExecutionID, not an idempotency key. Every write
     appends, even if another write has the same source. Client writes require a
-    non-empty source and do not require an active Flow. ReadStream-style reads
-    move forward using resume tokens; list_stream_messages returns newest-first
+    non-empty source and do not require an active Flow. ``read_stream`` moves
+    forward using resume tokens; list_stream_messages returns newest-first
     retained pages with exclusive before-page tokens. Trimming can create gaps.
 
     Examples:

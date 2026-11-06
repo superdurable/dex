@@ -90,7 +90,8 @@ class StepDurability(Enum):
     Other interrupted handed-out attempts consume a retry in either mode.
     External side effects must tolerate repetition in both modes.
     Prefer SYNC when repeating an expensive or non-idempotent call is unsafe.
-    Durability changes affect methods scheduled afterward, not active attempts.
+    Durability changes affect methods scheduled afterward, not method calls
+    already in progress, including their retries.
 
     .. versionchanged:: 1.35.0
        Attempt starts follow SYNC or ASYNC durability as well as method results.
@@ -120,7 +121,7 @@ class WaitForFailurePolicy(Enum):
 
 @dataclass(frozen=True)
 class RetryPolicy:
-    """Configure exponential retries for a Step handler or Flow.
+    """Configure exponential retries for a Step method or Flow timeout handler.
 
     A ``None`` duration or zero numeric value uses the server default. The default
     total duration is four hours.
@@ -223,6 +224,10 @@ class StepOptions:
             attempt; ``None`` uses two hours.
         heartbeat_timeout: Handler progress deadline; ``None`` or zero uses
             one minute. The server-configured explicit minimum defaults to ten seconds.
+            The Server rejects a shorter explicit value. ``start_flow`` raises
+            DexServiceError with INVALID_ARGUMENT for the starting Step. A Step
+            movement returned by a handler fails that attempt as an invalid
+            response, and the attempt is retried under its retry policy.
         wait_for_retry: Optional retry policy for ``wait_for``.
         execute_retry: Optional retry policy for ``execute``.
         wait_for_failure: Behavior after all ``wait_for`` attempts fail.
@@ -247,7 +252,7 @@ class StepOptions:
 
     Raises:
         ValueError: When options are mapped with negative, fractional, or oversized
-            durations. Dex rejects an explicit heartbeat timeout below its minimum.
+            durations.
 
     Examples:
         >>> from datetime import timedelta

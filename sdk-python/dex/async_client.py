@@ -341,7 +341,7 @@ class AsyncClient:
         Pass the bound method from the registered Flow instance. RPC timeout and
         Attribute locks come from ``@rpc`` configuration. A non-transactional RPC
         without Attribute locks uses a read-only execution path. If the handler returns no
-        durable effects, a retained terminal execution can serve that query. Locks,
+        durable effects, a retained terminal execution can serve the RPC. Locks,
         transactional execution, returned effects, or server policy can require an
         active execution.
 
@@ -881,19 +881,23 @@ class AsyncClient:
         )
 
     async def time_travel(self, flow_id: str, options: TimeTravelOptions) -> str:
-        """Create a new run from a selected point in existing Flow history.
+        """Re-run a Flow from a selected point in its existing history.
+
+        Time travel keeps the current run ID. It does not create a new run.
+        Re-run Steps can reuse their Step execution IDs. An idempotency key built
+        from the Flow ID, run ID, or Step execution ID therefore repeats.
 
         Args:
-            flow_id: The non-empty Flow ID whose history supplies the new run.
+            flow_id: The non-empty Flow ID to re-run.
             options: Time travel selector, reason, and replay controls.
 
         Returns:
-            The new server-assigned run ID; the Flow ID is unchanged.
+            The run ID, which time travel leaves unchanged.
 
         Raises:
             FlowNotFoundError: If ``flow_id`` does not exist.
             ValueError: If time travel selector fields are invalid.
-            DexServiceError: If FlowService cannot create the new run.
+            DexServiceError: If FlowService cannot perform the time travel.
             RuntimeError: If the Server reports a protocol range without protocol 4.
         """
         request = pb.ResetFlowRequest(

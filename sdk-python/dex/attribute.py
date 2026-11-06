@@ -97,8 +97,7 @@ class AttributeIndex:
     shared index_key. It cannot search every matching map instance. Use a singleton
     KEYWORD_ARRAY Attribute when the search must cover a collection of strings.
 
-    .. versionchanged:: 1.30.0
-       Servers may enforce Attribute index capacity and indexed Keyword byte limits.
+    Servers may enforce Attribute index capacity and indexed Keyword byte limits.
 
     Attributes:
         type: The value representation accepted by the search index.
