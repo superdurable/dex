@@ -41,6 +41,12 @@ Java SDK did not change in that release.
 The Javadoc of every release is on
 [javadoc.io](https://www.javadoc.io/doc/io.superdurable/dex-sdk/latest/index.html).
 
+## RPC stubs and Kotlin {#rpc-stubs-and-kotlin}
+
+**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its
+RPC methods must not be final. Kotlin makes both final by default, so declare
+the Flow class and its RPC methods with **open**.
+
 ## Pages
 
 - [Workers](/reference/java/workers): Java names for Worker readiness,

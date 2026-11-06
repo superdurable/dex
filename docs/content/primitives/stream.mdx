@@ -5,21 +5,57 @@ slug: /primitives/stream
 
 # Stream
 
-**Stream** is a real-time, resumable message delivery channel with best-effort storage. A Step or Client writes messages immediately. A Client reads them in order with a resume token.
+A **Stream** delivers messages from a Flow to a reader in real time. A Step or a
+Client writes messages. A Client reads them in order and can resume where it
+stopped. Dex keeps Stream messages only on a best-effort basis.
 
-Use a Stream for nice-to-have data that improves the user experience but is not business-critical:
+## When to use a Stream
+
+Use a Stream for data that improves the user experience but is not
+business-critical:
 
 - LLM reasoning summaries, generated-text chunks, and agent progress
 - progress bars, diagnostic events, and live previews
 - transient status shown while a Step is still running
 
-A Stream provides best-effort durability only, using an in-memory store. Messages can be lost when trimming runs after the capacity threshold is reached or when the storage backend restarts. Use other primitives such as [Channel](/primitives/channel) and [Attribute](/primitives/attribute) for guaranteed durability.
+Use a [Channel](/primitives/channel) or an [Attribute](/primitives/attribute)
+for data that must not be lost.
 
-## Define and register a Stream
+<a id="semantics"></a>
+<a id="write-semantics"></a>
+<a id="approximate-capacity"></a>
+<a id="best-effort-storage"></a>
 
-A Stream has a stable name, a message type, and **streamCapacityBytes**. streamCapacityBytes is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
+## Guarantees
 
-This example uses a buffered text writer. Dex flushes the accumulated progress before the Step result. The handler does not wait for a Stream Store acknowledgement.
+A Stream gives up durability for speed:
+
+- Dex keeps messages in the memory of the server. A server restart or a standby
+  takeover loses them.
+- Each Stream has a capacity in bytes. When it fills up, Dex removes the oldest
+  messages. A slow reader can miss them.
+- A Step write goes out at once, while the Step still runs. A later Step failure
+  does not roll it back.
+- A failed Stream write never fails the Step.
+- A reader sees messages in the order Dex stored them.
+
+The capacity is shared by all Flow executions with the same Flow type and
+Stream name. It is not a limit for each Flow ID. See [Write semantics](/reference/server/runtime-data#stream-write-semantics),
+[Capacity and trimming](/reference/server/runtime-data#stream-capacity), and
+[Best-effort storage](/reference/server/runtime-data#stream-storage).
+
+<a id="define-and-register-a-stream"></a>
+
+## Define and write a Stream
+
+A Stream has a stable name, a message type, and a capacity. Add it to the Flow
+persistence schema.
+
+<a id="buffer-text-chunks"></a>
+
+This example writes progress text through a buffered text writer. Dex flushes
+the buffered text before the Step result. The Step does not wait for the server
+to store the text. See [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text).
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -217,135 +253,24 @@ impl Step for RenderPreview {
 </SdkSnippet>
 </SdkTabs>
 
-## Semantics
+## Read a Stream
 
-### Write semantics
+A Client has two ways to read a Stream:
 
-A direct Step write has these semantics:
+- <a id="resumable-reads"></a>**ReadStream** reads forward, one message at a time. Each message carries a
+  resume token. Pass the token back to read the next message. When no new
+  message exists, the call waits for one.
+- <a id="listing-messages"></a>**ListStreamMessages** pages backward from the
+  newest message. It returns at once.
 
-- Dex sends it immediately during **WaitFor** or **Execute**. It is not buffered until the Step completes.
-- A later Step failure does not roll the message back.
-- One method invocation can write any number of messages to the same or different Streams. Each write is an implicit heartbeat and preserves the last explicit heartbeat value. The [Polling](/design-patterns/polling) pattern uses these writes to report progress.
-- The SDK only confirms local encoding and delivery to the Worker output stream. A disabled, unavailable, full, or rejecting Stream Store drops the message without failing the Step.
-- Every Step message has source **#StepExecutionID**. Attempts and messages from the same Step execution share that source. Source is informational, not unique, and does not deduplicate retries. After a Dex Server node crashes, an ASYNC Step can also run the same attempt number again, and its batches can repeat in the same source.
+See [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) and
+[List messages](/reference/server/runtime-data#stream-listing).
 
-A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty source for each write. A source may be repeated and may contain **#**; every call appends another message. RPC handlers cannot write through their Context, but they can send Stream messages through an injected Client dependency.
+A Client can also write to a Stream, even when the Flow has closed. An RPC
+handler writes through an injected Client.
 
-Python coroutine Steps call **Stream.write** without **await**. Python synchronous Steps must yield the returned **StepOutput** from a generator. Other SDKs send the frame through their Step Context and return after local enqueueing.
+## Reference
 
-### Buffer text chunks
-
-Use the buffered text writer when many small chunks form one text value, such as LLM deltas. The default flush interval is one second and the soft threshold is 16 KiB of UTF-8 data. A timer, the size threshold, or invocation completion emits the current non-empty batch. The helper preserves text exactly, never splits a chunk, and ignores empty chunks.
-
-Go, Java, Python async, TypeScript, and Rust stop the timer and flush the tail before sending the final result or error. Python sync generators use cooperative elapsed-time checks and must yield from an explicit final flush. An empty buffer does not produce a Stream message or implicit heartbeat. Retry does not restore unsent text, and batches sent before a retry may appear again.
-
-### Resumable reads
-
-**ReadStream** returns one message with its value, resume token, creation time, and source.
-
-- An empty token starts at the current retained head.
-- A token older than the retained head also starts at that head.
-- Pass the returned token unchanged to read the next message.
-- When no next message exists, the call long-polls until a message arrives or the wait expires.
-
-Resume is best effort. A slow reader can miss messages trimmed before its next read.
-
-### Listing messages
-
-Use **ListStreamMessages** to inspect retained messages from newest to oldest. The call is non-blocking. It returns immediately with up to the requested page size.
-
-An empty before-page token starts at the retained tail. Pass the returned next-page token unchanged to read the next older page. The token is exclusive and bound to the Flow type, Flow ID, and Stream name. An empty next-page token marks the final page.
-
-<SdkTabs examples={{
-python: 'examples/python/dex_examples/primitives/stream/controller.py',
-go: 'examples/go/primitives/stream/controller.go',
-java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java',
-typescript: 'examples/typescript/src/primitives/stream/controller.ts',
-rust: 'examples/rust/src/primitives/stream/controller.rs',
-}}>
-<SdkSnippet lang="python">
-
-```python
-        page = await app_state.client.list_stream_messages(
-            required_query("workflowId"),
-            app_state.stream.progress,
-            required_int_query("pageSize"),
-            optional_query("beforePageToken", ""),
-        )
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-	var page sdk.StreamMessagesPage[string]
-	err = controller.client.ListStreamMessages(
-		request.Request.Context(),
-		flowID,
-		Progress,
-		int32(pageSize),
-		request.Query("beforePageToken"),
-		&page,
-	)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-        final StreamMessagesPage<String> page = client.listStreamMessages(
-                workflowId,
-                flow.progress,
-                pageSize,
-                beforePageToken);
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-    const page = await client.listStreamMessages(
-      String(request.query.workflowId ?? ""),
-      progress,
-      Number(request.query.pageSize),
-      String(request.query.beforePageToken ?? ""),
-    );
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-        client
-            .list_stream_messages(
-                &query.workflow_id,
-                &PROGRESS,
-                query.page_size,
-                &query.before_page_token,
-            )
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Listing is a best-effort retained-message snapshot, not a transactional snapshot. New messages appended after the first page do not enter that older-page chain, but trimming can remove messages between calls. If trimming moves the retained head past the page anchor, Dex returns an empty page instead of restarting from the tail.
-
-The server requires a positive page size and caps it with **maxReadMessages**. The default limit is 1000.
-
-Use **ReadStream** for forward, one-message-at-a-time consumption that can long-poll and resume. Use **ListStreamMessages** for reverse, non-blocking pagination over currently retained messages.
-
-### Approximate capacity
-
-**streamCapacityBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
-
-The Dex server calculates the estimated size from each message's serialized value, Flow ID, source, and configured per-message overhead.
-
-When usage reaches the trim trigger threshold, background trimming removes the oldest messages across all instances until usage reaches the trim target threshold. A server runs several trim workers, but each Stream is trimmed by one job at a time. If trimming is too slow and usage reaches the capacity limit (**streamCapacityBytes**), the write request is rejected with **RESOURCE_EXHAUSTED**. The rejection also asks trimming to free room for that message, so a Client can retry the write. A message larger than the Stream's capacity is rejected the same way, but it can never fit, so do not retry it.
-
-The server also limits the size of each Stream message. The default is 100 KiB.
-
-The server caps **streamCapacityBytes** at **streamStore.maxStreamCapacityBytes**, which defaults to 64 MiB. It also caps the memory of all Streams on a server at **streamStore.maxTotalBytes**, which defaults to 1 GiB. A Client write past that total fails with **RESOURCE_EXHAUSTED**, and background trimming then removes the oldest messages of the largest Streams until the message fits. Retry the write after a short delay. See [Streams](/reference/server/configuration#streams).
-
-### Best-effort storage
-
-The Stream Store keeps messages in the memory of the active server process. **streamStore.backend** defaults to **memory** for both **dexcli dev** and a production server. Memory contents disappear when the server process restarts or a standby takes over. Trimming or capacity pressure can also remove or reject messages. An operator can set the backend to **disabled**. Client Stream writes and reads then fail with **FAILED_PRECONDITION**, and Step writes are dropped without failing the Step. See [Streams](/reference/server/configuration#streams).
+[Data primitive semantics](/reference/server/runtime-data#streams) covers write
+semantics, buffered text, reads, listing, capacity, and storage in detail. The
+server settings are in [Streams](/reference/server/configuration#streams).

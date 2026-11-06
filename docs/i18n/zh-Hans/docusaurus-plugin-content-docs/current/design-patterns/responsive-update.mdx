@@ -12,7 +12,7 @@ title: 响应式更新
 - [等待 Attribute 匹配](/design-patterns/responsive-update/attribute-match) 返回当前命中的 Attribute 值。当调用方需要在业务状态变化后刷新时，使用 revision watermark。
 - [等待并流式接收更新](/design-patterns/responsive-update/stream) 会长轮询下一条增量更新，并从 token 继续读取。它适用于进度或持续变化的 feed。
 
-前两种等待观察 durable 状态，不能代替应用超时或最终 Flow 结果。超时与上限见[等待超时与上限](/primitives/client/advanced#wait-timeouts-and-limits)。
+前两种等待观察 durable 状态，不能代替应用超时或最终 Flow 结果。超时与上限见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 相关内容
 

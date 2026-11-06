@@ -1,0 +1,285 @@
+{
+  "/primitives/attribute/": [
+    "define-an-attribute",
+    "attributemap",
+    "initial-attribute-values",
+    "read-from-outside-a-flow",
+    "indexed-attributes",
+    "hard-delete-attributes",
+    "attribute-store-projection",
+    "locking",
+    "whole-map-coordination",
+    "lock-waitfor",
+    "lock-execute",
+    "lock-an-rpc",
+    "rpc-lock-conflicts"
+  ],
+  "/primitives/channel/": [
+    "persistence-schema",
+    "wait-and-consume",
+    "publish-messages",
+    "manage-pending-messages",
+    "channelmap"
+  ],
+  "/primitives/client/advanced/": [
+    "requests-during-flow-close",
+    "wait-for-a-flow",
+    "wait-for-a-step",
+    "wait-for-an-attribute-match",
+    "wait-timeouts-and-limits",
+    "describe-a-flow",
+    "search-flows",
+    "skip-a-timer",
+    "update-flowconfig",
+    "trigger-continue-as-new",
+    "time-travel"
+  ],
+  "/primitives/client/basic/": [
+    "start-a-flow",
+    "stop-a-flow",
+    "invoke-an-rpc",
+    "read-and-write-flow-state",
+    "read-attributes"
+  ],
+  "/primitives/connector/": [
+    "capabilities",
+    "operations-are-connector-steps",
+    "triggers-start-or-update-flows",
+    "connections-and-configuration",
+    "use-or-contribute-a-connector"
+  ],
+  "/primitives/flow/basic/": [
+    "implement-a-flow",
+    "identifiers",
+    "steps",
+    "persistence-schema",
+    "rpc-handlers"
+  ],
+  "/primitives/flow/flow-options/": [
+    "start-flow-options",
+    "timeout-and-timeout-policy",
+    "flow-id-request-id-and-already-started",
+    "how-these-options-work-together",
+    "what-dex-server-does",
+    "start-flow-best-practices",
+    "wait-for-required-milestone",
+    "start-error-reconciliation",
+    "durable-dependent-starts",
+    "retry-policy",
+    "start-delay",
+    "attributes",
+    "flow-config",
+    "update-flow-config-with-a-client"
+  ],
+  "/primitives/rpc/": [
+    "define-and-invoke-an-rpc",
+    "java-and-kotlin",
+    "typescript-codecs",
+    "cancel-running-steps",
+    "cancel-race",
+    "cancel-honour",
+    "read-only-rpcs-and-terminal-flows",
+    "load-collection-state",
+    "runtime-selected-map-instances",
+    "transactional-reads-and-writes",
+    "rpc-timeout",
+    "attribute-locks"
+  ],
+  "/primitives/step/basic/": [
+    "step-input",
+    "waitfor-and-execute",
+    "durable-waitfor",
+    "stepdecision-movements",
+    "stepoptions",
+    "waitfor-failure-policy",
+    "execute-failure-policy",
+    "step-failed-events-and-last-failure-info",
+    "failure-and-redelivery",
+    "heartbeats-not-acknowledged",
+    "same-attempt-redelivery",
+    "unknown-outcome",
+    "design-for-redelivery"
+  ],
+  "/primitives/step/step-decision/": [
+    "gotomulti",
+    "close-decisions",
+    "cancellation-on-stepdecision",
+    "forcecompleteifchannelsempty"
+  ],
+  "/primitives/step/step-options/": [
+    "retry-after",
+    "durability",
+    "heartbeat",
+    "timeouts-and-total-duration",
+    "selective-state-loading",
+    "attribute-locks",
+    "stepoptions-override-per-stepexecution"
+  ],
+  "/primitives/step/waiting-condition/": [
+    "condition-results",
+    "channel-results",
+    "subflow-results",
+    "anycombinationof",
+    "step-execution-local",
+    "skip-immediately"
+  ],
+  "/primitives/stream/": [
+    "define-and-register-a-stream",
+    "semantics",
+    "write-semantics",
+    "buffer-text-chunks",
+    "resumable-reads",
+    "listing-messages",
+    "approximate-capacity",
+    "best-effort-storage"
+  ],
+  "/primitives/subflow/": [
+    "start-and-wait-for-a-subflow",
+    "use-subflows-with-other-conditions",
+    "subflowoptions-and-subflowreusepolicy"
+  ],
+  "/primitives/timer/": [
+    "how-to-skip-a-timer"
+  ],
+  "/zh-Hans/primitives/attribute/": [
+    "define-an-attribute",
+    "attributemap",
+    "initial-attribute-values",
+    "read-from-outside-a-flow",
+    "indexed-attributes",
+    "hard-delete-attributes",
+    "attribute-store-projection",
+    "locking",
+    "whole-map-coordination",
+    "lock-waitfor",
+    "lock-execute",
+    "lock-an-rpc",
+    "rpc-lock-conflicts"
+  ],
+  "/zh-Hans/primitives/channel/": [
+    "persistence-schema",
+    "wait-and-consume",
+    "publish-messages",
+    "manage-pending-messages",
+    "channelmap"
+  ],
+  "/zh-Hans/primitives/client/advanced/": [
+    "requests-during-flow-close",
+    "等待-flow",
+    "wait-for-a-step",
+    "wait-for-an-attribute-match",
+    "wait-timeouts-and-limits",
+    "查看-flow",
+    "搜索-flow",
+    "skip-a-timer",
+    "更新-flowconfig",
+    "触发-continue-as-new",
+    "time-travel"
+  ],
+  "/zh-Hans/primitives/client/basic/": [
+    "启动-flow",
+    "停止-flow",
+    "调用-rpc",
+    "读写-flow-状态",
+    "read-attributes"
+  ],
+  "/zh-Hans/primitives/connector/": [
+    "capabilities",
+    "operation-是-connector-step",
+    "trigger-启动或更新-flow",
+    "connection-与-configuration",
+    "使用或贡献-connector"
+  ],
+  "/zh-Hans/primitives/flow/basic/": [
+    "implement-a-flow",
+    "identifiers",
+    "steps",
+    "persistence-schema",
+    "rpc-handlers"
+  ],
+  "/zh-Hans/primitives/flow/flow-options/": [
+    "start-flow-options",
+    "timeout-and-timeout-policy",
+    "flow-id-request-id-and-already-started",
+    "这些选项如何一起工作",
+    "dex-server-的逻辑",
+    "start-flow-best-practices",
+    "wait-for-required-milestone",
+    "start-error-reconciliation",
+    "durable-dependent-starts",
+    "retry-policy",
+    "start-delay",
+    "attributes",
+    "flow-config",
+    "update-flow-config-with-a-client"
+  ],
+  "/zh-Hans/primitives/rpc/": [
+    "定义和调用-rpc",
+    "java-和-kotlin",
+    "typescript-codec",
+    "cancel-running-steps",
+    "cancel-race",
+    "cancel-honour",
+    "read-only-rpcs-and-terminal-flows",
+    "load-collection-state",
+    "运行时选择-map-instance",
+    "transactional-reads-and-writes",
+    "rpc-timeout",
+    "attribute-locks"
+  ],
+  "/zh-Hans/primitives/step/basic/": [
+    "step-input",
+    "waitfor-and-execute",
+    "stepdecision-movements",
+    "stepoptions",
+    "waitfor-failure-policy",
+    "execute-failure-policy",
+    "step-failed-事件与-last-failure-info",
+    "failure-and-redelivery",
+    "heartbeats-not-acknowledged",
+    "same-attempt-redelivery",
+    "unknown-outcome",
+    "design-for-redelivery"
+  ],
+  "/zh-Hans/primitives/step/step-decision/": [
+    "gotomulti",
+    "close-decisions",
+    "cancellation-on-stepdecision",
+    "forcecompleteifchannelsempty"
+  ],
+  "/zh-Hans/primitives/step/step-options/": [
+    "retry-after",
+    "durability",
+    "heartbeat",
+    "timeouts-and-total-duration",
+    "selective-state-loading",
+    "attribute-locks",
+    "stepoptions-override-per-stepexecution"
+  ],
+  "/zh-Hans/primitives/step/waiting-condition/": [
+    "condition-results",
+    "channel-结果",
+    "subflow-结果",
+    "anycombinationof",
+    "step-execution-local",
+    "skip-immediately"
+  ],
+  "/zh-Hans/primitives/stream/": [
+    "定义并注册-stream",
+    "语义",
+    "写入语义",
+    "buffer-text-chunk",
+    "可续读",
+    "列出消息",
+    "近似容量",
+    "best-effort-storage"
+  ],
+  "/zh-Hans/primitives/subflow/": [
+    "启动并等待-subflow",
+    "与其他-condition-一起使用-subflow",
+    "subflowoptions-和-subflowreusepolicy"
+  ],
+  "/zh-Hans/primitives/timer/": [
+    "如何跳过-timer"
+  ]
+}
