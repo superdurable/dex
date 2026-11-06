@@ -462,12 +462,16 @@ for (const [canonical, {html, route}] of canonicalPages) {
     if (target.origin !== siteOrigin) {
       continue;
     }
+    const isRoute = canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
+      outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, ''));
+    // Archived snapshots are frozen, so their links may reach a moved page through its declared redirect.
+    if (archivedCanonicalUrls.has(canonical)) {
+      const redirectTarget = expectedRedirects.get(routeWithTrailingSlash(target.pathname));
+      assert.ok(isRoute || canonicalPages.has(redirectTarget), `${route} links to missing route ${target.pathname}`);
+      continue;
+    }
     assert.equal(expectedRedirects.has(target.pathname), false, `${route} links to redirect ${target.pathname}`);
-    assert.ok(
-      canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
-        outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')),
-      `${route} links to missing route ${target.pathname}`,
-    );
+    assert.ok(isRoute, `${route} links to missing route ${target.pathname}`);
   }
 }
 

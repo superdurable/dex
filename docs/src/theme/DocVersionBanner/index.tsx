@@ -17,19 +17,21 @@ import {
   useActiveDocContext,
   useVersions,
 } from '@docusaurus/plugin-content-docs/client';
+import {useDropMissingReferenceVersionAnchor} from '@site/src/components/ReferenceVersionSelector';
 import type {Props} from '@theme/DocVersionBanner';
 
 function ReferenceVersionBanner({pluginId, className}: Props & {pluginId: string}): ReactNode {
   const versions = useVersions(pluginId);
   const {activeVersion, alternateDocVersions} = useActiveDocContext(pluginId);
   const latestVersion = versions.find((version) => version.isLast)!;
+  useDropMissingReferenceVersionAnchor();
   if (!activeVersion || activeVersion.isLast) {
     return null;
   }
   const latestDoc = alternateDocVersions[latestVersion.name] ??
     latestVersion.docs.find((doc) => doc.id === latestVersion.mainDocId)!;
   return <div className={`alert alert--warning margin-bottom--md ${className ?? ''}`}
-    data-reference-version-banner role="status">
+    data-reference-version-banner role="note">
     <Translate id="reference.version.banner"
       description="Notice on an older Developer reference version"
       values={{version: activeVersion.label, latest: <Link to={latestDoc.path}>

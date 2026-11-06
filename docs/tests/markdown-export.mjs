@@ -134,9 +134,9 @@ try {
     i18n: {currentLocale: 'zh-Hans', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
     routesPaths: ['/zh-Hans/', '/zh-Hans/translated/', '/zh-Hans/reference/go/1.32/', '/zh-Hans/cloud/'],
     allContent: {'docusaurus-plugin-content-docs': {
-      primary: {loadedVersions: [{contentPath, contentPathLocalized, sidebars, docs: [fallback, translated]}]},
-      'reference-go': {loadedVersions: [{contentPath, contentPathLocalized, docs: [earlier]},
-        {contentPath, contentPathLocalized, docs: [{...earlier, permalink: '/zh-Hans/reference/go/1.33/'}]}]},
+      primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars, docs: [fallback, translated]}]},
+      'reference-go': {loadedVersions: [{isLast: false, contentPath, contentPathLocalized, docs: [earlier]},
+        {isLast: true, contentPath, contentPathLocalized, docs: [{...earlier, permalink: '/zh-Hans/reference/go/1.33/'}]}]},
     }}};
   await exportMarkdown(options);
   const home = await readFile(join(outDir, 'index.md'), 'utf8');
@@ -183,14 +183,16 @@ try {
   assert.match(await readFile(join(outDir, 'reference/go/1.32.md'), 'utf8'), /# Earlier version/);
   const index = await readFile(join(outDir, 'llms.txt'), 'utf8');
   assert.match(index, /^# Fixture\n\n> Dex 是 Durable Execution 平台。/);
-  assert.equal((index.match(/^-/gm) ?? []).length, 4);
+  // Archived versions keep their Markdown twin but stay out of llms.txt.
+  assert.equal((index.match(/^-/gm) ?? []).length, 3);
+  assert.doesNotMatch(index, /1\.32\.md/);
   assert.ok(index.indexOf('## 参考\n\n- [Translated]') < index.indexOf('## Home\n\n- [Home]'), 'llms.txt must follow sidebar order');
-  assert.match(index, /## 其他页面\n\n- \[Go reference\].*1.32.md\): The Go reference meta description./);
+  assert.match(index, /## 其他页面\n\n- \[Go reference\].*1.33.md\): The Go reference meta description./);
   assert.doesNotMatch(index, /Ignored front matter description/);
 
   const english = {...options, baseUrl: '/', outDir: join(siteDir, 'build'), routesPaths: ['/', '/translated/'],
     i18n: {currentLocale: 'en', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
-    allContent: {'docusaurus-plugin-content-docs': {primary: {loadedVersions: [{contentPath, contentPathLocalized, sidebars,
+    allContent: {'docusaurus-plugin-content-docs': {primary: {loadedVersions: [{isLast: true, contentPath, contentPathLocalized, sidebars,
       docs: [{...fallback, permalink: '/'}, {...translated, source: '@site/reference/translated.mdx', permalink: '/translated/'}]}]}}}};
   await writeFile(join(contentPath, 'index.mdx'), '# Home\n\n:::caution\n\nCareful.\n\n:::\n\n:::tip Short title\n\nTip.\n\n:::\n\n[Chinese](/zh-Hans/translated/)\n\n[Go API](/api/go/1.33/)\n');
   await exportMarkdown(english);

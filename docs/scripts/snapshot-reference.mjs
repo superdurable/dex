@@ -1,7 +1,16 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
 import {spawnSync} from 'node:child_process';
 import {readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {basename, dirname, extname, join, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {GlobExcludeDefault, Globby} from '@docusaurus/utils';
 import matter from 'gray-matter';
 import slugModule from '@docusaurus/plugin-content-docs/lib/slug.js';
 import {DefaultNumberPrefixParser, stripPathNumberPrefixes} from '@docusaurus/plugin-content-docs/lib/numberPrefix.js';
@@ -43,14 +52,28 @@ export async function snapshotReference(component, releaseVersion, {
     throw new Error(`Unknown reference component: ${component}`);
   }
   const version = referenceVersion(component, releaseVersion);
-  if (compareVersions(version, latestVersions[component]) < 0) {
-    throw new Error(`Cannot replace latest ${latestVersions[component]} with older ${version}`);
+  const latestVersion = latestVersions[component];
+  const versionOrder = compareVersions(version, latestVersion);
+  if (versionOrder < 0) {
+    throw new Error(`Cannot replace latest ${latestVersion} with older ${version}`);
   }
   const versionsPath = join(siteDirectory, `reference-${component}_versions.json`);
-  const previousVersions = await readOptionalVersions(versionsPath);
-  if (!previousVersions.includes(version)) {
-    await createSnapshot(siteDirectory, component, version);
+  let previousVersions = await readOptionalVersions(versionsPath);
+  if (versionOrder > 0 && !previousVersions.includes(latestVersion)) {
+    throw new Error(`Cannot snapshot ${component} ${version}: the hidden snapshot of the latest ${latestVersion} is missing. `
+      + `Create it first from the ${latestVersion} reference content with `
+      + `"node scripts/snapshot-reference.mjs ${component} ${latestVersion}" (see docs/README.md).`);
   }
+  if (previousVersions.includes(version)) {
+    if (versionOrder > 0) {
+      throw new Error(`Snapshot ${component} ${version} exists but is newer than the latest ${latestVersion}`);
+    }
+    // A patch release refreshes the hidden latest snapshot with the current content.
+    await removeSnapshot(siteDirectory, component, version);
+    previousVersions = previousVersions.filter((previousVersion) => previousVersion !== version);
+    await writeJSON(versionsPath, previousVersions);
+  }
+  await createSnapshot(siteDirectory, component, version);
   const allVersions = [...new Set([version, ...previousVersions])]
     .sort((first, second) => compareVersions(second, first));
   const retainedVersions = allVersions.slice(0, retainedVersionCount);
@@ -70,10 +93,48 @@ export async function snapshotReference(component, releaseVersion, {
   await writeJSON(versionsPath, retainedVersions);
   await writeJSON(sharedVersionsPath, {...latestVersions, [component]: version});
   for (const droppedVersion of droppedVersions) {
-    await rm(snapshotDirectory(siteDirectory, component, droppedVersion), {recursive: true});
-    await rm(join(siteDirectory, `reference-${component}_versioned_sidebars/version-${droppedVersion}-sidebars.json`));
+    await removeSnapshot(siteDirectory, component, droppedVersion);
   }
   return {component, version, retainedVersions, droppedVersions};
+}
+
+/**
+ * Rewrites links to a moved page in every retained reference snapshot.
+ *
+ * @returns {Promise<string[]>} The changed snapshot files, relative to the site directory.
+ */
+export async function rewriteSnapshotLinks(fromPath, toPath, {siteDirectory = docsDirectory} = {}) {
+  for (const path of [fromPath, toPath]) {
+    if (!/^\/[^\s#?]*$/.test(path)) {
+      throw new Error(`Link rewrites need site paths without anchors or queries: ${path}`);
+    }
+  }
+  const fromRoute = fromPath.replace(/\/+$/, '');
+  if (!fromRoute) {
+    throw new Error('Cannot rewrite links to the site root');
+  }
+  const toRoute = toPath.replace(/\/+$/, '');
+  const linkPattern = new RegExp(`(?<=^|[\\s("'\\[=])${escapeRegExp(fromRoute)}(/?)(?=$|[\\s)"'\\]#?])`, 'gm');
+  const changedFiles = [];
+  for (const entry of await readdir(siteDirectory, {withFileTypes: true})) {
+    if (!entry.isDirectory() || !/^reference-[a-z]+_versioned_(?:docs|sidebars)$/.test(entry.name)) {
+      continue;
+    }
+    for (const source of await Globby(['**/*.{md,mdx,json}'], {cwd: join(siteDirectory, entry.name)})) {
+      const path = join(siteDirectory, entry.name, source);
+      const content = await readFile(path, 'utf8');
+      const rewritten = content.replace(linkPattern, (_match, trailingSlash) => `${toRoute}${trailingSlash || (toRoute ? '' : '/')}`);
+      if (rewritten !== content) {
+        await writeFile(path, rewritten);
+        changedFiles.push(relative(siteDirectory, path).split('\\').join('/'));
+      }
+    }
+  }
+  return changedFiles.sort();
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function droppedVersionRedirects(component, version, droppedDocuments, latestDocuments) {
@@ -114,7 +175,9 @@ function redirectKey(path) {
 
 export async function readReferenceDocuments(directory) {
   const documents = [];
-  for (const source of await markdownFiles(directory)) {
+  // Match the Docusaurus docs plugin's default include and exclude patterns.
+  const sources = await Globby(['**/*.{md,mdx}'], {cwd: directory, ignore: GlobExcludeDefault});
+  for (const source of sources.sort()) {
     const {data: frontMatter} = matter(await readFile(join(directory, source), 'utf8'));
     const sourceDirName = dirname(source);
     const filename = basename(source, extname(source));
@@ -127,19 +190,6 @@ export async function readReferenceDocuments(directory) {
       frontMatterSlug: frontMatter.slug, stripDirNumberPrefixes: shouldParseNumberPrefixes});
     documents.push({id: [directoryId === '.' ? '' : directoryId, baseID].filter(Boolean).join('/'),
       slug: `${slug.replace(/\/+$/, '')}/`});
-  }
-  return documents;
-}
-
-async function markdownFiles(directory, rootDirectory = directory) {
-  const documents = [];
-  for (const entry of await readdir(directory, {withFileTypes: true})) {
-    const entryPath = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      documents.push(...await markdownFiles(entryPath, rootDirectory));
-    } else if (/\.mdx?$/.test(entry.name)) {
-      documents.push(relative(rootDirectory, entryPath).split('\\').join('/'));
-    }
   }
   return documents;
 }
@@ -159,6 +209,11 @@ function snapshotDirectory(siteDirectory, component, version) {
   return join(siteDirectory, `reference-${component}_versioned_docs/version-${version}`);
 }
 
+async function removeSnapshot(siteDirectory, component, version) {
+  await rm(snapshotDirectory(siteDirectory, component, version), {recursive: true});
+  await rm(join(siteDirectory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`));
+}
+
 function runDocusaurusVersion(siteDirectory, component, version) {
   const result = spawnSync(process.execPath, [join(docsDirectory, 'node_modules/@docusaurus/core/bin/docusaurus.mjs'),
     `docs:version:reference-${component}`, version], {cwd: siteDirectory, stdio: 'inherit'});
@@ -175,9 +230,12 @@ async function writeJSON(path, value) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(process.argv[1], 'file:///'))) {
-  const [component, version, ...extraArguments] = process.argv.slice(2);
-  if (!component || !version || extraArguments.length) {
-    throw new Error('Usage: node scripts/snapshot-reference.mjs <component> <version>');
+  const commandArguments = process.argv.slice(2);
+  if (commandArguments[0] === '--rewrite-links' && commandArguments.length === 3) {
+    console.log(JSON.stringify(await rewriteSnapshotLinks(commandArguments[1], commandArguments[2])));
+  } else if (commandArguments.length === 2 && !commandArguments[0].startsWith('-')) {
+    console.log(JSON.stringify(await snapshotReference(commandArguments[0], commandArguments[1])));
+  } else {
+    throw new Error('Usage: node scripts/snapshot-reference.mjs <component> <version> | --rewrite-links <from> <to>');
   }
-  console.log(JSON.stringify(await snapshotReference(component, version)));
 }

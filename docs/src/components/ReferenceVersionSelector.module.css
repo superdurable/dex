@@ -20,8 +20,18 @@
   font-size: 0.875rem;
 }
 
+.controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.controls button {
+  min-height: 2.75rem;
+}
+
 .selector select {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: 2.75rem;
   border: 1px solid var(--ifm-color-emphasis-400);
   border-radius: var(--ifm-global-radius);

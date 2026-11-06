@@ -37,6 +37,7 @@
     "@docusaurus/module-type-aliases": "3.8.1",
     "@docusaurus/tsconfig": "3.8.1",
     "@docusaurus/types": "3.8.1",
+    "@docusaurus/utils": "3.8.1",
     "@types/dagre": "^0.7.52",
     "gray-matter": "4.0.3",
     "remark-frontmatter": "5.0.0",

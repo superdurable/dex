@@ -150,22 +150,23 @@ jobs:
           done
 
   snapshot-references:
-    name: Propose released reference snapshots
+    name: Push released reference snapshots
     needs: [plan, create-releases]
     if: >-
       needs.plan.outputs.go == 'true' || needs.plan.outputs.python == 'true' ||
       needs.plan.outputs.java == 'true' || needs.plan.outputs.typescript == 'true' ||
       needs.plan.outputs.rust == 'true' || needs.plan.outputs.web == 'true' ||
       needs.plan.outputs.cli == 'true'
+    # A snapshot failure must never fail the release run.
+    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: npm
           cache-dependency-path: docs/package-lock.json
       - name: Install docs dependencies
@@ -189,35 +190,45 @@ jobs:
           done
       - name: Check snapshots
         run: npm run check --prefix docs
-      - name: Open reference snapshot pull request
+      # GITHUB_TOKEN cannot open pull requests here, and its pull requests would not trigger CI.
+      # A GitHub App token would let this step open the pull request itself.
+      - name: Push snapshot branch
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.plan.outputs.version }}
         run: |
           git add docs
           if git diff --cached --quiet; then
+            echo "No reference snapshot changes for ${RELEASE_VERSION}." >> "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
           branch="automation/reference-snapshots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git switch -c "${branch}"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m "docs: snapshot released component references ${RELEASE_VERSION}"
+          git commit -m "docs: snapshot component references ${RELEASE_VERSION}"
           git push origin "${branch}"
-          description="$(mktemp)"
-          cat > "${description}" <<'BODY'
-          ## Summary
-          Snapshot the released component references, update their latest labels, and retain the five newest releases.
-
-          ## Why
-          The component release completed. Preserve its reference content for readers selecting an older version after the next release.
-
-          ## Testing
-          Ran the docs typecheck, snapshot fixtures, production builds for both locales, and route and search-index audit.
-          BODY
-          gh pr create --base main --head "${branch}" \
-            --title "docs: snapshot component references ${RELEASE_VERSION}" \
-            --body-file "${description}"
+          compare_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+          {
+            echo "## Reference snapshots for ${RELEASE_VERSION}"
+            echo
+            echo "Pushed \`${branch}\`. Open its pull request: ${compare_url}"
+            echo
+            echo "Merge reference snapshot branches in release order."
+            echo
+            echo '```text'
+            git show --stat --format='%s' HEAD
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Report snapshot failure
+        if: failure()
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          {
+            echo "## Reference snapshots for ${RELEASE_VERSION} failed"
+            echo
+            echo "The release is unaffected. Run the snapshot from docs/README.md by hand and open its pull request."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   publish-java:
     name: Publish Java SDK

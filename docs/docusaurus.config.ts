@@ -180,10 +180,10 @@ const config: Config = {
         editUrl: 'https://github.com/superdurable/dex/tree/main/docs/',
         lastVersion: 'current',
         versions: {
-          current: {label: `${referenceVersions[component]} (latest)`, path: '', banner: 'none'},
+          current: {label: `${referenceVersions[component]} (latest)`, path: '', banner: 'none', badge: false},
           ...Object.fromEntries(referenceSnapshots(component).map((version) => [
             version,
-            {label: version, path: version, banner: 'unmaintained', noIndex: true},
+            {label: version, path: version, banner: 'unmaintained', badge: false, noIndex: true},
           ])),
         },
         onlyIncludeVersions: ['current', ...referenceSnapshots(component).filter(

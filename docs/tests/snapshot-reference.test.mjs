@@ -1,3 +1,11 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
 import assert from 'node:assert/strict';
 import {cp, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -5,7 +13,7 @@ import {join} from 'node:path';
 import test from 'node:test';
 import {
   droppedVersionRedirects, readReferenceDocuments, referenceVersion,
-  retargetRedirects, snapshotReference,
+  retargetRedirects, rewriteSnapshotLinks, snapshotReference,
 } from '../scripts/snapshot-reference.mjs';
 
 test('release versions follow component boundaries', () => {
@@ -42,6 +50,9 @@ test('snapshot retains five releases, prunes files, flattens redirects, and leav
     await mkdir(join(latestDirectory, '01-guide'), {recursive: true});
     await writeFile(join(latestDirectory, 'index.mdx'), '---\nslug: /\n---\n# Web');
     await writeFile(join(latestDirectory, '01-guide/02-worker.mdx'), '---\nid: worker\nslug: new-name\n---\n# Worker');
+    await writeFile(join(latestDirectory, '01-guide/_partial.mdx'), '# Partial');
+    await mkdir(join(latestDirectory, '_drafts'));
+    await writeFile(join(latestDirectory, '_drafts/draft.mdx'), '# Draft');
     await writeFile(join(siteDirectory, 'reference/versions.json'), JSON.stringify({web: '1.35.x', go: '1.35.x'}));
     await writeFile(join(siteDirectory, 'redirects.json'), JSON.stringify([
       {from: '/legacy/', to: '/reference/web/1.28.x/guide/old-name'},
@@ -77,10 +88,70 @@ test('snapshot retains five releases, prunes files, flattens redirects, and leav
     assert.deepEqual(await readReferenceDocuments(latestDirectory), [
       {id: 'guide/worker', slug: '/guide/new-name/'}, {id: 'index', slug: '/'},
     ]);
-    await snapshotReference('web', '1.36.1', {siteDirectory, createSnapshot});
-    assert.equal(snapshotCount, 1, 'patch releases and retries must not make another snapshot');
+    await writeFile(join(latestDirectory, 'patched.mdx'), '# Patched');
+    const patchResult = await snapshotReference('web', '1.36.1', {siteDirectory, createSnapshot});
+    assert.equal(snapshotCount, 2, 'a patch release must refresh the hidden latest snapshot');
+    assert.deepEqual(patchResult.retainedVersions, ['1.36.x', '1.35.x', '1.32.x', '1.30.x', '1.29.x']);
+    assert.deepEqual(patchResult.droppedVersions, []);
+    assert.equal(await readFile(join(siteDirectory, 'reference-web_versioned_docs/version-1.36.x/patched.mdx'), 'utf8'), '# Patched');
+    assert.deepEqual(JSON.parse(await readFile(join(siteDirectory, 'reference-web_versions.json'), 'utf8')),
+      ['1.36.x', '1.35.x', '1.32.x', '1.30.x', '1.29.x']);
     await assert.rejects(snapshotReference('web', '1.32.0', {siteDirectory, createSnapshot}), /older/);
     await assert.rejects(snapshotReference('../invalid', '1.36.0', {siteDirectory, createSnapshot}), /Unknown/);
+    await assert.rejects(snapshotReference('go', '1.36.0', {siteDirectory, createSnapshot}),
+      /hidden snapshot of the latest 1\.35\.x is missing.*snapshot-reference\.mjs go 1\.35\.x/);
+    assert.equal(snapshotCount, 2, 'a missing hidden latest snapshot must stop before snapshotting');
+  } finally {
+    await rm(siteDirectory, {recursive: true, force: true});
+  }
+});
+
+test('bootstrap snapshot of the latest label stays hidden and enables the next release', async () => {
+  const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-bootstrap-'));
+  try {
+    await mkdir(join(siteDirectory, 'reference/server'), {recursive: true});
+    await writeFile(join(siteDirectory, 'reference/server/index.mdx'), '---\nslug: /\n---\n# Server');
+    await writeFile(join(siteDirectory, 'reference/versions.json'), JSON.stringify({server: '0.1.19'}));
+    await writeFile(join(siteDirectory, 'redirects.json'), '[]');
+    const createSnapshot = async (directory, component, version) => {
+      await cp(join(directory, 'reference', component), join(directory, `reference-${component}_versioned_docs/version-${version}`), {recursive: true});
+      await mkdir(join(directory, `reference-${component}_versioned_sidebars`), {recursive: true});
+      await writeFile(join(directory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`), '{}');
+    };
+    await assert.rejects(snapshotReference('server', '0.1.20', {siteDirectory, createSnapshot}), /0\.1\.19 is missing/);
+    assert.deepEqual((await snapshotReference('server', 'v0.1.19', {siteDirectory, createSnapshot})).retainedVersions, ['0.1.19']);
+    assert.deepEqual((await snapshotReference('server', '0.1.20', {siteDirectory, createSnapshot})).retainedVersions, ['0.1.20', '0.1.19']);
+    assert.deepEqual(JSON.parse(await readFile(join(siteDirectory, 'reference/versions.json'), 'utf8')), {server: '0.1.20'});
+  } finally {
+    await rm(siteDirectory, {recursive: true, force: true});
+  }
+});
+
+test('link rewrites update whole paths in retained snapshots only', async () => {
+  const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-links-'));
+  try {
+    const snapshot = join(siteDirectory, 'reference-go_versioned_docs/version-1.32.x');
+    await mkdir(snapshot, {recursive: true});
+    await mkdir(join(siteDirectory, 'reference-go_versioned_sidebars'));
+    await mkdir(join(siteDirectory, 'reference/go'), {recursive: true});
+    await writeFile(join(snapshot, 'index.mdx'), [
+      '[a](/primitives/old) [b](/primitives/old/#retry) <Link to="/primitives/old/">c</Link>',
+      '[keep](/primitives/older) [keep](/x/primitives/old) [ref]: /primitives/old',
+    ].join('\n'));
+    await writeFile(join(siteDirectory, 'reference-go_versioned_sidebars/version-1.32.x-sidebars.json'),
+      '{"docs": [{"type": "link", "href": "/primitives/old"}]}');
+    await writeFile(join(siteDirectory, 'reference/go/index.mdx'), '[a](/primitives/old)');
+    const changedFiles = await rewriteSnapshotLinks('/primitives/old/', '/primitives/new', {siteDirectory});
+    assert.deepEqual(changedFiles, [
+      'reference-go_versioned_docs/version-1.32.x/index.mdx',
+      'reference-go_versioned_sidebars/version-1.32.x-sidebars.json',
+    ]);
+    assert.equal(await readFile(join(snapshot, 'index.mdx'), 'utf8'), [
+      '[a](/primitives/new) [b](/primitives/new/#retry) <Link to="/primitives/new/">c</Link>',
+      '[keep](/primitives/older) [keep](/x/primitives/old) [ref]: /primitives/new',
+    ].join('\n'));
+    assert.equal(await readFile(join(siteDirectory, 'reference/go/index.mdx'), 'utf8'), '[a](/primitives/old)');
+    await assert.rejects(rewriteSnapshotLinks('/a#b', '/c', {siteDirectory}), /without anchors/);
   } finally {
     await rm(siteDirectory, {recursive: true, force: true});
   }
