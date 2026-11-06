@@ -8,11 +8,11 @@ title: 等待 Attribute 匹配
 
 常见做法是定义一个初始值为 0 的整数 revision Attribute。所有推进相关状态的 Step 和 RPC 都声明同一个 Attribute lock。在锁内读取 revision、加一、写入业务状态，再写入新的 revision。
 
-调用方等待 revision 大于上次观察到的值。等待会返回当前命中的 revision。随后，调用方通过自己的 Describe 或 read RPC 读取新状态，也可以用 [GetAttributes](/primitives/client/basic#read-attributes) 直接读取 Attribute。
+调用方等待 revision 大于上次观察到的值。等待会返回当前命中的 revision。随后，调用方通过自己的 Describe 或 read RPC 读取新状态，也可以用 [GetAttributes](/reference/server/runtime-client#read-attributes) 直接读取 Attribute。
 
 Revision 是 watermark，不是事件流。如果状态快速地从 0 变成 1、2、3，一次等待大于 0 的调用可能直接返回 3。调用方不能假设会观察到每个中间值。
 
-在 HTTP 或 admission 边界应设置 **RequestTimeout**。见[等待超时与上限](/primitives/client/advanced#wait-timeouts-and-limits)。
+在 HTTP 或 admission 边界应设置 **RequestTimeout**。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 在锁内推进 revision
 
@@ -262,9 +262,9 @@ let job_info: JobPost = client.invoke_rpc_without_input(&flow_id, GET_JOB_POST)?
 </SdkSnippet>
 </SdkTabs>
 
-支持的 operator、被拒绝的比较类型和 active Flow 规则见[等待 Attribute 匹配](/primitives/client/advanced#wait-for-an-attribute-match)。
+支持的 operator、被拒绝的比较类型和 active Flow 规则见[等待 Attribute 匹配](/reference/server/runtime-client#wait-for-an-attribute-match)。
 
 ## 相关内容
 
 - [Attribute](/primitives/attribute)
-- [Client 高级操作](/primitives/client/advanced)
+- [Client](/primitives/client)

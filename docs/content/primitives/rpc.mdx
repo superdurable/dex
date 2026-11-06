@@ -7,17 +7,49 @@ import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDia
 
 # RPC
 
-RPC stands for “Remote Procedure Call”. It allows external systems to interact with a Flow execution.
+An **RPC** (Remote Procedure Call) lets code outside a Flow interact with a
+running Flow execution. A web handler, another service, or an operator tool
+calls it through a [Client](/primitives/client).
 
-A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Worker** runs it, then returns the result to **Dex Server** to persist. **Dex Server** then returns the output to the **Client**.
+A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The
+**Worker** runs it, then returns the result to **Dex Server** to persist. **Dex
+Server** then returns the output to the **Client**.
 
 <RpcRequestDiagram markdownDescription="A Client sends an RPC request to Dex Server, which routes it to the Application Worker. The Worker returns the result through Dex Server to the Client." />
 
-## Define and Invoke an RPC
+## When to use an RPC
 
-RPC can read and write durable state through Attributes, publish Channels, and trigger a brand-new Step to run.
+Use an RPC when something outside the Flow must change it or ask it a question.
+Examples are an approval, a user who presses Stop, or a request for a view of
+the Flow's state.
 
-Each RPC invocation is a commit boundary. Dex Server stages the Attribute writes and Channel publications from the RPC, then commits them together with the RPC result only after the method returns successfully. If the RPC fails, none of those durable changes are committed. External API calls are outside this atomic boundary.
+An RPC handler can do four things:
+
+- read and write [Attributes](/primitives/attribute);
+- publish messages to a [Channel](/primitives/channel);
+- start new [Steps](/primitives/step);
+- cancel running Steps.
+
+<a id="read-only-rpcs-and-terminal-flows"></a>
+
+For a plain read, a Client can skip the RPC. See
+[when a read needs an RPC](/primitives/client#related-primitives).
+See [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows).
+
+## Guarantees
+
+Each RPC invocation commits like a Step method: its Attribute writes and Channel
+publications commit with its result, only on success. See
+[Step guarantees](/primitives/step#guarantees).
+
+<a id="rpc-timeout"></a>
+
+An RPC runs on a Worker, like a Step. A timeout limits each handler invocation.
+See [RPC timeout](/reference/server/runtime-data#rpc-timeout).
+
+## Define and invoke an RPC
+
+This RPC writes an Attribute, publishes a Channel message, and starts a Step:
 
 <SdkTabs
   examples={{
@@ -103,15 +135,7 @@ impl RpcFlow {
 </SdkSnippet>
 </SdkTabs>
 
-### Java and Kotlin
-
-**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its RPC methods must not be final. Kotlin makes both final by default, so declare the Flow class and its RPC methods with **open**.
-
-### TypeScript codecs
-
-TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide a codec when the input or output is not JSON, including scalar values such as strings, numbers, booleans, and bigints.
-
-Then invoke the RPC like below example:
+Then invoke the RPC from a Client:
 
 <SdkTabs
   examples={{
@@ -166,581 +190,56 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+<a id="java-and-kotlin"></a>
+<a id="typescript-codecs"></a>
+
+Java, Kotlin, and TypeScript have extra RPC rules. See
+[RPC stubs and Kotlin](/reference/java/#rpc-stubs-and-kotlin) and
+[RPC codecs](/reference/typescript/#rpc-codecs).
+
 ## Cancel running Steps {#cancel-running-steps}
 
-An RPC result can cancel active Steps of its Flow. Use it when a request from outside makes work in progress pointless, such as a user who presses Stop while a report or a model call runs.
-
-Select the Steps by Step type: **with_canceling_steps** in Python, **CancelSteps** in Go, **withCancelingSteps** in Java, **cancelingSteps** in TypeScript, and **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no parent Step execution, so it cannot cancel sibling Steps. A Step can cancel other Steps the same way from its [StepDecision](/primitives/step/step-decision#cancellation-on-stepdecision).
-
-In the example, **GenerateReport** writes a report section by section. The **stop_report** RPC cancels it and starts **FinishReportStop**.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
-    go: 'examples/go/primitives/rpc-canceling-steps',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
-    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
-    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-@rpc(timeout=timedelta(seconds=30))
-def stop_report(self, context: Context, input: None) -> RPCResult[bool]:
-    if REPORT_STATUS.get(context) in (REPORT_READY, REPORT_STOPPED):
-        return RPCResult(False)
-    return RPCResult(
-        True,
-        next_steps=(StepMovement.of(FinishReportStop, None),),
-    ).with_canceling_steps(GenerateReport)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (*ReportGenerationFlow) StopReport(ctx dex.Context, _ dex.None) (*dex.RPCResult[bool], error) {
-	status, err := getReportStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if status == ReportReady || status == ReportStopped {
-		return &dex.RPCResult[bool]{Output: false}, nil
-	}
-	result := &dex.RPCResult[bool]{
-		Output:    true,
-		NextSteps: []dex.StepMovement{dex.MovementOf(FinishReportStop{}, nil)},
-	}
-	return result.CancelSteps(GenerateReport{}), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@RPC(timeoutSeconds = 30)
-public RPCResult<Boolean> stopReport(final Context context) {
-    final String status = reportStatus.get(context);
-    if (REPORT_READY.equals(status) || REPORT_STOPPED.equals(status)) {
-        return RPCResult.of(false);
-    }
-    return RPCResult.of(true, StepMovement.of(FinishReportStop.class, null))
-            .withCancelingSteps(GenerateReport.class);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-@rpc({ inputCodec: voidCodec, outputCodec: booleanCodec, timeoutMs: 30_000 })
-public stopReport(context: Context, _input: void): RPCResult<boolean> {
-  const status = reportStatus.get(context);
-  if (status === REPORT_READY || status === REPORT_STOPPED) {
-    return { output: false };
-  }
-  return {
-    output: true,
-    nextSteps: [StepMovement.of(FinishReportStop, undefined)],
-    cancelingSteps: [GenerateReport],
-  };
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn stop_report(&self, context: &mut Context, _input: ()) -> HandlerResult<RpcResult<bool>> {
-    let status = REPORT_STATUS.get(context)?;
-    if matches!(status.as_deref(), Some(REPORT_READY | REPORT_STOPPED)) {
-        return Ok(RpcResult::new(false));
-    }
-    Ok(RpcResult::new(true)
-        .then(StepMovement::to(&self.finish_report_stop, ()))
-        .cancel_step(&self.generate_report))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Dex applies the cancellation when it commits the RPC. It commits the RPC's Attribute writes and Channel publications first, then cancels, then starts the RPC's next Steps. All of it commits together, or none of it does. The RPC's own next Steps are not canceled, even when they have a selected Step type. A selected Step that has already finished is skipped, and so is a type with no active Step.
-
-Cancellation ends every active Step of a selected type: one that waits, one that waits for a retry, and one whose attempt runs on a Worker. For a running attempt, Dex sends a cancellation to that Worker. A canceled Step is not retried, and its failure route does not run. Dex discards anything the canceled attempt returns later, including its StepDecision and Attribute writes.
-
-### Resolve the race from committed state {#cancel-race}
-
-The RPC handler reads a snapshot of the Flow when it starts. Dex commits its result later. The Steps to cancel are chosen at commit time, not from the snapshot. Between the two, a selected Step can finish and commit its own result. Then the cancellation finds nothing to cancel. A new Step of a selected type can also start, and the cancellation ends it too. Dex does not reject the RPC in either case. So the handler cannot assume that the Step it saw is still running, or that its work did not commit.
-
-Do not decide the outcome in the RPC handler. Start a follow-up Step from the RPC, and let it read the committed state. In the example, **FinishReportStop** checks whether the report committed before the cancellation. If it did, the Stop came too late, and the Flow delivers the report. Otherwise, it records that the report stopped.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
-    go: 'examples/go/primitives/rpc-canceling-steps',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
-    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
-    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: None) -> StepDecision:
-    # The report can commit after stop_report read its snapshot.
-    if REPORT_STATUS.get(context) == REPORT_READY:
-        return dead_end()
-    REPORT_STATUS.set(context, REPORT_STOPPED)
-    return graceful_complete(REPORT_STOPPED)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (FinishReportStop) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	status, err := getReportStatus(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// The report can commit after StopReport read its snapshot.
-	if status == ReportReady {
-		return dex.DeadEnd(), nil
-	}
-	if err := ReportStatus.Set(ctx, ReportStopped); err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(ReportStopped), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Void input) {
-    // The report can commit after stopReport read its snapshot.
-    if (REPORT_READY.equals(reportStatus.get(context))) {
-        return StepDecision.deadEnd();
-    }
-    reportStatus.set(context, REPORT_STOPPED);
-    return StepDecision.gracefulComplete(REPORT_STOPPED);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(context: Context, _input: void): StepDecision {
-  // The report can commit after stopReport read its snapshot.
-  if (reportStatus.get(context) === REPORT_READY) {
-    return deadEnd();
-  }
-  reportStatus.set(context, REPORT_STOPPED);
-  return gracefulComplete(REPORT_STOPPED);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-    // The report can commit after stop_report read its snapshot.
-    if REPORT_STATUS.get(context)?.as_deref() == Some(REPORT_READY) {
-        return Ok(StepDecision::dead_end());
-    }
-    REPORT_STATUS.set(context, REPORT_STOPPED.to_string())?;
-    Ok(StepDecision::graceful_complete(REPORT_STOPPED.to_string()))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-[Attribute locks](/primitives/attribute#locking) do not close this gap on their own. They serialize the RPC only with Step methods that declare the same locks.
-
-### Make the Step stop {#cancel-honour}
-
-Dex cannot stop code that ignores cancellation. The Step code must check for it and return:
-
-- Python: with **AsyncWorker**, Dex cancels the handler's task, so the next await raises **CancelledError**. With **Worker**, the handler runs on a thread and must check **is_cancellation_requested**.
-- Go: Dex cancels the handler's **Context**. Pass it to calls that accept a context, or select on **Done**.
-- Java: Dex interrupts the handler thread. Blocking calls throw **InterruptedException**, and **isCancellationRequested** returns true.
-- TypeScript: Dex aborts **context.cancellationSignal**. Pass it to calls that accept an **AbortSignal**.
-- Rust: check **is_cancelled**, or block in **wait_for_cancellation**.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc_canceling_steps',
-    go: 'examples/go/primitives/rpc-canceling-steps',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpccancelingsteps',
-    typescript: 'examples/typescript/src/primitives/rpc-canceling-steps',
-    rust: 'examples/rust/src/primitives/rpc/canceling_steps',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-for section in range(1, SECTION_COUNT + 1):
-    # A Stop cancels this task, so the await raises CancelledError.
-    await asyncio.sleep(SECTION_WORK.total_seconds())
-    REPORT_PROGRESS.write(context, section)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-for section := 1; section <= sectionCount; section++ {
-	select {
-	case <-ctx.Done():
-		// A Stop cancels ctx; the result of this attempt is discarded.
-		return nil, ctx.Err()
-	case <-time.After(sectionWork):
-	}
-	if err := ReportProgress.Write(ctx, section); err != nil {
-		return nil, err
-	}
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-for (int section = 1; section <= SECTION_COUNT; section++) {
-    try {
-        Thread.sleep(SECTION_WORK.toMillis());
-    } catch (final InterruptedException interrupted) {
-        // A Stop interrupts this thread; the result of this attempt is discarded.
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("report generation canceled", interrupted);
-    }
-    reportProgress.write(context, section);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-for (let section = 1; section <= SECTION_COUNT; section++) {
-  // A Stop aborts the signal, so this await rejects with an AbortError.
-  await setTimeout(SECTION_WORK_MS, undefined, { signal: context.cancellationSignal });
-  reportProgress.write(context, section);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-for section in 1..=SECTION_COUNT {
-    // A Stop cancels this attempt, and Dex discards its result.
-    if context.is_cancelled() {
-        return Ok(StepDecision::dead_end());
-    }
-    thread::sleep(SECTION_WORK);
-    REPORT_PROGRESS.write(context, section)?;
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-Dex waits about one second for the canceled attempt to end. If the handler is still running, Dex closes the Worker stream that carried it. The handler keeps running inside the Worker process until it returns, and its external calls still take effect. A canceled attempt may also have done part of its work before it stopped. Keep its external effects idempotent. See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
-
-## Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
-
-To read stored Attribute values from outside the Flow, an application does not need a read-only RPC. The Client's **GetAttributes** reads committed values directly, without a Worker. See [Read Attributes](/primitives/client/basic#read-attributes). Use a read-only RPC when the read needs Flow-side logic, such as validation, authorization, Channel messages, or a derived view.
-
-An RPC without Attribute locks and without transactional execution starts with a read of the Flow. If its handler returns only an output and no durable effects, Dex returns that output without changing the Flow. That read can reach a retained terminal execution. A successful read-only RPC therefore does not prove that the Flow is active.
-
-Attribute locks and explicit transactional execution use an active execution. A non-transactional handler that returns Attribute writes, Channel operations, events, or Step movements also needs an active execution because Dex commits those effects to the Flow after the handler returns. A terminal Flow rejects that commit even though the Worker handler may already have run. A Server can also be configured to run every RPC transactionally, which requires an active execution.
-
-Use a Flow lifecycle API when the response needs current execution status. An application snapshot RPC reads the durable application state captured by the Flow; it does not infer terminal status from RPC success. **FlowNotActiveOrNotFoundError** means the target was not found, or the selected operation cannot use its closed execution. Java uses **FlowNotActiveOrNotFoundException**; Rust uses **SdkError::FlowNotActiveOrNotFound**. The error alone does not distinguish missing from closed Flows.
-
-For a confirmed read-only RPC with no locks, transactionality, durable effects, or Server-forced transactional execution, a retained terminal execution remains readable. At that read boundary, handle this error directly as no readable target found. Preserve the application's missing or retention-unavailable outcome. Do not add a lifecycle lookup, **WaitForFlow** with a short timeout, a retry, or historical Step-output decoding solely to distinguish missing from closed. Keep other service and Worker failures distinct.
-
-For mutations and active-only RPCs, the same error may mean the Flow is closed or missing. Apply the operation's business policy; the error does not prove that the requested action succeeded.
-
-Callers do not need to search for a Run ID before a normal read-only RPC. When the SDK exposes an optional Run ID, omit it to let the Server resolve and pin the current execution for that invocation. Supply one only when the application must address an exact execution across Flow ID reuse.
-
-## Selective RPC state loading {#load-collection-state}
-
-Every RPC receives regular Attribute values and Channel size metadata. Reading AttributeMap entries or pending Channel messages requires an explicit load. This keeps large collections out of RPC requests that do not use them.
-
-Load a whole AttributeMap or ChannelMap when the handler needs all current instances. Load exact map instances when it needs only known keys. Load a Channel when the handler needs its pending message IDs or Values. Channel size and ChannelMap keys and sizes remain available without loading pending messages.
-
-Every SDK declares loads with the RPC. Go places them in **RPCOptions** passed to **DefineRPC** from **GetRPCs**. Dex Server validates each requested definition against the Flow persistence schema and returns the loaded scope with the RPC snapshot. The SDK checks that scope when the handler reads a selectively loaded collection.
-
-For an **AttributeMap** entry or instance enumeration outside that scope, the SDK raises **AttributeMapNotLoadedError**. For pending messages outside that scope, it raises **ChannelMessagesNotLoadedError**. Java uses **AttributeMapNotLoadedException** and **ChannelMessagesNotLoadedException**. For Go, **dexcli visualize** reports an RPC that reads unselected state. See [State loads](/reference/web/flow-visualization#state-loads).
-
-An explicitly loaded collection can be empty. That is not an error. An empty pending-message snapshot returns an empty list. An absent **AttributeMap** entry uses the SDK's normal absent-value behavior. Loading creates one input snapshot. It does not consume messages, make the RPC transactional, or isolate the handler from concurrent work.
-
-### Runtime-selected map instances
-
-Use the RPC definition options for fixed behavior shared by every invocation: timeout, ordinary Attribute locks, transactionality, whole-map loads, singleton Channel loads, and fixed exact-instance loads. Go names this type **RPCOptions**.
-
-Use **RPCInvokeOptions** when the application adapter chooses an AttributeMap or ChannelMap instance from request data. Rust uses **RpcInvokeOptions**. Invocation options can add exact AttributeMap loads, exact ChannelMap loads, and AttributeMap instance locks. Dex unions, sorts, and deduplicates them with the registered definition. They cannot replace or clear registered settings.
-
-Loading and locking are independent. A read-only lookup needs only the exact load. A read-modify-write RPC must add both the load and the lock for the same AttributeMap instance. The SDK validates the Flow ownership, definition kind, and non-empty slash-free instance before making the network call.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/patterns/hash-partitioned-attribute-map/controller.py',
-    go: 'examples/go/patterns/hash-partitioned-attribute-map/controller.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/hashpartitionedattributemap/HashPartitionedAttributeMapController.java',
-    typescript: 'examples/typescript/src/patterns/hash-partitioned-attribute-map/controller.ts',
-    rust: 'examples/rust/src/patterns/hash_partitioned_attribute_map/controller.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-options=RPCInvokeOptions(
-    lock_attribute_map_instances=(
-        flow.customer_profiles_by_email_partition.lock(partition_name),
-    ),
-    load_attribute_map_instances=(
-        flow.customer_profiles_by_email_partition.load(partition_name),
-    ),
-)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-dex.RPCInvokeOptions{
-	LockAttributeMapInstances: []dex.AttributeLock{
-		dex.LockAttributeMap(CustomerProfilesByEmailPartition, partitionName),
-	},
-	LoadAttributeMapInstances: []dex.AttributeMapLoad{
-		CustomerProfilesByEmailPartition.Load(partitionName),
-	},
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-final RPCInvokeOptions options = RPCInvokeOptions.newBuilder()
-        .addLockAttributeMapInstance(
-                flow.customerProfilesByEmailPartition,
-                partition.partitionName)
-        .addLoadAttributeMapInstance(
-                flow.customerProfilesByEmailPartition,
-                partition.partitionName)
-        .build();
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-{
-  lockAttributeMapInstances: [profiles.lock(partitionName)],
-  loadAttributeMapInstances: [profiles.load(partitionName)],
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-RpcInvokeOptions::new()
-    .lock_attribute_map_instance(
-        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.lock(&partition.partition_name),
-    )
-    .load_attribute_map_instance(
-        CUSTOMER_PROFILES_BY_EMAIL_PARTITION.load(partition.partition_name),
-    )
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-See [Hash-Partitioned AttributeMap](/design-patterns/hash-partitioned-attribute-map) for the complete lookup and upsert example, and [Sequentially Chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map) for dynamic pagination loads.
-
-## Transactional reads and writes {#transactional-reads-and-writes}
-
-A transactional RPC performs its reads and writes as one atomic operation.
-
-An RPC that holds an Attribute lock is already transactional implicitly. You can also make an RPC explicitly transactional by setting **is_transactional=true**. This is especially useful for Channel message deletion because Dex validates that the message is still pending before committing any writes.
-
-The caller passes only a pending message ID. The RPC loads the source Channel, reads the original Value from its snapshot, then stages the deletion and destination publication. A concurrent consumer makes deletion validation fail, so Dex commits neither effect:
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-    go: 'examples/go/primitives/channel/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
-    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
-    rust: 'examples/rust/src/primitives/channel/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-@rpc(is_transactional=True, load_channels=(queued_messages,))
-def move_queued_message_to_prioritized_messages(
-    self, context: Context, queued_message: QueuedMessageReference
-) -> None:
-    message_to_prioritize = self.queued_messages.find_pending_message(
-        context, queued_message.message_id
-    )
-    self.queued_messages.delete(context, queued_message.message_id)
-    if message_to_prioritize is not None:
-        self.prioritized_messages.publish(context, message_to_prioritize.value)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-func (flow *ChannelFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{
-		dex.DefineRPC(flow.PublishApprovalMessage, nil),
-		dex.DefineRPC(flow.EnqueueChannelMessage, nil),
-		dex.DefineRPC(flow.GetQueuedMessages, &dex.RPCOptions{
-			LoadChannels: []dex.ChannelDef{QueuedMessages},
-		}),
-		dex.DefineRPC(flow.DeleteQueuedMessage, &dex.RPCOptions{
-			IsTransactional: true,
-			LoadChannels:    []dex.ChannelDef{QueuedMessages},
-		}),
-		dex.DefineRPC(flow.GetPrioritizedMessages, &dex.RPCOptions{
-			LoadChannels: []dex.ChannelDef{PrioritizedMessages},
-		}),
-		dex.DefineRPC(flow.MoveQueuedMessageToPrioritizedMessages, &dex.RPCOptions{
-			IsTransactional: true,
-			LoadChannels:    []dex.ChannelDef{QueuedMessages},
-		}),
-	}
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-@RPC(isTransactional = true, loadChannels = {"QueuedMessages"})
-public void moveQueuedMessageToPrioritizedMessages(
-        final Context context,
-        final QueuedMessageReference queuedMessageReference) {
-    final ChannelMessage<String> messageToPrioritize =
-            queuedMessages.findPendingMessage(context, queuedMessageReference.messageId);
-    queuedMessages.delete(context, queuedMessageReference.messageId);
-    if (messageToPrioritize != null) {
-        prioritizedMessages.publish(context, messageToPrioritize.getValue());
-    }
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-@rpc({
-  isTransactional: true,
-  loadChannels: [queuedMessages],
-  inputCodec: queuedMessageReferenceCodec,
-})
-public moveQueuedMessageToPrioritizedMessages(
-  context: Context,
-  queuedMessage: QueuedMessageReference,
-): void {
-  const messageToPrioritize = queuedMessages.findPendingMessage(
-    context,
-    queuedMessage.messageId,
-  );
-  queuedMessages.delete(context, queuedMessage.messageId);
-  if (messageToPrioritize !== undefined) {
-    prioritizedMessages.publish(context, messageToPrioritize.value);
-  }
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-fn rpcs(&self) -> RpcList<Self> {
-    RpcList::new()
-        .procedure_without_input(PUBLISH_APPROVAL_MESSAGE, Self::publish_approval_message)
-        .procedure(
-            MOVE_QUEUED_MESSAGE_TO_PRIORITIZED_MESSAGES
-                .is_transactional()
-                .load_channel(&QUEUED_MESSAGES),
-            Self::move_queued_message_to_prioritized_messages,
-        )
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-A transactional commit does not isolate the handler while it runs. If a decision depends on the whole loaded Channel, ChannelMap, or AttributeMap remaining unchanged, every cooperating Step and RPC writer must use the same Attribute lock. The lock provides that isolation and implicitly makes the RPC transactional; it does not load collection contents.
-
-A non-transactional RPC treats a missing deletion as a no-op and still commits its other successful effects.
-
-## RPC timeout
-
-An RPC timeout limits one Worker handler invocation.
-
-Every SDK declares the timeout with the RPC. Go places it in the static **RPCOptions** passed to **DefineRPC**. A Client invocation cannot override it, although the caller's context can stop waiting sooner. When the application does not set a timeout, Dex Server uses its default of 60 seconds, set by **api.defaultRpcTimeout**. An explicit timeout has no maximum.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/rpc',
-    go: 'examples/go/primitives/rpc',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
-    typescript: 'examples/typescript/src/primitives/rpc',
-    rust: 'examples/rust/src/primitives/rpc',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-@rpc(timeout=timedelta(seconds=30))
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{
-		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
-	}
-}
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-@RPC(timeoutSeconds = 30)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-@rpc({ inputCodec: stringCodec, outputCodec: stringCodec, timeoutMs: 30_000 })
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-RpcList::new().function(TRIGGER_RPC.timeout(Duration::from_secs(30)), Self::trigger)
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## Attribute locks
-
-See [Locking](/primitives/attribute#locking) for Attribute locks.
+<a id="cancel-race"></a>
+<a id="cancel-honour"></a>
+
+An RPC result can cancel active Steps of its Flow, selected by Step type. Use it
+when a request from outside makes work in progress pointless, such as a user who
+presses Stop while a report or a model call runs. Dex applies the cancellation
+when it commits the RPC. The Step code must check for cancellation and stop. See
+[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for the example,
+[Resolve the race from committed state](/reference/server/runtime-data#cancel-race) for a Step that
+finishes first, and [Make the Step stop](/reference/server/runtime-data#cancel-honour) for how each SDK
+delivers cancellation.
+
+## Locks and transactional RPCs {#transactional-reads-and-writes}
+
+<a id="attribute-locks"></a>
+
+Concurrent Steps and RPCs can change the same state. An RPC can take
+[Attribute locks](/primitives/attribute#locking) to run one at a time with
+them. An RPC that cannot get a lock fails at once, and the caller retries it.
+See [Locks](/reference/server/runtime-data#attribute-locks) and
+[RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts).
+
+A **transactional** RPC adds a check when Dex commits it. If a Channel message
+that it deletes is no longer pending, the RPC fails and commits nothing. A
+non-transactional RPC skips the missing deletion and commits the rest. An RPC
+that holds a lock is always transactional. See
+[Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes).
+
+<a id="load-collection-state"></a>
+<a id="runtime-selected-map-instances"></a>
+
+## Load collections
+
+An RPC receives regular Attributes and Channel sizes. It loads AttributeMap
+entries and pending Channel messages only when it declares them. This keeps
+large collections out of RPCs that do not use them. See
+[Selective state loading](/reference/server/runtime-data#load-collection-state) and
+[Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances).
+
+## Reference
+
+[Data primitive semantics](/reference/server/runtime-data#rpcs) covers
+cancellation, read-only RPCs on closed Flows, state loading, transactional
+RPCs, and timeouts in detail.

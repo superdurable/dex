@@ -24,6 +24,7 @@ mod purging_reads;
 mod queued_restart;
 mod robustness;
 mod search_outbox;
+mod single_node_partition_count;
 mod standby_failover;
 mod standby_health;
 mod standby_takeover;

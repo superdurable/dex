@@ -41,6 +41,18 @@ pub enum MetadataError {
         /// Stored value.
         stored: String,
     },
+    /// The configured partition count differs from the count the cluster object recorded at creation.
+    #[error(
+        "cluster partition count mismatch: configured {configured}, but the cluster object \
+         records {stored}; the partition count is fixed when a cluster is created, so configure \
+         {stored} partitions to open this cluster"
+    )]
+    PartitionCountMismatch {
+        /// Configured partition count.
+        configured: u32,
+        /// Partition count stored in the cluster object.
+        stored: u32,
+    },
     /// Partition hash parameters are invalid.
     #[error(transparent)]
     PartitionHash(#[from] PartitionHashError),

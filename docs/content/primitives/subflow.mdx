@@ -5,16 +5,33 @@ slug: /primitives/subflow
 
 # SubFlow
 
-A **SubFlow** is another Flow execution under the parent Flow.
+A **SubFlow** is a Flow execution that a parent Flow starts from one of its
+Steps. The child is a normal Flow with its own Steps, Attributes, and Channels.
+The parent waits for it like any other condition in **WaitFor**.
+
+## When to use a SubFlow
 
 SubFlow has two main uses:
 
-1. Move complicated logic into a smaller Flow. This makes business logic easier to maintain and keeps its hierarchy clear.
-2. Fan out work. One Flow execution cannot concurrently execute too many operations, but it can delegate work to multiple SubFlows. Each SubFlow can run at the same time, so the parent can reach much higher concurrency.
+1. Move complicated logic into a smaller Flow. This makes business logic easier
+   to maintain and keeps its hierarchy clear.
+2. Fan out work. One Flow execution cannot run too many operations at once, but
+   it can hand work to many SubFlows. The SubFlows run at the same time, so the
+   parent reaches much higher concurrency.
+
+## Guarantees
+
+Dex Server derives the SubFlow ID from the parent Flow ID, the Step execution,
+and the condition index. A retried or repeated start therefore finds the same
+child instead of starting a second one. By default, the parent keeps waiting
+for a running child, uses the result of a completed child, and restarts a child
+that ended abnormally.
 
 ## Start and wait for a SubFlow
 
-The target Flow must be registered on the Worker, and its start Step must accept the input passed to **SubFlow**. **WaitFor** starts the child. **Execute** reads its result after the child completes.
+The target Flow must be registered on the Worker. Its start Step must accept the
+input passed to **SubFlow**. **WaitFor** starts the child. **Execute** reads its
+result after the child completes.
 
 <SdkTabs
 examples={{
@@ -175,25 +192,24 @@ impl Step for SubFlowParent {
 </SdkSnippet>
 </SdkTabs>
 
-## Use SubFlows with other Conditions
+<a id="use-subflows-with-other-conditions"></a>
+
+## Wait for several SubFlows
 
 Use **allOf** to make the parent wait for all SubFlows to complete.
 
-Use **anyOf** when the parent does not need to wait for all SubFlows. A SubFlow keeps running after **WaitFor** has finished waiting. **Execute** can still get the SubFlow ID to stop it, or pass the SubFlow ID to another Step to decide how to handle it.
+Use **anyOf** when the parent does not need to wait for all of them. A SubFlow
+keeps running after **WaitFor** stops waiting. **Execute** can still get the
+SubFlow ID to stop it, or pass the ID to another Step to decide how to handle
+it. See [SubFlow results](/reference/server/runtime-steps#subflow-results) for combining SubFlows with
+other conditions.
 
-## SubFlowOptions and SubFlowReusePolicy
+<a id="subflowoptions-and-subflowreusepolicy"></a>
 
-**SubFlowOptions** are the equivalent of **StartFlowOptions** on the **StartFlow** API. Most options are the same, except for **SubFlowReusePolicy**.
+## Reference
 
-Dex Server generates a SubFlow ID from the parent Flow ID, Step execution ID, and condition index. When a parent reuses a Flow ID with **IDReusePolicy**, or time travels, it can enter the same Step execution and try to start the same SubFlow ID again. **SubFlowReusePolicy** controls what happens in that case.
-
-The default **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** is usually what a parent wants: continue waiting for a running child, use a successful child result, and restart a child that ended abnormally.
-
-| Existing child Flow | **ATTACH** | **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** | **ALWAYS_RESTART** |
-| --- | --- | --- | --- |
-| No existing Flow | Start | Start | Start |
-| Running | Attach | Attach | Terminate and start |
-| Completed | Return its result | Return its result | Start |
-| Failed, canceled, timed out, or terminated | Return its result | Start | Start |
-
-Dex Server first compares the Request ID it generated for this child start. A matching Request ID always attaches to a running child or returns its terminal result, regardless of **ReusePolicy**. This makes a retry safe when Dex Server accepted the original start but the parent did not receive the response. For a different Request ID, Dex Server applies the selected **ReusePolicy** from the table.
+**SubFlowOptions** accept the same options as starting a Flow from a Client,
+plus a reuse policy. See
+[SubFlowOptions](/reference/server/runtime-data#subflow-options) and
+[SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) for the options and the
+reuse policy for each state of an existing child.

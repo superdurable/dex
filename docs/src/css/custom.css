@@ -1887,3 +1887,8 @@ code {
     gap: 32px;
   }
 }
+
+/* Alias anchors for moved sections must clear the sticky navbar like headings. */
+.markdown a[id]:not([href]) {
+  scroll-margin-top: calc(var(--ifm-navbar-height) + 0.5rem);
+}

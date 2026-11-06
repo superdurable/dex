@@ -24,21 +24,21 @@ type Copy = {
 const EN: Copy = {
   returnsWait: 'returns Wait',
   conditionWaiting: 'Condition waiting',
-  conditionDetail: 'Dex evaluates timer or channel',
+  conditionDetail: 'Dex evaluates Timer, Channel, or SubFlow',
   satisfied: 'condition satisfied',
   executeMove: 'GoTo(Complete Flow, input + 1)',
   decision: 'StepDecision',
-  decisionDetail: 'GoTo · GracefulComplete · Fail',
+  decisionDetail: 'GoTo · GracefulComplete · ForceFail',
 };
 
 const ZH: Copy = {
   returnsWait: '返回 Wait',
   conditionWaiting: 'Condition 等待',
-  conditionDetail: 'Dex 评估 timer 或 channel',
+  conditionDetail: 'Dex 评估 Timer、Channel 或 SubFlow',
   satisfied: '条件满足',
   executeMove: 'GoTo(Complete Flow, input + 1)',
   decision: 'StepDecision',
-  decisionDetail: 'GoTo · GracefulComplete · Fail',
+  decisionDetail: 'GoTo · GracefulComplete · ForceFail',
 };
 
 export default function StepWaitExecuteDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {

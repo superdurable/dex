@@ -7,17 +7,13 @@ slug: /reference
 
 # 开发者参考
 
-开发者参考记录随版本变化的细节：配置项、flag、默认值、限制、指标、边界情况和版本差异。
-概念请看 [Primitives](/primitives) 和 [Components](/primitives/components)。
-开发者参考只有英文版。
+开发者参考记录随版本变化的细节：配置项、flag、默认值、限制、指标、边界情况和版本差异。概念请看 [Primitives](/primitives) 和 [Components](/primitives/components)。开发者参考只有英文版。
 
 ## 先确认版本 {#check-your-version-first}
 
-每个组件有自己的参考。查细节之前，先确认你运行的组件版本。用左侧栏顶部的版本选择器
-选择参考版本。每份参考默认打开最新版本。[兼容性矩阵](#compatibility-matrix) 列出支持的组件组合。
+每个组件有自己的参考。查细节之前，先确认你运行的组件版本。用左侧栏顶部的版本选择器选择参考版本。每份参考默认打开最新版本。[兼容性矩阵](#compatibility-matrix) 列出支持的组件组合。
 
-Dex 按一个共享的 release train 发版。每次发版只给有改动的组件打 tag，所以组件的
-minor 版本号可能跳过。对某个组件来说，release train 编号 N 指的是它不超过 N 的最新版本。
+Dex 按一个共享的 release train 发版。每次发版只给有改动的组件打 tag，所以组件的 minor 版本号可能跳过。对某个组件来说，release train 编号 N 指的是它不超过 N 的最新版本。
 
 ## 组件参考 {#component-references}
 
@@ -41,9 +37,7 @@ Worker 和 Client 会和 server 协商协议版本。server-zd 0.1.17 及更新�
 | Go、Python、Java、TypeScript 和 Rust SDK | 1.35 | 0.1.17 或更新（协议版本 4） |
 | Dex Web | 1.35 | 0.1.17 或更新（协议版本 4） |
 
-server-zd 协议版本 4 没有提高最低协议版本。1.35 之前的 SDK 在 server-zd 0.1.17
-及更新版本上继续可用。先升级 server，再升级 SDK。见
-[Upgrades and compatibility](/reference/server/upgrades)。
+server-zd 协议版本 4 没有提高最低协议版本。1.35 之前的 SDK 在 server-zd 0.1.17 及更新版本上继续可用。先升级 server，再升级 SDK。见 [Upgrades and compatibility](/reference/server/upgrades)。
 
 每个 **dexcli** 版本打包一个 server-zd 版本，**dexcli dev** 运行的就是它：
 
@@ -59,5 +53,4 @@ server-zd 协议版本 4 没有提高最低协议版本。1.35 之前的 SDK 在
 
 ## 发版说明 {#release-notes}
 
-每个组件都在 GitHub 上发布发版说明。server-zd 的每个版本都列出 breaking change、新功能、
-修复和升级步骤。见 [Dex releases](https://github.com/superdurable/dex/releases)。
+每个组件都在 GitHub 上发布发版说明。server-zd 的每个版本都列出 breaking change、新功能、修复和升级步骤。见 [Dex releases](https://github.com/superdurable/dex/releases)。

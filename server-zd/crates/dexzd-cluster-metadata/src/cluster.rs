@@ -109,11 +109,12 @@ fn validate_cluster(
     cluster: ClusterObject,
     config: ClusterConfig,
 ) -> Result<ClusterBootstrap, MetadataError> {
-    check_match(
-        "partition count",
-        config.partition_count,
-        cluster.partition_count,
-    )?;
+    if config.partition_count != cluster.partition_count {
+        return Err(MetadataError::PartitionCountMismatch {
+            configured: config.partition_count,
+            stored: cluster.partition_count,
+        });
+    }
     check_match(
         "partition hash algorithm",
         PartitionHashAlgorithm::Siphash24 as i32,

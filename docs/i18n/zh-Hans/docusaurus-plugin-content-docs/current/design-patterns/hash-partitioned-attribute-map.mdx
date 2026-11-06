@@ -25,7 +25,7 @@ Hash collision 只会让多个 email 进入同一个 partition。Dictionary 仍�
 
 Adapter 和 handler 都会计算 partition。**UpsertCustomerProfile** 为同一个 partition 增加 exact load 和 instance lock。Handler 重新计算 partition，读取 bucket，更新一条 profile，再写回 bucket。同一 partition 的写入会串行执行，不同 partition 可以并发写入。
 
-同一 partition 的并发写入可能收到 lock-conflict 错误。收到后重试幂等 upsert，见 [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/primitives/attribute#whole-map-coordination)。
+同一 partition 的并发写入可能收到 lock-conflict 错误。收到后重试幂等 upsert，见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。要协调整张 map 的写入，见 [整张 map 的协调锁](/reference/server/runtime-data#whole-map-coordination)。
 
 **GetCustomerProfileByEmail** 只加载一个 partition，不增加写锁。Partition 不存在或 canonical email 不存在时都会返回 not found。
 
