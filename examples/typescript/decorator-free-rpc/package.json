@@ -12,7 +12,7 @@
     "start": "node --experimental-transform-types main.ts"
   },
   "dependencies": {
-    "@superdurable/dex": "file:../../../sdk-typescript"
+    "@superdurable/dex": "1.35.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -39,9 +39,9 @@ checkout must include all published tags (use a full fetch, as Skills CI does);
 source validation reads the non-Go SDK tags and the Web tag there even when the
 Go checkout is shallow.
 
-## Open-source product boundary
+## Public product boundary
 
-Dex Skills is open-source Dex material and contains no information about any
+Dex Skills is public Dex material and contains no information about any
 product built on Dex (no product names, template contracts or platform
 concepts). Guidance covers only the Dex SDKs, `dexcli` including `dexcli dev`,
 Dex Server, Dex Web, the FDG analyzer, and the official connectors. Keep

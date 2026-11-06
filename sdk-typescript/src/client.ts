@@ -330,7 +330,7 @@ export class Client {
    * transactional execution, returned effects, or server policy can require an active execution.
    * @typeParam Input - RPC input type.
    * @typeParam Output - RPC output type.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
@@ -351,7 +351,7 @@ export class Client {
    * A retained terminal execution can serve a query-only RPC. Other execution paths can require
    * an active execution.
    * @typeParam Output - RPC output type.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns The decoded RPCResult output.
@@ -367,7 +367,7 @@ export class Client {
    * A retained terminal execution can serve a query-only RPC. Other execution paths can require
    * an active execution.
    * @typeParam Input - RPC input type.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
@@ -384,7 +384,7 @@ export class Client {
    * Invokes an input-free, output-free RPC.
    * A retained terminal execution can serve a query-only RPC. Other execution paths can require
    * an active execution.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
    * @returns A promise resolved after successful handler completion.
@@ -428,7 +428,7 @@ export class Client {
    * Invokes an input-bearing RPC with additive runtime map-instance selections.
    * @typeParam Input - RPC input type.
    * @typeParam Output - RPC output type.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
    * @param options - Runtime AttributeMap locks and exact map-instance loads.
@@ -449,7 +449,7 @@ export class Client {
   /**
    * Invokes an input-free RPC with additive runtime map-instance selections.
    * @typeParam Output - RPC output type.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param options - Runtime AttributeMap locks and exact map-instance loads.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
@@ -465,7 +465,7 @@ export class Client {
   /**
    * Invokes an input-bearing, output-free RPC with runtime map-instance selections.
    * @typeParam Input - RPC input type.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param input - Typed handler input.
    * @param options - Runtime AttributeMap locks and exact map-instance loads.
@@ -482,7 +482,7 @@ export class Client {
 
   /**
    * Invokes an input-free, output-free RPC with runtime map-instance selections.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param options - Runtime AttributeMap locks and exact map-instance loads.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
@@ -497,7 +497,7 @@ export class Client {
 
   /**
    * Implements RPC invocation with additive runtime map-instance selections.
-   * @param rpcMethod - Bound method decorated with `rpc` on the registered Flow.
+   * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param inputOrOptions - Typed input for an input-bearing RPC, or options for an input-free RPC.
    * @param optionsOrRunId - Runtime options for an input-bearing RPC, or an optional run ID for an input-free RPC.

@@ -1,6 +1,6 @@
 ---
 name: dex-app-builder
-description: Primary entry point for designing and building Dex applications and process products with open-source Dex. Use for Dex product, application, or workflow requests, including converting an exported n8n workflow, but not standalone SDK or official connector-library work. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, a Go backend with released connectors, and local verification with dexcli dev.
+description: Primary entry point for designing and building Dex applications and process products with source-available Dex. Use for Dex product, application, or workflow requests, including converting an exported n8n workflow, but not standalone SDK or official connector-library work. Orchestrates business discovery, Flow and FDG modeling, the Dex Web or custom UI decision, a Go backend with released connectors, and local verification with dexcli dev.
 ---
 
 # Dex App Builder
@@ -10,7 +10,7 @@ clear implementation request authorizes its stated UI and routine engineering
 choices. Ask only for missing business facts, access or consequential choices;
 do not turn discovery, design, wireframes or source checks into repeated gates.
 
-The toolchain is open-source Dex: the Dex Go SDK, `dexcli` (including
+The toolchain is source-available Dex: the Dex Go SDK, `dexcli` (including
 `dexcli dev` and the FDG analyzer behind `dexcli visualize`), Dex Server
 (server-zd), Dex Web, and released official connectors.
 

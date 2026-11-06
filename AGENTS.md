@@ -163,7 +163,7 @@ synced, do not mark the feature complete. Report the blocker explicitly.
 
 ### No Downstream Product Information
 
-Dex is an open-source product. Repository files, docs, examples, receipts,
+Dex is a public, source-available product. Repository files, docs, examples, receipts,
 comments, and commit messages contain no information about products built on
 Dex: no product names, deployments, environments, dependency pins, or platform
 concepts. Describe a requirement in Dex terms, as any Dex application would
