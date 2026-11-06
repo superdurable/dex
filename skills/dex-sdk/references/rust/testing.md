@@ -6,6 +6,8 @@ Prefer integration tests against a real Dex Server. Unit tests can validate pure
 
 Start `dexcli dev`, build the same Registry used by production, create a temporary BlobCache, and run the Worker on a dedicated thread. Construct the Worker and Client with the same Dex Server address. Stop and join the Worker and close the cache during teardown.
 
+A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
+
 [Released Worker and Client setup](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/README.md#pull-mode)
 <!-- dex-source: sdk-rust/README.md -->
 ```rust

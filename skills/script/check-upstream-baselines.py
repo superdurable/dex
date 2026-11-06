@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.18"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.19"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -293,12 +293,51 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "Calls that\nfinish before the release keep their answers. Calls still open at the release\n"
         "answer **UNAVAILABLE**, so clients retry on the new active process.",
     )),
+    ("server-zd/v0.1.18", "server-zd/README.md", (
+        "Short-lived test servers can pass\n`--durability process-crash-safe`, or set `dev.durabilityMode: processCrashSafe`, to run faster.",
+        "`dev` runs one node with an embedded s3local",
+    )),
+    ("server-zd/v0.1.18", "s3local/README.md", (
+        "Old environment variables remain fallbacks with a deprecation warning; new variables win.",
+    )),
+    ("server-zd/v0.1.18", "s3local/crates/s3local/src/error.rs", (
+        '#[error("strict durability cannot flush the directory entries in {}: {source}", directory.display())]',
+    )),
+    ("server-zd/v0.1.19", "server-zd/crates/dexzd-stream-store/src/lib.rs", (
+        '#[error("Stream capacity is exhausted; retry after background trimming")]',
+        '#[error("Stream Store total capacity is exhausted; retry after background trimming")]',
+        '#[error("Stream message charge exceeds the Stream capacity, so it can never fit")]',
+        '#[error("serialized Stream Value exceeds configured max_message_bytes")]',
+    )),
+    ("server-zd/v0.1.19", "server-zd/config/dex-server-zd.example.yaml", ("maxMessageBytes: 102400",)),
+    ("server-zd/v0.1.19", "server-zd/crates/dexzd-server/src/embedded_s3.rs", (
+        "fix the \\\n             permissions, or choose --durability process-crash-safe",
+    )),
+    ("server-zd/v0.1.19", "server-zd/README.md", (
+        "`streamStore.backend` defaults to `memory` in `serve` and `dev`.",
+        "`FailedPrecondition` with the `UNCATEGORIZED` sub-status, a Step Stream write is dropped with a\n"
+        "warning log without failing the Step",
+        "`streamStore.maxTotalBytes` (default 1 GiB)",
+        "`ResourceExhausted` with the\n`UNCATEGORIZED` sub-status",
+        "fit and returns `ResourceExhausted` without trimming.",
+        "`streamStore.maxStreamCapacityBytes`\n(default 64 MiB) clamps the capacity that a caller requests for one Stream.",
+        "`dexzd_step_stream_writes_dropped_total` counts Step Stream",
+    )),
+    ("server-zd/v0.1.19", "docs/content/production/server-zd-operations.mdx", (
+        "Set **streamStore.backend** to **memory** (default) or **disabled** to control",
+        "disabled, Client Stream writes and reads fail with **FAILED_PRECONDITION**.",
+        "- **streamStore.maxTotalBytes** (default 1 GiB) caps the bytes held across every",
+        "**RESOURCE_EXHAUSTED** without trimming, and a retry fails again.",
+        "- **streamStore.maxStreamCapacityBytes** (default 64 MiB) is the largest",
+        "**stream_capacity_exceeded**, **total_capacity_exceeded**, or **closed**.",
+    )),
 )
 # Statements read from the Dex CLI checkout at DEX_CLI_BASELINE.
 CLI_STATEMENTS = (
     ("cli/README.md", (
         "`--durability` selects how zd stores acknowledged writes. The default, `strict`,",
         "flag, zd uses `dev.durabilityMode` from that file, or `strict`.",
+        "faster than `strict` on macOS, so short-lived test servers often use it.",
     )),
     ("cli/internal/flowviz/v2_directives.go", (
         "registeredRPCNames[rpc.protocolName] = true",
@@ -356,7 +395,7 @@ SEARCH_PROJECTION_REFERENCES = (
         "point the server at a new database or schema; the server loads it from committed state automatically.",
         "After restoring the object storage prefix, configure a new `search.paradeDbSchema` or `search.postgresSchema`, "
         "or a new database, before restarting the node.",
-        "server-zd/v0.1.18 for CLI v1.35.0",
+        "server-zd/v0.1.19 for CLI v1.36.0",
         "server-zd v0.1.15 changes these operator-visible behaviors.",
         "Upgrade the binary on every process before you add a `standby` section to any configuration",
         "`standby.mode: hot` runs extra processes with the same node ID.",
@@ -665,7 +704,7 @@ REFERENCE_1_24_STATEMENTS = (
         "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.18.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.19.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
@@ -765,6 +804,64 @@ ATTEMPT_START_QUEUE_SERVER_STATEMENTS = (
     # The v0.1.16 step-down tuple matches both wordings; this pins the UNAVAILABLE claim exactly.
     "answer **UNAVAILABLE**, so clients retry on the new active process.",
 )
+
+
+# Core and language statements for strict dev durability, s3local, and the Stream Store bounds.
+DEV_DURABILITY_STREAM_STORE_REFERENCE_STATEMENTS = (
+    ("core/operations.md", (
+        "Strict mode also fails to open when it cannot flush an ancestor directory of the data directory",
+        "should set `dev.durabilityMode: processCrashSafe` in the `--zd-config` file",
+        "the embedded local object store under the data directory is named s3local; earlier releases called it s3mock",
+        "still reads the old `S3MOCK_*` names as fallbacks with a deprecation warning, and the new names win",
+        "From server-zd v0.1.19, which cli-v1.36.0 bundles, **streamStore.backend** defaults to **memory** for `serve`.",
+        "Earlier `serve` releases defaulted to **disabled**",
+        "`dev` and `dexcli dev` already used memory unless the `--zd-config` file set the backend",
+        "a Step Stream write is dropped with a log entry and never fails the Step",
+        "**dexzd_step_stream_writes_dropped_total** with **reason** counts the dropped Step writes",
+        "**streamStore.maxTotalBytes** (1 GiB by default)",
+        "**streamStore.maxStreamCapacityBytes** (64 MiB by default)",
+        "can never fit, so do not retry it",
+        "**streamStore.maxMessageBytes** (102400 bytes by default)",
+        "so fix the permissions of `<data-dir>/s3` and its ancestors, or choose `--durability process-crash-safe`",
+    )),
+    ("core/primitives.md", (
+        "From server-zd v0.1.19, **streamStore.backend** defaults to **memory** for `serve`; `dexcli dev` already used memory.",
+        "fails with RESOURCE_EXHAUSTED past the node total or when its Stream is full; both are retryable",
+        "With the backend **disabled**, Client Stream calls fail with FAILED_PRECONDITION",
+        "also fails with RESOURCE_EXHAUSTED but can never fit, so do not retry it.",
+    )),
+    ("core/error-handling.md", (
+        "From server-zd v0.1.19, that failure is FAILED_PRECONDITION when the operator disabled the Stream Store",
+        "when this Stream is full while trimming catches up (the message says to retry after background trimming)",
+    )),
+    ("core/testing.md", (
+        "set `dev.durabilityMode: processCrashSafe` in the `--zd-config` file",
+        "the `dexcli dev --durability process-crash-safe` flag needs cli-v1.35.0 or later",
+    )),
+    ("go/error-handling.md", ("full Stream Store, readable through `ServiceError.Code`",)),
+    ("java/error-handling.md", ("full Stream Store, readable through `getCode()`",)),
+    ("python/error-handling.md", ("full Stream Store, readable through `.code`",)),
+    ("typescript/error-handling.md", ("full Stream Store, readable through `.code`",)),
+    ("rust/error-handling.md", ("full Stream Store, readable through `ServiceError::code()`",)),
+    ("go/testing.md", ("set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file",)),
+    ("java/testing.md", ("set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file",)),
+    ("python/testing.md", ("set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file",)),
+    ("typescript/testing.md", ("set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file",)),
+    ("rust/testing.md", ("set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file",)),
+)
+
+
+# At v0.1.18, dev forced the memory Stream Store unless the override file set the backend.
+DEV_MEMORY_STREAM_STORE_V0_1_18 = (
+    "if !has_stream_store_backend_override {\n            configuration.stream_store.backend = StreamStoreBackend::Memory;",
+)
+
+
+def check_dev_durability_stream_store_references(checkout: Path, references: Path) -> None:
+    require_tagged_text(checkout, "server-zd/v0.1.18", "server-zd/crates/dexzd-server/src/config/source_config.rs",
+                        *DEV_MEMORY_STREAM_STORE_V0_1_18)
+    for page, needles in DEV_DURABILITY_STREAM_STORE_REFERENCE_STATEMENTS:
+        require_text(references / page, *needles)
 
 
 def check_attempt_start_queue(checkout: Path, server_release: str, sdk_baselines: dict[str, str], references: Path) -> None:
@@ -2053,6 +2150,7 @@ def main() -> None:
         "Reserved streams register as `RPC_ONLY` so\nSteps use the other slots without being declined.",
     )
     check_attempt_start_queue(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, sdk_baselines, SDK_REFERENCES)
+    check_dev_durability_stream_store_references(arguments.dex_root, SDK_REFERENCES)
     require_tagged_text(
         arguments.dex_root,
         go_sdk_baseline,

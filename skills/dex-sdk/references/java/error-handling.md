@@ -48,7 +48,7 @@ A business Get that reads with `client.getAttributes` translates `FlowNotFoundEx
 
 For parent-child cleanup, a successfully completed child may let the parent continue. A missing or unsuccessfully terminal child must follow the parent's explicit cleanup-failure or cleanup-unknown route.
 
-For an explicitly best-effort external `Client.writeStream`, catch `DexServiceException` because that boundary deliberately treats every remote write failure as lossy. Log sanitized Flow and phase identifiers without payloads or credentials and let the business Flow continue. Local failures remain outside that hierarchy and must surface. Never reconstruct authoritative completion state from retained Stream messages.
+For an explicitly best-effort external `Client.writeStream`, catch `DexServiceException` because that boundary deliberately treats every remote write failure as lossy. Log sanitized Flow and phase identifiers without payloads or credentials and let the business Flow continue. `DexServiceException` also carries the FAILED_PRECONDITION or RESOURCE_EXHAUSTED status of a disabled or full Stream Store, readable through `getCode()`; see the [Core error guidance](../core/error-handling.md) for which one to retry. Local failures remain outside that hierarchy and must surface. Never reconstruct authoritative completion state from retained Stream messages.
 
 ## Recovery checklist
 

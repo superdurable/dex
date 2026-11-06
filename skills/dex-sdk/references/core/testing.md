@@ -8,7 +8,9 @@ Use a real Dex Server integration whenever behavior crosses a Worker, Client, pe
 
 Start an isolated Dex development environment, construct the same registry and payload/blob configuration used by the application, start the Worker, and use a Client to drive the Flow through public APIs. Give every test a unique Flow ID and cleanly stop owned processes.
 
-Use deadline-based polling or the SDK's long-poll result API. Do not use a fixed sleep to guess when asynchronous state has converged.
+A local `dexcli dev` server defaults to strict durability, which flushes every write with fsync and makes each Flow several times slower on macOS. A short-lived test server that needs no host-crash safety can set `dev.durabilityMode: processCrashSafe` in the `--zd-config` file. That setting also works with older binaries; the `dexcli dev --durability process-crash-safe` flag needs cli-v1.35.0 or later. Keep strict for a server whose data you need. A test that reads a Stream needs the Stream Store, which `dexcli dev` defaults to memory; a server with the backend set to disabled rejects Client Stream calls.
+
+ Do not use a fixed sleep to guess when asynchronous state has converged.
 
 ## Required scenarios
 
