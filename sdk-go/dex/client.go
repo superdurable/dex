@@ -917,10 +917,11 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []flowValuePoi
 	return pointers
 }
 
-// TimeTravel creates a new run from a selected point in an existing Flow's history.
+// TimeTravel restarts an existing Flow run from a selected point in its history.
 //
-// The new run keeps the Flow ID. Writes after the selected point are reapplied unless
-// SkipWritesReapply is true. The returned run ID identifies the new execution.
+// The Flow keeps its Flow ID and run ID. The Server starts a new run attempt of the same run.
+// Writes after the selected point are reapplied unless SkipWritesReapply is true.
+// The returned run ID is the run ID of the time-traveled run, which equals its previous run ID.
 //
 // Example:
 //
@@ -1048,8 +1049,10 @@ func (client *Client) UpdateFlowConfig(
 // RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
 // across transparent transport reattachments. A positive
 // value returns RequestTimeoutError. InternalHandlerTimeout is deprecated and ignored by the current Server.
-// Each Flow allows 1,000 concurrent waits by default (limits.maxLongPollWaitersPerFlow).
-// Exceeding that limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
+// All long-poll waits on one Flow share one cap: WaitForFlow, Step completion, Attribute, and history waits.
+// The cap defaults to 1,000 (limits.maxLongPollWaitersPerFlow). Each Server node also caps
+// all its long-poll waits at 100,000 by default (limits.maxLongPollWaitersPerNode).
+// Exceeding either limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
 // when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Invalid identifiers, inactive Flows, context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
@@ -1357,8 +1360,10 @@ func streamMessagesPageTarget(
 // RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
 // across transparent transport reattachments. A positive
 // value returns RequestTimeoutError. InternalHandlerTimeout is deprecated and ignored by the current Server.
-// Each Flow allows 1,000 concurrent waits by default (limits.maxLongPollWaitersPerFlow).
-// Exceeding that limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
+// All long-poll waits on one Flow share one cap: WaitForFlow, Step completion, Attribute, and history waits.
+// The cap defaults to 1,000 (limits.maxLongPollWaitersPerFlow). Each Server node also caps
+// all its long-poll waits at 100,000 by default (limits.maxLongPollWaitersPerNode).
+// Exceeding either limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
 // when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Use context.WithTimeout or context.WithDeadline to bound the caller-visible response.
 func (client *Client) WaitForAttributeMatch(

@@ -46,7 +46,8 @@ type RetryPolicy struct {
 	// Later queue waits count toward it, but Dex does not recheck it while the retry is queued.
 	// A queued retry may therefore start or finish after the budget expires.
 	// Use WaitForMethodTimeout or ExecuteMethodTimeout to bound one attempt; heartbeat detection still applies.
-	// Changed in SDK v1.35.0: the budget starts at first hand-out and only gates scheduling another retry.
+	// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0): the budget starts at first hand-out
+	// and only gates scheduling another retry.
 	// It no longer shortens a running attempt's method timeout.
 	TotalDuration time.Duration
 }
@@ -58,14 +59,16 @@ const (
 	// StepDurabilityDefault uses the Flow or server default.
 	StepDurabilityDefault StepDurability = iota
 	// StepDurabilitySync waits for persistence before completing the handler request.
-	// Changed in SDK v1.35.0: Dex also persists the attempt start before handing the task to a Worker.
+	// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0): Dex also persists the attempt start
+	// before handing the task to a Worker.
 	StepDurabilitySync
 	// StepDurabilityAsync permits persistence after accepting the handler result.
 	// It lowers latency and speeds up individual Flows; sustained throughput is about the same as synchronous durability.
-	// Dex batches commits within about 20 milliseconds by default. On low-latency object storage this reduces requests.
+	// Dex batches commits within about 20 milliseconds by default. This reduces store requests.
 	// A node failure before commit can lose the result and rerun the method and later work derived from it.
-	// Changed in SDK v1.35.0: the attempt start is also asynchronous. A node failure before its commit
-	// can rerun the same attempt number without consuming a retry, possibly with different input.
+	// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0): the attempt start is also asynchronous.
+	// A node failure before its commit can rerun the same attempt number without consuming a retry,
+	// possibly with different input.
 	// Those executions can overlap and repeat Stream writes with the same source. Make external effects idempotent.
 	StepDurabilityAsync
 )
@@ -132,7 +135,8 @@ func ProceedToOnFlowTimeoutHandlerFailure(
 // Durability is pinned when the method becomes pending; FlowConfig changes affect only later method calls.
 // Cancellation is cooperative, so a later attempt or recovery Step may overlap an interrupted handler.
 //
-// Changed in SDK v1.35.0: a Step with no available Worker waits durably without spending a retry.
+// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0): a Step with no available Worker
+// waits durably without spending a retry.
 // After hand-out, an interrupted attempt consumes a retry even if no output reached Dex.
 // Method and heartbeat timeouts start at hand-out, excluding lock and Worker queue waits.
 //
@@ -409,7 +413,7 @@ type AlreadyStartedOptions struct {
 // settings to every invocation. Its context may still impose a shorter caller-side deadline.
 type RPCOptions struct {
 	// Name is the protocol RPC name that Clients invoke and Workers serve.
-	// Available since SDK v1.35.0. Empty uses the Go method name, such as "GetStatus".
+	// Empty uses the Go method name, such as "GetStatus".
 	//
 	// Set it when a Flow implemented in another language names the RPC, so a Go Worker serves the
 	// same RPC and a Go Client invokes it. For example, a Python Flow's send_user_message method:
@@ -421,6 +425,7 @@ type RPCOptions struct {
 	// differ from every other RPC name of the Flow, and from the Go method name of every other RPC
 	// of the Flow, so a name never points at another method. Registry construction rejects any
 	// other name. Keep it stable: running Flows and their callers use it.
+	// Available since SDK v1.35.0.
 	Name string
 	// Action declares this RPC as a state-dependent Action with one required permission.
 	// Nil leaves the RPC outside Work Queue permission projection. The projection identifies

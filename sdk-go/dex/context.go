@@ -68,8 +68,8 @@ type RecoveryErrorInfo struct {
 	// Asynchronous failures always report NotCompleted because an uncommitted start may have rolled back.
 	// NotCompleted does not prove execution: a task can be lost after hand-out or fail decoding before the handler.
 	// Reconcile external effects using a stable business or idempotency key before repeating them.
-	// Available since SDK v1.35.0.
 	// For example, retry a side effect directly only when failure.AttemptProgress == StepAttemptProgressNotStarted.
+	// Available since SDK v1.35.0.
 	AttemptProgress StepAttemptProgress
 }
 
@@ -82,15 +82,15 @@ type StepAttemptProgress uint8
 
 const (
 	// StepAttemptProgressUnspecified means an older Server did not report progress.
-	// Available since SDK v1.35.0.
 	// Treat it like StepAttemptProgressNotCompleted because side effects may have happened.
+	// Available since SDK v1.35.0.
 	StepAttemptProgressUnspecified StepAttemptProgress = iota
 	// StepAttemptProgressNotStarted guarantees the handler did not run in any attempt.
 	// Available since SDK v1.35.0.
 	StepAttemptProgressNotStarted
 	// StepAttemptProgressNotCompleted means some attempt may have run, but none completed.
-	// Available since SDK v1.35.0.
 	// Recovery must account for possible external side effects before repeating them.
+	// Available since SDK v1.35.0.
 	StepAttemptProgressNotCompleted
 )
 
@@ -129,7 +129,8 @@ func (info *RecoveryErrorInfo) IsHeartbeatTimeout() bool {
 // IsRetryTotalDurationExceeded recognizes historical failures that ended a running attempt at the retry total duration.
 // Current server-zd never ends a running attempt at RetryPolicy.TotalDuration, so this returns false for current records.
 // It may return true for records written before the upgrade. TotalDuration now only decides whether to retry after failure.
-// Changed in SDK v1.35.0: the current Server no longer produces retry-duration failures for running attempts.
+// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0):
+// the Server no longer produces retry-duration failures for running attempts.
 // See the RecoveryErrorInfo example for use in a recovery handler.
 //
 // When the total duration ends between attempts, Dex starts no further attempt. It reports the
@@ -159,20 +160,24 @@ type Context interface {
 	// Context supports cancellation and deadlines for the active handler attempt.
 	// Deadline returns the Server-supplied absolute deadline and whether one exists.
 	// Use a child context for an external call that needs a shorter timeout.
-	// Changed in SDK v1.35.0: a Step attempt deadline is hand-out time plus the method timeout,
+	// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0):
+	// a Step attempt deadline is hand-out time plus the method timeout,
 	// without shortening it to the remaining retry budget. Queue and lock waits are excluded.
 	context.Context
 
 	// FlowID returns the application-assigned Flow ID.
 	FlowID() string
 	// RunID returns the server-assigned run ID.
-	// The Flow ID stays stable when Dex creates a replacement run, for example after TimeTravel;
-	// RunID identifies that particular run and can change during the Flow's lifetime.
+	// TimeTravel keeps the run ID and starts a new run attempt of the same run.
+	// A new execution under the same Flow ID, such as a start after the previous run closed, gets a new RunID.
 	RunID() string
 	// FlowStartedAt returns when the current Flow run started.
 	FlowStartedAt() time.Time
 	// StepExecutionID returns the current Step execution ID, or empty for an RPC.
 	// It stays stable across retries of this Step execution. Together with FlowID it can key idempotent external work.
+	// After TimeTravel, a re-run of the same Step keeps the same FlowID, RunID, and StepExecutionID.
+	// A key built only from them therefore deduplicates that re-run with the original execution.
+	// The Go Context does not expose the run attempt, so add your own discriminator when a re-run must repeat the work.
 	StepExecutionID() string
 	// FromStepExecutionID returns the predecessor Step execution ID, or empty when absent.
 	FromStepExecutionID() string
@@ -182,7 +187,8 @@ type Context interface {
 	FirstAttemptAt() time.Time
 	// Attempt returns the one-based handler attempt number.
 	// WaitFor and Execute have independent retry sequences. Do not use Attempt as an idempotency key.
-	// Changed in SDK v1.35.0: an interrupted handed-out attempt consumes a retry.
+	// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0):
+	// an interrupted handed-out attempt consumes a retry.
 	// An asynchronous start lost before commit can repeat the same attempt number; see StepDurabilityAsync.
 	Attempt() int32
 

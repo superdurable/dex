@@ -477,7 +477,8 @@ func (worker *Worker) PullRegistrationState() PullRegistrationState {
 }
 
 // Stop stops starting tasks and drains handlers until ctx or StopDrainTimeout expires.
-// Changed in SDK v1.35.0: tasks returned during a clean shutdown without running consume no Step retry.
+// Changed with Server protocol 4 (server-zd v0.1.17, required by SDK v1.35.0): tasks returned during a clean shutdown
+// without running consume no Step retry.
 // An attempt interrupted after it may have run consumes a retry instead; normal deployments that drain finishers avoid it.
 // Idle streams immediately half-close their request side. Busy streams finish their handlers,
 // send final output, then half-close. Tasks arriving after Stop begins are dropped without execution.
