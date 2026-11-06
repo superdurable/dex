@@ -84,13 +84,20 @@ impl SubFlowOptions {
         self
     }
 
-    /// Delays the SubFlow starting Step after server acceptance.
+    /// Sets a delay before the SubFlow starting Step after server acceptance.
+    ///
+    /// The Server currently supports only a zero delay. It rejects a Step result that requests a
+    /// SubFlow with a positive delay as invalid input, so that Step attempt fails.
     pub fn start_delay(mut self, value: Duration) -> Self {
         self.start_delay = Some(value);
         self
     }
 
-    /// Sets whole-Flow retry behavior after abnormal completion.
+    /// Sets a whole-Flow retry policy for the SubFlow.
+    ///
+    /// The Server does not support whole-Flow retry. It rejects a Step result that requests a
+    /// SubFlow with this option as invalid input, so that Step attempt fails. Configure [`crate::RetryPolicy`] on the SubFlow's Step methods
+    /// through [`crate::StepOptions`] instead.
     pub fn retry_policy(mut self, value: RetryPolicy) -> Self {
         self.retry_policy = Some(value);
         self

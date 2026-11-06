@@ -82,10 +82,12 @@ pub struct RecoveryErrorInfo {
 
 /// Reports how far attempts of a failed Step method progressed.
 ///
+/// Since 1.35.0.
+///
 /// Read [`RecoveryErrorInfo::attempt_progress`] during recovery before deciding whether to repeat
 /// side effects. Progress describes all attempts of that method call, rather than just the last one.
 /// A handler may have performed side effects for both [`Self::NotCompleted`] and [`Self::Unspecified`].
-/// Since 1.35.0. These values correspond to NOT_STARTED, NOT_COMPLETED, and UNSPECIFIED on the wire.
+/// These values correspond to NOT_STARTED, NOT_COMPLETED, and UNSPECIFIED on the wire.
 /// NotCompleted does not prove that an external effect failed; reconcile it or repeat it idempotently.
 /// Unspecified also covers an unknown progress value and must be handled conservatively.
 /// Only Sync can report NotStarted. Async failures always report NotCompleted because an
@@ -278,7 +280,8 @@ impl Context {
 
     /// Returns the one-based handler attempt number.
     ///
-    /// Changed in 1.35.0: an unpersisted Async attempt start can replay with the same number.
+    /// With 1.35.0 (Server protocol 4): an unpersisted Async attempt start can replay with the same
+    /// number.
     /// Attempts count within one method call; they are not unique external-effect identifiers.
     pub fn attempt(&self) -> u32 {
         u32::try_from(self.metadata.attempt).unwrap_or_default()

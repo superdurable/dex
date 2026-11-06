@@ -150,7 +150,6 @@ impl PullWorkerOptions {
 /// Defaults connect to Dex at `127.0.0.1:8801`, use [`PullWorkerOptions::default`], and allow
 /// two minutes for Attribute-index synchronization. Workers need only an outbound connection.
 /// Changed in 1.25.0: every Worker uses pull mode; no listener or Worker target is configured.
-/// Changed in 1.26.0: only server-zd is supported as the Dex Server.
 pub struct WorkerOptions {
     server_address: String,
     pull: PullWorkerOptions,

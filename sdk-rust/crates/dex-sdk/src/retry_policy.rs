@@ -22,10 +22,12 @@ use std::time::Duration;
 /// It only gates scheduling another retry after failure; it never interrupts a running attempt.
 /// Method and heartbeat timeouts still apply to that attempt. Initial queue and lock waits do
 /// not consume the budget. Later backoff and queue waits do. A scheduled retry can start after
-/// the budget expires. Returning attempt one without running resets the budget's start.
+/// the budget expires. Gracefully returning attempt one resets the budget's start only when no
+/// execution of that attempt may have run.
 ///
-/// Whole-Flow retry uses only interval, multiplier, maximum interval, and maximum attempts.
-/// [`Self::total_duration`] applies to Step methods, not whole-Flow retry.
+/// Use this policy for Step methods. The Server does not support whole-Flow retry. It rejects
+/// [`crate::StartFlowOptions::retry_policy`] with INVALID_ARGUMENT and rejects a SubFlow that
+/// sets [`crate::SubFlowOptions::retry_policy`] as invalid input. Use Step retry policies instead.
 /// Duration values must fit signed 32-bit whole seconds when submitted. Builders take ownership
 /// and return the updated policy; validation occurs when the options are mapped for a request.
 ///

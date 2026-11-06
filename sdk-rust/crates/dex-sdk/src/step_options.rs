@@ -136,7 +136,8 @@ impl<Input: Value> StepOptions<Input> {
 
     /// Sets the maximum duration of one `wait_for` handler attempt.
     ///
-    /// Unset or zero uses two hours. Changed in 1.35.0: the timeout starts at Worker hand-out,
+    /// Unset or zero uses two hours. With 1.35.0 (Server protocol 4): the timeout starts at
+    /// Worker hand-out,
     /// excluding queue and lock waits, and is not shortened by retry total duration.
     /// Each retry has a new timeout. Cancellation is cooperative; observe [`Context::is_cancelled`](crate::Context::is_cancelled)
     /// and bound external calls with their own timeouts.
@@ -147,7 +148,8 @@ impl<Input: Value> StepOptions<Input> {
 
     /// Sets the maximum duration of one `execute` handler attempt.
     ///
-    /// Unset or zero uses two hours. Changed in 1.35.0: the timeout starts at Worker hand-out,
+    /// Unset or zero uses two hours. With 1.35.0 (Server protocol 4): the timeout starts at
+    /// Worker hand-out,
     /// excluding queue and lock waits, and is not shortened by retry total duration.
     /// Each retry has a new timeout. Cancellation is cooperative; observe [`Context::is_cancelled`](crate::Context::is_cancelled)
     /// and bound external calls with their own timeouts.
@@ -332,7 +334,8 @@ pub enum WaitForFailurePolicy {
 /// work that depended on it. Use idempotent effects or Sync for costly replays. Sync does not
 /// remove the need for idempotency when a handler's external effect succeeds before its result.
 ///
-/// Changed in 1.35.0: Sync persists attempt start before hand-out; Async persists it afterward.
+/// With 1.35.0 (Server protocol 4): Sync persists attempt start before hand-out; Async persists
+/// it afterward.
 /// A server failure before an Async start is persisted can repeat the same attempt number without
 /// consuming a retry. Those executions may overlap, see different input, and repeat Stream output
 /// under the same source. Otherwise an interrupted attempt consumes a retry as possibly run.
