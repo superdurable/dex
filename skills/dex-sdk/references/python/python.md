@@ -1,16 +1,8 @@
 # Python
 
-Use this page first for a Python Dex application. It covers project shape,
-registration, the async and sync surfaces, Worker lifecycle, and Python traps.
-Concepts and rules live in core: [Flow](../core/flow.md), [Step](../core/step.md),
-[Attribute](../core/attribute.md), [RPC](../core/rpc.md),
-[Channel](../core/channel.md), [Stream](../core/stream.md),
-[Timer](../core/timer.md), [SubFlow](../core/subflow.md),
-[Client](../core/client.md), [Application](../core/application.md),
-[Connector](../core/connector.md), [error handling](../core/error-handling.md),
-[testing](../core/testing.md), and [patterns](../core/patterns.md).
-
-Then open the Python page for the task:
+Read this page first for a Python Dex application. Concepts and rules live in
+the core files, starting with [Application](../core/application.md). Then
+open the Python page for the task:
 
 | Task | Page |
 | --- | --- |
@@ -69,16 +61,13 @@ call chain.
 
 ## Project shape and wiring
 
-- Keep Flow and Step classes in application modules. Keep HTTP handlers and
-  Client adapters outside Flow classes.
 - Construct every Flow instance once, in one composition module. Pass that
-  same instance to the Registry and to Client calls; a new instance of the same
+  same instance to `Registry` and to Client calls; a new instance of the same
   class is not registered.
-- Create one Registry and one BlobCache per process. Share both between the
-  Worker and the Client.
-- Inject business services through Flow and Step constructors.
-- Define every Attribute, Channel, and Stream once at module or class scope.
-  Return them from `get_persistence_schema`.
+- Share one `Registry` and one `open_blob_cache(...)` between the Worker and
+  the Client.
+- Define every `Attribute`, `Channel`, and `Stream` once at module or class
+  scope and return them from `get_persistence_schema`.
 
 ```python
 import asyncio
@@ -130,25 +119,18 @@ and the [sync composition](https://github.com/superdurable/dex/blob/main/example
 
 ## Worker lifecycle
 
-- Every Worker is a pull Worker. It needs only an outbound connection to the
-  Dex Server. There is no Worker address, bind port, or routing setting.
-- `start` negotiates the protocol, synchronizes Attribute indexes, opens the
-  task streams, and returns only after `stop`. It may run once per Worker.
-  Always observe its result: an index or protocol failure surfaces there.
+- `WorkerOptions(server_address=...)` is the only address; the Worker connects
+  outbound.
+- `start` runs once per Worker and returns only after `stop`. Await its task
+  (or join its thread): index and protocol failures surface there.
 - Gate readiness with `wait_pull_registered(timeout=...)` before serving
   traffic or retiring the old Worker in a rolling deployment. It raises
   `TimeoutError` on expiry. Probe later readiness with
   `pull_registration_state().is_ready`.
-- `stop` and `close` drain running handlers, then cancel the rest. A task that
-  arrives during shutdown returns to Dex without running. Always call one of
-  them, and await it on the async surface.
-- `max_concurrent_tasks` is the number of execution slots. Some slots can be
-  reserved for RPCs so RPCs stay responsive while Steps fill the Worker. Steps
-  are never declined for capacity. See
-  [Python Workers](https://docs.superdurable.io/reference/python/workers) for the
-  option names and defaults.
-- A Worker serves only the Flow types in its Registry. Every Worker of one
-  deployment must register compatible definitions.
+- Always call `stop` or `close` (awaited on the async surface).
+- `PullWorkerOptions` sets `max_concurrent_tasks`, `reserved_rpc_tasks`, and
+  the drain timeout. See
+  [Python Workers](https://docs.superdurable.io/reference/python/workers).
 
 ## Authentication and TLS
 
@@ -157,9 +139,8 @@ and the [sync composition](https://github.com/superdurable/dex/blob/main/example
 - `FileCredential` reads a rotating bearer-token file. `ApiKeyCredential`
   exchanges an API key for tokens. A custom `Credential.token()` may return a
   string, or an awaitable for async callers.
-- `FlowServiceTlsOptions` turns on TLS. Without it the connection is
-  plaintext; protect it at the network layer.
-- Keep tokens and keys out of Flow input, Attributes, and logs.
+- `FlowServiceTlsOptions` turns on TLS; without it the connection is
+  plaintext.
 - Details: [server authentication](https://docs.superdurable.io/reference/server/authentication).
 
 ## Names, types, and payloads
@@ -173,30 +154,25 @@ and the [sync composition](https://github.com/superdurable/dex/blob/main/example
   instances of one Step class. Each instance then returns a distinct Step type.
 - A generic Step whose input annotation is a `TypeVar` overrides
   `get_input_type` to return the concrete type, or `type(None)` for no input.
-- Flow type, Step types, and persistence names are durable identity. Open runs
-  resume on new code, so never rename them as a refactor. For an incompatible
-  change, add a new Flow or Step type and keep the old one registered until its
-  runs drain.
+- Renaming a Python class changes its default Flow or Step type, which open
+  runs depend on; see [Flow](../core/flow.md).
 - Type every payload concretely: frozen dataclasses, enums, `str`, `int`,
   `list[T]`. Avoid `Any`, lambdas, open handles, and mutable defaults (use
   `field(default_factory=...)`).
-- Field names and types of durable payloads are a wire contract. Add fields
-  with defaults; never repurpose or remove one that open runs still read.
+- Dataclass field names are the JSON wire names. Add new fields with
+  defaults so open runs still decode.
 - When a payload must match another SDK's JSON shape, use dataclass field
   metadata such as `dex_json_name`. A custom codec goes in the
   `CodecRegistry` passed to `Registry`.
 - Use `None` for no payload: `Step[None]`, `Channel("ready", type(None))`.
 - An unset Attribute reads as its type's zero value (`0`, `0.0`, `False`) or
   `None`; it does not raise. Model "not set" explicitly when it matters.
-- Writing `None` to an Attribute deletes it. A `None` Flow output is
-  indistinguishable from no output; return a result dataclass when that
-  difference matters.
+- Writing `None` to an Attribute deletes it. A `None` Flow output reads as no
+  output; return a result dataclass when that difference matters.
 
 ## Connectors
 
-- Use an official Connector only when the catalog lists `python` for the
-  connector and for every operation and Trigger you need. Install the PyPI
-  version the catalog gives for Python.
+- Use an official Connector only when the catalog lists `python` for it.
 - At startup, load the project configuration once with the Connector SDK's
   `load_from_environment`, open each connection by its static name, and pass
   it to the operation's Step factory. Close connections and the project on
@@ -229,15 +205,11 @@ class decorators other than `dataclass` and `final`. See
 
 - `asyncio.sleep` or `time.sleep` in `execute` is not a durable Timer. Put
   business time in a `wait_for` Timer.
-- Process globals, threads, tasks, locks, and caches vanish on Worker
-  replacement. Durable coordination uses Attributes, Channels, and locks.
+- Module globals, `threading.Lock`, `asyncio` tasks, and in-process caches
+  vanish on Worker replacement.
 - Do not swallow `asyncio.CancelledError` or Dex exceptions to keep going.
-- Every Context write commits only when the handler returns successfully.
-  Nothing is visible outside the handler before that.
 - Map instance names are non-empty and contain no `/`.
 - A long-poll expiry (`LongPollTimeoutError`) is not a Flow failure.
-- Graceful and force completion differ for running branches; see
-  [Step](../core/step.md).
 - Do not use `del` to mark unused parameters; leave them unused.
 
 ## Completion checklist
@@ -250,5 +222,4 @@ class decorators other than `dataclass` and `final`. See
 - [ ] Flow and Step types are domain names and unchanged for open runs.
 - [ ] The Worker waits for registration with a deadline and is always closed.
 - [ ] Client calls have bounded waits and catch typed exceptions.
-- [ ] External effects are idempotent, keyed by durable identity.
 - [ ] Tests run against a real Dex Server with unique Flow IDs.

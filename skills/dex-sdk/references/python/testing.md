@@ -1,9 +1,6 @@
 # Testing Python applications
 
-Python setup for the strategy in [testing](../core/testing.md). Durable
-behavior needs a real Dex Server: mocks cannot prove registration, codecs,
-waits, retries, Worker replacement, or terminal semantics. Unit-test only pure
-helpers without Dex.
+Python setup for the strategy and scenarios in [testing](../core/testing.md).
 
 ## Harness
 
@@ -81,44 +78,23 @@ async def test_greeting_completes(client: AsyncClient) -> None:
 Client calls take the registered Flow instance. In a real suite, import it
 from the application's composition module.
 
-- Generate every Flow ID with `uuid4().hex`. Use unique map instances and
-  entity keys when tests share an Attribute Store.
-- Bound every wait: `wait_for_flow(flow_id, timeout)`, request timeouts on
-  Attribute and Step waits, and a deadline loop around `describe_flow` only
-  when no Client wait exists. Never `await asyncio.sleep(...)` as the
-  assertion.
-- Skip the suite with a clear message when no server answers
-  `health_check()`, instead of failing every test.
-- On a timeout, print the Flow ID, run ID, status, and the active Step before
-  failing.
-- Assert business invariants, not the scheduling order of parallel Steps.
-- `dexcli dev` defaults to strict durability, which is slow; a short-lived
-  test server can relax it. See [testing](../core/testing.md).
+- Generate every Flow ID with `uuid4().hex`.
+- Bound every wait: `wait_for_flow(flow_id, timeout)`, `request_timeout` on
+  Attribute and Step waits. Never `await asyncio.sleep(...)` as the assertion.
+- Skip the suite with a clear message when `health_check()` fails.
+- Mark async tests with `pytest.mark.asyncio` and use `pytest_asyncio`
+  fixtures; a sync suite uses `Client` and a Worker thread.
 
 ## Crash a Worker
 
-`stop()` drains running handlers, so it cannot simulate a crash during
-`execute`. Run the Worker in a subprocess (`asyncio.create_subprocess_exec`),
-wait until the Flow reaches the boundary under test, send `SIGKILL`, start a
-replacement Worker with the same registered definitions, and assert that the
-Flow resumes and completes without a duplicate external effect.
+`stop()` drains running handlers, so it cannot simulate a crash. Run the
+Worker with `asyncio.create_subprocess_exec`, send `SIGKILL` at the boundary
+under test, and start a replacement Worker with the same definitions.
 
 ## Scenarios
 
-1. Start, wait, and assert the output and terminal status.
-2. Replace the Worker after a durable boundary and prove the Flow resumes.
-3. Exhaust Step retries and assert the failure route or the Flow failure.
-4. Publish through RPCs before and during the wait; assert consumption,
-   deletion, and RPC idempotency.
-5. Cross a Timer without sleeping in the test.
-6. Read Stream messages with resume tokens.
-7. Cover graceful and force completion, failure, cancellation, the timeout
-   handler, and a dead end separately.
-8. StartFlow retry identity: same, different, and generated request IDs,
-   with `ignore_already_started` on and off, and a lost start response.
-9. For each entity readable after close, close the real Flow, then read it
-   through the application's Get boundary.
-10. Run both the async and the sync surface when the product ships both.
+Run the core scenarios. When the product ships both surfaces, run them on the
+async and the sync surface.
 
 ## Commands
 

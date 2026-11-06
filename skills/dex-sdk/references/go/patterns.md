@@ -35,6 +35,12 @@ idiom matters. Examples live under
 ```go
 var ShardDone = dex.DefineChannel[int]("shard-done")
 
+type shardFanOut struct{ dex.StepDefaultsNoWaitFor[int] }
+
+type processShard struct{ dex.StepDefaultsNoWaitFor[int] }
+
+type awaitShards struct{ dex.StepDefaults }
+
 func (shardFanOut) Execute(_ dex.Context, shardCount int) (*dex.StepDecision, error) {
 	movements := []dex.StepMovement{dex.MovementOf(awaitShards{}, shardCount)}
 	for shard := 0; shard < shardCount; shard++ {
@@ -60,10 +66,8 @@ func (awaitShards) Execute(_ dex.Context, shardCount int) (*dex.StepDecision, er
 }
 ```
 
-- Each worker branch publishes once in the same commit as its result, then
-  ends with `DeadEnd`.
-- The coordinator is moved in the same decision as the workers, so it waits
-  from the start.
+- Move the coordinator in the same `GoToMany` as the workers. Each worker
+  publishes once, then returns `dex.DeadEnd()`.
 
 ## Polling
 
@@ -76,6 +80,17 @@ const (
 	jobCallTimeout = 10 * time.Second
 	maxJobWait     = 30 * time.Minute
 )
+
+var JobProgress = dex.DefineStream[JobStatus]("job-progress", 1<<20)
+
+type awaitJob struct {
+	dex.StepDefaultsNoWaitFor[string]
+	jobs JobService
+}
+
+type recordJobWaitFailure struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
 
 func (awaitJob) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
@@ -130,36 +145,20 @@ func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDec
 }
 ```
 
-- Each round bounds the provider call with `context.WithTimeout(ctx, ...)`.
-- "Not ready yet" stays in the loop. A transient call error returns, wrapped
-  with `dex.ErrorWithStack`, so Step retry owns it.
-- Each round writes a Stream frame on a status change, else records a
-  heartbeat. Keep `pollInterval + jobCallTimeout` well under
-  `HeartbeatTimeout`.
-- The checkpoint holds resume state, never a deadline.
-- `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` set the maximum wait.
-  `ExecuteFailure` turns expiry into a business result; without it, the Flow
-  fails.
-- Forbidden: a WaitFor Timer plus `GoTo` loop, `dex.RetryAfter` or retry policy
-  as the loop, and a hand-written deadline that duplicates the StepOptions.
+- Bound each call with `context.WithTimeout(ctx, ...)`. Do not `select` on
+  `ctx.Done()` around `time.Sleep`; Dex cancels `ctx` on expiry.
+- Keep `pollInterval + jobCallTimeout` well under `HeartbeatTimeout`.
+- `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` hold the maximum wait.
+  Never compute a deadline in the loop.
 
 ## Durable Timer
 
-- Cron, reminders, and inactivity tracking race `dex.Timer(...)` against
-  Channels with `dex.AnyOf` in `WaitFor`.
-- Carry the schedule in the Step input, not in process memory. Validate the
-  interval and count before the first wait.
-- In `Execute`, branch on `ctx.HasTimerFired()` first. Send a reminder at most
-  once per iteration, then `GoTo` the wait Step again with the next schedule.
-- Activity restarts the wait: the activity branch moves back to the wait Step.
-  Drain or coalesce bursts of activity messages.
+Race `dex.Timer(...)` against Channels with `dex.AnyOf` in `WaitFor`. In
+`Execute`, branch on `ctx.HasTimerFired()`, then `GoTo` the wait Step again
+with the next schedule in its input.
 
 ## Partitioned AttributeMaps
 
-- Keep the hash function and partition count stable with persisted state.
-  Changing either needs a rehash of every record or a new Flow type.
-- An upsert passes the same bucket to `LockAttributeMapInstances` and
-  `LoadAttributeMapInstances`. A read loads only the bucket.
-- Append-only history keeps a bounded `current` instance and archives full
-  chunks under zero-padded start sequences. Appenders lock only `current` and
-  retry after `*dex.RPCLockConflictError`.
+An upsert passes the same bucket to `RPCInvokeOptions.LockAttributeMapInstances`
+and `LoadAttributeMapInstances`. Appenders that share a lock retry after
+`*dex.RPCLockConflictError`.

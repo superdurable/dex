@@ -53,25 +53,41 @@ func StartOrder(ctx context.Context, client *dex.Client, flow *OrderApprovalFlow
 }
 ```
 
-- Call `StartFlow` directly. Do not preflight with an RPC, `DescribeFlow`, or
-  search.
-- A retry of the same logical start reuses the same `RequestID` and
-  `IgnoreError: true`. The same request then returns the existing run instead
-  of an error.
-- `RequestID` alone still returns `*dex.FlowAlreadyStartedError`.
-  `IgnoreError` alone does not hide a conflict with a different request.
+- The stable start identity is `StartFlowOptions.RequestID` (a `*string`)
+  plus `AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true}`. Keep
+  both across retries. Either one alone still returns
+  `*dex.FlowAlreadyStartedError`.
 - A nil `RequestID` makes the SDK generate a new one for each call. A pointer
   to an empty string is invalid.
-- Bind the request ID to the complete immutable request. The Server does not
-  compare payloads on a matching ID.
-- `IDReuseDisallow` prevents a second execution after the first one closes.
-- After a lost response, retry with the same identities, or read the owning
-  domain state. Do not wrap every `*dex.ServiceError` in a replay.
-- When the API must confirm a business milestone, wait for it after the start
-  with `WaitForAttributeMatch` or `WaitForStepCompletion` under a deadline. A
-  timeout does not undo the start.
-- Start dependent top-level Flows from a Step through the injected Client, with
-  stable request IDs. Never chain a second `StartFlow` in the HTTP handler.
+- `IDReusePolicy: dex.IDReuseDisallow` prevents a second execution after the
+  first one closes.
+- Wait for a required business milestone with `WaitForAttributeMatch` or
+  `WaitForStepCompletion` under a deadline.
+- A Step starts a dependent top-level Flow through a late-bound Client, with
+  a request ID derived from its own Flow ID:
+
+```go
+type ClientProvider func() *dex.Client
+
+type startShipment struct {
+	dex.StepDefaultsNoWaitFor[Order]
+	clientProvider ClientProvider
+}
+
+func (step startShipment) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
+	requestID := ctx.FlowID() + "/start-shipment"
+	_, err := step.clientProvider().StartFlow(ctx, &OrderApprovalFlow{}, "order-"+order.OrderID, order,
+		dex.StartFlowOptions{
+			RequestID:      &requestID,
+			AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true},
+			IDReusePolicy:  dex.IDReuseDisallow,
+		})
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(order.OrderID), nil
+}
+```
 
 ## Query-only Get and closed Flows
 
@@ -91,30 +107,36 @@ func GetOrder(ctx context.Context, client *dex.Client, flow *OrderApprovalFlow, 
 }
 ```
 
-- This translation is valid only for a query RPC: no locks in `RPCOptions` or
-  per-call options, no `IsTransactional`, and no returned effects. Such an RPC
-  still reads a retained closed run, so a not-found error means the Flow is
-  gone.
-- Do not add `WaitForFlow`, history reads, or retries to tell "missing" from
-  "closed".
-- `GetAttributes` reads closed runs too. It returns only
-  `*dex.FlowNotFoundError` for a missing Flow; translate it the same way.
+- Translate only for a query RPC: no `RPCOptions.LockAttributes`, no
+  `RPCInvokeOptions` locks, no `IsTransactional`, and no `NextSteps` or
+  cancellation in the result.
+- `GetAttributes` returns only `*dex.FlowNotFoundError` for a missing Flow;
+  translate it the same way.
 
 ## Closed-Flow races
 
 - `*dex.FlowNotActiveOrNotFoundError` from a mutation means no open run took
-  the call. It does not mean the action succeeded.
-- First reconcile from domain state and the operation's invariants.
-- Call `client.DescribeFlow(ctx, flowID)` only when the terminal status changes
-  the answer. Treat `dex.FlowCompleted` as success only if completion
-  guarantees the requested condition. Any other status, or
-  `*dex.FlowNotFoundError`, is a domain failure or an unknown outcome.
-- `*dex.FlowClosingError`: wait for or re-read the retained terminal state
-  before deciding.
+  the call, not that the action happened. Reconcile from domain state first.
+- When the terminal status changes the answer, call
+  `client.DescribeFlow(ctx, flowID)` and read `FlowInfo.Status`
+  (`dex.FlowCompleted`, `dex.FlowFailed`, `dex.FlowCanceled`, ...).
+- `*dex.FlowClosingError`: wait for or re-read the terminal state before
+  deciding.
 
 ## Retry ownership
 
 ```go
+type chargeCard struct {
+	dex.StepDefaultsNoWaitFor[Order]
+	provider ProviderClient
+}
+
+func (chargeCard) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(recordChargeFailure{}, nil),
+	}
+}
+
 func (step chargeCard) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
 	err := step.provider.Charge(ctx, chargeIdempotencyKey(ctx.FlowID()), order.Amount)
 	var rateLimited *rateLimitedError
@@ -128,19 +150,18 @@ func (step chargeCard) Execute(ctx dex.Context, order Order) (*dex.StepDecision,
 }
 ```
 
-- Return the error and let the Step retry policy retry. Never write an
-  in-memory retry loop around Step work.
-- `dex.RetryAfter(delay, cause)` sets the next retry delay. Use it only when the
-  provider gives a meaningful delay, such as a rate-limit hint. It is not a
-  polling loop.
+- Return the error; the Step retry policy retries. Never loop in memory.
+- `dex.RetryAfter(delay, cause)` sets the next retry delay. Use it only with a
+  provider's delay hint, never as a polling loop.
 - `dex.ErrorWithStack(err)` records the origin stack for diagnostics.
-- Return every Context operation error. Do not continue as if a failed write
-  committed.
-- Use an idempotency key from durable identity for every external effect.
 
 ## Recovery Step
 
 ```go
+type recordChargeFailure struct {
+	dex.StepDefaultsNoWaitFor[Order]
+}
+
 func (recordChargeFailure) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
 	failure := ctx.RecoveryError()
 	if failure == nil {
@@ -170,9 +191,6 @@ func (recordChargeFailure) Execute(ctx dex.Context, order Order) (*dex.StepDecis
 - Tell Dex time limits apart with `IsMethodTimeout()`, `IsHeartbeatTimeout()`,
   and `IsRetryTotalDurationExceeded()`. Never compare `ErrorType` with a
   string. The predicates are nil-safe.
-- Keep a final branch for every other failure.
-- A compensation Step is idempotent and carries enough input to find the
-  original commit.
 - A Flow-level soft timeout: implement `HandleTimeout(ctx dex.Context)
   (*dex.StepDecision, error)` on the Flow and set a positive
   `StartFlowOptions.Timeout`. It returns an explicit decision.

@@ -1,14 +1,8 @@
 # TypeScript handbook
 
-Read this page first for TypeScript application work. It gives the
-TypeScript rules only. Concepts and guarantees live in core:
-[Flow](../core/flow.md), [Step](../core/step.md),
-[Attribute](../core/attribute.md), [RPC](../core/rpc.md),
-[Channel](../core/channel.md), [Stream](../core/stream.md),
-[Timer](../core/timer.md), [SubFlow](../core/subflow.md),
-[Connector](../core/connector.md), [Client](../core/client.md),
-[Application](../core/application.md), [error handling](../core/error-handling.md),
-[testing](../core/testing.md), and [patterns](../core/patterns.md).
+Read this page first for TypeScript application work. It gives TypeScript
+rules only. Concepts live in core, starting with
+[Application](../core/application.md) and [Connector](../core/connector.md).
 
 | Task | Page |
 | --- | --- |
@@ -28,7 +22,7 @@ npm ls @superdurable/dex
 Open the [TypeScript SDK reference](https://docs.superdurable.io/reference/typescript/)
 and pick that minor in the left-sidebar version selector. API signatures,
 defaults, units, and errors live in the TSDoc comments of the installed
-package (`node_modules/@superdurable/dex/dist/src/*.d.ts`). The installed
+package's `.d.ts` declarations. The installed
 declarations win over anything remembered. Do not invent an API that the
 declarations do not contain.
 
@@ -97,9 +91,8 @@ application's configuration.
   constant string. Name each Flow after its domain, such as `ApprovalFlow`,
   never just `Flow`. Flow types are unique in a Registry. Step types are
   unique in a Flow.
-- These strings, Attribute, Channel, Stream, and RPC names, and codec wire
-  shapes are durable identity. Open Flows resume on new code with them.
-  Renaming a class is safe only when the returned type strings stay the same.
+- Renaming a class is safe only when `getFlowType()` and `getStepType()`
+  still return the same strings.
 - TypeScript types are erased at run time. A `Codec<T>` is the runtime
   contract. Generic annotations do not validate anything.
 - Scalar wire values need an explicit codec: `stringCodec`, `booleanCodec`,
@@ -108,8 +101,7 @@ application's configuration.
   `string` must set `inputCodec`. An RPC with a scalar input or output must
   set `inputCodec` or `outputCodec`.
 - Use `jsonCodec<T>({ typeName, decode })` for objects. Validate in `decode`
-  when the data is untrusted or evolves. Cross-language Flows depend on these
-  wire shapes.
+  when the data is untrusted or evolves.
 - Millisecond options are plain numbers named `...Ms`. Keep units in names.
 
 ## Handlers
@@ -123,16 +115,11 @@ application's configuration.
 - Async work yields the event loop, so one Worker can serve the Flow or RPC
   that its own handler calls. Synchronous CPU work blocks every handler of the
   Worker. Split long CPU work or move it out of process.
-- `context.cancellationSignal` is cooperative. Pass it to abort-aware APIs.
-  Cancellation never undoes an external effect.
-- Staged Attribute writes, Channel publishes, and deletes commit only with
-  the handler's successful result. Module globals, files, and remote calls are
-  not durable. A thrown error discards the staged writes.
+- Pass `context.cancellationSignal` to abort-aware APIs.
 
 ## Worker lifecycle
 
-Every Worker is a pull Worker. It needs only an outbound connection to the Dex
-Server. No Worker address or routing target exists.
+`WorkerOptions` has `serverAddress` and no listen address.
 
 - `await worker.start()`. It negotiates the Server protocol, synchronizes
   Attribute indexes, and resolves after the first slot registers. A Server
@@ -167,14 +154,13 @@ Runnable: [pull-workers.ts](https://github.com/superdurable/dex/blob/main/exampl
 - Set `flowServiceTls` separately in `ClientOptions` and `WorkerOptions`.
   Omitting it keeps plaintext gRPC. Any value, even `{}`, uses TLS and never
   falls back to plaintext.
-- Keep tokens out of Flow input, Attributes, and logs.
 
 Details: [Server authentication reference](https://docs.superdurable.io/reference/server/authentication).
 
 ## Connectors
 
-- Use an official Connector only when the published catalog lists
-  `typescript` for the connector and for every operation and Trigger you need.
+- Use a Connector only when the catalog lists `typescript` for it and for
+  every operation and Trigger you need.
 - Install the connector package `@superdurable/connector-<slug>` at the version
   the catalog gives. It depends on `@superdurable/connectors-sdk`.
 - At startup call `await loadFromEnvironment()` from
@@ -182,10 +168,9 @@ Details: [Server authentication reference](https://docs.superdurable.io/referenc
   the connector package's `newProjectConnection(project, connectionName)`.
   Pass the connection to the operation's Step factory, such as
   `newSearchArticlesStep(...)`, and register the Flow as usual.
-- Do not write your own configuration loader. Do not copy credentials into
-  Flow input or Attributes.
-- Hold a short-lived secret that the Flow itself must keep in a hard-delete
-  Attribute ([primitives](primitives.md#attribute-and-attributemap)).
+- Do not write your own configuration loader.
+- Keep a short-lived secret that the Flow must hold in a
+  `hardDeleteOnNull()` Attribute ([primitives](primitives.md#attribute-and-attributemap)).
 
 ## Dex Web and the FDG analyzer
 
@@ -212,13 +197,11 @@ Details: [Server authentication reference](https://docs.superdurable.io/referenc
 - Inside a handler, an absent Attribute reads as the codec zero value for
   scalar numeric and Boolean codecs (`0`, `0n`, `false`) and as `undefined`
   otherwise. `client.getAttributes` returns `undefined` for absent values.
-- Map instance keys are non-empty and contain no `/`.
 - `void somePromise` hides rejections. Await, or attach a rejection handler and
   state who owns the failure.
 - An unhandled rejection from `context.recordHeartbeat` can terminate Node.js.
   Always await it.
 - Catch exported SDK error classes with `instanceof`, never by message text.
-- A Stream is best effort. Keep authoritative state in Attributes or output.
 
 ## Completion checklist
 
@@ -232,6 +215,4 @@ Details: [Server authentication reference](https://docs.superdurable.io/referenc
 - [ ] Worker startup waits for registration with a deadline and closes on
       failure. Shutdown closes Client, Worker, then BlobCache.
 - [ ] Client calls handle typed errors ([error handling](error-handling.md)).
-- [ ] Tests run against a real Dex Server with unique Flow IDs
-      ([testing](testing.md)).
-- [ ] No application code depends on Dex Server internals.
+- [ ] Tests follow [testing](testing.md).

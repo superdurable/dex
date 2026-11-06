@@ -115,14 +115,12 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
 
 ## Worker lifecycle
 
-- Every Worker is a pull Worker. It opens outbound streams to the Dex Server.
-  It needs no listen address, and the Server never dials it.
+- The Worker opens outbound streams to the Dex Server; it needs no listen
+  address.
 - `Worker.Start()` blocks until the Worker stops. Run it on a goroutine and
   keep its result.
-- Gate traffic on `WaitPullRegistered(ctx)` with a deadline. During a rolling
-  deployment, wait for the new Workers before you stop the old ones.
-- Serve readiness from `worker.PullRegistrationState().IsReady`, combined with
-  your own application health. Reconnects do not flap it.
+- Gate traffic on `WaitPullRegistered(ctx)` with a deadline. Serve readiness
+  from `worker.PullRegistrationState().IsReady` plus application health.
 - `Worker.Stop(ctx)` takes no new tasks and lets running handlers finish. It
   cancels handlers still running at the drain deadline, and Dex fails those
   attempts as possibly run. Handlers must honor `ctx` cancellation.
@@ -180,10 +178,8 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
   result.
 - A typed value that must distinguish "omitted" from zero uses a pointer field.
   Build pointers with `ptr.Any(value)`.
-- Open Flows resume on new code. Keep Flow types, reachable Step types,
-  definition names, value types, and JSON field names compatible. Add
-  fields; never repurpose one. Put an incompatible change behind a new Step or
-  Flow type, and keep the old one until its runs finish.
+- Open Flows resume on new code, so `json` field names are durable. Add
+  fields; never rename or repurpose one.
 
 ## Connectors
 
@@ -192,15 +188,10 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
   `projectconfig.LoadFromEnvironment(ctx)` from the Connector SDK's `sdkgo/projectconfig`.
   Open each connection with the connector package's generated
   `NewProjectConnection(project, "connection-name")`.
-- Settings are read at startup. Credentials are resolved for each provider
-  call, so reauthorization needs no restart.
-- `MapToOperationInput` is a pure mapping from the current Step input to the
-  provider input. Persist business context in an Attribute before the
-  connector Step, and reload it in success, failure, RPC, and recovery Steps.
-- `ResultAttribute` is optional. Set it only when an RPC, display, audit, or
-  recovery path must read the raw result outside the transition chain.
-- A Trigger filter, Flow ID resolver, and input mapper are deterministic,
-  side-effect-free functions. The filter is the application's admission check.
+- `MapToOperationInput` is a pure function from the Step input to the
+  provider input. Set `ResultAttribute` only when a path outside the
+  transition chain must read the raw result.
+- A Trigger's filter, Flow ID resolver, and input mapper are pure functions.
 - Runnable examples: [connector factory](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go)
   and the [AI agent Slack wiring](https://github.com/superdurable/dex/blob/main/examples/go/products/ai-agent/slack.go).
 

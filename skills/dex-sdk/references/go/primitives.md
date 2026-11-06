@@ -1,8 +1,8 @@
 # Go primitives
 
 This page shows each Primitive in Go. Read the matching core file for what it
-guarantees. Every skeleton here compiles and runs against the current SDK. The
-running example is an order that waits for approval, then ships.
+guarantees. The running example is an order that waits for approval, then
+ships.
 
 ## Flow, Step, and decisions
 
@@ -13,6 +13,20 @@ var (
 	ApprovalDecisions = dex.DefineChannel[ApprovalDecision]("approval-decisions")
 	OrderProgress     = dex.DefineStream[string]("order-progress", 1<<20)
 )
+
+type Order struct {
+	OrderID string `json:"orderId"`
+	Amount  int64  `json:"amount"`
+}
+
+type ApprovalDecision struct {
+	IsApproved bool   `json:"isApproved"`
+	Approver   string `json:"approver"`
+}
+
+type ShippingService interface {
+	Ship(ctx context.Context, orderID string, idempotencyKey string) error
+}
 
 type OrderApprovalFlow struct {
 	dex.FlowDefaults
@@ -191,6 +205,16 @@ var (
 	CaseRevision = dex.DefineAttribute[int64]("case-revision")
 )
 
+type CaseFlow struct {
+	dex.FlowDefaults
+}
+
+func (*CaseFlow) GetSteps() []dex.StepDef { return nil }
+
+func (*CaseFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{CaseNotes, CaseRevision}}
+}
+
 func (flow *CaseFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.UpdateNote, &dex.RPCOptions{
@@ -274,6 +298,25 @@ func (*OrderApprovalFlow) SubmitApproval(
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
+func (*OrderApprovalFlow) GetOrderStatus(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	status, err := OrderStatus.Get(ctx)
+	var notFound *dex.AttributeNotFoundError
+	if errors.As(err, &notFound) {
+		return &dex.RPCResult[string]{Output: "new"}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: status}, nil
+}
+
+type generateReport struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
 func (*ReportFlow) RestartReport(_ dex.Context, query string) (*dex.RPCResult[bool], error) {
 	result := &dex.RPCResult[bool]{
 		Output:    true,
@@ -313,13 +356,20 @@ func (*ReportFlow) RestartReport(_ dex.Context, query string) (*dex.RPCResult[bo
   and keeps `StreamMessage.ResumeToken` for the next call. An empty token
   starts at the beginning.
 - `client.ListStreamMessages(ctx, flowID, stream, pageSize, beforePageToken, &page)`
-  returns newest-first pages. Pass `NextPageToken` back unchanged.
+  returns newest-first pages. Pass `NextPageToken` back unchanged. The Server
+  rejects a page size outside its allowed range with `INVALID_ARGUMENT`; see
+  the [server reference](https://docs.superdurable.io/reference/server/).
 - A Stream is best-effort output, not authoritative state. Readers tolerate
   duplicates.
 
 ## SubFlow
 
 ```go
+type awaitReview struct {
+	dex.StepDefaults
+	child *ChildReviewFlow
+}
+
 func (step awaitReview) WaitFor(_ dex.Context, documentID string) (*dex.Wait, error) {
 	return dex.Until(dex.SubFlow(step.child, documentID)), nil
 }
@@ -441,6 +491,14 @@ func waitForCaseRevision(ctx context.Context, client *dex.Client, flowID string,
   deterministic identities.
 
 ```go
+type ImportCheckpoint struct {
+	NextBatch int `json:"nextBatch"`
+}
+
+type importRecords struct {
+	dex.StepDefaultsNoWaitFor[int]
+}
+
 func (importRecords) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteMethodTimeout: time.Hour,
