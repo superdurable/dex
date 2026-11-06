@@ -91,6 +91,10 @@ class FlowTimeoutHandlerOptions:
     Ordinary Attributes and Channel size metadata load automatically. AttributeMap
     values and pending Channel messages require an explicit selection. One logical
     handler execution may contain multiple retry attempts.
+    See StepOptions for shared snapshot, lock, heartbeat, durability, and retry
+    semantics. Timing begins after the soft Flow timeout fires, so the handler
+    can outlive that original Flow deadline. method_timeout defaults to two hours;
+    heartbeat_timeout defaults to one minute. Durations use whole seconds.
 
     Attributes:
         method_timeout: Maximum duration of one handler attempt.
@@ -138,6 +142,9 @@ class FlowTimeoutHandlerOptions:
         instance of the recovery Step class. The target is validated when Client
         or SubFlow start options are mapped, not when this method is called.
 
+        .. versionchanged:: 1.28.0
+           Targets accept registered instances and StepRef as well as unambiguous classes.
+
         Args:
             step: Recovery class, registered instance, or StepRef. It must belong to
                 the timed-out Flow and use ``None`` input.
@@ -170,8 +177,11 @@ class StartFlowOptions:
         timeout_policy: Action taken when a positive timeout expires.
         timeout_handler_options: Execute policy used when timeout policy is ``HANDLER``.
         start_delay: Optional delay before the starting Step becomes eligible.
+            The current Server rejects a positive value with INVALID_ARGUMENT.
+            Use a Timer wait in the starting Step instead.
         id_reuse_policy: Flow ID reuse policy; defaults to ``DEFAULT``.
-        retry_policy: Optional Flow-level retry policy.
+        retry_policy: Optional Flow-level retry policy. The current Server rejects
+            it with INVALID_ARGUMENT. Use StepOptions retry policies instead.
         config_override: Optional FlowConfig applied over registered defaults.
         ignore_already_started: Return the existing run rather than raising
             ``FlowAlreadyStartedError`` when supported by the server. It applies
@@ -292,15 +302,26 @@ class SubFlowOptions:
     The SubFlow inherits the parent's effective Flow configuration. ``None`` values
     preserve normal start defaults. Dex generates the Flow ID and request ID.
 
+    The Server validates these options when the ``wait_for`` result returns
+    them. A rejected value fails that ``wait_for`` attempt as an invalid
+    response. Dex retries it under the ``wait_for`` retry policy and then
+    applies the Step's ``wait_for`` failure policy. A retry that returns the
+    same options fails again.
+
     Attributes:
         timeout: Optional maximum SubFlow lifetime.
         timeout_policy: Action taken when a positive timeout expires.
         timeout_handler_options: Execute policy used when timeout policy is ``HANDLER``.
-        start_delay: Optional delay before its starting Step.
-        retry_policy: Optional whole-Flow retry policy.
+        start_delay: Optional delay before its starting Step. The current Server
+            rejects a positive value when it validates the ``wait_for`` result
+            that returns this Condition. Use a Timer wait in the child instead.
+        retry_policy: Optional whole-Flow retry policy. The current Server rejects
+            a supplied policy when it validates the ``wait_for`` result. Use
+            StepOptions retry policies in the child instead.
         config_override: Fields applied over the inherited parent configuration.
         reuse_policy: Existing-execution resolution policy.
         condition_id: Stable ID required by ``Wait.any_combination_of``.
+            None is sufficient for other Wait forms unless selecting by ID.
     """
 
     timeout: timedelta | None = None
@@ -366,7 +387,7 @@ class SubFlowOptions:
 
 
 class TimeTravelType(Enum):
-    """Select the historical point from which time travel should create a new run.
+    """Select the historical point from which time travel re-runs the Flow.
 
     Attributes:
         BEGINNING: Restart from the beginning of the Flow.
@@ -395,10 +416,11 @@ class TimeTravelStepMethod(Enum):
 
 @dataclass(frozen=True)
 class TimeTravelOptions:
-    """Configure creation of a new run from existing Flow history.
+    """Configure a time travel that re-runs a Flow from a point in its history.
 
     Exactly one selector matching ``type`` must be set. The Client
     validates combinations before sending the request.
+    Time travel keeps the run ID, and a re-run can reuse Step execution IDs.
 
     Attributes:
         type: The time travel point selector kind.

@@ -47,6 +47,8 @@ class AttributeValues:
     are safe to log for hard-delete Attributes. ``AttributeValues()`` creates an
     empty result in which every read is unset.
 
+    .. versionadded:: 1.29.0
+
     Example::
 
         ORDER_STATUS = Attribute("order-status", str)

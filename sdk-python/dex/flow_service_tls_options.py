@@ -19,6 +19,8 @@ class FlowServiceTlsOptions:
     Applies to synchronous and asynchronous Clients and pull Workers, including
     startup, blob hydration, and task streams. Configure credential token
     endpoints separately. Bearer credentials remain call metadata.
+    This option configures server authentication only; it has no client-certificate
+    fields for mutual TLS. TLS failures never fall back to plaintext.
 
     TLS addresses accept ``host:port``, ``dns:///host:port``, and
     ``dns://authority/host:port`` with a port from 1 through 65535. The resolver
