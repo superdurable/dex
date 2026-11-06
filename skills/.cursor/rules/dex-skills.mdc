@@ -107,12 +107,12 @@ Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
 changes: a rule, a Primitive concept or relation, a Component, a design
 pattern, skill routing, or packaging. A typo, link, or wording-only change
 needs no bump; its pull request description contains a line
-`skills-release: no bump needed: <reason>`, which Skills CI accepts instead of
-the bump. A Dex release never requires a skills change.
+`skills-release: no bump needed: <reason>`, which Check Gate CI accepts
+instead of the bump. A Dex release never requires a skills change.
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
-stable knowledge. Skills CI fails a pull request that changes a mapped file on
-one side but none of its counterparts, unless its description contains a line
+stable knowledge. Check Gate CI fails a pull request that changes a mapped
+file on one side but none of its counterparts, unless its description contains a line
 `doc-map: no change needed: <reason>`. Keep the map current when you add, move,
 or delete a mapped file. A new skills file or doc-map docs page needs a mapping
 or an `unmapped` line.

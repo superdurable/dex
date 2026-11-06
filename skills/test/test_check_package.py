@@ -168,6 +168,15 @@ class FrontMatterTest(unittest.TestCase):
             )
 
 
+class PullRequestBodyTest(unittest.TestCase):
+    def test_prefers_the_fetched_body_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            body_file = Path(directory) / "body.txt"
+            body_file.write_text("skills-release: no bump needed: typo only\n")
+            self.assertEqual(CHECKER.read_pr_body("stale body", str(body_file)), body_file.read_text())
+        self.assertEqual(CHECKER.read_pr_body("inline body", None), "inline body")
+
+
 class ReleaseOptOutTest(unittest.TestCase):
     def test_requires_a_reason(self):
         self.assertTrue(CHECKER.RELEASE_OPT_OUT.search("Summary\n\nskills-release: no bump needed: typo only\n"))

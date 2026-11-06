@@ -116,6 +116,16 @@ class ClassificationTest(unittest.TestCase):
             )
 
 
+class PullRequestBodyTest(unittest.TestCase):
+    def test_prefers_the_fetched_body_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            body_file = Path(directory) / "body.txt"
+            body_file.write_text("doc-map: no change needed: wording only\n")
+            body = CHECKER.read_pr_body("stale body", str(body_file))
+        self.assertTrue(CHECKER.OPT_OUT.search(body))
+        self.assertEqual(CHECKER.read_pr_body("inline body", None), "inline body")
+
+
 class FindUnpairedChangesTest(unittest.TestCase):
     def setUp(self):
         self.entries = CHECKER.parse_doc_map(DOC_MAP).entries

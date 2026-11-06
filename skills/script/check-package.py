@@ -145,7 +145,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-ref", help="check that skill changes since this ref carry release metadata")
     parser.add_argument("--pr-body", default="", help="pull request description, for the release opt-out marker")
+    parser.add_argument("--pr-body-file", help="file holding the pull request description; overrides --pr-body")
     arguments = parser.parse_args()
+    pr_body = read_pr_body(arguments.pr_body, arguments.pr_body_file)
 
     version = (ROOT / "VERSION").read_text().strip()
     check_versions(version)
@@ -156,8 +158,15 @@ def main() -> None:
     check_agent_rules()
     check_open_source_boundary()
     if arguments.base_ref:
-        check_release_change(arguments.base_ref, version, arguments.pr_body)
+        check_release_change(arguments.base_ref, version, pr_body)
     print(f"validated superdurable-dex {version} with three root skills")
+
+
+def read_pr_body(pr_body: str, pr_body_file: str | None) -> str:
+    """Returns the pull request description, preferring the file that Check Gate fetched at gate time."""
+    if pr_body_file is None:
+        return pr_body
+    return Path(pr_body_file).read_text()
 
 
 def check_versions(version: str) -> None:

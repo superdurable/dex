@@ -64,7 +64,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-ref", help="compare the changes since this ref against the map")
     parser.add_argument("--pr-body", default="", help="pull request description, for the opt-out marker")
+    parser.add_argument("--pr-body-file", help="file holding the pull request description; overrides --pr-body")
     arguments = parser.parse_args()
+    pr_body = read_pr_body(arguments.pr_body, arguments.pr_body_file)
 
     if not (REPO_ROOT / "docs" / "content").is_dir():
         fail("check-doc-map.py runs in superdurable/dex, where docs/content exists")
@@ -84,7 +86,7 @@ def main() -> None:
         print("doc-map: every changed mapped file has a changed counterpart")
         return
     report = "\n".join(f"  {path} changed, but none of: {', '.join(counterparts)}" for path, counterparts in unpaired)
-    if OPT_OUT.search(arguments.pr_body):
+    if OPT_OUT.search(pr_body):
         print(f"doc-map: the pull request states 'doc-map: no change needed' for:\n{report}")
         return
     fail(
@@ -92,6 +94,13 @@ def main() -> None:
         f"{report}\n"
         "Update the other side, or add a line 'doc-map: no change needed: <reason>' to the pull request description."
     )
+
+
+def read_pr_body(pr_body: str, pr_body_file: str | None) -> str:
+    """Returns the pull request description, preferring the file that Check Gate fetched at gate time."""
+    if pr_body_file is None:
+        return pr_body
+    return Path(pr_body_file).read_text()
 
 
 def parse_doc_map_or_fail(text: str) -> DocMap:

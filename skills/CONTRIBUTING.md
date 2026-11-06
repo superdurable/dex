@@ -48,10 +48,10 @@ this directory, and the English docs pages under `docs/content/primitives/` or
 classifies files that have no counterpart. Every Markdown file in the three
 skills and every page in those two docs folders must be mapped or unmapped, so
 a new file needs an explicit decision. An empty map fails.
-Skills CI fails a pull request that changes a mapped file on one side but none
-of its counterparts. When the other side really needs no change, add this line
-to the pull request description. Editing the description re-runs Skills CI and
-Check Gate CI. A manual re-run replays the old description, so edit instead:
+Check Gate CI fails a pull request that changes a mapped file on one side but
+none of its counterparts. When the other side really needs no change, add this
+line to the pull request description. Editing the description re-runs Check
+Gate CI, which fetches the current description each time it runs:
 
 ```text
 doc-map: no change needed: <reason>
@@ -113,10 +113,12 @@ python3 /path/to/skill-creator/scripts/quick_validate.py dex-connector-contribut
 ```
 
 `check-doc-map.py` needs the Dex checkout because it reads `docs/content/`.
-Without arguments it validates the map. Skills CI also runs both scripts with
-`--base-ref` and the pull request description to enforce the release metadata
-and the doc-map pairing. To run that locally, pass a base such as
-`--base-ref origin/main`.
+Without arguments it validates the map. Skills CI runs only the checks that
+depend on the commit. Check Gate CI runs both scripts with `--base-ref` and
+`--pr-body-file`, using the pull request description it fetches from GitHub
+when it runs, to enforce the release metadata and the doc-map pairing. A stale
+Skills CI run therefore cannot approve a description. To run that locally,
+pass a base such as `--base-ref origin/main` and a file with the description.
 
 Also validate the Codex, Claude Code, and Cursor manifests with their current
 client tooling and smoke-test that one plugin install exposes exactly the three
@@ -139,7 +141,7 @@ manifest on that exact version where the format supports a version, and keep
   backward-compatible capabilities.
 - Increment MAJOR for incompatible plugin or skill identity changes.
 
-A typo, link, or wording-only change needs no bump. Skills CI requires a
+A typo, link, or wording-only change needs no bump. Check Gate CI requires a
 `VERSION` and `CHANGELOG.md` update for any change under `dex-sdk/`,
 `dex-app-builder/`, or `dex-connector-contributor/`, unless the pull request
 description contains this line:

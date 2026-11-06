@@ -3,7 +3,7 @@ name: Check Gate CI
 on:
   pull_request:
     # Adding or removing the ci:fast-merge label changes the required workflows.
-    # edited re-evaluates the description opt-out lines that Skills CI reads.
+    # edited re-runs the skills checks that read the pull request description.
     types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   workflow_dispatch:
 
@@ -227,14 +227,34 @@ jobs:
               - 'CLA-CORPORATE.md'
               - 'Makefile'
               - '.github/workflows/copyright-ci.yml'
+      - uses: actions/setup-python@v5
+        if: github.event_name == 'pull_request' && steps.filter.outputs.skills == 'true'
+        with:
+          python-version: '3.13'
+      # The gate reads the current description itself, so no stale Skills CI run can approve it.
+      - name: Check skills release metadata and doc-map pairing against the current description
+        if: github.event_name == 'pull_request' && steps.filter.outputs.skills == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          pull_request_file="$RUNNER_TEMP/pull-request.json"
+          body_file="$RUNNER_TEMP/pull-request-body.txt"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$pull_request_file"
+          jq -r '.body // ""' "$pull_request_file" > "$body_file"
+          base_sha="$(jq -r '.base.sha' "$pull_request_file")"
+          git fetch --no-tags --unshallow origin
+          git fetch --no-tags origin "$base_sha"
+          cd skills
+          python3 script/check-package.py --base-ref "$base_sha" --pr-body-file "$body_file"
+          python3 script/check-doc-map.py --base-ref "$base_sha" --pr-body-file "$body_file"
       - name: Wait for required workflows
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_NAME: ${{ github.event_name }}
-          EVENT_ACTION: ${{ github.event.action }}
-          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at }}
           FILTER_AGENTS: ${{ steps.filter.outputs.agents }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
@@ -360,12 +380,6 @@ jobs:
           echo "Waiting for workflows: ${expected[*]}"
           echo "head_sha=$HEAD_SHA"
 
-          # Skills CI reads the description; after an edit, count only runs the edit created.
-          skills_min_created_at=""
-          if [[ "$EVENT_NAME" == "pull_request" && "$EVENT_ACTION" == "edited" ]]; then
-            skills_min_created_at="$PR_UPDATED_AT"
-          fi
-
           deadline=$((SECONDS + 85 * 60))
           while (( SECONDS < deadline )); do
             runs_json="$(gh api \
@@ -374,10 +388,8 @@ jobs:
             failed=0
             pending=0
             for name in "${expected[@]}"; do
-              min_created_at=""
-              [[ "$name" == "Skills CI" ]] && min_created_at="$skills_min_created_at"
-              row="$(jq -c --arg name "$name" --arg min_created_at "$min_created_at" '
-                [.workflow_runs[] | select(.name == $name and .created_at >= $min_created_at)]
+              row="$(jq -c --arg name "$name" '
+                [.workflow_runs[] | select(.name == $name)]
                 | sort_by(.id)
                 | reverse
                 | if length == 0 then empty

@@ -207,9 +207,9 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 - When a pull request changes stable content on one side, it updates the
   other side in the same pull request. Otherwise its description states why
   the other side needs no change.
-- `skills/doc-map.yaml` maps each skills file to its docs pages. Skills CI
-  fails a pull request that changes a mapped file on one side but none of its
-  counterparts, unless the description contains a line
+- `skills/doc-map.yaml` maps each skills file to its docs pages. Check Gate
+  CI fails a pull request that changes a mapped file on one side but none of
+  its counterparts, unless the description contains a line
   `doc-map: no change needed: <reason>`. Keep the map current when you add,
   move, or delete a mapped file.
 - Until the versioned Developer reference exists, put volatile facts in the

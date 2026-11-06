@@ -2,8 +2,6 @@ name: Skills CI
 
 on:
   pull_request:
-    # edited re-runs the checks when the description gains an opt-out line.
-    types: [opened, synchronize, reopened, edited]
     paths:
       - 'skills/**'
       # The doc-map folders; keep them in step with DOCS_DIRECTORIES in check-doc-map.py.
@@ -46,15 +44,4 @@ jobs:
         run: python3 -m unittest discover -s test -p 'test_*.py'
       - name: Test lifecycle version hook
         run: node --test test/version-check.test.mjs
-      - name: Enforce release metadata
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 script/check-package.py --base-ref "$BASE_SHA" --pr-body="$PR_BODY"
-      - name: Require skills and docs to change together
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 script/check-doc-map.py --base-ref "$BASE_SHA" --pr-body="$PR_BODY"
+      # Check Gate CI runs the description checks; this run depends only on the commit.
