@@ -1,254 +1,287 @@
-# Product discovery
+# Stage 1: product discovery and the business contract
 
-Resolve the business model from the request, retained answers and host context.
-A clear request to build the product authorizes routine implementation choices.
-Record reasonable defaults and continue; ask only when an unresolved business,
-authorization or integration decision materially changes the outcome. Do not ask
-users to choose SDK methods, compile fixes or another approval of the same scope.
+Resolve the business model from the request, retained answers, the existing
+host, and its source. A clear request to build the product authorizes routine
+implementation choices. Record reasonable defaults and continue. Ask only when
+an unresolved business, authorization, or integration decision changes the
+outcome. Do not ask users to choose SDK methods, approve compile fixes, or
+approve the same scope twice. A short business request need not become a
+questionnaire.
+
+## What to resolve
+
+Identify each of these from the supplied intent first:
+
+- the process maintainer;
+- managers, operators, approvers, end users, participants, and external
+  systems, as actors, before you derive roles;
+- each actor's authentication boundary;
+- each human Action's stable, granular permission;
+- external systems that trigger or join the process, and whether each is a
+  public external product or an organization-controlled internal service;
+- start triggers, inputs, outputs, deadlines, waits, approvals, retries,
+  recovery, audit, search, and sensitive data;
+- the business outcome of each run, including results that happen in another
+  system, and the facts the business would compare runs by, such as plan,
+  region, source, or customer size;
+- durable facts, their owning business identity, read and write paths,
+  cross-Flow reuse, volume, contention, search, retention, and cleanup;
+- candidate top-level Flows, their independent waits, Timers, and terminal
+  outcomes, and the RPCs or messages between Flows that each business event
+  would cause;
+- every management list, detail, action, assignment, edit, progress, and
+  recovery need;
+- what authenticates users and maps roles to permissions in front of a
+  deployed Dex Web, such as an identity provider or reverse proxy;
+- whether any custom process UI is needed beyond Dex Web.
 
 ## Stack checkpoint
 
-Classify the repository before proposing a language or installing anything. A
-repository containing only a README, license, or editor files is effectively
-empty and defaults to the exact stack described in
-[workspace bootstrap](workspace-bootstrap.md): a Go backend on an exact released
-Dex Go SDK paired with the installed `dexcli`, plus a React/Vite frontend only
-for a confirmed custom UI. Record the selected releases as the stack decision;
-do not offer TypeScript, Node, or another SDK language as an equivalent default.
+Classify the repository before you propose a language. An effectively empty
+repository gets the stack in [workspace bootstrap](workspace-bootstrap.md): a
+Go backend on an exact released Dex Go SDK paired with the installed `dexcli`,
+plus a React and Vite frontend only for a confirmed custom UI. Do not offer
+TypeScript, Node, or another SDK language as an equivalent default.
 
-Only an explicit user request can replace the Go backend for a new application.
-Before accepting that request, explain that Dex App Builder, strict FDG 2.0,
-and Dex Web v2 management metadata require a Go backend. A requested non-Go
-backend becomes a standalone `dex-sdk` project, not a modified App Builder
-default. A Python or TypeScript project may use an official Connector where the
-catalog lists its language; a Java or Rust project has no Connector SDK.
+Only an explicit user request can replace the Go backend for a new
+application. Before you accept it, explain that App Builder, strict FDG 2.0,
+and Dex Web v2 management metadata require Go. A non-Go backend becomes a
+standalone `dex-sdk` project. Python and TypeScript projects may use official
+Connectors where the catalog lists their language. Java and Rust have no
+Connector SDK.
 
 ## Actor, role, operation, and permission matrix
 
-Inventory actors first, then derive the minimum authorization model. Start
-with one `admin` role for the trusted maintainers and operators. A requester,
-subscriber, participant, or external system is an actor, not automatically an
-authorization role.
+List actors first, then derive the smallest authorization model. Start with
+one `admin` role for trusted maintainers and operators. A requester,
+subscriber, participant, or external system is an actor, not automatically a
+role.
 
 | Actor | Authentication boundary | Goal and visibility | Actions and permissions | Role | Evidence for another role |
 | --- | --- | --- | --- | --- | --- |
 | Trusted maintainer or operator | authenticated host or reverse proxy | all required operational state | granular approval, edit, recovery, and configuration permissions | `admin` | none by default |
-| Requester or participant | product-specific | only confirmed participant-facing state | typed start, response, or Action when required | none by default | a distinct authenticated membership boundary plus different visibility or allowed operations |
+| Requester or participant | product-specific | only confirmed participant-facing state | typed start, response, or Action when required | none by default | a distinct authenticated membership plus different visibility or operations |
 | External system | Connector or integration identity | only the required exchange | typed Trigger, RPC, or event | none | never derive a human role from an integration identity |
 
-Add another role only when a confirmed, separately authenticated group needs a
-different view or a different set of allowed operations. Do not create one role
-per actor, lifecycle stage, Action, or permission. Keep Action permissions
-granular even when `admin` initially holds all of them. Record authentication,
-authorization, audit, and reason requirements, and justify every non-`admin`
-role in the confirmation artifact; collapse an unjustified role back into
-`admin`.
+- Actors describe participants. Roles group authenticated people with the same
+  visibility and operations. Permissions describe single Actions.
+- Add a role only when a confirmed, separately authenticated group needs a
+  different view or a different set of operations.
+- Never create one role per actor, lifecycle stage, Action, or permission.
+- Keep Action permissions granular even when `admin` holds all of them.
+- Record authentication, authorization, audit, and reason requirements.
+  Collapse an unjustified role back into `admin`.
 
 ## Lifecycle questions
 
 Confirm:
 
-- business identity and unique Flow ID source;
-- start trigger and duplicate-start behavior;
-- typed start input and completion output;
-- happy path and terminal business outcomes;
+- the business identity and the source of the unique Flow ID;
+- the start trigger and duplicate-start behavior;
+- the typed start input and completion output;
+- the happy path and every terminal business outcome;
 - human decisions, required fields, deadlines, reminders, and escalation;
-- retryable provider failures versus business rejection;
+- retryable provider failures versus business rejections;
 - unknown external mutation outcomes and query-first reconciliation;
 - cancellation, recovery, cleanup, and operator intervention;
-- searchable/indexed fields and detailed display fields;
-- sensitive data that must not enter IDs, logs, Streams, or generated artifacts.
+- searchable indexed fields and detailed display fields;
+- sensitive data that must stay out of IDs, logs, Streams, and generated
+  artifacts.
+
+For each outcome and comparison fact, record how the run will show it: a Step
+it enters, an Action, or a scalar Attribute. See
+[runs that can be measured](backend-implementation.md#runs-that-can-be-measured-and-improved).
 
 ## Flow-boundary decisions
 
-Treat three shapes as distinct decisions:
+Three shapes are distinct decisions:
 
-- parallel Steps share one Flow identity and lifecycle;
-- independent top-level Flows start separately and coordinate through typed
-  RPCs or Channels;
-- SubFlows have an explicit parent-child lifecycle.
+| Shape | Identity and lifecycle | Communication |
+| --- | --- | --- |
+| Parallel Steps | one Flow identity and lifecycle | shared Attributes and Channels |
+| Independent top-level Flows | separate starts, owners, and terminal outcomes | typed RPCs or Channel messages on rare events |
+| SubFlows | explicit parent-child lifecycle | parent waits for child results |
 
-First capture the data-lifecycle boundary:
+### Data-lifecycle boundary
+
+Capture this matrix for each candidate:
 
 | Candidate data or process | Authoritative owner | Retention and cleanup | Independent waits, Timers, and terminal outcomes | Pollution if kept in the existing Flow | RPCs or messages between the Flows per frequent event | Top-level Flow decision |
 | --- | --- | --- | --- | --- | --- | --- |
-| Product-specific | stable business owner | product-specific | product-specific | unrelated state the existing Flow would retain or coordinate | none, or the split is wrong | keep or split, with evidence |
+| product-specific | stable business owner | product-specific | product-specific | unrelated state the existing Flow would retain | none, or the split is wrong | keep or split, with evidence |
 
-Use these questions together:
+Ask four questions together:
 
 1. Does the data have a different authoritative owner and a different
    retention or cleanup lifecycle?
-2. Does the process have its own waits, Timers, and terminal outcomes such as
+2. Does the process have its own waits, Timers, and terminal outcomes, such as
    `verified`, `expired`, or `cancelled`?
-3. Would putting it in an existing Flow force that Flow to retain, clean up, or
-   coordinate state unrelated to its primary lifecycle?
-4. Would the split make the Flows exchange RPCs or Channel messages on frequent
-   events, such as every user operation, every external callback or every poll?
+3. Would keeping it in an existing Flow force that Flow to retain, clean up, or
+   coordinate state unrelated to its own lifecycle?
+4. Would the split make the Flows exchange RPCs or Channel messages on
+   frequent events, such as every user operation, every external callback, or
+   every poll?
 
-A yes to question 4 rules the split out, whatever the other answers. Every call
-between Flows adds entries to both Flows' history, and every RPC, including a
-read-only one, is a separate engine operation with its own latency and, on
-metered backends, its own cost. A separate Flow that tracks another Flow's
-inactivity, for example, needs a message from every operation; keep that
-deadline in the Flow where the operations happen. Calls between Flows are fine
-for rare events: a start, a completion, a cancellation or an explicit user
-command.
+A yes to question 4 rules the split out, whatever the other answers. Every
+call between Flows adds history to both Flows. Every RPC, including a
+read-only one, is a separate engine operation with its own latency and cost.
+For example, a separate Flow that tracks another Flow's inactivity needs a
+message on every operation. Keep that deadline in the Flow where the
+operations happen. Calls between Flows are fine for rare events: a start, a
+completion, a cancellation, or an explicit user command.
 
-When the answers to questions 1 to 3 are collectively yes and the answer to
-question 4 is no, create an independent top-level Flow.
-Otherwise keep the work in the existing Flow's Steps, Attributes, or
-AttributeMaps. Field count, source size, number of stages, retry policy, code
-reuse, provider neutrality, or ordinary parallelism do not establish a new
-top-level Flow. Keep long-lived authoritative facts in their stable owner and
-temporary validation or failure state in its short-lived owner; temporary
-state must not pollute the authoritative store.
+Create an independent top-level Flow only when questions 1 to 3 are yes and
+question 4 is no. Otherwise keep the work in the existing Flow's Steps,
+Attributes, or AttributeMaps. Field count, source size, stage count, retry
+policy, code reuse, provider neutrality, and ordinary parallelism never
+justify a new top-level Flow. Keep long-lived authoritative facts in their
+stable owner. Keep temporary validation or failure state in its short-lived
+owner, so it never pollutes the authoritative store.
 
-Then capture the execution-shape decision:
+### Execution shape
 
-| Candidate work | Same business lifecycle | Parallel-Step or batching option | Observed complexity or more than 200 concurrent Step executions | Explicit SubFlow confirmation | Decision and rejected alternatives |
+| Candidate work | Same business lifecycle | Parallel-Step or batching option | Observed complexity or concurrent Step count | Explicit SubFlow confirmation | Decision and rejected alternatives |
 | --- | --- | --- | --- | --- | --- |
-| Product-specific | yes or no | concrete option | measured requirement, not speculation | required before SubFlow implementation | Step, independent top-level Flow, or confirmed SubFlow |
+| product-specific | yes or no | concrete option | measured requirement, not speculation | required before a SubFlow | Step, independent top-level Flow, or confirmed SubFlow |
 
-New applications default to no SubFlows. Use static or dynamic parallel Steps,
-Channels for joins or quorum, batching, typed RPCs, and ordinary language
-helpers or interfaces first. Provider abstraction, research stages, model
-calls, code reuse, an independent retry policy, or ordinary bounded fan-out do
-not justify a SubFlow.
+New applications default to no SubFlows. Use static or dynamic parallel
+Steps, Channels for joins or quorum, batching, typed RPCs, and ordinary Go
+helpers first. Provider abstraction, research stages, model calls, code reuse,
+an independent retry policy, and ordinary bounded fan-out never justify a
+SubFlow.
 
-Propose a SubFlow only after all of these are true:
+Propose a SubFlow only when all of these hold:
 
-1. an existing single-Flow design or running system provides evidence, rather
-   than a concern that it may become complex later;
-2. the main graph is already impractical to review, evolve, or operate, or one
-   fan-out genuinely requires more than 200 concurrent Step executions;
-3. parallel Steps, batching, Channel coordination, RPCs, and ordinary code
-   abstraction have been evaluated and rejected with reasons;
-4. child identity, input/output, parent completion, cancellation, failure,
-   retry, duplicate submission, and concurrency semantics are defined; and
-5. the user explicitly confirms the SubFlow design.
-
-The 200-Step value is an architecture-review threshold, not a claimed Dex
-Server limit. Crossing it permits a SubFlow proposal; it never selects one
-automatically.
+1. An existing design or running system gives evidence, not a worry about
+   future complexity.
+2. The main graph is already impractical to review, evolve, or operate, or a
+   fan-out needs more than about 200 concurrent Step executions. That number
+   is an architecture-review threshold, not a Server limit. Crossing it
+   permits a proposal; it never selects a SubFlow on its own.
+3. Parallel Steps, batching, Channel coordination, RPCs, and code abstraction
+   were evaluated and rejected with reasons.
+4. Child identity, input and output, parent completion, cancellation,
+   failure, retry, duplicate submission, and concurrency are defined.
+5. The user explicitly confirms the SubFlow design.
 
 ## Storage decision
 
-Default each durable fact to Dex before proposing an external dependency.
-Capture a storage decision matrix:
+Default every durable fact to Dex before you propose an external dependency.
 
-| Fact or collection | Owning Flow/business identity | Retention and cleanup | Reads and writes | Volume/contention | Dex primitive and access path | Proven external-store gap |
+| Fact or collection | Owning Flow or business identity | Retention and cleanup | Reads and writes | Volume and contention | Dex primitive and access path | Proven external-store gap |
 | --- | --- | --- | --- | --- | --- | --- |
-| Process state | Process Flow ID | follows the process lifecycle | Step and Action updates, status/detail reads | product-specific | typed Attribute plus RPC/index when needed | normally none |
-| Keyed or growing records | Stable domain/entity owner | explicit record retention and deletion | exact lookup, bounded page, independent mutation | product-specific | partitioned or chunked AttributeMap with exact loads and locks | only a confirmed query or contention limit |
-| Shared domain facts | Stable domain/entity Flow | owned independently of callers | reused by several process/API paths | product-specific | one owner with typed application operations | cross-Flow reuse alone is not a gap |
+| Process state | the process Flow ID | follows the process | Step and Action updates, status and detail reads | product-specific | typed Attribute, plus an RPC or index when needed | normally none |
+| Keyed or growing records | a stable domain or entity owner | explicit record retention and deletion | exact lookup, bounded page, independent mutation | product-specific | partitioned or chunked AttributeMap with exact loads and locks | only a confirmed query or contention limit |
+| Shared domain facts | a stable domain or entity Flow | owned independently of callers | reused by several process or API paths | product-specific | one owner with typed application operations | cross-Flow reuse alone is not a gap |
 
-Do not select PostgreSQL, another database, a cache, an ORM, or a shadow read
-model merely because data must persist. Dex already provides durable
-Attributes, AttributeMaps, indexes/search, locks, exact instance loading, blob
-offload, and optional Attribute Store projections. An Attribute Store
-projection still introduces an external database, and server-zd supports only
-PostgreSQL for it; use it only for a confirmed query gap, and prefer its server-managed projection over application dual
-writes when Dex remains authoritative. When a projection is chosen, record the
-Flow ID format with any `rowKey` template, which makes that format a storage
-contract, and whether keyed AttributeMap records need rows of their own
-(see [row keys and AttributeMap tables](../../dex-sdk/references/core/data-handling.md#row-keys-column-names-and-attributemap-tables)). Require an external store only for a
-specific unsupported need such as complex/ad-hoc indexes, full-text or vector
-search, high-concurrency access to one hot record, relational joins or
-multi-record transactions, or large analytical scans. Record the exact
-operation, expected scale/SLO, authority, synchronization, failure, and
-reconciliation design. “We may need it later” is not evidence.
+Do not choose PostgreSQL, another database, a cache, an ORM, or a shadow read
+model only because data must persist. Dex provides durable Attributes,
+AttributeMaps, indexes and search, locks, exact instance loads, blob offload
+for large values, and optional Attribute Store sync.
+
+Attribute Store sync still adds an external PostgreSQL database. Use it only
+for a confirmed query gap. Prefer its server-managed sync over application
+dual writes while Dex stays authoritative. When you choose it, record the
+Flow ID format behind any row-key template, because that format becomes a
+storage contract. Also record whether keyed AttributeMap records need their
+own rows. The [Attribute Store sync reference](https://docs.superdurable.io/reference/server/attribute-store-sync)
+has the row-key and table rules.
+
+Require an external store only for a specific unsupported need: complex or
+ad-hoc indexes, full-text or vector search, high-concurrency access to one hot
+record, relational joins or multi-record transactions, or large analytical
+scans. Record the exact operation, scale or SLO, authority, synchronization,
+failure, and reconciliation design. "We may need it later" is not evidence.
 
 ## Management UI capability mapping
 
-Business process products commonly need a management interface. Design that
-interface through Dex Web v2 first. For each management operation, define its
-Indexed Attributes, Summary RPC fields, Display RPC fields, Action RPC input and
-metadata, condition, and permission before deciding that a custom surface is
-necessary.
+Process products usually need a management interface. Design it through Dex
+Web v2 first. For each management operation, define its indexed Attributes,
+Summary RPC fields, Display RPC fields, Action RPC input and metadata,
+condition, and permission. Only then decide whether a custom surface is
+needed.
 
 | Management need | Dex Web v2 capability |
 | --- | --- |
-| List and filter business records | Model each record as a Run, expose supported search criteria as Indexed Attributes, and return additional list fields from the Summary RPC. |
+| List and filter business records | Model each record as a Run. Expose search criteria as indexed Attributes and extra list fields from the Summary RPC. |
 | Inspect one record | Return detail fields and UI slots from the Display RPC. |
-| Perform a business operation | Register an RPC with Action metadata, a typed input form, current-state condition, and one required permission. |
-| Find assigned or actionable work | Use Work Queue permission history for discovery; opening a Run rechecks current Action eligibility. |
+| Perform a business operation | Register an RPC with Action metadata, a typed input form, a current-state condition, and one permission. |
+| Find assigned or actionable work | Work Queue discovers Runs from permission history. Opening a Run rechecks current Action eligibility. |
 | Change simple business fields | Declare editable scalar Attributes in the Display RPC. |
 | Inspect progress and failures | Use the Run timeline, Step graph, execution details, and recovery information. |
 
-Record this mapping as a discovery artifact. If a need is fully covered, keep
-it in Dex Web v2 even when another need requires Custom UI. If it is not
-covered, name the exact missing interaction and its user. A general desire for
-an admin portal, dashboard, management backend, or branded shell is not a
-capability gap.
+Record this mapping as a discovery artifact. Keep each fully covered need in
+Dex Web v2, even when another need requires Custom UI. For an uncovered need,
+name the exact missing interaction and its user. A general wish for an admin
+portal, dashboard, management backend, or branded shell is not a capability
+gap.
 
 ## UI-mode decision
 
-Make the UI-mode decision only after completing the management UI capability
-mapping and designing the Summary RPC, Display RPC, Action RPCs, Indexed
-Attributes, and permissions.
+Decide the UI mode only after the management mapping is complete and the
+Summary, Display, Action, indexed Attribute, and permission contracts are
+designed. [UI workflow](ui-workflow.md) has the two modes.
 
-Choose **No custom UI** when those surfaces satisfy operators and maintainers.
-The application then needs no frontend of its own. Confirm what supplies
-authentication, role-to-permission mapping, tenant isolation, and the trusted
-reverse proxy in front of a deployed Dex Web. Those controls may still be
-required, but they are not a second process management backend.
-
-Choose **Custom UI** only for a recorded Dex Web v2 capability gap, such as a
-participant-facing journey, a fundamentally different navigation model, domain
-visualization, or a complex interaction Dex Web does not provide. Record
-which requirement forces the custom surface.
-When consequential interaction choices remain unresolved, an optional UI
-checkpoint clarifies the necessary pages, navigation, fields and actions through
-a low-fidelity static wireframe. A clear implementation request already supplies
-confirmation for its stated behavior. It does not authorize an
-interactive mock, visual system, imagery, animation, or other polish before the
-Flow, Connector, and API contract are designed.
+- **No custom UI** when those surfaces serve operators and maintainers. The
+  application needs no frontend of its own. Still confirm what supplies
+  authentication, role-to-permission mapping, tenant isolation, and the
+  trusted reverse proxy in front of a deployed Dex Web.
+- **Custom UI** only for a recorded Dex Web v2 gap, such as a participant
+  journey, a different navigation model, domain visualization, or a complex
+  interaction Dex Web lacks. Record which requirement forces it.
 
 ## Connector decision
 
-Create a connector capability matrix for every Trigger, Query, Mutation, and
-integration UI. Start from the canonical published catalog at
-`https://connectors.superdurable.io/catalog.yaml`. For a
-public external product, match each need to an exact released connector
-capability—not merely a connector name—then verify the complete contract in the
-component tag's immutable `connector.yaml`. Check the `languages` map of the
-connector and the `languages` list of each operation and Trigger for the
-backend language, which is `go` for App Builder; a capability without it is a
-gap. Record the catalog URL, connector
-ID, capability kind and name, version/tag, immutable manifest URL, and reuse or
-gap decision.
+Create a Connector capability matrix for every Trigger, Query, Mutation, and
+integration UI. Follow the discovery procedure in
+[Connector architecture](connector-architecture.md#released-capability-discovery).
 
-If the published catalog or immutable release manifest cannot be verified,
-stop connector-dependent implementation and report the blocker. A missing
-connector, operation, Trigger, or UI unit with a documented API or official SDK
-becomes a `dex-connector-contributor` work item and production release blocker;
-it is not permission to install the provider SDK or write local integration
-code.
+- Start from the published catalog at
+  `https://connectors.superdurable.io/catalog.yaml`.
+- For a public external product, match each need to an exact released
+  capability, not a Connector name. Verify the full contract in the
+  component tag's immutable `connector.yaml`.
+- Require `go` in the Connector's `languages` map and in the capability's
+  own `languages` list. A capability without `go` is a gap.
+- Record the catalog URL, Connector ID, capability kind and name, component
+  tag, immutable manifest URL, and the reuse or gap decision.
 
-Mark a service internal only when the organization owns and controls it. Ask
-whether an internal connector library already exists, whether this application
-should contribute to it, and whether the user wants to establish one with the
-unified Connector SDK when none exists. Record who owns that decision. Use the
-generic HTTP connector only for a controlled internal service when the user
-does not choose a reusable internal connector capability.
+If the catalog or the release manifest cannot be verified, stop
+Connector-dependent implementation and report the blocker. A missing
+Connector, operation, Trigger, or UI unit for a product with a documented API
+or official SDK is a `dex-connector-contributor` work item and a production
+release blocker. It is never permission to install the provider SDK or write
+local integration code.
+
+Mark a service internal only when the organization owns and controls it.
+Then follow the
+[internal connector library decision](connector-architecture.md#internal-connector-library-decision).
+
+If the process begins from Slack, email, a webhook, or another external
+source, model it as a Connector Trigger. The application decides whether the
+event starts a Flow or invokes a typed RPC.
 
 ## Confirmation artifact
 
 Before code, provide:
 
-1. the actor-to-role-to-permission matrix, with every non-`admin` role justified;
+1. the actor, role, and permission matrix, with every non-`admin` role
+   justified;
 2. a numbered lifecycle with decisions and terminal outcomes;
-3. the data-lifecycle and execution-shape boundary matrices, including every
-   independent top-level Flow, every candidate collapsed into a Step, RPC, or
-   helper, and the complete gate for any proposed SubFlow;
-4. the management UI capability mapping, including proposed Summary, Display,
-   Action, Indexed Attribute, Work Queue, and permission contracts;
-5. the confirmed **No custom UI** or **Custom UI** mode and any recorded Dex Web
-   v2 capability gap;
-6. proposed Flow, Step, state, message, timer, RPC, and connector boundaries;
-7. the storage decision matrix and any evidence-backed external-store gap;
-8. connector capability reuse, public fork/PR, internal-library decision, and
-   release status;
+3. the data-lifecycle and execution-shape matrices, including every top-level
+   Flow, every candidate collapsed into a Step, RPC, or helper, and the full
+   gate for any proposed SubFlow;
+4. the management UI capability mapping, with the proposed Summary, Display,
+   Action, indexed Attribute, Work Queue, and permission contracts;
+5. the **No custom UI** or **Custom UI** mode and any recorded Dex Web v2 gap;
+6. the proposed Flow, Step, state, message, Timer, RPC, and Connector
+   boundaries;
+7. the storage matrix and any evidence-backed external-store gap;
+8. Connector reuse, contribution, internal-library decisions, and release
+   status;
 9. unresolved tradeoffs.
 
-Ask for explicit confirmation. A casual discussion response is not approval to implement.
+Existing implementation authority and stated requirements count as
+confirmation of routine defaults. When a consequential choice remains open,
+ask for explicit confirmation. A casual discussion reply is not approval to
+implement.

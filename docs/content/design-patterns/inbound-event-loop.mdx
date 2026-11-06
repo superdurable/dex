@@ -1,0 +1,53 @@
+---
+title: Inbound Event Loop
+---
+
+# Inbound Event Loop
+
+Use this pattern when a Flow takes inbound messages until a resolution arrives or the conversation goes quiet. Examples are replies in a support ticket, messages in a chat session, or answers in a review thread. It extends the [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer): each message restarts the inactivity Timer, and a separate resolution message ends the loop.
+
+## Shape
+
+```text
+rpc sendReply(text)   -> validate text; if invalid: return a rejection
+                         Replies.publish(text); return accepted
+rpc resolve(reason)   -> Resolutions.publish(reason)
+
+AwaitInbound.waitFor  -> AnyOf(Replies.AtLeast(1), Resolutions.ForOne(), Timer(inactivity))
+AwaitInbound.execute
+    if the Timer fired:   goTo(CloseInactive)
+    replies = the messages the reply Channel Condition consumed
+    if replies is empty:  goTo(Resolve, the consumed resolution)
+    Transcript = Transcript + replies
+    goTo(AwaitInbound)    // a new execution of the same Step starts a fresh Timer
+```
+
+## Rules
+
+- The RPC only validates its input and publishes it to a Channel. It writes no Attribute that the waiting Step reads or locks.
+- One waiting Step waits on **AnyOf** over the reply Channel, the resolution Channel, and the inactivity Timer.
+- Declare the reply Channel before the resolution Channel. When several Channel Conditions are ready at once, the first one declared wins, and only the winner's messages are consumed. Replies accepted before the resolution are therefore recorded first.
+- A Channel Condition consumes messages only when it wins. A reply that arrives while **Execute** runs stays queued for the next execution, so no reply is lost.
+- **Execute** appends the consumed messages to an Attribute, such as a transcript. The waiting Step is the only writer of that Attribute.
+- **Execute** then moves back to the same Step. The new execution registers a new wait, so the inactivity Timer restarts after each message.
+- Select all queued replies at once with an at-least-one Condition, or take one reply per execution.
+- Keep the transcript bounded. A long conversation stores its messages in a [sequentially chunked AttributeMap](/design-patterns/sequentially-chunked-attribute-map).
+
+## Why the RPC does not write the transcript
+
+If the RPC appended to the transcript, the waiting Step would have to lock the transcript, and the RPC would have to lock it too for its read-modify-write. Locks do not queue. Every RPC that arrives while the Step holds the lock, or while another RPC holds it, is rejected with a lock conflict, and the client must retry. Publishing to a Channel needs no lock, so concurrent replies never conflict.
+
+## Replies after the resolution
+
+A reply accepted after the resolution but before the Flow closes is not recorded if the Resolve Step completes at once. When every accepted reply must be kept, Resolve completes with **ForceCompleteIfChannelsEmpty** on the reply Channel, as in [Drain External Channels](/design-patterns/draining-channel-for-external-publishing). Its fallback returns to the waiting Step with the resolution in its input. The waiting Step records the remaining replies and moves to Resolve again. Keep the waiting Step the only consumer of the reply Channel.
+
+## Examples
+
+This pattern does not have its own runnable example yet; one will follow. The closest runnable starting point is the [Inactiveness Tracker Timer](/design-patterns/durable-timer/inactiveness-tracker-timer) example, which shows the Timer and Channel race and the loop back to the same Step. Add a resolution Channel, a transcript Attribute, and validation in the RPC to it.
+
+## Related
+
+- [Channel](/primitives/channel)
+- [Timer](/primitives/timer)
+- [RPC](/primitives/rpc)
+- [Drain Channels](/design-patterns/drain-channels)

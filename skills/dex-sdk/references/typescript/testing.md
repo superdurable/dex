@@ -1,69 +1,128 @@
-# Testing TypeScript Dex applications
+# Testing TypeScript applications
 
-Use Node's test runner or the application's framework for assertions, but run durable behavior against a real Dex Server. Mocks cannot prove Worker replacement, durable wait, retry exhaustion, or terminal semantics.
+Read [core testing](../core/testing.md) for the strategy, the scenario list,
+and the local server settings. This page gives the TypeScript harness. The
+block type-checks and defines its own `GreetingFlow`.
 
-## Environment
+## Harness
 
-Create an isolated Registry, free Worker port, temporary BlobCache directory, Worker, and Client. Close them in `finally`. Generate a UUID-based Flow ID for every test.
-
-A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
-
-[Pinned test environment](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/test/integ/environment.ts)
-<!-- dex-source: sdk-typescript/test/integ/environment.ts -->
 ```typescript
-export async function withEnvironment(
-  flows: readonly Flow<any>[],
-  run: (environment: TestEnvironment) => Promise<void>,
-): Promise<void> {
-  const environment = await startEnvironment(...flows);
-  try {
-    await run(environment);
-  } finally {
-    await environment.close();
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+
+import {
+  Client, FlowAlreadyStartedError, IdReusePolicy, Registry, StepList, Worker,
+  gracefulComplete, openBlobCache, stringCodec,
+  type Context, type Flow, type Step, type StepDecision,
+} from "@superdurable/dex";
+
+class Greet implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "Greet";
+  }
+
+  public execute(_context: Context, name: string): StepDecision {
+    return gracefulComplete(`greeted ${name}`);
   }
 }
 
-export function flowId(prefix: string): string {
-  return `${prefix}-${randomUUID()}`;
+class GreetingFlow implements Flow<string> {
+  private readonly greet = new Greet();
+
+  public getFlowType(): string {
+    return "GreetingFlow";
+  }
+
+  public getSteps(): StepList<string> {
+    return StepList.startStep(this.greet);
+  }
 }
-```
 
-## Required scenarios
+const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
 
-1. Start and terminal output with a bounded `waitForFlow`.
-2. Worker replacement while waiting, executing, and retrying; replacement uses the same registered types and a new process/cache handle.
-3. Deterministic wait/execute retry exhaustion and configured recovery.
-4. Channel publish before and after wait registration, RPC concurrency, Timer readiness, and SubFlow outcome.
-5. Unique Flow IDs and explicit ID reuse behavior.
-6. Deadline polling for asynchronously registered Timer/Channel state; preserve the last failure.
-7. Post-terminal publish/RPC/stop behavior with typed SDK errors.
-8. Heartbeat checkpoint recovery, cancellation through `AbortSignal`, and Stream resume tokens.
+interface TestEnvironment {
+  readonly client: Client;
+  newFlowId(prefix: string): string;
+}
 
-[Pinned terminal assertion](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/test/integ/basic.integration.test.ts)
-<!-- dex-source: sdk-typescript/test/integ/basic.integration.test.ts -->
-```typescript
-test("basic workflow completes and disallows duplicate IDs", async () => {
-  const flow = new BasicFlow();
-  await withEnvironment([flow], async ({ client }) => {
-    const id = flowId("basic");
+async function withEnvironment(
+  flows: readonly Flow<any>[],
+  run: (environment: TestEnvironment) => Promise<void>,
+): Promise<void> {
+  const registry = new Registry(flows);
+  const cacheDirectory = await mkdtemp(join(tmpdir(), "dex-test-"));
+  const blobCache = openBlobCache({ directory: cacheDirectory, maxBytes: 64 << 20 });
+  const worker = new Worker(registry, blobCache, { serverAddress });
+  const client = new Client(registry, blobCache, { serverAddress });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+    await run({ client, newFlowId: (prefix) => `${prefix}-${randomUUID()}` });
+  } finally {
+    await worker.close();
+    await client.close();
+    blobCache.close();
+    await rm(cacheDirectory, { recursive: true, force: true });
+  }
+}
+
+test("greeting completes and rejects a duplicate Flow ID", async () => {
+  const greetingFlow = new GreetingFlow();
+  await withEnvironment([greetingFlow], async ({ client, newFlowId }) => {
+    const flowId = newFlowId("greeting");
     const options = { idReusePolicy: IdReusePolicy.DISALLOW };
-    await client.startFlow(flow, id, 0, options);
-    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
-    await expectError(client.startFlow(flow, id, 0, options), FlowAlreadyStartedError);
+    await client.startFlow(greetingFlow, flowId, "Ada", options);
+    const result = await client.waitForFlow(flowId, 30_000);
+    assert.equal(result.status, "completed");
+    assert.equal(result.singleOutput(stringCodec), "greeted Ada");
+    await assert.rejects(client.startFlow(greetingFlow, flowId, "Ada", options), FlowAlreadyStartedError);
   });
 });
 ```
 
-Use polling with a deadline only when the Client has no direct wait. Do not use an unbounded retry or fixed delay as the assertion.
+- Use `node:test` or the project's framework. Generate Flow IDs with
+  `randomUUID()`.
+- Give each environment its own `mkdtemp` BlobCache directory. Close the
+  Worker, then the Client, and then the BlobCache in `finally`.
+- Bound every wait: `waitForFlow(flowId, timeoutMs)`, `requestTimeoutMs` on
+  match waits, and a deadline on any polling helper.
+- Assert typed failures with `assert.rejects(promise, ErrorClass)`.
+
+## Worker replacement and crashes
+
+- A Worker starts only once. Replacement: start a new `Worker` with the same
+  Flow instances and a new BlobCache handle, then close the old Worker at a durable boundary, and
+  finish the Flow. Starting the replacement first, or using a Worker of the
+  test's own, keeps the test parallel-safe. Never close a shared Worker.
+- To act while a Step runs, have the fake resolve a `started` promise when it
+  is called, and await it with a deadline. Never sleep to guess.
+- Fakes record every call and never deduplicate, so a test can count
+  duplicate effects.
+- `worker.close()` drains running handlers, so it cannot simulate a crash.
+  Run the Worker in a child process (`child_process.spawn`) and kill it with
+  `SIGKILL` mid-handler.
 
 ## Commands
 
+Start an isolated `dexcli dev` on its own ports and data directory, as
+[core testing](../core/testing.md#harness) says, and point
+`DEX_FLOW_SERVICE_ADDRESS` at the address it prints. Never share the user's
+long-lived dev server.
+
 ```bash
 cd examples/typescript
+npm run typecheck
 npm test
 npm run test:integ
-npm run smoke
 ./run-integration-tests.sh
 ```
 
-Run type checking and linting from the package scripts as well. A test plan should state which scenarios are pure unit tests and which require Dex.
+`npm run test:integ` expects a running Dex Server.
+`./run-integration-tests.sh` starts and stops its own. Runnable harness:
+[test/integ/environment.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/test/integ/environment.ts).

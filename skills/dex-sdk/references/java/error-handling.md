@@ -1,76 +1,235 @@
-# Java error handling
+# Java error handling and recovery
 
-Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC or `client.getAttributes` call issued after a successful direct-state RPC write observes that write when it reads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
+Read [../core/error-handling.md](../core/error-handling.md) first for the
+rules. This page maps them to Java. Keep three kinds of failure apart:
 
-Separate three categories: application rejection, retryable Worker failure, and Client/service failure.
+| Kind | Where | Java form |
+| --- | --- | --- |
+| Business outcome | Step `execute` | Return a `StepDecision` (`forceFail`, a recovery `goTo`, a result DTO) |
+| Retryable handler failure | Step or RPC handler | Throw an exception |
+| Client or service failure | Code that calls `Client` | Catch a concrete exception from `io.superdurable.dex.exceptions` |
 
 ## Handler failures
 
-Throw an application exception only when the current method attempt should fail. Configure `waitForRetry` and `executeRetry` separately. Use `waitForFailure(WaitForFailurePolicy.PROCEED)` to continue to Execute after WaitFor exhaustion, or `onExecuteFailureProceedTo` to select a registered recovery Step. A recovery Step reads `context.getRecoveryError()` and must itself be idempotent. The Java SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). Java SDK releases newer than v1.32.0 add **RecoveryErrorInfo.getAttemptProgress()**, which never returns null. **StepAttemptProgress.NOT_STARTED** guarantees the handler never ran. Only SYNC Steps report it; ASYNC failures always report **NOT_COMPLETED**. Treat **NOT_COMPLETED** and **UNSPECIFIED** as possibly run, and reconcile external effects before repeating them. See [attempt progress](../core/error-handling.md#attempt-progress).
+- Throwing from `waitFor` or `execute` fails that attempt. Dex discards every
+  Attribute write and Channel publish the attempt staged, then retries
+  according to `waitForRetry` or `executeRetry`.
+- The recovery error type Dex records is the thrown exception's fully
+  qualified class name, from `getClass().getName()`. Use your own exception
+  classes when recovery must branch on the cause.
+- Never catch an exception only to return a success decision. That commits
+  partial state and hides the retry.
+- An external call may succeed even when the attempt fails afterward. Make
+  every external effect idempotent: derive a key from durable data, such as
+  `context.getFlowId() + "-charge"`, or record a receipt before moving on.
+- An expected "not ready" or business rejection is not an exception. Model it
+  as a loop branch, a Timer, or a decision.
+- To set the delay before the next retry, throw
+  `RetryAfterException.after(delay, cause)`. Retry limits still apply.
 
-Do not catch an exception only to return success. That commits staged state and hides retry. Conversely, do not throw after an irreversible external success without an idempotency key or persisted receipt.
-
-## Business outcomes
-
-Use `StepDecision.forceFail(detail)` for a deliberate terminal failed outcome, `gracefulComplete(output)` when siblings may finish, and `forceComplete(output)` when the Flow must close now. Expected timeouts should be modeled through a Timer winner or `handleTimeout`, not as random exceptions.
-
-## Client exceptions
-
-Catch concrete classes in `io.superdurable.dex.exceptions`. `FlowNotFoundException` means a read found no execution. `FlowNotActiveOrNotFoundException` reports a missing target or an operation that cannot use a closed Flow, and is the InvokeRPC mapping for missing targets; interpret it using the registered RPC path, not its class name alone. A query-only RPC can instead succeed against a retained terminal execution. Durable Step and Attribute waits never expose transport long-poll expiry; they reattach transparently and preserve the total request budget. `RequestTimeoutException` means that caller-visible budget expired, not that the Flow or the wait condition failed. An unclassified remote request failure remains `DexServiceException`. Its named gRPC code and Dex sub-status are diagnostic metadata; never branch on message text or raw numeric values.
-
-Normal domain logic catches only the concrete exceptions whose outcomes it can decide. Every remote Client exception extends the public `DexServiceException`; local validation, definition, serialization, value-mapping, and programming failures do not. Catch the base only at a narrow boundary whose policy intentionally treats every remote Dex failure the same, such as service availability translation or explicitly best-effort output. Do not repeat that translation around every invocation. Catching `RuntimeException` is not equivalent because it also hides local SDK and application defects.
-
-When the API promises a critical operation has completed, follow the shared [required business milestone rule](../core/error-handling.md#wait-for-a-required-business-milestone): after start success or matching-request deduplication, call `Client.waitForAttributeMatch` or `Client.waitForStepCompletion` for the committed condition or the specific persistence Step execution. Publish that condition only after the business effect commits. Bound the wait; timeout does not undo acceptance or prove the operation failed. An acceptance-only response needs no wait.
-
-For an idempotent start, set one stable `StartFlowOptions.Builder.requestId(...)` and use `ignoreAlreadyStarted(true)` only when a retry of that same logical request may attach to the existing run. A remaining `FlowAlreadyStartedException` means the existing Flow carries a different Request ID. Treat it as a domain conflict unless the resource-scoped coordinator contract deliberately redirects the command to that existing Flow. A different `DexServiceException` can leave start acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
-
-## Flow close cleanup
-
-From Java SDK v1.20.0 or later, catch `FlowClosingException` from `io.superdurable.dex.exceptions` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released exception](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/exceptions/FlowClosingException.java)
-
-## Indexed search limits
-
-With server-zd `search.backend: postgres`, read the shared [indexed search limits](../core/error-handling.md#indexed-search-limits) first. At Java SDK v1.31.0, a StartFlow or RPC rejected for an indexed Keyword value over 1,024 bytes throws `DexServiceException` with `getCode()` `Status.Code.INVALID_ARGUMENT` and `getSubStatus()` `ErrorSubStatus.UNCATEGORIZED`; no subclass matches it. A Worker whose Attribute index registration exceeds capacity throws `IllegalStateException("cannot synchronize Attribute indexes")` from `start()`, caused by the gRPC FailedPrecondition error. The generated `io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED` and `ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG` values exist only in the protocol bindings; do not branch on them. A Flow that fails because a Step result carried such a value reports Flow error type `FlowErrorType.WORKER_API_FAILED` at Java SDK v1.31.0. [Released Flow error type mapping](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) Validate indexed Keyword lengths before the write. [Released Java error mapping](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/GrpcExceptionTranslator.java)
-
-## Query-only Get failures
-
-Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `FlowNotActiveOrNotFoundException` or `FlowNotFoundException` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths.
-
-A business Get that reads with `client.getAttributes` translates `FlowNotFoundException` the same way. That call never throws `FlowNotActiveOrNotFoundException`, because a closed run stays readable until purge. Let `FlowDefinitionException`, `ValueMappingException`, `IllegalArgumentException`, and `IllegalStateException` stay visible as local defects. See [Client Attribute reads](primitives.md#client-attribute-reads) for the full error list.
-
-## Closed-Flow races
-
-`FlowNotActiveOrNotFoundException` says the mutation found no active target; it does not say the requested action succeeded. Catch it only where the operation contract is known. First reconcile from authoritative domain state and operation invariants. `Client.describeFlow(flowId)` reads the current or latest run without waiting. It returns `FlowInfo` with `getFlowId()`, `getRunId()`, `getFlowType()`, `getStatus()`, and `getStartedAt()`; it has no close time. See the [released Client](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/Client.java) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/FlowInfo.java). Call `describeFlow` and inspect `FlowStatus` only when an otherwise unknown terminal distinction changes the outcome:
-
-- Treat `COMPLETED` as idempotent success only when successful completion guarantees the requested condition.
-- For any other terminal status or a subsequent `FlowNotFoundException`, record or return an explicit domain failure or unknown outcome instead of retrying a terminal fact indefinitely.
-- If the Flow still appears running, query its domain state before a bounded, idempotent retry.
-
-For parent-child cleanup, a successfully completed child may let the parent continue. A missing or unsuccessfully terminal child must follow the parent's explicit cleanup-failure or cleanup-unknown route.
-
-For an explicitly best-effort external `Client.writeStream`, catch `DexServiceException` because that boundary deliberately treats every remote write failure as lossy. Log sanitized Flow and phase identifiers without payloads or credentials and let the business Flow continue. `DexServiceException` also carries the FAILED_PRECONDITION or RESOURCE_EXHAUSTED status of a disabled or full Stream Store, readable through `getCode()`; see the [Core error guidance](../core/error-handling.md) for which one to retry. Local failures remain outside that hierarchy and must surface. Never reconstruct authoritative completion state from retained Stream messages.
-
-## Recovery checklist
-
-- Persist the facts compensation needs before the risky side effect.
-- Limit retries by attempts or duration when recovery must eventually run.
-- Make recovery safe to retry and safe after partial external success.
-- Preserve the original failure in logs with Flow ID, Run ID, StepExecution ID, method, and attempt.
-- Test both `waitFor` and `execute` exhaustion when both are configured.
-- Never use a recovery Step as a generic exception sink.
-
-[Pinned heartbeat/cancellation source](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java)
-<!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java -->
 ```java
-if (context.isCancellationRequested()) {
-    return StepDecision.deadEnd();
-}
-try {
-    Thread.sleep(Duration.ofSeconds(2).toMillis());
-} catch (InterruptedException interrupted) {
-    Thread.currentThread().interrupt();
-    return StepDecision.deadEnd();
+@Override
+public StepDecision execute(Context context, String request) {
+    try {
+        return StepDecision.gracefulComplete(callProvider(request));
+    } catch (RateLimitedException limited) {
+        throw RetryAfterException.after(Duration.ofSeconds(30), limited);
+    }
 }
 ```
 
-Cancellation is cooperative and cannot undo remote side effects. Restore the thread interrupt flag and return promptly from blocking Java handlers.
+## Recovery Steps
+
+When Execute retries run out, `onExecuteFailureProceedTo(Recovery.class)` runs
+a registered recovery Step with the same input. Without a route, the Flow
+fails.
+
+```java
+final class RecordChargeFailure implements Step<OrderRequest> {
+    @Override
+    public Class<OrderRequest> getInputType() {
+        return OrderRequest.class;
+    }
+
+    @Override
+    public StepDecision execute(Context context, OrderRequest order) {
+        RecoveryErrorInfo failure = context.getRecoveryError();
+        if (failure.getAttemptProgress() != StepAttemptProgress.NOT_STARTED) {
+            payments.refundIfCharged(context.getFlowId() + "-charge");
+        }
+        orderStatus.set(context, "charge failed: " + failure.getErrorType());
+        return StepDecision.forceFail("order " + order.orderId() + " not charged");
+    }
+}
+```
+
+- `context.getRecoveryError()` gives `getErrorType()`, `getDetail()`, and
+  `getAttemptProgress()`.
+- `StepAttemptProgress.NOT_STARTED` guarantees no handler attempt ran. Only
+  SYNC Steps can report it. `NOT_COMPLETED` and `UNSPECIFIED` mean an attempt
+  may have run; reconcile external effects before repeating them. An ASYNC
+  Step always reports `NOT_COMPLETED`.
+- Never branch on Dex time-limit error spellings. Branch on your own error
+  types and on attempt progress.
+- A recovery Step must be idempotent and must work after a partial external
+  success. Persist the facts it needs before the risky call.
+- Bound retries by attempts or `totalDuration` so recovery runs in time.
+
+### WaitFor failure
+
+`waitForFailure(WaitForFailurePolicy.PROCEED)` runs `execute` even when
+`waitFor` exhausts its retries. Then `execute` must check
+`context.waitForMethodFailed()` first; otherwise a failed preparation looks
+like readiness.
+
+```java
+@Override
+public StepDecision execute(Context context, String job) {
+    if (context.waitForMethodFailed()) {
+        return StepDecision.forceFail("could not prepare " + job);
+    }
+    return StepDecision.gracefulComplete(job);
+}
+```
+
+Manual recovery, Flow deadlines, and `deadEnd()` versus `forceFail` are in
+[../core/error-handling.md](../core/error-handling.md).
+
+## Cancellation
+
+Cancellation is cooperative and does not undo external effects.
+
+- Loops check `context.isCancellationRequested()` between bounded units.
+- Dex interrupts a canceled Java handler. On `InterruptedException`, call
+  `Thread.currentThread().interrupt()` and return promptly, for example with
+  `StepDecision.deadEnd()`.
+- A canceled attempt's late decision and writes are discarded.
+
+## Client exceptions
+
+Every remote failure extends `DexServiceException`. Local failures do not:
+`IllegalArgumentException`, `FlowDefinitionException`,
+`ValueMappingException`, and `IllegalStateException` signal a code or data
+defect and must stay visible.
+
+| Exception | Meaning | Typical handling |
+| --- | --- | --- |
+| `FlowAlreadyStartedException` | The Flow ID is taken by another request | Domain conflict, unless the contract redirects to the existing Flow |
+| `FlowNotFoundException` | No such Flow (read or wait) | Not found |
+| `FlowNotActiveOrNotFoundException` | No active target for this call | See [Closed-Flow races](#closed-flow-races) |
+| `FlowClosingException` | The Flow is closing | Re-read the terminal state, then decide |
+| `RpcLockConflictException` | RPC locks are held | Retry with backoff if the RPC is idempotent |
+| `WorkerInvocationException` | The RPC handler threw | Map to the handler's business error |
+| `ChannelMessageNotFoundException` | The message is no longer pending | Treat as already consumed |
+| `RequestTimeoutException` | The caller's wait budget expired | Outcome unknown; the Flow keeps running |
+| `LongPollTimeoutException` | A bounded `waitForFlow` ended while running | Wait again or report pending |
+| `DexServiceException` | Any other remote failure | Keep `getCode()` and `getSubStatus()` for logs |
+
+- Catch the concrete classes whose outcome your code can decide.
+- Catch `DexServiceException` only at a boundary that treats every remote
+  failure the same, such as availability translation or a best-effort write.
+  Never catch `RuntimeException` for that; it hides local defects.
+- Never branch on message text or numeric codes.
+
+## Idempotent start
+
+```java
+public String startOrder(OrderRequest request, String requestId) {
+    String flowId = "order-" + request.orderId();
+    return client.startFlow(orderFlow, flowId, request, StartFlowOptions.newBuilder()
+            .requestId(requestId)
+            .ignoreAlreadyStarted(true)
+            .timeout(Duration.ofDays(7))
+            .build());
+}
+```
+
+- One stable request ID per logical request, with `ignoreAlreadyStarted(true)`. A remaining
+  `FlowAlreadyStartedException` means another request owns the Flow ID. Rules for unknown
+  acceptance are in [../core/error-handling.md](../core/error-handling.md).
+
+## Waiting for a business milestone
+
+When the API promises an effect happened, wait with a request timeout on
+an Attribute the Flow writes after the effect commits, or on the Step's
+completion. See [../core/error-handling.md](../core/error-handling.md).
+
+## Query-only reads
+
+For a business Get whose RPC has no locks, no transaction, and no returned
+effects, a missing Flow and a closed Flow need no lifecycle probe. Translate
+not-found directly:
+
+```java
+public Optional<String> getStatusByRpc(String flowId) {
+    OrderFlow stub = client.newRpcStub(OrderFlow.class, flowId);
+    try {
+        return Optional.of(client.invokeRPC(stub::getOrderStatus));
+    } catch (FlowNotActiveOrNotFoundException | FlowNotFoundException missing) {
+        return Optional.empty();
+    }
+}
+```
+
+`client.getAttributes` throws only `FlowNotFoundException` for a missing Flow;
+a closed Flow stays readable until purge. Do not apply this translation to
+mutations or to RPCs that need an active Flow.
+
+## Closed-Flow races
+
+`FlowNotActiveOrNotFoundException` from a mutation says no active target took
+the call. It does not say the action happened. Reconcile from domain state
+first. Call `describeFlow` only when the terminal status changes the answer.
+
+```java
+public CancelOutcome cancelOrder(String flowId) {
+    OrderFlow stub = client.newRpcStub(OrderFlow.class, flowId);
+    try {
+        client.invokeRPC(stub::cancelOrder);
+        return CancelOutcome.CANCELED;
+    } catch (FlowClosingException closing) {
+        return CancelOutcome.UNKNOWN;
+    } catch (FlowNotActiveOrNotFoundException notActive) {
+        try {
+            FlowInfo info = client.describeFlow(flowId);
+            return info.getStatus() == FlowStatus.COMPLETED
+                    ? CancelOutcome.ALREADY_FINISHED
+                    : CancelOutcome.UNKNOWN;
+        } catch (FlowNotFoundException missing) {
+            return CancelOutcome.UNKNOWN;
+        }
+    }
+}
+```
+
+- The full reconcile rules are in
+  [../core/error-handling.md](../core/error-handling.md).
+
+## Best-effort Stream writes
+
+An external `client.writeStream` that may be lost catches
+`DexServiceException`, logs the Flow ID and status code without the payload,
+and continues. A disabled or full Stream Store also arrives this way. Local
+exceptions still surface. Never rebuild business state from a Stream.
+
+```java
+try {
+    client.writeStream(flowId, orderFlow.progress, "api", message);
+} catch (DexServiceException dropped) {
+    System.getLogger("orders").log(
+            System.Logger.Level.WARNING,
+            "progress write dropped for " + flowId + ": " + dropped.getCode());
+}
+```
+
+## Checklist
+
+- [ ] Business outcomes are decisions; only retryable failures throw.
+- [ ] External effects carry durable idempotency keys.
+- [ ] Retries are bounded where a recovery route must run.
+- [ ] Recovery reads attempt progress and reconciles before repeating effects.
+- [ ] `PROCEED` WaitFor policy has a `waitForMethodFailed()` branch.
+- [ ] Interrupts restore the flag; loops check cancellation.
+- [ ] Client code catches concrete exceptions; local defects stay visible.
+- [ ] Starts use a stable request ID; milestone waits have a timeout.
+- [ ] Logs carry Flow ID, run ID, Step execution ID, and attempt; never secrets or large payloads.

@@ -1,147 +1,248 @@
-# Python handbook
+# Python
 
-The SDK API reference uses the [released v1.35.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current API.
+Read this page first for a Python Dex application. Concepts and rules live in
+the core files, starting with [Application](../core/application.md). Then
+open the Python page for the task:
 
-Use this page first for Python. The [baseline project](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/pyproject.toml) selects `dex-python-sdk==1.30.0`; check `pyproject.toml`/lockfile and installed metadata before relying on baseline syntax.
+| Task | Page |
+| --- | --- |
+| Define Flows, Steps, state, RPCs, waits, Client calls | [primitives](primitives.md) |
+| Apply a design pattern | [patterns](patterns.md) |
+| Client boundaries, StartFlow, recovery, retries | [error handling](error-handling.md) |
+| Real-server tests | [testing](testing.md) |
 
-## Runtime choice
+## Version and API details
 
-Python has async (`AsyncClient`, `AsyncWorker`, `AsyncContext`) and sync (`Client`, `Worker`, `Context`) surfaces. Match the whole call chain. An async Step is an `async def` coroutine and awaits heartbeat/Client I/O. A synchronous streaming Step is a generator: it yields every `StepOutput` from heartbeat or Stream writes and returns `StepDecision` as the generator return value. A plain synchronous Step directly returns `StepDecision`. Do not mix these contracts.
-
-## Setup and local run
-
-Requires Python 3.11+ at the pinned example. Put Flows in application modules, compose instances in an app/registry module, share one Registry and BlobCache between Client and Worker, and keep HTTP handlers outside Flow classes.
+Find the installed SDK version before you rely on an API detail:
 
 ```bash
-dexcli dev
-cd examples/python
-uv sync --locked
-uv run --frozen python main.py
+python -c 'import importlib.metadata; print(importlib.metadata.version("dex-python-sdk"))'
 ```
 
-Defaults use Dex `localhost:8801` and HTTP `127.0.0.1:8080`. The examples always run a pull Worker, which needs only an outbound connection to Dex. See the [pinned example README](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/README.md).
+Open the [Python SDK reference](https://docs.superdurable.io/reference/python/)
+and select that minor in the left-sidebar version selector. Parameters,
+defaults, limits, and version differences live there and in the docstrings of
+the installed `dex` package. The installed package wins over this page. Never
+invent an API; check the docstrings or the runnable
+[Python examples](https://github.com/superdurable/dex/tree/main/examples/python).
+The PyPI package is `dex-python-sdk`; it imports as `dex`. Pin an exact
+version.
 
-## Pull Workers and Dex credentials
+## Choose async or sync
 
-From Python SDK v1.25.0, every Worker is a pull Worker. Pass `WorkerOptions(server_address=...)` to `Worker` or `AsyncWorker` and `ClientOptions(server_address=...)` to the Client; no Worker address or target is configured, and StartFlow and SubFlow always route to pull Workers. v1.25.0 removed `WorkerTarget`, the Worker bind address, `worker.worker_target`, and the `worker_target` options on ClientOptions and FlowConfig; delete them when upgrading. `update_flow_config` does not change a Flow's Worker routing. `pull` defaults to `PullWorkerOptions()`; pass `WorkerOptions(pull=PullWorkerOptions(max_concurrent_tasks=8))` to tune it. `PullWorkerOptions` also has `idle_streams_per_queue`, `app_worker_id`, and `stop_drain_timeout`; defaults are one idle stream per queue, a generated process ID, and 30 seconds. Change an explicitly assigned app Worker ID after restart. With Python SDK v1.12.0, a Worker that lacks a requested Step type or RPC name declines it before the handler runs, so Dex can reassign the task without consuming the Step attempt. The synchronous and async Workers share the [pull Worker guarantees](../core/pull-workers.md), including Step retries, heartbeats, stream capacity, and Stop. [Released Python options](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/worker_options.py) [Runnable pull Worker example](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/production/pull_workers.py)
+The SDK has two complete surfaces. Pick one per process and match the whole
+call chain.
 
-From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity keeps one extra idle stream for 30 seconds; set `PullWorkerOptions` idle streams per queue to at least two for heavy Step backlogs. The Worker also sends an internal upstream Pong every 20 seconds while a task runs, so proxy idle timeouts must exceed 20 seconds and Server **matching.pingInterval**.
+| | Async | Sync |
+| --- | --- | --- |
+| Client | `AsyncClient` (await every call) | `Client` |
+| Worker | `AsyncWorker` (await `start` in a task) | `Worker` (`start` on a thread) |
+| Registry | `Registry(flows, allow_async_handlers=True)` | `Registry(flows)` |
+| Step handler | `async def execute(self, context: AsyncContext, input: T) -> StepDecision`; plain `def` handlers also run | `def execute(self, context: Context, input: T) -> StepDecision`, or a generator that yields `StepOutput` |
+| Heartbeat | `await context.heartbeat(value)` | `yield heartbeat(value)` |
+| Stream write | `stream.write(context, value)`, not awaited | `yield stream.write(context, value)` |
+| RPC handler | `def` or `async def`, annotated with `Context` | `def`, annotated with `Context` |
 
-Python SDK v1.14.0 adds **worker.wait_pull_registered(timeout=30)** on Worker and AsyncWorker; the timeout is in seconds and **None** waits indefinitely. Start a synchronous Worker on another thread, or start AsyncWorker in another task and **await worker.wait_pull_registered(timeout=30)** before activating it. Timeout raises **TimeoutError**; async cancellation ends only that wait. Probe **worker.pull_registration_state().is_ready**; queue entries expose **queue**, **has_registered_stream**, and **last_permanent_error**. **PullRegistrationError.queue** and **.error** retain the rejected queue and original transport error. **PullWorkerOptions(stop_on_permanent_stream_rejection=True)** opts into draining and raising that error from **start()** when a permanent rejection leaves a queue without another registered stream. Handle startup and later run failures, and always call **stop()** or **close()** afterward, awaiting async cleanup. Follow the shared [readiness contract](../core/pull-workers.md#startup-registration-and-readiness), including stable readiness across reconnects and Stop. [Released Worker API](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/worker.py) and [AsyncWorker API](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/async_worker.py)
+- A Registry without `allow_async_handlers=True` rejects every `async def`
+  Step, RPC, or timeout handler. Set it whenever any handler is async.
+- An async Step annotates its context as `AsyncContext`. Async RPCs and
+  timeout handlers keep `Context`.
+- Name handler parameters `context` and `input`, as the base classes do;
+  pyright rejects a renamed override parameter.
+- The `Step` base class declares a sync `execute`, so mypy reports an async
+  override. Mark the line `async def execute(  # type: ignore[override]`, as
+  the SDK's own type contracts do.
+- A sync generator Step is typed `Generator[StepOutput, None, StepDecision]`.
+  It must `yield` every heartbeat and Stream output; an output that is created
+  but not yielded never reaches Dex. The decision is the generator's `return`
+  value, never a yielded item:
 
-With SDK v1.15.0, **PullWorkerOptions.reserved_rpc_tasks** reserves RPC capacity. Leave it as **None** for the default; pass **0** to opt out. The counter property is available on both **Worker** and **AsyncWorker**. Unset reserves one slot when resolved maximum concurrent tasks **M ≥ 2**; otherwise it reserves zero and logs one startup warning. Require **0 ≤ R < M**; invalid reserves fail construction. This intentionally gives Steps one fewer slot by default. Both API-direct and transactional RPC tasks may use all **M** slots; WaitFor and Execute, including local attempts, are declined at **M − R** total busy handlers. Export **Worker.pull_reserved_rpc_declines** to measure reserve declines. Follow the shared [reserve semantics and sizing advice](../core/pull-workers.md#reserved-rpc-capacity) for dispatch exhaustion, counter scope, and long-running Steps. [Released capacity guidance](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/README.md)
+  ```python
+  def execute(self, context: Context, input: Job) -> Generator[StepOutput, None, StepDecision]:
+      for index, item in enumerate(input.items):
+          process(item)
+          yield heartbeat(index)
+      return graceful_complete(len(input.items))
+  ```
 
-With SDK v1.14.1, the Worker gracefully closes surplus idle streams after load drops while preserving readiness and the configured registered idle streams per queue. Size steady-state streams as **M + (F + 1) × I**, where **M** is maximum concurrent tasks, **F** is registered Flow types, and **I** is idle streams per queue. Burst peaks remain bounded by **matching.maxConcurrentTasksCap** and **matching.maxStreams**; follow the shared [capacity guidance](../core/pull-workers.md#heartbeats-capacity-and-shutdown).
+- An `execute` must not be an async generator; the Registry rejects it.
+- Async handlers share one event loop. A blocking call (sync HTTP client,
+  `time.sleep`, CPU loop) stalls every handler on the Worker. Use async I/O or
+  `asyncio.to_thread`.
+- Never call the sync `Client` from an event-loop thread.
 
-Python SDK releases newer than v1.32.0 replace the decline, extra idle stream, and **M + (F + 1) × I** rules above. They require Server protocol 4 (server-zd newer than v0.1.16): against an older Server, Worker start fails and a **Client** or **AsyncClient** fails its first call, so upgrade the Server first. The Worker opens exactly **max_concurrent_tasks** long-lived streams, one per execution slot; **reserved_rpc_tasks** of them accept only RPCs and the rest accept Steps and RPCs. Steps are never declined for capacity. **pull_reserved_rpc_declines** on **Worker** and **AsyncWorker** is deprecated and always zero; **idle_streams_per_queue** is deprecated, still accepted, and has no effect. **wait_pull_registered** waits for one STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream. The registration snapshot **queues** and the error **queue** hold the slot kind labels STEP_AND_RPC and RPC_ONLY. Start fails when **max_concurrent_tasks** exceeds the Server's reported **matching.maxConcurrentTasksCap**. **stop** lets running handlers finish and send their output; Dex returns tasks that arrive during shutdown without consuming a retry. Follow the shared [reserved RPC capacity](../core/pull-workers.md#reserved-rpc-capacity) and [shutdown](../core/pull-workers.md#heartbeats-capacity-and-shutdown) guidance.
+## Project shape and wiring
 
-Set `credential` separately in ClientOptions and WorkerOptions when Dex authentication is enabled. `FileCredential(path)` reads a rotating bearer token. A custom `Credential.token()` may return an awaitable for async callers; synchronous callers require a string. Since SDK v1.11.0, an `async def` token runs on the event loop. A synchronous token called from the async API runs once in a lazy, SDK-owned, four-thread executor; closing the Client or Worker does not wait for a blocked call, so make lookups return promptly. A token error fails the call before it reaches Dex. Client calls raise the credential's exception unchanged, while Worker startup may wrap it. Pull streams read the token when opened or reconnected, and stopping a Worker cancels a pending lookup. Protect the plaintext connection. [Released Python credentials](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/credential.py)
+- Construct every Flow instance once, in one composition module. Pass that
+  same instance to `Registry` and to Client calls; a new instance of the same
+  class is not registered.
+- Share one `Registry` and one `open_blob_cache(...)` between the Worker and
+  the Client.
+- Define every `Attribute`, `Channel`, and `Stream` once at module or class
+  scope and return them from `get_persistence_schema`.
 
-With Python SDK v1.16.0, use **ApiKeyCredential(token_url, server_id, api_key, exchange_timeout=10.0)** when the application holds an API key instead of a rotated token file. The timeout is in seconds and covers connecting, sending, reading, and parsing. Construction makes no request and raises **ValueError** for an empty value, an invalid or insecure URL, or a timeout that is not positive and finite. The first **token()** call performs the exchange. Pass the same thread-safe instance as **credential** to the sync or async Client and Worker options. Loopback HTTP bypasses environment proxies so the key stays on the host; HTTPS honors configured proxies. There is no custom HTTP client option. A failed exchange raises **ApiKeyExchangeError**: Client calls raise it unchanged, while pull Workers log it and retry. **close()** is optional. Call it only after every Client and Worker sharing the credential has closed; later **token()** calls raise **RuntimeError**. It waits at most until the current exchange deadline. Follow the shared [API key Credential contract](../core/operations.md#api-key-credential) for refresh, rejection retries, and redaction. [README example](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/README.md)
-
-## FlowService transport
-
-Python SDK v1.20.0 **ClientOptions** and **WorkerOptions** have no FlowService TLS option. Its synchronous and async Clients and Workers use plaintext gRPC, including pull streams. The Go SDK v1.22.0 option does not apply. See [FlowService TLS](../core/operations.md#flowservice-tls). [Client options](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/client_options.py) · [Worker options](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/worker_options.py)
-
-## Connector runtime support
-
-A Python application can use an official Connector only where the published catalog lists `python` in that connector's `languages` map and in the `languages` list of every operation and Trigger the application needs. A package implements only the capabilities that list its language. Java and Rust have no Connector SDK.
-
-Install the connector package from PyPI as `dex-connector-<slug>`, for example `dex-connector-newsapi==0.1.0`. It depends on `dex-connectors-sdk`, which imports as `dex_connectors.sdk`, and on `dex-python-sdk`. Use the version that `languages.python` gives for the connector.
-
-At startup, call `await load_from_environment()` from `dex_connectors.sdk.projectconfig` once ([loader](https://github.com/superdurable/dex-connectors-library/blob/sdkpython/v0.1.0/sdkpython/src/dex_connectors/sdk/projectconfig/__init__.py), read at `sdkpython/v0.1.0`). Open each connection with the connector package's `new_project_connection(project, "connection-name")`. Pass that connection to the operation-specific step factory, such as `new_search_articles_step(...)`. Register the Flow with `dex.Registry([...], allow_async_handlers=True)` and run it on `dex.AsyncWorker`. On shutdown, call `await connection.aclose()` and then `await project.close()`. The runnable [NewsAPI company news worker](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/python/v0.1.0/connectors/newsapi/python/examples/company_news/worker.py) and [Flow](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/python/v0.1.0/connectors/newsapi/python/examples/company_news/flow.py) show this at `connectors/newsapi/python/v0.1.0`.
-
-Do not write your own loader or deserialize Dex Web's credential file into Flow state.
-
-## Deployed configuration and recovery boundary
-
-Dex provides no deployed Connector configuration or credential store. A deployed
-Python application reads its connections with `load_from_environment` from the Connector
-SDK's `dex_connectors.sdk.projectconfig`, the Python counterpart of the Go
-`sdkgo/projectconfig`; see
-[deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
-Keep credentials behind the deployment's secret management; a browser, Flow input,
-or ordinary Attribute cannot select secret storage.
-When the Flow itself must hold a short-lived secret, such as an API key passed
-at start, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes)
-instead of an ordinary Attribute.
-For recovery after a Worker fix, preserve the original resource and Flow ID,
-reconcile external effects, and use an explicitly authorized, recorded Step
-boundary as described in [safe recovery](../core/operations.md#safe-recovery).
-
-## Dex Web v2 management metadata
-
-The current FDG 2.0 management-interface analyzer reads Python source only
-for Step groups and explanations and for Connector package manifests, from
-cli-v1.28.0. A Python Flow still cannot publish the Summary, Display, Action,
-Indexed Attribute, or Action input capture metadata that drives the full Dex Web
-v2 management interface; do not invent Python syntax for it. Put exactly one
-`# dex:group group-id:lookup group-label:"Lookup"` line and one
-`# dex:explanation text:"Look up a catalog record."` line directly above each
-local Step class (decorators may sit between them and the class in Python), then
-run `dexcli visualize SOURCE --schema-version 2.0`. Follow the Core
-[FDG 2.0 guidance](../core/operations.md#fdg-20-management-metadata) for Connector
-package manifests.
-
-`dexcli visualize` and `--lint app` (cli-v1.28.1) accept several instances of one
-Step class and `StepRef("Type")` with a string literal or the registered Step object as a
-movement, execute-failure, or cancellation target. They reject computed Step
-types, unknown names, ambiguous class targets, rebinding, reflection, and
-attribute interception. The Python analyzer does not track every escape of a
-Step object, so keep Step objects in the Flow file and do not mutate them
-outside their construction. See the
-[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
-
-## Minimal Flow
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/flow/example_flow.py)
-<!-- dex-source: examples/python/dex_examples/primitives/flow/example_flow.py -->
 ```python
-status = Attribute("status", str)
-notify = Channel("notify", None)
+import asyncio
+from dex import (
+    AsyncClient,
+    AsyncWorker,
+    BlobCacheConfig,
+    ClientOptions,
+    Flow,
+    PullWorkerOptions,
+    Registry,
+    WorkerOptions,
+    open_blob_cache,
+)
 
 
-class ExampleFlow(Flow[int]):
-    def __init__(self) -> None:
-        self.finish = Finish()
-        self.example = Example(self.finish)
+async def run_application(flows: list[Flow[object]], server_address: str) -> None:
+    cache = open_blob_cache(BlobCacheConfig(".dex-blob-cache", 1 << 30))
+    registry = Registry(flows, allow_async_handlers=True)
+    worker = AsyncWorker(
+        registry,
+        cache,
+        WorkerOptions(
+            server_address=server_address,
+            pull=PullWorkerOptions(max_concurrent_tasks=8),
+        ),
+    )
+    client = AsyncClient(registry, cache, ClientOptions(server_address=server_address))
+    worker_task = asyncio.create_task(worker.start())
+    try:
+        await worker.wait_pull_registered(timeout=30)
+        await serve_http_until_shutdown(client)
+    finally:
+        await worker.close()
+        await worker_task
+        await client.close()
+        cache.close()
 
-    def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.example).other_steps(self.finish)
 
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(status, notify)
+async def serve_http_until_shutdown(client: AsyncClient) -> None:
+    await asyncio.Event().wait()
 ```
 
-Instantiate Steps once per Flow object and return those same instances in `StepList`. Define persistent schema objects once at module scope.
+The sync surface starts `Worker.start()` on a `threading.Thread`, calls
+`worker.wait_pull_registered(timeout=...)` on the main thread, and on shutdown
+closes the Worker, joins the thread, closes the Client, and closes the cache.
+See the [async composition](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/app.py)
+and the [sync composition](https://github.com/superdurable/dex/blob/main/examples/python/sync-python/sync_examples/app.py).
 
-A synchronous Step directly returns a decision:
+## Worker lifecycle
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/flow/example_flow.py)
-<!-- dex-source: examples/python/dex_examples/primitives/flow/example_flow.py -->
+- `WorkerOptions(server_address=...)` is the only address; the Worker connects
+  outbound.
+- `start` runs once per Worker and returns only after `stop`. Await its task
+  (or join its thread): index and protocol failures surface there.
+- Gate readiness with `wait_pull_registered(timeout=...)` before serving
+  traffic or retiring the old Worker in a rolling deployment. It raises
+  `TimeoutError` on expiry. Probe later readiness with
+  `pull_registration_state().is_ready`.
+- Always call `stop` or `close` (awaited on the async surface).
+- Shut down in this order: stop admitting new requests, close the Worker and
+  await its task, then close the Client and the cache. Running handlers may
+  still use the Client and the cache while they drain.
+- `PullWorkerOptions` sets `max_concurrent_tasks`, `reserved_rpc_tasks`, and
+  the drain timeout. See
+  [Python Workers](https://docs.superdurable.io/reference/python/workers).
+
+## Authentication and TLS
+
+- `ClientOptions` and `WorkerOptions` each take `credential` and
+  `flow_service_tls`. Set them separately on the Client and the Worker.
+- `FileCredential` reads a rotating bearer-token file. `ApiKeyCredential`
+  exchanges an API key for tokens. A custom `Credential.token()` may return a
+  string, or an awaitable for async callers.
+- `FlowServiceTlsOptions` turns on TLS; without it the connection is
+  plaintext.
+- Details: [server authentication](https://docs.superdurable.io/reference/server/authentication).
+
+## Names, types, and payloads
+
+- The default Flow type and Step type is the class name. Name each Flow class
+  after its domain, such as `ApprovalFlow`, never just `Flow`. Flow types are
+  unique within one Registry; Step types are unique within one Flow. The module
+  does not separate two classes with the same name.
+- Override `get_flow_type` or `get_step_type` only to keep an identity that is
+  already in production after a class rename, or to register several
+  instances of one Step class. Each instance then returns a distinct Step type.
+- A generic Step whose input annotation is a `TypeVar` overrides
+  `get_input_type` to return the concrete type, or `type(None)` for no input.
+- Renaming a Python class changes its default Flow or Step type, which open
+  runs depend on; see [Flow](../core/flow.md).
+- Type every payload concretely: frozen dataclasses, enums, `str`, `int`,
+  `list[T]`. Avoid `Any`, lambdas, open handles, and mutable defaults (use
+  `field(default_factory=...)`).
+- Dataclass field names are the JSON wire names. Add new fields with
+  defaults so open runs still decode.
+- The JSON codec checks typed dataclass fields and concrete container
+  elements recursively, but a few cases are lenient. Inside a dataclass field
+  or a container, a union decodes a value that matches no alternative as the
+  raw JSON value, a nested `Literal` is not enforced, and a type-variable field
+  bound to a primitive type, such as `Result[int]`, keeps its raw JSON value. A `float` field can hold a JSON integer as an
+  `int`. Validate those untrusted payload fields in application code.
+- When a payload must match another SDK's JSON shape, use dataclass field
+  metadata: `dex_json_name` for the wire name, `dex_json_omit_default=True` to
+  omit default values, and `dex_json_format="rfc3339"` for Go-compatible
+  timestamps. A custom codec goes in the
+  `CodecRegistry` passed to `Registry`.
+- Use `None` for no payload: `Step[None]`, `Channel("ready", type(None))`.
+- An unset Attribute reads as its type's zero value (`0`, `0.0`, `False`) or
+  `None`; it does not raise. Model "not set" explicitly when it matters.
+- Writing `None` to an Attribute deletes it. A `None` Flow output reads as no
+  output; return a result dataclass when that difference matters.
+
+## Connectors
+
+- Use an official Connector only when the catalog lists `python` for it.
+- At startup, load the project configuration once with the Connector SDK's
+  `load_from_environment`, open each connection by its static name, and pass
+  it to the operation's Step factory. Close connections and the project on
+  shutdown. Never write your own loader or copy credentials into Flow state.
+- Connector Steps are async: run them on `AsyncWorker` with
+  `allow_async_handlers=True`. Other rules are in [Connector](../core/connector.md).
+
+## Dex Web metadata
+
+The FDG 2.0 analyzer reads Python source for Step groups, explanations, and
+Connector package manifests only. A Python Flow cannot publish Summary,
+Display, Action, or Indexed Attribute presentation metadata; do not invent
+syntax for it. Put exactly one group line and one explanation line directly
+above each local Step class:
+
 ```python
-class Finish(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
-        status.set(context, "done")
-        return graceful_complete(input + 1)
+# dex:group group-id:lookup group-label:"Lookup"
+# dex:explanation text:"Look up a catalog record."
+class LookupRecord(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        return graceful_complete(input)
 ```
 
-## Registry, Worker, Client
+Then run `dexcli visualize SOURCE --schema-version 2.0`. Keep Step objects in
+the Flow file, keep Step types static, and avoid reflection, `setattr`, and
+class decorators other than `dataclass` and `final`. See
+[Flow visualization](https://docs.superdurable.io/reference/web/flow-visualization).
 
-The async [application composition](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/app.py) shows Flow construction, Registry, BlobCache, AsyncClient, and AsyncWorker. The [sync example](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/sync-python/sync_examples/app.py) shows the synchronous counterpart. Inject services in constructors; use a provider for a Client needed after circular bootstrap. Adapters read committed Attributes with [`get_attributes`](primitives.md#client-attribute-reads) and write through typed RPCs.
+## Python gotchas
 
-## Route by task
-
-- API/state choices: [primitives](primitives.md)
-- Application shape: [patterns](patterns.md)
-- Real-server tests: [testing](testing.md)
-- Client boundary design and exception/retry policy, before implementation: [error handling](error-handling.md)
-- codecs/maps/Streams: [data handling](data-handling.md)
-- histories/progress: [observability](observability.md)
-- open-Flow upgrades: [versioning](versioning.md)
-- Python traps: [gotchas](gotchas.md)
-- locks/loading/heartbeat/cancellation: [advanced features](advanced-features.md)
+- `asyncio.sleep` or `time.sleep` in `execute` is not a durable Timer. Put
+  business time in a `wait_for` Timer.
+- Module globals, `threading.Lock`, `asyncio` tasks, and in-process caches
+  vanish on Worker replacement.
+- Do not swallow `asyncio.CancelledError` or Dex exceptions to keep going.
+- Map instance names are non-empty and contain no `/`.
+- A long-poll expiry (`LongPollTimeoutError`) is not a Flow failure.
+- Do not use `del` to mark unused parameters; leave them unused.
 
 ## Completion checklist
 
-Verify all Steps and persistent definitions are registered, async/sync contracts are consistent, Context outputs/errors are propagated, Client awaits have deadlines, tests use unique IDs and real Dex, and no application code depends on Server internals.
+- [ ] The installed SDK version is known, and API shapes match its docstrings.
+- [ ] Every reachable Step and every persistence definition is registered.
+- [ ] The Registry sets `allow_async_handlers=True` if any handler is async.
+- [ ] The surface is consistent: async handlers await I/O; sync generators
+      yield every output.
+- [ ] Flow and Step types are domain names and unchanged for open runs.
+- [ ] The Worker waits for registration with a deadline and is always closed.
+- [ ] Client calls have bounded waits and catch typed exceptions.
+- [ ] Tests run against a real Dex Server with unique Flow IDs.

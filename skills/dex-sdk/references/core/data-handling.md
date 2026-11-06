@@ -1,213 +1,100 @@
-# Dex-first data storage and Worker locality
+# Data handling
 
-Read this guide when a Flow stores large documents, conversation history, model context, or API/MCP results, especially with replicated Workers.
+Read this when a Flow stores large documents, conversation history, model context, or API results, or when you are tempted to add a database.
 
-## Dex-first storage decision
+## Dex-first state ownership
 
-For a Dex application, begin with Dex as the durable system of record for every
-fact its Flow model can own. A cohesive process snapshot belongs in typed
-Attributes. Dynamically keyed or independently loaded records belong in
-AttributeMaps using stable instances, bounded chunks, or fixed partitions.
-Use indexed Attributes and Dex search for the lookup paths they support, the
-[Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) for
-direct reads of stored Attributes, typed RPCs for application mutations and
-reads that need Flow code, Channels for queued intent, and the built-in blob
-path for large values.
+Start with Dex as the durable system of record for every fact the Flow model can own.
 
-Data shared by several processes does not automatically need a database. Give
-shared facts one stable domain/entity Flow owner and expose typed application
-operations around its Attributes or AttributeMaps. Avoid turning an arbitrary
-process Flow into a global database, but also avoid duplicating the same
-authoritative fact across process Flows.
+| Data | Home |
+| --- | --- |
+| A cohesive process snapshot | typed Attributes |
+| Dynamically keyed or independently loaded records | AttributeMap with stable instances, bounded chunks, or fixed partitions |
+| Supported lookup paths | Indexed Attributes and Dex search |
+| Direct reads of stored values | Client Attribute read |
+| Application mutations, and reads that need Flow code | typed RPCs |
+| Queued intent | Channels |
+| Large values | the built-in blob path |
 
-Do not add a database, cache, ORM, outbox, or shadow read model for hypothetical
-future flexibility. An external store needs a concrete unmet requirement, such
-as complex or ad-hoc secondary indexes, full-text/vector search, high-contention
-reads and writes to one hot record that cannot tolerate Attribute-lock
-serialization, relational joins or transactions across independently owned
-records, or analytics requiring large cross-Flow scans. Record the operation,
-expected scale, consistency/SLO, and the Dex alternative evaluated.
+- Data shared by several processes does not by itself need a database. Give shared facts one stable domain or entity Flow owner and expose typed operations on it. Do not turn an arbitrary process Flow into a global database, and do not copy one authoritative fact into several process Flows.
+- Do not add a database, cache, ORM, outbox, or shadow read model for hypothetical flexibility.
+- An external store needs a confirmed requirement Dex cannot reasonably meet: complex or ad-hoc secondary indexes, full-text or vector search, sustained high-contention writes to one hot record that cannot accept Attribute-lock serialization, relational joins or transactions across independently owned records, or large analytical scans. Record the operation, scale, consistency need, and the Dex alternative you evaluated.
+- When Dex can stay authoritative and only the query shape is missing, prefer an [Attribute Store projection](external-attribute-sync.md) over application dual writes.
+- When an external store must own a fact, define that boundary explicitly. Keep the Flow's Attributes to process state, durable references, and recovery facts.
+- One fact never has two ambiguous authorities. Name the source of truth for each fact and define synchronization, failure, and reconciliation.
+- Large size alone does not require a separate store.
 
-When Dex can remain authoritative and only the query shape is missing, prefer a
-reconcilable Attribute Store projection over application-managed dual writes.
-When the external store must instead own a fact, define that boundary
-explicitly and keep the Flow's Attributes to process state, durable references,
-and recovery facts. One fact must never have two ambiguous authorities.
+## The built-in large-value path
 
-## Use the built-in large-value path
+Dex durably owns an Attribute even when its serialized value is stored as a blob. Handler requests then carry an opaque blob reference instead of the full value. The SDK hydrates each value before application code sees it:
 
-Dex durably owns an Attribute even when its serialized value is stored as a blob. With server-side blob offload and lazy loading enabled, handler requests carry an opaque blob ID instead of repeatedly transferring the full value.
-
-The SDK hydrates each blob-backed value before application code uses it:
-
-1. Check the local BlobCache by owning Flow ID and opaque blob reference.
-2. Deduplicate IDs needed by the invocation.
-3. Fetch cache misses together through Dex.
+1. Check the local BlobCache by owning Flow ID and blob reference.
+2. Deduplicate the references the invocation needs.
+3. Fetch the misses together through Dex.
 4. Store fetched values in the bounded disk cache.
-5. Decode the hydrated values for the handler.
+5. Decode them for the handler.
 
-[Hard-delete Attributes](#hard-delete-attributes-for-short-lived-secrets) skip this path: handlers receive their values inline, and the SDK never stores them in the BlobCache.
+The Client Attribute read uses the same path in the Client. Hard-delete Attributes skip it: their values arrive inline and are never cached.
 
-The [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) uses the same path in the Client: it hydrates blob-backed values through LoadBlobs and the Client's BlobCache before decoding them.
+Rules:
 
-A cache hit avoids another remote blob fetch. It still incurs local cache reading and decoding. Treat the BlobCache as disposable acceleration; Dex remains the durable source of truth.
+- The BlobCache is disposable acceleration. Dex stays the source of truth.
+- Create one cache-owned, writable directory per Worker replica. Share the opened cache between that process's Worker and Client when the SDK allows. Size it for the hot set, and close it after both stop.
+- A persistent volume can keep entries across restarts, but correctness must not depend on it.
+- Never parse, construct, persist, or forward blob references. A reference omits its owning Flow ID; Dex and the SDK supply it. When a value crosses to another Flow through a start, SubFlow, or RPC, Dex copies or inlines it, so the destination stays recoverable.
+- Do not build application-level blob references, download logic, deduplication, or cache eviction unless requirements exceed this path.
+- The inline threshold and value size limits are Server settings. See the [Server configuration reference](https://docs.superdurable.io/reference/server/configuration#limits).
 
-Create one cache-owned, writable directory per Worker replica. Share the opened BlobCache between that process's Worker and Client when the SDK supports it, size it for the hot set, and close it after both stop. A persistent volume can preserve entries across process restarts, but correctness must not depend on that volume or on cache admission.
+## Null values
 
-Use the installed SDK and its version-matched examples for exact BlobCache constructors and lifecycle APIs.
+Null is an ordinary application value in inputs, Channel messages, and RPC values. Two places give it control meaning:
 
-Do not parse, construct, persist, or forward internal blob references in application code. A reference omits its owning Flow ID. Dex and the SDK supply that identity from trusted context, and the cache isolates identical-looking references by Flow. When an internal StartFlow, SubFlow, or RPC boundary moves a blob-backed value to another Flow, Dex copies or inlines the payload before the destination records it. The destination therefore remains recoverable after the source Blob is deleted.
+- An Attribute write with null deletes the Attribute. For a hard-delete Attribute, it permanently deletes the stored value.
+- Flow completion with null output stores no output.
 
-The default server threshold (`values.wireInlineThresholdBytes`) keeps payloads through 100 bytes inline and offloads payloads from 101 bytes. Treat the resulting references as opaque.
+Return an explicit result object when "completed with null" must differ from "completed without output".
 
-server-zd records each Step method input with its Step execution, so history shows the exact inputs without any Server setting. Normal payload offload still applies to large inputs.
+## Sticky routing and cache locality
 
-The Value null arm represents an ordinary application null in inputs, Channel messages, RPC values, and other general Value positions. SDKs encode and decode it as the language's native null value. Two narrower boundaries intentionally assign it control semantics: an Attribute write with null deletes the Attribute, and Flow completion discards null output instead of storing an empty result. Do not use null when the distinction between “completed with null” and “completed without output” matters; return an explicit result object instead. For a hard-delete Attribute, a null write permanently deletes the stored value.
+Dex first offers a Flow's work to the Worker process that last served it, then to any Worker of the Flow type. Repeated Steps and RPCs of one Flow therefore tend to find a warm BlobCache.
 
-## Hard-delete Attributes for short-lived secrets
+- Sticky routing is a performance hint, not a placement guarantee. After a restart, a disconnect, or a busy Worker, another Worker serves the Flow and warms its own cache.
+- Never keep correctness state only in Worker memory or its cache.
 
-Use a hard-delete Attribute or AttributeMap when a Flow must hold a short-lived secret, such as an API key that it uses a few times and then discards. Keep long-lived credentials and connection secrets in the deployment's secret management instead. The product guide is [Hard-delete Attributes](https://docs.superdurable.io/primitives/attribute#hard-delete-attributes).
-
-A regular Attribute value is recorded in Flow history. A hard-delete value never is. Dex stores it only in object storage, whatever its size, and Flow history keeps only a reference. By default it uses the primary bucket and prefix; the optional `objectStore.hardDeleteStore` setting sends it to a separate destination. Deleting the Attribute or AttributeMap instance, or writing null to it, permanently deletes the stored value. After that, neither Dex APIs nor Flow history can recover it, and the value reads as absent. Every write through the definition carries the setting: Step, RPC, and timeout-handler writes and deletes, StartFlow initial Attributes, and SubFlow initial Attributes. Handlers receive the value inline, and the SDK never writes it to the local BlobCache. From server-zd v0.1.5, Server SetAttributes can erase currently stored hard-delete Attributes after the run closes and before purge when every write sets one to null and the request sets no action permission mappings; see [server-zd operations](operations.md#server-zd).
-
-Check these constraints before choosing it:
-
-- Only string and object values are supported, including bytes. Definitions reject numeric and Boolean value types. When the declared type is broader, a write that encodes a number or Boolean fails. Null is always allowed. To store a numeric secret, such as a one-time code, wrap it in an object type with one field.
-- The option cannot be combined with an index or Attribute Store sync. A hard-delete value therefore never appears in Dex search or an external projection.
-- WaitForAttributeMatch rejects a hard-delete Attribute, and Action conditions cannot use one. When a caller needs the value, read it through the [Client Attribute read](primitives.md#read-attributes-from-outside-a-flow) or through an RPC. That read returns the committed value, and the SDK never caches it. Return it only to callers authorized to hold the secret.
-- It requires SDK v1.11.0 or later.
-- SDKs fail closed against an older Server. A Worker fails the Step, RPC, or timeout-handler result that writes a hard-delete Attribute or starts a SubFlow with one. A Client fails a StartFlow that carries a hard-delete initial value.
-- On server-zd, a SubFlow whose initial Attributes include a hard-delete Attribute needs v0.1.10 or later. Earlier releases could stop the node on that start.
-- Build StartFlow and SubFlow initial values from the same definition that the target Flow registers. A value built from a definition with a different hard-delete setting is rejected.
-
-Each Flow keeps one stored value per Attribute key and overwrites it in place. Unlike regular Attribute writes, this value does not wait for the invocation's commit:
-
-- A Step or RPC attempt writes or deletes the stored value before Dex commits the attempt's result. A retried attempt, other Steps and RPCs, and Attribute reads can therefore observe a write or deletion from an attempt that later failed. Make handlers safe to repeat. Do not build a read-modify-write on a hard-delete Attribute.
-- When concurrent Steps or RPCs write the same key, the final value may not be the last committed write. When the order matters, write each key from a single writer.
-- A StartFlow or SubFlow start that fails because the Flow ID is already running still overwrites the running Flow's value. With a null initial value, it deletes that value.
-- Flows that reuse a Flow ID share the stored value.
-- Time travel does not restore a deleted value. A restarted SubFlow starts from the original initial value. If an earlier run deleted that value, the new run reads it as absent. Design the Flow to request a fresh secret when the value is absent.
-- Removing the hard-delete option from a definition leaves the stored value in place until Dex removes the Flow. Delete the value through the hard-delete definition first.
-- A value remains until it is deleted, or until retention removes the Flow. Delete the secret as soon as the Flow no longer needs it. Object storage backups and bucket versioning outside Dex can keep copies, so configure them separately when deleted secrets must not survive.
-
-## Combine caching with sticky Worker routing
-
-Dex first offers a Flow's work to the pull Worker process that last served it, then falls back to any Worker registered for the Flow type. Repeated Steps and RPCs for one Flow therefore tend to reach a Worker whose BlobCache is already warm. Sticky routing does not promise the same process; see [pull Workers](pull-workers.md).
-
-Sticky routing is a performance hint, not a placement guarantee. Dex may select another Worker after the previous Worker restarts, disconnects, or stays busy past the sticky wait. The replacement Worker loads each missing blob once and warms its own cache. Never keep Flow correctness state only in Worker memory or its cache.
-
-For API/MCP agents that do not need a code sandbox, this combination is often sufficient:
+For API or MCP agents that need no code sandbox, this path is usually enough:
 
 ```text
 Flow Attributes -> Dex blob storage -> sticky Worker -> local BlobCache -> handler
 ```
 
-Do not build application-level blob references, download logic, deduplication, or cache eviction unless product requirements exceed this path.
+## Shape data for cache reuse
 
-## Model updates for cache reuse
+Cache entries are keyed by owning Flow ID and immutable blob reference. Updating a large Attribute creates a new value and a new reference. One ever-growing array, such as a single `messages` Attribute, rewrites the whole array and creates a cold blob on every append. Sticky routing cannot remove that.
 
-BlobCache entries are keyed by owning Flow ID and immutable blob reference. Updating a large Attribute produces a new value and therefore a new blob reference. A single ever-growing array, such as one **messages** Attribute, rewrites the full array and creates a cold blob version on each append. Stickiness cannot remove that write amplification.
+Prefer immutable or rarely changed values:
 
-Prefer immutable or infrequently changed values:
+- store messages, tool results, or document parts in an AttributeMap;
+- group small records into immutable bounded chunks;
+- keep only the active window or a summary in a small mutable Attribute;
+- edit old chunks only when the product really edits history.
 
-- store messages, tool results, or document parts in an AttributeMap
-- group small records into immutable bounded chunks
-- keep only the active window or summary in a small mutable Attribute
-- update old chunks only when the product operation truly edits history
+Old chunks keep their references and stay warm. A new chunk causes only its own first miss. Use the [sequentially chunked](patterns.md#sequentially-chunked-attributemap) or [hash-partitioned](patterns.md#hash-partitioned-attributemap) layouts.
 
-Old chunks retain their blob IDs and stay reusable in the local cache; one newly added chunk causes only its own first hydration miss.
+## External queries
 
-### Use AttributeMap deliberately
+When data needs relational queries, independent pagination, cross-Flow access, analytics, or a different retention lifecycle, first consider Attribute Store sync. See [external-attribute-sync.md](external-attribute-sync.md).
 
-Choose one Attribute when the value is a cohesive snapshot that handlers normally read and replace together. Choose an AttributeMap when keys are known only at runtime and instances are read, written, or deleted independently. Each instance is a separate blob, so changing one message chunk, tool result, item, or document part does not rewrite the others.
+Attribute Store sync targets PostgreSQL only. For Elasticsearch or a vector database, choose one:
 
-Use stable domain identifiers or monotonic chunk IDs as instance keys. Do not place volatile or unbounded user text in keys. Group very small records into bounded chunks when per-instance overhead would dominate, and define when old instances are deleted.
+- sync a SQL projection, then index it downstream with CDC or another indexer;
+- run an explicit durable projection Step when chunking, embedding, deletion, or version checks are required.
 
-For append-only history, keep a bounded active instance such as `current`. Append there until it reaches the fixed chunk size, archive it under the zero-padded first sequence, and install a new `current` value in the same commit. Archived chunks stay immutable. A page token identifies exactly one chunk, so the reader uses invocation-time exact loading rather than loading the whole map. This bounds rewrite amplification but serializes all appenders on the active instance.
+Sync does not generate embeddings or transform documents. Do not add a projection only to avoid re-reading unchanged large Attributes; the BlobCache already covers that.
 
-For keyed lookup, use a fixed partition count and a stable cross-language hash. The official pattern trims ASCII whitespace, lowercases ASCII `A-Z`, rejects empty or non-ASCII input, computes 32-bit wrapping FNV-1a over the canonical bytes, and selects `hash % 1000` as `partition-000` through `partition-999`. Store a dictionary keyed by the full canonical value inside the partition. A collision chooses the same bucket; it does not replace another key. Changing the partition count or canonicalization requires a complete rehash or a new Flow version.
+## Verify
 
-Inside a handler, map size and instance-key enumeration include buffered writes and deletes. They do not provide server-side pagination. An unbounded map can therefore avoid blob rewrite amplification while still becoming expensive to enumerate, transfer, and decode.
-
-AttributeMap locks are scoped to one instance. Lock the exact instance when parallel Steps or RPCs perform a read-modify-write on the same value; unrelated instances can remain concurrent.
-
-An RPC lock-conflict error means another holder owns the lock now. That holder can be a Step method in retry backoff. Retries keep their locks until the method call ends from server-zd v0.1.10. Retry the RPC with bounded backoff; see [retry snapshots and locks](step-options.md#understand-the-shared-attempt-budget).
-
-#### Whole-map coordination
-
-When a write invariant spans multiple instances or the whole collection, define a separate non-map, non-indexed bool Attribute as the coordination key. For example, register both `currentMessages` (an AttributeMap) and `currentMessagesLock` (a singleton bool Attribute) in the Flow's `PersistenceSchema`.
-
-Every cooperating Step, timeout handler, and RPC that writes, deletes, archives, or otherwise changes the protected map must acquire the same singleton Attribute lock through its method-specific StepOptions, timeout options, or registration-time RPCOptions. A writer that acquires only a map-instance lock does not conflict with this singleton lock and can bypass the invariant. Use instance locks for independent updates or the shared coordination lock for a map-wide invariant; adding a shared lock serializes all participating writers within that Flow execution, not other Flow executions.
-
-The bool value is not the lock state. Do not implement acquisition by reading or toggling it, and do not manually release it. Dex owns acquisition and release around the invocation. The coordination Attribute does not need to be indexed or have a persisted value to identify the lock. Locks do not load map data: select exactly the instances read, or the whole map when an operation must enumerate it. Treat RPC lock conflict as contention and apply the application's retry policy.
-
-#### RPC selections
-
-RPC registration options describe fixed locks and loads. Invocation options can add exact AttributeMap locks, exact AttributeMap loads, and exact ChannelMap loads chosen from request data. The SDK unions, sorts, and deduplicates both sets; invocation options cannot remove a registered requirement. Locking and loading are independent, so every dynamic read-modify-write selects the same AttributeMap instance in both collections.
-
-An indexed AttributeMap does not create one searchable entry per instance. Every instance writes the same fixed Flow search field, a later instance can replace the prior indexed value, and the instance key is not searchable. Use a regular Attribute with a keyword-array index for a bounded searchable collection, or an external projection for per-instance queries.
-
-## Project Attributes for external queries
-
-When data needs relational queries, independent pagination, cross-Flow access, analytics, or a different retention lifecycle, first consider Dex Attribute Store synchronization instead of application-managed dual writes.
-
-Attribute Store synchronization is opt-in for each Attribute or AttributeMap, and a Flow selects one or more Server-configured stores. Dex asynchronously projects latest-state writes and retries transient failures. A projection failure does not roll back the Flow Attribute, and retry exhaustion does not automatically replay or backfill the missed batch. Keep Dex authoritative unless the documented storage decision assigns a fact to an external system of record, and make important projections reconcilable.
-
-The only built-in Attribute Store target is PostgreSQL. It projects into the columns of an existing table; Dex never creates, migrates, or backfills the destination. It is not a direct Elasticsearch or vector-store connector, and synchronization does not generate embeddings or transform documents. From server-zd v0.1.4, a naturally closing Flow stays RUNNING until its pending synced writes are written or dropped and previously admitted transactional or locking RPCs finish. v0.1.3 closed without waiting, so rows could land after completion; see [server-zd operations](operations.md#server-zd).
-
-For Elasticsearch or a vector database, choose among:
-
-- synchronize a suitable SQL projection, then use CDC or another downstream indexer
-- run an explicit durable projection Step when chunking, embedding, deletion, or version checks are required
-- request a Dex Attribute Store backend when direct projection is a product requirement
-
-By default an AttributeMap instance is projected as an ordinary Attribute named by the map and the instance key, so an instance without a matching destination column is filtered. Either verify how every physical instance name maps to the destination schema before enabling synchronization for a dynamic map, or give the map its own table as described under row keys, column names, and AttributeMap tables below.
-
-Do not introduce an external projection merely to avoid repeat reads of unchanged large Attributes; BlobCache and Worker locality already address that path.
-
-### Row keys, column names, and AttributeMap tables
-
-A PostgreSQL store accepts three optional settings: `rowKey`, `columnNaming`, and `attributeMaps`. A store without them behaves as before. The full contract is in the [Custom Attribute Store](https://docs.superdurable.io/reference/server/attribute-store-sync) operations page.
-
-```yaml
-attributeStore:
-  stores:
-    orders:
-      type: postgres
-      dsn: postgres://user:password@host/database
-      tableName: public.orders
-      rowKey: order-{customer_id}-{order_id}
-      columnNaming: snake_case
-      attributeMaps:
-        LineItems:
-          tableName: public.order_line_items
-          instanceKeyColumn: line_item_id
-```
-
-- **`rowKey` makes the Flow ID format a storage contract.** The template splits each Flow ID into the table's primary-key columns instead of storing the whole ID in one key column. Use it when a business ID is part of the Flow ID and consumers query by that ID, or when several Flow types describe one entity.
-  - A template is literal text and placeholders. `{column}` stores the captured text in that key column, and `{*}` matches without storing. Each placeholder captures up to the next literal text and the last one captures the rest. Literal text must separate two placeholders and no capture may be empty: `order-{customer_id}-{order_id}` splits `order-c1-o-7` into `customer_id` c1 and `order_id` o-7.
-  - A Flow ID that does not match the template skips its whole batch with an error log, and a retry cannot change that. Select a `rowKey` store only on Flow types whose IDs match, and settle the Flow ID format and the template together before the first write. Dex never migrates or backfills rows, so a later change to either is a data migration the application owns.
-  - Startup requires the table's primary key to be exactly the template's columns, all character columns. Attributes cannot write a key column.
-  - Several stores may name one table, and each upsert sets only the columns of its own batch. `customer-{customer_id}` and `onboarding-{customer_id}-{*}` therefore write different columns of one customer row; give each column one owning Flow type.
-- **`columnNaming: snake_case`** writes each Attribute, and each field of an AttributeMap instance, to its snake_case column: `DeploymentURL` becomes `deployment_url`. Two names in one batch that map to the same column are both filtered. Without it, names must equal the column names exactly.
-- **`attributeMaps`** writes each instance of a named AttributeMap as one row of its own table. The table's primary key is the store's key columns plus `instanceKeyColumn`, which holds the instance key as the application wrote it. For the `orders` store above, `LineItems` needs the key `customer_id`, `order_id`, `line_item_id`.
-  - Writing an instance replaces its row, and deleting the instance deletes the row. A JSON object value writes each top-level field to the column of the same name, and columns the value omits return to their default or NULL. Any other value, such as a string, number, or list, goes to a column named `value`.
-  - Write each instance as one complete value, because the row always equals its latest value and a partial write erases the omitted columns.
-  - A field without a column is skipped with a one-time warning, a field that maps to a key column is skipped, and a value that does not convert is logged and skipped while the row still records the instance. Keep value field names aligned with the table's columns.
-  - The store row and all its instance rows are written in one transaction. Do not add foreign keys between the tables: a violated constraint fails the whole batch and holds back the Flow's later writes until the retry budget runs out.
-  - Dex never deletes rows when a Flow closes, so the destination needs its own retention. A Flow writes each AttributeMap only to the selected stores that declare it; other selected stores project its instances as ordinary Attributes.
-
-A migration that adds a column to a store table or an AttributeMap table needs no Dex restart, as long as it completes before the Workers that write the column start. A batch that writes a column missing from the current schema refreshes the store's schema before it writes, and a column that a refresh already found missing waits for the periodic refresh (one minute by default).
-
-The tables stay an eventual, latest-state projection. Never read them to make a Flow decision.
-
-## Verify the deployment
-
-Exercise the actual topology with an integration test:
-
-- invoke the same Flow repeatedly and confirm unchanged values hydrate correctly
-- replace the serving Worker and confirm the Flow continues after a cold-cache load
-- update one chunk and confirm old state remains readable
-- verify the cache directory is writable, bounded, and not treated as durable state
-
-When diagnosing latency, distinguish remote blob loads from local cache reads and value decoding. Worker affinity can improve the first; data shape determines how much work remains on every invocation.
+- Invoke the same Flow repeatedly and confirm unchanged values hydrate correctly.
+- Replace the serving Worker and confirm the Flow continues after a cold-cache load.
+- Update one chunk and confirm the old chunks stay readable.
+- Confirm the cache directory is writable, bounded, and never treated as durable state.
+- When diagnosing latency, separate remote blob loads from local cache reads and decoding.

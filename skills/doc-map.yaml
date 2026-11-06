@@ -1,0 +1,171 @@
+# Maps each skills file to the docs pages that hold the same stable knowledge.
+# Skills are the coding-agent copy of the docs Primitives, Components, and
+# Design patterns. A pull request that changes a file on one side must change
+# a mapped file on the other side, or its description must contain a line
+# 'doc-map: no change needed: <reason>'. script/check-doc-map.py enforces it.
+#
+# Format: 'mappings' lists entries. 'skill' is relative to skills/; each 'docs'
+# path is relative to the repository root and lives under
+# docs/content/primitives/ or docs/content/design-patterns/, the folders that
+# trigger Skills CI. Only the English docs pages are listed.
+#
+# 'unmapped' classifies files with no counterpart, by repository path or
+# fnmatch pattern. Every Markdown file in the three skills and every page in
+# the two docs folders must be mapped or unmapped, so a new file needs a
+# decision.
+
+mappings:
+  - skill: dex-sdk/references/core/flow.md
+    docs:
+      - docs/content/primitives/flow/index.mdx
+
+  - skill: dex-sdk/references/core/step.md
+    docs:
+      - docs/content/primitives/step/index.mdx
+
+  - skill: dex-sdk/references/core/attribute.md
+    docs:
+      - docs/content/primitives/attribute.mdx
+
+  - skill: dex-sdk/references/core/rpc.md
+    docs:
+      - docs/content/primitives/rpc.mdx
+
+  - skill: dex-sdk/references/core/channel.md
+    docs:
+      - docs/content/primitives/channel.mdx
+
+  - skill: dex-sdk/references/core/stream.md
+    docs:
+      - docs/content/primitives/stream.mdx
+
+  - skill: dex-sdk/references/core/timer.md
+    docs:
+      - docs/content/primitives/timer.mdx
+
+  - skill: dex-sdk/references/core/subflow.md
+    docs:
+      - docs/content/primitives/subflow.mdx
+
+  - skill: dex-sdk/references/core/connector.md
+    docs:
+      - docs/content/primitives/connector.mdx
+      - docs/content/primitives/components/connector.mdx
+
+  - skill: dex-sdk/references/core/client.md
+    docs:
+      - docs/content/primitives/client.mdx
+
+  - skill: dex-sdk/references/core/application.md
+    docs:
+      - docs/content/primitives/components/index.mdx
+      - docs/content/primitives/components/application.mdx
+
+  - skill: dex-sdk/references/core/server.md
+    docs:
+      - docs/content/primitives/components/server.mdx
+
+  - skill: dex-sdk/references/core/cli.md
+    docs:
+      - docs/content/primitives/components/cli.mdx
+
+  - skill: dex-sdk/references/core/web.md
+    docs:
+      - docs/content/primitives/components/web.mdx
+
+  - skill: dex-sdk/references/core/external-attribute-sync.md
+    docs:
+      - docs/content/primitives/components/external-attribute-sync.mdx
+
+  - skill: dex-sdk/references/core/patterns.md
+    docs:
+      - docs/content/design-patterns/attribute-map-partitioning.mdx
+      - docs/content/design-patterns/drain-channels.mdx
+      - docs/content/design-patterns/drain-internal-channels.mdx
+      - docs/content/design-patterns/draining-channel-for-external-publishing.mdx
+      - docs/content/design-patterns/durable-timer/cron.mdx
+      - docs/content/design-patterns/durable-timer/inactiveness-tracker-timer.mdx
+      - docs/content/design-patterns/durable-timer/index.mdx
+      - docs/content/design-patterns/durable-timer/reminder.mdx
+      - docs/content/design-patterns/entity-store.mdx
+      - docs/content/design-patterns/failure-handling.mdx
+      - docs/content/design-patterns/failure-handling/execute-failure-recovery.mdx
+      - docs/content/design-patterns/failure-handling/graceful-timeout.mdx
+      - docs/content/design-patterns/failure-handling/manual-recovery.mdx
+      - docs/content/design-patterns/failure-handling/wait-for-failure-recovery.mdx
+      - docs/content/design-patterns/hash-partitioned-attribute-map.mdx
+      - docs/content/design-patterns/inbound-event-loop.mdx
+      - docs/content/design-patterns/index.mdx
+      - docs/content/design-patterns/interruptible.mdx
+      - docs/content/design-patterns/parallel-subflows.mdx
+      - docs/content/design-patterns/parallel-subflows/back-pressure.mdx
+      - docs/content/design-patterns/parallel-subflows/basic.mdx
+      - docs/content/design-patterns/parallel-subflows/long-lived-parent.mdx
+      - docs/content/design-patterns/parallel-subflows/partitioning.mdx
+      - docs/content/design-patterns/parallel-subflows/short-lived-parent.mdx
+      - docs/content/design-patterns/parallel-subflows/wait-for-half.mdx
+      - docs/content/design-patterns/parallel.mdx
+      - docs/content/design-patterns/parallel/await.mdx
+      - docs/content/design-patterns/parallel/dynamic.mdx
+      - docs/content/design-patterns/parallel/first-win.mdx
+      - docs/content/design-patterns/parallel/static.mdx
+      - docs/content/design-patterns/polling.mdx
+      - docs/content/design-patterns/responsive-update.mdx
+      - docs/content/design-patterns/responsive-update/attribute-match.mdx
+      - docs/content/design-patterns/responsive-update/step-completion.mdx
+      - docs/content/design-patterns/responsive-update/stream.mdx
+      - docs/content/design-patterns/sequentially-chunked-attribute-map.mdx
+
+  - skill: dex-app-builder/references/backend-implementation.md
+    docs:
+      - docs/content/primitives/components/application.mdx
+
+  - skill: dex-app-builder/references/connector-architecture.md
+    docs:
+      - docs/content/primitives/connector.mdx
+      - docs/content/primitives/components/connector.mdx
+
+  - skill: dex-app-builder/references/dex-web-v2.md
+    docs:
+      - docs/content/primitives/components/web.mdx
+
+  - skill: dex-app-builder/references/fdg-authoring.md
+    docs:
+      - docs/content/primitives/components/web.mdx
+
+  - skill: dex-app-builder/references/ui-workflow.md
+    docs:
+      - docs/content/primitives/components/web.mdx
+
+  - skill: dex-app-builder/references/verification-handoff.md
+    docs:
+      - docs/content/primitives/components/cli.mdx
+      - docs/content/primitives/components/web.mdx
+      - docs/content/primitives/components/server.mdx
+
+  - skill: dex-app-builder/references/workspace-bootstrap.md
+    docs:
+      - docs/content/primitives/components/application.mdx
+
+unmapped:
+  # Entry points and skill-only guidance.
+  - skills/dex-sdk/SKILL.md
+  - skills/dex-sdk/references/core/data-handling.md
+  - skills/dex-sdk/references/core/error-handling.md
+  - skills/dex-sdk/references/core/plugin-version-check.md
+  - skills/dex-sdk/references/core/self-check.md
+  - skills/dex-sdk/references/core/testing.md
+  # Language idioms on top of the core rules.
+  - skills/dex-sdk/references/go/*.md
+  - skills/dex-sdk/references/java/*.md
+  - skills/dex-sdk/references/python/*.md
+  - skills/dex-sdk/references/rust/*.md
+  - skills/dex-sdk/references/typescript/*.md
+  # App Builder workflow and n8n import.
+  - skills/dex-app-builder/SKILL.md
+  - skills/dex-app-builder/references/product-discovery.md
+  - skills/dex-app-builder/references/workflow-import.md
+  - skills/dex-app-builder/references/n8n-semantics.md
+  - skills/dex-connector-contributor/SKILL.md
+  # The Primitives overview; dex-sdk/SKILL.md holds the agent mental model.
+  - docs/content/primitives/index.mdx

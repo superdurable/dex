@@ -45,13 +45,13 @@ requested work. Match the user's language and use this shape:
 
 > BTW: Dex Skills v{latest} is available (installed: v{installed}). Upgrade
 > for the latest guidance and a better experience:
-> https://docs.superdurable.io/build-with-ai/dex-developer-skill/#keep-the-plugin-current
+> https://github.com/superdurable/dex-skills
 
 In Chinese, use:
 
 > BTW：Dex Skills v{latest} 已发布（当前安装的是 v{installed}）。升级后可以获得
 > 最新指导和更好的体验：
-> https://docs.superdurable.io/build-with-ai/dex-developer-skill/#keep-the-plugin-current
+> https://github.com/superdurable/dex-skills
 
 Do not show the notice in a non-Dex conversation, repeat it later in the same
 chat, auto-upgrade the plugin or standalone Skills, or claim that an upgrade or

@@ -30,30 +30,8 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          echo "sdk=$(cat DEX_BASELINE)" >> "$GITHUB_OUTPUT"
-          echo "server=$(cat DEX_SERVER_BASELINE)" >> "$GITHUB_OUTPUT"
-          echo "cli=$(cat DEX_CLI_BASELINE)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: superdurable/dex
-          ref: ${{ steps.metadata.outputs.sdk }}
-          path: upstream-dex-sdk
-      - uses: actions/checkout@v4
-        with:
-          repository: superdurable/dex
-          ref: ${{ steps.metadata.outputs.server }}
-          path: upstream-dex-server
-      - uses: actions/checkout@v4
-        with:
-          repository: superdurable/dex
-          ref: ${{ steps.metadata.outputs.cli }}
-          path: upstream-dex-cli
-          fetch-depth: 0
       - name: Validate release package
-        run: |
-          python3 script/check-package.py
-          python3 script/check-reference-sources.py --dex-root upstream-dex-sdk --server-root upstream-dex-server --cli-root upstream-dex-cli
-          python3 script/check-upstream-baselines.py --dex-root upstream-dex-cli
+        run: python3 script/check-package.py
       - name: Check existing tag
         id: existing
         env:

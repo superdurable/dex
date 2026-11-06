@@ -1,41 +1,139 @@
 # Python error handling
 
-Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC or `get_attributes` call issued after a successful direct-state RPC write observes that write when it reads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
+Python exceptions and idioms for the rules in
+[error handling](../core/error-handling.md).
 
-Application exceptions from `wait_for`, `execute`, RPC, and timeout handlers drive configured retry/recovery. Typed Dex exceptions describe service outcomes; `asyncio` cancellation/timeouts and transport failures describe caller/runtime conditions.
+## Error layers
 
-Catch precise exceptions such as `FlowNotFoundError`, `FlowNotActiveOrNotFoundError`, `FlowAlreadyStartedError`, `LongPollTimeoutError`, `RequestTimeoutError`, `FlowUncompletedError`, `RpcLockConflictError`, and not-loaded errors. Durable Step and Attribute waits never expose transport long-poll expiry; they reattach transparently and preserve the total `request_timeout` budget. `RequestTimeoutError` means that caller-visible budget expired, not that the Flow or the wait condition failed. Do not parse messages. Let unexpected defects retain tracebacks.
+| Layer | Python form | Who handles it |
+| --- | --- | --- |
+| Application failure in `wait_for`, `execute`, an RPC, or `handle_timeout` | any raised exception | Dex: Step retry, then the failure route or Flow failure |
+| Dex outcome of a Client call | a `DexServiceError` subclass | the caller, by type |
+| Local definition or mapping defect | `FlowDefinitionError`, `ValueMappingError`, `ValueError`, `TypeError` | fix the code; do not retry |
+| Caller cancellation or deadline | `asyncio.CancelledError`, `TimeoutError` | the caller |
 
-Concrete remote Client errors inherit `DexServiceError`. Local definition, not-loaded, value-mapping, argument, and programming failures do not. Catch `DexServiceError` only at a narrow boundary whose policy intentionally treats every remote Dex outcome the same; do not use it instead of concrete business outcomes. Catching `RuntimeError` is not equivalent because it also captures local SDK and application defects.
+Catch the narrowest documented type. Never parse `str(error)`. Let unexpected
+defects keep their traceback.
 
-When the API promises a critical operation has completed, follow the shared [required business milestone rule](../core/error-handling.md#wait-for-a-required-business-milestone): after start success or matching-request deduplication, call `AsyncClient.wait_for_attribute_match` or `AsyncClient.wait_for_step_completion` for the committed condition or the specific persistence Step execution. Publish that condition only after the business effect commits. Bound the wait; timeout does not undo acceptance or prove the operation failed. An acceptance-only response needs no wait.
+| Exception | Meaning |
+| --- | --- |
+| `FlowAlreadyStartedError` | The Flow ID is taken by a start Dex could not match to this request |
+| `FlowNotFoundError` | No Flow with that ID, or its latest run is being purged |
+| `FlowNotActiveOrNotFoundError` | No active run accepted the call; it says nothing about whether the action happened |
+| `FlowClosingError` | The Flow is closing; re-read its retained terminal state before acting again |
+| `RpcLockConflictError` | Lock contention; retry the call with bounded backoff |
+| `LongPollTimeoutError` | A long poll expired; the Flow is still running; call again |
+| `RequestTimeoutError` | The caller's total request budget expired; the Flow did not fail |
+| `WorkerInvocationError` | The Worker handler failed; see `worker_error_type` and `worker_error_detail` |
+| `ChannelMessageNotFoundError` | A pending message ID was already consumed or deleted |
+| `AttributeMapNotLoadedError`, `ChannelMessagesNotLoadedError` | The handler read a map instance or pending messages it did not load |
+| `DexServiceError` | Base of every remote Dex outcome; has `code`, `sub_status`, `detail`, `operation`, `flow_id` |
 
-For an idempotent start, set one stable `StartFlowOptions.request_id` and `ignore_already_started=True` only when a retry of that same logical request may attach to the existing run. A remaining `FlowAlreadyStartedError` means a different Request ID owns the Flow ID. Treat it as a domain conflict unless the coordinator contract deliberately redirects the command to that existing Flow. Another `DexServiceError` can leave acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
+`DexServiceError` subclasses `RuntimeError`, but so do local SDK defects.
+Catching `RuntimeError` is never a substitute for a specific type. Catch
+`DexServiceError` itself only at a narrow boundary whose policy treats every
+remote outcome the same, such as a best-effort external `write_stream`.
 
-For an explicitly best-effort external `Client.write_stream` or `AsyncClient.write_stream`, suppressing `DexServiceError` is appropriate after logging sanitized identity and phase metadata. `DexServiceError` also carries the FAILED_PRECONDITION or RESOURCE_EXHAUSTED status of a disabled or full Stream Store, readable through `.code`; see the [Core error guidance](../core/error-handling.md) for which one to retry. Do not suppress arbitrary exceptions. Context Stream writes inside a Step remain part of handler execution: yield or propagate their outputs and failures according to the sync or async handler contract.
+## Start a Flow idempotently
 
-Return/raise so Step retry owns retries. Use the SDK retry-after mechanism only with a meaningful delay. Never wrap durable Step work in an in-memory retry loop.
+```python
+from dataclasses import dataclass
 
-External side effects require idempotency keys derived from durable identity. Persist success or transition to recovery before acknowledging. Compensation is idempotent and carries the original commit identity.
+from dex import (
+    AsyncClient, Flow, FlowAlreadyStartedError, IdReusePolicy, StartFlowOptions,
+)
 
-Async APIs must be awaited. In a sync generator, yield every heartbeat/Stream `StepOutput`; swallowing one means the runtime never receives it. Do not catch `CancelledError` just to continue unsafe work.
 
-Use automatic failure policies for deterministic recovery, operator Channels for manual choice, and the Flow timeout handler for Flow-deadline semantics. A recovery Step reads `context.recovery_error`. The Python SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). Python SDK releases newer than v1.32.0 add **RecoveryErrorInfo.attempt_progress**, a **StepAttemptProgress** that defaults to **UNSPECIFIED**. Only **StepAttemptProgress.NOT_STARTED** guarantees the handler never ran. Only SYNC Steps report it; ASYNC failures always report **NOT_COMPLETED**. Treat **NOT_COMPLETED** and **UNSPECIFIED** as possibly run, and reconcile external effects before repeating them; see [attempt progress](../core/error-handling.md#attempt-progress). Neither an internal transport reattachment nor a caller-visible request timeout means the Flow failed.
+@dataclass(frozen=True)
+class SignupRequest:
+    request_id: str
+    email: str
 
-## Flow close cleanup
 
-From Python SDK v1.20.0 or later, catch `FlowClosingError` from `dex` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/runtime_errors.py)
+class SignupConflictError(Exception):
+    pass
 
-## Indexed search limits
 
-With server-zd `search.backend: postgres`, read the shared [indexed search limits](../core/error-handling.md#indexed-search-limits) first. At Python SDK v1.30.0, a StartFlow or RPC rejected for an indexed Keyword value over 1,024 bytes raises `DexServiceError` with `code` `grpc.StatusCode.INVALID_ARGUMENT` and `sub_status` `ErrorSubStatus.UNCATEGORIZED`; no subclass matches it. A Worker or AsyncWorker whose Attribute index registration exceeds capacity raises `RuntimeError("cannot synchronize Attribute indexes")` from `start`, chained from the gRPC FailedPrecondition error. The generated `dex.dexpb.dex_pb2.ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED` and `ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG` values exist only in the protocol bindings, and their enum is not the public `dex.ErrorSubStatus`; do not branch on them. A Flow that fails because a Step result carried such a value reports Flow error type `FlowErrorType.WORKER_API_FAILED` at Python SDK v1.30.0. [Released Flow error type mapping](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/flow_result.py) Validate indexed Keyword lengths before the write. [Released Python error mapping](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/_grpc_errors.py)
+async def start_signup(
+    client: AsyncClient, flow: Flow[SignupRequest], request: SignupRequest
+) -> str:
+    options = StartFlowOptions(
+        request_id=f"signup-{request.request_id}",
+        ignore_already_started=True,
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+    )
+    try:
+        return await client.start_flow(flow, f"signup-{request.email}", request, options)
+    except FlowAlreadyStartedError as error:
+        raise SignupConflictError(request.email) from error
+```
+
+- Pass the same `request_id` and `ignore_already_started=True` on every
+  retry of one logical start. A `None` request ID gets a fresh one per call.
+- Catch `FlowAlreadyStartedError` after `start_flow`; never preflight with an
+  RPC, `describe_flow`, or `search_flows`. The decision rules are in
+  [error handling](../core/error-handling.md).
+- For a completed-work promise, follow the start with a bounded
+  `wait_for_attribute_match` or `wait_for_step_completion`.
 
 ## Closed-Flow races
 
-Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `FlowNotActiveOrNotFoundError` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `Client.describe_flow(flow_id)` or `await AsyncClient.describe_flow(flow_id)` only when an otherwise unknown terminal distinction changes the outcome. It reads the current or latest run without waiting. It returns `FlowInfo` with `flow_id`, `run_id`, `flow_type`, `status`, and `started_at`; it has no close time. Treat `FlowStatus.COMPLETED` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or a `FlowNotFoundError`, return an explicit domain failure or unknown outcome. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/client.py) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/flow_info.py)
+Catch `FlowNotActiveOrNotFoundError` from a mutation, then reconcile as
+[error handling](../core/error-handling.md) describes. When the terminal status
+matters, call `describe_flow(flow_id)`; `FlowInfo` has `flow_id`, `run_id`,
+`flow_type`, `status`, and `started_at`. Compare `status` with
+`FlowStatus.COMPLETED` and other `FlowStatus` members.
 
-## Query-only Get failures
+## Query-only reads
 
-Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths.
+- At a confirmed query-only RPC boundary, catch `FlowNotActiveOrNotFoundError`
+  or `FlowNotFoundError` and return the not-found result directly.
+- `get_attributes` never raises `FlowNotActiveOrNotFoundError`; translate its
+  `FlowNotFoundError` the same way. Let `FlowDefinitionError`,
+  `ValueMappingError`, `ValueError`, and `TypeError` surface as defects.
 
-A business Get that reads with `get_attributes` translates `FlowNotFoundError` the same way. That call never raises `FlowNotActiveOrNotFoundError`, because a closed run stays readable until purge. Let `FlowDefinitionError`, `ValueMappingError`, `ValueError`, and `TypeError` stay visible as local defects. See [Client Attribute reads](primitives.md#client-attribute-reads) for the full error list.
+## Recovery and attempt progress
+
+```python
+from dex import Context, Step, StepAttemptProgress, StepDecision, force_fail, graceful_complete
+
+
+class ReconcilePayment(Step[SignupRequest]):
+    def execute(self, context: Context, input: SignupRequest) -> StepDecision:
+        failure = context.recovery_error
+        if failure is None:
+            return force_fail("recovery Step reached without a failure")
+        if failure.attempt_progress is StepAttemptProgress.NOT_STARTED:
+            return graceful_complete("payment never attempted")
+        return graceful_complete(f"reconcile payment for {input.request_id}")
+```
+
+- `context.recovery_error` is `RecoveryErrorInfo` with `detail`,
+  `error_type`, and `attempt_progress`. It is `None` outside a recovery path.
+- Compare `attempt_progress` with `StepAttemptProgress.NOT_STARTED`; treat
+  `NOT_COMPLETED` and `UNSPECIFIED` as possibly run.
+- Python has no time-limit predicates. Never compare `error_type` with a
+  fixed Dex string; branch only on error types your application raises.
+
+## Retry ownership
+
+- Raise to let Step retry decide.
+- `raise retry_after(seconds, cause)` sets the next retry delay when the
+  application knows it, such as a provider rate-limit hint.
+- Every Context call can raise. Let it propagate.
+- Do not catch `asyncio.CancelledError` to keep working after cancellation.
+- In a sync generator, yield every heartbeat and Stream output; a swallowed
+  output never reaches Dex.
+
+## Client Attribute read errors
+
+| Exception | Cause |
+| --- | --- |
+| `FlowNotFoundError` | No Flow, or the latest run is being purged; a closed run is still readable |
+| `FlowDefinitionError` | No registered Flow declares a matching definition (raised before any request) |
+| `ValueError` | Empty Flow ID, no reads, a duplicate read, or an invalid server response |
+| `TypeError` | A read that is not an `Attribute` or `AttributeMapInstance`, such as a bare `AttributeMap` |
+| `ValueMappingError` | A stored value cannot be decoded as its value type |
+| `DexServiceError` | Another service or large-value load failure |
+
+On any error the call returns no values.

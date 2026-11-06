@@ -1,154 +1,247 @@
-# Go handbook
+# Go
 
-The SDK API reference uses the [released Go SDK v1.32.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
+Read this page first for a Go Dex application. It covers the Go rules only.
+The concepts live in core: [Flow](../core/flow.md), [Step](../core/step.md),
+[Attribute](../core/attribute.md), [Channel](../core/channel.md),
+[RPC](../core/rpc.md), [Stream](../core/stream.md), [Timer](../core/timer.md),
+[SubFlow](../core/subflow.md), [Client](../core/client.md),
+[Connector](../core/connector.md), [application](../core/application.md),
+[error handling](../core/error-handling.md), [testing](../core/testing.md), and
+[patterns](../core/patterns.md).
 
-Use this page first for a Go application. It describes the application boundary and points to focused pages; always check the version selected by `go.mod` and `go.sum`.
+| Task | Go page |
+| --- | --- |
+| Write Flows, Steps, state, RPCs, Streams, SubFlows, Client calls | [primitives](primitives.md) |
+| Apply a design pattern | [patterns](patterns.md) |
+| Classify errors, start idempotently, recover | [error handling](error-handling.md) |
+| Test against a real Dex Server | [testing](testing.md) |
 
-## Version and source authority
+## Version and reference
 
-The [baseline module](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/go.mod) uses `github.com/superdurable/dex/sdk-go v1.29.0`. Before editing an existing project, run `go list -m github.com/superdurable/dex/sdk-go` and inspect that SDK version. If it differs from the baseline, installed source wins. Identify the inspected module-cache path, vendored path, or immutable tag/commit before presenting exact syntax. If no version-matched source is available, give only the version-independent Flow model and request that source; do not adapt baseline snippets speculatively. Pinned sources show known-good shapes, not a promise that every version has the same surface.
-
-## Project shape and local run
-
-Keep Flow and Step definitions in application packages, compose them in one registry package, and create one shared Registry and BlobCache for Client and Worker. Inject business services into Flow constructors. The official example layout is `products/`, `patterns/`, `primitives/`, `registry/`, `shared/`, and `cmd/server/`.
+Find the SDK version the project uses before you rely on an API detail:
 
 ```bash
-dexcli dev
-cd examples/go
-make bins
-./dex-samples
+go list -m github.com/superdurable/dex/sdk-go
 ```
 
-Defaults use Dex at `localhost:8801` and HTTP at `127.0.0.1:8080`. The examples always run a pull Worker, which needs only an outbound connection to Dex. Remove `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`, and `DEX_EXAMPLES_WORKER_MODE` from existing setups. See the [pinned example README](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/README.md).
+Open the [Go SDK reference](https://docs.superdurable.io/reference/go/) and
+select that minor version in the left-sidebar version selector. The installed
+module's doc comments are the API authority. Read them with
+`go doc github.com/superdurable/dex/sdk-go/dex.<Name>`. They give every
+parameter, default, unit, and error. This skill gives only the rules that hold
+across versions.
 
-## Pull Workers and Dex credentials
+- The import path is `github.com/superdurable/dex/sdk-go/dex`. Pointer helpers
+  are in `github.com/superdurable/dex/sdk-go/dex/ptr`.
+- The Worker and Client check the Server's protocol at startup or on the first
+  call. An incompatible Server fails that call. Upgrade the Server before the
+  SDK.
 
-From Go SDK v1.25.0, every Worker is a pull Worker. Set `WorkerOptions.FlowServiceAddress` on the Worker and `ClientOptions.FlowServiceAddress` on the Client; no Worker address or target is configured, and StartFlow and SubFlow always route to pull Workers. v1.25.0 removed the `WorkerTarget` type, `Worker.WorkerTarget()`, `WorkerOptions.BindAddress`, `WorkerOptions.WorkerTarget`, `ClientOptions.WorkerTarget`, and `FlowConfig.WorkerTarget`; delete them when upgrading. `UpdateFlowConfig` does not change a Flow's Worker routing. Set `WorkerOptions.Pull` to `&dex.PullWorkerOptions{...}` to tune polling; nil uses the defaults. `PullWorkerOptions` exposes `MaxConcurrentTasks` (CPU count by default), `IdleStreamsPerQueue` (one; deprecated without effect after v1.32.0), `AppWorkerID` (generated), and `StopDrainTimeout` (30 seconds). Set a fresh `AppWorkerID` after restart if overriding it. With Go SDK v1.12.0, a Worker that lacks a requested Step type or RPC name declines it before the handler runs, so Dex can reassign the task without consuming the Step attempt. Follow the [pull Worker guarantees](../core/pull-workers.md) for sticky routing, retries, heartbeats, stream sizing, and shutdown. [Released Go API](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/worker.go) [Runnable pull Worker example](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/production/pull-workers/worker.go) uses the SDK version that the baseline module selects.
+## Project shape
 
-From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity keeps one extra idle stream for 30 seconds; set `PullWorkerOptions.IdleStreamsPerQueue` to at least two for heavy Step backlogs. The Worker also sends an internal upstream Pong every 20 seconds while a task runs, so proxy idle timeouts must exceed 20 seconds and Server **matching.pingInterval**.
+- Put Flow and Step definitions in domain packages. Compose every Flow in one
+  registry package. Keep HTTP handlers and `cmd/` bootstrap outside Flow types.
+- Keep schema and Flow packages below the registry package. This avoids import
+  cycles.
+- Inject business services through Flow constructors. A Flow passes them into
+  its Step structs in `GetSteps`.
+- Create one `blobcache.Cache` and one `dex.Registry` per process. The Worker
+  and the Client share both.
+- A Step that starts or calls other Flows needs the Client, but the Client
+  needs the Registry first. Pass a late-bound provider, such as
+  `func() *dex.Client`, into the Flow constructor.
+- The runnable layout is [examples/go](https://github.com/superdurable/dex/tree/main/examples/go):
+  `primitives/`, `patterns/`, `products/`, `registry/`, and `cmd/server/`.
 
-With Go SDK v1.13.0, launch **Start** on a goroutine and gate startup with **WaitPullRegistered(ctx)** using a deadline. For rolling deployments, wait for replacement Workers before stopping old Workers. Use **PullRegistrationState().IsReady** plus application lifecycle health for subsequent probes; reconnects do not flap it, and Stop does not clear it. Inspect **Queues**, **HasRegisteredStream**, and **LastPermanentError** to diagnose readiness. A permanent rejection matters only when its queue has no other registered stream. Before readiness it returns **PullRegistrationError** with **Queue** and the underlying status in **Err**; use **errors.As** to inspect it. **PullWorkerOptions.StopOnPermanentStreamRejection** is opt-in, defaults to false, and drains all queues before **Start** returns the rejection. Keep handling **Start** errors, call **Stop** on exit, and follow the [complete registration and shutdown contract](../core/pull-workers.md#startup-registration-and-readiness). The [released API documentation](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/worker.go) includes a complete startup and HTTP probe example; the pinned runnable application example also includes a bounded registration wait, startup failure cleanup, and an HTTP readiness handler.
+## Bootstrap
 
-With SDK v1.15.0, **PullWorkerOptions.ReservedRPCTasks** reserves RPC capacity. Use **ptr.Any(0)** to opt out; the field is a pointer to **int** and nil selects the default. Unset reserves one slot when resolved maximum concurrent tasks **M ≥ 2**; otherwise it reserves zero and logs one startup warning. Require **0 ≤ R < M**; invalid reserves fail construction. This intentionally gives Steps one fewer slot by default. Both API-direct and transactional RPC tasks may use all **M** slots; WaitFor and Execute, including local attempts, are declined at **M − R** total busy handlers. Export **Worker.PullReservedRPCDeclines()** to measure reserve declines. Follow the shared [reserve semantics and sizing advice](../core/pull-workers.md#reserved-rpc-capacity) for dispatch exhaustion, counter scope, and long-running Steps. [Released capacity guidance](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/README.md)
-
-With SDK v1.14.1, the Worker gracefully closes surplus idle streams after load drops while preserving readiness and the configured registered idle streams per queue. Size steady-state streams as **M + (F + 1) × I**, where **M** is maximum concurrent tasks, **F** is registered Flow types, and **I** is idle streams per queue. Burst peaks remain bounded by **matching.maxConcurrentTasksCap** and **matching.maxStreams**; follow the shared [capacity guidance](../core/pull-workers.md#heartbeats-capacity-and-shutdown).
-
-Go SDK releases newer than v1.32.0 replace the decline, extra idle stream, and **M + (F + 1) × I** rules above. They require Server protocol 4 (server-zd newer than v0.1.16): against an older Server, **Start** returns an error and a **Client** call returns an error on its first request, so upgrade the Server first. The Worker keeps exactly **PullWorkerOptions.MaxConcurrentTasks** long-lived streams, one per execution slot; **ReservedRPCTasks** of them accept only RPCs and the rest accept Steps and RPCs. The Worker runs every task it receives and never declines for capacity. **Worker.PullReservedRPCDeclines()** is deprecated and always returns zero; **IdleStreamsPerQueue** is deprecated, still accepted, and has no effect. **WaitPullRegistered** succeeds once one STEP_AND_RPC stream and, when the reserve is positive, one RPC_ONLY stream register. **PullRegistrationError.Queue** and the readiness **Queues** entries hold **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or **POLL_WORKER_SLOT_KIND_RPC_ONLY**, not a Flow type or Worker ID. **Start** fails without background retry when **MaxConcurrentTasks** exceeds the Server's **matching.maxConcurrentTasksCap**. **Stop(ctx)** starts no new task, lets busy streams send their final output, and drops tasks that arrive during shutdown without calling a handler; Dex returns those tasks without consuming a retry. Handlers still running at **StopDrainTimeout** are canceled, and Dex fails those attempts as possibly run. Follow the shared [reserved RPC capacity](../core/pull-workers.md#reserved-rpc-capacity) and [shutdown](../core/pull-workers.md#heartbeats-capacity-and-shutdown) guidance.
-
-For an authenticated Dex Server, set `ClientOptions.Credential` and `WorkerOptions.Credential` separately. `dex.FileCredential(path)` reads a rotating bearer-token file and fails calls if the file becomes empty or unreadable. A custom `dex.Credential` returns the current token before each FlowService call; pull streams obtain it when they open or reconnect. Keep tokens out of Flow state and protect any plaintext connection. [Released Go credential API](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/credential.go)
-
-With Go SDK v1.16.0, use **dex.APIKeyCredential(tokenURL, serverID, apiKey, options...)** when the application holds an API key instead of a rotated token file. Pass the returned Credential in **ClientOptions.Credential** and **WorkerOptions.Credential**; one instance may serve several Clients and Workers. Construction validates the arguments without contacting the token endpoint, and the first call performs the exchange. It returns an error for an empty argument, a non-absolute or insecure token URL, a non-positive timeout, or a nil HTTP client. **dex.WithAPIKeyExchangeTimeout(d)** bounds each exchange; the default is 10 seconds. After the token expires, a call waits for the exchange up to that timeout or its own context. **dex.WithAPIKeyHTTPClient(c)** supplies a proxy-aware, private-CA, or test client. The credential copies it, refuses redirects, and never closes it. Exchange errors name the token URL and HTTP status, and transport failures still match through **errors.Is**, such as **context.DeadlineExceeded**; the error text is redacted. The credential has no **Close** and starts no long-lived goroutine. Follow the shared [API key Credential contract](../core/operations.md#api-key-credential) for refresh, rejection retries, and redaction. [Released Go API key credential](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/credential_api_key.go) [README example](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/README.md)
-
-## FlowService TLS
-
-Go SDK v1.22.0 accepts **ClientOptions.FlowServiceTLS** and **WorkerOptions.FlowServiceTLS**, each `*dex.FlowServiceTLSOptions`. Configure them independently for the Client and Worker. Nil keeps plaintext; a non-nil empty value uses TLS with system roots. **AdditionalRootCAsPEM []byte** extends system trust, and **ServerName string** overrides the address host for certificate verification, SNI, and HTTP/2 **:authority**. The option does not accept client certificates. TLS requires an address in **host:port**, **dns:///host:port**, or **dns://authority/host:port** form and an HTTP/2 gateway with ALPN **h2**. It never falls back to plaintext. A Worker uses its outbound TLS connection for its pull task streams. Invalid addresses, names, and PEM roots fail **NewClient** or **NewWorker**; certificate and handshake failures surface when a call or **Worker.Start** connects. See [FlowService TLS](../core/operations.md#flowservice-tls) for defaults, IPv6 authority behavior, Server support, and the separate API key token endpoint. [Released Go TLS options](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/flow_service_tls.go)
-
-## Connector configuration
-
-Official Go connectors from v0.21.0 open each connection with the generated `NewProjectConnection(project, "connection-name")`, where `project` comes from `projectconfig.LoadFromEnvironment(ctx)` in the Connector SDK's `sdkgo/projectconfig`; with `sdkgo` v0.28.0 or later it reads the Dex Web development store when **DEX_CONNECTOR_CONFIG_FILE** names it. Set the same static `ConnectionName` on every operation-specific factory config. Earlier connector releases generate `NewLocalConnection(store, "connection-name")` and read the Dex Web development store with `localconfig.LoadFromEnvironment`, started with **DEX_CONNECTOR_CONFIG_FILE**. [Local Connector credentials](../core/operations.md#local-connector-credentials) says which release line reads what, and [Deployed Connector configuration](../core/operations.md#deployed-connector-configuration) describes the project configuration.
-
-Settings are captured when the application starts. Credentials are resolved for each provider call, so reauthorization does not require a restart; settings changes do. Keep generated secret values outside Flow state and logs.
-
-Connector Step branch targets receive only the current generated result alias. Query aliases resolve to `sdkgo.QueryResult[OUT]`; Mutation aliases resolve to `sdkgo.MutationResult[OUT]`. `MapToOperationInput` is a pure mapping from the current application Step input into provider input; it has no error result, and the application input is not present in the operation result. Persist business context with an application Step and Attribute before the Connector call, then reload it in success, failure, RPC, and recovery Steps. Use `Annotations` for graph group and explanation metadata; do not use it for visual styling.
-
-`ResultAttribute` is optional for every Query and Mutation. Omit it when only the branch target needs the operation result. Configure and register the precisely typed Attribute when an RPC, display, audit, recovery operator, or another path must read the raw result outside the transition chain.
-
-Provider-neutral Triggers run outside Steps. Give each generated Trigger factory a static binding name, then pass an application-owned target. `NewDexFlowTriggerTarget` takes the typed Flow, a `TriggerFilter`, a stable `FlowIDResolver`, and a `FlowInputMapper`. `NewDexRPCTriggerTarget` takes the application's typed RPC, a filter, the same identity resolver, and an `RPCInputMapper`; no string RPC name is configured.
-
-The filter runs before identity resolution, input mapping, or any Dex call. Return false to consume an event that does not satisfy the application's channel, sender, message, tenant, authorization, routing-field, or other domain rule. Filter, resolver, and mapper callbacks are deterministic, side-effect-free pure functions without error results. A blank or invalid resolved Flow ID is an application defect. Provider binding matchers reduce traffic but do not replace this application admission boundary.
-
-For RPC delivery, register the application's bound method with application-owned `dex.RPCOptions`, then pass that method directly to `NewDexRPCTriggerTarget`. The application decides whether stable provider event IDs need deduplication, stores only bounded domain state, and locks only the business state or effect that must commit atomically.
-
-Use the released [Slack example](https://github.com/superdurable/dex-connectors-library/tree/connectors/slack/v0.21.0/connectors/slack/examples/thread-approval) and [Gmail example](https://github.com/superdurable/dex-connectors-library/tree/connectors/google/gmail/v0.21.0/connectors/google/gmail/examples/thread-reply) as exact integration references. Their modules pin the exact Connector SDK releases they support.
-
-## Deployed configuration and recovery boundary
-
-Dex provides no deployed Connector configuration or credential store. A deployed
-Go application reads its connections with the Connector SDK's `sdkgo/projectconfig`,
-as described in [deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
-Keep production credentials behind that storage and the deployment's secret
-management; a browser, Flow input, or ordinary Attribute cannot select secret storage.
-When the Flow itself must hold a short-lived secret, such as an API key passed
-at start, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes)
-instead of an ordinary Attribute.
-For recovery after a Worker fix, preserve the original resource and Flow ID,
-reconcile external effects, and use an explicitly authorized, recorded Step
-boundary as described in [safe recovery](../core/operations.md#safe-recovery).
-
-## Dex Web v2 management metadata
-
-The current FDG 2.0 management-interface analyzer reads Go source. Go Flow
-definitions can publish Indexed Attribute presentation, Summary and Display RPC
-fields, Action metadata, typed Action forms, conditions, permissions, groups,
-explanations, and user-string `capture:qr-code` hints. Validate that metadata
-with the v2 analyzer. This source-analysis capability is not currently available
-for Java, Python, TypeScript, or Rust Flow definitions.
-
-From `dexcli` v1.35.0, the analyzer names an Action and the **GetDexSummary** and **GetDexDisplay** view RPCs by **RPCOptions.Name**, so Dex Web invokes the registered name. **Name** must be a non-empty compile-time string, a literal or a constant; otherwise the analyzer reports an error. Do not rename a view RPC: Dex Web invokes **GetDexSummary** and **GetDexDisplay** by those names, and a renamed one fails with the analyzer's "must be registered in GetRPCs" error. [Released analyzer](https://github.com/superdurable/dex/blob/cli-v1.36.0/cli/internal/flowviz/v2_directives.go)
-
-## Minimal Flow
-
-Declare schema at package scope, embed defaults, register Step types, and return a decision from every Execute method. Keep SDK-derived Flow and Step type names; do not implement `GetFlowType` or `GetStepType` except for the [required production-rename case](versioning.md#default-flow-and-step-type-names).
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/flow/workflow.go)
-<!-- dex-source: examples/go/primitives/flow/workflow.go -->
 ```go
-var (
-	Status = dex.DefineAttribute[string]("status")
-	Notify = dex.DefineChannel[dex.None]("notify")
-)
-
-type ExampleFlow struct {
-	dex.FlowDefaults
+type Application struct {
+	cache        *blobcache.Cache
+	worker       *dex.Worker
+	client       *dex.Client
+	workerResult chan error
 }
 
-func NewExampleFlow() *ExampleFlow {
-	return &ExampleFlow{}
-}
-
-func (*ExampleFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{
-		dex.DefineStartStep(ExampleStep{}),
-		dex.DefineStep(Finish{}),
-	}
-}
-```
-
-Use `dex.None` for nil-only input/output and concrete structs for durable payloads.
-
-A no-wait Step embeds the input-typed default and returns a durable decision:
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/flow/workflow.go)
-<!-- dex-source: examples/go/primitives/flow/workflow.go -->
-```go
-type Finish struct {
-	dex.StepDefaultsNoWaitFor[int]
-}
-
-func (Finish) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
-	if err := Status.Set(ctx, "done"); err != nil {
+func StartApplication(flowServiceAddress string, cacheDir string, shipping ShippingService) (*Application, error) {
+	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDir, MaxBytes: 1 << 30})
+	if err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(input + 1), nil
+	registry, err := dex.NewRegistry([]dex.Flow{NewOrderApprovalFlow(shipping)})
+	if err != nil {
+		return nil, errors.Join(err, cache.Close())
+	}
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: flowServiceAddress,
+	})
+	if err != nil {
+		return nil, errors.Join(err, cache.Close())
+	}
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		FlowServiceAddress: flowServiceAddress,
+		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 16},
+	})
+	if err != nil {
+		return nil, errors.Join(err, client.Close(), cache.Close())
+	}
+	application := &Application{cache: cache, worker: worker, client: client, workerResult: make(chan error, 1)}
+	go func() { application.workerResult <- worker.Start() }()
+
+	startupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := worker.WaitPullRegistered(startupContext); err != nil {
+		return nil, errors.Join(err, application.Stop(context.Background()))
+	}
+	return application, nil
+}
+
+// Stop runs after the application stops admitting new requests.
+func (application *Application) Stop(ctx context.Context) error {
+	stopErr := application.worker.Stop(ctx)
+	var runErr error
+	select {
+	case runErr = <-application.workerResult:
+	case <-ctx.Done():
+		runErr = ctx.Err()
+	}
+	clientErr := application.client.Close()
+	return errors.Join(stopErr, runErr, clientErr, application.cache.Close())
 }
 ```
 
-## Registry, Worker, and Client
+`blobcache` is `github.com/superdurable/dex/blob-cache-go/blobcache`. The
+runnable versions are the [pull Worker example](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)
+and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examples/go/cmd/server/dex/dex.go).
 
-Construct every Flow once, then pass the same definitions into the Registry used by Worker and Client. See the [registry](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/registry/registry.go) and [bootstrap](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/cmd/server/dex/dex.go). Controllers start with `client.StartFlow(ctx, flow, flowID, input, options)` and retain the run ID for diagnostics. They read committed Attributes with [`client.GetAttributes`](primitives.md#client-attribute-reads) and write through typed RPCs.
+## Worker lifecycle
 
-## Route by task
+- The Worker opens outbound streams to the Dex Server; it needs no listen
+  address.
+- `Worker.Start()` blocks until the Worker stops. Run it on a goroutine and
+  keep its result.
+- A Worker is one-shot: `Start` runs once. To replace or restart a Worker,
+  build a new one over the same Registry and BlobCache, start it, and wait for
+  its registration.
+- Gate traffic on `WaitPullRegistered(ctx)` with a deadline. Serve readiness
+  from `worker.PullRegistrationState().IsReady` plus application health.
+- `Worker.Stop(ctx)` takes no new tasks and lets running handlers finish. It
+  cancels handlers still running at the drain deadline, and Dex fails those
+  attempts as possibly run. Handlers must honor `ctx` cancellation.
+- Shut down in this order: stop admitting new requests, stop the Worker and
+  wait for its handlers to drain, then close the Client and the BlobCache.
+  Running handlers may still use the Client and the cache while they drain,
+  and calls on a closed Client fail.
+- `PullWorkerOptions.MaxConcurrentTasks` is the number of execution slots. A
+  slot runs every task it receives; Dex never declines a Step for capacity.
+  `ReservedRPCTasks` keeps some slots for RPCs only, so RPCs stay responsive
+  while long Steps fill the rest. It is a `*int`; use `ptr.Any(0)` to opt out.
+  Defaults and Server limits are in the [Go Workers reference](https://docs.superdurable.io/reference/go/workers).
 
-- Syntax/state semantics: [primitives](primitives.md)
-- Application shape: [patterns](patterns.md)
-- Real-server verification: [testing](testing.md)
-- Client boundary design and retry ownership, before implementation: [error handling](error-handling.md)
-- Persistence/maps/Streams: [data handling](data-handling.md)
-- Histories/progress: [observability](observability.md)
-- Open-Flow compatibility: [versioning](versioning.md)
-- Go traps: [gotchas](gotchas.md)
-- Locks/loading/heartbeat/cancellation: [advanced features](advanced-features.md)
+## Authentication and TLS
+
+- Set `ClientOptions.Credential` and `WorkerOptions.Credential` separately.
+  One credential value may serve several Clients and Workers.
+- `dex.FileCredential(path)` reads a rotating bearer-token file.
+  `dex.APIKeyCredential(...)` exchanges an API key for tokens. A custom
+  `dex.Credential` returns the current token for each call.
+- Set `FlowServiceTLS` on each options struct for TLS. Nil keeps plaintext.
+  TLS never falls back to plaintext.
+- Never put a token or API key in Flow input, ordinary Attributes, Streams, or
+  logs.
+- See the [authentication reference](https://docs.superdurable.io/reference/server/authentication).
+
+## Default Flow and Step type names
+
+- The Flow type and Step type are durable identities. Each run stores them.
+- The default type is the Go type name without its package or pointer:
+  `*orders.OrderFlow` registers as `OrderFlow`.
+- Name each Flow type after its domain, such as `ApprovalFlow`. Never name it
+  just `Flow`.
+- Flow types are unique within one Registry. Step types are unique within one
+  Flow. `NewRegistry` rejects two same-named Go types from different packages.
+- Embed `dex.FlowDefaults` and the Step defaults. Do not implement
+  `GetFlowType` or `GetStepType` for style, display labels, or a Dex Web
+  mismatch.
+- Exceptions:
+  - A generic Flow or Step type has no default name. It must return one
+    compile-time string.
+  - A production Flow or Step whose Go type you rename keeps its durable
+    identity. Return the exact type string that running executions already
+    use. Read it from the deployed registration or real runs.
+- Prove a rename by resuming an execution started on the old code. A new
+  execution proves nothing.
+
+## Types and payloads
+
+- Definitions are generic and typed: `dex.DefineAttribute[T]`,
+  `dex.DefineChannel[T]`, `dex.DefineStream[T]`, `dex.Step[IN]`,
+  `dex.RPCResult[OUT]`.
+- Payloads cross the wire as JSON through `encoding/json`. Use structs with
+  exported fields and `json` tags. Concrete types beat `any`.
+- Use `dex.None` for "no input" or "no output", and pass `nil` for it.
+- A nil Attribute write deletes the Attribute. A nil Flow output is
+  discarded. Return a result struct when "no output" must differ from a null
+  result.
+- A typed value that must distinguish "omitted" from zero uses a pointer field.
+  Build pointers with `ptr.Any(value)`.
+- Open Flows resume on new code, so `json` field names are durable. Add
+  fields; never rename or repurpose one.
+
+## Connectors
+
+- Use a released official connector only. Go has the full Connector SDK.
+- At startup, load the project configuration once with
+  `projectconfig.LoadFromEnvironment(ctx)` from the Connector SDK's `sdkgo/projectconfig`.
+  Open each connection with the connector package's generated
+  `NewProjectConnection(project, "connection-name")`.
+- `MapToOperationInput` is a pure function from the Step input to the
+  provider input. Set `ResultAttribute` only when a path outside the
+  transition chain must read the raw result.
+- A Trigger's filter, Flow ID resolver, and input mapper are pure functions.
+- Runnable examples: [connector factory](https://github.com/superdurable/dex/blob/main/examples/go/products/connector-factory/workflow.go)
+  and the [AI agent Slack wiring](https://github.com/superdurable/dex/blob/main/examples/go/products/ai-agent/slack.go).
+
+## Dex Web and FDG metadata
+
+- The FDG 2.0 analyzer reads Go source for the full Dex Web management
+  metadata: groups, explanations, Indexed Attribute presentation, Summary and
+  Display RPCs, and Actions.
+- Every Step type has one `// dex:group ...` directive and exactly one
+  `// dex:explanation text:"..."` directive above its type. The explanation is
+  one sentence that says what the Step does.
+- An RPC that Dex Web calls is named by `RPCOptions.Name` when set. That name
+  must be a compile-time string. Do not rename the Summary and Display view
+  RPCs.
+- Validate with `dexcli visualize <source> --schema-version 2.0`. See the
+  [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
+
+## Go gotchas
+
+- Define Attributes, Channels, Streams, and maps once at package scope. A
+  definition carries identity.
+- Register every Step that a decision, failure route, or RPC can reach, and
+  register both parent and child Flows.
+- `GoTo(shipOrder{}, input)` selects the Step by type. The registered value,
+  with its injected services, runs.
+- Embed `StepDefaultsNoWaitFor[T]` only for a Step with no wait.
+- Return every error from a Context operation: Attribute, Channel, Stream,
+  heartbeat. A failed write did not commit.
+- `Attribute.Get` returns `*dex.AttributeNotFoundError` for an unset value.
+  Match it with `errors.As`; do not treat the zero value as "unset".
+- Do not coordinate durable work with goroutines, mutexes, channels, or maps.
+  They vanish with the Worker.
+- `time.Sleep` in `Execute` holds the attempt. Durable waits use a Timer in
+  `WaitFor`. Sleep only between rounds of a heartbeating polling loop.
+- Give every Client call a bounded `context.Context`.
+- Map instance names are non-empty and contain no `/`.
 
 ## Completion checklist
 
-Confirm every Step type and persistent definition is registered, errors are returned, Client calls have deadlines, tests use unique IDs and a real Dex Server, and application code does not depend on Dex Server internals.
+- [ ] Every Flow, Step, Attribute, Channel, Stream, and map is registered.
+- [ ] Type names follow the default-name rule.
+- [ ] Every error is returned or matched with `errors.As`; none is parsed from text.
+- [ ] Every Client call has a deadline.
+- [ ] External effects use an idempotency key from durable identity.
+- [ ] Tests run against a real Dex Server with unique Flow IDs.
+- [ ] Application code uses only the public SDK.
