@@ -20,18 +20,13 @@ sidebar_label: Overview
 ## 组件之间的关系
 
 ```text
- Client ───────▶ ┌───────────┐ ◀─────── Worker (outbound streams)
-                 │ server-zd │
- Dex Web ──────▶ │           │ ───────▶ PostgreSQL (External Attribute Sync)
- dexcli ───────▶ └───────────┘
-                       │
-                       ▼
-                 object storage
+Client  ──▶ server-zd ◀── Worker
+Dex Web ──▶     │
+dexcli  ──▶     ├──▶ object storage
+                └──▶ PostgreSQL (Attribute Sync)
 ```
 
-Worker、Client、Dex Web 和 **dexcli** 都连接 server 的 API 端口。Worker 主动向 server
-建立出站 stream，从不监听调用。server 把 Flow 状态保存在对象存储中。它也可以把选定的
-Attribute 写入 PostgreSQL，供你自己查询。
+Worker、Client、Dex Web 和 **dexcli** 都连接 server 的 API 端口。Worker 主动向 server 建立出站 stream，从不监听调用。server 把 Flow 状态保存在对象存储中。它也可以把选定的 Attribute 写入 PostgreSQL，供你自己查询。
 
 ## 本地和生产环境
 

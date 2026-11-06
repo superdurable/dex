@@ -5,26 +5,19 @@ sidebar_label: Connector setup
 
 # Connector 配置
 
-[Connector](/primitives/connector) 把 Flow 和外部服务集成起来。本页说明 Connector 在
-Dex 部署中的位置，以及怎样配置它。
+[Connector](/primitives/connector) 把 Flow 和外部服务集成起来。本页说明 Connector 在 Dex 部署中的位置，以及怎样配置它。
 
 ## 与其他组件的关系
 
-官方 Connector 独立于 Dex 发布。你的[应用](/primitives/components/application)引入
-Connector 包，把它的操作作为 Connector Step 运行。Trigger 把外部服务的事件变成 Flow 启动
-或 RPC 调用。凭证保存在持久的 Flow 状态之外。
+官方 Connector 独立于 Dex 发布。你的[应用](/primitives/components/application)引入 Connector 包，把它的操作作为 Connector Step 运行。Trigger 把外部服务的事件变成 Flow 启动或 RPC 调用。凭证保存在持久的 Flow 状态之外。
 
 ## 查找 Connector
 
-在 [Connector 目录](https://connectors.superdurable.io/)查看已发布的 Connector、它们
-提供的操作和支持的语言。每个 Connector 的参考以目录为准。
-[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-包含它们的源码和可运行示例。
+在 [Connector 目录](https://connectors.superdurable.io/)查看已发布的 Connector、它们提供的操作和支持的语言。每个 Connector 的参考以目录为准。[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library) 包含它们的源码和可运行示例。
 
 ## 在本地配置 Connector
 
-本地开发时，[Dex Web](/primitives/components/web) 为 Go 应用配置 Connector 账号和
-Trigger 绑定。这个功能只在 **dexcli dev** 中提供。
+本地开发时，[Dex Web](/primitives/components/web) 为 Go 应用配置 Connector 账号和 Trigger 绑定。这个功能只在 **dexcli dev** 中提供。
 
 1. 用你的 Flow Definition Graph 目录启动 **dexcli dev**。
 2. 在 Dex Web 中打开 **Connectors** 页面，配置每个账号。

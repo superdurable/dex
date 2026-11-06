@@ -21,13 +21,10 @@ Dex provides the rest.
 ## How they fit together
 
 ```text
- Client ───────▶ ┌───────────┐ ◀─────── Worker (outbound streams)
-                 │ server-zd │
- Dex Web ──────▶ │           │ ───────▶ PostgreSQL (External Attribute Sync)
- dexcli ───────▶ └───────────┘
-                       │
-                       ▼
-                 object storage
+Client  ──▶ server-zd ◀── Worker
+Dex Web ──▶     │
+dexcli  ──▶     ├──▶ object storage
+                └──▶ PostgreSQL (Attribute Sync)
 ```
 
 Workers, Clients, Dex Web, and **dexcli** all connect to the server's API port.
