@@ -4,6 +4,20 @@
 
 ### Added and fixed
 
+- Add `FlowServiceTlsOptions` to Client and Worker options for verified TLS 1.2+
+  connections, including async APIs and pull streams. Trust is the gRPC default
+  roots (grpcio's bundled roots, or `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when set)
+  plus the added roots. Adding roots fails when
+  `GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK` is true, regardless of
+  `GRPC_NOT_USE_SYSTEM_SSL_ROOTS`, including system roots selected
+  with `GRPC_SYSTEM_SSL_ROOTS_DIR`. The preference flag accepts `true`, `t`, `yes`, `y`,
+  and `1` as true, ignoring case. A configured `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`
+  takes precedence and still supports added roots. Otherwise, disable the
+  system-roots preference and pass the full OS or corporate CA bundle as
+  `additional_root_cas_pem`, or configure the full bundle through
+  `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`. Root-file errors include the configured
+  path. An optional server name controls verification and authority.
+
 - Add `Client.get_attributes` and `AsyncClient.get_attributes`, which read
   committed Attribute and AttributeMap instance values of the current or latest
   Flow run in one request, without an RPC or a Worker. Select a map instance

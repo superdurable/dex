@@ -49,7 +49,8 @@ class Credential(Protocol):
     lookup separately, so synchronous implementations must return promptly.
     Client calls raise a token exception unchanged, before contacting Dex.
     Worker startup may wrap it with startup context. The token travels
-    over Dex's plaintext gRPC connection; protect the network path.
+    over Dex's gRPC connection, plaintext unless flow_service_tls is set;
+    protect the network path.
 
     Example:
         >>> class FixedCredential:

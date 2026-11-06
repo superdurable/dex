@@ -27,6 +27,7 @@ from dex._credential_transport import (
     _reject_credential_token,
     async_credential_metadata,
 )
+from dex._flow_service_tls import FlowServiceTransport
 from dex._grpc_errors import _worker_error_status
 from dex._server_protocol import sdk_version
 from dex.dexpb import dex_pb2 as pb
@@ -74,7 +75,15 @@ _IDENTITY_COMPRESSION_ONLY_OPTIONS = (
 )
 
 
-def outbound_worker_task_channel(server_address: str) -> grpc.aio.Channel:
+def outbound_worker_task_channel(
+    server_address: str, transport: FlowServiceTransport | None = None
+) -> grpc.aio.Channel:
+    if transport is not None and transport.credentials is not None:
+        return grpc.aio.secure_channel(
+            transport.target,
+            transport.credentials,
+            options=_IDENTITY_COMPRESSION_ONLY_OPTIONS + transport.channel_options,
+        )
     return grpc.aio.insecure_channel(
         server_address, options=_IDENTITY_COMPRESSION_ONLY_OPTIONS
     )
@@ -97,7 +106,9 @@ class PullWorkerRuntime:
         executor: ThreadPoolExecutor | None,
         app_worker_id: str | None = None,
         credential_runner: AsyncCredentialRunner | None = None,
+        transport: FlowServiceTransport | None = None,
     ) -> None:
+        self._transport = transport
         self._registry = registry
         self.app_worker_id = app_worker_id or resolve_app_worker_id(registry, options)
         self.flow_types = sorted(registry._registered_flows)
@@ -171,7 +182,9 @@ class PullWorkerRuntime:
         self._started.set()
         channel: grpc.aio.Channel | None = None
         try:
-            channel = outbound_worker_task_channel(self._server_address)
+            channel = outbound_worker_task_channel(
+                self._server_address, self._transport
+            )
             stub = dex_pb2_grpc.WorkerTaskServiceStub(channel)  # type: ignore[no-untyped-call]
             self._wake.set()
             while not self._stopping.is_set():

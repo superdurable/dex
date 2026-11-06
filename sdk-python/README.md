@@ -76,8 +76,104 @@ coroutine runs on the event loop. A loop-bound Future from another loop raises
 TypeError; use `async def` to create it on the right loop. A blocked token keeps
 one executor thread busy until it returns, and an unclosed Client or Worker may
 retain up to four idle credential threads. Sync token lookup must return
-promptly. By default, no authorization metadata is sent. Dex uses plaintext
-gRPC, so protect the network path that carries the token.
+promptly. By default, no authorization metadata is sent. The connection uses
+plaintext gRPC unless `flow_service_tls` is set; protect the network path that
+carries the token.
+
+## TLS
+
+Set `ClientOptions.flow_service_tls` and `WorkerOptions.flow_service_tls`
+independently for a TLS endpoint, such as a TLS gateway in front of Dex.
+Omitting the option keeps plaintext gRPC for local `dexcli dev` servers.
+`FlowServiceTlsOptions()` enables TLS 1.2 or newer, verifies the certificate
+and hostname, and requires HTTP/2 ALPN `h2`. Workers apply it to startup,
+blob hydration, and pull task streams. The same settings work with `AsyncClient`
+and `AsyncWorker`. File, API key, and custom bearer credentials compose with TLS
+as call metadata.
+
+With an application's registered `flow`, `registry`, and open `cache`:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from pathlib import Path
+from uuid import uuid4
+
+from dex import (
+    Client, ClientOptions, FileCredential, FlowServiceTlsOptions,
+    Worker, WorkerOptions,
+)
+
+flow_service_tls = FlowServiceTlsOptions(
+    additional_root_cas_pem=Path("/etc/dex/root-ca.pem").read_bytes(),
+)
+credential = FileCredential("/var/run/secrets/dex/token")
+server_address = "dex.example.com:443"
+with Worker(registry, cache, WorkerOptions(
+    server_address=server_address,
+    flow_service_tls=flow_service_tls,
+    credential=credential,
+)) as worker, Client(registry, cache, ClientOptions(
+    server_address=server_address,
+    flow_service_tls=flow_service_tls,
+    credential=credential,
+)) as client, ThreadPoolExecutor(max_workers=1) as executor:
+    started = executor.submit(worker.start)
+    try:
+        worker.wait_pull_registered(timeout=30)
+        flow_id = f"tls-{uuid4()}"
+        client.start_flow(flow, flow_id, input_value)
+        result = client.wait_for_flow(flow_id, timedelta(seconds=30))
+    finally:
+        worker.stop()
+        started.result(timeout=10)
+```
+
+- `additional_root_cas_pem` accepts PEM bytes or text. Omit it, or use an empty
+  value, for gRPC's default trust. A nonempty bundle must contain at least one
+  parsable certificate; malformed and non-certificate blocks are skipped when
+  another certificate parses. The trust is the gRPC default roots (grpcio's
+  bundled roots, or `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when set) plus the added
+  roots. A configured gRPC root file replaces the bundled roots and takes
+  precedence over system roots. Adding roots fails when
+  `GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK` is true, unless a root file is
+  configured, regardless of `GRPC_NOT_USE_SYSTEM_SSL_ROOTS`.
+  True values are `true`, `t`, `yes`, `y`, and `1`, ignoring case. This guard
+  also applies to system roots selected with `GRPC_SYSTEM_SSL_ROOTS_DIR`.
+  To add roots in that configuration, disable
+  `GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK` and pass the full PEM bundle
+  as `additional_root_cas_pem`, or set `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` to the
+  full bundle. `SSL_CERT_FILE` and `SSL_CERT_DIR` do not affect this trust.
+  These sources are read at construction. An unreadable bundled root file, or an
+  unreadable or invalid configured gRPC root file, fails construction when adding
+  roots. Errors for configured files include the file path. To trust OS or
+  corporate CAs, pass their PEM bundle explicitly:
+
+  ```python
+  tls = FlowServiceTlsOptions(
+      additional_root_cas_pem=Path("/etc/ssl/certs/ca-certificates.crt").read_bytes(),
+  )
+  ```
+
+  Use the CA bundle path supplied by your OS or organization.
+- `server_name` defaults to `None`, which verifies the address host and preserves
+  the host and port as HTTP/2 authority. Set a DNS name or IP without a port only
+  when the certificate name differs. It controls verification, SNI, and HTTP/2
+  authority; gateways must accept that authority without a port. Empty strings
+  are invalid. IP addresses require matching IP SANs and send no SNI. Prefer
+  a DNS name for IPv6 overrides because strict HTTP/2 servers reject an
+  unbracketed IPv6 authority.
+- TLS targets accept `host:port`, `dns:///host:port`, and
+  `dns://authority/host:port`, including bracketed IPv6 hosts. Ports must be
+  unsigned decimal values from 1 through 65535. The DNS resolver authority
+  never becomes the certificate name. Other resolver schemes remain available
+  with plaintext only.
+- Constructors raise `ValueError` for invalid addresses, server names, or PEM
+  bundles. Connections open on demand; certificate and handshake failures
+  surface on the first Client call as `UNAVAILABLE` or during Worker startup.
+  Servers offering only `http/1.1`, or no ALPN protocol, are rejected.
+- This option does not configure the `ApiKeyCredential` token endpoint, which
+  uses HTTPS except on loopback.
 
 ## Workers
 
