@@ -477,7 +477,7 @@ Products with a similar problem. Each row says what to take and what differs.
 2. Connector library: tool schema and the `agent` manifest block.
 3. Cores: the `DeferredToolExecution` field, `ConnectorToolSource`, write ordering.
 4. O3 measurement, in parallel.
-5. O2 session view, then `AgentAttention`, then the inbox.
+5. O2 session view, then active Step search on session Flows, then the inbox.
 6. O5 after #1266. O4 and O6 as demand shows.
 
 ## Documentation
