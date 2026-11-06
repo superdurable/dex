@@ -114,15 +114,23 @@ protect the network path.
 
 **web** serves Dex Web against the existing server given by **--server**. It
 does not start a server. To reach a server whose FlowService port is bound only
-to the remote host's loopback address, open an SSH tunnel first:
+to the remote host's loopback address, open an SSH tunnel in one terminal and
+leave it running:
 
 ```bash
 ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+```
+
+In another terminal, start Dex Web:
+
+```bash
 dexcli --server 127.0.0.1:8801 web
 ```
 
 Then open [http://127.0.0.1:8802](http://127.0.0.1:8802). Startup fails when **HealthCheck** cannot reach
-the server. **--timeout** bounds only the startup checks. Dex Web has no
+the server. **--timeout** bounds only the startup checks. **--open=false** skips
+the browser. A running **dexcli dev** also uses ports 8801 and 8802, so pick
+another tunnel port and **--web-port** to run both. Dex Web has no
 authentication, so keep **--bind-address** on loopback. See
 [View a remote server with dexcli web](/production/dex-web#dexcli-web) for every
 flag.

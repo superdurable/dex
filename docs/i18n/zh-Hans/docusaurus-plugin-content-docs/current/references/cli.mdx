@@ -105,15 +105,21 @@ CLI 不提供原始 token flag，因为 command 参数可能出现在 shell hist
 ## 在 Dex Web 中查看远程 server {#web}
 
 **web** 让 Dex Web 连接 **--server** 指定的已有 server。它不会启动 server。要访问 FlowService
-端口只绑定在远程主机 loopback 地址上的 server，请先打开 SSH tunnel：
+端口只绑定在远程主机 loopback 地址上的 server，请在一个终端中打开 SSH tunnel 并保持运行：
 
 ```bash
 ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+```
+
+在另一个终端中启动 Dex Web：
+
+```bash
 dexcli --server 127.0.0.1:8801 web
 ```
 
 然后打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)。**HealthCheck** 无法访问 server 时，启动会失败。**--timeout**
-只限制启动检查。Dex Web 没有身份认证，所以请让 **--bind-address** 保持为 loopback 地址。
+只限制启动检查。**--open=false** 不打开浏览器。正在运行的 **dexcli dev** 也会使用 8801 和 8802
+端口，要同时运行两者，请换一个 tunnel 端口和 **--web-port**。Dex Web 没有身份认证，所以请让 **--bind-address** 保持为 loopback 地址。
 全部 flag 见[用 dexcli web 查看远程 server](/production/dex-web#dexcli-web)。
 
 ## 易用的 Flow 操作

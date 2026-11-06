@@ -55,6 +55,42 @@ func TestWebRequestTimeoutDoesNotBoundRunningDexWeb(t *testing.T) {
 	require.NoError(t, webCommand.stop())
 }
 
+func TestWebStopsPromptlyDuringFlowHistoryLongPoll(t *testing.T) {
+	service, serverAddress := startTestFlowService(t)
+	webCommand := startTestWebCommand(t, "--server", serverAddress, "web", "--web-port", "0")
+	longPollFinished := make(chan error, 1)
+	go func() {
+		response, err := http.Get(webCommand.webURL + "/api/flows/wait?flowId=flow&runId=run&nextInternalEventId=1")
+		if err == nil {
+			err = response.Body.Close()
+		}
+		longPollFinished <- err
+	}()
+	select {
+	case <-service.waitStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("history long poll did not reach FlowService")
+	}
+
+	stopStarted := time.Now()
+	require.NoError(t, webCommand.stop())
+	require.Less(t, time.Since(stopStarted), 3*time.Second)
+	select {
+	case <-longPollFinished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("history long poll did not return after stop")
+	}
+}
+
+func TestWebWarnsWhenBindAddressIsNotLoopback(t *testing.T) {
+	_, serverAddress := startTestFlowService(t)
+	webCommand := startTestWebCommand(t, "--server", serverAddress, "web", "--bind-address", "0.0.0.0", "--web-port", "0")
+
+	require.NoError(t, webCommand.stop())
+	require.Contains(t, webCommand.stderr.String(), "warning: Dex Web has no authentication")
+	require.Contains(t, webCommand.stderr.String(), "anyone who can reach this port can operate Flows on "+serverAddress)
+}
+
 func TestWebFailsStartupWhenServerIsUnreachable(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -91,6 +127,8 @@ type testWebCommand struct {
 	stderr       *lockedBuffer
 	cancel       context.CancelFunc
 	commandError chan error
+	stopOnce     sync.Once
+	stopError    error
 }
 
 func startTestWebCommand(t *testing.T, args ...string) *testWebCommand {
@@ -107,22 +145,29 @@ func startTestWebCommand(t *testing.T, args ...string) *testWebCommand {
 	commandError := make(chan error, 1)
 	go func() { commandError <- app.Execute(ctx, args) }()
 	webCommand := &testWebCommand{stdout: stdout, stderr: stderr, cancel: cancel, commandError: commandError}
-	t.Cleanup(func() {
-		cancel()
-	})
 	select {
 	case webCommand.webURL = <-openedURLs:
 	case err := <-commandError:
+		cancel()
 		t.Fatalf("dexcli web exited before readiness: %v stderr=%s", err, stderr.String())
 	case <-time.After(30 * time.Second):
+		cancel()
 		t.Fatalf("dexcli web did not become ready; stderr=%s", stderr.String())
 	}
+	t.Cleanup(func() {
+		if err := webCommand.stop(); err != nil {
+			t.Errorf("dexcli web exited with error: %v", err)
+		}
+	})
 	return webCommand
 }
 
 func (c *testWebCommand) stop() error {
-	c.cancel()
-	return <-c.commandError
+	c.stopOnce.Do(func() {
+		c.cancel()
+		c.stopError = <-c.commandError
+	})
+	return c.stopError
 }
 
 func requireWebSearchReachesFlowService(t *testing.T, webURL string) {

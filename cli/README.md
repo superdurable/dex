@@ -309,16 +309,29 @@ against the system root CAs.
 `dexcli web` serves the embedded Dex Web UI against the existing server given by
 `--server`, instead of starting one like `dexcli dev`. It uses the same TLS and
 credential settings as the other commands. When the remote FlowService port is
-bound only to the remote host's loopback address, open an SSH tunnel first:
+bound only to the remote host's loopback address, open an SSH tunnel. `ssh -N`
+stays in the foreground, so run it in one terminal and leave it running:
 
 ```bash
 ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+```
+
+In another terminal, start Dex Web:
+
+```bash
 dexcli --server 127.0.0.1:8801 web
 ```
 
 Then browse http://127.0.0.1:8802. Flags: `--bind-address` (default
 `127.0.0.1`), `--web-port` (default `8802`; `0` picks a free port),
-`--flow-rendering-dir`, and `--open` (default true).
+`--flow-rendering-dir`, and `--open` (default true; `--open=false` skips the
+browser). A running `dexcli dev` also uses ports 8801 and 8802; to run both,
+pick another local tunnel port and Web port:
+
+```bash
+ssh -N -L 18801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:18801 web --web-port 18802
+```
 
 Startup calls FlowService `HealthCheck` and fails when the server or tunnel is
 unreachable. It also runs the `version check` protocol negotiation and prints a

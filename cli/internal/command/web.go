@@ -17,7 +17,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -42,20 +41,20 @@ type webOptions struct {
 func (a *App) executeWeb(ctx context.Context, args []string, options options) error {
 	flags := newFlagSet("dexcli web", a.stderr)
 	addCommonFlags(flags, &options)
-	webOptions := webOptions{
+	parsedWebOptions := webOptions{
 		bindAddress:       defaultWebBindAddress,
 		webPort:           defaultWebPort,
 		shouldOpenBrowser: true,
 	}
-	flags.StringVar(&webOptions.bindAddress, "bind-address", webOptions.bindAddress, "Dex Web bind address")
-	flags.IntVar(&webOptions.webPort, "web-port", webOptions.webPort, "Dex Web port")
+	flags.StringVar(&parsedWebOptions.bindAddress, "bind-address", parsedWebOptions.bindAddress, "Dex Web bind address")
+	flags.IntVar(&parsedWebOptions.webPort, "web-port", parsedWebOptions.webPort, "Dex Web port")
 	flags.StringVar(
-		&webOptions.flowRenderingDirectory,
+		&parsedWebOptions.flowRenderingDirectory,
 		"flow-rendering-dir",
 		"",
 		"directory containing Flow Definition Graph JSON files",
 	)
-	flags.BoolVar(&webOptions.shouldOpenBrowser, "open", webOptions.shouldOpenBrowser, "open Dex Web after startup")
+	flags.BoolVar(&parsedWebOptions.shouldOpenBrowser, "open", parsedWebOptions.shouldOpenBrowser, "open Dex Web after startup")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printWebUsage(a.stdout)
@@ -69,10 +68,10 @@ func (a *App) executeWeb(ctx context.Context, args []string, options options) er
 	if err := options.validate(); err != nil {
 		return newUsageError(webOperation, err)
 	}
-	if webOptions.webPort < 0 || webOptions.webPort > 65535 {
+	if parsedWebOptions.webPort < 0 || parsedWebOptions.webPort > 65535 {
 		return newUsageError(webOperation, fmt.Errorf("web-port must be between 0 and 65535"))
 	}
-	return a.serveWeb(ctx, options, webOptions)
+	return a.serveWeb(ctx, options, parsedWebOptions)
 }
 
 // serveWeb keeps the FlowService connection for the server lifetime; --timeout bounds only startup checks.
@@ -94,6 +93,9 @@ func (a *App) serveWeb(ctx context.Context, options options, webOptions webOptio
 		return err
 	}
 	a.warnIncompatibleServerProtocol(ctx, options, client)
+	if ctx.Err() != nil {
+		return nil
+	}
 	server, err := dexweb.NewServer(
 		&dexweb.Config{
 			BindAddress:            webOptions.bindAddress,
@@ -114,7 +116,7 @@ func (a *App) serveWeb(ctx context.Context, options options, webOptions webOptio
 	}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.Serve(listener) }()
-	if !isLoopbackBindAddress(webOptions.bindAddress) {
+	if !isLoopbackHost(webOptions.bindAddress) {
 		fmt.Fprintf(
 			a.stderr,
 			"warning: Dex Web has no authentication and listens on %s; anyone who can reach this port can operate Flows on %s\n",
@@ -154,6 +156,9 @@ func (a *App) warnIncompatibleServerProtocol(ctx context.Context, options option
 	callCtx, cancel := requestContext(ctx, options)
 	defer cancel()
 	serverInfo, err := client.GetServerInfo(callCtx, emptyRequest())
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		fmt.Fprintf(a.stderr, "warning: cannot check Server protocol compatibility: GetServerInfo failed: %v\n", err)
 		return
@@ -192,15 +197,6 @@ func shutdownWebServer(server *dexweb.Server, serverErrors <-chan error) error {
 	return nil
 }
 
-// isLoopbackBindAddress treats an empty address as all interfaces.
-func isLoopbackBindAddress(bindAddress string) bool {
-	if strings.EqualFold(bindAddress, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(bindAddress)
-	return ip != nil && ip.IsLoopback()
-}
-
 func printWebUsage(output io.Writer) {
 	fmt.Fprintln(output, "Usage: dexcli [global flags] web [flags]")
 	fmt.Fprintln(output)
@@ -211,7 +207,8 @@ func printWebUsage(output io.Writer) {
 	fmt.Fprintln(output, "  --bind-address address      Dex Web bind address (default 127.0.0.1)")
 	fmt.Fprintln(output, "  --web-port port             Dex Web port (default 8802)")
 	fmt.Fprintln(output, "  --flow-rendering-dir path   directory containing Flow Definition Graph JSON files")
-	fmt.Fprintln(output, "  --open                      open Dex Web in the default browser (default true)")
+	fmt.Fprintln(output, "  --open                      open Dex Web in the default browser (default true; --open=false disables)")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "--timeout bounds only the startup checks, not the running Dex Web.")
+	fmt.Fprintln(output, "A running dexcli dev also uses port 8802; pass another --web-port to run both.")
 }

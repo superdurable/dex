@@ -124,18 +124,31 @@ not start a server. It connects to the global **--server** address with the
 same TLS and credential settings as other **dexcli** commands.
 
 When the FlowService port of a remote server is bound only to the remote host's
-loopback address, reach it through an SSH tunnel. Keep the tunnel running, and
-start Dex Web on your workstation:
+loopback address, reach it through an SSH tunnel. **ssh -N** keeps running in
+the foreground, so open the tunnel in one terminal and leave it running:
 
 ~~~bash
 ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+~~~
+
+In another terminal, start Dex Web:
+
+~~~bash
 dexcli --server 127.0.0.1:8801 web
 ~~~
 
 Open [http://127.0.0.1:8802](http://127.0.0.1:8802). The command accepts
 **--bind-address** (default **127.0.0.1**), **--web-port** (default **8802**),
-**--flow-rendering-dir**, and **--open** (default true). Ctrl+C stops Dex Web,
-and the server keeps running.
+**--flow-rendering-dir**, and **--open** (default true; pass **--open=false** to
+skip the browser). Ctrl+C stops Dex Web, and the server keeps running.
+
+A running **dexcli dev** also uses ports 8801 and 8802. To run both, choose
+another local tunnel port and another Dex Web port:
+
+~~~bash
+ssh -N -L 18801:127.0.0.1:8801 operator@dex-host
+dexcli --server 127.0.0.1:18801 web --web-port 18802
+~~~
 
 Before it prints its address, **dexcli web** calls FlowService **HealthCheck**.
 It fails when the server or the tunnel is unreachable. It also checks protocol
