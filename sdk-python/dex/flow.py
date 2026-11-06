@@ -194,6 +194,9 @@ class RPCResult(Generic[OutputT]):
         siblings because an RPC has no Step execution lineage. The Worker validates
         each target when it applies the returned result.
 
+        .. versionchanged:: 1.28.0
+           Accepts registered instances and StepRef as well as unambiguous classes.
+
         Args:
             *steps: Registered instances, StepRef values, or unambiguous Step classes.
 
@@ -389,6 +392,10 @@ class Registry:
     Registry construction inspects Step and RPC signatures, resolves codecs, checks
     names and locks, and assembles Attribute indexes atomically. The result is safe
     for concurrent reads.
+
+    .. versionchanged:: 1.28.0
+       Multiple instances of one Step class may register with distinct Step types.
+       A class target must resolve to exactly one registered instance.
 
     Attributes:
         flows: The registered Flow instances in input order.

@@ -105,6 +105,10 @@ class Client:
     as any other transport failure. Such failures are not cached, so the next
     call negotiates again. Negotiation counts against a call's request timeout.
 
+    .. versionchanged:: 1.35.0
+       Requires Server protocol 4, available in server-zd v0.1.17 and later.
+       Compatibility is checked lazily on the first service request.
+
     Attributes:
         registry: Flow definitions used to validate typed calls.
         blob_cache: The open cache used to hydrate large values.
@@ -198,6 +202,21 @@ class Client:
         The first request negotiates Server protocol 4 and caches compatibility.
         Construction performs no network I/O. An incompatible Server fails this
         and every later request; transient negotiation failures can be retried.
+
+        Examples:
+            >>> from dex import FlowAlreadyStartedError, StartFlowOptions
+            >>> options = StartFlowOptions(
+            ...     request_id="create-order-42", ignore_already_started=True,
+            ... )
+            >>> try:
+            ...     run_id = client.start_flow(orders, "order-42", order_input, options)
+            ... except FlowAlreadyStartedError:
+            ...     raise
+            >>> result = client.wait_for_flow("order-42")
+
+        The current Dex Server rejects a Flow-level retry_policy or positive
+        start_delay with INVALID_ARGUMENT through DexServiceError. Retry work with
+        StepOptions instead; put a Timer wait in the starting Step to delay work.
 
         Args:
             flow: The registered Flow instance to start.
@@ -325,9 +344,25 @@ class Client:
         Pass the bound method from the same registered Flow instance. RPC timeout and
         Attribute locks come from its ``@rpc`` decorator. The call blocks until the
         handler returns, fails, or times out. A non-transactional RPC without Attribute
-        locks starts from a backend query. If the handler returns no durable effects, a
+        locks uses a read-only execution path. If the handler returns no durable effects, a
         retained terminal execution can serve that query. Locks, transactional execution,
         returned effects, or server policy can require an active execution.
+
+        RPC handlers are not automatically retried by this call. A timeout or
+        transport error does not prove that external effects or committed writes
+        did not happen. Use application idempotency before repeating a write.
+        Acquire and load the same exact AttributeMap instance for a dynamic
+        read-modify-write operation through RPCInvokeOptions. A lock alone does
+        not request the instance's value in the handler snapshot.
+
+        Examples:
+            >>> from dex import FlowNotActiveOrNotFoundError, RpcLockConflictError
+            >>> try:
+            ...     status = client.invoke_rpc(orders.get_status, "order-42")
+            ... except FlowNotActiveOrNotFoundError:
+            ...     status = None
+            ... except RpcLockConflictError:
+            ...     raise
 
         Args:
             rpc_method: A bound method decorated with ``@rpc``.
@@ -336,6 +371,8 @@ class Client:
             run_id: Optional exact run. With ``""``, the server resolves the current
                 execution.
             options: Additive runtime AttributeMap locks and exact map-instance loads.
+                They cannot change timeout or transactionality. The Client unions,
+                sorts, and deduplicates these selections with the registered ones.
 
         Returns:
             The decoded ``RPCResult.output``, or ``None`` for a no-output RPC.
@@ -629,6 +666,14 @@ class Client:
 
         The call returns after Dex accepts the request and does not wait for terminal
         status.
+        Use wait_for_flow afterward to observe closure. Cancellation is cooperative;
+        Python handlers can still be unwinding after the request returns. External
+        side effects are not undone by any stop mode.
+
+        Examples:
+            >>> from dex import StopFlowOptions, StopType
+            >>> client.stop_flow("order-42", StopFlowOptions(type=StopType.CANCEL))
+            >>> result = client.wait_for_flow("order-42")
 
         Args:
             flow_id: The non-empty target Flow ID.
@@ -693,6 +738,8 @@ class Client:
         *reads: Attribute[Any] | AttributeMapInstance[Any],
     ) -> AttributeValues:
         """Read committed Attribute values from the current or latest Flow run.
+
+        .. versionadded:: 1.29.0
 
         Use ``get_attributes`` to read Flow state from outside the Flow without
         defining an RPC. Pass one or more reads. A read is a singleton

@@ -149,6 +149,9 @@ class AsyncWorker:
         Permanent pull stream rejections raise PullRegistrationError when
         stop_on_permanent_stream_rejection is enabled; otherwise streams retry.
 
+        .. versionchanged:: 1.35.0
+           Requires Server protocol 4 and fails above matching.maxConcurrentTasksCap.
+
         Raises:
             PullRegistrationError: A permanent stream rejection stops this Worker.
             RuntimeError: If lifecycle state is invalid, Server protocol 4 is
@@ -183,6 +186,9 @@ class AsyncWorker:
         Worker never becomes ready.
         Multiple callers may wait independently, including before start.
 
+        .. versionchanged:: 1.35.0
+           Readiness tracks STEP_AND_RPC and RPC_ONLY slot kinds instead of Flow queues.
+
         Args:
             timeout: Maximum seconds to wait; None waits indefinitely.
 
@@ -210,6 +216,9 @@ class AsyncWorker:
         Reserved RPC capacity uses RPC_ONLY slots. Steps are never declined for
         capacity. This property remains available for source compatibility and
         is safe to read concurrently, including after stop.
+
+        .. versionchanged:: 1.35.0
+           Deprecated; RPC_ONLY slots replace capacity declines, so this returns zero.
 
         Returns:
             Zero.
@@ -301,6 +310,10 @@ class AsyncWorker:
         already half-closed. It gets up to 5 more seconds to send the output,
         half-close, and receive Server EOF, and is reset after that. Stop can
         therefore return up to 5 seconds after the drain deadline.
+
+        .. versionchanged:: 1.35.0
+           Running handlers drain and send output. Unstarted tasks return to Dex without
+           consuming a retry; a timed-out stream can still leave possibly run work.
         """
         self._pull.registration.record_stopping()
         if self._state in ("stopped", "closed"):

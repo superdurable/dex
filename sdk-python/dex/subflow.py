@@ -19,7 +19,29 @@ from dex.flow_result import FlowResult
 
 
 class SubFlow:
-    """Create durable SubFlow Conditions and read their Execute results."""
+    """Create durable SubFlow Conditions and read their Execute results.
+
+    A child has its own Flow ID and lifecycle. An AnyOf winner does not stop
+    losing children; use get_flow_id and Client.stop_flow when they must stop.
+    Read child results during execute using the zero-based SubFlow declaration
+    order, independent of Timer and Channel positions in the Wait tree.
+
+    Examples:
+        A parent Step waits for a registered child Flow and returns its output::
+
+            from dex import Context, Flow, Step, StepDecision, SubFlow, Wait, graceful_complete
+
+            class AwaitReceipt(Step[int]):
+                def __init__(self, receipt_flow: Flow[int]) -> None:
+                    self.receipt_flow = receipt_flow
+
+                def wait_for(self, context: Context, input: int) -> Wait:
+                    return Wait.until(SubFlow.run(self.receipt_flow, input))
+
+                def execute(self, context: Context, input: int) -> StepDecision:
+                    result = SubFlow.get_condition_results(context)
+                    return graceful_complete(result.single_output(int))
+    """
 
     @staticmethod
     def run(
@@ -29,6 +51,13 @@ class SubFlow:
     ) -> Condition:
         """Create a Condition that starts or reuses ``flow`` and awaits completion.
 
+        Calling this factory describes work; Dex starts the child after the
+        returned Wait is committed. None options use SubFlowOptions defaults,
+        including RESTART_IF_PREVIOUS_EXITS_ABNORMALLY reuse. The child inherits
+        the parent's effective FlowConfig unless options override its fields.
+        Dex generates stable Flow and request IDs so retries of the same start
+        attach rather than creating duplicate child executions.
+
         Args:
             flow: The exact target Flow instance registered by the Worker.
             input: Input accepted by the target Flow's starting Step.
@@ -36,6 +65,12 @@ class SubFlow:
 
         Returns:
             A durable Condition accepted by :class:`dex.Wait`.
+
+        Raises:
+            ValueError: If the condition ID is invalid, or when the Worker maps a
+                Flow without a starting Step.
+            FlowDefinitionError: When the Worker maps an unregistered Flow.
+            ValueMappingError: When the Worker cannot encode the child input.
         """
         resolved = options or SubFlowOptions()
         return SubFlowCondition(

@@ -61,6 +61,30 @@ class FlowErrorType(Enum):
 class DexServiceError(RuntimeError):
     """Represent a structured error returned by a Dex FlowService operation.
 
+    Catch the narrowest SDK error that the operation documents. Inspect code and
+    sub_status for other service failures; do not match human-readable detail.
+    UNKNOWN or UNCATEGORIZED metadata does not imply success or a safe retry.
+    A failed transport call can have an unknown commit outcome, so repeating a
+    mutation requires application idempotency. ValueMappingError and definition
+    validation failures describe local mapping or schema problems instead.
+
+    .. versionchanged:: 1.30.0
+       Servers may reject excess Attribute index keys or oversized indexed Keyword
+       values. This SDK exposes those rejections as DexServiceError with
+       UNCATEGORIZED sub_status; the outer status and detail remain available.
+
+    Examples:
+        >>> import grpc
+        >>> from dex import DexServiceError, FlowAlreadyStartedError
+        >>> try:
+        ...     run_id = client.start_flow(orders, "order-42", order_input)
+        ... except FlowAlreadyStartedError:
+        ...     raise
+        ... except DexServiceError as error:
+        ...     if error.code == grpc.StatusCode.INVALID_ARGUMENT:
+        ...         raise ValueError(error.detail) from error
+        ...     raise
+
     Attributes:
         code: The outer gRPC status code.
         sub_status: The stable Dex-specific error classification.

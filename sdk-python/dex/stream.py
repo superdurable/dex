@@ -29,6 +29,29 @@ _DEFAULT_BUFFERED_TEXT_MAX_BYTES = 16 * 1024
 class Stream(Generic[ValueT]):
     """Define a typed best-effort resumable Stream owned by one Flow type.
 
+    Register the same definition in the Flow's PersistenceSchema and reuse it for
+    Step writes and Client reads. Stream messages are independent of the Step's
+    durable result. Retries can repeat messages, and unsent buffered text is not
+    restored. Use Attributes or Channels when delivery must be durable.
+    The in-memory Stream Store loses messages on Server restart or takeover.
+    Capacity trimming can remove older messages even while a reader is connected.
+    The byte capacity is shared by every Flow ID using this Flow type and Stream.
+
+    Step source metadata is #StepExecutionID, not an idempotency key. Every write
+    appends, even if another write has the same source. Client writes require a
+    non-empty source and do not require an active Flow. ReadStream-style reads
+    move forward using resume tokens; list_stream_messages returns newest-first
+    retained pages with exclusive before-page tokens. Trimming can create gaps.
+
+    Examples:
+        >>> from dex import Stream
+        >>> progress = Stream("progress", str, stream_capacity_bytes=1024 * 1024)
+        >>> client.write_stream("order-42", progress, "checkout", "accepted")
+        >>> message = client.read_stream("order-42", progress)
+        >>> next_message = client.read_stream(
+        ...     "order-42", progress, resume_token=message.resume_token,
+        ... )
+
     Attributes:
         name: Logical name unique within the Flow persistence schema.
         value_type: Python type encoded for every message.

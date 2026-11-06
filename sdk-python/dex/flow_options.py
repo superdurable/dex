@@ -91,6 +91,10 @@ class FlowTimeoutHandlerOptions:
     Ordinary Attributes and Channel size metadata load automatically. AttributeMap
     values and pending Channel messages require an explicit selection. One logical
     handler execution may contain multiple retry attempts.
+    See StepOptions for shared snapshot, lock, heartbeat, durability, and retry
+    semantics. Timing begins after the soft Flow timeout fires, so the handler
+    can outlive that original Flow deadline. method_timeout defaults to two hours;
+    heartbeat_timeout defaults to one minute. Durations use whole seconds.
 
     Attributes:
         method_timeout: Maximum duration of one handler attempt.
@@ -138,6 +142,9 @@ class FlowTimeoutHandlerOptions:
         instance of the recovery Step class. The target is validated when Client
         or SubFlow start options are mapped, not when this method is called.
 
+        .. versionchanged:: 1.28.0
+           Targets accept registered instances and StepRef as well as unambiguous classes.
+
         Args:
             step: Recovery class, registered instance, or StepRef. It must belong to
                 the timed-out Flow and use ``None`` input.
@@ -170,8 +177,11 @@ class StartFlowOptions:
         timeout_policy: Action taken when a positive timeout expires.
         timeout_handler_options: Execute policy used when timeout policy is ``HANDLER``.
         start_delay: Optional delay before the starting Step becomes eligible.
+            The current Server rejects a positive value with INVALID_ARGUMENT.
+            Use a Timer wait in the starting Step instead.
         id_reuse_policy: Flow ID reuse policy; defaults to ``DEFAULT``.
-        retry_policy: Optional Flow-level retry policy.
+        retry_policy: Optional Flow-level retry policy. The current Server rejects
+            it with INVALID_ARGUMENT. Use StepOptions retry policies instead.
         config_override: Optional FlowConfig applied over registered defaults.
         ignore_already_started: Return the existing run rather than raising
             ``FlowAlreadyStartedError`` when supported by the server. It applies
@@ -296,11 +306,14 @@ class SubFlowOptions:
         timeout: Optional maximum SubFlow lifetime.
         timeout_policy: Action taken when a positive timeout expires.
         timeout_handler_options: Execute policy used when timeout policy is ``HANDLER``.
-        start_delay: Optional delay before its starting Step.
-        retry_policy: Optional whole-Flow retry policy.
+        start_delay: Optional delay before its starting Step. The current Server
+            rejects a positive value; use a Timer wait in the child instead.
+        retry_policy: Optional whole-Flow retry policy. The current Server rejects
+            a supplied policy; use StepOptions retry policies in the child instead.
         config_override: Fields applied over the inherited parent configuration.
         reuse_policy: Existing-execution resolution policy.
         condition_id: Stable ID required by ``Wait.any_combination_of``.
+            None is sufficient for other Wait forms unless selecting by ID.
     """
 
     timeout: timedelta | None = None
