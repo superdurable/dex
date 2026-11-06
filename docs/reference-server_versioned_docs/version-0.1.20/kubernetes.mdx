@@ -48,7 +48,7 @@ spec:
         app: dex-server-zd
     spec:
       serviceAccountName: dex-server-zd
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 45
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
@@ -99,24 +99,57 @@ spec:
 
 ## Graceful shutdown {#graceful-shutdown}
 
-Set **terminationGracePeriodSeconds** to at least 30 seconds. On SIGTERM, the
-node stops within about 14 seconds, in this order:
+On SIGTERM, the node stops handing out new Step tasks and reports **NOT_SERVING**.
+It keeps its lease and pull Worker streams open while running attempts finish.
+Heartbeats, completions, and failures continue to commit. The node releases the
+lease only after those attempts finish and their results commit, or after
+**lifecycle.attemptDrainTimeout** expires. A hot standby follows the commits and
+takes over after the release.
 
-1. gRPC health reports **NOT_SERVING**.
-2. Workers are told to reconnect, and long polls and the Stream Store close.
-3. In-flight RPCs get up to 4 seconds to finish.
-4. Background work and the engine stop.
-5. Lease renewal stops, and the node releases its lease with a conditional write.
-6. Other open calls finish within the same 4 seconds. They answer
-   **UNAVAILABLE**, so clients retry them on the new active process.
-7. The metrics listener closes.
-8. The process exits.
+During the drain, new Flow RPCs answer **UNAVAILABLE**, and the SDKs retry them.
+Steps that are not yet handed to a Worker wait. The successor dispatches them
+after it takes the lease. A Step whose start was already being written when the
+drain began still goes to its Worker and is drained like a running attempt. So
+does a Step that a Worker took from the
+[Step task queue](/reference/server/0.1.20/workers#step-task-queue) before the drain began. Steps still in the
+task queue stay there for the successor.
+
+**lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
+attempt draining. Step method and heartbeat timeouts still apply during the
+drain; the drain does not extend them. Choose a drain timeout long enough for
+the remaining execution time of the Step methods you want to finish.
+**dexcli dev** uses a **2s** drain unless its configuration sets this field,
+because it stops the server after 10 seconds. **dex-server-zd local** keeps
+the **30s** default.
+
+Set Kubernetes **terminationGracePeriodSeconds** longer than the drain timeout,
+with at least 15 extra seconds for teardown. For the default **30s** drain,
+allow at least **45** seconds. Otherwise Kubernetes may kill the process before
+it can commit results and release its lease.
+
+After the attempt drain, Workers reconnect, long polls and the Stream Store
+close, and in-flight RPCs get up to 4 seconds to finish. Background work stops,
+then the engine releases the lease. Other open calls end with **UNAVAILABLE**
+so clients retry on the new active process. The metrics listener closes last.
+This teardown has a separate budget of about 15 seconds.
+
+The **Step attempt drain ended** log records **attempts_waited**,
+**attempts_finished**, and **attempts_running**, including attempts still waiting
+for their final commit. Its **outcome** field is **completed** when every attempt
+finished, **timed_out** when the drain timeout expired, or **node_stopped** when
+the node stopped for another reason first. With a **0s** timeout, the node logs
+**Step attempt drain disabled** instead.
 
 The process exits 0 when every step completes. A replacement process with the
 same **cluster.nodeId** then acquires the lease at once. The process exits 1
 when some shutdown step does not complete in time or fails, for example when
 object storage rejects the lease release. A replacement may then wait up to
 **lease.duration** plus about 1 second.
+
+Attempts that Dex has not handed to a Worker yet do not fail. The successor
+dispatches them. Attempts that are running when the process lets go of the
+lease are failed by the new active process with **NOT_COMPLETED**, and each
+consumes a retry.
 
 A SIGTERM during startup interrupts lease acquisition or recovery. If the node holds
 its lease, it stops startup and releases the lease within the shutdown budget.
@@ -212,7 +245,7 @@ Use gRPC health for all three probes:
 A serving node that never steps down returns to **NOT_SERVING** only by
 exiting, because a lost lease ends the process. Liveness on gRPC health
 therefore does not cause restart loops for it. A
-[step down](/reference/server/high-availability#step-down) makes the active process report **NOT_SERVING** while
+[step down](/reference/server/0.1.20/high-availability#step-down) makes the active process report **NOT_SERVING** while
 it keeps running as a standby, and a liveness probe on gRPC health would restart
 it. A process that may step down needs the TCP or exec liveness probe of a
 standby.
@@ -220,7 +253,7 @@ standby.
 This probe set is for a single replica. A standby replica stays
 **NOT_SERVING** until it takes over, so it would never pass this startup probe.
 A standby needs a TCP or exec startup probe and liveness probe instead. See
-[hot standby](/reference/server/high-availability#hot-standby-health).
+[hot standby](/reference/server/0.1.20/high-availability#hot-standby-health).
 
 The process exits on its own after a fatal error, such as a lost lease or a
 failed commit. During startup, transient or unknown-outcome object storage read errors are retried

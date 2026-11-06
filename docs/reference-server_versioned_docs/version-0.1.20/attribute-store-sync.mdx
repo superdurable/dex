@@ -24,7 +24,7 @@ store's tables.
   server-zd writes the backlog with the latest values.
 - Entries still pending **syncRetryPolicy.totalDuration** after they were first
   marked are dropped. Later writes of the same Attributes sync normally.
-- After [time travel](/reference/server/runtime-client#time-travel), server-zd
+- After [time travel](/reference/server/0.1.20/runtime-client#time-travel), server-zd
   rewrites every row the run synced with the state after the time travel.
 - Each database needs a [fencing table](#attribute-store-fencing-table).
 - A natural close waits for synced Attributes. A Step decision that
@@ -53,7 +53,7 @@ store's tables.
   commits, even while a close waits, and the pending writes keep syncing after
   the close. A later **SetAttributes** on that run returns NOT_FOUND. From
   server-zd v0.1.5, it succeeds only when every write erases a currently stored
-  [hard-delete Attribute](/reference/server/runtime-data#hard-delete-attributes) with
+  [hard-delete Attribute](/reference/server/0.1.20/runtime-data#hard-delete-attributes) with
   null. This exception applies only before the run is purged. It deletes the
   stored objects without reopening the run. The run's Flow history records the
   erase after the close. Write what a Flow needs before stopping it.
@@ -120,7 +120,7 @@ fails validation.
 ## Fencing table {#attribute-store-fencing-table}
 
 Every write transaction raises a fencing token row to the node's epoch. A node
-that lost its [lease](/reference/server/high-availability#lease) therefore cannot overwrite newer values.
+that lost its [lease](/reference/server/0.1.20/high-availability#lease) therefore cannot overwrite newer values.
 
 Each database needs this table, named by **fencingTableName**. One table serves
 every store and every cluster in the database. server-zd never creates or alters
