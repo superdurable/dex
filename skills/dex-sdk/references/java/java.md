@@ -1,150 +1,247 @@
-# Java handbook
+# Java applications
 
-The SDK API reference uses the [released v1.35.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
+Load this page first for any Java Dex work. It covers project shape,
+registration, typing, the Worker and Client lifecycle, and Java-specific rules.
+Concepts live in core; this page only says how to express them in Java.
 
-Use this page first for Java application work. Then load the topic page that matches the task. The [baseline build](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/build.gradle) uses `io.superdurable:dex-sdk:1.31.0`, Spring Boot, and JDK 17 or newer. The application's Gradle or Maven lockfile remains authoritative. The [Client Attribute read](primitives.md#client-attribute-reads) needs SDK 1.31.0 or later.
+| Task | Read next |
+| --- | --- |
+| Write Flows, Steps, waits, state, RPCs, Streams, SubFlows, Client calls | [primitives.md](primitives.md) |
+| Handler failures, retries, recovery, Client exceptions | [error-handling.md](error-handling.md) |
+| Integration tests against a real Dex Server | [testing.md](testing.md) |
+| Choose a Flow shape | [../core/patterns.md](../core/patterns.md), then the pattern table in [primitives.md](primitives.md#patterns-in-java) |
+
+## Version and API details
+
+1. Find the resolved `io.superdurable:dex-sdk` version in the Gradle or Maven
+   build. Use `./gradlew dependencyInsight --dependency io.superdurable:dex-sdk`
+   or `mvn dependency:tree`.
+2. Open that minor version in the
+   [Java Developer reference](https://docs.superdurable.io/reference/java/)
+   with the left-sidebar version selector. It holds option lists, defaults,
+   limits, version differences, and the link to the generated Javadoc.
+3. Check the Server requirement for that SDK minor in the
+   [compatibility matrix](https://docs.superdurable.io/reference/).
+
+This skill gives stable rules and skeletons. Method signatures and defaults
+come from the Developer reference and the SDK doc comments. Never copy an API
+from another language or invent one; if the installed SDK lacks a feature, say
+so.
+
+Runnable examples: [examples/java](https://github.com/superdurable/dex/tree/main/examples/java).
 
 ## Project shape
 
-Keep Flow and Step types in application packages, expose them as Spring beans, build one `Registry` from every Flow bean, and share one disk `BlobCache` between the `Worker` and `Client`. Inject business dependencies through constructors. Parameterized Step inputs are not supported directly; use a concrete holder class or an array.
+```text
+src/main/java/com/acme/orders/
+  OrderFlow.java          # schema, Steps, RPC methods
+  OrderRequest.java       # input and output DTOs
+  OrderController.java    # Client calls at the service boundary
+  DexConfig.java          # Registry, BlobCache, Worker, Client
+src/test/java/com/acme/orders/
+  OrderFlowIntegTest.java # real Dex Server tests
+```
 
-The official example layout separates `products/`, `patterns/`, `primitives/`, and `shared/`. A smaller service normally needs `flows/`, `steps/`, `model/`, and a bootstrap/configuration class.
+- One Flow class per durable business process. Steps are nested classes of the
+  Flow, so they can read the Flow's definition fields.
+- Inject business dependencies (HTTP clients, repositories) through the Flow
+  constructor. Steps reach them through the enclosing instance.
+- Controllers own Flow ID choice and request IDs. Flows own durable state and
+  decisions. Steps do bounded external work.
+
+## Registration rules
+
+- A Flow implements `Flow<StartInput>`. A Step implements `Step<I>`.
+- `getSteps()` returns `StepList.startStep(first).otherSteps(...)`. List every
+  Step the Flow can reach: targets of `goTo`, RPC movements, recovery Steps,
+  and Steps only reached by a fallback movement. An RPC-only Flow returns
+  `StepList.empty()` (the default).
+- `getPersistenceSchema()` returns `PersistenceSchema.of(...)` with every
+  Attribute, AttributeMap, Channel, ChannelMap, and Stream the Flow uses.
+- Create one Step instance per Step class, as a final field of the Flow.
+  Return the same instances from `getSteps()` on every call.
+- Build one `Registry` from every Flow the process starts or executes,
+  including SubFlow children: `new Registry(List.<Flow<?>>of(orderFlow, shipmentFlow))`.
+- Registration validates names, the Step graph, persistence declarations,
+  loads, locks, and RPCs. Treat a registration failure as a startup failure.
+
+### Names are durable identifiers
+
+| Name | Default | Rule |
+| --- | --- | --- |
+| Flow type | simple class name | Name the class after its domain, such as `OrderFlow`. Never name it `Flow`. The package does not disambiguate two classes with the same simple name. |
+| Step type | simple class name | Unique within the Flow. |
+| RPC name | Java method name | Start with a verb: `getOrderStatus`, `approveOrder`. Override with `@RPC(name = ...)` only to keep an old name. |
+| Attribute, Channel, Stream names | the `define` argument | Stable strings, unique within the Flow. Never derive them from runtime data; use an AttributeMap or ChannelMap for dynamic keys. |
+
+Open Flows keep running against new code. Renaming a class changes its
+default Flow or Step type. Override `getFlowType()` or `getStepType()` with the
+old name, or keep the old class registered until no open Flow can reach it.
+The same holds for definition names, RPC names, and DTO field names. See
+[../core/application.md](../core/application.md) for the versioning rules.
+
+### RPC classes
+
+The Client builds an RPC stub by subclassing the Flow class without calling
+its constructor. A Flow class with `@RPC` methods must not be `final`, and its
+`@RPC` methods must not be `final`. In Kotlin, declare both `open`. An `@RPC`
+method is `public`, takes `Context` and at most one input, and returns `void`
+or `RPCResult<O>`.
+
+### Definition objects
+
+Define persistence objects as `public final` fields of the Flow (or
+`static final` constants). Client calls that take a definition, such as
+`getAttributes`, `waitForAttributeMatch`, and `writeStream`, require the exact
+object the registered Flow returned from `getPersistenceSchema()`. Reach it
+through the registered Flow instance, for example `orderFlow.orderStatus`. A
+second `Attribute.define(...)` with the same name is a different object and
+fails with `FlowDefinitionException`. Builder calls such as
+`hardDeleteOnNull()` and `syncToAttributeStore()` return a new object; keep and
+register the returned one.
+
+## Types and serialization
+
+- `Step<I>.getInputType()` must return a concrete `Class<I>`. `List<Order>`
+  cannot be expressed; wrap it in a named DTO or use `Order[].class`.
+- Values cross the wire as JSON through Jackson. Use DTO classes with a
+  no-argument constructor, or records. Keep property names stable while open
+  Flows can decode them. Use `@JsonProperty` to keep a wire name when you
+  rename a Java field.
+- A Client and the Worker that serve the same Flows must use the same
+  `ObjectMapper` configuration. Set it once on `ClientOptions` and
+  `WorkerOptions` if you customize it.
+- Use `Void` for no input; pass `null`. Use wrapper types (`Integer`, `Long`),
+  not primitives, as type arguments.
+- Java `null` has meaning: writing `null` to an Attribute deletes it, and a
+  `null` completion output is discarded. Return an explicit result DTO when
+  "no output" and "empty result" must differ.
+- Inside handlers, `Attribute.get` returns `null` for an absent value. Outside,
+  `Client.getAttributes` returns `Optional`.
+
+## Worker and Client bootstrap
+
+One process usually hosts one Worker, one Client, and one shared `BlobCache`.
+Every Worker is a pull Worker: it opens outbound connections to the Dex Server
+and needs no inbound port.
+
+```java
+public final class DexRuntime implements AutoCloseable {
+    private final BlobCache blobCache;
+    private final Worker worker;
+    private final Client client;
+    private final Thread workerThread;
+    private final CompletableFuture<Void> workerResult; // fails when start() throws
+    // private constructor and accessors omitted
+
+    public static DexRuntime start(String serverAddress, String cacheDirectory, List<Flow<?>> flows)
+            throws InterruptedException, TimeoutException {
+        Registry registry = new Registry(flows);
+        BlobCache blobCache = BlobCache.open(new BlobCacheConfig(cacheDirectory, 1L << 30));
+        Worker worker = new Worker(registry, blobCache, WorkerOptions.newBuilder()
+                .serverAddress(serverAddress)
+                .pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(16).build())
+                .build());
+        Client client = new Client(registry, blobCache, new ClientOptions(serverAddress));
+        CompletableFuture<Void> workerResult = new CompletableFuture<>();
+        Thread workerThread = new Thread(() -> {
+            try {
+                worker.start();
+                workerResult.complete(null);
+            } catch (Throwable failure) {
+                workerResult.completeExceptionally(failure);
+            }
+        }, "dex-worker");
+        workerThread.start();
+        DexRuntime runtime = new DexRuntime(blobCache, worker, client, workerThread, workerResult);
+        try {
+            worker.waitPullRegistered(Duration.ofSeconds(30));
+        } catch (InterruptedException | TimeoutException | RuntimeException failure) {
+            runtime.close();
+            throw failure;
+        }
+        return runtime;
+    }
+
+    @Override
+    public void close() throws InterruptedException {
+        client.close();
+        worker.close();
+        workerThread.join();
+        blobCache.close();
+    }
+}
+```
+
+Rules:
+
+- `Worker.start()` blocks until the Worker stops. Run it on a dedicated thread
+  and capture its failure; a startup failure must fail the service.
+- Call `waitPullRegistered` before reporting the service ready or accepting
+  traffic. It throws checked `InterruptedException` and `TimeoutException`.
+  On `InterruptedException`, restore the interrupt flag.
+- Use `worker.getPullRegistrationState().isReady()` for a readiness probe.
+- `close()` (or `stop()`) lets running handlers finish and send their results.
+  Close the Client and Worker before the `BlobCache`.
+- Share one disk `BlobCache` between the Worker and Client. Never create one per
+  request. Size its directory for active large payloads.
+- `maxConcurrentTasks` bounds parallel handlers in this process. Optional
+  reserved RPC slots keep RPCs responsive while Steps run. Sizing rules,
+  readiness details, and shutdown behavior are in the
+  [Java Workers reference](https://docs.superdurable.io/reference/java/workers).
+
+With Spring, expose `Registry`, `BlobCache`, `Worker`, and `Client` as beans
+with `destroyMethod = "close"`, and build the `Registry` from a `List<Flow<?>>`
+bean. Start the Worker thread in a lifecycle bean and wait for registration
+there. See
+[DexConfig.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/config/DexConfig.java).
 
 ## Pull Workers and Dex credentials
 
-From Java SDK v1.25.0, every Worker is a pull Worker. Set `WorkerOptions.Builder.serverAddress(...)` on the Worker and pass the same address to `new ClientOptions(serverAddress)`; no Worker address or target is configured, and StartFlow and SubFlow always route to pull Workers. v1.25.0 removed `WorkerTarget`, the Worker bind address, `worker.getWorkerTarget()`, and the Worker target options on ClientOptions and FlowConfig; delete them when upgrading. `updateFlowConfig` does not change a Flow's Worker routing. The pull options default to `PullWorkerOptions.newBuilder().build()`; use `WorkerOptions.newBuilder().pull(PullWorkerOptions.newBuilder().maxConcurrentTasks(8).build())` to tune them. `PullWorkerOptions.Builder` also offers `idleStreamsPerQueue`, `appWorkerID`, and `stopDrainTimeout`; defaults are one idle stream per queue, a generated process ID, and 30 seconds. A supplied app Worker ID must change after restart. With Java SDK v1.12.0, a Worker that lacks a requested Step type or RPC name declines it before the handler runs, so Dex can reassign the task without consuming the Step attempt. Read the [pull Worker guarantees](../core/pull-workers.md) for sticky routing, retry consumption, heartbeats, capacity, and Stop. [Released Java options](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/PullWorkerOptions.java) [Runnable pull Worker example](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java) selects SDK v1.31.0.
+- The Worker and Client take the same Dex Server address. There is no Worker
+  bind address and no Worker routing configuration.
+- A Worker serves only the Flow types in its Registry. During a rolling
+  deploy, old and new Workers serve the same Flow type at once, so every
+  change must stay compatible with open Flows.
+- When the Server requires authentication, set `credential(...)` on both
+  `ClientOptions` and `WorkerOptions`. Use the SDK's file-based credential for
+  a rotated token file, or its API-key credential when the application holds
+  an API key. Share one credential instance, and close it only after every
+  Client and Worker that uses it has closed.
+- TLS and credential options, token refresh, and error behavior are listed in
+  the [Java Developer reference](https://docs.superdurable.io/reference/java/)
+  and the [Server authentication reference](https://docs.superdurable.io/reference/server/authentication).
+- Read [../core/application.md](../core/application.md) for routing, retries
+  across Worker restarts, heartbeats, and shutdown guarantees.
 
-From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity keeps one extra idle stream for 30 seconds; set `PullWorkerOptions` idle streams per queue to at least two for heavy Step backlogs. The Worker also sends an internal upstream Pong every 20 seconds while a task runs, so proxy idle timeouts must exceed 20 seconds and Server **matching.pingInterval**.
+## What Java does not have
 
-Java SDK v1.14.0 adds **worker.waitPullRegistered(Duration.ofSeconds(30))**. Run blocking **start()** on another thread, handle its failures, and wait before activating the Worker. Timeout throws **TimeoutException**; interruption ends only the wait. Probe **worker.getPullRegistrationState().isReady()**. Queue entries expose **getQueue()**, **hasRegisteredStream()**, and **getLastPermanentError()**. A **PullRegistrationError** preserves the queue through **getQueue()** and transport error through **getCause()**. Opt into **PullWorkerOptions.Builder.stopOnPermanentStreamRejection(true)** to drain and throw that error from **start()** when a permanent rejection leaves a queue without another registered stream. Always call **stop()** or **close()** afterward. Follow the shared [readiness contract](../core/pull-workers.md#startup-registration-and-readiness), including stable readiness across reconnects and Stop. [Released Java readiness API](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/Worker.java)
+- There is no Java Connector SDK. Do not invent a Java loader for Dex Web
+  Connector configuration, and never put provider credentials in Flow input or
+  an ordinary Attribute. Keep them behind the application's secret management.
+  A short-lived secret that the Flow itself must hold belongs in a hard-delete
+  Attribute. See [../core/connector.md](../core/connector.md).
+- The FDG 2.0 management metadata (Summary, Display, Action, Indexed Attribute,
+  group, explanation) is read from Go source only. Do not invent Java
+  annotations for it. Java Flows still work with Dex Web, the CLI, and the
+  Client.
 
-With SDK v1.15.0, **PullWorkerOptions.Builder.reservedRpcTasks** reserves RPC capacity. Omit the builder setting for the default; pass **0** to opt out. Unset reserves one slot when resolved maximum concurrent tasks **M ≥ 2**; otherwise it reserves zero and logs one startup warning. Require **0 ≤ R < M**; invalid reserves fail construction. This intentionally gives Steps one fewer slot by default. Both API-direct and transactional RPC tasks may use all **M** slots; WaitFor and Execute, including local attempts, are declined at **M − R** total busy handlers. Export **Worker.getPullReservedRpcDeclines()** to measure reserve declines. Follow the shared [reserve semantics and sizing advice](../core/pull-workers.md#reserved-rpc-capacity) for dispatch exhaustion, counter scope, and long-running Steps. [Released capacity guidance](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/README.md)
+## Java gotchas
 
-With SDK v1.14.1, the Worker gracefully closes surplus idle streams after load drops while preserving readiness and the configured registered idle streams per queue. Size steady-state streams as **M + (F + 1) × I**, where **M** is maximum concurrent tasks, **F** is registered Flow types, and **I** is idle streams per queue. Burst peaks remain bounded by **matching.maxConcurrentTasksCap** and **matching.maxStreams**; follow the shared [capacity guidance](../core/pull-workers.md#heartbeats-capacity-and-shutdown).
+- `Thread.sleep` in a handler holds a Worker slot. Use a Timer for business
+  time that can be long.
+- Never keep the `Context`, a `BufferedTextStream`, or loaded values in a field.
+  They belong to one invocation.
+- `waitForFlow(flowId, timeout)` throws `LongPollTimeoutException` when the
+  Flow is still running. Check `FlowResult.getStatus()` before decoding output.
 
-Java SDK releases newer than v1.32.0 replace the decline, extra idle stream, and **M + (F + 1) × I** rules above. They require Server protocol 4 (server-zd newer than v0.1.16): against an older Server, Worker **start()** fails and a **Client** fails its first request, so upgrade the Server first. The Worker keeps exactly **maxConcurrentTasks** long-lived streams, one per execution slot; **reservedRpcTasks** of them accept only RPCs and the rest accept Steps and RPCs. The Worker runs every task it receives and never declines for capacity. **Worker.getPullReservedRpcDeclines()** is deprecated and always returns zero; **PullWorkerOptions.Builder.idleStreamsPerQueue** is deprecated, still accepted, and has no effect. **waitPullRegistered** succeeds once one STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream register. **PullRegistrationError.getQueue()** and each snapshot's **getQueue()** hold **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or **POLL_WORKER_SLOT_KIND_RPC_ONLY**. Worker start fails when **maxConcurrentTasks** exceeds the Server's **matching.maxConcurrentTasksCap**. **stop()** lets running handlers finish and send their output; Dex returns tasks that arrive during shutdown without consuming a retry. Follow the shared [reserved RPC capacity](../core/pull-workers.md#reserved-rpc-capacity) and [shutdown](../core/pull-workers.md#heartbeats-capacity-and-shutdown) guidance.
+## Self-check
 
-Set `credential(...)` separately on ClientOptions and WorkerOptions when public API authentication is enabled. `FileCredential` reads a rotating token file; a custom `Credential.token()` supplies the current bearer token for each call and pull stream opening. A credential error prevents the call from reaching Dex. Protect the plaintext connection. [Released Java credential API](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/FileCredential.java)
-
-With Java SDK v1.16.0, use **ApiKeyCredential** when the application holds an API key instead of a rotated token file. **ApiKeyCredential.builder(URI tokenUrl, String serverId, String apiKey)** throws **IllegalArgumentException** for a missing value or a disallowed URL. Its optional **exchangeTimeout(Duration)** defaults to ten seconds. Its optional **httpConnectionFactory(...)** opens proxy or test connections; the factory stays caller-owned, and the credential disconnects each connection after use. **build()** does not contact the token endpoint; the first call performs the exchange. Pass the same instance to **credential(...)** on ClientOptions and WorkerOptions. The class is **AutoCloseable** and owned by the application. Close it only after every Client and Worker sharing it has closed, because later token calls throw **IllegalStateException**. A direct **token()** call throws **ApiKeyCredential.ExchangeException** on a failed exchange. It is an **IOException** whose **getHttpStatus()** is -1 when no response arrived; its message redacts secrets and omits transport causes. Client calls report the failure as **DexServiceException** with UNAUTHENTICATED, so catch that around Client calls. A gRPC deadline or cancellation bounds a token wait during a unary retry. Follow the shared [API key Credential contract](../core/operations.md#api-key-credential) for refresh, rejection retries, and redaction. [Released Java API key credential](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/ApiKeyCredential.java) [README example](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/README.md)
-
-## FlowService transport
-
-Java SDK v1.20.0 **ClientOptions** and **WorkerOptions** have no FlowService TLS option. Their FlowService channels use plaintext gRPC, including pull streams. The Go SDK v1.22.0 option does not apply. See [FlowService TLS](../core/operations.md#flowservice-tls). [Client options](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java) · [Worker options](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java)
-
-## Connector runtime support
-
-The official Connector SDKs exist only for Go, Python, and TypeScript, so the `projectconfig` loader and the generated `NewProjectConnection` API have no equivalent Java SDK today. Do not invent a Java loader or deserialize Dex Web's credential file into Flow state. For a Java application, keep provider credentials behind an application-owned secret/runtime adapter until an official Java Connector SDK exposes the same contract.
-
-## Deployed configuration and recovery boundary
-
-Dex provides no deployed Connector configuration or credential store. Deployed Go,
-Python, and TypeScript applications read their connections with their Connector SDK's
-`projectconfig` package (Go: `sdkgo/projectconfig`), but
-no equivalent Java SDK exists today; see
-[deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
-Keep credentials behind the deployment's secret management; a browser, Flow input,
-or ordinary Attribute cannot select secret storage.
-When the Flow itself must hold a short-lived secret, such as an API key passed
-at start, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes)
-instead of an ordinary Attribute.
-For recovery after a Worker fix, preserve the original resource and Flow ID,
-reconcile external effects, and use an explicitly authorized, recorded Step
-boundary as described in [safe recovery](../core/operations.md#safe-recovery).
-
-## Dex Web v2 management metadata
-
-The current FDG 2.0 management-interface analyzer reads Go source only. A Java
-Flow cannot currently publish the Summary, Display, Action, Indexed Attribute,
-group, explanation, or Action input capture metadata that drives the full Dex
-Web v2 management interface. Java applications can still operate Flows and use
-their supported Client and CLI surfaces; do not invent Java annotations for the
-Go-only analyzer contract.
-
-## Minimal Flow
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java)
-<!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java -->
-```java
-@Component
-public class ExampleFlow implements Flow<Integer> {
-    public static final Attribute<String> status = Attribute.define("status", String.class);
-    public static final Channel<Void> notify = Channel.define("notify", Void.class);
-
-    private final ExampleStep exampleStep = new ExampleStep();
-    private final Finish finishStep = new Finish();
-
-    @Override
-    public StepList<Integer> getSteps() {
-        return StepList.startStep(exampleStep).otherSteps(finishStep);
-    }
-
-    @Override
-    public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(status, notify);
-    }
-```
-
-A Flow returns its complete Step registry once. The first Step input type must match `Flow<I>`. All persisted definitions belong in `getPersistenceSchema()`.
-
-[Pinned Step source](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java)
-<!-- dex-source: examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java -->
-```java
-final class ExampleStep implements Step<Integer> {
-    @Override
-    public Class<Integer> getInputType() {
-        return Integer.class;
-    }
-
-    @Override
-    public Wait waitFor(final Context context, final Integer input) {
-        status.set(context, "running");
-        return Wait.skipImmediately();
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final Integer input) {
-        return StepDecision.goTo(Finish.class, input + 1);
-    }
-}
-```
-
-## Registry, Worker, and Client
-
-[Pinned bootstrap source](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/src/main/java/io/superdurable/dex/config/DexConfig.java)
-<!-- dex-source: examples/java/src/main/java/io/superdurable/dex/config/DexConfig.java -->
-```java
-@Bean
-public Registry registry(final List<Flow<?>> flows) {
-    return new Registry(new ArrayList<Flow<?>>(flows));
-}
-
-@Bean(destroyMethod = "close")
-public BlobCache blobCache(
-        @Value("${dex.blob-cache-dir}") final String blobCacheDir) {
-    return BlobCache.open(new BlobCacheConfig(blobCacheDir, 1L << 30));
-}
-```
-
-Start the blocking Worker on a managed thread and close Worker, Client, and BlobCache during application shutdown. Do not create a cache per request.
-
-Add `io.superdurable:dex-sdk:<resolved-version>` to Gradle or Maven. Application adapters call the injected Client to start a registered Flow, read committed Attributes with [`getAttributes`](primitives.md#client-attribute-reads), invoke typed RPC stubs for writes and computed reads of Flow-owned state, wait for Attribute matches, or wait for terminal status.
-
-## Run locally
-
-```bash
-dexcli dev
-cd examples/java
-./gradlew bootRun
-```
-
-Use `./run-integration-tests.sh` for the official application suite. Defaults connect to `localhost:8801`; configure the server address and cache directory with the example environment variables. The examples always run a pull Worker, which needs only an outbound connection to Dex. See the [pinned example README](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/examples/java/README.md).
-
-## Continue reading
-
-- [Primitives](primitives.md) for application building blocks.
-- [Patterns](patterns.md) before selecting a Flow shape.
-- [Errors](error-handling.md) before writing Client, admission, RPC, cleanup, wait, or external Stream boundaries.
-- [Testing](testing.md) before declaring durable behavior complete.
-- [Data](data-handling.md), [observability](observability.md), and [versioning](versioning.md) for production behavior.
-- [Gotchas](gotchas.md) and [advanced features](advanced-features.md) for constraints that are easy to miss.
+- [ ] Flow class named after its domain, not `final` if it has RPCs.
+- [ ] Every reachable Step in `getSteps()`; every definition in `getPersistenceSchema()`.
+- [ ] Step inputs are concrete classes; DTO wire names are stable.
+- [ ] Client code uses the registered Flow's definition objects.
+- [ ] Worker runs on its own thread; startup waits for registration and fails on error.
+- [ ] One shared `BlobCache`; Client, Worker, and cache closed on shutdown.
+- [ ] External effects in Steps are idempotent (see [error-handling.md](error-handling.md)).
+- [ ] Integration tests run against a real Dex Server (see [testing.md](testing.md)).

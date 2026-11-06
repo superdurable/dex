@@ -1,103 +1,274 @@
-# Rust error handling
+# Rust error handling and recovery
 
-Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC or `Client::get_attributes` call issued after a successful direct-state RPC write observes that write when it reads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
+Read [../core/error-handling.md](../core/error-handling.md) first for the
+rules. This page maps them to Rust. Keep three kinds of failure apart:
 
-Separate handler failures from controller/client failures. A Step or RPC returns `HandlerResult<T>` and uses `HandlerError` to control retryable Worker behavior. A Client operation returns `SdkResult<T>` and exposes typed `SdkError` variants. Do not collapse either into strings before policy or HTTP mapping has examined it.
+| Kind | Where | Rust form |
+| --- | --- | --- |
+| Business outcome | Step `execute` | Return `Ok(StepDecision::...)` (`force_fail`, a recovery `go_to`, a result) |
+| Retryable handler failure | Step or RPC handler | Return `Err(HandlerError)` |
+| Client or service failure | Code that calls `Client` | Match `SdkError` variants |
 
-## Handler failures and retries
+Handlers return `HandlerResult<T>`; Client calls return `SdkResult<T>`. Do not
+turn either into a string before your policy has inspected it.
 
-Return errors with `?` when a durable read or write fails. For an application failure, construct a stable error type and useful message. `HandlerError::retry_after` overrides the next retry delay for that failure; `StepOptions::execute_retry` still bounds attempts. Use it only as explicit backoff for a transient failure. It is not a polling loop: an external “not ready yet” status is a normal branch of the [Polling pattern](patterns.md#polling), never an error. The excerpt below only demonstrates the delay override.
+## Handler failures
 
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/src/primitives/custom_retry/flow.rs)
-<!-- dex-source: examples/rust/src/primitives/custom_retry/flow.rs -->
+- `Err(HandlerError)` from `wait_for` or `execute` fails that attempt. Dex
+  discards every Attribute write and Channel publish the attempt staged, then
+  retries according to `wait_for_retry` or `execute_retry`.
+- Build errors with a stable error type:
+  `HandlerError::new("PaymentDeclined", message)`, or
+  `HandlerError::from_error(error)` to keep a library error's type name.
+  Recovery Steps see that type.
+- There is no `From<SdkError>` or blanket `From<E>` for `HandlerError`. Use
+  `.map_err(HandlerError::from_error)?` on `SdkResult` and library results.
+  `Context` and definition methods already return `HandlerResult`.
+- Never swallow an error to return success. That commits partial state and
+  hides the retry.
+- An external call may succeed even when the attempt fails afterward. Make
+  every external effect idempotent: derive a key from durable data, such as
+  `format!("{}-charge", context.flow_id())`, or record a receipt.
+- An expected "not ready" or business rejection is not an error. Model it as a
+  loop branch, a Timer, or a decision.
+- `HandlerError::retry_after(seconds, error_type, message)` sets the delay
+  before the next retry. Retry limits still apply. It is not a polling loop.
+
 ```rust
-fn options(&self) -> StepOptions<Self::Input> {
-    StepOptions::new().execute_retry(RetryPolicy::new().maximum_attempts(5))
-}
-
-fn execute(
-    &self,
-    context: &mut Context,
-    ready_after_attempt: Self::Input,
-) -> HandlerResult<StepDecision> {
-    if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
+pub fn call_rate_limited_provider(context: &Context) -> HandlerResult<StepDecision> {
+    if provider_is_rate_limited() {
         return Err(HandlerError::retry_after(
-            7,
-            "CustomRetry",
-            format!("not ready on attempt {}", context.attempt()),
+            30,
+            "ProviderRateLimited",
+            format!("rate limited on attempt {}", context.attempt()),
         ));
     }
-    Ok(StepDecision::graceful_complete(String::from("ready")))
+    Ok(StepDecision::dead_end())
 }
 ```
 
-Make Execute side effects idempotent across attempts. Dex retries a logical method execution; a remote service may have accepted the previous call even when the Worker did not observe the response.
+## Recovery Steps
 
-## WaitFor versus Execute failure
+When Execute retries run out, `on_execute_failure_proceed_to(&Recovery)` runs a
+registered recovery Step with the same input. Without a route, the Flow fails.
 
-Configure retry policies for the phase that can fail. WaitFor should normally be pure durable preparation. If WaitFor exhaustion is explicitly recoverable, set `WaitForFailurePolicy::Proceed`; Execute must then check `context.wait_for_method_failed()` before selecting a recovery transition.
-
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/src/primitives/proceed_on_wait_failure/flow.rs)
-<!-- dex-source: examples/rust/src/primitives/proceed_on_wait_failure/flow.rs -->
 ```rust
-fn options(&self) -> StepOptions<Self::Input> {
-    StepOptions::new()
-        .wait_for_failure(WaitForFailurePolicy::Proceed)
-        .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
-}
+#[derive(Default)]
+struct RecordChargeFailure;
 
-fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-    Err(HandlerError::new(
-        "ProceedOnWaitFailure",
-        "planned WaitFor failure",
-    ))
+impl Step for RecordChargeFailure {
+    type Input = OrderRequest;
+
+    fn execute(&self, context: &mut Context, order: Self::Input) -> HandlerResult<StepDecision> {
+        let failure = context
+            .recovery_error()
+            .ok_or_else(|| HandlerError::new("MissingRecoveryError", "no recovery error"))?;
+        let may_have_charged = !matches!(failure.attempt_progress(), StepAttemptProgress::NotStarted);
+        let detail = format!("{}: {}", failure.error_type(), failure.detail());
+        if may_have_charged {
+            let idempotency_key = format!("{}-charge", context.flow_id());
+            refund_if_charged(&idempotency_key).map_err(HandlerError::from_error)?;
+        }
+        ORDER_STATUS.set(context, format!("charge failed: {detail}"))?;
+        Ok(StepDecision::force_fail(format!("order {} not charged", order.order_id)))
+    }
 }
 ```
 
-Never enable Proceed without a deliberate Execute branch; otherwise failed preparation is mistaken for successful readiness.
+- `context.recovery_error()` returns `Option<&RecoveryErrorInfo>` with
+  `error_type()`, `detail()`, and `attempt_progress()`.
+- `StepAttemptProgress::NotStarted` guarantees no handler attempt ran. Only
+  SYNC Steps can report it. `NotCompleted` and `Unspecified` mean an attempt
+  may have run; reconcile external effects before repeating them. An ASYNC
+  Step always reports `NotCompleted`. The enum is non-exhaustive, so test for
+  `NotStarted` and treat everything else as "may have run".
+- Never branch on Dex time-limit error spellings. Branch on your own error
+  types and on attempt progress.
+- A recovery Step must be idempotent and must work after a partial external
+  success. Persist the facts it needs before the risky call.
+- Bound retries by attempts or `total_duration` so recovery runs in time.
 
-## Recovery choices
+### WaitFor failure
 
-- Compensation Step: use when completed effects can be reversed deterministically.
-- Manual recovery: wait on operator Channels after automatic retries exhaust.
-- Graceful timeout handler: make a final bounded decision when the Flow deadline wins.
-- Force fail: use when no safe continuation exists.
-- Dead end: terminate only one branch; do not confuse it with failing the whole Flow.
+`wait_for_failure(WaitForFailurePolicy::Proceed)` runs `execute` even when
+`wait_for` exhausts its retries. Then `execute` must check
+`context.wait_for_method_failed()` first; otherwise a failed preparation looks
+like readiness.
 
-Record recovery progress durably before triggering another non-idempotent action.
+```rust
+fn execute(&self, context: &mut Context, job: Self::Input) -> HandlerResult<StepDecision> {
+    if context.wait_for_method_failed() {
+        return Ok(StepDecision::force_fail(format!("could not prepare {job}")));
+    }
+    Ok(StepDecision::graceful_complete(job))
+}
+```
 
-A recovery Step reads `Context::recovery_error()`. The Rust SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). Rust SDK releases newer than v1.31.0 add **RecoveryErrorInfo::attempt_progress()**, which returns a **StepAttemptProgress**. Only **StepAttemptProgress::NotStarted** guarantees the handler never ran. Only SYNC Steps report it; ASYNC failures always report **NotCompleted**. Treat **NotCompleted** and **Unspecified** as possibly run, and reconcile external effects before repeating them. See [attempt progress](../core/error-handling.md#attempt-progress).
+### Other recovery shapes
+
+- Manual recovery: route exhaustion to a Step that waits on operator retry and
+  skip Channels. Authenticate and audit the RPC that publishes them.
+- Flow deadline: model it with a timeout handler or a Timer winner, not an
+  error.
+- `dead_end()` ends one branch; `force_fail(reason)` fails the whole Flow.
+
+## Cancellation
+
+Cancellation is cooperative and does not undo external effects. Long loops
+check `context.is_cancelled()` between bounded units of work and return
+promptly, for example with `StepDecision::dead_end()`. A canceled attempt's
+late decision, writes, retries, and recovery are discarded. Never block a
+single call indefinitely; give it a timeout.
 
 ## Client errors
 
-Match `SdkError` variants that affect external behavior, such as `FlowAlreadyStarted`, `RequestTimeout`, `RpcLockConflict`, Channel message absence, or Worker invocation failure. Durable Step and Attribute waits never expose transport long-poll expiry; they reattach transparently and preserve the total request budget. `RequestTimeout` means that caller-visible budget expired, not that the Flow or the wait condition failed. Controllers should map known conflicts and invalid requests distinctly from infrastructure failures. Preserve `source()` chains in logs. Do not retry every `SdkError`; only retry operations whose semantics and request IDs make repetition safe.
+`SdkError` is one non-exhaustive enum. It holds both remote failures and local
+defects, so never treat every `SdkError` as a remote failure.
 
-Unlike the class-based SDKs, `SdkError` is one enum containing both service-backed variants and local `FlowDefinition`, `InvalidArgument`, `ValueMapping`, and `InvalidStepResult` defects. Never discard every `SdkError` to implement a remote-failure policy. Match the documented service variant for the operation, or use `service_error().is_some()` only at a narrow boundary that intentionally handles every remote variant identically.
+| Variant | Meaning | Typical handling |
+| --- | --- | --- |
+| `FlowAlreadyStarted` | The Flow ID is taken by another request | Domain conflict, unless the contract redirects to the existing Flow |
+| `FlowNotFound` | No such Flow | Not found |
+| `FlowNotActiveOrNotFound` | No active target for this call | See [Closed-Flow races](#closed-flow-races) |
+| `FlowClosing` | The Flow is closing | Re-read the terminal state, then decide |
+| `RpcLockConflict` | RPC locks are held | Retry with backoff if the RPC is idempotent |
+| `WorkerInvocation` | The RPC handler failed; `worker` holds its error type and detail | Map to the handler's business error |
+| `ChannelMessageNotFound` | The message is no longer pending | Treat as already consumed |
+| `RequestTimeout` | The caller's wait budget expired | Outcome unknown; the Flow keeps running |
+| `LongPollTimeout` | A bounded long poll ended while the Flow runs | Wait again or report pending |
+| `Service` | Any other remote failure | Keep `service.code()` and `sub_status()` for logs |
+| `FlowDefinition`, `InvalidArgument`, `ValueMapping`, `InvalidStepResult` | Local defect in code, definitions, or data | Surface; do not retry |
 
-When the API promises a critical operation has completed, follow the shared [required business milestone rule](../core/error-handling.md#wait-for-a-required-business-milestone): after start success or matching-request deduplication, call `Client::wait_for_attribute_match` or `Client::wait_for_step_completion` for the committed condition or the specific persistence Step execution. Publish that condition only after the business effect commits. Bound the wait; timeout does not undo acceptance or prove the operation failed. An acceptance-only response needs no wait.
+```rust
+pub fn classify(error: &SdkError) -> &'static str {
+    match error {
+        SdkError::FlowAlreadyStarted { .. } => "conflict",
+        SdkError::RpcLockConflict { .. } => "retry-later",
+        SdkError::RequestTimeout { .. } => "still-pending",
+        SdkError::FlowDefinition { .. }
+        | SdkError::InvalidArgument { .. }
+        | SdkError::ValueMapping { .. } => "local-defect",
+        other
+            if other
+                .service_error()
+                .is_some_and(|service| service.code() == GrpcCode::Unavailable) =>
+        {
+            "unavailable"
+        }
+        _ => "internal",
+    }
+}
+```
 
-For an idempotent start, set one stable `StartFlowOptions::request_id(...)` and `ignore_already_started(true)` only when a retry of that same logical request may attach to the existing run. A remaining `SdkError::FlowAlreadyStarted` means a different Request ID owns the Flow ID. Treat it as a domain conflict unless the coordinator contract deliberately redirects the command to that existing Flow. Another service-backed variant can leave acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
+- `error.service_error()` returns the `ServiceError` of any remote variant,
+  with `code()`, `sub_status()`, `detail()`, and `operation()`. Use it only at
+  a boundary that treats every remote failure alike.
+- Always include a wildcard arm. `ErrorSubStatus` is non-exhaustive too.
+- Never branch on detail text. Keep `source()` chains in logs.
 
-For an explicitly best-effort external `Client::write_stream`, suppress only `SdkError::Service { .. }`, the remote fallback produced by that operation. It also carries the FAILED_PRECONDITION or RESOURCE_EXHAUSTED status of a disabled or full Stream Store, readable through `ServiceError::code()`; see the [Core error guidance](../core/error-handling.md) for which one to retry. Propagate local argument and value-mapping variants. Context Stream writes inside a handler remain `HandlerResult` work and must participate in the Step's retry or recovery policy.
+## Idempotent start
 
-## Flow close cleanup
+```rust
+pub fn start_order(client: &Client, request: OrderRequest, request_id: &str) -> SdkResult<String> {
+    let flow_id = format!("order-{}", request.order_id);
+    let options = StartFlowOptions::new()
+        .request_id(request_id)
+        .ignore_already_started(true)
+        .timeout(Duration::from_secs(7 * 24 * 3600));
+    client.start_flow_with_options(&OrderFlow::default(), &flow_id, request, options)
+}
+```
 
-From Rust SDK v1.20.0 or later, match `SdkError::FlowClosing { .. }` for a cleanup-sensitive Client call rejected with `ErrorSubStatus::FlowClosing` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. `SdkError` and `ErrorSubStatus` are non-exhaustive; include a wildcard arm in exhaustive matches. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released variants](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
+- Use one stable request ID per logical request. A retry with the same ID and
+  `ignore_already_started(true)` returns the existing run.
+- A remaining `SdkError::FlowAlreadyStarted` means another request owns the
+  Flow ID.
+- Another remote error can leave acceptance unknown. Retry with the same Flow
+  ID and request ID, or read the domain state. Do not build a separate
+  start-deduplication table.
 
-## Indexed search limits
+## Waiting for a business milestone
 
-With server-zd `search.backend: postgres`, read the shared [indexed search limits](../core/error-handling.md#indexed-search-limits) first. At Rust SDK v1.31.0, a StartFlow or RPC rejected for an indexed Keyword value over 1,024 bytes returns `SdkError::Service { .. }` whose `ServiceError::code()` is `InvalidArgument` and whose `sub_status()` is `ErrorSubStatus::Uncategorized`. A Worker whose Attribute index registration exceeds capacity returns `SdkError::Service` from `start`, with the Server's FailedPrecondition status in its detail. The generated `dex_protocol::dex::ErrorSubStatus::AttributeIndexCapacityExceeded` and `IndexedKeywordTooLong` values exist only in the protocol bindings, and their enum is not the public `dex_sdk::ErrorSubStatus`; do not branch on them. A Flow that fails because a Step result carried such a value reports Flow error type `FlowErrorType::WorkerApiFailed` at Rust SDK v1.31.0. [Released Flow error type mapping](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/client.rs) Validate indexed Keyword lengths before the write. [Released Rust error mapping](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
+When the API promises that something has happened, wait for it after start or
+after the RPC with `wait_for_attribute_match` on an Attribute the Flow writes
+only after the effect commits, or with `wait_for_step_completion`. Always set
+`request_timeout`. A timeout does not undo acceptance and does not prove
+failure. An API that only promises acceptance needs no wait.
+
+## Query-only reads
+
+For a business Get whose RPC has no locks, no transaction, and no returned
+effects, a missing Flow and a closed Flow need no lifecycle probe:
+
+```rust
+pub fn get_status_or_not_found(client: &Client, flow_id: &str) -> SdkResult<Option<String>> {
+    match client.invoke_rpc_without_input(flow_id, GET_ORDER_STATUS) {
+        Ok(status) => Ok(Some(status)),
+        Err(SdkError::FlowNotActiveOrNotFound { .. } | SdkError::FlowNotFound { .. }) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+```
+
+`get_attributes` returns only `SdkError::FlowNotFound` for a missing Flow; a
+closed Flow stays readable until purge. Do not apply this translation to
+mutations or to RPCs that need an active Flow.
 
 ## Closed-Flow races
 
-Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `SdkError::FlowNotActiveOrNotFound` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `client.describe_flow(flow_id)` only when an otherwise unknown terminal distinction changes the outcome. It is a blocking call, so keep it off the async executor like other Client calls. It reads the current or latest run without waiting for completion. It returns `SdkResult<FlowInfo>` with `flow_id`, `run_id`, `flow_type`, `status`, and `started_at`; it has no close time. Treat `FlowStatus::Completed` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or `SdkError::FlowNotFound { .. }`, return an explicit domain failure or unknown outcome. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/client.rs) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/flow_info.rs)
+`SdkError::FlowNotActiveOrNotFound` from a mutation says no active target took
+the call. It does not say the action happened. Reconcile from domain state
+first. Call `describe_flow` only when the terminal status changes the answer.
 
-## Query-only Get failures
+```rust
+pub fn cancel_order(client: &Client, flow_id: &str) -> Result<CancelOutcome, SdkError> {
+    match client.invoke_rpc_without_input(flow_id, CANCEL_ORDER) {
+        Ok(()) => Ok(CancelOutcome::Canceled),
+        Err(SdkError::FlowNotActiveOrNotFound { .. }) => match client.describe_flow(flow_id) {
+            Ok(info) if info.status == FlowStatus::Completed => Ok(CancelOutcome::AlreadyFinished),
+            Ok(_) | Err(SdkError::FlowNotFound { .. }) => Ok(CancelOutcome::Unknown),
+            Err(error) => Err(error),
+        },
+        Err(SdkError::FlowClosing { .. }) => Ok(CancelOutcome::Unknown),
+        Err(error) => Err(error),
+    }
+}
+```
 
-Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `SdkError::FlowNotActiveOrNotFound` or `SdkError::FlowNotFound` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths.
+- Treat `FlowStatus::Completed` as success only when completion guarantees the
+  requested condition.
+- Any other terminal status or a missing Flow is an explicit failure or
+  unknown outcome. Do not retry a terminal fact forever.
+- If the Flow is still running, read its domain state before one bounded,
+  idempotent retry.
 
-A business Get that reads with `Client::get_attributes` translates `SdkError::FlowNotFound` the same way. That call never returns `SdkError::FlowNotActiveOrNotFound`, because a closed run stays readable until purge. Let `FlowDefinition`, `ValueMapping`, and `InvalidArgument` stay visible as local defects. One exception: a `ValueMapping` from `get_attributes` for a large value that could not be resolved is retryable, because a purge or a concurrent overwrite between the read and the large-value resolution also causes it. Retry the call once to read fresh state; a repeated failure is a defect. See [Client Attribute reads](primitives.md#client-attribute-reads) for the full error list.
+## Best-effort Stream writes
 
-## Terminal decisions
+An external `client.write_stream` that may be lost suppresses only
+`SdkError::Service`, logs the Flow ID and code without the payload, and
+continues. A disabled or full Stream Store also arrives this way. Local
+variants still surface. A Stream write inside a handler is ordinary
+`HandlerResult` work under the Step's retry policy.
 
-`graceful_complete` waits for the Flow's branch semantics; `force_complete` terminates immediately; `force_fail` fails immediately. Assert the intended Flow status in integration tests. A successful method return is not evidence that buffered Stream output or unrelated sibling work has finished.
+```rust
+match client.write_stream(flow_id, &ORDER_PROGRESS, "api", message) {
+    Ok(()) => Ok(()),
+    Err(SdkError::Service { service }) => {
+        tracing::warn!(flow_id, code = ?service.code(), "progress write dropped");
+        Ok(())
+    }
+    Err(error) => Err(error),
+}
+```
+
+## Checklist
+
+- [ ] Business outcomes are decisions; only retryable failures return `Err`.
+- [ ] Errors carry stable types; library errors use `HandlerError::from_error`.
+- [ ] External effects carry durable idempotency keys.
+- [ ] Retries are bounded where a recovery route must run.
+- [ ] Recovery reads attempt progress and reconciles before repeating effects.
+- [ ] `Proceed` WaitFor policy has a `wait_for_method_failed()` branch.
+- [ ] `SdkError` matches have a wildcard arm; local defects stay visible.
+- [ ] Starts use a stable request ID; milestone waits have a timeout.
+- [ ] Logs carry Flow ID, run ID, Step execution ID, and attempt; never secrets or large payloads.

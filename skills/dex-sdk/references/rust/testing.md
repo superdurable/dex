@@ -1,90 +1,182 @@
 # Testing Rust Dex applications
 
-Prefer integration tests against a real Dex Server. Unit tests can validate pure helpers, but they cannot prove WaitFor/Execute commit boundaries, retries, Worker replacement, Channel delivery, RPC locking, durable timers, or terminal behavior.
+Read [../core/testing.md](../core/testing.md) for what to test and why. Durable
+behavior needs a real Dex Server: start one locally with `dexcli dev`. Unit
+tests cover only pure helpers and serde mapping; they cannot prove commit
+boundaries, retries, Worker replacement, Channel delivery, RPC locks, Timers,
+or terminal behavior.
 
-## Test harness
+## Harness
 
-Start `dexcli dev`, build the same Registry used by production, create a temporary BlobCache, and run the Worker on a dedicated thread. Construct the Worker and Client with the same Dex Server address. Stop and join the Worker and close the cache during teardown.
+Build the production Registry, a temporary `BlobCache`, a Worker on its own
+thread, and a Client. Tear them down in `Drop`.
 
-A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
-
-[Released Worker and Client setup](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/README.md#pull-mode)
-<!-- dex-source: sdk-rust/README.md -->
 ```rust
-let worker = Worker::try_new(
-    registry.clone(),
-    cache.clone(),
-    WorkerOptions::new()
-        .server_address("dex.example:8801")
-        .pull(PullWorkerOptions::new()
-            .max_concurrent_tasks(8)),
-)?;
-let client = Client::try_new(
-    registry,
-    cache,
-    ClientOptions::new()
-        .server_address("dex.example:8801"),
-)?;
-```
+struct DexTestEnvironment {
+    client: Client,
+    worker: Arc<Worker>,
+    worker_thread: Option<JoinHandle<SdkResult<()>>>,
+    cache: Arc<BlobCache>,
+    _cache_directory: TempDir,
+}
 
-Use `tempfile::TempDir` for BlobCache isolation. Do not share a fixed Flow ID across tests.
-
-## Deadline polling
-
-Poll observable Dex state until a short deadline. Do not use a fixed sleep as the assertion mechanism; scheduling and retries are asynchronous.
-
-[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/tests/dex_integration.rs)
-<!-- dex-source: examples/rust/tests/dex_integration.rs -->
-```rust
-fn await_engagement_status(&self, flow_id: &str, expected: &str) -> EngagementStatus {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < deadline {
-        let status = self
-            .client
-            .invoke_rpc_without_input(flow_id, DESCRIBE_ENGAGEMENT)
-            .expect("describe Rust Engagement Flow");
-        if status.status == expected {
-            return status;
-        }
-        thread::yield_now();
+impl DexTestEnvironment {
+    fn start() -> Self {
+        let server_address =
+            std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
+        let cache_directory = tempfile::tempdir().expect("create cache directory");
+        let cache = Arc::new(
+            BlobCache::open(
+                BlobCacheConfig::new(cache_directory.path(), 64 * 1024 * 1024, 10_000)
+                    .expect("valid cache config"),
+            )
+            .expect("open cache"),
+        );
+        let registry = create_registry().expect("register Flows");
+        let worker = Arc::new(
+            Worker::try_new(
+                registry.clone(),
+                Arc::clone(&cache),
+                WorkerOptions::new()
+                    .server_address(&server_address)
+                    .pull(PullWorkerOptions::new().max_concurrent_tasks(8)),
+            )
+            .expect("create Worker"),
+        );
+        let running_worker = Arc::clone(&worker);
+        let worker_thread = thread::spawn(move || running_worker.start());
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("create registration runtime")
+            .block_on(async {
+                tokio::time::timeout(Duration::from_secs(30), worker.wait_pull_registered()).await
+            })
+            .expect("Worker registered before the timeout")
+            .expect("Worker registration");
+        let client = Client::try_new(
+            registry,
+            Arc::clone(&cache),
+            ClientOptions::new().server_address(server_address),
+        )
+        .expect("create Client");
+        Self { client, worker, worker_thread: Some(worker_thread), cache, _cache_directory: cache_directory }
     }
-    panic!("Rust Engagement Flow did not reach {expected}");
+}
+
+impl Drop for DexTestEnvironment {
+    fn drop(&mut self) {
+        self.worker.stop();
+        if let Some(worker_thread) = self.worker_thread.take() {
+            worker_thread.join().expect("join Worker").expect("stop Worker");
+        }
+        self.cache.close().expect("close cache");
+    }
 }
 ```
 
-Poll via RPC or Client state that represents the business invariant. Include the last observed value in new failure messages where possible.
+A test:
+
+```rust
+#[test]
+#[ignore = "requires dexcli dev"]
+fn approved_order_is_charged() {
+    let environment = DexTestEnvironment::start();
+    let flow_id = unique_flow_id("order");
+    let request = OrderRequest { order_id: flow_id.clone(), amount_cents: 1200 };
+    environment
+        .client
+        .start_flow(&OrderFlow::default(), &flow_id, request)
+        .expect("start order");
+    environment
+        .client
+        .invoke_rpc(&flow_id, APPROVE_ORDER, "alice".to_string())
+        .expect("approve order");
+    let result = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("order reaches a terminal status");
+    assert_eq!(result.status(), FlowStatus::Completed);
+    let output: String = result.single_output().expect("decode output");
+    assert_eq!(output, flow_id);
+}
+```
+
+- Tests may `expect` and `unwrap`; production code may not.
+- Give every test a unique Flow ID; never reuse a fixed ID.
+- Use `tempfile::TempDir` for the cache; keep it alive as long as the cache.
+- Register every Flow the tests start, including SubFlow children.
+- Replace external services with fakes injected into the Step structs. Keep
+  the Dex Server real.
+- Real-server tests in the Dex examples carry `#[ignore = "requires dexcli dev"]`
+  and run with `cargo test --test <name> -- --ignored --test-threads=1` from a
+  script that starts the server first. Never skip them silently in CI; start
+  the server in the CI job.
+
+## Waiting in tests
+
+Wait on Dex state with a deadline. Never use a fixed sleep as the assertion.
+
+| Wait for | Use |
+| --- | --- |
+| Terminal result | `wait_for_flow_with_timeout`, then check `status()` |
+| A Step's commit | `wait_for_step_completion(flow_id, StepExecutionId::of(&Step), options)` |
+| A stored value | `wait_for_attribute_match(...)` with a request timeout |
+| A computed state | poll a read-only RPC until a deadline |
+
+```rust
+fn await_order_status(&self, flow_id: &str, expected: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut last_status = String::new();
+    while Instant::now() < deadline {
+        last_status = self
+            .client
+            .invoke_rpc_without_input(flow_id, GET_ORDER_STATUS)
+            .expect("read order status");
+        if last_status == expected {
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    panic!("order {flow_id} stayed at {last_status}, expected {expected}");
+}
+```
+
+Report the last observed value in the panic message.
 
 ## Required scenarios
 
-For a nontrivial Flow, cover:
-
 1. Happy path from `start_flow` to the expected terminal output.
-2. WaitFor that remains waiting until Channel, RPC, Timer, or SubFlow input arrives.
-3. Execute retry exhaustion and the modeled compensation, manual recovery, or terminal failure.
-4. WaitFor retry exhaustion, including `WaitForFailurePolicy::Proceed` when used.
-5. Channel publication, message identity, deletion, and idempotent retry behavior.
-6. RPC success plus typed `SdkError` for invalid state, lock conflict, or missing data.
-7. Timer behavior using a bounded deadline, not wall-clock exactness.
-8. Worker replacement: stop the Worker while the Flow is nonterminal, start a replacement with the same Registry, then prove progress continues.
-9. Cancellation observed by long-running Execute work and any cleanup path.
-10. Terminal behavior: the Flow reaches the intended status and no sibling or background Step keeps mutating durable state.
+2. Waiting: the Flow stays waiting until the Channel, RPC, Timer, or SubFlow
+   input arrives.
+3. Execute exhaustion and the modeled recovery, manual recovery, or failure.
+4. WaitFor exhaustion, including the `Proceed` branch when used.
+5. Channels: publication, deletion by message ID, and the typed missing-message
+   error.
+6. RPCs: typed results plus the expected `SdkError` for invalid state, lock
+   conflicts, or missing data.
+7. Timers within a generous bound; `skip_timer` can shorten long ones.
+8. Worker replacement: stop the Worker while the Flow is open, start a new one
+   with the same Registry, and prove progress continues.
+9. Cancellation observed by long-running `execute` loops.
+10. Terminal behavior: the intended `FlowStatus`, and no background Step keeps
+    changing state.
 
-## Client and persistence assertions
+## Running
 
-Read Flow-owned state through typed application RPCs or `Client::get_attributes`. The baseline test for Channel moves asserts source ordering, deletion by `message_id`, destination publication, and the typed missing-message error. Use the same style for Attribute, ChannelMap, RPC, and Stream behavior. Avoid removed direct Client state methods and Dex Server storage.
+- Start a local server with `dexcli dev`. A short-lived test server can use the
+  faster development durability mode described in
+  [../core/testing.md](../core/testing.md).
+- Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
+  `cargo test`, then the ignored real-server tests.
+- The Dex repository's examples show a full suite:
+  [tests/dex_integration.rs](https://github.com/superdurable/dex/blob/main/examples/rust/tests/dex_integration.rs)
+  and [run-integration-tests.sh](https://github.com/superdurable/dex/blob/main/examples/rust/run-integration-tests.sh).
 
-## Registry and compile contracts
+## Checklist
 
-Validate every Flow in one Registry and reject duplicate names. `examples/rust/tests/catalog_integration.rs` checks the entire example catalog. `sdk-rust/crates/dex-sdk/tests/compile_contracts.rs` is useful evidence for public API shapes that are intentionally compile-only.
-
-Run the repository's commands:
-
-```bash
-cd examples/rust
-make fmt-check
-make clippy
-make test
-./run-integration-tests.sh
-```
-
-The integration script expects a working `dexcli` and exercises the published Rust SDK. For an application repo, provide equivalent setup explicitly in CI rather than silently skipping when Dex is absent.
+- [ ] Tests use the production Registry and a real Dex Server.
+- [ ] Unique Flow IDs and a temporary cache directory.
+- [ ] Waits use Dex APIs or deadline polling, never fixed sleeps.
+- [ ] Failure, recovery, Worker replacement, and terminal paths are covered.
+- [ ] Assertions check `FlowStatus` before decoding output.

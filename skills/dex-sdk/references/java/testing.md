@@ -1,72 +1,129 @@
 # Testing Java Dex applications
 
-Durability claims require a real Dex Server. Unit tests are useful only for pure business helpers and codecs.
+Read [../core/testing.md](../core/testing.md) for what to test and why. Durable
+behavior needs a real Dex Server: start one locally with `dexcli dev`. Unit
+tests cover only pure helpers and DTO mapping; they cannot prove commit
+boundaries, retries, Worker replacement, Channel delivery, RPC locks, Timers,
+or terminal behavior.
 
-## Integration harness
+## Harness
 
-For Dex repository work, use the repository-only `DexDevTestEnvironment` or `examples/java/run-integration-tests.sh`. Do not import `DexDevTestEnvironment` from an application; it is not part of the published SDK. In an application repository, start a real Dex Server, reuse the application's public Registry, BlobCache, Client, and Worker bootstrap in the test fixture, and run the application's Gradle or Maven integration-test task. Register only the Flows under test and generate a unique Flow ID for every test so histories cannot collide.
+Reuse the application's own bootstrap (Registry, BlobCache, Worker, Client).
+Do not import `DexDevTestEnvironment`; it lives only in the Dex repository's
+SDK tests and is not part of the published SDK.
 
-[Pinned integration example](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/test/java/io/superdurable/dex/integ/TimerTest.java)
-<!-- dex-source: sdk-java/src/test/java/io/superdurable/dex/integ/TimerTest.java -->
 ```java
-try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
-        cacheDirectory,
-        WORKFLOW)) {
-    final String flowId = "basic-timer-" + UUID.randomUUID();
-    final long startedAt = System.nanoTime();
-    environment.client().startFlow(WORKFLOW, flowId, 5);
-    environment.client().waitForStepCompletion(
-            flowId,
-            StepExecutionId.of("TimerStep"),
-            waitOptions(flowId, Duration.ofSeconds(10)));
-    environment.client().waitForFlow(flowId);
+class OrderFlowIntegTest {
+    private static OrderFlow orderFlow;
+    private static DexRuntime dex;
+
+    @BeforeAll
+    static void startDex() throws Exception {
+        orderFlow = new OrderFlow(new FakePaymentService());
+        String serverAddress = System.getenv().getOrDefault("DEX_SERVER_ADDRESS", "127.0.0.1:8801");
+        dex = DexRuntime.start(
+                serverAddress,
+                Files.createTempDirectory("dex-cache").toString(),
+                List.<Flow<?>>of(orderFlow, new ShipmentFlow()));
+    }
+
+    @AfterAll
+    static void stopDex() throws InterruptedException {
+        dex.close();
+    }
+
+    @Test
+    void approvedOrderIsCharged() {
+        String flowId = "order-" + UUID.randomUUID();
+        dex.client().startFlow(orderFlow, flowId, new OrderRequest(flowId, 1200L));
+        OrderFlow stub = dex.client().newRpcStub(OrderFlow.class, flowId);
+        dex.client().invokeRPC(stub::approveOrder, "alice");
+
+        FlowResult result = dex.client().waitForFlow(flowId, Duration.ofSeconds(45));
+        assertEquals(FlowStatus.COMPLETED, result.getStatus());
+        assertEquals(flowId, result.getSingleOutput(String.class));
+    }
+}
 ```
 
-The snippet demonstrates lifecycle and assertions inside the Dex repository. Copy the application's public bootstrap shape instead of this private fixture type.
+- `DexRuntime` is the bootstrap class from [java.md](java.md#worker-and-client-bootstrap).
+- Give every test a unique Flow ID. Never reuse a fixed ID across tests or runs.
+- Use a temporary `BlobCache` directory per test run.
+- Register every Flow the tests start, including SubFlow children.
+- Replace external services with fakes injected through the Flow constructor.
+  Keep the Dex Server real.
+- One Worker per JVM is enough. Use a JUnit extension or `@BeforeAll` to share
+  it across test classes.
+
+## Waiting in tests
+
+Wait on Dex state with a deadline. Never use a fixed sleep as the assertion.
+
+| Wait for | Use |
+| --- | --- |
+| Terminal result | `client.waitForFlow(flowId, timeout)`, then check `getStatus()` |
+| A Step's commit | `client.waitForStepCompletion(flowId, StepExecutionId.of("X"), options)` |
+| A stored value | `client.waitForAttributeMatch(...)` with a request timeout |
+| A computed state | poll a read-only RPC until a deadline |
+
+```java
+private static void awaitStatus(String flowId, String expected) {
+    OrderFlow stub = dex.client().newRpcStub(OrderFlow.class, flowId);
+    long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+    String lastStatus = null;
+    while (System.nanoTime() < deadline) {
+        lastStatus = dex.client().invokeRPC(stub::getOrderStatus);
+        if (expected.equals(lastStatus)) {
+            return;
+        }
+        Thread.onSpinWait();
+    }
+    fail("order " + flowId + " stayed at " + lastStatus + ", expected " + expected);
+}
+```
+
+Report the last observed value in the failure message. Keep deadlines short
+but not flaky.
 
 ## Required scenarios
 
-1. Happy path: start, interact, wait for terminal status, and assert typed output.
-2. Worker replacement: stop the Worker while the Flow is waiting or retrying, start a replacement with the same Registry, and prove progress resumes.
-3. Retry exhaustion: make `waitFor` and `execute` fail deterministically, assert the configured recovery or terminal failure, and verify attempt-sensitive behavior.
-4. Channel and RPC: publish before and after a wait registers; invoke concurrent RPCs when locks matter; verify FIFO and typed results.
-5. Timer: assert it does not finish early with a tolerant upper bound. Use server waits or deadline polling, not `Thread.sleep` for convergence.
-6. Terminal behavior: RPC/publish after completion must produce the expected concrete exception; a bounded `waitForFlow` timeout is not a terminal result.
-7. SubFlow and cancellation: prove parent completion policy, child outcome propagation, and loser cleanup.
-8. Stream: assert source and resume behavior while keeping authoritative assertions on Attributes or Flow output.
+1. Happy path: start, interact, wait for the terminal status, and assert the
+   typed output.
+2. Waiting: the Flow stays waiting until the Channel, RPC, Timer, or SubFlow
+   input arrives; publish both before and after the wait registers.
+3. Execute exhaustion: fail deterministically and assert the recovery Step or
+   terminal failure.
+4. WaitFor exhaustion, including the `PROCEED` branch when used.
+5. RPCs: typed results, concurrent calls when locks matter, and the expected
+   exception for lock conflicts and invalid state.
+6. Timers: assert they do not fire early and do fire within a generous bound.
+   `client.skipTimer` can shorten long Timers.
+7. Worker replacement: stop the Worker while the Flow waits or retries, start a
+   new one with the same Registry, and prove progress continues.
+8. Cancellation: long handlers stop and the cleanup path runs.
+9. Terminal behavior: RPCs and publishes after completion raise the expected
+   exception, and no background Step keeps changing state.
+10. Streams: messages and resume tokens work; authoritative assertions use
+    Attributes or the Flow output.
 
-## Deadline polling
+## Running
 
-[Pinned polling helper](https://github.com/superdurable/dex/blob/sdk-java/v1.35.0/sdk-java/src/test/java/io/superdurable/dex/integ/IntegrationTestWaits.java)
-<!-- dex-source: sdk-java/src/test/java/io/superdurable/dex/integ/IntegrationTestWaits.java -->
-```java
-final long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
-DexServiceException lastFailure = null;
-while (System.nanoTime() < deadline) {
-    try {
-        client.skipTimer(flowId, stepExecutionId, timerId);
-        return;
-    } catch (DexServiceException failure) {
-        if (!failure.getDetail().contains(
-                "timer condition does not exist or is not pending")) {
-            throw failure;
-        }
-        lastFailure = failure;
-        Thread.yield();
-    }
-}
-throw new AssertionError("timer condition was not registered", lastFailure);
-```
+- Start a local server with `dexcli dev`. A short-lived test server can use the
+  faster development durability mode described in
+  [../core/testing.md](../core/testing.md).
+- Point the tests at it with an environment variable, and run them with the
+  application's Gradle or Maven integration-test task.
+- Fail, do not skip, when the server is missing in CI. Start it in the CI job.
+- The Dex repository's own Java suite runs with
+  [run-integration-tests.sh](https://github.com/superdurable/dex/blob/main/examples/java/run-integration-tests.sh);
+  its tests under
+  [examples/java/src/test](https://github.com/superdurable/dex/tree/main/examples/java/src/test/java/io/superdurable/dex/integ)
+  show the shared-Worker extension and scenario style.
 
-Keep deadlines short but non-flaky. Preserve the last failure to make timeouts diagnosable. Do not skip failures by backend or retry indefinitely.
+## Checklist
 
-## Commands
-
-```bash
-cd examples/java
-./run-integration-tests.sh
-```
-
-For SDK work, use the repository's documented Gradle integration tasks and a real `dexcli dev`; do not substitute mocks for Worker replacement or durable waiting.
-
-A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
+- [ ] Tests use the application's real bootstrap and a real Dex Server.
+- [ ] Unique Flow IDs and a temporary cache directory.
+- [ ] Waits use Dex APIs or deadline polling, never fixed sleeps.
+- [ ] Failure, recovery, Worker replacement, and terminal paths are covered.
+- [ ] Assertions check `FlowStatus` before decoding output.
