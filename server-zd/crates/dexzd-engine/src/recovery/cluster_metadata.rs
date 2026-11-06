@@ -108,7 +108,9 @@ impl ClusterMetadata {
         {
             return Err(EngineStartError::InvalidMetadata {
                 detail: format!(
-                    "manifest has {} partitions; the cluster has {partition_count}",
+                    "manifest records partition count {} and lists {} partitions, but the cluster \
+                     object records {partition_count}",
+                    manifest.partition_count,
                     manifest.partitions.len()
                 ),
             });
