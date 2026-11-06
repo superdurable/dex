@@ -1,0 +1,224 @@
+---
+title: Workers and dispatch
+sidebar_label: Workers and dispatch
+---
+
+# Workers and dispatch
+
+Every Dex Worker is a pull Worker. It opens outbound task streams to Dex Server
+and never listens for incoming calls. This page describes the Worker protocol:
+readiness, routing, capacity, shutdown, and how server-zd dispatches tasks. For
+Worker setup, see
+[Application](/primitives/components/application#enable-pull-mode).
+
+## Readiness
+
+A Worker's readiness wait, **WaitPullRegistered** in Go, gates startup until
+every Flow type queue and the app Worker ID queue has received a registration
+acknowledgement. Start the Worker, then wait with a startup deadline before
+activating it or stopping the old Worker during a rolling deployment.
+Registration does not guarantee spare handler capacity.
+
+This page uses the Go names. Each SDK reference lists its own names: [Go](/reference/go/workers), [Python](/reference/python/workers), [Java](/reference/java/workers), [TypeScript](/reference/typescript/workers), and [Rust](/reference/rust/workers).
+
+**WaitPullRegistered** is safe to call concurrently, including before
+**Start**. It returns a **PullRegistrationError** with the queue name and
+underlying gRPC error on a permanent rejection before readiness when the queue
+has no other registered stream. A rejected surplus stream is recorded and
+retried while another registered stream holds that queue. Startup errors from
+**Start** also reach the waiter. Cancellation returns the context error;
+stopping before readiness returns an error. Once all queues have registered,
+this wait keeps returning successfully.
+
+The runnable examples wait for registration with a 30-second startup deadline and
+stop the Worker if startup fails. Call the readiness state from your probe
+endpoint and return 200 when it is ready or 503 when it is not.
+
+**Queues** reports each queue's **HasRegisteredStream** and
+**LastPermanentError**. After initial registration, reconnects, ownership moves,
+transient disconnects, and backoff keep **IsReady** true. It becomes false only
+when a queue has no registered stream and a permanent error. Successful
+registration clears that queue's error and restores readiness when no other
+queue is failing. Stop alone does not clear readiness; remove the Worker from
+service during shutdown separately.
+
+**StopOnPermanentStreamRejection** defaults to false, preserving retries.
+Set it to true to make **Start** return a **PullRegistrationError** for the first
+permanent rejection that leaves its queue without a registered stream, even
+after readiness. Rejections while another stream holds the same queue do not stop
+the Worker. Other queues may still hold streams
+while **Start** drains them. Draining uses **StopDrainTimeout**, then requests
+cancellation and waits for handlers to return. Handlers must respond to
+cancellation. Always call **Stop** before exiting; it remains safe after
+**Start** returns.
+
+## Routing and availability
+
+Each pull Worker polls its own app Worker ID queue and every Flow type it
+registers. Dex first tries the app Worker ID that served the Flow previously.
+When no stream for that ID remains connected, such as after a Worker restart or
+deployment, Dex immediately tries the Flow type queue. Otherwise, it tries the
+Flow type queue after the sticky wait so another Worker can take the call. Sticky
+routing is best effort; keep durable state in Dex rather than
+depending on one Worker's memory. Flow type names must be unique within a Dex
+Server. An app Worker ID must identify one Worker process and change when that
+process restarts. The SDK generates one unless you set it explicitly.
+
+Dex waits for an available Worker within the matching dispatch budget. If none
+is available, a Step receives a retryable unavailable error that consumes a
+Step retry. An RPC caller receives an **Unavailable** error directly. The
+default dispatch wait is 10 seconds, including up to 5 seconds for a sticky
+queue with connected streams. The wait never extends past the method deadline
+of the attempt. See
+[Pull Worker dispatch](#pull-worker-dispatch)
+for the wait settings.
+
+When a pull Worker has the Flow type but lacks the requested Step type or RPC
+name, it declines the task before running a handler. Dex immediately tries the
+Flow type queue and excludes that Worker from this dispatch, even if the Flow
+was sticky to it. This reassignment does not consume a Step attempt. If no
+capable Worker accepts within the dispatch wait, the Step follows its failure
+and retry policy with an error that names the Step or RPC. An RPC caller gets
+the named error directly after waiting up to the dispatch wait of 10
+seconds. This reassignment requires a Dex Server release that supports it.
+Against older Servers, the Worker returns the not-registered error as before.
+
+Delivery is at least once. A call can be assigned again when its Worker
+disconnects before Dex receives any output. See
+[Failure and redelivery](/reference/server/runtime-steps#same-attempt-redelivery)
+for when an attempt runs again at the same attempt number. Make external side
+effects idempotent, for example by using the Flow ID and Step execution ID as an
+idempotency key.
+
+## Capacity and shutdown
+
+The concurrent task limit caps active calls. The idle stream count keeps
+streams ready on each queue. Defaults are the CPU count and one idle stream per
+queue. Each stream handles one call at a time. At capacity, a Worker keeps its
+idle streams and declines an extra assignment so Dex can try another Worker.
+
+Each SDK names the concurrent task limit, the idle stream count, the reserved
+RPC slots, the stop drain timeout, and the shutdown method differently. See [Go](/reference/go/workers), [Python](/reference/python/workers), [Java](/reference/java/workers), [TypeScript](/reference/typescript/workers), and [Rust](/reference/rust/workers).
+
+A Worker gracefully closes surplus idle streams after tasks finish. Each queue
+keeps at least the configured number of registered idle streams, and readiness
+stays true during this cleanup. With **F** registered Flow types and no recent
+reserve declines, the steady-state bound after load drops is the concurrent task
+limit plus **(F + 1)** times the idle stream count. The extra queue is the
+Worker's app Worker ID queue. A queue with a recent reserve decline can keep
+one more idle stream for 30 seconds after its last decline. Allow up to **F + 1**
+additional streams when sizing **matching.maxConcurrentTasksCap**, which defaults
+to 256 streams per app Worker ID. **matching.maxStreams**
+defaults to 100,000 registered streams on the node.
+The transient peak during a burst remains bounded by the matching caps.
+**matching.maxQueueLength**,
+**matching.maxFlowTypes**, and **matching.maxFlowTypeLength** also limit
+registration. Their defaults are 256 each.
+
+Stop the Worker gracefully during deployment. The shutdown method stops taking
+new calls and waits for active handlers for the configured drain timeout, 30
+seconds by default. After the deadline, it requests cancellation and waits for
+handlers to return. Long-running handlers should respond to cancellation. A
+Worker also finishes an active call before a server-directed reconnect.
+
+### Reserved RPC capacity
+
+Since SDK 1.15.0, Workers reserve capacity so synchronous RPC calls can stay responsive while
+Steps run for a long time. Set the reserved RPC slots option of your SDK. When unset, the reserve
+is one if the resolved task limit is at least two, otherwise zero. With the
+CPU-count default, Steps get one fewer slot than before. Set the reserve to zero
+to opt out. With a task limit of one and no explicit reserve, Worker start logs
+one warning that RPCs may wait behind long-running Steps and recommends a limit
+of at least two or an explicit reserve. The reserved slot keeps Flows responsive
+while Steps occupy the remaining capacity.
+
+The reserve must be nonnegative and less than the concurrent task limit after
+its CPU-count default is resolved. Invalid values fail Worker construction.
+
+RPC tasks include both API-direct and transactional **InvokeWorkerRPC** tasks.
+RPC and Step handlers count together against the task limit. Every Step task,
+WaitFor and Execute alike, is declined with **NO_CAPACITY** when the busy count
+reaches the task limit minus the reserve. RPC tasks can use the full limit. For
+example, a limit of eight and a reserve of two lets Steps start only while fewer
+than six handlers are busy.
+
+Dex tries other Workers without consuming a Step attempt. If all Workers remain
+at their Step limit, a Step can wait until the dispatch wait expires, then
+receive **NO_WORKER_AVAILABLE**, consume an attempt, and follow its retry
+policy, as when all Workers are full.
+
+Idle streams stay available on every queue. A queue that declines a Step for
+reserved RPC capacity keeps one additional idle stream until 30 seconds after
+its last decline. Other queues keep their configured idle count. The Worker does
+not open this extra stream when all task slots are busy. Set the idle stream
+count to at least two for Workers with heavy Step backlogs. Reserve declines do
+not close streams or change registration readiness. Each SDK emits a debug log
+with the Flow type for each reserve decline, and each Worker exposes a
+cumulative reserve-decline counter. Full-capacity rejections and unknown names
+do not increment it. It counts decline events, including repeated declines of
+the same Step dispatch while Dex retries it, so read its rate. A rising counter
+indicates Step capacity pressure; it does not make the Worker unready.
+
+The startup examples set the task limit to eight and explicitly reserve one slot
+for RPCs, matching the default.
+
+## Scale to zero
+
+server-zd has no Worker wake hook. When Workers may scale to zero, size the
+dispatch wait and Step retries for Worker startup time, so a Step retry can
+wait for a Worker to start.
+
+## Server and network setup
+
+Workers connect to the server's FlowService port, which is **api.listen**. Preserve
+bidirectional HTTP/2 streaming through any load balancer or proxy. The SDK sends
+upstream **Pong** frames every 20 seconds while a task runs. Upgrade the SDK to
+get this behavior. Dex sends **Ping** frames to idle streams at
+**matching.pingInterval**. Set load balancer and proxy idle timeouts above both
+20 seconds and **matching.pingInterval**, with margin for network delays. Older
+SDKs need idle timeouts above the longest task duration. The
+[Pull Worker dispatch](#pull-worker-dispatch)
+section lists the matching limits and wait settings.
+
+All five SDKs, **dexcli**, and Dex Web can send the required bearer credential.
+Workers and Clients have separate credential options. See the
+[authentication settings](/reference/server/authentication).
+
+## Pull Worker dispatch {#pull-worker-dispatch}
+
+server-zd runs as one node, so it owns every Worker queue itself. Workers and
+Clients connect to **api.listen**, which is **0.0.0.0:8801** by default.
+
+~~~yaml
+matching:
+  dispatchWait: 10s
+  stickyWait: 5s
+  maxConcurrentTasksCap: 256
+  maxStreams: 100000
+  maxQueueLength: 256
+  maxFlowTypes: 256
+  maxFlowTypeLength: 256
+  pingInterval: 20s
+~~~
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **matching.dispatchWait** | 10s | Total time to find a Worker for one attempt. |
+| **matching.stickyWait** | 5s | Time to try a connected sticky Worker before using the Flow type queue. Must not exceed **dispatchWait**. When no stream for the previous app Worker ID is connected, server-zd uses the Flow type queue at once. |
+| **matching.maxConcurrentTasksCap** | 256 | Most streams for one app Worker ID on the node. |
+| **matching.maxStreams** | 100000 | Most registered Worker streams on the node. |
+| **matching.maxQueueLength** | 256 | Longest queue name, in characters. |
+| **matching.maxFlowTypes** | 256 | Most Flow types in one Worker registration. |
+| **matching.maxFlowTypeLength** | 256 | Longest registered Flow type, in characters. |
+| **matching.pingInterval** | 20s | Interval between **Ping** frames on idle Worker streams. |
+
+If no Worker is available within **dispatchWait**, a Step receives a retryable
+unavailable error that consumes a Step retry. An RPC caller receives an
+**Unavailable** error directly.
+
+Current SDKs send upstream **Pong** frames every 20 seconds while a task runs.
+Configure load balancers and proxies for long-lived HTTP/2 streams, and set
+their idle timeouts above both 20 seconds and **matching.pingInterval**, with
+margin for network delays. Workers that use older SDKs need idle timeouts above
+the longest task duration. Preserve bidirectional streaming through the public
+endpoint.

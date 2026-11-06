@@ -1,0 +1,43 @@
+---
+title: Upgrades and compatibility
+sidebar_label: Upgrades and compatibility
+---
+
+# Upgrades and compatibility
+
+server-zd and each SDK release declare inclusive protocol intervals. A Worker
+can start when those intervals overlap. It negotiates the highest common
+protocol, then synchronizes Attribute indexes, then binds WorkerTaskService. The
+server and SDK artifact versions are diagnostic and do not decide compatibility.
+
+server-zd 0.1.17 and later provide protocol version 4. Protocol version 4 does
+not raise the minimum protocol. Workers and Clients on SDKs before 1.35 keep
+working on server-zd 0.1.17 and later. Their capacity rejections
+return the attempt without consuming a retry.
+**dexzd_step_attempts_returned_total** with **reason="legacy_no_capacity"**
+counts them. This compatibility lasts until server-zd 1.0.
+
+SDK 1.35 and later require server-zd 0.1.17 or later. On an older server, an
+SDK 1.35 Worker fails to start and an SDK 1.35 Client fails its first call, each
+with a clear error.
+Upgrade the server first, then the SDKs, one at a time. You do not need to stop
+Workers.
+
+Upgrading to server-zd 0.1.17 or later (protocol version 4) does not support
+mixed versions. Stop every old server
+process, including active, hot standby, and cold standby, before you start the
+new version. After the new version wrote to a storage prefix, an older server
+must not run on it again. Roll forward, or restore a backup taken before the
+upgrade into a new prefix. Set new configuration keys only after every process
+runs the new version, and remove them before any rollback. This applies to
+**matching.syncMatchWait** and **matching.headsResyncInterval**. Matching
+configuration rejects unknown keys.
+
+A later release that raises the minimum protocol needs the same care. Stop old
+Workers and their traffic before that server upgrade, or use isolated blue and
+green environments so deployments with disjoint intervals never communicate.
+Running Workers do not renegotiate after a server upgrade.
+
+Protocol compatibility covers the Worker-to-server API only. It does not
+replace the compatibility rules for open Flows, including Flow type names, Step
+graphs, and persisted payloads.
