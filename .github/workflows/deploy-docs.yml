@@ -27,7 +27,74 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  api-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.versions.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: versions
+        env:
+          VERSION_SCOPE: ${{ github.event_name == 'pull_request' && 'latest' || 'all' }}
+        run: echo "matrix=$(node docs/scripts/build-api-reference.mjs --matrix "$VERSION_SCOPE")" >> "$GITHUB_OUTPUT"
+
+  api-reference:
+    needs: api-versions
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.api-versions.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs/scripts/api-reference-tools/package-lock.json
+      - uses: actions/setup-python@v5
+        if: matrix.language == 'python'
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        if: matrix.language == 'go'
+        with:
+          go-version-file: sdk-go/go.mod
+          cache-dependency-path: sdk-go/go.sum
+      - id: source
+        env:
+          LANGUAGE: ${{ matrix.language }}
+          SDK_VERSION: ${{ matrix.version }}
+        run: echo "commit=$(git rev-parse "sdk-$LANGUAGE/v$SDK_VERSION^{commit}")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: generated
+        with:
+          path: docs/.cache/api-reference/${{ matrix.language }}
+          key: api-${{ runner.os }}-${{ matrix.language }}-${{ matrix.version }}-${{ steps.source.outputs.commit }}-${{ hashFiles('docs/scripts/build-api-reference.mjs', 'docs/scripts/api-reference-tools/**', 'docs/api-reference-versions.json') }}
+      - name: Generate API reference from tag
+        if: steps.generated.outputs.cache-hit != 'true'
+        env:
+          LANGUAGE: ${{ matrix.language }}
+          SDK_VERSION: ${{ matrix.version }}
+        run: node scripts/build-api-reference.mjs "$LANGUAGE" "sdk-$LANGUAGE/v$SDK_VERSION"
+      - name: Audit API HTML and local links
+        run: npm run test:api
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-${{ matrix.language }}-${{ matrix.version }}
+          path: docs/.cache/api-reference/
+          if-no-files-found: error
+          retention-days: 1
+
   build:
+    needs: api-reference
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -47,8 +114,21 @@ jobs:
         run: |
           npm run build
           touch build/.nojekyll
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: api-*
+          path: docs/build/api
+          merge-multiple: true
       - name: Smoke checks
         run: npm run test:site
+      - name: Audit all retained API versions
+        if: github.event_name != 'pull_request'
+        run: npm run test:api -- build/api --all
+      - name: Check GitHub Pages size budget
+        run: |
+          bytes=$(du -sb build | cut -f1)
+          echo "Published site size: $bytes bytes (limit: 1000000000)"
+          test "$bytes" -lt 1000000000
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name == 'push'
         with:

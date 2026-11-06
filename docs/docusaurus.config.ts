@@ -170,6 +170,7 @@ const config: Config = {
         sitemap: {
           changefreq: 'daily',
           priority: 0.5,
+          ignorePatterns: ['/api/**'],
         },
       } satisfies Preset.Options,
     ],

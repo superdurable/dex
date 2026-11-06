@@ -13,6 +13,8 @@
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
     "generate:flow-definitions": "./scripts/generate-flow-definitions.sh",
+    "generate:api": "node scripts/build-api-reference.mjs",
+    "test:api": "node tests/api-reference-smoke.mjs",
     "typecheck": "tsc",
     "test:site": "node tests/site-smoke.mjs",
     "check": "npm run typecheck && npm run build && npm run test:site"

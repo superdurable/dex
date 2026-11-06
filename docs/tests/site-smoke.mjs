@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {access, readFile, readdir} from 'node:fs/promises';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {apiEntryPaths, auditApiReferences} from './api-reference-smoke.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
@@ -347,7 +348,11 @@ await Promise.all([
 
 const outputFiles = await collectOutputFiles(root);
 const outputFilePaths = new Set(outputFiles.map((filePath) => relativeOutputPath(filePath)));
-const htmlIndexFiles = outputFiles.filter((filePath) => filePath.endsWith(`${sep}index.html`));
+const htmlIndexFiles = outputFiles.filter((filePath) =>
+  filePath.endsWith(`${sep}index.html`) && !relativeOutputPath(filePath).startsWith('api/'));
+if (outputFiles.some((filePath) => relativeOutputPath(filePath).startsWith('api/'))) {
+  await auditApiReferences(join(root, 'api'));
+}
 const indexablePages = new Map();
 const actualRedirects = new Map();
 
@@ -395,7 +400,8 @@ for (const [canonical, {html, route}] of indexablePages) {
     assert.equal(expectedRedirects.has(target.pathname), false, `${route} links to redirect ${target.pathname}`);
     assert.ok(
       indexablePages.has(new URL(target.pathname, siteOrigin).href) ||
-        outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')),
+        outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')) ||
+        apiEntryPaths.has(target.pathname),
       `${route} links to missing route ${target.pathname}`,
     );
   }
