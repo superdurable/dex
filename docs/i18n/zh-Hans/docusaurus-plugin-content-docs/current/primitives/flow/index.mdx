@@ -175,7 +175,7 @@ impl Flow for ExampleFlow {
 
 [Client](/primitives/client) 用一个 Flow ID 和 start input 启动 Flow。Dex 随后在 Worker 上运行 start Step。每个 Step 返回一个决定：进入下一个或多个 Step，或者关闭 Flow。同一时间可以有多个 Step 处于 active。
 
-Step 完成或让 Flow 失败、Flow timeout 触发、或 client 停止它时，Flow 关闭。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
+某个 Step 完成 Flow 或让它失败、Flow timeout 触发，或 client 停止它时，Flow 关闭。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
 
 ## Start options 和配置 {#start-options}
 
