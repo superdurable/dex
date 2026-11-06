@@ -16,7 +16,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +53,12 @@ CONCEPT_BOUNDARY_TERMS = (
     (re.compile(r"\bCadence\b"), "the Cadence backend"),
     (re.compile(r"\b(?:schedule|start)[\s_-]*to[\s_-]*(?:close|start)\b", re.IGNORECASE), "a backend activity timeout name"),
     (re.compile(r"\b(?:signal|update)[\s_-]*with[\s_-]*start\b", re.IGNORECASE), "a backend Signal or Update API"),
+    # Exact backend API spellings; the ordinary words signal and query stay allowed.
+    (
+        re.compile(r"\b(?:Signal|Query|Update|Describe|Terminate|Cancel|Reset)Workflow(?:Execution)?\b"),
+        "a backend workflow API",
+    ),
+    (re.compile(r"\bworkflow[\s_-]+(?:signals?|quer(?:y|ies)|updates?)\b", re.IGNORECASE), "a backend workflow Signal, Query, or Update"),
     # Lowercase temporal and cadence are English words; flag them only as backend names.
     (
         re.compile(
@@ -401,14 +407,14 @@ def external_url_problem(url: str) -> str | None:
         return None
     if host == "example.com" or host.endswith(PLACEHOLDER_HOST_SUFFIXES):
         return None
+    if any(unquote(segment) in (".", "..") for segment in segments):
+        return "links must not contain '.' or '..' path segments"
     if host == "docs.superdurable.io":
         if not segments or segments[0] != "reference":
             return "skills link only to the docs Developer reference"
         if len(segments) > 2 and re.fullmatch(r"v?\d+(?:\.\d+)*", segments[2]):
             return "link the latest Developer reference, not a version"
         return None
-    if ".." in segments:
-        return "links must not contain '..' path segments"
     location = f"{host}{parts.path.rstrip('/')}"
     if DEX_EXAMPLES_URL.fullmatch(location):
         return None

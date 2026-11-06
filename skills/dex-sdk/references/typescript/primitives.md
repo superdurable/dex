@@ -241,10 +241,13 @@ const customerEmail = new Attribute("customer-email", stringCodec).syncToAttribu
 - AttributeMap instances load only when selected. StepOptions use the method
   prefix: `waitForLoadAttributeMaps`, `waitForLoadAttributeMapInstances`,
   `executeLoadAttributeMaps`, `executeLoadAttributeMapInstances`, and the same
-  `waitForLoad*` / `executeLoad*` forms for Channels and ChannelMaps. RPCOptions
-  and RPC invoke options use the unprefixed `loadAttributeMaps`,
+  `waitForLoad*` / `executeLoad*` forms for Channels and ChannelMaps.
+  Registration-time `RPCOptions` use the unprefixed `loadAttributeMaps`,
   `loadAttributeMapInstances: [map.load(instance)]`, `loadChannels`, and
-  `loadChannelMapInstances`. Reading an unselected instance throws
+  `loadChannelMapInstances`. Per-call `RPCInvokeOptions` add only
+  `lockAttributeMapInstances`, `loadAttributeMapInstances`, and
+  `loadChannelMapInstances`; whole-map and Channel loads belong on
+  `RPCOptions`. Reading an unselected instance throws
   `AttributeMapNotLoadedError`.
 - `getAllInstanceKeys` and `getMapSize` need a whole-map load. To test one
   known key, load that instance and check `get(...) !== undefined`.

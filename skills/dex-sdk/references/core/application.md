@@ -137,6 +137,12 @@ Choose one explicit strategy: let old executions finish on an old Worker pool, k
 
 Upgrading the SDK and changing the Flow model are separate decisions. Test one execution started before the deployment and one started after it.
 
+## Logs and metrics
+
+- Put high-cardinality IDs, such as the Flow ID, run ID, and Step execution ID, in structured log fields. Never use them as metric labels; each value would create a new metric series.
+- Log those IDs, the Flow type, the Step type, and the attempt number on every handler log line, so a log line maps to one attempt.
+- Label metrics only with bounded values, such as the Flow type, the Step type, and an outcome.
+
 ## Worker API availability
 
 When a Step or RPC fails because the Worker API is unavailable:

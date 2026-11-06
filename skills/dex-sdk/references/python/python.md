@@ -176,11 +176,12 @@ and the [sync composition](https://github.com/superdurable/dex/blob/main/example
   `field(default_factory=...)`).
 - Dataclass field names are the JSON wire names. Add new fields with
   defaults so open runs still decode.
-- The JSON codec checks types only at the top level of a value. Inside a
-  dataclass field or a container, a union decodes a value that matches no
-  alternative as the raw JSON value, a nested `Literal` is not enforced, and a
-  `float` field can hold a JSON integer as an `int`. Validate untrusted
-  payload fields in application code.
+- The JSON codec checks typed dataclass fields and concrete container
+  elements recursively, but a few cases are lenient. Inside a dataclass field
+  or a container, a union decodes a value that matches no alternative as the
+  raw JSON value, a nested `Literal` is not enforced, and a type-variable field
+  bound to a primitive type, such as `Result[int]`, keeps its raw JSON value. A `float` field can hold a JSON integer as an
+  `int`. Validate those untrusted payload fields in application code.
 - When a payload must match another SDK's JSON shape, use dataclass field
   metadata: `dex_json_name` for the wire name, `dex_json_omit_default=True` to
   omit default values, and `dex_json_format="rfc3339"` for Go-compatible

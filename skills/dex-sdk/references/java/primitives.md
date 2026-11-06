@@ -410,7 +410,10 @@ public StepDecision execute(Context context, Integer pages) {
 - `setStepExecutionLocal` passes a value from `waitFor` to `execute` of the
   same Step execution. Dex commits it with the method's result and stores it
   in the Step record, so `execute` reads it even on another Worker.
-  `getStepExecutionLocal` returns `null` when the key is absent. Only that
+  For an absent key, `getStepExecutionLocal` returns the type's default:
+  `false` for `Boolean`, zero for numeric types (boxed or primitive), and
+  `null` otherwise. Do not use a null check as a presence test for those
+  types. Only that
   Step execution can read it; use an Attribute for state another Step or a
   Client needs. See [Step execution local values](../core/step.md#step-execution-local-values).
 

@@ -59,6 +59,10 @@ class ExternalUrlTest(unittest.TestCase):
             "https://api.github.com/repos/superdurable/dex/releases/latest",
             "https://connectors.superdurable.io/",
             "https://connectors.superdurable.io/connectors/slack",
+            "https://docs.superdurable.io/reference/../primitives/flow",
+            "https://docs.superdurable.io/reference/%2e%2e/primitives/flow",
+            "https://docs.superdurable.io/reference/%2E%2E/design-patterns/polling",
+            "https://github.com/superdurable/dex/tree/main/examples/./../sdk-go",
         ):
             with self.subTest(url=url):
                 self.assertIsNotNone(CHECKER.external_url_problem(url))
@@ -125,6 +129,10 @@ class BoundaryTest(unittest.TestCase):
             "The decision task timed out.",
             "Set the activity timeout.",
             "Use UpdateWithStart.",
+            "Call QueryWorkflow.",
+            "Call SignalWorkflow with the payload.",
+            "Send a workflow Signal.",
+            "Handle the workflow query.",
         ):
             with self.subTest(text=text):
                 self.assertTrue(CHECKER.find_boundary_terms(text))
@@ -137,6 +145,8 @@ class BoundaryTest(unittest.TestCase):
             "Have the fake signal that the Step started.",
             "A query-only RPC reads a retained run.",
             "The n8n workflow imports into one Flow.",
+            "Signal the operator when the query returns.",
+            "A Channel message can signal that a query finished.",
         ):
             with self.subTest(text=text):
                 self.assertEqual(CHECKER.find_boundary_terms(text), [])

@@ -173,7 +173,7 @@ Every WaitFor and Execute call receives ordinary Attributes and Channel size met
 
 - AttributeMap values and pending Channel messages require selections in StepOptions. Select exact instances when the keys are known. Select the whole map only to enumerate it.
 - Reading unselected AttributeMap or pending-message state raises a not-loaded error. A selected empty Channel returns an empty list.
-- Size and map-key introspection need no load.
+- Channel size, and ChannelMap keys and sizes, need no load. AttributeMap size and keys need the whole map loaded.
 - WaitFor and Execute load independent snapshots. Execute loads after the Wait consumed its messages.
 - WaitFor and Execute have separate lock sets.
 - An Attribute lock does not load anything. A load does not lock anything.
