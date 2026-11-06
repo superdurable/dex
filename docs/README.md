@@ -122,8 +122,10 @@ releases rather than relabeling current content.
 
 Moving or renaming a page can break links inside archived snapshots. The new
 redirect does not fix them: client redirects are not routes, and the build
-fails on broken links. After adding the redirect, rewrite the moved URL in
-every retained snapshot, then run `npm run check`:
+fails on broken links. After adding the redirect, retarget every existing
+redirect whose destination is the old URL, in both locales. Pruning redirects
+often point at current pages. Then rewrite the moved URL in every retained
+snapshot and run `npm run check`:
 
 ```bash
 node scripts/snapshot-reference.mjs --rewrite-links /primitives/old-page /primitives/new-page
@@ -194,6 +196,8 @@ Published documentation URLs are permanent. When moving, renaming, or deleting
 a page, add a direct redirect for every affected locale to
 [`redirects.json`](redirects.json). Point each old URL to the closest successor,
 not the home page, and update internal links to use the destination directly.
+Links inside archived reference snapshots follow
+[Editing archived snapshots](#editing-archived-snapshots) instead.
 
 Run the full production-site check after every docs change:
 
