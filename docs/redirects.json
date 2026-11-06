@@ -138,5 +138,53 @@
   {
     "from": "/zh-Hans/references/flow-visualization",
     "to": "/zh-Hans/reference/web/flow-visualization"
+  },
+  {
+    "from": "/primitives/flow/basic",
+    "to": "/primitives/flow"
+  },
+  {
+    "from": "/zh-Hans/primitives/flow/basic",
+    "to": "/zh-Hans/primitives/flow"
+  },
+  {
+    "from": "/primitives/flow/flow-options",
+    "to": "/reference/server/runtime-steps"
+  },
+  {
+    "from": "/zh-Hans/primitives/flow/flow-options",
+    "to": "/zh-Hans/reference/server/runtime-steps"
+  },
+  {
+    "from": "/primitives/step/basic",
+    "to": "/primitives/step"
+  },
+  {
+    "from": "/zh-Hans/primitives/step/basic",
+    "to": "/zh-Hans/primitives/step"
+  },
+  {
+    "from": "/primitives/step/waiting-condition",
+    "to": "/reference/server/runtime-steps"
+  },
+  {
+    "from": "/zh-Hans/primitives/step/waiting-condition",
+    "to": "/zh-Hans/reference/server/runtime-steps"
+  },
+  {
+    "from": "/primitives/step/step-decision",
+    "to": "/reference/server/runtime-steps"
+  },
+  {
+    "from": "/zh-Hans/primitives/step/step-decision",
+    "to": "/zh-Hans/reference/server/runtime-steps"
+  },
+  {
+    "from": "/primitives/step/step-options",
+    "to": "/reference/server/runtime-steps"
+  },
+  {
+    "from": "/zh-Hans/primitives/step/step-options",
+    "to": "/zh-Hans/reference/server/runtime-steps"
   }
 ]

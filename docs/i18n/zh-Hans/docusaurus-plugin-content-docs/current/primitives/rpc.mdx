@@ -171,7 +171,7 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 
 RPC result 可以取消所在 Flow 中 active 的 Step。当外部请求让进行中的工作失去意义时使用它，例如报告或模型调用还在运行，用户按下了 Stop。
 
-按 Step type 选择要取消的 Step：Python 用 **with_canceling_steps**，Go 用 **CancelSteps**，Java 用 **withCancelingSteps**，TypeScript 用 **cancelingSteps**，Rust 用 **cancel_step**。选择范围是整个 Flow。RPC 没有 parent Step execution，所以不能取消 sibling Step。Step 也可以用同样的方式在 [StepDecision](/primitives/step/step-decision#cancellation-on-stepdecision) 中取消其他 Step。
+按 Step type 选择要取消的 Step：Python 用 **with_canceling_steps**，Go 用 **CancelSteps**，Java 用 **withCancelingSteps**，TypeScript 用 **cancelingSteps**，Rust 用 **cancel_step**。选择范围是整个 Flow。RPC 没有 parent Step execution，所以不能取消 sibling Step。Step 也可以用同样的方式在 [StepDecision](/reference/server/runtime-steps#cancellation-on-stepdecision) 中取消其他 Step。
 
 示例中，**GenerateReport** 逐节生成报告。**stop_report** RPC 取消它，并启动 **FinishReportStop**。
 
@@ -451,7 +451,7 @@ for section in 1..=SECTION_COUNT {
 </SdkSnippet>
 </SdkTabs>
 
-Dex 会等待被取消的 attempt 结束，大约一秒。如果 handler 仍在运行，Dex 会关闭承载它的 Worker stream。handler 会在 Worker 进程中一直运行到返回，它的外部调用仍然会生效。被取消的 attempt 在停下之前也可能已经完成了部分工作。请让它的外部副作用保持幂等。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
+Dex 会等待被取消的 attempt 结束，大约一秒。如果 handler 仍在运行，Dex 会关闭承载它的 Worker stream。handler 会在 Worker 进程中一直运行到返回，它的外部调用仍然会生效。被取消的 attempt 在停下之前也可能已经完成了部分工作。请让它的外部副作用保持幂等。见[失败与重新投递](/reference/server/runtime-steps#failure-and-redelivery)。
 
 ## 只读 RPC 与 terminal Flow {#read-only-rpcs-and-terminal-flows}
 

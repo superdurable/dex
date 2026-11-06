@@ -10,6 +10,7 @@ const sidebars: SidebarsConfig = {
     'object-storage',
     'authentication',
     'workers',
+    'runtime-steps',
     'search',
     'attribute-store-sync',
     'metrics',

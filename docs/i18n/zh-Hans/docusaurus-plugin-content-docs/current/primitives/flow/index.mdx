@@ -6,9 +6,204 @@ slug: /primitives/flow
 
 # Flow
 
-**Flow** 是 Dex 的顶层 primitive 与概念。
+**Flow** 是 Dex 最顶层的 primitive。一个 Flow type 描述一类业务流程，比如订单、订阅或审批。一个 Flow execution 是它的一个实例，比如 42 号订单。
 
-A Flow 通常是一个业务实体。它包含一些 [Step](/primitives/step)、由 [Attribute](/primitives/attribute) 与 [Channel](/primitives/channel) 组成的 persistence schema，以及可选的 [RPC](/primitives/rpc) handler。
+Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任务队列，就能让流程在崩溃和重启之后继续运行。
 
-- [基础](/primitives/flow/basic) — 基础概念与 interface
-- [Flow options](/primitives/flow/flow-options) — 高级 StartFlowOptions、FlowConfig
+## Flow 包含什么 {#implement-a-flow}
+
+在你的语言里实现 **Flow** interface，就定义了一个 Flow。它声明三样东西：
+
+- **Steps**：start Step，以及 Flow 能到达的其他所有 Step。[Step](/primitives/step) 执行后台工作。
+- **Persistence schema**：保存 Flow durable 状态的 [Attribute](/primitives/attribute) 和 [Channel](/primitives/channel)。读写未声明的名称会被 Dex 拒绝。
+- **RPC handlers**：client 在运行中的 Flow 上调用的方法。见 [RPC](/primitives/rpc)。
+
+start Step 的 input type 也是 Flow 的 start input type。下面这个 Flow 有两个 Step、一个 Attribute、一个 Channel 和一个 RPC。
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+go: 'examples/go/primitives/flow/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+rust: 'examples/rust/src/primitives/flow/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+status = Attribute("status", str)
+notify = Channel("notify", None)
+
+
+class ExampleFlow(Flow[int]):
+    def __init__(self) -> None:
+        self.finish = Finish()
+        self.example = Example(self.finish)
+
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.example).other_steps(self.finish)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(status, notify)
+
+    @rpc
+    def describe(self, context: Context) -> RPCResult[str]:
+        return RPCResult.of(status.get(context))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+type ExampleFlow struct {
+	dex.FlowDefaults
+}
+
+func (*ExampleFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(Example{}),
+		dex.DefineStep(Finish{}),
+	}
+}
+
+func (flow *ExampleFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Describe, nil)}
+}
+
+func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Status},
+		Channels:   []dex.ChannelDef{Notify},
+	}
+}
+
+func (*ExampleFlow) Describe(ctx dex.Context, _ dex.None) (*dex.RPCResult[string], error) {
+	value, err := Status.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: value}, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public class ExampleFlow implements Flow<Integer> {
+    public static final Attribute<String> status = Attribute.define("status", String.class);
+    public static final Channel<Void> notify = Channel.define("notify", Void.class);
+
+    @Override
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(exampleStep).otherSteps(finishStep);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(status, notify);
+    }
+
+    @RPC
+    public RPCResult<String> describe(final Context context) {
+        return RPCResult.of(status.get(context));
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export class ExampleFlow implements Flow<number> {
+  public getSteps() {
+    return StepList.startStep(this.example).otherSteps(this.finish);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [status], channels: [notify] };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public describe(context: Context): RPCResult<string> {
+    return { output: status.get(context) ?? "" };
+  }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl Flow for ExampleFlow {
+    type StartInput = i32;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.example).and(&self.finish)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&status())
+            .channel(&notify())
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().function(DESCRIBE, Self::describe)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 标识符 {#identifiers}
+
+"Flow" 这个词可以指 Flow 定义，也可以指一次 Flow execution，要看上下文。下面这些标识符把它们区分开。
+
+| 标识符 | 谁设置 | 含义 |
+|--------|--------|------|
+| **FlowType** | 应用（Flow 实现） | Dex 路由 Worker 调用和搜索结果使用的稳定类型名。 |
+| **Flow ID** | 应用在 start 时 | 一次 Flow execution 的业务身份。ID reuse policy 控制能否用同一个 Flow ID 再启动一个 execution。 |
+| **Run ID** | Dex Server | 这个 Flow ID 的一次 run 的身份。Time travel 保留它，并创建一个新的 run attempt。请用 Flow ID 定位 Flow；Run ID 只用于诊断。 |
+| **StepType** | 应用（Step 实现） | Flow 内一个 Step 定义的稳定名称。 |
+| **StepExecutionID** | Dex Server | 某个 Step type 的一次执行，格式为 **StepType-Number**。 |
+
+大多数 SDK 从原生类型名推导 **FlowType**，除非你显式覆盖。还有 execution 在运行时，不要改这些名称。
+
+## 生命周期 {#lifecycle}
+
+[Client](/primitives/client) 用一个 Flow ID 和 start input 启动 Flow。Dex 随后在 Worker 上运行 start Step。每个 Step 返回一个决定：进入下一个或多个 Step，或者关闭 Flow。同一时间可以有多个 Step 处于 active。
+
+Step 完成或让 Flow 失败、Flow timeout 触发、或 client 停止它时，Flow 关闭。Flow 运行期间，client 通过 RPC 和 Channel 读取和修改它。
+
+## Start options 和配置 {#start-options}
+
+两组选项决定一次 Flow execution 的行为：
+
+- **StartFlowOptions** 只在启动时生效一次。它设置 Flow timeout、ID reuse policy、start request ID 和 Attribute 初始值。
+- **FlowConfig** 保存运行时设置，比如默认的 Step durability。Flow 运行期间可以更新。
+
+用稳定的业务 Flow ID 直接启动 Flow。不要为了避免冲突先读取或搜索。要安全地重试同一次启动，每次都发送同一个 request ID。这样 Dex 会返回同一个 execution，而不是报错。
+
+## 什么时候用 Flow {#when-to-use}
+
+每个需要由 Dex 管理流程的业务身份，用一个 Flow。共享这个身份和生命周期的工作，放进同一个 Flow 的 Step。一个 Flow 里的 Step 可以并行运行。
+
+工作有自己的 owner 和生命周期时，启动另一个 Flow。两个 Flow 之间通过 RPC 和 Channel 协作。只有父 Step 必须等待子 Flow 的结果时，才用 [SubFlow](/primitives/subflow)。
+
+## 保证 {#guarantees}
+
+- 一个 Flow ID 同一时间最多只有一个 active run。
+- 每个 Step 方法的状态修改和它的结果一起提交，要么全部提交，要么都不提交。
+- 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经 durable 存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
+- 没有 Worker 接的 Step 在 durable 队列里等待，有 Worker 可用时再运行。
+
+## 细节
+
+英文的 [Flow and Step runtime](/reference/server/runtime-steps) 参考包含：
+
+- [StartFlowOptions](/reference/server/runtime-steps#start-flow-options)，以及 [Flow timeout 和 timeout handler](/reference/server/runtime-steps#timeout-and-timeout-policy)；
+- [Flow ID、RequestID 和 already-started 处理](/reference/server/runtime-steps#flow-id-request-id-and-already-started)；
+- [StartFlow 最佳实践](/reference/server/runtime-steps#start-flow-best-practices)；
+- [FlowConfig](/reference/server/runtime-steps#flow-config) 以及如何更新它。

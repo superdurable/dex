@@ -12,7 +12,7 @@ Client calls are made by your application, not by a Step. The examples below use
 
 **StartFlow** creates a Flow execution and returns as soon as Dex Server accepts it. It takes a registered Flow, a business **Flow ID**, the start Step input, and **StartFlowOptions**.
 
-The Flow ID is the identity your application chooses. Dex Server creates the Run ID. See [Flow options](/primitives/flow/flow-options) for timeout, request idempotency, ID reuse, retry, initial Attributes, and configuration overrides.
+The Flow ID is the identity your application chooses. Dex Server creates the Run ID. See [Flow options](/reference/server/runtime-steps#start-flow-options) for timeout, request idempotency, ID reuse, retry, initial Attributes, and configuration overrides.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">

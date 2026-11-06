@@ -308,7 +308,7 @@ self.progress
 
 ## Initial Attribute values {#initial-attribute-values}
 
-**StartFlowOptions** can set initial Attributes when the Flow is created. Initial values and Flow creation are one operation, so the first Step sees them immediately. See [Flow options](/primitives/flow/flow-options#attributes).
+**StartFlowOptions** can set initial Attributes when the Flow is created. Initial values and Flow creation are one operation, so the first Step sees them immediately. See [Flow options](/reference/server/runtime-steps#attributes).
 
 Applications use Flow RPCs to write Attributes after a Flow starts. To read them from outside the Flow, see [Read Attributes from outside a Flow](#read-from-outside-a-flow). A Client can also use **WaitForAttributeMatch** to wait until a singleton Attribute or one AttributeMap instance satisfies a scalar comparison. The call returns the matched current value. See [Client](/primitives/client/advanced#wait-for-an-attribute-match).
 

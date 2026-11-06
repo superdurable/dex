@@ -12,7 +12,7 @@ Client 调用来自 application，不来自 Step。下面的例子使用 **order
 
 **StartFlow** 创建 Flow execution，并在 Dex Server 接受请求后立即返回。它接收已注册的 Flow、业务 **Flow ID**、start Step input 和 **StartFlowOptions**。
 
-Flow ID 是 application 选择的身份。Dex Server 创建 Run ID。关于 timeout、request idempotency、ID reuse、retry、initial Attributes 和 config override，见 [Flow options](/primitives/flow/flow-options)。
+Flow ID 是 application 选择的身份。Dex Server 创建 Run ID。关于 timeout、request idempotency、ID reuse、retry、initial Attributes 和 config override，见 [Flow options](/reference/server/runtime-steps#start-flow-options)。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">

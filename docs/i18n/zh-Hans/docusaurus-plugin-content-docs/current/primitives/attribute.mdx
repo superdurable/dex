@@ -308,7 +308,7 @@ self.progress
 
 ## Initial Attribute values {#initial-attribute-values}
 
-**StartFlowOptions** 可以在创建 Flow 时设置初始 Attribute。初始值与创建 Flow 是一个操作，所以第一个 Step 立刻能看到它们。见 [Flow options](/primitives/flow/flow-options#attributes)。
+**StartFlowOptions** 可以在创建 Flow 时设置初始 Attribute。初始值与创建 Flow 是一个操作，所以第一个 Step 立刻能看到它们。见 [Flow options](/reference/server/runtime-steps#attributes)。
 
 Flow 启动后，应用通过 Flow RPC 写入 Attribute。从 Flow 外读取 Attribute，见[从 Flow 外读取 Attribute](#read-from-outside-a-flow)。Client 也可以用 **WaitForAttributeMatch**，等待 singleton Attribute 或某个 AttributeMap instance 满足 scalar 比较，并返回当前命中的值。见 [Client](/primitives/client/advanced#wait-for-an-attribute-match)。
 

@@ -44,11 +44,11 @@ Choose the interval for the wait. Use a few seconds when a user is watching, suc
 
 ## Limits
 
-Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. Dex enforces them, so the Step does not compute a deadline. Neither the checkpoint nor the Step input carries one. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes. See [Timeouts and total duration](/primitives/step/step-options#timeouts-and-total-duration).
+Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. Dex enforces them, so the Step does not compute a deadline. Neither the checkpoint nor the Step input carries one. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes. See [Timeouts and total duration](/reference/server/runtime-steps#timeouts-and-total-duration).
 
 **TotalDuration** only decides whether Dex retries after a failure, so the last attempt can end after it. With Workers available, the total wait is at most about **TotalDuration** plus one **ExecuteMethodTimeout**.
 
-The polling Step can use either durability. See [Step options](/primitives/step/step-options#durability).
+The polling Step can use either durability. See [Step options](/reference/server/runtime-steps#durability).
 
 ## When the wait expires
 
@@ -60,7 +60,7 @@ The failure record does not include the last observed status. The progress Strea
 
 A new attempt resumes from the last checkpoint, which **GetLastHeartbeatValue** returns. In the example, the checkpoint is the last reported job status, so a retry does not repeat a progress message.
 
-Write a Stream message when the observed status changes, and record a heartbeat otherwise. Unchanged rounds should not fill the Stream. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/primitives/step/step-options#heartbeat) and [Stream](/primitives/stream).
+Write a Stream message when the observed status changes, and record a heartbeat otherwise. Unchanged rounds should not fill the Stream. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/reference/server/runtime-steps#heartbeat) and [Stream](/primitives/stream).
 
 ## Locks
 
@@ -452,7 +452,7 @@ impl Step for RecordJobWaitFailure {
 
 ## Related
 
-- [Step options](/primitives/step/step-options#timeouts-and-total-duration)
+- [Step options](/reference/server/runtime-steps#timeouts-and-total-duration)
 - [Stream](/primitives/stream)
 - [Failure Handling](/design-patterns/failure-handling)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)

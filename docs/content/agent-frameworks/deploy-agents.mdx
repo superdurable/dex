@@ -174,7 +174,7 @@ One model call must finish within 15 minutes. Set the provider or framework
 request timeout below that, so a slow call fails with the provider's error and
 later attempts still fit in the 30-minute retry window. A Claude Agent SDK
 session runs a whole turn segment in one **RunModel**, so that segment must
-finish within 15 minutes. See [Heartbeat](/primitives/step/step-options#heartbeat) for how Dex
+finish within 15 minutes. See [Heartbeat](/reference/server/runtime-steps#heartbeat) for how Dex
 detects a lost attempt.
 
 ### Separate Worker pools {#worker-pools}
@@ -368,7 +368,7 @@ most once, and record **outcome_unknown** when the tool may have run. When the
 tool certainly did not run, the call records **failed** instead, so the model
 can call the tool again. Two cases break the at-most-once promise. Plan for
 both. They follow from how Dex hands out any Step attempt. See
-[Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
+[Failure and redelivery](/reference/server/runtime-steps#failure-and-redelivery).
 
 ### A single-attempt tool can run twice {#tool-runs-twice}
 
@@ -396,7 +396,7 @@ the turn ID, and the tool call ID, joined by slashes, such as
 ### A call that never ran can record outcome_unknown {#never-run-outcome-unknown}
 
 When a tool Step fails, its failure route reads **attempt_progress** from the
-recovery error. See [Failure and redelivery](/primitives/step/basic#unknown-outcome).
+recovery error. See [Failure and redelivery](/reference/server/runtime-steps#unknown-outcome).
 **CallTool** and **CallSingleAttemptTool** use it the same way:
 
 | **attempt_progress** | What the call records |

@@ -170,7 +170,7 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 
 An RPC result can cancel active Steps of its Flow. Use it when a request from outside makes work in progress pointless, such as a user who presses Stop while a report or a model call runs.
 
-Select the Steps by Step type: **with_canceling_steps** in Python, **CancelSteps** in Go, **withCancelingSteps** in Java, **cancelingSteps** in TypeScript, and **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no parent Step execution, so it cannot cancel sibling Steps. A Step can cancel other Steps the same way from its [StepDecision](/primitives/step/step-decision#cancellation-on-stepdecision).
+Select the Steps by Step type: **with_canceling_steps** in Python, **CancelSteps** in Go, **withCancelingSteps** in Java, **cancelingSteps** in TypeScript, and **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no parent Step execution, so it cannot cancel sibling Steps. A Step can cancel other Steps the same way from its [StepDecision](/reference/server/runtime-steps#cancellation-on-stepdecision).
 
 In the example, **GenerateReport** writes a report section by section. The **stop_report** RPC cancels it and starts **FinishReportStop**.
 
@@ -450,7 +450,7 @@ for section in 1..=SECTION_COUNT {
 </SdkSnippet>
 </SdkTabs>
 
-Dex waits about one second for the canceled attempt to end. If the handler is still running, Dex closes the Worker stream that carried it. The handler keeps running inside the Worker process until it returns, and its external calls still take effect. A canceled attempt may also have done part of its work before it stopped. Keep its external effects idempotent. See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
+Dex waits about one second for the canceled attempt to end. If the handler is still running, Dex closes the Worker stream that carried it. The handler keeps running inside the Worker process until it returns, and its external calls still take effect. A canceled attempt may also have done part of its work before it stopped. Keep its external effects idempotent. See [Failure and redelivery](/reference/server/runtime-steps#failure-and-redelivery).
 
 ## Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
 
