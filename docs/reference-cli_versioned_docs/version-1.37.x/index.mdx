@@ -43,6 +43,12 @@ uses the selected Dex port. Ctrl+C stops Web and the server-zd child process.
 server-zd supports pull Workers. See [Server reference](/reference/server/)
 for storage, durability, and Attribute Store configuration.
 
+A new state directory has 32 partitions. A state directory that dexcli before
+1.37.0 created has 1024 partitions, and server-zd refuses to start on it with
+the default. To keep using it, pass a **--zd-config** file that sets
+**cluster.partitionCount** to 1024. Otherwise delete the state directory. See
+[Partition count](/reference/server/configuration#single-node-partition-count).
+
 The Temporal engine was removed. **--engine temporal**, all
 **--external-temporal-*** and **--temporal-*** flags, **--sqlite-db-filename**,
 **--verbose-engine-log**, and **--blob-store-dir** now fail with an error that
@@ -110,6 +116,31 @@ history and process listings. Without **--tls**, the FlowService connection is
 plaintext gRPC and the token crosses the network unencrypted. Enable TLS or
 protect the network path.
 
+## View a remote server in Dex Web {#web}
+
+**web** serves Dex Web against the existing server given by **--server**. It
+does not start a server. To reach a server whose FlowService port is bound only
+to the remote host's loopback address, open an SSH tunnel in one terminal and
+leave it running:
+
+```bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+```
+
+In another terminal, start Dex Web:
+
+```bash
+dexcli --server 127.0.0.1:8801 web
+```
+
+Then open [http://127.0.0.1:8802](http://127.0.0.1:8802). Startup fails when **HealthCheck** cannot reach
+the server. **--timeout** bounds only the startup checks. **--open=false** skips
+the browser. A running **dexcli dev** also uses ports 8801 and 8802, so pick
+another tunnel port and **--web-port** to run both. Dex Web has no
+authentication, so keep **--bind-address** on loopback. See
+[View a remote server with dexcli web](/reference/web/dex-web#dexcli-web) for every
+flag.
+
 ## Friendly Flow operations
 
 Use **flow search**, **summary**, **state**, **history**, and **inspect** for bounded JSON
@@ -171,10 +202,6 @@ error and exits with status 1. The command supports the normal **--server**,
 
 ## Describe or step down the active server process {#admin-step-down}
 
-server-zd does not serve **AdminService** yet, so these commands currently fail
-with **UNIMPLEMENTED**. The rest of this section describes the commands against
-a server that serves **AdminService**.
-
 **dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
 **holderProcessId** of the active server process, and changes nothing. It fails
 with **FAILED_PRECONDITION** while a step down or its hold-off is in progress,
@@ -206,8 +233,10 @@ you or someone else already started.
 
 The commands support the normal connection, TLS, credential, **--timeout**, and
 **--output** flags. **dexcli admin step-down** waits up to 2 minutes by default,
-longer than the hold-off before the stepped-down process competes for the lease
-again. When the server requires authentication, the credential must be an admin
+longer than the default attempt drain plus the hold-off before the stepped-down
+process competes for the lease again. If the server sets a longer
+**lifecycle.attemptDrainTimeout**, raise **--timeout** by at least the same
+amount. When the server requires authentication, the credential must be an admin
 JWT. The API key exchange cannot ask for an admin audience. See
 [admin credentials](/reference/server/authentication#admin-credentials).
 
