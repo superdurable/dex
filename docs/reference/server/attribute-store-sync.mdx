@@ -24,7 +24,7 @@ store's tables.
   server-zd writes the backlog with the latest values.
 - Entries still pending **syncRetryPolicy.totalDuration** after they were first
   marked are dropped. Later writes of the same Attributes sync normally.
-- After [time travel](/primitives/client/advanced#time-travel), server-zd
+- After [time travel](/reference/server/runtime-client#time-travel), server-zd
   rewrites every row the run synced with the state after the time travel.
 - Each database needs a [fencing table](#attribute-store-fencing-table).
 - A natural close waits for synced Attributes. A Step decision that

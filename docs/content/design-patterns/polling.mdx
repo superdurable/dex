@@ -38,11 +38,11 @@ Keep each round inside the heartbeat window:
 interval + call timeout <= HeartbeatTimeout - 10s
 ```
 
-With the default one-minute **HeartbeatTimeout** and a 10-second call timeout, the interval can be at most 40 seconds. One round then takes at most 50 seconds.
+The example uses a one-minute **HeartbeatTimeout** and a 10-second call timeout. Its interval can be at most 40 seconds. See [Heartbeat](/primitives/step/step-options#heartbeat) for the default and the minimum.
 
 Choose the interval for the wait. Use a few seconds when a user is watching, such as the readiness of something they just started. Use tens of seconds for long jobs such as builds.
 
-## Limits
+## Bound the wait {#limits}
 
 Use one maximum-wait value for both **ExecuteMethodTimeout** and **TotalDuration**. Dex enforces them, so the Step does not compute a deadline. Neither the checkpoint nor the Step input carries one. Give **ExecuteRetry** a few attempts with backoff for transient errors and Worker crashes. See [Timeouts and total duration](/reference/server/runtime-steps#timeouts-and-total-duration).
 
