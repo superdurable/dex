@@ -56,12 +56,153 @@ Set `DEX_FLOW_PYTHON` when Python 3.11+ is not the default interpreter.
 
 Feature guides include [durable SubFlows](content/primitives/subflow.mdx).
 
+## Reference versions and release snapshots
+
+Edit only the current reference content under `reference/<component>/`.
+`reference/versions.json` records the latest released version for each component.
+SDKs, CLI, and Web use minor versions such as `1.35.x`. Server uses each
+`0.1.N` release before 1.0, then minor versions. Release train numbers can skip
+for a component; never invent a missing minor.
+
+The left sidebar selector uses Docusaurus's version metadata. Choosing a
+version in the select does not navigate; the Go button or Enter opens it,
+because keyboard changes on a closed native select fire `change` events. The
+selector keeps the document ID when switching versions and falls back to the
+target version's index when that document is absent. It keeps the URL anchor
+when the target page has that anchor, and drops it otherwise. The selector also
+appears in the mobile docs drawer. Archived pages link back to the latest
+matching page in a banner. Reference instances hide the Docusaurus version
+badge, because the selector already shows the version. Current routes stay at
+`/reference/<component>/`; archived routes add the version, such as
+`/reference/web/1.32.x/`. The Chinese shell serves the same English reference
+content with translated selector labels.
+
+To capture a released component, run from this directory:
+
+```bash
+node scripts/snapshot-reference.mjs web 1.36.0
+node scripts/snapshot-reference.mjs server 0.1.20
+```
+
+The script runs `docusaurus docs:version:reference-<component>`, updates the
+latest label, and keeps five released snapshots, including the latest. The
+snapshot matching the latest label is stored but hidden: current content serves
+that release at the permanent unversioned route. When a newer release arrives,
+that stored snapshot becomes an archived version. A patch release within the
+latest minor, or a repeated run, replaces the hidden snapshot and its sidebar
+with the current content. The script rejects versions older than the latest
+label.
+
+### Bootstrap: the hidden latest snapshot
+
+A new version needs the hidden snapshot of the current latest label, because
+that snapshot becomes the archived version. Current content already describes
+the new release, so the script cannot rebuild the old one from it. When the
+hidden snapshot is missing, the script fails and names the command that creates
+it. Running the script with the latest label itself creates the hidden snapshot:
+
+```bash
+node scripts/snapshot-reference.mjs web 1.35.x
+```
+
+The site starts without snapshots. Before the first release after versioning
+merges, each component needs a hidden snapshot equal to its label in
+`reference/versions.json`, made from that release's reference content. The
+historical backfill creates these snapshots together with the older versions.
+Until then, the release snapshot job fails for that component without
+affecting the release.
+
+### Editing archived snapshots
+
+Snapshots use Docusaurus's `reference-<component>_versions.json`,
+`reference-<component>_versioned_docs/`, and
+`reference-<component>_versioned_sidebars/` files. Archived snapshots change
+only to fix a factual error or a broken link. Backfill must use the actual
+releases rather than relabeling current content.
+
+Moving or renaming a page can break links inside archived snapshots. The new
+redirect does not fix them: client redirects are not routes, and the build
+fails on broken links. After adding the redirect, retarget every existing
+redirect whose destination is the old URL, in both locales. Pruning redirects
+often point at current pages. Then rewrite the moved URL in every retained
+snapshot and run `npm run check`:
+
+```bash
+node scripts/snapshot-reference.mjs --rewrite-links /primitives/old-page /primitives/new-page
+```
+
+The rewrite matches whole paths in Markdown, MDX, and versioned sidebar files.
+It keeps anchors and trailing slashes and leaves current content unchanged. The
+site audit accepts a link on an archived page when it resolves to a route or a
+declared redirect. Current pages must still link to routes directly.
+
+### Pruning and search indexing
+
+Pruning removes obsolete snapshot files and adds direct redirects in both
+locale shells. Each dropped page goes to the latest page with the same document
+ID, or to the component index if that document no longer exists. Existing
+redirects are retargeted to avoid chains. Archived pages have self-canonical
+URLs and Docusaurus's noindex metadata, and are excluded from the sitemap and
+`llms.txt`. Their Markdown twins still exist. Current pages remain indexable.
+
+### Release automation
+
+After creating release tags, `release-changed-components.yml` snapshots the
+selected SDK, CLI, and Web components. `server-zd-binary-release.yml` snapshots
+the server after publishing a stable release (each `0.1.N`, then minor
+versions from 1.0), starting from main rather than the tag. Prereleases are
+skipped. Each job runs `npm run check` and pushes one
+`automation/reference-snapshots-<run_id>-<attempt>` branch. It never pushes to
+main. The job is `continue-on-error`, so a snapshot failure never fails the
+release run.
+
+The jobs cannot open the pull request themselves. The repository setting that
+allows GitHub Actions to create pull requests is off. A pull request created
+with `GITHUB_TOKEN` would also not trigger the required Check Gate CI. A GitHub
+App token would remove both limits.
+
+Until then, a person opens each pull request:
+
+1. Open the release run's summary. It names the snapshot branch and gives a
+   compare link.
+2. Open the pull request from the compare link with the Summary, Why, and
+   Testing sections.
+3. Merge snapshot branches in release order. Each branch starts from main as
+   it was at its release, so a later branch may miss or conflict with an
+   earlier one. Merge the earlier branch first. If the later branch then
+   conflicts, run its snapshot command by hand on the updated main instead.
+   Rerunning the `release-changed-components.yml` job does not help, because it
+   checks out the original release commit. Rerunning the
+   `server-zd-binary-release.yml` job checks out the current main, so it picks
+   up the merged earlier branch.
+
+If a snapshot job fails, run the snapshot command above by hand and open its
+pull request.
+
+### Tests and upgrade risks
+
+`npm run test:reference` checks version boundaries, retention, file pruning,
+page fallback, locale redirects, patch replacement, the missing-bootstrap error,
+link rewrites (including angle-bracket destinations), and isolation between
+instances. `npm run check` also builds both
+locale shells and audits the selectors, archived routes, banners, canonicals,
+robots metadata, redirects, sitemaps, and `llms.txt`.
+
+The snapshot script and the site audit match Docusaurus's own document IDs and
+slugs. They import internal modules of `@docusaurus/plugin-content-docs`:
+`lib/slug.js` and `lib/numberPrefix.js`. The selector imports
+`useNavbarMobileSidebar` from `@docusaurus/theme-common/internal`. These are not
+public APIs. Check them, and run `npm run check` and the snapshot tests, when
+upgrading Docusaurus.
+
 ## Route and search-index integrity
 
 Published documentation URLs are permanent. When moving, renaming, or deleting
 a page, add a direct redirect for every affected locale to
 [`redirects.json`](redirects.json). Point each old URL to the closest successor,
 not the home page, and update internal links to use the destination directly.
+Links inside archived reference snapshots follow
+[Editing archived snapshots](#editing-archived-snapshots) instead.
 
 Run the full production-site check after every docs change:
 
@@ -248,7 +389,9 @@ custom pages, such as `/cloud/`, are outside the content-docs export.
 Each locale's `llms.txt` starts with the site title and a one-line summary. Its
 sections follow the docs sidebar: one section per top-level category, in sidebar
 order, and pages outside every sidebar come last. Each entry has the page title,
-the absolute Markdown URL, and the page description.
+the absolute Markdown URL, and the page description. Only the current version of
+each versioned docs instance is listed; archived reference versions keep their
+Markdown twins but stay out of `llms.txt`.
 
 Exports start with YAML containing `title`, `description`, `canonical_url` for the
 HTML page, repository-relative `source`, and `locale`. The description is the HTML

@@ -125,7 +125,8 @@ export async function exportMarkdown({allContent, siteDir, outDir, baseUrl, site
     await writeOutput(outDir, baseUrl, pathname, markdown);
     entries.set(page, `- [${escapeLabel(page.title)}](${new URL(pathname, siteConfig.url).href})${description ? `: ${description}` : ''}`);
   }
-  const sections = llmsSections(versions, copy);
+  // Archived versions keep Markdown twins but stay out of llms.txt, like the sitemap.
+  const sections = llmsSections(versions.filter(item => item.version.isLast), copy);
   const index = [`# ${siteConfig.title}`, `> ${copy.summary}`,
     ...sections.map(section => `## ${section.title}\n\n${section.pages.map(page => entries.get(page)).join('\n')}`)];
   await writeOutput(outDir, baseUrl, `${baseUrl}llms.txt`, `${index.join('\n\n')}\n`);

@@ -22,6 +22,18 @@ export const apiEntryPaths = new Set(Object.entries(apiVersions).flatMap(([langu
 ]));
 const pagesLimitBytes = 1_000_000_000;
 
+/**
+ * Reports whether a path is under a minor version of a hosted SDK's API reference, current or retired.
+ *
+ * Archived reference pages are frozen and may link to a retired minor; the 404 page redirects those.
+ *
+ * @returns {boolean} True for /api/<manifest language>/<major.minor>/ and any page below it.
+ */
+export function isApiReferenceVersionPath(pathname) {
+  const match = /^\/api\/([^/]+)\/\d+\.\d+\//.exec(pathname);
+  return Boolean(match && Object.hasOwn(apiVersions, match[1]));
+}
+
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   await auditApiReferenceIndexPages();
   await auditPythonGenerationLocks();
