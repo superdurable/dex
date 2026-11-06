@@ -2,14 +2,18 @@ name: Skills CI
 
 on:
   pull_request:
+    # edited re-runs the checks when the description gains an opt-out line.
+    types: [opened, synchronize, reopened, edited]
     paths:
       - 'skills/**'
+      - 'docs/content/**'
       - '.github/workflows/skills-ci.yml'
   push:
     branches:
       - main
     paths:
       - 'skills/**'
+      - 'docs/content/**'
       - '.github/workflows/skills-ci.yml'
 
 permissions:
@@ -31,63 +35,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Read upstream baselines
-        id: baselines
-        shell: bash
-        run: |
-          echo "sdk=$(cat DEX_BASELINE)" >> "$GITHUB_OUTPUT"
-          echo "server=$(cat DEX_SERVER_BASELINE)" >> "$GITHUB_OUTPUT"
-          echo "cli=$(cat DEX_CLI_BASELINE)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          repository: superdurable/dex
-          ref: ${{ steps.baselines.outputs.sdk }}
-          path: skills/upstream-dex-sdk
-      - uses: actions/checkout@v4
-        with:
-          repository: superdurable/dex
-          ref: ${{ steps.baselines.outputs.server }}
-          path: skills/upstream-dex-server
-      - uses: actions/checkout@v4
-        with:
-          repository: superdurable/dex
-          ref: ${{ steps.baselines.outputs.cli }}
-          path: skills/upstream-dex-cli
-          fetch-depth: 0
-      - name: Validate package and manifests
+      - name: Validate package, links, and content boundaries
         run: python3 script/check-package.py
-      - name: Test source validation
+      - name: Validate the skills and docs map
+        run: python3 script/check-doc-map.py
+      - name: Test validators and tools
         run: python3 -m unittest discover -s test -p 'test_*.py'
       - name: Test lifecycle version hook
         run: node --test test/version-check.test.mjs
-      - name: Validate Dex SDK reference sources
-        run: python3 script/check-reference-sources.py --dex-root upstream-dex-sdk --server-root upstream-dex-server --cli-root upstream-dex-cli
-      - name: Validate CLI and Server baselines
-        run: python3 script/check-upstream-baselines.py --dex-root upstream-dex-cli
       - name: Enforce release metadata
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          python3 script/check-package.py --base-ref "$BASE_SHA"
-          if ! git cat-file -e "$BASE_SHA:skills" 2>/dev/null; then
-            echo "Initial skills import; no previous release metadata to compare."
-            exit 0
-          fi
-          changed=$(git -C .. diff --name-only "$BASE_SHA...HEAD" -- skills/dex-sdk skills/dex-app-builder skills/dex-connector-contributor)
-          if [[ -z "$changed" ]]; then
-            exit 0
-          fi
-          metadata=$(git -C .. diff --name-only "$BASE_SHA...HEAD" -- skills/VERSION skills/CHANGELOG.md)
-          if ! grep -qx 'skills/VERSION' <<< "$metadata" || ! grep -qx 'skills/CHANGELOG.md' <<< "$metadata"; then
-            echo "Skill changes must update skills/VERSION and skills/CHANGELOG.md." >&2
-            exit 1
-          fi
-          base_version=$(git -C .. show "$BASE_SHA:skills/VERSION")
-          current_version=$(cat VERSION)
-          python3 - "$base_version" "$current_version" <<'PY'
-          import sys
-
-          if tuple(map(int, sys.argv[2].split('.'))) <= tuple(map(int, sys.argv[1].split('.'))):
-              raise SystemExit('Skill changes must increase skills/VERSION.')
-          PY
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 script/check-package.py --base-ref "$BASE_SHA" --pr-body="$PR_BODY"
+      - name: Require skills and docs to change together
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 script/check-doc-map.py --base-ref "$BASE_SHA" --pr-body="$PR_BODY"

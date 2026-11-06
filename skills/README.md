@@ -270,20 +270,24 @@ the new Skill names are discovered.
 A direct skill install is not replaced by the plugin. If
 `~/.claude/skills/dex-developer`, another client's skills-directory copy, or an
 `npx skills` install of `dex-developer` exists, it keeps loading its older
-pinned Server and CLI guidance and can shadow the current installation. Remove
+guidance and can shadow the current installation. Remove
 it with the tool that installed it, install exactly one current distribution,
 and start a new task.
 
 ## Dex SDK
 
-`dex-sdk` uses progressive disclosure. Shared semantics live under
-`dex-sdk/references/core/`, and each supported language has a matching handbook.
-The skill inspects the project's installed SDK and version-matched runnable
-sources before choosing exact APIs.
+`dex-sdk` is the coding-agent version of the Dex stable layer: the same scope
+as the docs Primitives, Components, and Design patterns, written as mental
+models, decision tables, rules, anti-patterns, code skeletons, and a
+self-check list. It uses progressive disclosure. Shared semantics live under
+`dex-sdk/references/core/`, and each supported language has its own folder.
 
-Exact source excerpts are pinned to the Dex release in `DEX_BASELINE`. CI checks
-that every marked snippet remains a contiguous excerpt of its declared source.
-The project dependency and lockfile remain authoritative when versions differ.
+The skill contains no Dex version numbers. Exact APIs, defaults, limits, and
+configuration live in the versioned docs
+[Developer reference](https://docs.superdurable.io/reference/). The skill
+tells the agent to read the project's SDK version from its manifest and open
+the matching version of the Developer reference. The project's dependency and
+lockfile remain authoritative.
 
 ## Dex App Builder
 
@@ -309,9 +313,6 @@ An existing application keeps its pinned Go, Dex SDK, `dexcli`, and frontend
 versions. An effectively empty repository becomes a Go module on an exact
 released Dex Go SDK paired with the installed `dexcli`. App Builder does not
 invent a TypeScript backend or borrow SDK setup from a neighboring project.
-The `DEX_BASELINE`, `DEX_SERVER_BASELINE`, `DEX_CLI_BASELINE`, and
-`DEX_WEB_BASELINE` files record the releases the guidance was checked against; they do not authorize upgrading
-an application.
 
 No custom UI uses Dex Web v2 for every management interaction, so the
 application ships only its Go Worker plus any confirmed integration ingress.
@@ -375,7 +376,9 @@ current contract.
 
 The three skills and all client manifests share the version in `VERSION`. A merge
 to `main` creates GitHub Release `v<version>` when that tag does not already
-exist. See [CONTRIBUTING.md](CONTRIBUTING.md) for validation and release rules.
+exist. A release happens only when stable content changes, not when Dex
+releases. See [CHANGELOG.md](CHANGELOG.md) for release notes and
+[CONTRIBUTING.md](CONTRIBUTING.md) for validation and release rules.
 
 ## License
 

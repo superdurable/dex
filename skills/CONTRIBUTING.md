@@ -39,30 +39,39 @@ pages in the same pull request, or state in the pull request why they need no
 change. A skills change does not wait for a Dex release, and a Dex release
 never requires a skills change.
 
-## Transitional: pinned baselines
+## Keep skills and docs in step
 
-Phase P6 of the docs and skills cleanup replaces the validators below and
-removes the baseline pins. Until then, the existing validators must keep
-passing, so avoid editing pinned skills content. Do not advance a baseline
-only because Dex released. When you must touch pinned content, these rules
-still apply.
+`doc-map.yaml` maps each skills file to the docs pages that hold the same
+stable knowledge. Each entry names one skills file, relative to this
+directory, and the English docs pages under `docs/content/` that it mirrors.
+Skills CI fails a pull request that changes a mapped file on one side but none
+of its counterparts. When the other side really needs no change, add this line
+to the pull request description and re-run Skills CI and Check Gate CI:
 
-`DEX_BASELINE` pins exact Go SDK excerpts. `DEX_JAVA_BASELINE`,
-`DEX_PYTHON_BASELINE`, `DEX_TYPESCRIPT_BASELINE`, and `DEX_RUST_BASELINE`
-pin each other SDK and its language examples to its own published tag. Language code fences must be contiguous
-excerpts from runnable examples, SDK tests, or SDK READMEs at that release, with
-the existing visible source link and `dex-source` marker.
+```text
+doc-map: no change needed: <reason>
+```
 
-`DEX_SERVER_BASELINE` pins the published server-zd release that the CLI
-baseline bundles (`cli/SERVER_ZD_RELEASE`), the only Dex Server. The
-Temporal-based Go Server was removed after `server/v1.25.0`; no baseline or
-source link may name it. `DEX_CLI_BASELINE` pins the released local tooling and
-embedded Web v2/FDG 2.0 implementation. `DEX_WEB_BASELINE` pins the standalone
-Dex Web release (`web/vX.Y.Z`), and `web/` and `protos/` source links use it.
-Refresh any baseline deliberately and review all affected guidance. The CLI
-checkout must include all published tags (use a full fetch, as Skills CI does);
-source validation reads the non-Go SDK tags and the Web tag there even when the
-Go checkout is shallow.
+Keep the map current when you add, move, or delete a mapped file.
+
+## Links and boundaries
+
+`script/check-package.py` enforces the content rules that a reviewer would
+otherwise miss:
+
+- Local links and heading anchors resolve inside the three skill
+  directories, and every file is reachable from its `SKILL.md`.
+- External links go only to the docs Developer reference
+  (`https://docs.superdurable.io/reference/...`, latest version only),
+  `main` branch files in `superdurable/dex`, `connectors.superdurable.io`,
+  `superdurable/dex-connectors-library`, and the `superdurable/dex-skills`
+  release metadata. No link pins a release tag or commit.
+- Skill content names no product built on Dex, no Continue-As-New, and no
+  Temporal or Cadence backend term.
+- Skill content has no Dex version numbers, release tags, or dependency pins.
+  Standards and toolchain versions, such as FDG 2.0 or Node 22, are allowed.
+
+It does not check exact file lists or sentences.
 
 ## Public product boundary
 
@@ -75,22 +84,23 @@ repository.
 
 ## Validate a change
 
-Run from the repository root:
+Run from this directory:
 
 ```bash
 python3 script/check-package.py
-python3 script/check-reference-sources.py \
-  --dex-root /path/to/dex-sdk-baseline \
-  --server-root /path/to/dex-server-zd-baseline \
-  --cli-root /path/to/dex-cli-baseline
-python3 script/check-upstream-baselines.py \
-  --dex-root /path/to/dex-cli-baseline
+python3 script/check-doc-map.py
 python3 -m unittest discover -s test -p 'test_*.py'
 node --test test/version-check.test.mjs
 python3 /path/to/skill-creator/scripts/quick_validate.py dex-sdk
 python3 /path/to/skill-creator/scripts/quick_validate.py dex-app-builder
 python3 /path/to/skill-creator/scripts/quick_validate.py dex-connector-contributor
 ```
+
+`check-doc-map.py` needs the Dex checkout because it reads `docs/content/`.
+Without arguments it validates the map. Skills CI also runs both scripts with
+`--base-ref` and the pull request description to enforce the release metadata
+and the doc-map pairing. To run that locally, pass a base such as
+`--base-ref origin/main`.
 
 Also validate the Codex, Claude Code, and Cursor manifests with their current
 client tooling and smoke-test that one plugin install exposes exactly the three
@@ -103,22 +113,24 @@ current instructions.
 
 Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
 changes: a rule, a Primitive concept or relation, a Component, a design
-pattern, skill routing, or packaging. After phase P6 of the docs and skills
-cleanup, a typo, link, or wording-only change needs no bump. Until P6, see the
-transitional rule below. Keep every plugin and
-marketplace manifest on that exact version where the format supports a
-version.
+pattern, skill routing, or packaging. Keep every plugin and marketplace
+manifest on that exact version where the format supports a version, and keep
+`CHANGELOG.md` short. The 0.x release notes are archived in
+`CHANGELOG-0.x.md`.
 
 - Increment PATCH for corrections to an existing rule or concept.
 - Increment MINOR for new product workflows, languages, patterns, or other
   backward-compatible capabilities.
 - Increment MAJOR for incompatible plugin or skill identity changes.
 
-Transitional: until phase P6, Skills CI still requires every change under
-`dex-sdk/`, `dex-app-builder/`, or `dex-connector-contributor/` to update
-`VERSION` and `CHANGELOG.md`. Until then, a typo, link, or wording-only change
-either waits and is batched into the next stable-content change, or bumps
-PATCH as CI requires. After P6, such a change needs no bump.
+A typo, link, or wording-only change needs no bump. Skills CI requires a
+`VERSION` and `CHANGELOG.md` update for any change under `dex-sdk/`,
+`dex-app-builder/`, or `dex-connector-contributor/`, unless the pull request
+description contains this line:
+
+```text
+skills-release: no bump needed: <reason>
+```
 
 After a pull request lands on Dex `main`, the skills mirror syncs the package.
 The mirror's Release workflow validates it and creates `v<version>` from the

@@ -85,9 +85,9 @@ Queries, Updates, workflow history mechanics) in application guidance; state the
 Dex behavior and guarantee instead. When a guarantee differs by backend, say so
 in Dex terms without explaining the backend mechanism. Deployment and operations
 guidance may name server-zd and its configuration, such as object storage, the
-PostgreSQL Attribute Store, and the search backend. Name Temporal or Cadence
-only in migration notes for the Go Server, retired after `server/v1.25.0`, and for the
-Temporal CLI flags that `dexcli dev` removed.
+PostgreSQL Attribute Store, and the search backend. Do not name Temporal or
+Cadence; Dex Server (server-zd) is the only Dex Server. `check-package.py`
+rejects these terms.
 
 ## Packaging and release
 
@@ -105,18 +105,13 @@ repository; the coding-agent host supplies the installed Dex Skills release.
 
 Bump `VERSION` and add a `CHANGELOG.md` entry only when stable content
 changes: a rule, a Primitive concept or relation, a Component, a design
-pattern, skill routing, or packaging. After phase P6 of the docs and skills
-cleanup, a typo, link, or wording-only change needs no bump. Until P6, see the
-transitional rule below. A Dex release never requires a
-skills change. Dex Web is released as its own `web/vX.Y.Z` standalone binary
-and image, and `dexcli dev` embeds it.
+pattern, skill routing, or packaging. A typo, link, or wording-only change
+needs no bump; its pull request description contains a line
+`skills-release: no bump needed: <reason>`, which Skills CI accepts instead of
+the bump. A Dex release never requires a skills change.
 
-Transitional: phase P6 of the docs and skills cleanup replaces the validators.
-Until then, the existing validators must keep passing. They still pin
-`DEX_BASELINE` and the other `DEX_*_BASELINE` files, check source excerpts
-against those release tags, and require a `VERSION` and `CHANGELOG.md` bump for
-any change under a skill directory. Until then, a typo, link, or wording-only
-change either waits and is batched into the next stable-content change, or
-bumps PATCH as CI requires. Avoid editing pinned skills content until P6 lands,
-except to remove or correct text that a Dex change made wrong; that is a PATCH
-bump. Do not advance a baseline only because Dex released.
+`doc-map.yaml` maps each skills file to the docs pages that hold the same
+stable knowledge. Skills CI fails a pull request that changes a mapped file on
+one side but none of its counterparts, unless its description contains a line
+`doc-map: no change needed: <reason>`. Keep the map current when you add, move,
+or delete a mapped file.

@@ -42,8 +42,8 @@ Developer reference. Pure internal refactors and fixes that preserve
 application behavior do not change skills either.
 
 If a Dex change makes existing skills text wrong, remove or correct that text
-in the same work item. During the transition below, this is a PATCH bump. Do
-not add new volatile detail while doing so.
+in the same work item. That correction is a PATCH bump. Do not add new
+volatile detail while doing so.
 
 Test each fact with one question: will this still hold in the next minor
 release? If yes, it may belong in skills. If no, it belongs in the Developer
@@ -57,13 +57,9 @@ change. Merging `skills/` to main automatically syncs it to the read-only
 If the skills mirror is unavailable or contains work that cannot be safely
 synced, do not mark the skills change complete. Report the blocker explicitly.
 
-Transitional: phase P6 of the docs and skills cleanup replaces the skills
-validators. Until then, the existing validators must keep passing. They still
-pin `skills/DEX_BASELINE` and the other `DEX_*_BASELINE` files, check source
-excerpts against those release tags, and require a `VERSION` and
-`CHANGELOG.md` bump for any change under a skill directory. Until P6 lands,
-avoid editing pinned skills content, except to remove or correct text that a
-Dex change made wrong. Do not advance a baseline only because Dex released.
+Bump the skills `VERSION` and add a `CHANGELOG.md` entry only when stable
+content changes. A typo, link, or wording-only change needs no bump; its pull
+request description contains a line `skills-release: no bump needed: <reason>`.
 See `skills/CONTRIBUTING.md`.
 
 ## Docs Information Placement
@@ -95,9 +91,11 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 - When a pull request changes stable content on one side, it updates the
   other side in the same pull request. Otherwise its description states why
   the other side needs no change.
-- `skills/doc-map.yaml` maps each skills file to its docs pages. Phase P6 of
-  the docs and skills cleanup adds that file, together with a CI check that
-  enforces the same-pull-request rule.
+- `skills/doc-map.yaml` maps each skills file to its docs pages. Skills CI
+  fails a pull request that changes a mapped file on one side but none of its
+  counterparts, unless the description contains a line
+  `doc-map: no change needed: <reason>`. Keep the map current when you add,
+  move, or delete a mapped file.
 - Until the versioned Developer reference exists, put volatile facts in the
   existing `docs/content/references/` and `docs/content/production/` pages.
   Phase P2 of the docs and skills cleanup moves them into the Developer
