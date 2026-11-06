@@ -119,14 +119,17 @@ pub enum ServerError {
     #[error(
         "opening data directory {}: it records {stored} partitions, but cluster.partitionCount is \
          {configured}; a data directory keeps the partition count it was created with, so set \
-         cluster.partitionCount: {stored} in the --config file (with dexcli dev, the --zd-config \
-         file); dev and local default to {default} partitions, and earlier releases created 1024",
+         cluster.partitionCount: {stored} in {override_file}; dev and local default to {default} \
+         partitions since server-zd v0.1.20, and server-zd before v0.1.20 and dexcli before \
+         1.37.0 created 1024",
         data_directory.display(),
         default = config::SINGLE_NODE_PARTITION_COUNT
     )]
     SingleNodePartitionCountMismatch {
         /// The `--data-dir` of `dev` or `local`.
         data_directory: PathBuf,
+        /// The file that sets overrides for the command, such as `the --config file`.
+        override_file: &'static str,
         /// Configured `cluster.partitionCount`.
         configured: u32,
         /// Partition count recorded in the data directory's cluster object.
@@ -235,6 +238,7 @@ fn serve_single_node_until_terminated(
         move |mut cancellation| async move {
             start_single_node_server_with_config(
                 configuration,
+                profile,
                 &mut cancellation,
                 LeaseExpiryResponse::ExitProcess,
             )
@@ -307,6 +311,7 @@ pub async fn start_dev_server(options: &DevCommandOptions) -> Result<RunningServ
     let (_cancellation_sender, mut cancellation) = watch::channel(false);
     let started = start_single_node_server_with_config(
         config::Config::load_dev(options)?,
+        config::SingleNodeProfile::Dev,
         &mut cancellation,
         LeaseExpiryResponse::StopNodeOnly,
     )
@@ -316,6 +321,7 @@ pub async fn start_dev_server(options: &DevCommandOptions) -> Result<RunningServ
 
 async fn start_single_node_server_with_config(
     mut configuration: config::Config,
+    profile: config::SingleNodeProfile,
     cancellation: &mut watch::Receiver<bool>,
     lease_expiry_response: LeaseExpiryResponse,
 ) -> Result<Option<RunningServer>, ServerError> {
@@ -331,7 +337,11 @@ async fn start_single_node_server_with_config(
     )
     .await
     .map_err(|error| {
-        explain_single_node_partition_count_mismatch(error, &configuration.dev.data_directory)
+        explain_single_node_partition_count_mismatch(
+            error,
+            &configuration.dev.data_directory,
+            profile,
+        )
     })
 }
 
@@ -340,6 +350,7 @@ async fn start_single_node_server_with_config(
 fn explain_single_node_partition_count_mismatch(
     error: ServerError,
     data_directory: &Path,
+    profile: config::SingleNodeProfile,
 ) -> ServerError {
     match error {
         ServerError::EngineStart {
@@ -347,6 +358,7 @@ fn explain_single_node_partition_count_mismatch(
                 EngineStartError::Metadata(MetadataError::PartitionCountMismatch { configured, stored }),
         } => ServerError::SingleNodePartitionCountMismatch {
             data_directory: data_directory.to_path_buf(),
+            override_file: profile.override_file_description(),
             configured,
             stored,
         },

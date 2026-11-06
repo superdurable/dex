@@ -666,3 +666,20 @@ impl CommittedCommandSink for IgnoredCommittedCommands {
 
     fn finish_frame(&self, _partition: PartitionId, _position: &LogPosition) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_partition_count_mismatch_is_a_configuration_error() {
+        let mismatch = EngineStartError::Metadata(MetadataError::PartitionCountMismatch {
+            configured: 32,
+            stored: 1024,
+        });
+        assert!(is_configuration_error(&mismatch));
+        let missing_manifest =
+            EngineStartError::Metadata(MetadataError::Missing { key: "manifest" });
+        assert!(!is_configuration_error(&missing_manifest));
+    }
+}

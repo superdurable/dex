@@ -26,28 +26,33 @@ const DEFAULT_PARTITION_COUNT_LOG_TEXT: &str = "partition_count=32";
 const MISMATCH_EXIT_BUDGET: Duration = Duration::from_secs(20);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_new_dev_data_directory_has_32_partitions() {
+async fn a_new_dev_or_local_data_directory_has_32_partitions() {
     let directory = TempDir::new().expect("a temporary test directory can be created");
     let default_config = write_overrides(
         directory.path(),
         "default.yaml",
         DEFAULT_PARTITION_OVERRIDES,
     );
-    let mut dev = ServeProcess::spawn_dev(
-        &directory.path().join("data"),
-        &default_config,
-        free_loopback_address(),
-        directory.path().join("dev.log"),
-    );
-    let channel = dev.wait_until_serving().await;
-    assert!(
-        dev.log().contains(DEFAULT_PARTITION_COUNT_LOG_TEXT),
-        "a new dev data directory must recover 32 partitions:\n{}",
-        dev.log()
-    );
-    run_flow_on(channel, "default-partition-count-flow").await;
-    let stopped = dev.terminate(SHUTDOWN_BUDGET).await;
-    assert!(stopped.success(), "{}", dev.log());
+    for (command, spawn) in [
+        ("dev", ServeProcess::spawn_dev as SingleNodeSpawn),
+        ("local", ServeProcess::spawn_local as SingleNodeSpawn),
+    ] {
+        let mut server = spawn(
+            &directory.path().join(format!("{command}-data")),
+            &default_config,
+            free_loopback_address(),
+            directory.path().join(format!("{command}.log")),
+        );
+        let channel = server.wait_until_serving().await;
+        assert!(
+            server.log().contains(DEFAULT_PARTITION_COUNT_LOG_TEXT),
+            "a new {command} data directory must recover 32 partitions:\n{}",
+            server.log()
+        );
+        run_flow_on(channel, &format!("{command}-default-partition-count-flow")).await;
+        let stopped = server.terminate(SHUTDOWN_BUDGET).await;
+        assert!(stopped.success(), "{}", server.log());
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -90,9 +95,13 @@ async fn a_1024_partition_data_directory_fails_under_the_default_and_opens_with_
             format!("opening data directory {}", data_directory.display()),
             "it records 1024 partitions, but cluster.partitionCount is 32".to_owned(),
             "set cluster.partitionCount: 1024 in the --config file".to_owned(),
+            "server-zd before v0.1.20 and dexcli before 1.37.0 created 1024".to_owned(),
         ];
+        let mentions_dexcli = log.contains("--zd-config");
         assert!(
-            !status.success() && expected_texts.iter().all(|text| log.contains(text)),
+            !status.success()
+                && expected_texts.iter().all(|text| log.contains(text))
+                && mentions_dexcli == (command == "dev"),
             "{command} with the default partition count must fail on a 1024-partition data \
              directory and explain the fix; it exited with {status}:\n{log}"
         );

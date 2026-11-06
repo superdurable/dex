@@ -49,6 +49,14 @@ impl SingleNodeProfile {
         }
     }
 
+    /// Returns how an operator names the file of this command's overrides, for error messages.
+    pub fn override_file_description(self) -> &'static str {
+        match self {
+            Self::Dev => "the --config file (with dexcli dev, the --zd-config file)",
+            Self::Local => "the --config file",
+        }
+    }
+
     /// Returns `lifecycle.attemptDrainTimeout` for when the overrides do not set it.
     fn default_attempt_drain_timeout(self) -> Duration {
         match self {
@@ -100,6 +108,24 @@ pub enum ConfigError {
         field: &'static str,
         /// Constraint and valid range, without secret values.
         message: String,
+    },
+    /// `commit.applierLanes` exceeds the `dev` or `local` default partition count, which the overrides do not replace.
+    #[error(
+        "commit.applierLanes: {applier_lanes} exceeds the {default_partition_count} partitions \
+         that {command} defaults to since server-zd v0.1.20; set cluster.partitionCount in \
+         {override_file} (1024 for a data directory that server-zd before v0.1.20 or dexcli \
+         before 1.37.0 created), or lower commit.applierLanes to at most \
+         {default_partition_count}"
+    )]
+    SingleNodeApplierLanesExceedDefaultPartitionCount {
+        /// Command name: `dev` or `local`.
+        command: &'static str,
+        /// The file that sets overrides for the command.
+        override_file: &'static str,
+        /// Configured `commit.applierLanes`.
+        applier_lanes: u32,
+        /// Partition count that the command uses when the overrides do not set one.
+        default_partition_count: u32,
     },
     /// A field of one `attributeStore.stores` entry violates its constraint.
     #[error("attributeStore.stores.{store_name}.{field}: {message}")]
@@ -239,6 +265,18 @@ impl Config {
         }
         if !has_partition_count_override {
             configuration.cluster.partition_count = SINGLE_NODE_PARTITION_COUNT;
+            if let Some(applier_lanes) = configuration.commit.applier_lanes
+                && applier_lanes > SINGLE_NODE_PARTITION_COUNT
+            {
+                return Err(
+                    ConfigError::SingleNodeApplierLanesExceedDefaultPartitionCount {
+                        command: profile.command_name(),
+                        override_file: profile.override_file_description(),
+                        applier_lanes,
+                        default_partition_count: SINGLE_NODE_PARTITION_COUNT,
+                    },
+                );
+            }
         }
         if !has_attempt_drain_timeout_override {
             configuration.lifecycle.attempt_drain_timeout = profile.default_attempt_drain_timeout();

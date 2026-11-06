@@ -74,7 +74,8 @@ metrics:
 
 一个对象存储前缀存放一个 Dex 集群，一个集群只运行一个节点。第一次启动会记录
 **cluster.nodeId** 和 **cluster.partitionCount**，之后两者都不能修改。用不同的节点 ID
-启动会失败，错误信息会给出已记录的节点 ID。不要让两个部署指向同一个前缀。
+启动会失败，错误信息会给出已记录的节点 ID。用不同的分区数启动也会失败，错误信息会给出两个
+分区数。不要让两个部署指向同一个前缀。
 
 ## 本地磁盘上的单节点 {#single-node-local}
 
@@ -105,17 +106,18 @@ dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] 
 
 ### 分区数 {#single-node-partition-count}
 
-**dev** 和 **local** 默认把 **cluster.partitionCount** 设为 32，**serve** 默认是 1024。
-所有分区都由一个节点拥有。默认的 applier lane 数是 8 与 CPU 数中的较大者，最多为分区数，
-所以只有在超过 32 个 CPU 的主机上，32 个分区才会减少 lane 数。分区更少，每次
-SearchFlows 调用要扫描的也更少。要使用其他 2 的幂，请在覆盖配置中设置
-**cluster.partitionCount**。
+从 server-zd v0.1.20 起，**dev** 和 **local** 默认把 **cluster.partitionCount** 设为 32，
+**serve** 默认是 1024。所有分区都由一个节点拥有。默认的 applier lane 数是 8 与 CPU 数中的
+较大者，最多为分区数，所以只有在超过 32 个 CPU 的主机上，32 个分区才会减少 lane 数。使用
+builtin 搜索后端时，分区更少，每次 SearchFlows 调用要扫描的也更少。要使用其他 2 的幂，请在
+覆盖配置中设置 **cluster.partitionCount**。
 
 第一次启动会记录分区数，之后不能修改。之后用不同分区数启动会失败。错误信息会给出数据目录和
 两个分区数，并要求使用已记录的分区数。
 
-早期版本的 **dev** 或 **local** 创建的数据目录有 1024 个分区。要继续使用这样的目录，请在覆盖
-配置中加入下面的内容。使用 **dexcli dev** 时，用 **--zd-config** 传入这个文件。
+server-zd v0.1.20 之前的版本和 dexcli 1.37.0 之前的版本创建的数据目录有 1024 个分区。要继续
+使用这样的目录，请在覆盖配置中加入下面的内容。使用 **dexcli dev** 时，用 **--zd-config**
+传入这个文件。
 
 ~~~yaml
 cluster:
@@ -123,6 +125,14 @@ cluster:
 ~~~
 
 如果不需要其中的数据，也可以删除数据目录。下次启动会用 32 个分区重新创建它。
+
+显式设置的 **commit.applierLanes** 不能超过分区数。如果覆盖配置把它设为大于 32 的值，却没有
+设置 **cluster.partitionCount**，**dev** 和 **local** 会启动失败。错误信息会要求你设置
+**cluster.partitionCount**（v0.1.20 之前创建的数据目录设为 1024），或者把
+**commit.applierLanes** 降到 32 以下（含 32）。
+
+要用 server-zd v0.1.20 之前的版本或 dexcli 1.37.0 之前的版本打开用 32 个分区创建的数据目录，
+请在覆盖配置中把 **cluster.partitionCount** 设为 32。这些版本的默认值是 1024。
 
 ### 持久性 {#single-node-local-durability}
 
