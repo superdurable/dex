@@ -125,6 +125,9 @@ impl Worker {
 
     /// Negotiates protocol, synchronizes Attribute indexes, and serves until stopped or failed.
     ///
+    /// Changed in 1.23.0: busy streams send transport keepalives during handler execution.
+    /// These preserve the connection; handlers must still record progress within their heartbeat timeout.
+    ///
     /// Stream errors are logged and retried. After [`Self::stop`], this method drains
     /// active handlers for the configured timeout, cancels any remaining handlers, and waits for
     /// them to return. Call this method only once, on a dedicated thread.
@@ -276,6 +279,9 @@ impl Worker {
     /// returned. [`Self::start`] can therefore return up to five seconds after the drain deadline.
     /// Every other stream still open at the deadline, including one blocked on a send, is reset.
     /// Stop is idempotent.
+    /// Changed in 1.35.0: tasks received after Stop are returned without running or consuming a
+    /// retry. Draining preserves final output before the stream closes. Use this method for
+    /// graceful shutdown and join the thread running [`Self::start`] before releasing resources.
     pub fn stop(&self) {
         self.pull.stop_accepting_tasks();
         self.pull.registration.finish(None);

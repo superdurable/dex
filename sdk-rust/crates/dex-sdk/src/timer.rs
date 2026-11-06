@@ -11,12 +11,24 @@ use std::time::Duration;
 use crate::Condition;
 
 /// Creates durable timer conditions for Step waits.
+///
+/// Returning a timer Condition from WaitFor lets Dex wait without keeping a Worker handler
+/// running. Creating the Condition itself does not block or start a local timer.
+///
+/// ```
+/// use dex_sdk::{Timer, Wait};
+/// use std::time::Duration;
+/// let wait = Wait::until(Timer::by_duration(Duration::from_secs(30)));
+/// ```
 pub struct Timer;
 
 impl Timer {
     /// Returns a condition that becomes true after `duration` elapses.
     ///
     /// Timer duration is measured by Dex workflow time and survives Worker restarts.
+    /// Durations must fit signed 32-bit whole seconds when the Worker submits the wait.
+    /// Invalid durations fail wait-result mapping. Use [`crate::Context::has_timer_fired`] during
+    /// Execute to distinguish a timer from another winning Condition.
     pub fn by_duration(duration: Duration) -> Condition {
         Condition::timer(duration)
     }

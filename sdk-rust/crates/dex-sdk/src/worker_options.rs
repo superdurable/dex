@@ -17,6 +17,9 @@ use crate::{Credential, FlowServiceTlsOptions};
 /// Flow type through exactly `max_concurrent_tasks` long-lived slot streams. An omitted task limit
 /// uses the CPU count. An omitted drain timeout uses 30 seconds.
 ///
+/// Changed in 1.35.0: each execution slot owns one stream, replacing per-queue idle streams.
+/// Start requires protocol 4 (server-zd newer than v0.1.16); upgrade the Server before the SDK.
+///
 /// ```no_run
 /// use std::sync::Arc;
 /// use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, PullWorkerOptions,
@@ -55,14 +58,18 @@ impl PullWorkerOptions {
     ///
     /// The default is the available CPU count. Zero returns [`crate::SdkError::FlowDefinition`]
     /// from [`crate::Worker::try_new`]. Each slot owns one long-lived poll stream and executes
-    /// every task assigned to it. [`crate::Worker::start`] fails if this value exceeds the
-    /// Server's reported per-Worker limit, configured by `matching.maxConcurrentTasksCap`.
+    /// every task assigned to it. Changed in 1.35.0: [`crate::Worker::start`] fails if this value
+    /// exceeds the Server's reported per-Worker limit, configured by `matching.maxConcurrentTasksCap`.
     pub fn max_concurrent_tasks(mut self, value: usize) -> Self {
         self.max_concurrent_tasks = Some(value);
         self
     }
 
     /// Reserves slots that accept only RPCs, protecting RPC latency from long-running Steps.
+    ///
+    /// Changed in 1.23.0: reserved RPC capacity remains available under a Step backlog.
+    /// Changed in 1.35.0: reservations select RPC-only streams instead of declining
+    /// assigned Steps; the Worker executes every assignment.
     ///
     /// The default reserves one slot when resolved concurrency is at least two, otherwise zero.
     /// The remaining slots accept Steps and RPCs. The Server selects eligible slots; the Worker
@@ -83,6 +90,8 @@ impl PullWorkerOptions {
     }
 
     /// Retains the former per-queue idle-stream setting for source compatibility.
+    ///
+    /// Changed in 1.35.0: this setting became a compatibility-only no-op.
     ///
     /// Deprecated: `value` is accepted, including zero, and has no effect. Every execution slot
     /// now owns exactly one long-lived stream. Use [`Self::max_concurrent_tasks`] to select the
@@ -140,6 +149,7 @@ impl PullWorkerOptions {
 ///
 /// Defaults connect to Dex at `127.0.0.1:8801`, use [`PullWorkerOptions::default`], and allow
 /// two minutes for Attribute-index synchronization. Workers need only an outbound connection.
+/// Changed in 1.25.0: every Worker uses pull mode; no listener or Worker target is configured.
 pub struct WorkerOptions {
     server_address: String,
     pull: PullWorkerOptions,

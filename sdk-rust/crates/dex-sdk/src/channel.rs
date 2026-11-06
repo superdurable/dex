@@ -40,6 +40,14 @@ pub struct ChannelMessage<T> {
 /// Steps create [`Condition`] values that wait for queue-size bounds and read the messages consumed
 /// by the satisfied condition.
 ///
+/// Handler publications and deletions are staged until successful return. A satisfied wait
+/// consumes messages before Execute; it does not combine that consumption with later publications
+/// into one transaction. Pending-message reads are snapshots that other handlers can change.
+/// Select pending-message loads explicitly. Use transactional RPC execution for atomic deletion
+/// and publication, and a shared Attribute lock when all cooperating writers must serialize a
+/// decision about the queue. `T` must implement [`Value`] when publishing or reading messages.
+/// Declare reusable definitions as module-level [`std::sync::LazyLock`] statics.
+///
 /// # Examples
 ///
 /// ```

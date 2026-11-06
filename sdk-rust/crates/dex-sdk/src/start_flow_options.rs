@@ -194,7 +194,11 @@ impl StartFlowOptions {
         self
     }
 
-    /// Delays the first Step after the server accepts the Flow.
+    /// Sets a delay before the first Step after the server accepts the Flow.
+    ///
+    /// The Server currently supports only a zero delay. It rejects a positive delay with
+    /// INVALID_ARGUMENT. To start later, call [`crate::Client::start_flow`] at the desired time or
+    /// wait for a Timer in the starting Step.
     pub fn start_delay(mut self, value: Duration) -> Self {
         self.start_delay = Some(value);
         self
@@ -206,7 +210,11 @@ impl StartFlowOptions {
         self
     }
 
-    /// Sets the whole-Flow retry policy after a terminal failure.
+    /// Sets a whole-Flow retry policy for the request.
+    ///
+    /// The Server does not support whole-Flow retry. It rejects a request that sets this option
+    /// with INVALID_ARGUMENT. Configure [`crate::RetryPolicy`] on Step methods through
+    /// [`crate::StepOptions`] instead.
     pub fn retry_policy(mut self, value: RetryPolicy) -> Self {
         self.retry_policy = Some(value);
         self

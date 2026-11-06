@@ -20,6 +20,16 @@ use crate::{AttributeMap, Channel, ChannelMap, RetryPolicy, Step, Value};
 /// Flow by default. Attribute locks apply only to the matching handler call. The type system checks
 /// that an execute-failure recovery Step accepts the same input type.
 ///
+/// `Input` is the Step input type and must implement [`Value`]. Builders consume the options
+/// and return the updated value. Durations must fit signed 32-bit whole seconds; invalid values
+/// fail when the Worker maps the Step definition or movement options.
+///
+/// Each method call retains its first loaded state snapshot and Attribute locks across retries
+/// and backoff. Later Attribute and Channel changes do not refresh that snapshot. Use a Channel
+/// wait in another Step to wait for state changes. Locks are released when the method call ends.
+/// A queued first attempt holds no locks before hand-out; a returned or retrying attempt keeps
+/// acquired locks while queued. Keep lock scope short to avoid blocking conflicting RPCs.
+///
 /// # Examples
 ///
 /// ```
@@ -125,12 +135,24 @@ impl<Input: Value> StepOptions<Input> {
     }
 
     /// Sets the maximum duration of one `wait_for` handler attempt.
+    ///
+    /// Unset or zero uses two hours. With 1.35.0 (Server protocol 4): the timeout starts at
+    /// Worker hand-out,
+    /// excluding queue and lock waits, and is not shortened by retry total duration.
+    /// Each retry has a new timeout. Cancellation is cooperative; observe [`Context::is_cancelled`](crate::Context::is_cancelled)
+    /// and bound external calls with their own timeouts.
     pub fn wait_for_method_timeout(mut self, value: Duration) -> Self {
         self.wait_for_method_timeout = Some(value);
         self
     }
 
     /// Sets the maximum duration of one `execute` handler attempt.
+    ///
+    /// Unset or zero uses two hours. With 1.35.0 (Server protocol 4): the timeout starts at
+    /// Worker hand-out,
+    /// excluding queue and lock waits, and is not shortened by retry total duration.
+    /// Each retry has a new timeout. Cancellation is cooperative; observe [`Context::is_cancelled`](crate::Context::is_cancelled)
+    /// and bound external calls with their own timeouts.
     pub fn execute_method_timeout(mut self, value: Duration) -> Self {
         self.execute_method_timeout = Some(value);
         self
@@ -141,18 +163,28 @@ impl<Input: Value> StepOptions<Input> {
     /// Zero selects the server default of one minute. Positive values must be whole seconds and at
     /// least the server-configured minimum, which defaults to ten seconds. This option applies with
     /// both synchronous and asynchronous durability.
+    /// Explicit heartbeats and Stream messages refresh liveness; only heartbeat values carry
+    /// retry checkpoints. A valueless heartbeat clears the checkpoint; a Stream message preserves it.
+    /// Raise this limit when healthy work can remain silent for more than a minute.
+    /// A method timeout still bounds the whole attempt, even when it keeps heartbeating.
     pub fn heartbeat_timeout(mut self, value: Duration) -> Self {
         self.heartbeat_timeout = Some(value);
         self
     }
 
     /// Sets the retry policy for failed `wait_for` attempts.
+    ///
+    /// See [`RetryPolicy`] for defaults and the shared elapsed budget. Exhaustion fails the Flow
+    /// unless [`Self::wait_for_failure`] selects [`WaitForFailurePolicy::Proceed`].
     pub fn wait_for_retry(mut self, value: RetryPolicy) -> Self {
         self.wait_for_retry = Some(value);
         self
     }
 
     /// Sets the retry policy for failed `execute` attempts.
+    ///
+    /// See [`RetryPolicy`] for defaults and the shared elapsed budget. Exhaustion fails the Flow
+    /// unless [`Self::on_execute_failure_proceed_to`] selects a recovery Step.
     pub fn execute_retry(mut self, value: RetryPolicy) -> Self {
         self.execute_retry = Some(value);
         self
@@ -294,6 +326,20 @@ pub enum WaitForFailurePolicy {
 ///
 /// Sustained throughput is about the same across modes. [`Self::Async`] lowers latency and makes
 /// individual Flows faster by acknowledging results before persistence completes.
+/// Method overrides take precedence over the Flow configuration, which defaults to Sync.
+/// WaitFor and Execute resolve their durability independently. Both modes enforce method,
+/// heartbeat, and retry policies and preserve accepted heartbeat checkpoints.
+///
+/// Async can lose an unpersisted result after a server failure, replaying the method and later
+/// work that depended on it. Use idempotent effects or Sync for costly replays. Sync does not
+/// remove the need for idempotency when a handler's external effect succeeds before its result.
+///
+/// With 1.35.0 (Server protocol 4): Sync persists attempt start before hand-out; Async persists
+/// it afterward.
+/// A server failure before an Async start is persisted can repeat the same attempt number without
+/// consuming a retry. Those executions may overlap, see different input, and repeat Stream output
+/// under the same source. Otherwise an interrupted attempt consumes a retry as possibly run.
+/// Durability changes affect only subsequently scheduled methods.
 pub enum StepDurability {
     /// Uses the Flow or server default.
     Default,

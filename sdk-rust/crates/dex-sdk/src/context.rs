@@ -82,9 +82,18 @@ pub struct RecoveryErrorInfo {
 
 /// Reports how far attempts of a failed Step method progressed.
 ///
+/// Since 1.35.0.
+///
 /// Read [`RecoveryErrorInfo::attempt_progress`] during recovery before deciding whether to repeat
 /// side effects. Progress describes all attempts of that method call, rather than just the last one.
 /// A handler may have performed side effects for both [`Self::NotCompleted`] and [`Self::Unspecified`].
+/// These values correspond to NOT_STARTED, NOT_COMPLETED, and UNSPECIFIED on the wire.
+/// NotCompleted does not prove that an external effect failed; reconcile it or repeat it idempotently.
+/// Unspecified also covers an unknown progress value and must be handled conservatively.
+/// Only Sync can report NotStarted. Async failures always report NotCompleted because an
+/// unpersisted start can replay even if an earlier execution already ran. A disconnect after
+/// hand-out, or an input loading or decoding failure, conservatively reports NotCompleted.
+/// Gracefully returning a task without running it consumes no retry and reports no failure.
 ///
 /// ```no_run
 /// # fn recover(context: &dex_sdk::Context) {
@@ -123,6 +132,7 @@ impl RecoveryErrorInfo {
     /// [`StepAttemptProgress::NotStarted`] guarantees its handler did not run. Both other values
     /// mean side effects may have happened. The value is copied; see [`StepAttemptProgress`] for
     /// a recovery example. Older Servers report [`StepAttemptProgress::Unspecified`].
+    /// Since 1.35.0.
     pub fn attempt_progress(&self) -> StepAttemptProgress {
         self.attempt_progress
     }
@@ -143,6 +153,16 @@ impl RecoveryErrorInfo {
 /// A Context belongs to one handler attempt and must not outlive the call. Attribute writes,
 /// Channel publications, locals, and events become visible atomically only when the handler returns
 /// successfully. Application values are freshly decoded and owned by the invocation.
+/// Heartbeats and Stream messages are emitted during the call, independently of the final result.
+///
+/// The Rust Context exposes cancellation, not an absolute attempt-deadline accessor. Bound external
+/// calls with their own timeout and check [`Self::is_cancelled`] between bounded units of work.
+/// The Worker observes the server-supplied attempt deadline and requests cancellation on expiry.
+/// There is no separate attempt ID accessor: use Flow ID, run ID, Step execution ID, and attempt
+/// number together for diagnostics. These identifiers do not make external effects idempotent.
+/// A re-run after [`crate::Client::time_travel`] reuses the Flow ID, run ID, and Step execution
+/// ID, and its attempt number can repeat. The Rust Context does not expose the run attempt.
+/// An idempotency key built from these values matches the effect from before time travel.
 pub struct Context {
     method: InvocationMethod,
     flow: RegisteredFlow,
@@ -229,6 +249,11 @@ impl Context {
     }
 
     /// Returns the server-assigned run ID for this execution.
+    ///
+    /// A Flow ID identifies the application operation; a run ID identifies one server execution.
+    /// Do not assume a run ID remains fixed for the entire lifetime of a Flow ID.
+    /// [`crate::Client::time_travel`] keeps the run ID and starts a new run attempt of that run.
+    /// A Step re-run after time travel therefore sees the same run ID as before.
     pub fn run_id(&self) -> &str {
         &self.metadata.run_id
     }
@@ -239,6 +264,8 @@ impl Context {
     }
 
     /// Returns the current Step execution ID, or an empty string for an RPC.
+    ///
+    /// A Step re-run after [`crate::Client::time_travel`] reuses its Step execution ID.
     pub fn step_execution_id(&self) -> &str {
         &self.metadata.step_execution_id
     }
@@ -259,6 +286,12 @@ impl Context {
     }
 
     /// Returns the one-based handler attempt number.
+    ///
+    /// With 1.35.0 (Server protocol 4): an unpersisted Async attempt start can replay with the same
+    /// number.
+    /// Attempts count within one method call; they are not unique external-effect identifiers.
+    /// This is the handler attempt, not the run attempt. A Step re-run after
+    /// [`crate::Client::time_travel`] can report attempt numbers seen before time travel.
     pub fn attempt(&self) -> u32 {
         u32::try_from(self.metadata.attempt).unwrap_or_default()
     }

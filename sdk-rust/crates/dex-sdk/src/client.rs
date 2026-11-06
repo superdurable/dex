@@ -66,6 +66,15 @@ use crate::{
 /// A positive request timeout on a wait method also bounds negotiation and the wait for another
 /// caller's negotiation; its expiry returns [`SdkError::RequestTimeout`] and is not cached.
 ///
+/// Changed in 1.35.0: protocol 4 is required (server-zd newer than v0.1.16).
+/// Upgrade the Server first.
+///
+/// Changed in 1.26.0: only server-zd is supported as the Dex Server.
+///
+/// A Client call never retries a failed application RPC automatically.
+/// Inspect [`SdkError`] variants and [`crate::ServiceError`] status details before retrying an
+/// operation whose external effects may already have happened.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -140,6 +149,22 @@ impl Client {
     /// Starts a registered Flow on pull Workers with other options using server defaults.
     ///
     /// Returns the server-assigned run ID. `input` is encoded for the registered starting Step.
+    /// Changed in 1.25.0: starts always route to pull Workers.
+    /// Success acknowledges the start; it does not wait for a Worker or Flow completion.
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Client, Flow, FlowStatus, SdkResult};
+    /// use std::time::Duration;
+    ///
+    /// fn start_and_wait<F: Flow>(client: &Client, flow: &F, input: F::StartInput)
+    ///     -> SdkResult<(String, FlowStatus)> {
+    ///     let run_id = client.start_flow(flow, "order-1", input)?;
+    ///     let result = client.wait_for_flow_with_timeout("order-1", Duration::from_secs(60))?;
+    ///     Ok((run_id, result.status()))
+    /// }
+    /// ```
+    ///
+    /// Use [`Self::wait_for_flow`] to observe the terminal result.
     ///
     /// # Errors
     ///
@@ -243,6 +268,20 @@ impl Client {
     }
 
     /// Invokes a registered RPC with typed input and decodes its typed output.
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Client, Rpc, SdkResult};
+    /// fn describe_order(client: &Client, rpc: Rpc<(), String>) -> SdkResult<String> {
+    ///     client.invoke_rpc("order-1", rpc, ())
+    /// }
+    /// ```
+    ///
+    /// The call blocks until the handler result is decoded or a request error occurs.
+    /// RPCs do not enter the durable Step queue. When no Worker takes the RPC within the dispatch
+    /// wait, Dex returns an Unavailable service error. The dispatch wait is the Server's configurable
+    /// `matching.dispatchWait` setting, which defaults to ten seconds and is bounded by the caller's
+    /// deadline.
+    /// A timeout or lost response does not prove the handler performed no effects; make retries safe.
     ///
     /// A non-transactional RPC without Attribute locks starts from a backend query. A retained
     /// terminal execution can serve it when the handler returns no durable effects. Locks,
@@ -373,10 +412,18 @@ impl Client {
     /// An empty `before_page_token` starts at the retained tail. Pass
     /// [`StreamMessagesPage::next_page_token`] unchanged to read the next, older page. Stream
     /// trimming may remove messages between pages.
+    /// Tokens are exclusive and scoped to the Flow ID, the selected Flow type, and the Stream. A
+    /// token from another Flow ID or Stream is rejected. If trimming passes the page anchor, the
+    /// server returns an empty page rather than restarting at the tail. New writes after the first
+    /// page do not enter that older-page chain.
+    ///
+    /// `page_size` must be between 1 and the Server's `streamStore.maxReadMessages` setting, which
+    /// defaults to 1000. The Server rejects a larger value; it does not reduce it.
     ///
     /// # Errors
     ///
-    /// Returns InvalidArgument when `flow_id` is empty or `page_size` is not positive. Returns a
+    /// Returns InvalidArgument when `flow_id` is empty, `page_size` is not positive, or
+    /// `page_size` exceeds `streamStore.maxReadMessages`. Returns a
     /// definition error for an unregistered Stream, a mapping error for an incompatible retained
     /// value, or a FlowService error when the request fails.
     pub fn list_stream_messages<T: Value>(
@@ -451,7 +498,11 @@ impl Client {
         self.wait_for_flow_result(flow_id, None)
     }
 
-    /// Blocks up to `timeout` and returns all output-bearing completions for a successful Flow.
+    /// Blocks up to `timeout` and returns the terminal result with all output-bearing completions.
+    ///
+    /// Like [`Self::wait_for_flow`], terminal failures are returned as [`FlowResult`], not as
+    /// request errors. A wait timeout does not stop the Flow. Durations use whole seconds.
+    /// See the [`Self::start_flow`] example for a start followed by a bounded wait.
     ///
     /// # Errors
     ///
@@ -593,6 +644,9 @@ impl Client {
 
     /// Cancels, terminates, or fails an active Flow according to `options`.
     ///
+    /// Success acknowledges the stop request. Use [`Self::wait_for_flow`] to observe its terminal
+    /// status. This does not stop the Worker or undo effects in an external service.
+    ///
     /// # Errors
     ///
     /// Returns [`SdkError::FlowNotActiveOrNotFound`] when no active run exists or another service error.
@@ -619,9 +673,14 @@ impl Client {
         )
     }
 
-    /// Creates a new run by replaying an existing Flow from the selected historical point.
+    /// Re-runs an existing Flow from the selected historical point.
     ///
-    /// Returns the new server-assigned run ID.
+    /// Time travel keeps the Flow's run ID and starts the next run attempt of that run. Re-run Steps
+    /// reuse the Flow ID, run ID, and Step execution IDs of the original execution. An external
+    /// idempotency key built only from those IDs therefore matches the effect from before time
+    /// travel. Reconcile such effects, or build keys that the application changes for each re-run.
+    ///
+    /// Returns the run ID, which is the same run ID the Flow had before time travel.
     ///
     /// # Errors
     ///

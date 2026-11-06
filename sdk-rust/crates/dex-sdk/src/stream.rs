@@ -31,6 +31,31 @@ struct StreamDefinition {
 ///
 /// Register the same definition in exactly one [`crate::PersistenceSchema`]. Clones share
 /// identity and may be used at Client and Step call sites.
+/// `T` implements [`Value`] when messages are written or read. Prefer a module-level
+/// [`std::sync::LazyLock`] definition. Capacity is a shared approximate retention budget across
+/// executions of the Flow type, not a maximum message size. Old messages can be trimmed.
+/// Streams are progress output, not durable proof that an application mutation committed.
+/// The shared budget covers one Flow type and Stream name across all Flow IDs. Background
+/// trimming removes oldest messages. At capacity a Client write can return ResourceExhausted;
+/// a message larger than the capacity can never fit and must not be retried unchanged.
+///
+/// Step writes also heartbeat without clearing the last checkpoint. They can be observed before
+/// the handler finishes and can repeat after retry or replay. Client reads use opaque resume
+/// tokens; pass each token unchanged. Use [`crate::Client::read_stream_with_timeout`] for forward
+/// long polling and [`crate::Client::list_stream_messages`] for newest-first retained pages.
+///
+/// ```no_run
+/// use dex_sdk::{Context, HandlerResult, Stream};
+/// use std::sync::LazyLock;
+/// static PROGRESS: LazyLock<Stream<String>> =
+///     LazyLock::new(|| Stream::new("progress", 1024 * 1024));
+/// fn report_progress(context: &mut Context) -> HandlerResult<()> {
+///     let writer = PROGRESS.buffered_text(context)?;
+///     writer.write("Processing started")?;
+///     writer.write("Processing finished")?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Clone, Debug)]
 pub struct Stream<T> {
     definition: Arc<StreamDefinition>,
@@ -93,6 +118,9 @@ impl Stream<String> {
     ///
     /// The Worker flushes remaining text before the handler result or error. The writer preserves
     /// chunks exactly, ignores empty chunks, and never splits a chunk.
+    /// An empty buffer does not heartbeat. Retry does not restore unsent text and can repeat
+    /// batches already sent. The threshold is soft: one large chunk can exceed it.
+    /// See [`Stream`] for an example; the invocation owns final flushing.
     ///
     /// # Errors
     ///
