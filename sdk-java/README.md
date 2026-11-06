@@ -468,8 +468,90 @@ deadline or cancellation ends a call even if token lookup blocks, but the lookup
 continues to occupy a channel executor thread until it returns. Client calls
 report credential failures as `DexServiceException` with `UNAUTHENTICATED`;
 Worker startup reports an authentication error. Bearer
-tokens travel over the same plaintext connection as other Dex calls, so protect
-the network path.
+tokens travel over the same connection as other Dex calls. Configure TLS when
+the network path requires encryption and server authentication.
+
+### TLS
+
+Set `flowServiceTls` on both `ClientOptions` and `WorkerOptions` to connect to a
+TLS endpoint, such as a TLS-terminating gateway. Omitting it keeps plaintext gRPC
+for local `dexcli dev` connections. An empty `FlowServiceTlsOptions` builder enables
+TLS 1.2 or newer with server certificate verification against the JDK default
+trust store. The Worker uses it for startup, blob hydration, and pull task streams.
+`FileCredential`, `ApiKeyCredential`, and custom credentials send bearer tokens as
+call metadata on the same TLS connection.
+
+```java
+import io.superdurable.dex.BlobCache;
+import io.superdurable.dex.Client;
+import io.superdurable.dex.ClientOptions;
+import io.superdurable.dex.Credential;
+import io.superdurable.dex.FileCredential;
+import io.superdurable.dex.Flow;
+import io.superdurable.dex.FlowServiceTlsOptions;
+import io.superdurable.dex.Registry;
+import io.superdurable.dex.Worker;
+import io.superdurable.dex.WorkerOptions;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.Duration;
+
+final class TlsExample {
+    static <I> void startOverTls(Registry registry, BlobCache cache,
+            Flow<I> flow, String flowId, I input) throws Exception {
+        FlowServiceTlsOptions tls = FlowServiceTlsOptions.newBuilder()
+                .additionalRootCAsPem(new String(Files.readAllBytes(
+                        Paths.get("/etc/dex/root-ca.pem")), StandardCharsets.US_ASCII))
+                .build();
+        Credential credential = new FileCredential("/var/run/secrets/dex/token");
+        String serverAddress = "dex.example.com:443";
+        try (Worker worker = new Worker(registry, cache, WorkerOptions.newBuilder()
+                        .serverAddress(serverAddress).flowServiceTls(tls)
+                        .credential(credential).build());
+                Client client = new Client(registry, cache, ClientOptions.newBuilder()
+                        .serverAddress(serverAddress).flowServiceTls(tls)
+                        .credential(credential).build())) {
+            Thread workerThread = new Thread(worker::start);
+            workerThread.start();
+            try {
+                worker.waitPullRegistered(Duration.ofSeconds(30));
+                client.startFlow(flow, flowId, input);
+                client.waitForFlow(flowId, Duration.ofSeconds(30));
+            } finally {
+                worker.stop();
+                workerThread.join();
+            }
+        }
+    }
+}
+```
+
+- `additionalRootCAsPem` adds PEM root certificates to every root in the active
+  JDK default trust store, including a store selected with `javax.net.ssl.trustStore`.
+  Null or an empty string uses only default roots. A nonempty bundle must contain
+  at least one parsable X.509 certificate. Other text and malformed blocks are
+  ignored when another certificate parses. The bundle is read at construction;
+  it is not watched for changes. No new dependency is needed.
+- `serverName` overrides the address host for certificate verification, SNI, and
+  HTTP/2 `:authority`. Omit it when the certificate covers the address host.
+  Supply a DNS name or unbracketed IP address without a port. An explicit empty
+  string is invalid. The override is sent as `:authority` without a port, so the
+  gateway must accept that value. Prefer a DNS override for IPv6 endpoints.
+- With TLS, `serverAddress` must be `host:port`, `dns:///host:port`, or
+  `dns://authority/host:port`, with an unsigned port from 1 through 65535.
+  IPv6 address hosts require brackets. The DNS resolver authority never becomes
+  the certificate name or HTTP/2 authority. Java gRPC uses the JVM's DNS resolver.
+  Other resolver schemes remain available only with plaintext connections.
+- The endpoint must negotiate HTTP/2 with ALPN `h2`. HTTP/1.1-only endpoints and
+  endpoints without ALPN are rejected. An IP endpoint requires a matching IP SAN.
+  Netty omits SNI for IP addresses and single-label DNS names such as `localhost`.
+- Invalid addresses and TLS options throw `IllegalArgumentException` at options
+  or Client/Worker construction. Connections open lazily, so certificate,
+  hostname, and handshake failures appear as `UNAVAILABLE` on the first Client
+  call or as a Worker startup failure.
+- These settings do not configure the `ApiKeyCredential` token endpoint, which
+  uses its own HTTPS connection and allows HTTP only on loopback.
 
 Serialized object values use wire encoding `json` for JSON and `raw` for raw bytes.
 Internal Blob references are opaque. Hydration sends the owning Flow ID with
@@ -834,6 +916,12 @@ BlobCache JNI library. E2E cases use unique Flow IDs. A clean checkout also requ
 Go 1.24+, Node.js 22+, and Rust 1.97+. The suite uses server-zd.
 `DEX_INTEG_ENGINE=zd` remains accepted. Set `DEX_SERVER_ZD_BINARY` to reuse a
 built server-zd binary.
+
+The TLS transport tests generate certificates with the `openssl` CLI. The
+`dexDevTest` suite also starts an isolated, token-authenticated server-zd behind a
+TLS proxy and runs a Flow and pull Worker over TLS. The integration script exports
+`DEX_SERVER_ZD_BINARY` for that fixture; set it explicitly when running the test
+directly. Test certificates and private keys live only in temporary directories.
 
 ### Measure integration coverage
 

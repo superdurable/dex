@@ -19,8 +19,8 @@ package io.superdurable.dex;
  * the request from reaching Dex and becomes a Client {@link
  * io.superdurable.dex.exceptions.DexServiceException} with gRPC {@code UNAUTHENTICATED}, or an
  * {@link IllegalStateException} during Worker startup. Pull Worker streams obtain a token when each stream opens, so
- * reconnects pick up rotated tokens. Tokens travel over the same plaintext gRPC connection as
- * other requests; protect the network path to Dex.
+ * reconnects pick up rotated tokens. Tokens travel over the same gRPC connection as
+ * other requests; configure {@link FlowServiceTlsOptions} to protect the network path to Dex.
  *
  * <pre>{@code
  * Credential credential = () -> currentToken.get();

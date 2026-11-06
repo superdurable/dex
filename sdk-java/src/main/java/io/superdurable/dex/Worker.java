@@ -87,7 +87,7 @@ public final class Worker implements AutoCloseable {
      * @param blobCache the nonnull cache used to hydrate blob-backed invocation values
      * @param options the nonnull worker options
      * @throws IllegalArgumentException if any argument is {@code null} or the pull Worker ID
-     *     conflicts with a registered Flow type
+     *     conflicts with a registered Flow type, or TLS settings or the TLS address are invalid
      */
     public Worker(
             final Registry registry,
@@ -98,13 +98,15 @@ public final class Worker implements AutoCloseable {
         }
         this.registry = registry;
         this.options = options;
+        final ManagedChannelBuilder<?> channelBuilder = FlowServiceTlsTransport.channelBuilder(
+                options.getServerAddress(), options.getFlowServiceTls());
         this.handlers = newHandlerExecutor(options.getPull().getMaxConcurrentTasks());
         this.bufferedStreamScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
             final Thread thread = new Thread(runnable, "dex-java-buffered-stream");
             thread.setDaemon(true);
             return thread;
         });
-        this.flowChannel = createOutboundChannel(options.getServerAddress());
+        this.flowChannel = createOutboundChannel(channelBuilder);
         final FlowServiceGrpc.FlowServiceBlockingStub serviceStub =
                 FlowServiceGrpc.newBlockingStub(flowChannel);
         this.flowService = options.getCredential() == null ? serviceStub
@@ -374,8 +376,8 @@ public final class Worker implements AutoCloseable {
     }
 
     // Accepting only identity encoding keeps a decompression failure from cancelling a poll stream.
-    private static ManagedChannel createOutboundChannel(final String address) {
-        return ManagedChannelBuilder.forTarget(address).usePlaintext()
+    private static ManagedChannel createOutboundChannel(final ManagedChannelBuilder<?> channelBuilder) {
+        return channelBuilder
                 .decompressorRegistry(DecompressorRegistry.emptyInstance().with(Codec.Identity.NONE, true))
                 .build();
     }

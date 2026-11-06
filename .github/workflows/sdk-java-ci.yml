@@ -68,7 +68,7 @@ jobs:
       - name: Compile IWF integration ports
         run: ./gradlew compileTestJava --no-daemon
       - name: Test credentials and user contracts
-        run: ./gradlew test --tests io.superdurable.dex.CredentialTest --tests io.superdurable.dex.ApiKeyCredentialTest --tests io.superdurable.dex.contracts.UserContractsTest "-PtestJavaVersion=${{ matrix.java-version }}" --no-daemon
+        run: ./gradlew test --tests io.superdurable.dex.CredentialTest --tests io.superdurable.dex.ApiKeyCredentialTest --tests io.superdurable.dex.FlowServiceTlsTest --tests io.superdurable.dex.contracts.UserContractsTest "-PtestJavaVersion=${{ matrix.java-version }}" --no-daemon
 
   publication:
     name: Maven publication

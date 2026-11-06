@@ -19,8 +19,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Configures a synchronous {@link Client} connection and value mapper.
  *
- * <p>The client connects to the Dex server over plaintext gRPC. Its default server address is
- * {@code localhost:8801}. Flow invocations route to pull Workers automatically.
+ * <p>The client connects to the Dex server over plaintext gRPC unless flowServiceTls is set.
+ * Its default server address is {@code localhost:8801}. Flow invocations route to pull Workers automatically.
  * The default Jackson mapper discovers installed modules; pass a configured mapper when
  * application values require custom serialization.
  * A credential sends a bearer token with each FlowService call. By default no token is sent.
@@ -35,6 +35,7 @@ public final class ClientOptions {
     private final String serverAddress;
     private final ObjectMapper objectMapper;
     private final Credential credential;
+    private final FlowServiceTlsOptions flowServiceTls;
 
     /** Creates options for {@code localhost:8801} with the default Jackson mapper. */
     public ClientOptions() {
@@ -60,19 +61,21 @@ public final class ClientOptions {
     public ClientOptions(
             final String serverAddress,
             final ObjectMapper objectMapper) {
-        this(serverAddress, objectMapper, null);
+        this(serverAddress, objectMapper, null, null);
     }
 
     private ClientOptions(
             final String serverAddress,
             final ObjectMapper objectMapper,
-            final Credential credential) {
+            final Credential credential,
+            final FlowServiceTlsOptions flowServiceTls) {
         if (objectMapper == null) {
             throw new IllegalArgumentException("objectMapper is required");
         }
         this.serverAddress = serverAddress;
         this.objectMapper = objectMapper;
         this.credential = credential;
+        this.flowServiceTls = flowServiceTls;
     }
 
     /**
@@ -106,11 +109,16 @@ public final class ClientOptions {
         return credential;
     }
 
+    FlowServiceTlsOptions getFlowServiceTls() {
+        return flowServiceTls;
+    }
+
     /** Builds immutable Client options. */
     public static final class Builder {
         private String serverAddress = "localhost:8801";
         private ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         private Credential credential;
+        private FlowServiceTlsOptions flowServiceTls;
 
         private Builder() {
         }
@@ -123,6 +131,21 @@ public final class ClientOptions {
          */
         public Builder serverAddress(final String value) {
             this.serverAddress = value;
+            return this;
+        }
+
+        /**
+         * Enables verified TLS for the outbound FlowService connection.
+         *
+         * <p>The default null keeps plaintext. An empty TLS builder uses JDK default trust roots.
+         * See {@link FlowServiceTlsOptions} for supported addresses, additional roots, server name
+         * overrides, connection errors, and a complete Client and Worker example.
+         *
+         * @param value the immutable TLS settings, or null for plaintext
+         * @return this builder
+         */
+        public Builder flowServiceTls(final FlowServiceTlsOptions value) {
+            this.flowServiceTls = value;
             return this;
         }
 
@@ -164,7 +187,7 @@ public final class ClientOptions {
          * @throws IllegalArgumentException if the mapper is null
          */
         public ClientOptions build() {
-            return new ClientOptions(serverAddress, objectMapper, credential);
+            return new ClientOptions(serverAddress, objectMapper, credential, flowServiceTls);
         }
     }
 }
