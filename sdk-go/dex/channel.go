@@ -20,6 +20,10 @@ import (
 //
 // Add the Channel to PersistenceSchema. Clients and handlers may publish messages; Step WaitFor
 // methods create Conditions that wait on queue-size bounds and later decode consumed results.
+// Publish stages messages until the handler succeeds. Waiting consumes no Worker task slot.
+// Messages consumed by a satisfied Condition are read with GetConditionResults in Execute.
+// PendingMessages instead requires an explicit load in the handler options and does not consume messages.
+// Message counts are loaded automatically; a snapshot is not refreshed during a retry.
 //
 // Example:
 //

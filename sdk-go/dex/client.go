@@ -69,6 +69,8 @@ type ClientOptions struct {
 // with Op "GetServerInfo", like other request failures, and the next call retries negotiation.
 // A Server that does not implement GetServerInfo returns an upgrade error that is not cached.
 // NewClient performs no network I/O.
+// Changed in SDK v1.35.0: calls require Server protocol 4, provided by server-zd v0.1.17 or later.
+// Upgrade the Server first; an older SDK can continue using the upgraded Server.
 //
 //	client, err := dex.NewClient(registry, cache, dex.ClientOptions{})
 //	if err != nil {
@@ -507,6 +509,9 @@ type HealthInfo struct {
 // errors without transferring ownership of input. When options set
 // AlreadyStarted.IgnoreError and a RequestID matching the existing run's start
 // request, StartFlow returns that run ID instead of FlowAlreadyStartedError.
+// A lost response can leave start acceptance unknown. Retry with the same RequestID and IgnoreError
+// rather than preflighting with a status read. Use IDReuseDisallow if this logical start must not
+// create another execution after closure; see StartFlowOptions for the retry example.
 func (client *Client) StartFlow(
 	ctx context.Context,
 	flow Flow,
@@ -750,7 +755,9 @@ func resolveStartRequestID(override *string) (string, error) {
 // StopFlow requests cancellation or termination of the active Flow identified by flowID.
 //
 // options selects the stop mode and optional reason. The method returns after the
-// server accepts the request; it does not wait for the Flow to close. It returns
+// server accepts the request; it does not wait for the Flow to close. Zero options request cooperative cancellation.
+// Termination stops the Flow immediately without cleanup; FailFlow marks it failed with Reason.
+// A stopped handler can still perform external work if it ignores cancellation. It returns
 // FlowNotActiveOrNotFoundError when no active execution exists, plus validation, context,
 // transport, or server errors.
 func (client *Client) StopFlow(
@@ -778,6 +785,9 @@ func (client *Client) StopFlow(
 // options controls whether Step completion results are included. The server may end one long poll
 // at its configured cap and return LongPollTimeoutError; callers may repeat the call. Use
 // context.WithTimeout or context.WithDeadline for a shorter Go-side wait.
+// Canceling this wait does not stop the Flow. Call StopFlow separately to request a stop.
+// A terminal failed or canceled Flow is returned in FlowResult.Status, not as a Go error.
+// Missing Flows return FlowNotFoundError; context, transport, and hydration failures return errors.
 func (client *Client) WaitForFlow(
 	ctx context.Context,
 	flowID string,
@@ -860,7 +870,7 @@ func (client *Client) SearchFlows(
 	return client.SearchFlowsWithOptions(ctx, query, pageSize, nextPageToken, SearchFlowsOptions{})
 }
 
-// SearchFlowsWithOptions searches Flow runs, optionally including earlier Continue-as-New runs.
+// SearchFlowsWithOptions searches Flow runs, optionally including earlier runs replaced during history maintenance.
 func (client *Client) SearchFlowsWithOptions(
 	ctx context.Context,
 	query string,
@@ -1037,9 +1047,10 @@ func (client *Client) UpdateFlowConfig(
 // When options.RequestID is empty, the server derives a stable RequestID from the Step execution.
 // RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
 // across transparent transport reattachments. A positive
-// value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
-// callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
-// to a new generation, which adds another Update to history.
+// value returns RequestTimeoutError. InternalHandlerTimeout is deprecated and ignored by the current Server.
+// Each Flow allows 1,000 concurrent waits by default (limits.maxLongPollWaitersPerFlow).
+// Exceeding that limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
+// when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Invalid identifiers, inactive Flows, context, transport, and server errors are also returned.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
@@ -1345,9 +1356,10 @@ func streamMessagesPageTarget(
 // server derives one from the Attribute condition.
 // RequestTimeout bounds the complete call, including the first call's Server protocol negotiation,
 // across transparent transport reattachments. A positive
-// value returns RequestTimeoutError. InternalHandlerTimeout reclaims accepted waits that outlive
-// callers and could consume Temporal's in-flight Update limit. Active callers transparently roll
-// to a new generation, which adds another Update to history.
+// value returns RequestTimeoutError. InternalHandlerTimeout is deprecated and ignored by the current Server.
+// Each Flow allows 1,000 concurrent waits by default (limits.maxLongPollWaitersPerFlow).
+// Exceeding that limit returns a ServiceError with ResourceExhausted status. A wait releases its slot
+// when it returns, times out, is canceled, or the caller disconnects. Canceling a wait does not stop the Flow.
 // Use context.WithTimeout or context.WithDeadline to bound the caller-visible response.
 func (client *Client) WaitForAttributeMatch(
 	ctx context.Context,
@@ -1612,7 +1624,7 @@ func isPrimitiveValue(value *dexpb.Value) bool {
 // input type, and outputPtr may be nil to discard the RPC output. Otherwise outputPtr
 // must be a non-nil pointer to the RPC output type. The RPC's registered RPCOptions
 // control timeout, locks, transactional execution, and selective state loading.
-// A non-transactional RPC without Attribute locks starts from a backend query. If its
+// A non-transactional RPC without Attribute locks starts as a read-only request. If its
 // handler returns no durable effects, a retained terminal execution can serve the query.
 // Locks, transactional execution, returned effects, or server policy can require an
 // active execution and cause FlowNotActiveOrNotFoundError for a terminal Flow. A missing
@@ -1621,6 +1633,11 @@ func isPrimitiveValue(value *dexpb.Value) bool {
 // then decodes the result into outputPtr when one is provided.
 // It may return validation, serialization, lock-conflict, worker, inactive-Flow,
 // context, hydration, transport, or server errors. outputPtr is not owned by Dex.
+// Match RPCLockConflictError and WorkerInvocationError with errors.As; ServiceError preserves
+// transport status and Dex classification. A mutation's FlowNotActiveOrNotFoundError does not prove success.
+// Unlike queued Steps, an RPC fails if no Worker accepts it within the Server dispatch wait.
+// Changed in SDK v1.35.0: a registered RPCOptions.Name overrides the Go method name on the wire.
+// An omitted input is accepted as None for an RPC whose input type is None.
 //
 //	var result Quote
 //	err := client.InvokeRPC(ctx, "order-42", quoteRPC, request, &result)

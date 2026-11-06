@@ -21,6 +21,9 @@ import (
 // Declare an Attribute once, include it in the Flow's PersistenceSchema, and reuse the same value
 // from Step and RPC code. Values use the SDK's primitive and JSON encoding rules.
 // String values require valid UTF-8; use []byte for arbitrary bytes.
+// Ordinary Attributes are loaded automatically into handler snapshots. AttributeMap values need an explicit load.
+// Writes are staged until success, except HardDeleteOnNull values, whose storage changes immediately.
+// A retry reuses its method call's original snapshot; use a new Step to observe later concurrent changes.
 //
 // Example:
 //
@@ -279,12 +282,20 @@ const (
 )
 
 // AttributeIndex configures visibility indexing; datetime values use time.Time or RFC3339Nano strings.
-// An empty IndexKey uses the Attribute name
-// for single values and a derived physical name for map instances.
+// An empty IndexKey uses the Attribute name for single values. AttributeMaps require an explicit IndexKey.
+// Reuse a key across Flow types only with the same IndexType; scope searches by FlowType when meanings differ.
+// Renaming an index does not backfill existing Flows. Index keys share the Server's finite index capacity.
+// Prefer typed numbered keys such as keyword1, keywordList1, text1, int1, bool1, double1, and datetime1.
+// An AttributeMap index is one search field: each instance write can replace the value from another instance.
+// It does not aggregate all instances or index their keys. Use a regular IndexKeywordArray Attribute
+// to search a collection of values.
+// Servers may limit Keyword values and each KeywordArray element by UTF-8 byte length;
+// an oversized value can fail a Client request or a Step/RPC result. Match limits to the configured search store.
 type AttributeIndex struct {
 	// Type selects the required value representation.
 	Type IndexType
-	// IndexKey overrides the physical search field; empty uses the Attribute-derived key.
+	// IndexKey overrides the physical search field; empty uses the Attribute name for a singleton.
+	// AttributeMap registration fails when this field is empty. Dex-reserved keys are rejected.
 	IndexKey string
 }
 
@@ -366,6 +377,9 @@ func HardDeleteOnNull() AttributeOption {
 
 // AttributeLock identifies one Attribute or Attribute-map instance lock.
 // Create locks with LockAttribute or LockAttributeMap, then place them in StepOptions or RPCOptions.
+// Locks serialize participating handlers within one Flow; they do not coordinate different Flows.
+// A Step waits for locks; a conflicting RPC returns RPCLockConflictError. Step locks persist across retries.
+// Locks do not load map values: select matching loads when a handler needs them.
 type AttributeLock interface {
 	attributeLock()
 }
@@ -376,6 +390,9 @@ func LockAttribute[T any](attribute Attribute[T]) AttributeLock {
 }
 
 // LockAttributeMap creates a lock scoped to one Attribute-map instance.
+// This does not lock the whole collection. To protect an invariant spanning instances, register a
+// separate singleton Attribute and have every participating writer request LockAttribute on it.
+// The singleton needs no stored value; do not toggle its value to acquire or release the lock.
 func LockAttributeMap[T any](
 	attribute AttributeMap[T],
 	instance string,

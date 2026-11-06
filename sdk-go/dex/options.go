@@ -16,19 +16,38 @@ import "time"
 // Zero fields preserve server defaults, including a four-hour total duration.
 // MaximumAttempts counts the initial attempt.
 // With asynchronous durability, all execution attempts share the retry limits and elapsed duration.
-// Fallback is immediate, while subsequent retries continue the cumulative backoff sequence.
+// Retry backoff continues across the attempts of the method call.
+// Durations must be nonnegative and fit in int32 seconds; positive fractions round up to seconds.
+// Invalid durations or a non-finite backoff coefficient fail registration or request validation.
+//
+// Example: allow three attempts with delays of one and two seconds, and a one-hour retry budget:
+//
+//	policy := &dex.RetryPolicy{
+//		InitialInterval: time.Second, BackoffCoefficient: 2,
+//		MaximumInterval: 100 * time.Second, MaximumAttempts: 3, TotalDuration: time.Hour,
+//	}
+//	options := &dex.StepOptions{ExecuteRetry: policy, ExecuteMethodTimeout: time.Hour}
 type RetryPolicy struct {
-	// InitialInterval is the delay before the first retry.
+	// InitialInterval is the delay before the first retry. Zero uses one second.
 	InitialInterval time.Duration
-	// BackoffCoefficient multiplies each successive retry interval.
+	// BackoffCoefficient multiplies each successive retry interval. Zero uses 2.
 	BackoffCoefficient float64
-	// MaximumInterval caps the delay between retries.
+	// MaximumInterval caps the delay between retries. Zero uses 100 seconds.
+	// RetryAfter on a returned error overrides the next delay, including this cap.
 	MaximumInterval time.Duration
 	// MaximumAttempts limits total attempts, including the initial attempt.
+	// Zero leaves the attempt count unlimited within TotalDuration; one disables retries.
 	MaximumAttempts int32
 	// TotalDuration bounds retry scheduling from the first hand-out of this Step method to a Worker.
 	// After an attempt fails, Dex uses it to decide whether to schedule another retry.
 	// It never ends a running attempt. Zero uses the Server default (4 hours).
+	// The next backoff must fit within this budget when Dex schedules the retry.
+	// Initial lock and Worker waits do not consume it. Returning an unrun first attempt resets the clock.
+	// Later queue waits count toward it, but Dex does not recheck it while the retry is queued.
+	// A queued retry may therefore start or finish after the budget expires.
+	// Use WaitForMethodTimeout or ExecuteMethodTimeout to bound one attempt; heartbeat detection still applies.
+	// Changed in SDK v1.35.0: the budget starts at first hand-out and only gates scheduling another retry.
+	// It no longer shortens a running attempt's method timeout.
 	TotalDuration time.Duration
 }
 
@@ -39,9 +58,15 @@ const (
 	// StepDurabilityDefault uses the Flow or server default.
 	StepDurabilityDefault StepDurability = iota
 	// StepDurabilitySync waits for persistence before completing the handler request.
+	// Changed in SDK v1.35.0: Dex also persists the attempt start before handing the task to a Worker.
 	StepDurabilitySync
 	// StepDurabilityAsync permits persistence after accepting the handler result.
 	// It lowers latency and speeds up individual Flows; sustained throughput is about the same as synchronous durability.
+	// Dex batches commits within about 20 milliseconds by default. On low-latency object storage this reduces requests.
+	// A node failure before commit can lose the result and rerun the method and later work derived from it.
+	// Changed in SDK v1.35.0: the attempt start is also asynchronous. A node failure before its commit
+	// can rerun the same attempt number without consuming a retry, possibly with different input.
+	// Those executions can overlap and repeat Stream writes with the same source. Make external effects idempotent.
 	StepDurabilityAsync
 )
 
@@ -99,16 +124,36 @@ func ProceedToOnFlowTimeoutHandlerFailure(
 //
 // Zero values preserve server defaults. Every WaitFor or Execute attempt defaults to a two-hour method
 // timeout and a one-minute heartbeat timeout. Durability resolves from the method override, FlowConfig, then synchronous.
-// Asynchronous durability first uses at most seven seconds and three attempts before fallback.
-// WaitFor failures fail the Flow by default. Each lock is held only for the matching handler call.
+// Both durability modes use the same retry, timeout, and heartbeat policies for every attempt.
+// WaitFor failures fail the Flow by default. Each lock is held for the matching logical method call,
+// including retries, retry backoff, and a returned attempt's queue wait. The first attempt's state snapshot
+// is reused across retries, so retrying does not reload changes made by another Step or RPC.
+// Keep lock scope narrow and retry budgets bounded; a conflicting RPC receives RPCLockConflictError.
+// Durability is pinned when the method becomes pending; FlowConfig changes affect only later method calls.
+// Cancellation is cooperative, so a later attempt or recovery Step may overlap an interrupted handler.
+//
+// Changed in SDK v1.35.0: a Step with no available Worker waits durably without spending a retry.
+// After hand-out, an interrupted attempt consumes a retry even if no output reached Dex.
+// Method and heartbeat timeouts start at hand-out, excluding lock and Worker queue waits.
+//
+//	options := &dex.StepOptions{
+//		ExecuteMethodTimeout: time.Hour, HeartbeatTimeout: time.Minute,
+//		ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3, TotalDuration: time.Hour},
+//		ExecuteDurability: dex.StepDurabilitySync,
+//		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(OrderStatus)},
+//	}
 type StepOptions struct {
-	// WaitForMethodTimeout limits one WaitFor attempt; zero uses the server default.
+	// WaitForMethodTimeout limits one WaitFor attempt; zero uses two hours.
+	// Positive durations round up to whole seconds and must fit in int32 seconds; negative values are invalid.
 	WaitForMethodTimeout time.Duration
-	// ExecuteMethodTimeout limits one Execute attempt; zero uses the server default.
+	// ExecuteMethodTimeout limits one Execute attempt; zero uses two hours.
+	// It has the same duration validation as WaitForMethodTimeout.
 	ExecuteMethodTimeout time.Duration
 	// HeartbeatTimeout detects stalled WaitFor and Execute attempts. It applies to every attempt.
 	// Zero uses the one-minute default. Positive values must be whole seconds within int32 range
 	// and meet the server-configured minimum, which defaults to ten seconds.
+	// RecordHeartbeat or a Stream write refreshes liveness; a silent handler can time out even while doing useful work.
+	// Heartbeats do not extend the method timeout. Handle Context cancellation promptly.
 	HeartbeatTimeout time.Duration
 	// WaitForRetry overrides the WaitFor retry policy; nil uses server defaults.
 	WaitForRetry *RetryPolicy
@@ -123,8 +168,10 @@ type StepOptions struct {
 	// ExecuteDurability overrides persistence durability for Execute writes.
 	ExecuteDurability StepDurability
 	// WaitForLockAttributes are acquired together for the WaitFor invocation.
+	// Locks survive retries and backoff until the logical WaitFor call ends; see StepOptions.
 	WaitForLockAttributes []AttributeLock
 	// ExecuteLockAttributes are acquired together for the Execute invocation.
+	// Locks survive retries and backoff until the logical Execute call ends; see StepOptions.
 	ExecuteLockAttributes []AttributeLock
 	// WaitForLoadAttributeMaps includes every current instance of each AttributeMap in WaitFor.
 	WaitForLoadAttributeMaps []AttributeDef
@@ -287,6 +334,12 @@ const (
 // Zero values inherit normal Flow start defaults and use
 // RestartSubFlowIfPreviousExitedAbnormally. The server owns the generated Flow ID and request ID;
 // callers cannot override either value. Attributes must belong to the target SubFlow.
+// The child Flow ID is derived from the parent Flow ID, Step execution ID, and SubFlow condition index.
+// A matching generated request ID attaches to an existing child or returns its terminal result,
+// regardless of ReusePolicy. This preserves one logical start after a lost response.
+// For a different request ID, ReusePolicy determines whether to attach or replace the child.
+// Timeout nil or zero disables the child timeout; positive durations round up to whole seconds.
+// Timeout and StartDelay must be nonnegative and fit in int32 seconds.
 type SubFlowOptions struct {
 	// Timeout limits total SubFlow execution duration.
 	Timeout *time.Duration
@@ -355,8 +408,8 @@ type AlreadyStartedOptions struct {
 // Return these options with DefineRPC from Flow.GetRPCs. The Client applies the same immutable
 // settings to every invocation. Its context may still impose a shorter caller-side deadline.
 type RPCOptions struct {
-	// Name is the protocol RPC name that Clients invoke and Workers serve. Empty uses the Go
-	// method name, such as "GetStatus".
+	// Name is the protocol RPC name that Clients invoke and Workers serve.
+	// Available since SDK v1.35.0. Empty uses the Go method name, such as "GetStatus".
 	//
 	// Set it when a Flow implemented in another language names the RPC, so a Go Worker serves the
 	// same RPC and a Go Client invokes it. For example, a Python Flow's send_user_message method:
@@ -419,11 +472,9 @@ type WaitForFlowOptions struct {
 // execution. Reuse an override only when retrying the same Step completion
 // wait. RequestTimeout bounds the caller-visible request across transparent
 // transport reattachments. Leave it zero to wait indefinitely.
-// InternalHandlerTimeout bounds how long accepted waits left behind by caller
-// timeout or cancellation consume Temporal's 10 in-flight Update slots per
-// Workflow Execution. Active callers transparently start a new generation.
-// Leave it zero unless abandoned waits can approach that limit. Each rollover
-// adds another Update to history, which has a 2,000-Update limit.
+// The Server caps each transport wait; the SDK reattaches with the same RequestID without
+// resetting RequestTimeout. A caller disconnect releases its wait slot.
+// InternalHandlerTimeout is retained for compatibility and has no effect on the current Server.
 // Both durations must use whole seconds within int32 range.
 //
 //	options := dex.WaitForStepCompletionOptions{
@@ -434,9 +485,10 @@ type WaitForStepCompletionOptions struct {
 	RequestID string
 	// RequestTimeout bounds the caller-visible request. Zero waits indefinitely.
 	RequestTimeout time.Duration
-	// InternalHandlerTimeout bounds one internal Temporal Update handler generation.
-	// Set it only to reclaim abandoned waits from Temporal's in-flight Update limit.
-	// Zero disables rollover. Each rollover adds another Update to history.
+	// InternalHandlerTimeout is accepted and validated for compatibility but ignored by the current Server.
+	// Zero is the default. Negative or fractional-second values are invalid, as are values above int32 seconds.
+	//
+	// Deprecated: leave this field zero; use RequestTimeout or ctx to bound the wait.
 	InternalHandlerTimeout time.Duration
 }
 
@@ -445,13 +497,11 @@ type WaitForStepCompletionOptions struct {
 // When RequestID is empty, the server derives a stable ID from the Attribute
 // condition. Reuse an override only when retrying the same Attribute match.
 // RequestTimeout bounds the caller-visible request across transparent transport
-// reattachments. Leave it zero to wait indefinitely. InternalHandlerTimeout
-// bounds how long accepted waits left behind by caller timeout or cancellation
-// consume Temporal's 10 in-flight Update slots per Workflow Execution. Active
-// callers transparently start a new generation. Leave it zero unless abandoned
-// waits can approach that limit. Each rollover adds another Update to history,
-// which has a 2,000-Update limit. Both durations must use whole seconds within
-// int32 range.
+// reattachments. Leave it zero to wait indefinitely. The Server caps each transport wait;
+// the SDK reattaches with the same RequestID without resetting RequestTimeout.
+// A caller disconnect releases its wait slot.
+// InternalHandlerTimeout is retained for compatibility and has no effect on the current Server.
+// Both durations must use whole seconds within int32 range.
 //
 //	options := dex.WaitForAttributeOptions{
 //		RequestTimeout: time.Second * 10,
@@ -461,9 +511,10 @@ type WaitForAttributeOptions struct {
 	RequestID string
 	// RequestTimeout bounds the caller-visible request. Zero waits indefinitely.
 	RequestTimeout time.Duration
-	// InternalHandlerTimeout bounds one internal Temporal Update handler generation.
-	// Set it only to reclaim abandoned waits from Temporal's in-flight Update limit.
-	// Zero disables rollover. Each rollover adds another Update to history.
+	// InternalHandlerTimeout is accepted and validated for compatibility but ignored by the current Server.
+	// Zero is the default. Negative or fractional-second values are invalid, as are values above int32 seconds.
+	//
+	// Deprecated: leave this field zero; use RequestTimeout or ctx to bound the wait.
 	InternalHandlerTimeout time.Duration
 }
 
@@ -481,7 +532,7 @@ const (
 
 // StopOptions configures Client.StopFlow.
 type StopOptions struct {
-	// Type selects cancel, terminate, or fail behavior.
+	// Type selects cancel, terminate, or fail behavior. Zero defaults to cooperative cancellation.
 	Type StopType
 	// Reason is recorded with the stop operation.
 	Reason string
@@ -545,7 +596,7 @@ type TimeTravelOptions struct {
 	SkipWritesReapply bool
 }
 
-// SearchFlowsOptions selects whether visibility searches include earlier Continue-as-New runs.
+// SearchFlowsOptions selects whether visibility searches include earlier runs replaced during history maintenance.
 type SearchFlowsOptions struct {
 	// IncludeContinuedAsNew disables the server's default exclusion without changing the caller's query.
 	IncludeContinuedAsNew bool

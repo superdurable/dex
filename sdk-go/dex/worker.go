@@ -67,6 +67,9 @@ type WorkerOptions struct {
 // Use it with WorkerOptions.Pull to tune outbound task streams.
 // MaxConcurrentTasks defaults to runtime.NumCPU; each task slot owns one long-lived stream.
 // StopDrainTimeout defaults to 30 seconds.
+// Changed in SDK v1.35.0: streams represent execution slots instead of per-queue idle capacity.
+// The total stream count stays MaxConcurrentTasks while idle or busy, including RPC-only slots.
+// Budget server matching.maxStreams for all Worker slots, including rolling-deployment overlap.
 // Each stream runs one task at a time. Negative task limits or drain timeouts and an invalid
 // AppWorkerID cause NewWorker to return an error.
 //
@@ -86,15 +89,23 @@ type PullWorkerOptions struct {
 	// MaxConcurrentTasks sets the number of long-lived execution slot streams and bounds simultaneous handlers.
 	// Zero uses runtime.NumCPU(); negative values are invalid. Each idle stream can accept one task.
 	// Start fails when this exceeds the Server's reported matching.maxConcurrentTasksCap per Worker.
+	// The server cap defaults to 256. Raise it before starting a Worker that needs more slots.
+	// Changed in SDK v1.35.0: exceeding the first registration's cap fails startup without background retry.
+	// A smaller cap on reconnect logs a warning and lets the Server reject surplus streams; the Worker keeps running.
 	MaxConcurrentTasks int
 	// ReservedRPCTasks sets the number of execution slot streams that accept only RPCs.
 	// Nil reserves one when resolved MaxConcurrentTasks is at least two, otherwise zero.
 	// Set ptr.Any(0) to opt out. With one slot and nil reserve, Start warns that RPCs may wait behind Steps.
 	// The remaining streams accept Steps and RPCs. The Worker executes every received task without capacity declines.
+	// Changed in SDK v1.35.0: reserved slots use RPC_ONLY streams; Steps wait in the task queue for a shared slot.
+	// To keep eight simultaneous Step handlers with one reserved slot, set MaxConcurrentTasks to at least nine.
+	// A reserve provides capacity, not a latency guarantee: RPC-only slots can themselves be busy.
 	// NewWorker returns an error unless 0 <= reserve < resolved MaxConcurrentTasks.
 	// For example: PullWorkerOptions{MaxConcurrentTasks: 8, ReservedRPCTasks: ptr.Any(2)} creates six shared and two RPC-only slots.
 	ReservedRPCTasks *int
 	// IdleStreamsPerQueue is accepted for source compatibility and has no effect. Default: zero.
+	//
+	// Changed in SDK v1.35.0: this option no longer changes stream counts.
 	//
 	// Deprecated: MaxConcurrentTasks determines the fixed number of slot streams.
 	IdleStreamsPerQueue int
@@ -142,6 +153,7 @@ func (rejection *PullRegistrationError) Unwrap() error { return rejection.Err }
 // Obtain it with Worker.PullRegistrationState, including concurrently with Start,
 // Stop, or WaitPullRegistered. Its zero value has IsReady false and Queues nil.
 // Modifying Queues does not reconfigure the Worker.
+// Changed in SDK v1.35.0: Queues identifies slot kinds, not individual Flow type or app Worker ID queues.
 // Treat errors inside entries as immutable. See WaitPullRegistered for a complete
 // startup and HTTP readiness probe example.
 type PullRegistrationState struct {
@@ -329,6 +341,9 @@ func validatePlaintextTarget(address string) error {
 
 // Start serves Worker tasks and blocks until Stop or a serve failure.
 //
+// Changed in SDK v1.35.0: Server protocol 4 is required (server-zd v0.1.17 or later).
+// Upgrade the Server before upgrading the SDK; older SDKs can continue using the upgraded Server.
+//
 // Start may be called exactly once. Before serving, it negotiates a Server
 // protocol (exactly version 4), synchronizes Attribute indexes, and waits up to
 // WorkerOptions.AttributeIndexSyncTimeout for each startup request.
@@ -391,6 +406,8 @@ func (worker *Worker) Start() (startErr error) {
 
 // WaitPullRegistered waits for at least one registered STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream.
 //
+// Changed in SDK v1.35.0: readiness counts slot kinds rather than Flow type or app Worker ID queues.
+//
 // Use it to gate application startup and to start replacement Workers before
 // stopping old Workers during a rolling deployment. Call Start in another
 // goroutine. WaitPullRegistered is safe before or after Start and from multiple
@@ -438,6 +455,7 @@ func (worker *Worker) WaitPullRegistered(ctx context.Context) error {
 }
 
 // PullReservedRPCDeclines returns zero. Reserved RPC slots no longer decline Step tasks.
+// Changed in SDK v1.35.0: slot-based dispatch makes this counter permanently zero.
 // Calls are safe concurrently with Start, Stop, and handlers.
 //
 // Deprecated: reservations are enforced by RPC_ONLY streams, so this counter is always zero.
@@ -459,6 +477,8 @@ func (worker *Worker) PullRegistrationState() PullRegistrationState {
 }
 
 // Stop stops starting tasks and drains handlers until ctx or StopDrainTimeout expires.
+// Changed in SDK v1.35.0: tasks returned during a clean shutdown without running consume no Step retry.
+// An attempt interrupted after it may have run consumes a retry instead; normal deployments that drain finishers avoid it.
 // Idle streams immediately half-close their request side. Busy streams finish their handlers,
 // send final output, then half-close. Tasks arriving after Stop begins are dropped without execution.
 // Streams keep reading until the Server ends them. On timeout, active streams are reset instead
