@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK_REFERENCES = ROOT / "dex-sdk" / "references"
 # The server-zd release used by core operations guidance.
 SERVER_ZD_RELEASE = "server-zd/v0.1.6"
-SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.16"
+SERVER_ZD_LATEST_RELEASE = "server-zd/v0.1.18"
 POSTGRES_CONNECTION_PATH = "server-zd/crates/dexzd-postgres-connection/src/lib.rs"
 POSTGRES_TLS_PATH = "server-zd/crates/dexzd-postgres-connection/src/tls.rs"
 POSTGRES_DSN_PATH = "server-zd/crates/dexzd-postgres-connection/src/dsn.rs"
@@ -43,11 +43,7 @@ SERVER_ZD_STATEMENTS = (
         "`syncRetryPolicy.totalDuration` bounds each pending entry's retry window",
         "Entries of a store that is no longer configured",
         "StopFlow (CANCEL or FAIL), Terminate",
-        "`processCrashSafe` (default)",
         "Delete the whole data directory to start",
-        "A directory that an earlier release stopped gracefully keeps working in every mode.",
-        "A directory that an earlier release left after an abrupt exit is refused in the default and",
-        "After the first start of a release with this rule, the directory is stamped, and any mode works.",
         "takes it over at once",
     )),
     ("server-zd/v0.1.5", "server-zd/README.md", (
@@ -283,6 +279,22 @@ SERVER_ZD_LATEST_STATEMENTS = (
         '"the server process stopped serving during the call; retry it";',
         'const STARTING_MESSAGE: &str = "the node is starting";',
     )),
+    ("server-zd/v0.1.18", "server-zd/README.md", (
+        "[--durability strict|process-crash-safe|relaxed]",
+        "| `strict` (default) | A process kill, a host crash, and power loss. |",
+        "| `processCrashSafe` | A process kill: SIGKILL, an OOM kill, or a deleted Pod. A host crash or power loss can lose recent writes. |",
+        "- A directory from v0.1.4 or later carries a stamp and keeps working in every mode.",
+        "- A directory that a release before v0.1.4 stopped gracefully keeps working in every mode.",
+        "- A directory that a release before v0.1.4 left after an abrupt exit is refused in every mode,",
+    )),
+    ("server-zd/v0.1.18", "docs/content/production/server-zd-operations.mdx", (
+        "The default **dev.durabilityMode**, **strict**,",
+        "**processCrashSafe** skips fsync, so it is faster, but a host crash or power",
+    )),
+    ("server-zd/v0.1.18", "cli/README.md", (
+        "`--durability` selects how zd stores acknowledged writes. The default, `strict`,",
+        "flag, zd uses `dev.durabilityMode` from that file, or `strict`.",
+    )),
 )
 # Core operations statements for the server-zd v0.1.14 search projection.
 SEARCH_PROJECTION_REFERENCES = (
@@ -311,7 +323,7 @@ SEARCH_PROJECTION_REFERENCES = (
         "point the server at a new database or schema; the server loads it from committed state automatically.",
         "After restoring the object storage prefix, configure a new `search.paradeDbSchema` or `search.postgresSchema`, "
         "or a new database, before restarting the node.",
-        "server-zd/v0.1.16 for CLI v1.34.0",
+        "server-zd/v0.1.18 for CLI v1.35.0",
         "server-zd v0.1.15 changes these operator-visible behaviors.",
         "Upgrade the binary on every process before you add a `standby` section to any configuration",
         "`standby.mode: hot` runs extra processes with the same node ID.",
@@ -620,7 +632,7 @@ REFERENCE_1_24_STATEMENTS = (
         "Retries keep their locks until the method call ends from server-zd v0.1.10.",
         "a hard-delete Attribute needs v0.1.10 or later",
     )),
-    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.16.",)),
+    ("core/bundle-baselines.md", ("guidance covers v0.1.3 through v0.1.18.",)),
     ("go/go.md", ("From Go SDK v1.24.0, a queue that declines a Step for reserved RPC capacity",)),
     ("java/java.md", ("From Java SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),
     ("python/python.md", ("From Python SDK v1.23.0, a queue that declines a Step for reserved RPC capacity",)),

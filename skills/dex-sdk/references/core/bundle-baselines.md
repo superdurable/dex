@@ -5,26 +5,26 @@ reference sources packaged with this Dex Skills release. Project dependencies
 and lockfiles remain authoritative for application code.
 
 ```text
-DEX_BASELINE=sdk-go/v1.32.0
-DEX_SERVER_BASELINE=server-zd/v0.1.16
-DEX_CLI_BASELINE=cli-v1.34.0
-DEX_WEB_BASELINE=web/v1.32.0
-DEX_JAVA_BASELINE=sdk-java/v1.32.0
-DEX_PYTHON_BASELINE=sdk-python/v1.32.0
-DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.32.0
-DEX_RUST_BASELINE=sdk-rust/v1.31.0
+DEX_BASELINE=sdk-go/v1.35.0
+DEX_SERVER_BASELINE=server-zd/v0.1.18
+DEX_CLI_BASELINE=cli-v1.35.0
+DEX_WEB_BASELINE=web/v1.35.0
+DEX_JAVA_BASELINE=sdk-java/v1.35.0
+DEX_PYTHON_BASELINE=sdk-python/v1.35.0
+DEX_TYPESCRIPT_BASELINE=sdk-typescript/v1.35.0
+DEX_RUST_BASELINE=sdk-rust/v1.35.0
 ```
 
 These values mirror the release metadata at the Dex Skills repository root.
 The package validator rejects any drift between the two copies.
 
-Go, Java, Python, and TypeScript are at their published v1.32.0 tags. Rust is
-at v1.31.0, because Dex published no Rust SDK v1.32.0. The Server baseline is
-server-zd/v0.1.16, the CLI is cli-v1.34.0, and Dex Web is web/v1.32.0. The
+Go, Java, Python, TypeScript, and Rust are at their published v1.35.0 tags.
+The Server baseline is server-zd/v0.1.18, the CLI is cli-v1.35.0, and Dex Web
+is web/v1.35.0. The
 Temporal-based Go Server was removed in Dex 1.26; its final release is
 server/v1.25.0, and server-zd is the only Dex Server. cli-v1.26.0 was tagged
 without binaries, so never pin it. The CLI release package bundles
-`dex-server-zd` server-zd/v0.1.16, which is the Server baseline. Dex Web runs as
+`dex-server-zd` server-zd/v0.1.18, which is the Server baseline. Dex Web runs as
 the standalone `dex-web` binary or `superdurable/dex-web` image, released as
 web/vX.Y.Z.
 
@@ -48,10 +48,10 @@ Go, Java, Python, and TypeScript; no public SDK API changes. Rust v1.31.0
 generates them too, and its public error model does not map them. v1.32.0 adds
 only generated AdminService bindings; server-zd v0.1.15 serves AdminService, and no
 public SDK API changes. cli-v1.34.0 changes only the CLI, which bundles
-server-zd v0.1.16; the SDKs and Dex Web stay at v1.32.0. The server-zd guidance covers v0.1.3 through v0.1.16.
+server-zd v0.1.16; the SDKs and Dex Web stay at v1.32.0. SDK v1.35.0 in all five languages adds Step attempt progress on the recovery error, deprecates the reserve-decline counters and idle-stream options, opens one stream per task slot, and requires Server protocol 4. server-zd v0.1.18 provides protocol 4, queues Steps durably until a Worker takes them, and drains running attempts on a planned stop. cli-v1.35.0 bundles it, and web/v1.35.0 shows Step pending reasons. The server-zd guidance covers v0.1.3 through v0.1.18.
 Each SDK and its language examples use that language's exact tag. **DEX_BASELINE**
 is the Go SDK pin, not a shared version for every language.
-At their baseline tags, the Rust example manifest selects SDK v1.26.0, the Java example manifest selects SDK v1.31.0, and the Go, Python, and TypeScript example manifests select SDK v1.29.0.
+At their baseline tags, the Rust and Java example manifests select SDK v1.31.0, the Go example manifest selects SDK v1.29.0, and the Python and TypeScript example manifests select SDK v1.30.0.
 They are runnable source examples, not the API-version authority.
 API key Credentials need SDK v1.16.0. Their guidance therefore comes from each
 SDK's source and README at its language tag, not from the examples.
