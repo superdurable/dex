@@ -84,6 +84,8 @@ func (a *App) Execute(ctx context.Context, args []string) error {
 		return a.executeVersion(ctx, remaining[1:], options)
 	case "admin":
 		return a.executeAdmin(ctx, remaining[1:], options)
+	case "web":
+		return a.executeWeb(ctx, remaining[1:], options)
 	case "help", "--help", "-h":
 		a.printUsage()
 		return nil
@@ -132,6 +134,7 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(a.stdout, "  version   Check dexcli and Server protocol compatibility")
 	fmt.Fprintln(a.stdout, "  admin     Describe or step down the active server process (admin credential)")
+	fmt.Fprintln(a.stdout, "  web       Serve Dex Web against the existing server given by --server")
 	fmt.Fprintln(a.stdout)
 	fmt.Fprintln(a.stdout, "Global flags:")
 	fmt.Fprintln(a.stdout, "  --server host:port                 Dex FlowService target")

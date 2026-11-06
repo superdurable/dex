@@ -87,11 +87,11 @@ jobs:
         env:
           GOWORK: "off"
         run: go test ./...
-      - name: Test Go and Python Flow visualization
+      - name: Test Flow visualization and dexcli web
         working-directory: cli
         env:
           GOWORK: "off"
-        run: go test -tags=integration ./internal/command -run TestVisualize -count=1 -v
+        run: go test -tags=integration ./internal/command -run 'TestVisualize|TestWeb' -count=1 -v
       - name: Test local server-zd mode
         working-directory: cli
         env:

@@ -47,6 +47,8 @@ type Config struct {
 type Server struct {
 	cfg        *Config
 	httpServer *http.Server
+	// cancelRequestContexts ends in-flight long polls so Shutdown finishes promptly.
+	cancelRequestContexts context.CancelFunc
 }
 
 func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) (*Server, error) {
@@ -110,6 +112,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	}
 	mux.HandleFunc("GET /readyz", readinessHandler(client, flowDefinitions))
 	mux.Handle("/", spaHandler(assetRoot))
+	requestBaseContext, cancelRequestContexts := context.WithCancel(context.Background())
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
@@ -117,7 +120,9 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 			ReadTimeout:       30 * time.Second,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
+			BaseContext:       func(net.Listener) context.Context { return requestBaseContext },
 		},
+		cancelRequestContexts: cancelRequestContexts,
 	}, nil
 }
 
@@ -162,7 +167,9 @@ func (s *Server) Serve(listener net.Listener) error {
 	return s.httpServer.Serve(listener)
 }
 
+// Shutdown cancels in-flight request contexts, then waits for handlers to return or ctx to expire.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.cancelRequestContexts()
 	return s.httpServer.Shutdown(ctx)
 }
 
