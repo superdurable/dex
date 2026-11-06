@@ -43,6 +43,12 @@ uses the selected Dex port. Ctrl+C stops Web and the server-zd child process.
 server-zd supports pull Workers. See [Server reference](/reference/server/)
 for storage, durability, and Attribute Store configuration.
 
+A new state directory has 32 partitions. A state directory that dexcli before
+1.37.0 created has 1024 partitions, and server-zd refuses to start on it with
+the default. To keep using it, pass a **--zd-config** file that sets
+**cluster.partitionCount** to 1024. Otherwise delete the state directory. See
+[Partition count](/reference/server/configuration#single-node-partition-count).
+
 The Temporal engine was removed. **--engine temporal**, all
 **--external-temporal-*** and **--temporal-*** flags, **--sqlite-db-filename**,
 **--verbose-engine-log**, and **--blob-store-dir** now fail with an error that

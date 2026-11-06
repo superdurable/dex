@@ -121,14 +121,14 @@ fn write_overrides(directory: &Path) -> std::path::PathBuf {
 }
 
 /// Runs the greeting Flow `flow_id` with a pull Worker on `channel` and returns its run ID.
-async fn run_flow_on(channel: Channel, flow_id: &str) -> String {
+pub(super) async fn run_flow_on(channel: Channel, flow_id: &str) -> String {
     let worker = start_greeting_worker(channel.clone()).await;
     let run_id = run_greeting_flow(&mut FlowServiceClient::new(channel), flow_id).await;
     worker.stop().await;
     run_id
 }
 
-async fn assert_completed_with_run(channel: Channel, flow_id: &str, run_id: &str) {
+pub(super) async fn assert_completed_with_run(channel: Channel, flow_id: &str, run_id: &str) {
     let summary = FlowServiceClient::new(channel)
         .get_flow_summary(GetFlowSummaryRequest {
             flow_id: flow_id.to_owned(),

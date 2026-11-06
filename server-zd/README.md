@@ -807,6 +807,24 @@ After the first start of v0.1.4 or later, the directory is stamped, and any mode
 it to 10 seconds. A `dev` node has no standby, so the longer lease costs no failover time and lets
 the node ride out longer host stalls.
 
+Since v0.1.20, `dev` defaults `cluster.partitionCount` to 32, unless the `--config` file sets it;
+`serve` defaults it to 1024. One node owns every partition. The default applier lane count is the
+larger of 8 and the CPU count, capped at the partition count, so 32 partitions reduce lanes only on
+hosts with more than 32 CPUs. With the builtin search backend, fewer partitions make each
+SearchFlows call scan less. The first start records the count, and every later start must use it.
+server-zd before v0.1.20 and dexcli before 1.37.0 created data directories with 1024 partitions. A
+start with the default fails, names both counts, and asks for the recorded one. Add this to the
+`--config` file (with `dexcli dev`, the `--zd-config` file) to keep using that directory:
+
+```yaml
+cluster:
+  partitionCount: 1024
+```
+
+An explicit `commit.applierLanes` above 32 without `cluster.partitionCount` fails startup with an
+error that asks for `cluster.partitionCount` or fewer lanes. To open a 32-partition data directory
+with server-zd before v0.1.20 or dexcli before 1.37.0, set `cluster.partitionCount: 32`.
+
 `dev` holds an exclusive lock on `<data-dir>/dev.lock` for its whole run, so a second `dev` process
 on the same data directory fails to start. While `dev` holds the lock, no other process can write
 its embedded object store. A lease that the store still shows as held therefore belongs to a
@@ -840,8 +858,9 @@ moves between the two commands.
 | `lifecycle.attemptDrainTimeout` | 2s | 30s | 30s |
 
 It keeps the other `dev` defaults because they follow from one node on an embedded store:
-`dev.durabilityMode: strict`, a 30-second `lease.duration` (no standby), the memory Stream Store,
-and a held-lease takeover while it holds the lock. Like `dev`, it listens on `127.0.0.1:8801` by
+`dev.durabilityMode: strict`, a 30-second `lease.duration` (no standby), 32 partitions
+(`cluster.partitionCount`), the memory Stream Store, and a held-lease takeover while it holds the
+lock. Like `dev`, it listens on `127.0.0.1:8801` by
 default and has no authenticators unless `--config` sets them. Pass `--listen 0.0.0.0:8801`, or set
 `api.listen` in `--config`, to serve other hosts; `--listen` wins when both are set. `dev` and
 `local` log a startup warning when they listen on a non-loopback address without authenticators.
