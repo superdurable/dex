@@ -134,11 +134,20 @@ with Worker(registry, cache, WorkerOptions(
   parsable certificate; malformed and non-certificate blocks are skipped when
   another certificate parses. The trust is the gRPC default roots (grpcio's
   bundled roots, or `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when set) plus the added
-  roots. A configured gRPC root file replaces the bundled roots. Unlike Go,
-  this is not the OS store; `SSL_CERT_FILE` and `SSL_CERT_DIR` do not affect it.
+  roots. A configured gRPC root file replaces the bundled roots and takes
+  precedence over system roots. Adding roots fails when
+  `GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK` is true and
+  `GRPC_NOT_USE_SYSTEM_SSL_ROOTS` is not true, unless a root file is configured.
+  True values are `true`, `t`, `yes`, `y`, and `1`, ignoring case. This guard
+  also applies to system roots selected with `GRPC_SYSTEM_SSL_ROOTS_DIR`.
+  To add roots in that configuration, disable
+  `GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK` and pass the full PEM bundle
+  as `additional_root_cas_pem`, or set `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` to the
+  full bundle. `SSL_CERT_FILE` and `SSL_CERT_DIR` do not affect this trust.
   These sources are read at construction. An unreadable bundled root file, or an
   unreadable or invalid configured gRPC root file, fails construction when adding
-  roots. To trust OS or corporate CAs, pass their PEM bundle explicitly:
+  roots. Errors for configured files include the file path. To trust OS or
+  corporate CAs, pass their PEM bundle explicitly:
 
   ```python
   tls = FlowServiceTlsOptions(

@@ -31,7 +31,15 @@ class FlowServiceTlsOptions:
             Defaults to ``None``; empty bytes or text also use gRPC's default
             trust store. Nonempty bundles use the gRPC default roots (grpcio's
             bundled roots, or ``GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`` when set)
-            plus the added roots. Unlike Go, this is not the OS store.
+            plus the added roots. A configured root file takes precedence over
+            system roots. Adding roots fails when
+            ``GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK`` is true and
+            ``GRPC_NOT_USE_SYSTEM_SSL_ROOTS`` is not true, unless a root file
+            is configured. True values are ``true``, ``t``, ``yes``, ``y``, and
+            ``1``, ignoring case. This includes system roots selected with
+            ``GRPC_SYSTEM_SSL_ROOTS_DIR``. To add roots in that configuration,
+            disable the system-roots preference and pass the full PEM bundle
+            here, or set ``GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`` to the full bundle.
             Pass an OS or corporate CA bundle as ``additional_root_cas_pem``
             to trust those certificates. ``SSL_CERT_FILE`` and ``SSL_CERT_DIR``
             do not affect this trust. At least one
@@ -49,33 +57,22 @@ class FlowServiceTlsOptions:
     Raises:
         ValueError: During Client or Worker construction if the TLS address,
             server name, or nonempty PEM bundle is invalid, or default roots
-            cannot be loaded when adding certificates.
+            cannot be loaded when adding certificates, or added roots cannot
+            be combined with the configured gRPC system roots.
 
     Examples:
-        Assume ``registry``, ``cache``, ``flow``, ``flow_id``, and ``input_value``
-        are configured as in the SDK README. The CA file must already exist.
+        Construct Client options for a TLS endpoint. The CA file must already
+        exist. Pass these options to a Client with a Registry and BlobCache.
 
-        >>> from concurrent.futures import ThreadPoolExecutor
         >>> from pathlib import Path
-        >>> from dex import Client, ClientOptions, FlowServiceTlsOptions
-        >>> from dex import Worker, WorkerOptions
+        >>> from dex import ClientOptions, FlowServiceTlsOptions
         >>> tls = FlowServiceTlsOptions(
         ...     additional_root_cas_pem=Path("/etc/dex/root-ca.pem").read_bytes(),
         ...     server_name="dex.example.com",
         ... )
-        >>> address = "dex.example.com:443"
-        >>> with Worker(registry, cache, WorkerOptions(
-        ...     server_address=address, flow_service_tls=tls,
-        ... )) as worker, Client(registry, cache, ClientOptions(
-        ...     server_address=address, flow_service_tls=tls,
-        ... )) as client, ThreadPoolExecutor(max_workers=1) as executor:
-        ...     started = executor.submit(worker.start)
-        ...     try:
-        ...         worker.wait_pull_registered(timeout=30)
-        ...         client.start_flow(flow, flow_id, input_value)
-        ...     finally:
-        ...         worker.stop()
-        ...         started.result(timeout=10)
+        >>> options = ClientOptions(
+        ...     server_address="dex.example.com:443", flow_service_tls=tls,
+        ... )
     """
 
     additional_root_cas_pem: bytes | str | None = None

@@ -223,14 +223,22 @@ def test_configured_default_roots_are_preserved(
         assert certificates.root_pem.strip() not in bundle
 
 
+@pytest.mark.parametrize("has_invalid_contents", [False, True])
 def test_unreadable_default_roots_fail_construction(
-    certificates: TlsCertificates, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    certificates: TlsCertificates,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    has_invalid_contents: bool,
 ) -> None:
-    monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(tmp_path / "missing"))
-    with pytest.raises(ValueError, match="cannot load default root CAs"):
+    root_file = tmp_path / "default-roots.pem"
+    if has_invalid_contents:
+        root_file.write_bytes(b"invalid certificates")
+    monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(root_file))
+    with pytest.raises(ValueError, match="cannot load default root CAs") as failure:
         flow_service_transport(
             "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
         )
+    assert str(root_file) in str(failure.value)
     monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH")
     with patch("dex._flow_service_tls.files", side_effect=OSError("unreadable bundle")):
         with pytest.raises(ValueError, match="cannot load default root CAs"):
@@ -247,6 +255,162 @@ def test_configured_roots_do_not_read_bundled_roots(
     monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(root_file))
     with patch("dex._flow_service_tls.files", side_effect=OSError("no bundled roots")):
         assert _default_root_certificates() == certificates.root_pem.strip()
+
+
+@pytest.mark.parametrize(
+    "flag_value", ["true", "t", "yes", "y", "1", "TRUE", "T", "YES", "Y"]
+)
+@pytest.mark.parametrize("has_system_directory", [False, True])
+def test_system_root_preference_rejects_added_roots(
+    certificates: TlsCertificates,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    flag_value: str,
+    has_system_directory: bool,
+) -> None:
+    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+    monkeypatch.delenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", raising=False)
+    monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", flag_value)
+    if has_system_directory:
+        monkeypatch.setenv("GRPC_SYSTEM_SSL_ROOTS_DIR", str(tmp_path))
+    else:
+        monkeypatch.delenv("GRPC_SYSTEM_SSL_ROOTS_DIR", raising=False)
+    with pytest.raises(
+        ValueError, match="added roots cannot be combined with gRPC system roots"
+    ) as failure:
+        flow_service_transport(
+            "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
+        )
+    assert "additional_root_cas_pem" in str(failure.value)
+    assert "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH" in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    "flag_value",
+    [
+        None,
+        "",
+        "false",
+        "f",
+        "no",
+        "n",
+        "0",
+        "FALSE",
+        "F",
+        "NO",
+        "N",
+        "invalid",
+        " true ",
+    ],
+)
+def test_falsy_system_root_preference_preserves_bundled_roots(
+    certificates: TlsCertificates,
+    monkeypatch: pytest.MonkeyPatch,
+    flag_value: str | None,
+) -> None:
+    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+    monkeypatch.delenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", raising=False)
+    if flag_value is None:
+        monkeypatch.delenv(
+            "GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", raising=False
+        )
+    else:
+        monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", flag_value)
+    with patch(
+        "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
+    ) as credentials:
+        flow_service_transport(
+            "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
+        )
+    bundled_roots = (
+        files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
+    )
+    credentials.assert_called_once_with(
+        bundled_roots + b"\n" + certificates.root_pem.strip()
+    )
+
+
+@pytest.mark.parametrize(
+    "flag_value", ["true", "t", "yes", "y", "1", "TRUE", "T", "YES", "Y"]
+)
+def test_disabled_system_roots_preserve_bundled_roots(
+    certificates: TlsCertificates,
+    monkeypatch: pytest.MonkeyPatch,
+    flag_value: str,
+) -> None:
+    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+    monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", "true")
+    monkeypatch.setenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", flag_value)
+    with patch(
+        "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
+    ) as credentials:
+        flow_service_transport(
+            "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
+        )
+    bundled_roots = (
+        files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
+    )
+    credentials.assert_called_once_with(
+        bundled_roots + b"\n" + certificates.root_pem.strip()
+    )
+
+
+@pytest.mark.parametrize(
+    "flag_value",
+    ["", "false", "f", "no", "n", "0", "FALSE", "F", "NO", "N", "invalid", " true "],
+)
+def test_falsy_system_roots_disable_flag_still_rejects_added_roots(
+    certificates: TlsCertificates,
+    monkeypatch: pytest.MonkeyPatch,
+    flag_value: str,
+) -> None:
+    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+    monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", "true")
+    monkeypatch.setenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", flag_value)
+    with pytest.raises(
+        ValueError, match="added roots cannot be combined with gRPC system roots"
+    ):
+        flow_service_transport(
+            "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
+        )
+
+
+@pytest.mark.parametrize("disable_system_roots", ["false", "true"])
+def test_configured_root_file_precedes_system_root_preference(
+    certificates: TlsCertificates,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    disable_system_roots: str,
+) -> None:
+    root_file = tmp_path / "default-roots.pem"
+    root_file.write_bytes(certificates.root_pem)
+    monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(root_file))
+    monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", "true")
+    monkeypatch.setenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", disable_system_roots)
+    monkeypatch.setenv("GRPC_SYSTEM_SSL_ROOTS_DIR", str(tmp_path))
+    with patch(
+        "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
+    ) as credentials:
+        flow_service_transport(
+            "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
+        )
+    credentials.assert_called_once_with(
+        certificates.root_pem.strip() + b"\n" + certificates.root_pem.strip()
+    )
+
+
+@pytest.mark.parametrize("bundle", [None, b"", ""])
+def test_system_root_preference_preserves_default_trust_without_added_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    bundle: bytes | str | None,
+) -> None:
+    monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", "true")
+    monkeypatch.delenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", raising=False)
+    with patch(
+        "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
+    ) as credentials:
+        flow_service_transport("localhost:443", FlowServiceTlsOptions(bundle))
+    credentials.assert_called_once_with(None)
 
 
 def test_worker_loads_default_roots_once(certificates: TlsCertificates) -> None:

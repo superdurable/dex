@@ -32,6 +32,7 @@ from uuid import uuid4
 from typing import cast
 
 import grpc
+import grpc.aio
 import pytest
 from google.protobuf.empty_pb2 import Empty
 
@@ -309,6 +310,15 @@ def test_tls_rejects_invalid_transport(
     detail = failure.value.details() or ""
     if failure_case == "wrong-name":
         assert "hostname" in detail.lower() or "wrong.example" in detail
+    elif failure_case == "missing-override":
+        assert (
+            "hostname verification check failed" in detail.lower()
+            or "hostname mismatch" in detail.lower()
+            or (
+                "peer name" in detail.lower()
+                and "not in peer certificate" in detail.lower()
+            )
+        )
     elif failure_case == "untrusted":
         assert "CERTIFICATE_VERIFY_FAILED" in detail
 

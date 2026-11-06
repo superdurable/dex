@@ -24,6 +24,7 @@ _RESOLVER_SCHEMES = {"dns", "ipv4", "ipv6", "passthrough", "unix", "unix-abstrac
 _PEM_CERTIFICATE = re.compile(
     rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.DOTALL
 )
+_TRUE_ENVIRONMENT_VALUES = {"true", "t", "yes", "y", "1"}
 
 
 @dataclass(frozen=True)
@@ -142,12 +143,30 @@ def _additional_root_certificates(bundle: bytes | str) -> bytes:
 
 
 def _default_root_certificates() -> bytes:
+    configured_file = os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH")
+    if (
+        not configured_file
+        and _is_environment_flag_true("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK")
+        and not _is_environment_flag_true("GRPC_NOT_USE_SYSTEM_SSL_ROOTS")
+    ):
+        raise ValueError(
+            "flow_service_tls: added roots cannot be combined with gRPC system roots; "
+            "disable GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK and pass the full "
+            "bundle via additional_root_cas_pem, or set GRPC_DEFAULT_SSL_ROOTS_FILE_PATH "
+            "to the full bundle"
+        )
     try:
-        configured_file = os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH")
         if configured_file:
             return _additional_root_certificates(Path(configured_file).read_bytes())
         return (
             files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
         )
     except (OSError, ValueError, ssl.SSLError) as failure:
-        raise ValueError("flow_service_tls: cannot load default root CAs") from failure
+        source = f" from {configured_file!r}" if configured_file else ""
+        raise ValueError(
+            f"flow_service_tls: cannot load default root CAs{source}"
+        ) from failure
+
+
+def _is_environment_flag_true(name: str) -> bool:
+    return os.environ.get(name, "").lower() in _TRUE_ENVIRONMENT_VALUES
