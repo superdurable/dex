@@ -200,7 +200,7 @@ loopback `dexcli dev`. Do not copy it into an image, a deployed volume, or
 source control. Auth selections, configuration values, API keys, OAuth tokens
 and webhook secrets do not belong in source, rendered definitions or Flow state.
 
-Open-source Dex provides no deployed Connector configuration, OAuth, or
+Source-available Dex provides no deployed Connector configuration, OAuth, or
 credential store: Dex Web's Connector setup runs only in loopback `dexcli dev`,
 as the Dex SDK
 [operations reference](../../dex-sdk/references/core/operations.md#deployed-connector-configuration)
