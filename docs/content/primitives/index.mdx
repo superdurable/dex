@@ -39,8 +39,8 @@ Primitive has its own page.
  └────────────┘                       └──────────────────────────────────┘
 ```
 
-A **Flow** is the container. One Flow execution exists for each Flow ID, such as
-an order number.
+A **Flow** is the container. A Flow ID, such as an order number, has at most
+one active run at a time.
 
 **Steps** move the Flow forward. A Step can wait for a Channel message, a Timer,
 or a SubFlow. It then executes its work, such as a call through a Connector. It
@@ -48,8 +48,8 @@ returns a decision that names the next Steps or closes the Flow. Dex retries a
 failed Step.
 
 **Attributes** and **Channels** are the Flow's durable state. Steps and RPCs
-read and write them. Dex commits each wait, each execution, and each RPC
-together with its state changes.
+read and write them. Each Step method and RPC commits its state changes with
+its result. See [Step guarantees](/primitives/step#guarantees).
 
 Your application uses a **Client** to start Flows, invoke RPCs, read
 Attributes, and wait for changes. RPCs are the write boundary into a running

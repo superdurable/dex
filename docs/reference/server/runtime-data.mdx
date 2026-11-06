@@ -1362,6 +1362,7 @@ Deleting a message that is no longer pending depends on the caller:
 | Transactional RPC | The RPC fails with the Channel-message-not-found error and commits nothing. See [Transactional RPCs](#transactional-reads-and-writes). |
 | Non-transactional RPC | The deletion is a no-op. The other effects commit. |
 | Step method or Flow timeout handler | The deletion is a no-op. The other effects commit. |
+| Direct **DeleteChannelMessage** (dexcli, Dex Web) | The call fails with **NOT_FOUND** and sub-status **CHANNEL_MESSAGE_NOT_FOUND**. |
 
 Pending messages are queue state, not Flow history. After a Step consumes a
 message, it disappears from the Channel even though the publication and

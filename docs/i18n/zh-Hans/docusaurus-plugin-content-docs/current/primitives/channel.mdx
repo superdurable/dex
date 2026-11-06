@@ -43,7 +43,18 @@ rust: 'examples/rust/src/primitives/channel/flow.rs',
 <SdkSnippet lang="python">
 
 ```python
-class ChannelWaitStep(Step[int]):
+class ChannelWait(Step[int]):
+    def __init__(
+        self,
+        approval_messages: Channel[str],
+        queued_messages: Channel[str],
+    ) -> None:
+        self.approval_messages = approval_messages
+        self.queued_messages = queued_messages
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_load_channels=(self.queued_messages,))
+
     def wait_for(self, context: Context, input: int) -> Wait:
         return Wait.any_of(
             self.approval_messages.for_one(),
@@ -51,11 +62,14 @@ class ChannelWaitStep(Step[int]):
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:
+        pending_queued_messages = self.queued_messages.pending_messages(context)
+        if pending_queued_messages:
+            self.queued_messages.delete(context, pending_queued_messages[0].message_id)
+            return graceful_complete(pending_queued_messages[0].value)
         if context.has_timer_fired():
             return graceful_complete("approval timed out")
         approval_message_values = self.approval_messages.results(context)
         return graceful_complete(approval_message_values[0])
-
 
 class ChannelFlow(Flow[int]):
     approval_messages = Channel("ApprovalMessages", str)
@@ -69,7 +83,11 @@ class ChannelFlow(Flow[int]):
   <SdkSnippet lang="go">
 
 ```go
-var ApprovalMessages = dex.DefineChannel[string]("ApprovalMessages")
+var (
+	ApprovalMessages    = dex.DefineChannel[string]("ApprovalMessages")
+	QueuedMessages      = dex.DefineChannel[string]("QueuedMessages")
+	PrioritizedMessages = dex.DefineChannel[string]("PrioritizedMessages")
+)
 
 func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.AnyOf(
@@ -79,6 +97,16 @@ func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 }
 
 func (channelWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	pendingQueuedMessages, err := QueuedMessages.PendingMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(pendingQueuedMessages) > 0 {
+		if err := QueuedMessages.Delete(ctx, pendingQueuedMessages[0].MessageID); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete(pendingQueuedMessages[0].Value), nil
+	}
 	if ctx.HasTimerFired() {
 		return dex.GracefulComplete("approval timed out"), nil
 	}
@@ -101,30 +129,35 @@ func (*ChannelFlow) PublishApprovalMessage(ctx dex.Context, _ dex.None) (*dex.RP
   <SdkSnippet lang="java">
 
 ```java
-public final Channel<String> approvalMessages = Channel.define("ApprovalMessages", String.class);
+public final Channel<String> approvalMessages =
+        Channel.define("ApprovalMessages", String.class);
+
+@Override
+public Wait waitFor(final Context context, final Integer input) {
+    return Wait.anyOf(
+            approvalMessages.forOne(),
+            Timer.byDuration(Duration.ofSeconds(input)));
+}
+
+@Override
+public StepDecision execute(final Context context, final Integer input) {
+    final List<ChannelMessage<String>> pendingQueuedMessages =
+            queuedMessages.pendingMessages(context);
+    if (!pendingQueuedMessages.isEmpty()) {
+        queuedMessages.delete(context, pendingQueuedMessages.get(0).getMessageId());
+        return StepDecision.gracefulComplete(pendingQueuedMessages.get(0).getValue());
+    }
+    if (context.hasTimerFired()) {
+        return StepDecision.gracefulComplete("approval timed out");
+    }
+    final List<String> approvalMessageValues =
+            approvalMessages.getConditionResults(context);
+    return StepDecision.gracefulComplete(approvalMessageValues.get(0));
+}
 
 @RPC
 public void publishApprovalMessage(final Context context) {
     approvalMessages.publish(context, "approved");
-}
-
-final class ChannelWaitStep implements Step<Integer> {
-    @Override
-    public Wait waitFor(final Context context, final Integer input) {
-        return Wait.anyOf(
-                approvalMessages.forOne(),
-                Timer.byDuration(Duration.ofSeconds(input)));
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final Integer input) {
-        if (context.hasTimerFired()) {
-            return StepDecision.gracefulComplete("approval timed out");
-        }
-        final List<String> approvalMessageValues =
-                approvalMessages.getConditionResults(context);
-        return StepDecision.gracefulComplete(approvalMessageValues.get(0));
-    }
 }
 ```
 
@@ -134,28 +167,29 @@ final class ChannelWaitStep implements Step<Integer> {
 ```typescript
 const approvalMessages = new Channel("ApprovalMessages", stringCodec);
 
-class ChannelWait implements Step<number> {
-  public waitFor(_context: Context, input: number): Wait {
-    return Wait.anyOf(
-      approvalMessages.forOne(),
-      Timer.byDuration(input * 1000),
-    );
-  }
-
-  public execute(context: Context, _input: number): StepDecision {
-    if (context.hasTimerFired()) {
-      return gracefulComplete("approval timed out");
-    }
-    const approvalMessageValues = approvalMessages.results(context);
-    return gracefulComplete(approvalMessageValues[0]!);
-  }
+public waitFor(_context: Context, input: number): Wait {
+  return Wait.anyOf(
+    approvalMessages.forOne(),
+    Timer.byDuration(input * 1000),
+  );
 }
 
-export class ChannelFlow implements Flow<number> {
-  @rpc()
-  public publishApprovalMessage(context: Context): void {
-    approvalMessages.publish(context, "approved");
+public execute(context: Context, _input: number): StepDecision {
+  const pendingQueuedMessages = queuedMessages.pendingMessages(context);
+  if (pendingQueuedMessages.length > 0) {
+    queuedMessages.delete(context, pendingQueuedMessages[0]!.messageId);
+    return gracefulComplete(pendingQueuedMessages[0]!.value);
   }
+  if (context.hasTimerFired()) {
+    return gracefulComplete("approval timed out");
+  }
+  const approvalMessageValues = approvalMessages.results(context);
+  return gracefulComplete(approvalMessageValues[0]!);
+}
+
+@rpc()
+public publishApprovalMessage(context: Context): void {
+  approvalMessages.publish(context, "approved");
 }
 ```
 
@@ -163,40 +197,44 @@ export class ChannelFlow implements Flow<number> {
   <SdkSnippet lang="rust">
 
 ```rust
-static APPROVAL_MESSAGES: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("ApprovalMessages"));
+static APPROVAL_MESSAGES: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("ApprovalMessages"));
 
-impl ChannelFlow {
-    fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
-        APPROVAL_MESSAGES.publish(context, "approved".to_string())
-    }
+fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+    Ok(Wait::any_of([
+        APPROVAL_MESSAGES.for_one(),
+        Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+    ]))
 }
 
-impl Step for ChannelWait {
-    type Input = i32;
-
-    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([
-            APPROVAL_MESSAGES.for_one(),
-            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
-        ]))
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let pending_queued_messages = QUEUED_MESSAGES.pending_messages(context)?;
+    if let Some(queued_message) = pending_queued_messages.first() {
+        QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
+        return Ok(StepDecision::graceful_complete(
+            queued_message.value.clone(),
+        ));
     }
-
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        if context.has_any_timer_fired() {
-            return Ok(StepDecision::graceful_complete(
-                "approval timed out".to_owned(),
-            ));
-        }
-        let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
-        Ok(StepDecision::graceful_complete(approval_message_values[0].clone()))
+    if context.has_any_timer_fired() {
+        return Ok(StepDecision::graceful_complete(
+            "approval timed out".to_owned(),
+        ));
     }
+    let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
+    Ok(StepDecision::graceful_complete(
+        approval_message_values[0].clone(),
+    ))
+}
+
+fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
+    APPROVAL_MESSAGES.publish(context, "approved".to_string())
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-Timer 分支在读取 Channel 结果之前返回。审批胜出时，Channel condition 已经消费了一条消息，所以第一个结果一定存在。完整示例还会在 persistence schema 中注册 Channel，并注册 RPC。
+如果第二个 Channel **QueuedMessages** 上有 RPC 放入的待处理消息，**Execute** 会先取走它，见[管理待处理消息](#manage-pending-messages)。Timer 分支在读取 Channel 结果之前返回。审批胜出时，Channel condition 已经消费了一条消息，所以第一个结果一定存在。完整示例还会在 Step options 中加载 **QueuedMessages**，在 persistence schema 中注册这些 Channel，并注册 RPC。
 
 ## 等待并消费 {#wait-and-consume}
 
@@ -218,7 +256,7 @@ Timer 分支在读取 Channel 结果之前返回。审批胜出时，Channel con
 
 Dex 接受每条消息时会给它一个 ID。Step 或 RPC 可以加载待处理消息，按 FIFO 顺序读取，并按 ID 删除其中一条。读取不会消费消息。handler 运行时，其他 Step 和 RPC 可能改变队列，所以加载到的列表可能已经过时。
 
-删除一条已经不在的消息不起作用，transactional RPC 除外。transactional RPC 会失败，什么也不 commit。见 [Pending messages](/reference/server/runtime-data#manage-pending-messages)。
+在 Step 或非 transactional RPC 中，删除一条已经不在的消息是空操作（no-op）。transactional RPC 会失败，什么也不 commit。从 dexcli 或 Dex Web 直接删除时，会返回 not-found 错误。见 [Pending messages](/reference/server/runtime-data#manage-pending-messages)。
 
 ## ChannelMap {#channelmap}
 

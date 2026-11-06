@@ -323,9 +323,7 @@ self.progress
 ## Read and search Attributes
 
 Code outside the Flow reads Attributes through the [Client](/primitives/client).
-Dex Server answers the read itself, without running a Worker. Use an
-[RPC](/primitives/rpc) instead when the read needs Flow logic, such as
-authorization or a derived view. See
+See [when a read needs an RPC](/primitives/client#related-primitives) and
 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow).
 To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 

@@ -32,17 +32,15 @@ An RPC handler can do four things:
 
 <a id="read-only-rpcs-and-terminal-flows"></a>
 
-A Client can read stored Attributes without an RPC. Use an RPC for a read only
-when it needs Flow logic, such as validation, authorization, or a derived view.
+For a plain read, a Client can skip the RPC. See
+[when a read needs an RPC](/primitives/client#related-primitives).
 See [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows).
 
 ## Guarantees
 
-Each RPC invocation is a commit boundary. Dex Server stages the Attribute writes
-and Channel publications from the RPC. It commits them together with the RPC
-result only after the method returns successfully. If the RPC fails, none of
-those durable changes are committed. External API calls are outside this atomic
-boundary.
+Each RPC invocation commits like a Step method: its Attribute writes and Channel
+publications commit with its result, only on success. See
+[Step guarantees](/primitives/step#guarantees).
 
 <a id="rpc-timeout"></a>
 

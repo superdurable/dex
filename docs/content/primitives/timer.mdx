@@ -139,7 +139,8 @@ impl Step for TimerExampleStep {
 ## Skip a Timer
 
 A Client can skip a Timer with **SkipTimer**. It selects the Timer by Flow ID,
-Step execution ID, and the index of the condition in **WaitFor**. A skipped
+Step execution ID, and either the Timer's condition ID or the index of its
+condition in **WaitFor**. A skipped
 Timer acts as if it had fired. Use it in tests, or in production to run a
 waiting Step early. See [Skip a Timer](/reference/server/runtime-client#skip-a-timer).
 
@@ -168,12 +169,12 @@ await client.skip_timer(
   <SdkSnippet lang="go">
 
 ```go
-err := integClient.SkipTimer(
+return integClient.SkipTimer(
 	integrationContext(t),
 	flowID,
 	dex.StepExecutionID{StepType: orderprocessing.ShipStepType},
 	dex.TimerID{Index: new(int32)},
-)
+) == nil
 ```
 
 </SdkSnippet>
@@ -201,11 +202,14 @@ await environment.client.skipTimer(
   <SdkSnippet lang="rust">
 
 ```rust
-environment.client.skip_timer(
+match environment.client.skip_timer(
     flow_id,
     StepExecutionId::of(&Ship::default()),
     TimerId::by_condition_index(0),
-)
+) {
+    Ok(()) => return,
+    Err(error) => last_error = Some(error),
+}
 ```
 
 </SdkSnippet>

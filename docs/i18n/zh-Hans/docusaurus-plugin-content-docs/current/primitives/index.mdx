@@ -37,11 +37,11 @@ Dex 提供一组精简的 Primitive。你把它们组合成 Flow，再由几个 
  └────────────┘                       └──────────────────────────────────┘
 ```
 
-**Flow** 是容器。每个 Flow ID（例如一个订单号）对应一个 Flow execution。
+**Flow** 是容器。一个 Flow ID（例如一个订单号）同一时间最多只有一个 active run。
 
 **Step** 推进 Flow。Step 可以等待 Channel 消息、Timer 或 SubFlow，然后执行自己的工作，例如通过 Connector 调用外部服务。最后它返回一个 decision，指定接下来的 Step，或者关闭 Flow。Step 失败时，Dex 会重试。
 
-**Attribute** 和 **Channel** 是 Flow 的 durable 状态。Step 和 RPC 读写它们。每次等待、每次执行和每个 RPC，Dex 都会与它的状态变更一起提交。
+**Attribute** 和 **Channel** 是 Flow 的 durable 状态。Step 和 RPC 读写它们。每个 Step 方法和 RPC 都把状态变更与结果一起提交，见 [Step 的保证](/primitives/step#guarantees)。
 
 应用通过 **Client** 启动 Flow、调用 RPC、读取 Attribute 和等待变化。RPC 是写入运行中 Flow 的边界。**Stream** 把实时更新送回 UI。
 

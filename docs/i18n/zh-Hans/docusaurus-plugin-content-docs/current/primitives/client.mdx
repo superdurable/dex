@@ -19,7 +19,7 @@ slug: /primitives/client
 - **搜索**：按 Flow type、状态或已索引的 Attribute 查找 Flow。
 - <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 time travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
 
-## 和其他 Primitive 的关系
+## 和其他 Primitive 的关系 {#related-primitives}
 
 - [Flow](/primitives/flow)：**StartFlow** 用你选择的 **Flow ID** 创建 Flow execution。Flow ID 是业务身份，例如订单号。Dex 创建 Run ID。之后的调用都用 Flow ID 指定 Flow。
 - [RPC](/primitives/rpc)：RPC 是写入边界。要修改 Attribute、AttributeMap、Channel 或 ChannelMap 状态，为每个命令定义一个 typed RPC，再用 **InvokeRPC** 调用。这样 validation、authorization、lock 和 transaction 都留在 Flow 内。

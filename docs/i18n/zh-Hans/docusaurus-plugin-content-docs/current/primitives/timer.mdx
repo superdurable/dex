@@ -133,7 +133,7 @@ impl Step for TimerExampleStep {
 
 ## 跳过 Timer
 
-Client 可以用 **SkipTimer** 跳过一个 Timer。它按 Flow ID、Step execution ID 和 condition 在 **WaitFor** 中的序号选择 Timer。被跳过的 Timer 等同于已经触发。在测试中可以用它；在生产中，也可以用它让等待中的 Step 提前运行。见 [Skip a Timer](/reference/server/runtime-client#skip-a-timer)。
+Client 可以用 **SkipTimer** 跳过一个 Timer。它按 Flow ID、Step execution ID，以及 Timer 的 condition ID 或它在 **WaitFor** 中的 condition 序号选择 Timer。被跳过的 Timer 等同于已经触发。在测试中可以用它；在生产中，也可以用它让等待中的 Step 提前运行。见 [Skip a Timer](/reference/server/runtime-client#skip-a-timer)。
 
 在 order-processing 示例的这个测试里，**Ship** Step 等待一个 Timer，测试跳过了它：
 
@@ -159,12 +159,12 @@ await client.skip_timer(
   <SdkSnippet lang="go">
 
 ```go
-err := integClient.SkipTimer(
+return integClient.SkipTimer(
 	integrationContext(t),
 	flowID,
 	dex.StepExecutionID{StepType: orderprocessing.ShipStepType},
 	dex.TimerID{Index: new(int32)},
-)
+) == nil
 ```
 
 </SdkSnippet>
@@ -192,11 +192,14 @@ await environment.client.skipTimer(
   <SdkSnippet lang="rust">
 
 ```rust
-environment.client.skip_timer(
+match environment.client.skip_timer(
     flow_id,
     StepExecutionId::of(&Ship::default()),
     TimerId::by_condition_index(0),
-)
+) {
+    Ok(()) => return,
+    Err(error) => last_error = Some(error),
+}
 ```
 
 </SdkSnippet>

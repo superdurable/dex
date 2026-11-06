@@ -27,11 +27,11 @@ RPC handler 可以做四件事：
 
 <a id="read-only-rpcs-and-terminal-flows"></a>
 
-Client 不用 RPC 也能读取已存储的 Attribute。只有读取需要 Flow 逻辑时，例如校验、授权或派生视图，才用 RPC 来读。见 [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows)。
+只是读取时，Client 可以不用 RPC，见[什么时候读取需要 RPC](/primitives/client#related-primitives)。见 [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows)。
 
 ## 保证
 
-每次 RPC 调用都是一个 commit 边界。Dex Server 暂存 RPC 中的 Attribute 写入和 Channel 发布。只有 method 成功返回后，它才把这些变更和 RPC 结果一起 commit。RPC 失败时，这些 durable 变更都不会 commit。外部 API 调用不在这个原子边界内。
+每次 RPC 调用和 Step 方法一样提交：它的 Attribute 写入和 Channel 发布只在成功时与结果一起 commit。见 [Step 的保证](/primitives/step#guarantees)。
 
 <a id="rpc-timeout"></a>
 

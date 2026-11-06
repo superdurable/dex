@@ -308,7 +308,7 @@ self.progress
 
 ## 读取和搜索 Attribute
 
-Flow 外的代码通过 [Client](/primitives/client) 读取 Attribute。Dex Server 直接回答这个读取，不运行 Worker。如果读取需要 Flow 逻辑，例如授权或派生视图，就改用 [RPC](/primitives/rpc)。见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)。
+Flow 外的代码通过 [Client](/primitives/client) 读取 Attribute。什么时候改用 RPC，见[什么时候读取需要 RPC](/primitives/client#related-primitives)。另见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)。
 
 带 index 的 Attribute 可以用在 **SearchFlows** 查询里，查找 Flow execution。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
 
