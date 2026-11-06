@@ -1,8 +1,7 @@
 # Agents M3: Connector Tools, the Operator View, and Session Lifetime
 
 Status: proposed, design only. Nothing here is approved or built.
-Parent design: `long-running-agents.md` on [#1132](https://github.com/superdurable/dex/pull/1132),
-which is open and not on main. Its M3 and M4 milestones are proposals.
+Built so far: [long-running-agents.md](../long-running-agents.md), the as-built design.
 Current contract: [agent-framework-adapters.md](agent-framework-adapters.md) and
 [agents-m2-stepwise.md](agents-m2-stepwise.md), as released in `agents/v0.2.0`.
 Direction: the [owner review of #1132](https://github.com/superdurable/dex/pull/1132#pullrequestreview-5724027276),
@@ -55,13 +54,13 @@ M3 implementation starts after these M2 items close. Design can proceed now.
 | Published crash matrix | Not published. Worker-kill tests exist per core. [#1282](https://github.com/superdurable/dex/issues/1282) is open, and no agent-level test restarts or fails over the server |
 | Cost of the SYNC start commit | Not measured. [#1266](https://github.com/superdurable/dex/issues/1266) is open |
 
-## Relation to the parent's M3
+## Relation to earlier proposals
 
-This plan is not built on the parent's M3, and no item here waits for another M3
-row. It takes a subset of that milestone, adds items the parent lacks, and leaves
-the rest proposed.
+[#1132](https://github.com/superdurable/dex/pull/1132) began as a proposal with an M3
+and an M4. It merged as the as-built design, so this plan is now the only home for
+unbuilt work. No item here waits for another row below.
 
-| Parent M3 row | Here |
+| Earlier M3 row | Here |
 | --- | --- |
 | Engine fix for single-attempt exactly-once | Done (#1253, #1265) |
 | Enforce `limits.maxFlowStateBytes` | Done (#1234) |
@@ -69,11 +68,10 @@ the rest proposed.
 | Budgets, cost estimates, and budget interrupts | O4 |
 | Exit: load test of 10,000 sessions | O5, separated from concurrency groups, limits, and the view |
 | Connector host SubFlows | Dropped: Python and TypeScript Connector packages exist |
-| Tool calling in the `llm` connector | Out of scope. Stepwise calls models in-process, so O1 does not need it |
-| Step concurrency groups, archived AttributeMap instances, ForkFlow, sub-agents, Dex MCP server, AG-UI, asynchronous model calls, trajectory export, Step attempt spans, adapter pin test | Out of scope, still proposed in the parent |
+| All other rows | [Later](#later) |
 
-Not in the parent's M3: connector tools as a tool source (O1), adapter session
-lifetime (O3), and the harness segment limit (O6).
+New here: connector tools as a tool source (O1), adapter session lifetime (O3), and
+the harness segment limit (O6).
 
 ## Scope
 
@@ -201,8 +199,8 @@ safely run again?
 | Mutation with `dispatchFence` | `IDEMPOTENT_WRITE` (proposed) | `CallTool` |
 | Mutation with neither | `NON_IDEMPOTENT_WRITE` | `CallSingleAttemptTool` |
 
-The third row differs from the parent design's C4, which maps any Mutation with
-`uncertain` to `NON_IDEMPOTENT_WRITE`. A fenced Mutation is safe to retry, because
+The third row differs from the first mapping in #1132, which put any Mutation with
+`uncertain` in `NON_IDEMPOTENT_WRITE`. A fenced Mutation is safe to retry, because
 the fence refuses a second send and reads back instead. If it ran in
 `CallSingleAttemptTool`, a Worker death would record `outcome_unknown` where a
 retry and read-back could have settled the outcome.
@@ -260,8 +258,8 @@ Acting as a specific user is M4.
 **Adapters and languages.** `ToolSource` is Stepwise only, and Go has function tools
 only. O1 ships for Stepwise in Python and TypeScript first. Adapters then need a
 helper that exposes the same tools in each framework's format. Go follows once its
-scope is decided. Connector packages exist for all three languages, so the parent
-design's Connector host SubFlows are not needed for Python and TypeScript.
+scope is decided. Connector packages exist for all three languages, so Connector
+host SubFlows are not needed for Python and TypeScript.
 
 **Result size.** Query output goes to the model and into Flow state. Bound it per
 tool, and truncate with a note. This needs a default.
@@ -415,7 +413,7 @@ a limit mid-turn.
 
 ## O5. Session scale test
 
-Run 10,000 sessions and publish the result. The parent design ties this to concurrency
+Run 10,000 sessions and publish the result. The earlier proposal tied this to concurrency
 groups, spend limits, and the view. This plan separates them, so the test can run
 first.
 
@@ -500,10 +498,83 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 6. **Indexed Attribute.** Add `AgentAttention` to the persisted schema?
 7. **Retention.** May adapters have retention without a summary?
 8. **Streams.** Is there a requirement for O7, or does it close?
-9. **Parent design.** #1132 still has changes requested. Should this plan wait for it?
 
 ## Non-goals
 
 A new primitive or engine feature. Connector host SubFlows for Python and TypeScript.
 Acting as a user, sandbox connectors, and A2A, which stay in M4. A resolved status for
 `outcome_unknown`. Multi-node server work.
+
+## Later
+
+Proposals from #1132, none scheduled and none reviewed by the owner. The full text is in that PR's history.
+
+### Earlier M3 rows
+
+- **Tool calling in the `llm` connector (G4).** Add tool definitions, tool choice, tool calls in the result, and tool-result messages for every provider in the catalog. Also reasoning items for stateless replay, reasoning summaries on a separate Stream, prompt-cache controls, and image and file inputs behind the request-feature checks. Branch table, Receipt, and retry rules stay. It could add a Go model client later.
+- **Asynchronous model calls.** A Step submits a background or batch request and stores its ID in an Attribute. It moves to a Step waiting on a Channel fed by the provider webhook through the existing webhook Trigger, with a Timer poll as fallback. No Step holds a long HTTP connection, and batch pricing becomes available. Tool tasks (A8) already have the Timer half.
+- **Dex MCP server (G7).** Expose session Flows and selected RPCs as MCP tools. A session maps to a task whose ID is the Flow ID: `tools/call` starts the Flow, `tasks/get` reads the snapshot, `tasks/update` publishes to the session Channel, and `tasks/cancel` calls `cancel_turn`. A pending interrupt appears as `input_required`.
+- **AG-UI adapter (G6).** Snapshots from Attributes on connect, then live events from the resume token. Test: a client receives snapshots on connect.
+- **Archived AttributeMap instances (G9).** A server feature moves an instance to blob storage, keeps it readable through an explicit load and the history page RPC, and stops counting it toward `limits.maxFlowStateBytes`. Retention then archives a chunk instead of deleting it. Tests: archived bytes leave the budget, explicit load reads them, history pages return them.
+- **Step concurrency groups (C10).** See C10.
+- **ForkFlow, counterfactual replay, trajectory export (C11).** See C11.
+- **Sub-agents as tools and handoffs (C8).** See C8.
+- **Step attempt spans (G10).** One span per Step attempt, with OTLP export, for every Flow, in the SDKs. It needs its own design. Agent spans become children of Step attempt spans.
+- **Adapter test that restores the previous framework pin's state (C3, C14).** Each adapter restores a `FrameworkRunState` written by its previously pinned framework version. Motive: a framework release can change state or operation order under in-flight turns.
+- **Usage extras (C9).** Estimated cost per model, an indexed Attribute for **SearchFlows**, the `llm` connector Receipt as a usage source, a sortable usage column in the Flow list, and a link from an activation to the tracing backend.
+- **Deadline escalations and reminders (C5).** Action on an approaching deadline, beyond rejection.
+- **Approvals from outside the UI (C5).** A Slack approval is a connector Trigger calling the same RPC. An MCP client answers an `input_required` task. An A2A client sends the task its input.
+- **Agent memory (C7).** An `AgentMemory` interface with a session-local and a cross-session implementation through the Attribute Store and **SearchFlows**. External memory services plug in as tools.
+- **Crash matrix gaps.** A deploy of a changed system prompt between two `RunModel` Steps of one turn and during an approval wait (M2 plan S-2). A cold resume after a Timer of more than a day, simulated with **SkipTimer**, with cache usage recorded. Published matrix and server-kill cells are preconditions in the M3 plan.
+
+### Earlier M4 rows
+
+- **Google ADK adapter for TypeScript and Go.** Same three adapter questions.
+- **More framework adapters, by demand.** Microsoft Agent Framework, Strands, CrewAI, LlamaIndex Workflows. Likely state hooks: **CheckpointStorage**, **SessionRepository**, **FlowPersistence**, context snapshots. Mode decided by the three questions.
+- **Go contract features (A2 to A8, MCP, spans), by demand.** Also adapters opting in to unfinished-turn messages and built-ins (M2 plan, PR 17).
+- **Java and Rust cores, by demand.** Ports through the conformance suite.
+- **Agent definition versions (C14).** A version a session can pin at start, with Workers that register several versions. See question 12.
+- **Cross-language Step routing for connector Steps (C4).** Engine change. A Flow declares a connector Step that a different Worker serves, turning per-Worker Step registration into a supported contract with registration checks, so the Step runs in the Flow's own history without a SubFlow.
+- **Turn replay fallback.** For a framework that can neither stop after one model call nor take external results. `RunTurn` reruns the loop from the turn start with provider and tools replaced. A call whose key (`model#<n>`, `tool:<toolCallId>`) and request fingerprint match a recorded result returns it; the first unrecorded calls park the loop and become Steps. It needs same-order calls within a turn, and every side effect through a replaced call. Build only for a concrete framework with a reproduction.
+- **A2A, sandboxes, acting for a user.** See C8, C12, C13.
+
+### C8. Multi-agent
+
+- **Sub-agent as a tool.** `spawn_subagent` and `subagent(definition)` start a child session Flow as a SubFlow. The parent waits in **WaitFor** on the SubFlow condition, so a child runs for days without holding a Worker. Several calls start several SubFlows. The SubFlow ID derives from parent and tool call ID, so a retried dispatch starts no second child.
+- **Handoff.** Changes the active agent definition inside the same session Flow, recorded as a message. Adapters keep their framework's handoffs inside `RunModel`.
+- **Interrupts across levels.** A child's interrupt is visible on the parent's snapshot and resolved by the same RPC on the child, so one UI serves the tree.
+- **Peer agents.** Long-lived agents talk through RPCs and Channels on each other's Flows. Fan-out beyond `maxConcurrentStepsPerFlow` (1,000) uses the partitioning SubFlow pattern.
+- **A2A.** A server adapter exposes a session Flow as an A2A agent, with the Flow ID as task ID. A client tool calls remote agents, with a polling Step for long tasks.
+
+### C10. Budgets and model concurrency
+
+- **Budgets (mechanics beyond O4).** Limits per turn and per session on the agent definition. Reserve the call's estimated cost against `AgentUsage` before a model call, and settle after it. An exhausted budget raises a budget interrupt, resolved by `extend_budget(interrupt_id, amount)`, instead of failing.
+- **Prompt cache and long waits.** Provider caches last minutes to a day, so a resumed session pays a full cache write. `AgentUsage` records a cold resume, and an optional pre-warm call before a Timer fires trades cost for latency.
+- **Step concurrency groups.** A new server feature. A Step type declares a group key and limit, such as `model:<provider>/<model>` with 50 concurrent executions across all Flows. Matching dispatches past the limit only when a slot frees, and the wait consumes no retry. The key can come from the turn's model. Tests: limit holds across Flows, waiting uses no retry, a freed slot dispatches the oldest waiter.
+- Correction: the removed text said `RunModel` retries honour `Retry-After`. Source disagrees: no agent core reads it.
+
+### C11. Fork and evals
+
+- **ForkFlow.** A server API starts a new Flow from a history point of an existing run, with an optional override such as a model or prompt version. It copies committed state at that point and starts the chosen Step. Session settings are a natural home for the override. Test: the source run is unchanged.
+- **Counterfactual replay.** A forked session in replay mode. A tool call matching a recorded name and arguments returns the recorded result. Other READ tools run live. Other writes are denied with a result saying this is a replay.
+- **Trajectory export.** Export messages, tool calls, interrupts, and usage as JSONL for eval tools. It runs before chunks are deleted, or after archiving ships. It doubles as the audit export.
+
+### C12. Sandboxes and hosted sessions
+
+- **Sandbox as a session resource.** Providers cap continuous runtime at about 24 hours and expire snapshots after 7 to 30 days, so a session cannot own one sandbox for life. A connector interface: get or create by name, exec, read and write files, pause, resume, snapshot, delete.
+- **Lifecycle.** The handle lives in an Attribute: provider, name, snapshot ID, lease expiry. The name derives from the Flow ID, so creation is idempotent. Pause on a long wait, resume on wake, and a Timer renews a snapshot. A finalizer deletes the sandbox and adds its cost to `AgentUsage`. Outputs that matter are Step results or blobs, never only sandbox files.
+- **Hosted agent sessions.** A session Flow drives a vendor session as a tool or a whole turn: start or resume idempotently, store its ID in an Attribute, wait for its webhook on a Channel. Dex owns schedules, long approvals, budgets across sessions, and audit history.
+
+### C13. Identity and policy
+
+- **Acting for a user.** A session records the end user and tenant. Tools fetch that user's token at call time from a connection or external vault. A failed refresh or a scope request raises a re-authorization interrupt.
+- **Policy hook.** Before each tool call, a function receives tool, arguments, effect class, principal, and session state. It returns run, ask, or deny, stored with the call. O2's "Conditional approval" lists related candidates but does not design this.
+- **Audit.** Flow history and stored messages record what the agent saw and did, within retention. Trajectory export is the audit export.
+
+### Unresolved open questions
+
+- **11. Serverless Workers (G16).** Pull Workers are the only mode since #1023. Builders on Vercel, Cloudflare, and Lambda expect push or scale-to-zero. Needs a separate decision.
+- **12. Version pinning default.** Following the latest definition is the Dex default; pinning protects a session from a prompt or tool schema change. Recommendation: follow latest, with pinning per session through session settings.
+- **15. Budget ownership with a gateway.** When a gateway such as LiteLLM also enforces budgets, which one is authoritative by default. One owns enforcement and the other reports.
+- Questions 10 and 14: covered by O3 and O2 (see top).
+- Question 13: resolved (#1275).
