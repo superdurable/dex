@@ -25,7 +25,8 @@ sample. Do not use per-language headings or stacked fenced blocks. `bash` /
 Product docs ship in **English** and **Simplified Chinese** (`zh-Hans`). The
 navbar language switcher (top right) persists the choice in the browser. When you
 change a page in `content/`, update the matching file under
-`i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
+`i18n/zh-Hans/docusaurus-plugin-content-docs/current/`. The Developer reference
+is the exception: it is English only. See `../.cursor/rules/docs-i18n.mdc`.
 
 Runnable application samples live under [`examples/`](../examples/); see
 [`examples/README.md`](../examples/README.md) and the playground

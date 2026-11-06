@@ -10,9 +10,14 @@ Application code in `docs/content/` must be language-selectable with
 `<SdkTabs>` and `<SdkSnippet lang="python|go|java|typescript|rust">`. Preference is
 sticky in the browser; default Python.
 
-Every English page under `docs/content/` needs a matching Simplified Chinese
-page under `docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current/`. See
-`.cursor/rules/docs-i18n.mdc`.
+Every English page outside the Developer reference needs a matching Simplified
+Chinese page under `docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
+The Developer reference is English only. See `.cursor/rules/docs-i18n.mdc`.
+
+Every docs page has a Markdown twin, built by the local docs exporter. Each new
+MDX component needs an export rule in that exporter. The build fails on a
+component without one. Phase P1 of the docs and skills cleanup adds the
+exporter; this rule applies from then on.
 
 Required shape: one `<SdkTabs>` wrapping `<SdkSnippet>` children (Python, Go,
 Java, TypeScript; add Rust when `examples/rust` has the same sample), each

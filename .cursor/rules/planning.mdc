@@ -24,9 +24,13 @@ Every implementation plan must include all three sections below. Use
   `<SdkSnippet>` (Python, Go, Java, TypeScript; add Rust when `examples/rust`
   has the same sample). Do not use per-language
   headings or stacked fenced blocks. `bash` / `text` fences are exempt.
-- Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
-  locales in sync. Navbar locale preference persists in the browser. See
+- Docs pages outside the Developer reference ship in English and Simplified
+  Chinese (`zh-Hans`); keep both locales in sync. The Developer reference is
+  English only. Navbar locale preference persists in the browser. See
   `.cursor/rules/docs-i18n.mdc`.
+- Place each new fact by Docs Information Placement: SDK doc comments, the
+  Developer reference, or the stable layer (docs and skills together). See
+  `.cursor/rules/project-core.mdc`.
 
 ## UI/UX
 
