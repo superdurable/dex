@@ -1,168 +1,279 @@
-# Rust SDK guide
+# Rust applications
 
-The SDK API reference uses the [released v1.35.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current error API.
+Load this page first for any Rust Dex work. It covers crate shape,
+registration, typing, the Worker and Client lifecycle, and Rust-specific rules.
+Concepts live in core; this page only says how to express them in Rust.
 
-Use this page first for every Rust application task. Then load only the topic pages needed by the request. The examples on this page are pinned to the Dex source baseline recorded by this skill.
+| Task | Read next |
+| --- | --- |
+| Write Flows, Steps, waits, state, RPCs, Streams, SubFlows, Client calls | [primitives.md](primitives.md) |
+| Handler errors, retries, recovery, `SdkError` handling | [error-handling.md](error-handling.md) |
+| Integration tests against a real Dex Server | [testing.md](testing.md) |
+| Choose a Flow shape | [../core/patterns.md](../core/patterns.md), then the pattern table in [primitives.md](primitives.md#patterns-in-rust) |
 
-## Install and run
+## Version and API details
 
-The [baseline examples](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/Cargo.toml) use `dex-sdk = "=1.31.0"` and require Rust 1.97 or newer. Do not blindly copy that dependency into an existing application: inspect its `Cargo.toml` and `Cargo.lock`, then consult [versioning](versioning.md). The [Client Attribute read](primitives.md#client-attribute-reads) needs SDK 1.31.0 or later. The published examples start a local Dex server, Worker, and HTTP controller with:
+1. Find the resolved `dex-sdk` version in `Cargo.lock`, or run
+   `cargo tree -p dex-sdk --depth 0`.
+2. Open that minor version in the
+   [Rust Developer reference](https://docs.superdurable.io/reference/rust/)
+   with the left-sidebar version selector. It holds option lists, defaults,
+   limits, the supported Rust toolchain, version differences, and the link to
+   the generated crate documentation.
+3. Check the Server requirement for that SDK minor in the
+   [compatibility matrix](https://docs.superdurable.io/reference/).
 
-```bash
-cd examples/rust
-dexcli dev
-cargo run --locked
-```
+This skill gives stable rules and skeletons. Signatures and defaults come from
+the Developer reference and the crate's doc comments. Never translate a Java
+annotation, Python coroutine, or Go option literally into Rust, and never
+invent an API; if the installed crate lacks a feature, say so.
 
-The example defaults are Dex at `127.0.0.1:8801` and the HTTP controller at `127.0.0.1:8080`. Use the environment variables documented in the [pinned Rust example README](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/README.md) when those addresses or the BlobCache directory differ. The examples always run a pull Worker, which needs only an outbound connection to Dex.
+Runnable examples: [examples/rust](https://github.com/superdurable/dex/tree/main/examples/rust).
 
-## Pull Workers and Dex credentials
-
-From Rust SDK v1.25.0, every Worker is a pull Worker. Set `WorkerOptions::new().server_address(...)` on the Worker and `ClientOptions::new().server_address(...)` on the Client; no Worker address or target is configured, and StartFlow and SubFlow always route to pull Workers. v1.25.0 removed `WorkerTarget`, the Worker bind address, `worker.worker_target()`, and the Worker target options on ClientOptions and FlowConfig; delete them when upgrading. `update_flow_config` does not change a Flow's Worker routing. `WorkerOptions::new()` uses pull defaults; use `.pull(PullWorkerOptions::new().max_concurrent_tasks(8))` to tune them. Pull options also have `idle_streams_per_queue`, `app_worker_id`, and `stop_drain_timeout`; defaults are one idle stream per queue, a generated process ID, and 30 seconds. Change an explicit app Worker ID after restart. With Rust SDK v1.12.0, a Worker that lacks a requested Step type or RPC name declines it before the handler runs, so Dex can reassign the task without consuming the Step attempt. Follow the [pull Worker guarantees](../core/pull-workers.md) for sticky routing, retries, heartbeats, stream capacity, and Stop. [Released Rust options](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/worker_options.rs) [Runnable pull Worker example](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/src/production/pull_workers.rs) selects SDK v1.31.0.
-
-From Rust SDK v1.23.0, a queue that declines a Step for reserved RPC capacity keeps one extra idle stream for 30 seconds; set `PullWorkerOptions` idle streams per queue to at least two for heavy Step backlogs. The Worker also sends an internal upstream Pong every 20 seconds while a task runs, so proxy idle timeouts must exceed 20 seconds and Server **matching.pingInterval**.
-
-Rust SDK v1.14.0 adds **worker.wait_pull_registered().await**. Run blocking **start()** on a dedicated thread, handle its result, and wrap the registration future with **tokio::time::timeout** before activating the Worker. Dropping the future cancels only that wait. Probe **worker.pull_registration_state().is_ready**; queue entries expose **queue**, **has_registered_stream**, and **last_permanent_error**. A rejection returns an **SdkError** whose **pull_registration_error()** accessor yields **PullRegistrationError**, preserving the queue and original gRPC status. **PullWorkerOptions::stop_on_permanent_stream_rejection(true)** opts into draining and returning that error from **start()** when a permanent rejection leaves a queue without another registered stream. Always call **stop()** afterward. Follow the shared [readiness contract](../core/pull-workers.md#startup-registration-and-readiness), including stable readiness across reconnects and Stop. [Released Rust readiness API](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/worker.rs) and [typed rejection](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/sdk_error.rs)
-
-With SDK v1.15.0, **PullWorkerOptions::reserved_rpc_tasks** reserves RPC capacity. Omit the builder setting for the default; pass **0** to opt out. Unset reserves one slot when resolved maximum concurrent tasks **M ≥ 2**; otherwise it reserves zero and logs one startup warning. Require **0 ≤ R < M**; invalid reserves fail construction. This intentionally gives Steps one fewer slot by default. Both API-direct and transactional RPC tasks may use all **M** slots; WaitFor and Execute, including local attempts, are declined at **M − R** total busy handlers. Export **Worker::pull_reserved_rpc_declines()** to measure reserve declines. Follow the shared [reserve semantics and sizing advice](../core/pull-workers.md#reserved-rpc-capacity) for dispatch exhaustion, counter scope, and long-running Steps. [Released capacity guidance](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/README.md)
-
-With SDK v1.14.1, the Worker gracefully closes surplus idle streams after load drops while preserving readiness and the configured registered idle streams per queue. Size steady-state streams as **M + (F + 1) × I**, where **M** is maximum concurrent tasks, **F** is registered Flow types, and **I** is idle streams per queue. Burst peaks remain bounded by **matching.maxConcurrentTasksCap** and **matching.maxStreams**; follow the shared [capacity guidance](../core/pull-workers.md#heartbeats-capacity-and-shutdown).
-
-Rust SDK releases newer than v1.31.0 replace the decline, extra idle stream, and **M + (F + 1) × I** rules above. They require Server protocol 4 (server-zd newer than v0.1.16): against an older Server, Worker start fails and a **Client** fails its first call, so upgrade the Server first. The Worker opens exactly **max_concurrent_tasks** long-lived streams, one per execution slot; **reserved_rpc_tasks** of them accept only RPCs and the rest accept Steps and RPCs. The Worker executes every assignment and never rejects work for capacity. **Worker::pull_reserved_rpc_declines()** and **PullWorkerOptions::idle_streams_per_queue** are deprecated; the counter always returns zero and the option has no effect. **wait_pull_registered** waits for one STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream; the snapshot **queue** field holds that slot kind. Start fails with a FAILED_PRECONDITION service error when **max_concurrent_tasks** exceeds the Server's **matching.maxConcurrentTasksCap**. **stop()** lets running handlers finish and send their output; Dex returns tasks that arrive during shutdown without consuming a retry. Follow the shared [reserved RPC capacity](../core/pull-workers.md#reserved-rpc-capacity) and [shutdown](../core/pull-workers.md#heartbeats-capacity-and-shutdown) guidance.
-
-Set `credential(Arc<dyn Credential>)` separately on ClientOptions and WorkerOptions when public API authentication is enabled. `FileCredential::new(path)` reads a rotating bearer token. A custom `Credential` returns the current token for each call and pull stream opening; a credential error fails the call locally. Protect the plaintext connection. [Released Rust credentials](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/credential.rs)
-
-With Rust SDK v1.16.0, use **ApiKeyCredential::builder(token_url, server_id, api_key)** when the application holds an API key instead of a rotated token file. The optional **exchange_timeout(Duration)** defaults to ten seconds and also bounds the wait for a fresh token after a rejected unary call. The optional **http_client(reqwest::ClientBuilder)** configures proxies, private trust roots, or test transport; the credential disables redirects before building it. The default client uses bundled webpki trust roots. Unlike the other SDKs, **build().await** performs the first exchange, so an invalid key or endpoint fails before Client or Worker creation with **ApiKeyCredentialError**. Call it inside a Tokio runtime. Wrap the credential in **Arc** and pass clones to **ClientOptions::credential** and **WorkerOptions::credential**. A background Tokio task refreshes the token. The synchronous **token()** reads only the cache, so an expired token fails calls until a refresh succeeds. Keep the construction runtime alive and driving tasks while the credential is in use; a current-thread runtime must be driven continuously. Dropping the last **Arc** aborts the refresh task. The type sits behind the default **api-key-credential** Cargo feature, so an application that disables default features must enable it. Follow the shared [API key Credential contract](../core/operations.md#api-key-credential) for refresh, rejection retries, and redaction. [Released Rust API key credential](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/credential/api_key_credential.rs) [Crate README](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/README.md)
-
-## FlowService transport
-
-Rust SDK v1.20.0 **ClientOptions** and **WorkerOptions** have no FlowService TLS option. Their default FlowService channels use plaintext gRPC, including pull streams. The Go SDK v1.22.0 option does not apply. See [FlowService TLS](../core/operations.md#flowservice-tls). [Client options](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/client_options.rs) · [Worker options](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/crates/dex-sdk/src/worker_options.rs)
-
-## Connector runtime support
-
-The official Connector SDKs exist only for Go, Python, and TypeScript, so the `projectconfig` loader and the generated `NewProjectConnection` API have no equivalent Rust SDK today. Do not invent a Rust loader or deserialize Dex Web's credential file into Flow state. For a Rust application, keep provider credentials behind an application-owned secret/runtime adapter until an official Rust Connector SDK exposes the same contract.
-
-## Deployed configuration and recovery boundary
-
-Dex provides no deployed Connector configuration or credential store. Deployed Go,
-Python, and TypeScript applications read their connections with their Connector SDK's
-`projectconfig` package (Go: `sdkgo/projectconfig`), but
-no equivalent Rust SDK exists today; see
-[deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
-Keep credentials behind the deployment's secret management; a browser, Flow input,
-or ordinary Attribute cannot select secret storage.
-When the Flow itself must hold a short-lived secret, such as an API key passed
-at start, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes)
-instead of an ordinary Attribute.
-For recovery after a Worker fix, preserve the original resource and Flow ID,
-reconcile external effects, and use an explicitly authorized, recorded Step
-boundary as described in [safe recovery](../core/operations.md#safe-recovery).
-
-## Dex Web v2 management metadata
-
-The current FDG 2.0 management-interface analyzer reads Go source only. A Rust
-Flow cannot currently publish the Summary, Display, Action, Indexed Attribute,
-group, explanation, or Action input capture metadata that drives the full Dex
-Web v2 management interface. Rust applications can still operate Flows and use
-their supported Client and CLI surfaces; do not invent Rust attributes for the
-Go-only analyzer contract.
-
-## Minimal Flow and Step
-
-A Rust Flow owns its Step values and returns a `StepList` that borrows them. Each Step declares its input type and returns a `StepDecision`. `wait_for` is optional; omitting it makes Execute eligible immediately.
-
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/src/primitives/timer/flow.rs)
-<!-- dex-source: examples/rust/src/primitives/timer/flow.rs -->
-```rust
-#[derive(Default)]
-pub struct TimerFlow {
-    start: TimerStep,
-}
-
-impl Flow for TimerFlow {
-    type StartInput = i32;
-
-    fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.start)
-    }
-}
-
-#[derive(Default)]
-struct TimerStep;
-
-impl Step for TimerStep {
-    type Input = i32;
-
-    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
-            input.max(0) as u64,
-        ))))
-    }
-
-    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete("timer-fired".to_string()))
-    }
-}
-```
-
-Keep every `Attribute`, `AttributeMap`, `Channel`, `ChannelMap`, and `Stream` schema definition stable. Module-level `static LazyLock<T>` is the repository convention for definitions that do not need runtime construction. Do not hide schema creation behind a function. A Flow may own a map only when its instance is needed to build child Steps; clone the initialized map value only where an owned field is required.
-
-## Registry, Worker, and Client
-
-The Registry must contain every Flow that a Client starts or a Worker executes. Registration validates names, Step graphs, persistence declarations, loads, and RPC definitions. Build the registry with chained `register` calls and propagate `SdkResult`.
-
-[Runnable source](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/src/primitives/mod.rs)
-<!-- dex-source: examples/rust/src/primitives/mod.rs -->
-```rust
-pub fn register(registry: Registry) -> SdkResult<Registry> {
-    registry
-        .register(step::flow::StepFlow::default())?
-        .register(flow::flow::ExampleFlow::default())?
-        .register(step::retry_flow::RetryFlow::default())?
-        .register(custom_retry::flow::CustomRetryFlow::default())?
-        .register(durability::flow::DurabilityFlow::default())?
-        .register(heartbeat::flow::HeartbeatFlow::default())?
-        .register(options_override::flow::OptionsOverrideFlow::default())?
-        .register(proceed_on_wait_failure::flow::ProceedOnWaitFailureFlow::default())?
-        .register(step_execution_local::flow::StepExecutionLocalFlow::default())?
-        .register(step_decision::flow::StepDecisionFlow::default())?
-        .register(wait_types::flow::WaitTypesFlow::default())?
-        .register(attribute::flow::AttributeFlow::default())?
-        .register(channel::flow::ChannelFlow::default())?
-        .register(stream::flow::StreamFlow::default())?
-        .register(timer::flow::TimerFlow::default())?
-        .register(rpc::flow::RpcFlow::default())?
-        .register(rpc::canceling_steps::flow::ReportGenerationFlow::default())?
-        .register(subflow::flow::SubFlowChildFlow::default())?
-        .register(subflow::flow::SubFlowParentFlow::new())?
-        .register(client_apis::flow::ClientApisFlow::default())
-}
-```
-
-Controllers read committed Attributes with [`Client::get_attributes`](primitives.md#client-attribute-reads) and write through typed RPCs. Create one shared `Arc<BlobCache>` for the Client and Worker. Start the blocking Worker on a dedicated OS thread; application HTTP work may remain on Tokio. If a Flow constructor needs a Client, construct the Client registry and Worker registry separately so dependency injection remains explicit. See the complete [bootstrap](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/src/main.rs).
-
-## Suggested project layout
+## Crate shape
 
 ```text
 src/
-  flows/<feature>/flow.rs       # schema, Flow, and Steps
-  flows/<feature>/controller.rs # Client calls at the process boundary
-  flows/mod.rs                  # registry composition
-  main.rs                       # cache, Client, Worker, HTTP bootstrap
+  orders/flow.rs        # schema statics, RPC consts, Flow, Steps
+  orders/controller.rs  # Client calls at the service boundary
+  orders/mod.rs
+  registry.rs           # Registry composition
+  main.rs               # BlobCache, Client, Worker, HTTP bootstrap
 tests/
-  integration.rs               # real Dex Server behavior
+  order_integration.rs  # real Dex Server tests
 ```
 
-Keep controller concerns out of Step handlers. The controller supplies idempotent request IDs and unique Flow IDs; the Flow models durable state and decisions; Steps perform bounded external work.
+- Controllers own Flow ID choice and request IDs. Flows own durable state and
+  decisions. Steps do bounded external work.
+- Dependencies (HTTP clients, repositories, an `Arc<Client>`) are fields of the
+  Step structs, set in the Flow's constructor.
 
-## Route to the right page
+## Registration rules
 
-- [Primitives](primitives.md): exact Rust shapes for Flow, Wait, persistence, RPC, Stream, Timer, SubFlow, and Client.
-- [Patterns](patterns.md): choose and implement an official design pattern.
-- [Testing](testing.md): real-server integration and terminal assertions.
-- [Error handling](error-handling.md): read before Client boundary work for `HandlerError`, `SdkError`, start identity, retries, and recovery.
-- [Data handling](data-handling.md): serde values, selective loads, locks, transactions, and BlobCache.
-- [Observability](observability.md): IDs, status, heartbeat progress, Stream output, and diagnostics.
-- [Versioning](versioning.md): pinned API evidence and open-Flow compatibility.
-- [Gotchas](gotchas.md): ownership, blocking execution, schemas, and unsafe assumptions.
-- [Advanced features](advanced-features.md): timeout handlers, cancellation, streaming, and asynchronous durability.
+- A Flow implements `Flow` with `type StartInput`. A Step implements `Step`
+  with `type Input`.
+- The Flow owns its Step values as fields. `steps()` borrows them:
+  `StepList::start(&self.first).and(&self.second)`. List every Step the Flow
+  can reach: decision targets, RPC movements, recovery Steps, and fallback
+  movements. An RPC-only Flow keeps the default empty list; an RPC-driven Flow
+  that still has Steps uses `StepList::empty().and(&self.work)`.
+- `persistence()` returns `PersistenceSchema::new().attribute(&X).attribute_map(&Y).channel(&Z).channel_map(&W).stream(&S)`
+  with every definition the Flow uses.
+- `rpcs()` returns an `RpcList` binding each RPC const to a method of the Flow.
+- `timeout_handler()` returns `Some(Self::handle_timeout)` when the Flow has one.
+- Build the Registry with chained `register` calls and propagate the
+  `SdkResult`:
+
+```rust
+pub fn create_registry() -> SdkResult<Registry> {
+    Registry::new()
+        .register(OrderFlow::default())?
+        .register(ShipmentFlow::default())
+}
+```
+
+- Register every Flow the process starts or executes, including SubFlow
+  children. Registration validates names, the Step graph, persistence
+  declarations, loads, locks, and RPCs; treat failure as a startup failure.
+- If a Step needs the `Client` (for example to call another Flow), build the
+  Client's Registry first, then construct the Worker's Registry with the
+  `Arc<Client>`. Do not wire it in after construction.
+
+### Names are durable identifiers
+
+| Name | Default | Rule |
+| --- | --- | --- |
+| Flow type | last segment of the Rust type name | Name the type after its domain, such as `OrderFlow`. Never `Flow`. The module path does not disambiguate two types with the same name. |
+| Step type | last segment of the type name | Unique within the Flow. |
+| RPC name | the string in `Rpc::new("...")` | Start with a verb: `GetOrderStatus`, `ApproveOrder`. |
+| Attribute, Channel, Stream names | the `new` argument | Stable strings, unique within the Flow. Use maps for dynamic keys. |
+
+Open Flows keep running against new code. Renaming a type changes its default
+Flow or Step type. Override `flow_type()` or `step_type()` with the old name,
+or keep the old type registered while open Flows can reach it. The same holds
+for definition names, RPC names, and serde field names. See
+[../core/application.md](../core/application.md) for versioning.
+
+### Schema definitions
+
+Define every Attribute, AttributeMap, Channel, ChannelMap, and Stream as a
+module-level `static LazyLock<T>`. Define each RPC as a `pub const`.
+
+```rust
+pub static ORDER_STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new("order-status").indexed(AttributeIndex::keyword().with_key("keyword1"))
+});
+pub static ORDER_NOTES: LazyLock<AttributeMap<String>> =
+    LazyLock::new(|| AttributeMap::new("order-notes"));
+pub static ORDER_APPROVALS: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("order-approvals"));
+
+pub const APPROVE_ORDER: Rpc<String, ()> = Rpc::new("ApproveOrder");
+pub const GET_ORDER_STATUS: Rpc<(), String> = Rpc::new("GetOrderStatus");
+```
+
+- Never build a definition in a function that returns a fresh value on each
+  call. Reuse the static.
+- Clone a definition only when an owned field truly needs it. Never clone
+  durable data to avoid ownership questions.
+- Builder calls (`indexed`, `sync_to_attribute_store`, `hard_delete_on_null`)
+  consume and return the definition; put them inside the `LazyLock`.
+
+## Types and serialization
+
+- Every value that crosses Dex (Flow input, Step input, Attribute value,
+  Channel message, RPC input and output, Stream message, output) implements
+  `Serialize + DeserializeOwned + Send + Sync + 'static`. Derive
+  `Clone, Debug, Deserialize, Serialize` on DTOs.
+- Use owned types (`String`, `Vec<T>`, owned structs) at durable boundaries.
+  Never put handles, clients, sockets, or references in them.
+- Use `()` for no input or no output, with the `*_without_input` and
+  `procedure*` registrations. Do not wrap it in `Option<()>`.
+- Keep serialized field names stable while open Flows can decode them. Use
+  `#[serde(rename = "...")]` to keep a wire name when you rename a field, and
+  `#[serde(default)]` when you add one.
+- Remove a value with `delete`. A value that serializes to JSON `null`
+  also deletes, and a `null` completion output is discarded. Return an
+  explicit result type when "no output" and "empty result" must differ.
+
+## Worker and Client bootstrap
+
+One process usually hosts one Worker, one Client, and one shared
+`Arc<BlobCache>`. Every Worker is a pull Worker: it opens outbound connections
+to the Dex Server and needs no inbound port.
+
+```rust
+pub async fn start_dex(
+    server_address: &str,
+    cache_directory: PathBuf,
+) -> Result<DexRuntime, Box<dyn std::error::Error>> {
+    let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
+        cache_directory,
+        64 * 1024 * 1024,
+        10_000,
+    )?)?);
+    let registry = create_registry()?;
+    let worker = Arc::new(Worker::try_new(
+        registry.clone(),
+        Arc::clone(&cache),
+        WorkerOptions::new()
+            .server_address(server_address)
+            .pull(PullWorkerOptions::new().max_concurrent_tasks(16)),
+    )?);
+    let client = Arc::new(Client::try_new(
+        registry,
+        Arc::clone(&cache),
+        ClientOptions::new().server_address(server_address),
+    )?);
+    let running_worker = Arc::clone(&worker);
+    let worker_thread = thread::spawn(move || running_worker.start());
+    let registered: Result<(), Box<dyn std::error::Error>> =
+        match tokio::time::timeout(Duration::from_secs(30), worker.wait_pull_registered()).await {
+            Ok(result) => result.map_err(Into::into),
+            Err(elapsed) => Err(elapsed.into()),
+        };
+    if let Err(error) = registered {
+        worker.stop();
+        if let Err(start_error) = worker_thread.join().expect("Worker thread panicked") {
+            tracing::error!(error = %start_error, "pull Worker stopped");
+        }
+        return Err(error);
+    }
+    Ok(DexRuntime { client, worker, worker_thread: Some(worker_thread), cache })
+}
+```
+
+Shutdown: `worker.stop()`, join the Worker thread and check its
+`SdkResult`, then `cache.close()`.
+
+Rules:
+
+- `Worker::start()` blocks until the Worker stops. Call it once, on a
+  dedicated OS thread, and keep the `JoinHandle`. A start error must fail the
+  service.
+- `wait_pull_registered()` is async. Wrap it in `tokio::time::timeout` and
+  await it before reporting the service ready. Outside an async context, build
+  a current-thread Tokio runtime and `block_on` it.
+- `worker.pull_registration_state().is_ready` is the readiness probe.
+- `stop()` lets running handlers finish and send their results.
+- Prefer `Worker::try_new` and `Client::try_new`; `new` panics on invalid
+  options.
+- Share one `Arc<BlobCache>` between the Worker and Client. Never open one per
+  request.
+- `max_concurrent_tasks` bounds parallel handlers in this process. Optional
+  reserved RPC slots keep RPCs responsive while Steps run. Sizing, readiness,
+  and shutdown details are in the
+  [Rust Workers reference](https://docs.superdurable.io/reference/rust/workers).
+- Install a `tracing` subscriber at startup, such as
+  `tracing_subscriber::fmt().init()`. The SDK reports Worker errors and
+  warnings only through `tracing`; without a subscriber they are invisible.
+
+### Blocking calls
+
+- Step and RPC handlers are synchronous functions. Do blocking I/O directly,
+  bounded by the Step method timeout. Never spawn a future from a handler and
+  drop it.
+- Every `Client` method blocks the calling thread. In an async server, call it through
+  `tokio::task::spawn_blocking` or `tokio::task::block_in_place`, never
+  directly on an executor thread. The examples use a `run_blocking` helper in
+  [http_response.rs](https://github.com/superdurable/dex/blob/main/examples/rust/src/server/http_response.rs).
+
+## Pull Workers and Dex credentials
+
+- The Worker and Client take the same Dex Server address. There is no Worker
+  bind address and no Worker routing configuration.
+- A Worker serves only the Flow types in its Registry. During a rolling
+  deploy, old and new Workers serve the same Flow type at once, so every
+  change must stay compatible with open Flows.
+- When the Server requires authentication, set `credential(Arc<dyn Credential>)`
+  on both `ClientOptions` and `WorkerOptions`. Use `FileCredential` for a
+  rotated token file, or the API-key credential when the application holds an
+  API key. Share one `Arc`.
+- The API-key credential performs its first token exchange in
+  `build().await`, so a bad key fails before the Client or Worker exists. It
+  refreshes on a background Tokio task; keep that runtime alive and running
+  while the credential is in use. It needs the crate's default API-key feature.
+- TLS and credential options, refresh, and error behavior are in the
+  [Rust Developer reference](https://docs.superdurable.io/reference/rust/) and
+  the [Server authentication reference](https://docs.superdurable.io/reference/server/authentication).
+- Read [../core/application.md](../core/application.md) for routing, retries
+  across Worker restarts, heartbeats, and shutdown guarantees.
+
+## What Rust does not have
+
+- There is no Rust Connector SDK. Do not invent a loader for Dex Web Connector
+  configuration, and never put provider credentials in Flow input or an
+  ordinary Attribute. Keep them behind the application's secret management. A
+  short-lived secret the Flow itself must hold belongs in a hard-delete
+  Attribute. See [../core/connector.md](../core/connector.md).
+- The FDG 2.0 management metadata (Summary, Display, Action, Indexed
+  Attribute, group, explanation) is read from Go source only. Do not invent
+  Rust attributes for it. Rust Flows still work with Dex Web, the CLI, and the
+  Client.
+- The SDK does not propagate application tracing spans. Do not claim it does.
+
+## Rust gotchas
+
+- `StepDecision::go_to(&ChargePayment, input)` uses the Step value only for its
+  type. A fresh unit-struct value works, but the type must be in `steps()`.
+- Never store `&mut Context`, a `BufferedTextStream`, or loaded values in a
+  Flow or Step. They belong to one invocation.
+- `SdkError`, `ErrorSubStatus`, and `StepAttemptProgress` are
+  `#[non_exhaustive]`. Every `match` needs a wildcard arm.
+- There is no `From<SdkError>` for `HandlerError`. Map with
+  `.map_err(HandlerError::from_error)?`, for example after `SubFlow::run`.
+- `thread::sleep` in a handler holds a Worker slot. Use a Timer for business
+  time that can be long.
+
+## Self-check
+
+- [ ] Flow type named after its domain; RPC names start with a verb.
+- [ ] Definitions are `static LazyLock`; RPCs are `const`.
+- [ ] Every reachable Step in `steps()`; every definition in `persistence()`.
+- [ ] Durable values are owned serde types with stable field names.
+- [ ] Worker on a dedicated thread; startup waits for registration and fails on error.
+- [ ] Client calls stay off async executor threads.
+- [ ] A `tracing` subscriber is installed.
+- [ ] One shared `Arc<BlobCache>`; Worker stopped and joined, cache closed.
+- [ ] External effects in Steps are idempotent (see [error-handling.md](error-handling.md)).
+- [ ] Integration tests run against a real Dex Server (see [testing.md](testing.md)).
