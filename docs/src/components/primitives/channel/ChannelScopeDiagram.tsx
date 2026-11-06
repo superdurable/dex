@@ -12,7 +12,6 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {StepCard} from '../step/flowGraphShared';
 
 type Copy = {
-  label: string;
   execution: string;
   publisherStep: string;
   publisherRPC: string;
@@ -28,8 +27,6 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label:
-    'A Flow execution owns a requests_queue Channel. ExampleStepA and ExampleRpc publish messages to it. ExampleStepB waits for and consumes messages from it.',
   execution: 'Flow execution',
   publisherStep: 'ExampleStepA',
   publisherRPC: 'ExampleRpc',
@@ -45,8 +42,6 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label:
-    '一个 Flow execution 拥有 requests_queue Channel。ExampleStepA 和 ExampleRpc 往它发布消息。ExampleStepB 等待并从中消费消息。',
   execution: 'Flow execution',
   publisherStep: 'ExampleStepA',
   publisherRPC: 'ExampleRpc',

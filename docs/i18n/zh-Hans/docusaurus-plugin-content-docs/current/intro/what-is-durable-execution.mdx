@@ -61,7 +61,7 @@ function processOrder(order){
 
 于是一个聪明的工程师想到：插入一行（**status = pending**），先返回给客户端，让后台 Worker 来领任务。
 
-<ExecutionApproachDiagram approach="table-poll" markdownDescription="轮询 Worker 从数据库表读取待处理任务，并在每个操作后更新进度。应用必须协调重试，并跟踪已完成的操作。" />
+<ExecutionApproachDiagram approach="table-poll" markdownDescription="前端 API 插入一行 status = pending 的订单，并返回 request id。Worker A 用 SELECT … FOR UPDATE 抢占行，Worker B 扫描同一张表，两个 Worker 争抢同一张订单表中的行。" />
 
 最低限度的可靠性有了，但还有这些问题：
 * 多个 Worker 怎么领任务才不互相冲突？

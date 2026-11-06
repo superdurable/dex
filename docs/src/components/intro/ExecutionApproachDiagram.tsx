@@ -58,7 +58,6 @@ function ProblemList({items}: {items: string[]}): ReactNode {
 }
 
 type Copy = {
-  label: string;
   client: NodeProps;
   afterClient: NodeProps;
   callArrow?: string;
@@ -73,7 +72,6 @@ type Copy = {
 
 const EN: Record<ExecutionApproach, Copy> = {
   naive: {
-    label: 'Direct API calls without durable execution',
     client: {
       kicker: 'CLIENT',
       title: 'Frontend API',
@@ -90,7 +88,6 @@ const EN: Record<ExecutionApproach, Copy> = {
     ],
   },
   'table-poll': {
-    label: 'Database row polling with workers',
     client: {
       kicker: 'CLIENT',
       title: 'Frontend API',
@@ -109,7 +106,6 @@ const EN: Record<ExecutionApproach, Copy> = {
     ],
   },
   'message-queue': {
-    label: 'Message queues between charge and ship',
     client: {
       kicker: 'CLIENT',
       title: 'Frontend API',
@@ -131,7 +127,6 @@ const EN: Record<ExecutionApproach, Copy> = {
     ],
   },
   dex: {
-    label: 'Dex Flow with durable Steps',
     client: {
       kicker: 'CLIENT',
       title: 'Frontend API',
@@ -160,7 +155,6 @@ const EN: Record<ExecutionApproach, Copy> = {
 
 const ZH: Record<ExecutionApproach, Copy> = {
   naive: {
-    label: '业务代码直接串行调用 API，没有 Durable Execution',
     client: {
       kicker: 'CLIENT',
       title: '前端 API',
@@ -177,7 +171,6 @@ const ZH: Record<ExecutionApproach, Copy> = {
     ],
   },
   'table-poll': {
-    label: '数据库行 + Worker 轮询',
     client: {
       kicker: 'CLIENT',
       title: '前端 API',
@@ -196,7 +189,6 @@ const ZH: Record<ExecutionApproach, Copy> = {
     ],
   },
   'message-queue': {
-    label: '扣款和发货之间用消息队列衔接',
     client: {
       kicker: 'CLIENT',
       title: '前端 API',
@@ -218,7 +210,6 @@ const ZH: Record<ExecutionApproach, Copy> = {
     ],
   },
   dex: {
-    label: '用 Dex Flow 把 Step 做成 durable',
     client: {
       kicker: 'CLIENT',
       title: '前端 API',
@@ -245,9 +236,9 @@ const ZH: Record<ExecutionApproach, Copy> = {
   },
 };
 
-function ApproachDiagram({copy}: {copy: Copy}): ReactNode {
+function ApproachDiagram({copy, markdownDescription}: {copy: Copy; markdownDescription: string}): ReactNode {
   return (
-    <div className="exec-diagram" role="img" aria-label={copy.label}>
+    <div className="exec-diagram" role="img" aria-label={markdownDescription}>
       <DiagramNode {...copy.client} />
       <Arrow />
       <DiagramNode {...copy.afterClient} />
@@ -295,5 +286,5 @@ export default function ExecutionApproachDiagram({
 }): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = (i18n.currentLocale === 'zh-Hans' ? ZH : EN)[approach];
-  return <ApproachDiagram copy={{...copy, label: markdownDescription}} />;
+  return <ApproachDiagram copy={copy} markdownDescription={markdownDescription} />;
 }

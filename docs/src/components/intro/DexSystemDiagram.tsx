@@ -54,7 +54,6 @@ function DatabaseIcon(): ReactNode {
 }
 
 type Copy = {
-  label: string;
   app: string;
   client: string;
   worker: string;
@@ -64,7 +63,6 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'Client and Worker talk to Dex Server through the Dex SDK',
   app: 'APPLICATION',
   client: 'Start and interact with Flow instances.',
   worker: 'Hosts the Flow. Runs Step and RPC implementations.',
@@ -74,7 +72,6 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: 'Client 和 Worker 通过 Dex SDK 与 Dex Server 交互',
   app: '应用',
   client: 'Start Flow 实例，并与之交互。',
   worker: '托管 Flow。跑 Step 和 RPC implementation。',

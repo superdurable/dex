@@ -40,7 +40,7 @@ Each **WaitFor** or **Execute** invocation is a separate commit boundary. Dex Se
 
 Before its final **Wait** or **StepDecision**, a handler can send [heartbeat checkpoints](/primitives/step/step-options#heartbeat) and any number of best-effort [Stream messages](/primitives/stream). The response stream must end with exactly one final result. These progress frames are not part of the method's commit, and a Stream Store failure does not fail the Step.
 
-<StepWaitExecuteDiagram markdownDescription="WaitFor returns the conditions a Step needs, and Dex waits until they are satisfied before calling Execute. Execute returns a StepDecision that chooses the next movement or completes the Flow." />
+<StepWaitExecuteDiagram markdownDescription="The WaitFor of ExampleStep returns a Wait on the approval Channel, and Dex waits until the timer or Channel condition is satisfied. Execute then returns GoTo(Complete Flow, input + 1). A StepDecision can be GoTo, GracefulComplete, or Fail." />
 
 <SdkTabs
   examples={{
@@ -353,7 +353,7 @@ A StepDecision can go to a single or multiple next steps.
 
 This is how you build branching, looping, and parallel work.
 
-<StepDecisionMovementsDiagram markdownDescription="GoTo moves from one Step to another, a loop returns to the same Step, and GoToMany starts several Steps in parallel. A movement can also complete the Flow." />
+<StepDecisionMovementsDiagram markdownDescription="GoTo: ExampleStep returns GoTo(Complete Flow), which completes the Flow. GoToMany: ExampleStep starts StepA and StepB, which run in parallel. Loop: ExampleStep goes to ProcessStep, and ProcessStep goes back to ExampleStep." />
 
 See more in the [Parallel Steps](/design-patterns/parallel) and [Parallel SubFlows](/design-patterns/parallel-subflows) patterns.
 

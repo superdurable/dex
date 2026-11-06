@@ -106,7 +106,7 @@ Step implementation 通常只有一个或两个小方法：**WaitFor** -> **Exec
 
 在最终 **Wait** 或 **StepDecision** 之前，handler 可以发送 [heartbeat checkpoint](/primitives/step/step-options#heartbeat) 和任意多条 best-effort [Stream message](/primitives/stream)。Response stream 必须以且仅以一个最终 result 结束。这些 progress frame 不属于 method commit，Stream Store 写入失败也不会让 Step 失败。
 
-<StepWaitExecuteDiagram markdownDescription="WaitFor 返回 Step 所需的条件，Dex 等待条件满足后调用 Execute。Execute 返回 StepDecision，选择下一次 movement 或完成 Flow。" />
+<StepWaitExecuteDiagram markdownDescription="ExampleStep 的 WaitFor 返回等待 approval Channel 的 Wait，Dex 等待 timer 或 Channel 条件满足。随后 Execute 返回 GoTo(Complete Flow, input + 1)。StepDecision 可以是 GoTo、GracefulComplete 或 Fail。" />
 
 <SdkTabs
   examples={{
@@ -282,7 +282,7 @@ Step 可等待的 Condition 见 [Timer](/primitives/timer)、[Channel](/primitiv
 
 Execute 返回 **StepDecision**——指向一个或多个后续 Step 的 movement，或关闭决策。一次决策可指向多个 Step，用于表达分支、循环与并行。
 
-<StepDecisionMovementsDiagram markdownDescription="GoTo 从一个 Step 移动到另一个 Step，循环返回同一个 Step，GoToMany 并行启动多个 Step。Movement 也可以完成 Flow。" />
+<StepDecisionMovementsDiagram markdownDescription="GoTo：ExampleStep 返回 GoTo(Complete Flow)，完成 Flow。GoToMany：ExampleStep 启动 StepA 和 StepB，两者并行运行。循环：ExampleStep 转到 ProcessStep，ProcessStep 再回到 ExampleStep。" />
 
 见 [并行 Step](/design-patterns/parallel) 与 [并行 SubFlow](/design-patterns/parallel-subflows) 模式。
 

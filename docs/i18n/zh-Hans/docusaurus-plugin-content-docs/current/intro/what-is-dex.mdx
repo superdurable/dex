@@ -13,7 +13,7 @@ Dex 是 Durable Execution(D-Ex) 平台。
 
 Dex 是结构化编程，只有少数几个概念作为 [primitives](/primitives)。你用 Dex 写 Flow，里面填普通代码：durable 的 Step、Attribute、RPC，以及用 Channel 和 Timer 表达的 durable condition。然后跑托管 Flow 的 Worker。Client 调 Dex Server 去 start 并和 Flow 实例交互。Dex Server 把 Step / RPC 调用任务派发给你的 Worker。
 
-<DexSystemDiagram markdownDescription="Application 通过 Client 向 Dex Server 发送请求，并通过 Worker 运行 Flow 代码。Dex Server 将 Flow 状态持久化到存储中。" />
+<DexSystemDiagram markdownDescription="Application 包含 Client 和 Worker：Client 启动 Flow 实例并与之交互，Worker 托管 Flow，两者都使用 Dex SDK。Application 通过 startFlow 和 invokeRPC 调用 Dex Server，Dex Server 在 Worker 上 invoke Step 和 RPC。Dex Server 持久化 Flow instance 和 execution。" />
 
 一个 **Step** 可以可选地 **WaitFor** 某个 condition（**Channel**、**Timer**，或两者），并且是 durable 的。condition 满足后调用 **Execute**。没有 WaitFor 时，直接调用 Execute。
 

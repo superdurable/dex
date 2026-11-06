@@ -62,7 +62,7 @@ The order ends up with charging the buyer but never ship the item.
 
 Then a smart engineer thinks of inserting a row (**status = pending**), return to the client, and let background workers pick up work.
 
-<ExecutionApproachDiagram approach="table-poll" markdownDescription="A polling worker reads pending work from a database table and updates its progress after each operation. The application must coordinate retries and track which operations have finished." />
+<ExecutionApproachDiagram approach="table-poll" markdownDescription="The frontend API inserts an order row with status pending and returns a request id. Worker A claims rows with SELECT … FOR UPDATE while Worker B scans the same table, so two Workers compete for the rows of one orders table." />
 
 We get minimal durability, but here are more problems:
 * How do multiple workers claim work without conflicting each other?

@@ -17,7 +17,6 @@ type PanelCopy = {
 };
 
 type Copy = {
-  label: string;
   goto: PanelCopy;
   loop: PanelCopy;
   parallel: PanelCopy;
@@ -28,7 +27,6 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'StepDecision movements: GoTo, GoToMany, and loop',
   goto: {title: 'GoTo', parallel: ''},
   loop: {title: 'Loop', parallel: ''},
   parallel: {title: 'GoToMany', parallel: 'both active'},
@@ -39,7 +37,6 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: 'StepDecision movement：GoTo、GoToMany 与循环',
   goto: {title: 'GoTo', parallel: ''},
   loop: {title: '循环', parallel: ''},
   parallel: {title: 'GoToMany', parallel: '同时 active'},

@@ -12,7 +12,6 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {CompactCard, GraphArrow, StepCard} from './flowGraphShared';
 
 type Copy = {
-  label: string;
   returnsWait: string;
   conditionWaiting: string;
   conditionDetail: string;
@@ -23,7 +22,6 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'Step lifecycle: WaitFor, condition waiting, Execute, StepDecision',
   returnsWait: 'returns Wait',
   conditionWaiting: 'Condition waiting',
   conditionDetail: 'Dex evaluates timer or channel',
@@ -34,7 +32,6 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: 'Step 生命周期：WaitFor、条件等待、Execute、StepDecision',
   returnsWait: '返回 Wait',
   conditionWaiting: 'Condition 等待',
   conditionDetail: 'Dex 评估 timer 或 channel',

@@ -24,6 +24,9 @@ type HostContent = string | HostContent[] | {
   start?: number;
 };
 
+// Must match the content types expanded by plugins/markdown-export/export.mjs.
+const HOST_CONTAINER_TYPES = new Set(['p', 'ol', 'ul', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+
 function renderHostContent(content: HostContent, skill: DexSkillContext): ReactNode {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -33,11 +36,22 @@ function renderHostContent(content: HostContent, skill: DexSkillContext): ReactN
     const invocations = hostData.invocations[skill];
     return <CodeBlock language="text">{invocations[content.style as keyof typeof invocations]}</CodeBlock>;
   }
-  const children = renderHostContent(content.children ?? [], skill);
   if (content.type === 'code') {
-    return <CodeBlock language={content.language}>{children}</CodeBlock>;
+    // CodeBlock highlights and adds the copy button only for string children.
+    return <CodeBlock language={content.language}>{hostCodeText(content.children ?? [])}</CodeBlock>;
   }
+  if (!HOST_CONTAINER_TYPES.has(content.type)) {
+    throw new Error(`Unsupported skill host content type: ${content.type}`);
+  }
+  const children = renderHostContent(content.children ?? [], skill);
   return React.createElement(content.type, content.start ? {start: content.start} : {}, children);
+}
+
+function hostCodeText(children: HostContent[]): string {
+  return children.map((child) => {
+    if (typeof child !== 'string') throw new Error('Skill host code must contain only text');
+    return child;
+  }).join('');
 }
 
 export default function DexSkillHostTabs({skill}: {skill: DexSkillContext}): ReactNode {
@@ -47,13 +61,12 @@ export default function DexSkillHostTabs({skill}: {skill: DexSkillContext}): Rea
   return (
     <>
       <p>{introduction}</p>
-      <Tabs className={styles.tabs} defaultValue="codex-desktop" groupId="dex-skill-host" queryString="host">
-        <TabItem label={hosts[0].label} value="codex-desktop">{renderHostContent(hosts[0].children, skill)}</TabItem>
-        <TabItem label={hosts[1].label} value="codex-cli">{renderHostContent(hosts[1].children, skill)}</TabItem>
-        <TabItem label={hosts[2].label} value="claude-desktop">{renderHostContent(hosts[2].children, skill)}</TabItem>
-        <TabItem label={hosts[3].label} value="claude-cli">{renderHostContent(hosts[3].children, skill)}</TabItem>
-        <TabItem label={hosts[4].label} value="cursor">{renderHostContent(hosts[4].children, skill)}</TabItem>
-        <TabItem label={hosts[5].label} value="others">{renderHostContent(hosts[5].children, skill)}</TabItem>
+      <Tabs className={styles.tabs} defaultValue={hosts[0].id} groupId="dex-skill-host" queryString="host">
+        {hosts.map((host) => (
+          <TabItem key={host.id} label={host.label} value={host.id}>
+            {renderHostContent(host.children as HostContent, skill)}
+          </TabItem>
+        ))}
       </Tabs>
     </>
   );
