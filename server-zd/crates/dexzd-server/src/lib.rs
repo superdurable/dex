@@ -316,7 +316,9 @@ async fn start_single_node_server_with_config(
 
 /// Warns at startup when a single-node server accepts unauthenticated calls from other hosts.
 fn warn_about_unauthenticated_non_loopback_listen(configuration: &config::Config) {
-    if !configuration.api.listen.ip().is_loopback() && configuration.auth.authenticators.is_empty()
+    // An IPv4-mapped IPv6 loopback such as ::ffff:127.0.0.1 is still loopback.
+    if !configuration.api.listen.ip().to_canonical().is_loopback()
+        && configuration.auth.authenticators.is_empty()
     {
         tracing::warn!(
             listen = %configuration.api.listen,
@@ -346,6 +348,8 @@ mod tests {
             ("127.0.0.1:8801", false),
             ("127.1.2.3:8801", false),
             ("[::1]:8801", false),
+            ("[::ffff:127.0.0.1]:8801", false),
+            ("[::ffff:192.0.2.10]:8801", true),
         ] {
             let mut configuration = Config::default();
             configuration.api.listen = listen.parse::<SocketAddr>().expect("test address");
