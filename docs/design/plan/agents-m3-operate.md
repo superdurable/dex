@@ -535,10 +535,10 @@ Products with a similar problem. Each row says what to take and what differs.
 
 ## Order and PRs
 
-1. Spike O1-3 and O1-4 against the fence. This decides the effect mapping.
+1. O3 failure handling and the 4 MiB limit. These affect sessions today, and need no O1 work.
 2. Connector library: tool schema and the `agent` manifest block.
 3. Cores: the `DeferredToolExecution` field, `ConnectorToolSource`, write ordering.
-4. O3 measurement, in parallel.
+4. O3 state growth, once the owner answers decisions 9 and 10.
 5. O2 session view, then active Step search on session Flows, then the inbox.
 6. O5 after #1266. O4 and O6 as demand shows.
 
