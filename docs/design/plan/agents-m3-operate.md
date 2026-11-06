@@ -56,6 +56,7 @@ M3 implementation starts after these M2 items close. Design can proceed now.
 | Go core tag | Untagged. The tag scheme needs the owner (`agents-go-java-rust.md`) |
 | Published crash matrix | Not published. Worker-kill tests exist per core. [#1282](https://github.com/superdurable/dex/issues/1282) is open, and no agent-level test restarts or fails over the server |
 | Cost of the SYNC start commit | Not measured. [#1266](https://github.com/superdurable/dex/issues/1266) is open |
+| Python Connector packages O1 offers first | 26 of 102 are on PyPI. [dex-connectors-library#627](https://github.com/superdurable/dex-connectors-library/pull/627) makes the rest installable from GitHub releases |
 
 ## Relation to earlier proposals
 
@@ -171,9 +172,7 @@ invocation."
 `AsyncContext`, because the single-dispatch fence reads and writes heartbeat checkpoints
 through it. Today the source does not receive it. Add an optional field that exposes the
 Step's context to a tool source. It is additive and absent from persisted values. The same
-context gives the Step execution ID for the Call ID. The bridge also translates `RetryError`
-into a Dex retry, because the helper that does this in connector Steps is private and
-`Retry-After` is lost otherwise.
+context gives the Step execution ID for the Call ID.
 
 **Identity.** The Connector key is derived from the Call ID, so a `CallTool` retry
 keeps it. A new Step execution gets a new key. Connector tools never ask a
@@ -238,12 +237,19 @@ Proposed:
 exposed, starting with a first set. An unreviewed Mutation is not offered, so no
 operation has an unknown approval default.
 
-**Tool schema.** The manifest names `inputType` and has no JSON Schema.
-`connectorctl generate` should write a JSON Schema per operation into
-`dex-connector.json`. That file's schema lives in dexcli and rejects unknown fields, so a
-dexcli change and release come first. The schema is generated from the same models, plus an optional
-model-facing description. Input field comments can seed it. Generating in each
-agent core at run time would give three implementations of one mapping.
+**Tool schema.** `dex-connector.json` has no per-operation input type and no JSON Schema today.
+`connectorctl generate` should add both, plus an optional model-facing description. The file's
+schema lives in dexcli and rejects unknown fields, so a dexcli change and release come first.
+Generating in each agent core at run time would give three implementations of one mapping.
+
+**Connector library changes.** The tool schema, the `agent` manifest block, and an exported
+translation from `RetryError` to a Dex retry belong in `superdurable/dex-connectors-library`, and
+are designed and built there. The translation is private today in both SDKs. Exporting it follows
+Principle 3, so `ConnectorToolSource` does not copy it per language. The Connector SDKs are at
+0.8.0, so their API can still change.
+
+**Install paths.** Examples and tests pin by version and do not assume PyPI. The deployment guide
+shows both a PyPI install and a GitHub release install.
 
 **Step options.** Tool Steps are SYNC with fixed options. Manifest `execution` may
 say `durability: async` and a 30-second timeout. Keep SYNC, because ASYNC reopens
@@ -448,46 +454,49 @@ fails with the provider's error. On a 1M model, LangGraph and OpenAI Agents reac
 first, because `FrameworkRunState` holds the whole conversation and is rewritten each tool round.
 Superseded values are 90 to 95 percent of their budget.
 
-**What the operator sees at the state limit.**
+**What the operator saw at the state limit, on released code.**
 
 - Most sessions close `FAILED` (23 of 27). The rest stay alive and unusable.
-- The Dex Web summary gives no reason. It is only in the last history event.
-- The snapshot can stay at `RUNNING_MODEL`.
-- Queued messages never run.
-- A model call can be paid for and its answer discarded, for up to 125 turns.
-- No API reports Flow state size, so nothing warns first.
-- Nothing tried recovered a session: not raising the limit, and not Time Travel.
+- The Dex Web summary gives no reason, and the snapshot can stay at `RUNNING_MODEL`.
+- Queued messages never run, and a paid model answer can be discarded.
+- No API reports Flow state size, and nothing tried recovered a session.
 
-**A separate limit.** Python SDK gRPC channels use the default 4 MiB receive limit, and
-`ClientOptions` has no setting for it. `get_agent_snapshot` fails on heavy sessions from about turn
-20. A Worker with an empty blob cache loads every miss in one call, so it fails every turn of a
-long Pydantic AI session. Other SDKs are not measured.
+**The state limit moves to the server.** [#1325](https://github.com/superdurable/dex/issues/1325)
+stops history counting toward `limits.maxFlowStateBytes`, and moves history to object storage. This
+removes the main cause: superseded values were 90 to 95 percent of the budget. A growing current
+message list can still reach the limit, so the work below stays.
 
-**Compaction alone does not fix this.** Stepwise with compaction reached the same limit at defaults.
-It stayed flat only with `history.maxRetainedSupersededBytes` lowered to 16 MiB.
+Until #1325 ships, new sessions can keep less history: lower `history.windowSemanticEvents`, or set
+`history.maxRetainedSupersededBytes` to 16 MiB, its minimum. Both shorten what Time Travel reaches.
 
-Order of work:
+**Work in this plan.**
 
-1. Failure handling for every runner: a recorded reason, a warning before the limit, and a Flow
-   state size that an operator can read.
-2. The 4 MiB limit: chunk blob loads, and make the receive limit configurable.
-3. Stop rewriting the whole conversation in `FrameworkRunState`, or stop retaining its superseded
-   values. This is the main cause on LangGraph and OpenAI Agents.
-4. Compaction at turn boundaries for context. Turn input comes from `turn.messages`, so this looks
-   easy for most adapters. Claude transcripts are the exception.
-5. For long record keeping, archive old messages to a hard-delete AttributeMap, which leaves the
-   budget (tested). It has no time travel and needs a blob store. Retention without a summary is
-   the alternative, and it changes the rule from the M2 review.
+1. **A failure reason people can see.** The server already records "run state of X bytes exceeds the
+   maximum of Y bytes" on the Step attempt. Carry it into the Flow's close reason and the Dex Web
+   summary. When a Step fails on the state limit, agent cores mark the session failed with that
+   reason and reject new messages.
+2. **Flow state size.** The Flow summary returns active state bytes and the limit, from
+   `RunRecord.storage`. Dex Web shows them on the run page, and a metric reports them.
+3. **A warning before the limit.** A metric, and one warning log when a run first crosses a threshold
+   such as 80 percent. At the `RunModel` boundary, agent cores read the size and compact or archive.
+4. **The 4 MiB gRPC limit, [#1326](https://github.com/superdurable/dex/issues/1326).** The Python SDK
+   matches Go with a 32 MiB default that `ClientOptions` can change, and splits `LoadBlobs` into chunks.
+   A limit alone is not enough: a Worker with an empty cache loads all misses in one call, and that
+   call grows with the session.
+5. **Compaction at turn boundaries for context.** On a 200k model the context window ends a session
+   first. Turn input comes from `turn.messages`, so this looks easy for most adapters. Claude
+   transcripts are the exception.
 
 ## O4. Spend limits
 
-"Run budget" already means the state limit in the docs, so this item is named spend
-limits. Limits on tokens per turn and per session, checked at a Step boundary, where
-`RunModel` already decides compaction.
+An application interface, not a built-in per-run or per-turn limit. A spend limit is usually per
+account or per API key, across many sessions. The core calls the interface before each model call,
+to check whether the call may run, and after it, to report actual usage. Where the counters live and
+what the limit is belong to the application. "Run budget" means the state limit in the docs, so this
+item is named spend limits.
 
-Open: tokens only or cost; check before or after a call; a new interrupt kind or a
-turn failure; coarse limits for the harness case; adapters that report zero; raising
-a limit mid-turn.
+Open: what a refused call does (an interrupt or a turn failure), the harness case where usage arrives
+after a segment, and adapters that report zero.
 
 ## O5. Session scale test
 
@@ -535,10 +544,11 @@ Products with a similar problem. Each row says what to take and what differs.
 
 ## Order and PRs
 
-1. O3 failure handling and the 4 MiB limit. These affect sessions today, and need no O1 work.
-2. Connector library: tool schema and the `agent` manifest block.
+1. O3 work items 1 to 4. These affect sessions today, and need no O1 work.
+2. Connector library: input type, tool schema, the `agent` manifest block, and the exported retry
+   translation, with a dexcli change for the file schema.
 3. Cores: the `DeferredToolExecution` field, `ConnectorToolSource`, write ordering.
-4. O3 state growth, once the owner answers decisions 9 and 10.
+4. O3 compaction.
 5. O2 session view, then active Step search on session Flows, then the inbox.
 6. O5 after #1266. O4 and O6 as demand shows.
 
@@ -581,11 +591,10 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 8. **Two changes to the Action route.** Return an RPC's output instead of 502, and accept an
    Action without a condition Attribute. Session RPCs check current state themselves, and the
    route is not authorization. Is that acceptable for `POST /api/v2/actions`?
-9. **Superseded values in session state.** O3 shows they are most of the budget. May session
-   Attributes that are rewritten each round, such as `FrameworkRunState`, opt out of keeping
-   superseded values, or should the default history setting change?
-10. **Long record keeping.** Archive to a hard-delete AttributeMap keeps the current retention
-    rule. Retention without a summary changes it. Which does the owner prefer?
+9. **Long record keeping.** With #1325, is archiving old messages still needed, and if so, to a
+   hard-delete AttributeMap, which keeps the current retention rule?
+
+**Answered.** Superseded values: #1325 removes them from the state limit.
 
 ## Non-goals
 
@@ -611,6 +620,7 @@ Proposals from #1132, none scheduled and none reviewed by the owner. The full te
 - **Adapter test that restores the previous framework pin's state (C3, C14).** Each adapter restores a `FrameworkRunState` written by its previously pinned framework version. Motive: a framework release can change state or operation order under in-flight turns.
 - **Usage extras (C9).** Estimated cost per model, an indexed Attribute for **SearchFlows**, the `llm` connector Receipt as a usage source, a sortable usage column in the Flow list, and a link from an activation to the tracing backend.
 - **Deadline escalations and reminders (C5).** Action on an approaching deadline, beyond rejection.
+- **Triggers are Go only today.** The next item and asynchronous model calls both need them in Python and TypeScript.
 - **Approvals from outside the UI (C5).** A Slack approval is a connector Trigger calling the same RPC. An MCP client answers an `input_required` task. An A2A client sends the task its input.
 - **Agent memory (C7).** An `AgentMemory` interface with a session-local and a cross-session implementation through the Attribute Store and **SearchFlows**. External memory services plug in as tools.
 - **Crash matrix gaps.** A deploy of a changed system prompt between two `RunModel` Steps of one turn and during an approval wait (M2 plan S-2). A cold resume after a Timer of more than a day, simulated with **SkipTimer**, with cache usage recorded. Published matrix and server-kill cells are preconditions in the M3 plan.
