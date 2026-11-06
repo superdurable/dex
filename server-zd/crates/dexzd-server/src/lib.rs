@@ -78,7 +78,7 @@ pub enum ServerError {
         #[source]
         source: dexzd_object_store::StartupSelfCheckError,
     },
-    /// The embedded S3 emulator of dev mode could not start.
+    /// The embedded S3 emulator of dev or local mode could not start.
     #[error("starting the embedded S3 emulator in {}: {detail}", directory.display())]
     EmbeddedS3 {
         /// Emulator data directory.
@@ -185,19 +185,10 @@ pub fn run_from_command_line() -> Result<(), ServerError> {
     let options = CommandLineOptions::parse();
     match options.command {
         ServerCommand::Dev(options) => {
-            let configuration = config::Config::load_dev(&options)?;
-            let log_directory = configuration.dev.log_directory.clone();
-            serve_until_terminated(
-                log_directory.as_deref(),
-                move |mut cancellation| async move {
-                    start_dev_server_with_config(
-                        configuration,
-                        &mut cancellation,
-                        LeaseExpiryResponse::ExitProcess,
-                    )
-                    .await
-                },
-            )
+            serve_single_node_until_terminated(&options, config::SingleNodeProfile::Dev)
+        }
+        ServerCommand::Local(options) => {
+            serve_single_node_until_terminated(&options, config::SingleNodeProfile::Local)
         }
         ServerCommand::Serve(options) => {
             let configuration = config::Config::load_file(&options.config)?;
@@ -212,6 +203,26 @@ pub fn run_from_command_line() -> Result<(), ServerError> {
             })
         }
     }
+}
+
+/// Runs `dev` or `local`, selected by `profile`, until SIGINT or SIGTERM.
+fn serve_single_node_until_terminated(
+    options: &DevCommandOptions,
+    profile: config::SingleNodeProfile,
+) -> Result<(), ServerError> {
+    let configuration = config::Config::load_single_node(options, profile)?;
+    let log_directory = configuration.dev.log_directory.clone();
+    serve_until_terminated(
+        log_directory.as_deref(),
+        move |mut cancellation| async move {
+            start_single_node_server_with_config(
+                configuration,
+                &mut cancellation,
+                LeaseExpiryResponse::ExitProcess,
+            )
+            .await
+        },
+    )
 }
 
 /// Installs logging, starts the server, and stops it gracefully on the first SIGINT or SIGTERM.
@@ -276,7 +287,7 @@ where
 /// The caller installs logging.
 pub async fn start_dev_server(options: &DevCommandOptions) -> Result<RunningServer, ServerError> {
     let (_cancellation_sender, mut cancellation) = watch::channel(false);
-    let started = start_dev_server_with_config(
+    let started = start_single_node_server_with_config(
         config::Config::load_dev(options)?,
         &mut cancellation,
         LeaseExpiryResponse::StopNodeOnly,
@@ -285,7 +296,7 @@ pub async fn start_dev_server(options: &DevCommandOptions) -> Result<RunningServ
     Ok(started.expect("dev startup without cancellation must return a server"))
 }
 
-async fn start_dev_server_with_config(
+async fn start_single_node_server_with_config(
     mut configuration: config::Config,
     cancellation: &mut watch::Receiver<bool>,
     lease_expiry_response: LeaseExpiryResponse,

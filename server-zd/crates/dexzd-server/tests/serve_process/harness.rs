@@ -408,9 +408,30 @@ impl ServeProcess {
         address: SocketAddr,
         log_path: PathBuf,
     ) -> Self {
+        Self::spawn_single_node("dev", data_directory, config_path, address, log_path)
+    }
+
+    /// Starts `local` on `data_directory`, applying the overrides in `config_path`.
+    pub(crate) fn spawn_local(
+        data_directory: &Path,
+        config_path: &Path,
+        address: SocketAddr,
+        log_path: PathBuf,
+    ) -> Self {
+        Self::spawn_single_node("local", data_directory, config_path, address, log_path)
+    }
+
+    /// Starts the single-node `command`, `dev` or `local`, on `data_directory`.
+    fn spawn_single_node(
+        command: &str,
+        data_directory: &Path,
+        config_path: &Path,
+        address: SocketAddr,
+        log_path: PathBuf,
+    ) -> Self {
         let log = fs::File::create(&log_path).expect("the process log file is created");
         let child = Command::new(env!("CARGO_BIN_EXE_dex-server-zd"))
-            .arg("dev")
+            .arg(command)
             .arg("--data-dir")
             .arg(data_directory)
             .arg("--listen")
@@ -423,7 +444,7 @@ impl ServeProcess {
             .stderr(log)
             .kill_on_drop(true)
             .spawn()
-            .expect("dex-server-zd dev starts");
+            .unwrap_or_else(|error| panic!("dex-server-zd {command} starts: {error}"));
         Self {
             child,
             address,

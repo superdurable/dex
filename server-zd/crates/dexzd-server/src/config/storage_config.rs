@@ -46,7 +46,7 @@ impl fmt::Debug for ObjectStoreCredentials {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreConfig {
     /// Defaults to empty; use AWS endpoint resolution, or set an HTTP(S) base URL for an S3-compatible store.
-    /// Dev mode sets 127.0.0.1:0 until startup replaces it with the bound embedded S3 address.
+    /// Dev and local modes set 127.0.0.1:0 until startup replaces it with the bound embedded S3 address.
     /// The server connects to this endpoint; it does not advertise it.
     pub endpoint: String,
     /// Defaults to us-east-1; region used for bucket lookup and request signing.
@@ -223,7 +223,7 @@ pub enum DevDurabilityMode {
     Relaxed,
 }
 
-/// Holds paths and durability for the single-node development command.
+/// Holds paths and durability for the single-node `dev` and `local` commands.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct DevConfig {

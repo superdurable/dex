@@ -36,7 +36,7 @@ pub use service_config::{
     ApiConfig, LifecycleConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig,
     StreamStoreBackend, StreamStoreConfig,
 };
-pub use source_config::ConfigError;
+pub use source_config::{ConfigError, SingleNodeProfile};
 pub use standby_config::{StandbyConfig, StandbyMode};
 pub use storage_config::{
     CredentialSource, DevConfig, DevDurabilityMode, LocalStorageConfig, ObjectStoreConfig,
@@ -57,7 +57,7 @@ pub struct Config {
     pub local_storage: LocalStorageConfig,
     /// Group commit and multipart thresholds. Defaults to a 20 ms window and four in-flight writes.
     pub commit: CommitConfig,
-    /// Owner lease settings. Defaults to a ten-second lease, or 30 seconds for `dev`.
+    /// Owner lease settings. Defaults to a ten-second lease, or 30 seconds for `dev` and `local`.
     pub lease: LeaseConfig,
     /// How a process waits for the lease and steps down. Defaults to a cold standby.
     pub standby: StandbyConfig,
@@ -90,7 +90,7 @@ pub struct Config {
     pub limits: LimitsConfig,
     /// PostgreSQL Attribute synchronization with the Go Dex Server's keys. Defaults to no stores.
     pub attribute_store: AttributeStoreConfig,
-    /// Local development paths and embedded S3 durability. Defaults to unset paths and strict durability.
+    /// Paths and embedded S3 durability of `dev` and `local`. Defaults to unset paths and strict durability.
     pub dev: DevConfig,
 }
 

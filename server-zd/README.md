@@ -197,8 +197,9 @@ On Linux, the scrape also includes `process_resident_memory_bytes`, `process_cpu
 
 ## Running
 
-`dex-server-zd` has two commands: `serve` for a Server node on external object storage and `dev`
-for local development.
+`dex-server-zd` has three commands: `serve` for a Server node on external object storage, `dev`
+for local development, and `local` for one production node with an embedded object store on local
+disk.
 
 ### serve
 
@@ -211,7 +212,7 @@ with its default. Set at least `cluster.nodeId`, `objectStore.bucket`, and
 `localStorage.directory`. Unknown keys and a `dev` section with non-default values fail startup.
 An invalid value fails startup with the YAML path of the rejected field.
 
-`streamStore.backend` defaults to `memory` in `serve` and `dev`. Stream messages live only in the
+`streamStore.backend` defaults to `memory` in `serve`, `dev`, and `local`. Stream messages live only in the
 active process and are lost on restart, standby takeover, or step down; trimming can also drop
 older messages. With `backend: disabled`, WriteStream, ReadStream, and ListStreamMessages return
 `FailedPrecondition` with the `UNCATEGORIZED` sub-status, a Step Stream write is dropped with a
@@ -483,7 +484,8 @@ and their results commit, up to `lifecycle.attemptDrainTimeout` (default 30s; 0s
 Heartbeats and Step method timeouts still apply during the drain. A step-down uses the same drain;
 a hot standby can take over only after the active releases its lease. During the drain, new Flow
 RPCs answer UNAVAILABLE and new Steps wait for the successor. `dex-server-zd dev` defaults to a
-2s drain so that it stops within the 10-second budget of `dexcli dev`.
+2s drain so that it stops within the 10-second budget of `dexcli dev`. `dex-server-zd local` keeps
+the 30s default.
 
 The following teardown takes up to about 15 seconds. Workers reconnect, long polls and waiting
 ReadStream calls close, and in-flight RPCs get 4 seconds to finish. Then effects and the engine
@@ -812,6 +814,35 @@ for the lease, even after a crash. The takeover raises the node epoch, as any ta
 filesystem that cannot lock files, `dev` logs a warning and waits for a held lease to expire, up to
 31 seconds.
 
+### local
+
+```bash
+dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>] [--durability strict|process-crash-safe|relaxed]
+```
+
+`local` runs one production node on the embedded s3local of `dev`. It takes the flags of `dev` and
+uses the same data directory layout: the object store under `<data-dir>/s3`, the local store under
+`<data-dir>/store`, and the lock file `<data-dir>/dev.lock`. Either command can serve a data
+directory that the other one wrote, and the shared lock keeps a `dev` and a `local` process from
+serving one directory at once. The fixed values of `dev` apply too: node ID `dev`, the embedded
+endpoint, anonymous credentials, the `--listen` address, `standby.mode: cold` only, and no
+`objectStore.hardDeleteStore`. The `dev` section, such as `dev.durabilityMode`, configures `local`
+as well.
+
+`local` differs from `dev` only in the defaults that `dev` shortens for development:
+
+| Setting | `dev` | `local` | `serve` |
+| --- | --- | --- | --- |
+| `lifecycle.attemptDrainTimeout` | 2s | 30s | 30s |
+
+It keeps the other `dev` defaults because they follow from one node on an embedded store:
+`dev.durabilityMode: strict`, a 30-second `lease.duration` (no standby), the memory Stream Store,
+and a held-lease takeover while it holds the lock. Like `dev`, it listens on `127.0.0.1:8801` by
+default and has no authenticators unless `--config` sets them.
+
+Stream messages in the memory backend are lost on every restart. To back up a `local` node, stop
+it with SIGTERM and copy the whole data directory.
+
 ## Stable command-line interface
 
 These commands and flags are part of the Beta compatibility interface. Applications can invoke
@@ -825,9 +856,10 @@ them without depending on the implementation of the server:
 | `dev` | `--config <file>` | Optional YAML configuration overrides. |
 | `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
 | `dev` | `--attribute-store-config <file>` | Optional Go Server YAML file whose `attributeStore` section configures Attribute synchronization. |
-| Both | `--version` | Prints `dex-server-zd X.Y.Z`. |
+| `local` | Every `dev` flag above | Same meaning and default as for `dev`. |
+| All | `--version` | Prints `dex-server-zd X.Y.Z`. |
 
-SIGTERM stops `dev` and exits with status 0.
+SIGTERM stops `dev` and `local` and exits with status 0.
 
 ## Development
 

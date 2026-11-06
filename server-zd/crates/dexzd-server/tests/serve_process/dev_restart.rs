@@ -57,7 +57,7 @@ async fn a_sigkilled_dev_restarts_without_waiting_for_its_lease() {
         !intruder_status.success()
             && intruder
                 .log()
-                .contains("another dex-server-zd dev process holds"),
+                .contains("another dex-server-zd dev or local process holds"),
         "a second dev process on the same data directory must fail on its lock; \
          it exited with {intruder_status}:\n{}",
         intruder.log()

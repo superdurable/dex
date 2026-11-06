@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize, Serializer};
 pub struct LifecycleConfig {
     /// Defaults to 30 s; keeps the lease and Worker streams open until running Step results commit.
     /// Zero disables attempt draining. Step method and heartbeat timeouts still apply during the drain.
-    /// `dex-server-zd dev` defaults to 2 s unless its configuration sets this field.
+    /// `dex-server-zd dev` defaults to 2 s unless its configuration sets this field; `local` keeps 30 s.
     #[serde(with = "humantime_serde")]
     pub attempt_drain_timeout: Duration,
 }
@@ -141,7 +141,7 @@ pub enum StreamStoreBackend {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct StreamStoreConfig {
-    /// Defaults to memory in serve and dev; disabled rejects client Stream calls.
+    /// Defaults to memory in serve, dev, and local; disabled rejects client Stream calls.
     pub backend: StreamStoreBackend,
     /// Defaults to 100 KiB; maximum serialized Value in one Stream message.
     pub max_message_bytes: u64,
