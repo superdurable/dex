@@ -29,9 +29,12 @@ class FlowServiceTlsOptions:
     Attributes:
         additional_root_cas_pem: PEM-encoded root certificates as bytes or text.
             Defaults to ``None``; empty bytes or text also use gRPC's default
-            trust store. Nonempty bundles add roots to grpcio's bundled roots,
-            Python's system roots, and ``GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`` when
-            set. Defaults are never replaced by the added roots. At least one
+            trust store. Nonempty bundles use the gRPC default roots (grpcio's
+            bundled roots, or ``GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`` when set)
+            plus the added roots. Unlike Go, this is not the OS store.
+            Pass an OS or corporate CA bundle as ``additional_root_cas_pem``
+            to trust those certificates. ``SSL_CERT_FILE`` and ``SSL_CERT_DIR``
+            do not affect this trust. At least one
             certificate must parse; other malformed or non-certificate blocks
             are skipped. Files and certificates are read at Client or Worker
             construction and are not watched for changes.
@@ -49,6 +52,9 @@ class FlowServiceTlsOptions:
             cannot be loaded when adding certificates.
 
     Examples:
+        Assume ``registry``, ``cache``, ``flow``, ``flow_id``, and ``input_value``
+        are configured as in the SDK README. The CA file must already exist.
+
         >>> from concurrent.futures import ThreadPoolExecutor
         >>> from pathlib import Path
         >>> from dex import Client, ClientOptions, FlowServiceTlsOptions

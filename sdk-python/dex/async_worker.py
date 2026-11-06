@@ -17,6 +17,7 @@ from google.protobuf import empty_pb2
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._credential_transport import AsyncCredentialRunner, async_channel
+from dex._flow_service_tls import flow_service_transport
 from dex._pull_worker import PullWorkerRuntime, resolve_app_worker_id
 from dex._server_protocol import (
     NegotiatedServerProtocol,
@@ -74,6 +75,9 @@ class AsyncWorker:
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or WorkerOptions()
+        transport = flow_service_transport(
+            self.options.server_address, self.options.flow_service_tls
+        )
         app_worker_id = resolve_app_worker_id(registry, self.options.pull)
         self._state = "created"
         self._credential_runner = (
@@ -84,7 +88,7 @@ class AsyncWorker:
         self._flow_channel = async_channel(
             self.options.server_address,
             self._credential_runner,
-            self.options.flow_service_tls,
+            transport=transport,
         )
         self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
@@ -107,7 +111,7 @@ class AsyncWorker:
             None,
             app_worker_id,
             self._credential_runner,
-            self.options.flow_service_tls,
+            transport=transport,
         )
         self._stopped = asyncio.Event()
 

@@ -7,11 +7,8 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import asyncio
-import os
-import re
 import ssl
 import socket
-import subprocess
 from dataclasses import fields
 from importlib.resources import files
 from pathlib import Path
@@ -111,16 +108,19 @@ def test_tls_accepts_host_port_and_dns_addresses(address: str) -> None:
     ],
 )
 def test_tls_rejects_unsupported_addresses(address: str) -> None:
-    with pytest.raises(ValueError, match="server_address as host:port"):
+    with pytest.raises(ValueError, match="server_address as host:port") as failure:
         flow_service_transport(address, FlowServiceTlsOptions())
+    assert f"got {address!r}" in str(failure.value)
 
 
 @pytest.mark.parametrize(
     "port", ["0", "65536", "https", "", "+443", "-1", "４４３", "9" * 5000]
 )
 def test_tls_rejects_invalid_ports(port: str) -> None:
-    with pytest.raises(ValueError, match="port 1-65535"):
-        flow_service_transport(f"localhost:{port}", FlowServiceTlsOptions())
+    address = f"localhost:{port}"
+    with pytest.raises(ValueError, match="port 1-65535") as failure:
+        flow_service_transport(address, FlowServiceTlsOptions())
+    assert f"got {address!r}" in str(failure.value)
 
 
 @pytest.mark.parametrize(
@@ -128,8 +128,9 @@ def test_tls_rejects_invalid_ports(port: str) -> None:
     ["", "localhost:443", "bad name", "user@host", "host/path", "[::1]", "fe80::1%lo0"],
 )
 def test_tls_rejects_invalid_server_names(name: str) -> None:
-    with pytest.raises(ValueError, match="server_name"):
+    with pytest.raises(ValueError, match="server_name") as failure:
         flow_service_transport("localhost:443", FlowServiceTlsOptions(server_name=name))
+    assert f"got {name!r}" in str(failure.value)
 
 
 @pytest.mark.parametrize("name", ["localhost", "127.0.0.1", "::1"])
@@ -179,55 +180,109 @@ def test_pem_accepts_bytes_text_and_mixed_bundles(
             credentials.assert_called_once_with(None)
 
 
-def test_added_roots_preserve_public_and_system_trust(
-    certificates: TlsCertificates, tmp_path: Path
+@pytest.mark.parametrize("has_configured_roots", [False, True])
+def test_configured_default_roots_are_preserved(
+    certificates: TlsCertificates,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    has_configured_roots: bool,
 ) -> None:
+    system = create_certificates(tmp_path / "system")
+    extra = create_certificates(tmp_path / "extra")
+    root_file = tmp_path / "default-roots.pem"
+    root_file.write_bytes(certificates.root_pem)
+    system_directory = tmp_path / "system-directory"
+    system_directory.mkdir()
+    (system_directory / "12345678.0").write_bytes(system.root_pem)
+    monkeypatch.setenv("SSL_CERT_FILE", str(system.certificate_file.parent / "ca.pem"))
+    monkeypatch.setenv("SSL_CERT_DIR", str(system_directory))
+    if has_configured_roots:
+        monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(root_file))
+        expected_default = certificates.root_pem.strip()
+    else:
+        monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+        expected_default = (
+            files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
+        )
     with patch(
         "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
     ) as credentials:
+        flow_service_transport("localhost:443", FlowServiceTlsOptions(extra.root_pem))
+    bundle = cast(bytes, credentials.call_args.args[0])
+    assert bundle == expected_default + b"\n" + extra.root_pem.strip()
+    assert system.root_pem.strip() not in bundle
+    if has_configured_roots:
+        bundled_roots = (
+            files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
+        )
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=bundled_roots.decode("ascii"))
+        for certificate in context.get_ca_certs(binary_form=True):
+            assert ssl.DER_cert_to_PEM_cert(certificate).strip().encode() not in bundle
+    else:
+        assert certificates.root_pem.strip() not in bundle
+
+
+def test_unreadable_default_roots_fail_construction(
+    certificates: TlsCertificates, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(tmp_path / "missing"))
+    with pytest.raises(ValueError, match="cannot load default root CAs"):
         flow_service_transport(
             "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
         )
-    bundle = cast(bytes, credentials.call_args.args[0])
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.load_verify_locations(cadata=bundle.decode("ascii"))
-    trusted = set(context.get_ca_certs(binary_form=True))
-    assert set(ssl.create_default_context().get_ca_certs(binary_form=True)) <= trusted
-    public_roots = (
-        files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
-    )
-    public_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    public_context.load_verify_locations(cadata=public_roots.decode("ascii"))
-    assert set(public_context.get_ca_certs(binary_form=True)) <= trusted
-    public_root = re.search(
-        rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
-        public_roots,
-        re.DOTALL,
-    )
-    assert public_root is not None
-    root_file, bundle_file = tmp_path / "public.pem", tmp_path / "combined.pem"
-    root_file.write_bytes(public_root[0])
-    bundle_file.write_bytes(bundle)
-    subprocess.run(
-        ["openssl", "verify", "-CAfile", str(bundle_file), str(root_file)],
-        check=True,
-        capture_output=True,
-    )
-    assert certificates.root_pem.strip() in bundle
+    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH")
+    with patch("dex._flow_service_tls.files", side_effect=OSError("unreadable bundle")):
+        with pytest.raises(ValueError, match="cannot load default root CAs"):
+            flow_service_transport(
+                "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
+            )
 
 
-def test_configured_default_roots_are_preserved(
+def test_configured_roots_do_not_read_bundled_roots(
     certificates: TlsCertificates, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     root_file = tmp_path / "default-roots.pem"
     root_file.write_bytes(certificates.root_pem)
     monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(root_file))
-    assert certificates.root_pem.strip() in _default_root_certificates()
-    root_file.unlink()
-    with pytest.raises(ValueError, match="cannot load default root CAs"):
-        flow_service_transport(
-            "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
-        )
+    with patch("dex._flow_service_tls.files", side_effect=OSError("no bundled roots")):
+        assert _default_root_certificates() == certificates.root_pem.strip()
+
+
+def test_worker_loads_default_roots_once(certificates: TlsCertificates) -> None:
+    with patch(
+        "dex._flow_service_tls._default_root_certificates",
+        side_effect=[certificates.root_pem, ValueError("second read")],
+    ) as read_roots:
+        with Worker(
+            Registry([]),
+            cast(BlobCache, object()),
+            WorkerOptions(
+                flow_service_tls=FlowServiceTlsOptions(certificates.root_pem)
+            ),
+        ):
+            read_roots.assert_called_once_with()
+
+
+def test_async_worker_loads_default_roots_once(certificates: TlsCertificates) -> None:
+    asyncio.run(_check_async_worker_loads_default_roots_once(certificates))
+
+
+async def _check_async_worker_loads_default_roots_once(
+    certificates: TlsCertificates,
+) -> None:
+    with patch(
+        "dex._flow_service_tls._default_root_certificates",
+        side_effect=[certificates.root_pem, ValueError("second read")],
+    ) as read_roots:
+        async with AsyncWorker(
+            Registry([]),
+            cast(BlobCache, object()),
+            WorkerOptions(
+                flow_service_tls=FlowServiceTlsOptions(certificates.root_pem)
+            ),
+        ):
+            read_roots.assert_called_once_with()
 
 
 def test_sync_constructors_validate_tls() -> None:
@@ -270,9 +325,11 @@ def test_grpc_rejects_server_without_h2(
         assert transport.credentials is not None
         with grpc.secure_channel(transport.target, transport.credentials) as channel:
             with pytest.raises(grpc.RpcError) as failure:
-                channel.unary_unary("/test/transport", request_serializer=bytes)(
-                    b"", timeout=2
-                )
+                channel.unary_unary(
+                    "/test/transport",
+                    request_serializer=bytes,
+                    response_deserializer=bytes,
+                )(b"", timeout=2)
         assert failure.value.code() is grpc.StatusCode.UNAVAILABLE
         assert "ALPN" in (failure.value.details() or "")
 
@@ -292,9 +349,11 @@ def test_grpc_rejects_tls_older_than_12(certificates: TlsCertificates) -> None:
         assert transport.credentials is not None
         with grpc.secure_channel(transport.target, transport.credentials) as channel:
             with pytest.raises(grpc.RpcError) as failure:
-                channel.unary_unary("/test/transport", request_serializer=bytes)(
-                    b"", timeout=2
-                )
+                channel.unary_unary(
+                    "/test/transport",
+                    request_serializer=bytes,
+                    response_deserializer=bytes,
+                )(b"", timeout=2)
         assert failure.value.code() is grpc.StatusCode.UNAVAILABLE
         assert not proxy.handshakes
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -310,37 +369,3 @@ def test_grpc_rejects_tls_older_than_12(certificates: TlsCertificates) -> None:
                 connection, server_hostname="localhost"
             ) as tls_socket:
                 assert tls_socket.version() == "TLSv1.1"
-
-
-def test_added_roots_preserve_lazily_loaded_system_root_directories(
-    certificates: TlsCertificates,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    root_directory = tmp_path / "system-roots"
-    root_directory.mkdir()
-    subject_hash = subprocess.run(
-        [
-            "openssl",
-            "x509",
-            "-in",
-            str(certificates.certificate_file.parent / "ca.pem"),
-            "-subject_hash",
-            "-noout",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    (root_directory / f"{subject_hash}.0").write_bytes(certificates.root_pem)
-    monkeypatch.setenv(
-        "SSL_CERT_DIR", f"{tmp_path / 'missing'}{os.pathsep}{root_directory}"
-    )
-    extra = create_certificates(tmp_path / "extra")
-    with patch(
-        "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
-    ) as credentials:
-        flow_service_transport("localhost:443", FlowServiceTlsOptions(extra.root_pem))
-    bundle = cast(bytes, credentials.call_args.args[0])
-    assert certificates.root_pem.strip() in bundle
-    assert extra.root_pem.strip() in bundle

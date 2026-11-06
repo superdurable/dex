@@ -5,8 +5,11 @@
 ### Added and fixed
 
 - Add `FlowServiceTlsOptions` to Client and Worker options for verified TLS 1.2+
-  connections, including async APIs and pull streams. Optional PEM roots add to
-  default trust, and an optional server name controls verification and authority.
+  connections, including async APIs and pull streams. Trust is the gRPC default
+  roots (grpcio's bundled roots, or `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when set)
+  plus the added roots. Unlike Go, this is not the OS store; pass the OS or
+  corporate CA bundle as `additional_root_cas_pem` when needed. An optional
+  server name controls verification and authority.
 
 - Add `Client.get_attributes` and `AsyncClient.get_attributes`, which read
   committed Attribute and AttributeMap instance values of the current or latest

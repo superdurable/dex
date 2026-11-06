@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from importlib.resources import files
+from unittest.mock import patch
 from uuid import uuid4
 from typing import cast
 
@@ -105,7 +107,7 @@ def environment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TlsEnviron
         f"      file: {json.dumps(str(token_hash_file))}\n"
         "dev:\n  durabilityMode: processCrashSafe\n"
     )
-    certificates = create_certificates(directory / "primary")
+    certificates = create_certificates(directory / "primary", has_ip_sans=False)
     credential = FileCredential(token_file)
     with ExitStack() as cleanup:
         cache = open_blob_cache(
@@ -165,6 +167,8 @@ def _stop_server(process: subprocess.Popen[bytes]) -> None:
 def test_sync_client_and_pull_worker_complete_flow(
     environment: TlsEnvironment, target: str
 ) -> None:
+    environment.proxy.server_names.clear()
+    environment.proxy.handshakes.clear()
     flow = TlsTransportFlow()
     registry = Registry([flow])
     tls = FlowServiceTlsOptions(environment.certificates.root_pem)
@@ -215,7 +219,8 @@ def test_sync_client_and_pull_worker_complete_flow(
             "TLSv1.2",
             "h2",
         ) in environment.proxy.handshakes
-        assert "localhost" in environment.proxy.server_names
+        assert environment.proxy.server_names
+        assert set(environment.proxy.server_names) == {"localhost"}
 
 
 def test_async_client_and_pull_worker_complete_flow(
@@ -275,7 +280,7 @@ def test_tls_without_bearer_token_is_rejected(environment: TlsEnvironment) -> No
 
 
 @pytest.mark.parametrize(
-    "failure_case", ["wrong-name", "untrusted", "plaintext-to-tls"]
+    "failure_case", ["wrong-name", "untrusted", "plaintext-to-tls", "missing-override"]
 )
 def test_tls_rejects_invalid_transport(
     environment: TlsEnvironment, failure_case: str
@@ -285,11 +290,15 @@ def test_tls_rejects_invalid_transport(
         tls = FlowServiceTlsOptions(environment.certificates.root_pem, "wrong.example")
     elif failure_case == "plaintext-to-tls":
         tls = None
+    address = environment.proxy.address
+    if failure_case == "missing-override":
+        address = f"127.0.0.1:{environment.proxy.port}"
+        tls = FlowServiceTlsOptions(environment.certificates.root_pem)
     transport_client = Client(
         Registry([]),
         environment.cache,
         ClientOptions(
-            server_address=environment.proxy.address,
+            server_address=address,
             flow_service_tls=tls,
             credential=environment.credential,
         ),
@@ -324,23 +333,118 @@ def test_wrong_server_name_fails_worker_start(environment: TlsEnvironment) -> No
     )
 
 
-def test_extra_root_does_not_replace_configured_default(
-    environment: TlsEnvironment, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("failure_case", ["wrong-name", "untrusted"])
+def test_async_tls_rejects_invalid_transport(
+    environment: TlsEnvironment, failure_case: str
 ) -> None:
-    extra = create_certificates(tmp_path / "extra")
-    root_file = tmp_path / "default.pem"
-    root_file.write_bytes(environment.certificates.root_pem)
-    monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(root_file))
-    with Client(
+    asyncio.run(_check_async_invalid_transport(environment, failure_case))
+
+
+async def _check_async_invalid_transport(
+    environment: TlsEnvironment, failure_case: str
+) -> None:
+    tls = (
+        FlowServiceTlsOptions(environment.certificates.root_pem, "wrong.example")
+        if failure_case == "wrong-name"
+        else FlowServiceTlsOptions()
+    )
+    async with AsyncClient(
         Registry([]),
         environment.cache,
         ClientOptions(
             server_address=environment.proxy.address,
+            flow_service_tls=tls,
+            credential=environment.credential,
+        ),
+    ) as client:
+        with pytest.raises(grpc.aio.AioRpcError) as failure:
+            await client._service.GetServerInfo(Empty(), timeout=2)
+        assert failure.value.code() is grpc.StatusCode.UNAVAILABLE
+        detail = failure.value.details() or ""
+        if failure_case == "wrong-name":
+            assert "hostname" in detail.lower() or "wrong.example" in detail
+        else:
+            assert "CERTIFICATE_VERIFY_FAILED" in detail
+    async with AsyncWorker(
+        Registry([]),
+        environment.cache,
+        WorkerOptions(
+            server_address=environment.proxy.address,
+            flow_service_tls=tls,
+            credential=environment.credential,
+            attribute_index_sync_timeout=timedelta(seconds=2),
+            pull=PullWorkerOptions(max_concurrent_tasks=2),
+        ),
+    ) as worker:
+        with pytest.raises(RuntimeError, match="GetServerInfo failed") as startup:
+            await worker.start()
+        if failure_case == "wrong-name":
+            assert "hostname" in str(startup.value).lower() or "wrong.example" in str(
+                startup.value
+            )
+        else:
+            assert "CERTIFICATE_VERIFY_FAILED" in str(startup.value)
+
+
+def test_extra_root_does_not_replace_configured_default(
+    environment: TlsEnvironment, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    extra = create_certificates(tmp_path / "extra")
+    system = create_certificates(tmp_path / "system")
+    root_file = tmp_path / "default.pem"
+    root_file.write_bytes(environment.certificates.root_pem)
+    system_directory = tmp_path / "system-directory"
+    system_directory.mkdir()
+    (system_directory / "12345678.0").write_bytes(system.root_pem)
+    monkeypatch.setenv("SSL_CERT_FILE", str(system.certificate_file.parent / "ca.pem"))
+    monkeypatch.setenv("SSL_CERT_DIR", str(system_directory))
+    monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", str(root_file))
+    with patch(
+        "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
+    ) as credentials:
+        with Client(
+            Registry([]),
+            environment.cache,
+            ClientOptions(
+                server_address=environment.proxy.address,
+                flow_service_tls=FlowServiceTlsOptions(extra.root_pem),
+                credential=environment.credential,
+            ),
+        ) as client:
+            assert client.health_check()
+    bundle = cast(bytes, credentials.call_args.args[0])
+    assert (
+        bundle
+        == environment.certificates.root_pem.strip() + b"\n" + extra.root_pem.strip()
+    )
+    assert system.root_pem.strip() not in bundle
+    assert (
+        files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
+        not in bundle
+    )
+    with TlsProxy(extra, environment.address) as extra_proxy, Client(
+        Registry([]),
+        environment.cache,
+        ClientOptions(
+            server_address=extra_proxy.address,
             flow_service_tls=FlowServiceTlsOptions(extra.root_pem),
             credential=environment.credential,
         ),
     ) as client:
         assert client.health_check()
+    with TlsProxy(system, environment.address) as system_proxy, Client(
+        Registry([]),
+        environment.cache,
+        ClientOptions(
+            server_address=system_proxy.address,
+            flow_service_tls=FlowServiceTlsOptions(extra.root_pem),
+            credential=environment.credential,
+        ),
+    ) as client:
+        with pytest.raises(grpc.RpcError) as failure:
+            client._service.GetServerInfo(Empty(), timeout=2)
+        assert failure.value.code() is grpc.StatusCode.UNAVAILABLE
+        assert "CERTIFICATE_VERIFY_FAILED" in (failure.value.details() or "")
 
 
 class TokenExchangeServer(ThreadingHTTPServer):

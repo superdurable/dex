@@ -26,13 +26,17 @@ class TlsCertificates:
     private_key_file: Path
 
 
-def create_certificates(directory: Path) -> TlsCertificates:
+def create_certificates(
+    directory: Path, *, has_ip_sans: bool = True
+) -> TlsCertificates:
     directory.mkdir()
     extensions = directory / "extensions.cnf"
     extensions.write_text(
         "[ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n"
         "[server]\nbasicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\n"
-        "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1\n"
+        "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:localhost"
+        + (",IP:127.0.0.1,IP:::1" if has_ip_sans else "")
+        + "\n"
     )
     commands = [
         ["ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", "ca.key"],
@@ -229,7 +233,7 @@ class TlsProxy:
                 await writer.wait_closed()
                 if upstream_writer is not None:
                     await upstream_writer.wait_closed()
-            except (ConnectionError, ssl.SSLError):
+            except (ConnectionError, ssl.SSLError, TimeoutError):
                 # Rejected handshakes and channel teardown reset test connections.
                 pass
 

@@ -43,7 +43,8 @@ def flow_service_transport(
     if options.server_name is not None:
         if not _is_valid_server_name(options.server_name):
             raise ValueError(
-                "flow_service_tls.server_name must be a nonempty DNS name or IP address without a port"
+                "flow_service_tls.server_name must be a nonempty DNS name or IP address without a port; "
+                f"got {options.server_name!r}"
             )
         channel_options = (
             ("grpc.ssl_target_name_override", options.server_name),
@@ -68,37 +69,40 @@ def _flow_service_tls_target(server_address: str) -> str:
             or re.search(r"[ \t\r\n?#@]", authority)
             or re.search(r"[/?#]", endpoint)
         ):
-            raise _unsupported_address()
+            raise _unsupported_address(server_address)
         target = f"dns://{dns_target}"
     elif (
         re.search(r"[/?#]", server_address)
         or server_address.partition(":")[0].lower() in _RESOLVER_SCHEMES
     ):
-        raise _unsupported_address()
+        raise _unsupported_address(server_address)
     host, separator, port = endpoint.rpartition(":")
     if not separator:
-        raise _unsupported_address()
+        raise _unsupported_address(server_address)
     if host.startswith("[") and host.endswith("]"):
         host = host[1:-1]
         if not _is_ipv6(host):
-            raise _unsupported_address()
+            raise _unsupported_address(server_address)
     elif ":" in host:
-        raise _unsupported_address()
+        raise _unsupported_address(server_address)
     if "[" in host or "]" in host or not _is_valid_server_name(host):
-        raise _unsupported_address()
+        raise _unsupported_address(server_address)
     significant_port = port.lstrip("0")
     if (
         not re.fullmatch(r"[0-9]+", port)
         or len(significant_port) > 5
         or not 1 <= int(significant_port or "0") <= 65535
     ):
-        raise ValueError("flow_service_tls requires server_address port 1-65535")
+        raise ValueError(
+            f"flow_service_tls requires server_address port 1-65535; got {server_address!r}"
+        )
     return target
 
 
-def _unsupported_address() -> ValueError:
+def _unsupported_address(server_address: str) -> ValueError:
     return ValueError(
-        "flow_service_tls requires server_address as host:port, dns:///host:port, or dns://authority/host:port"
+        "flow_service_tls requires server_address as host:port, dns:///host:port, or dns://authority/host:port; "
+        f"got {server_address!r}"
     )
 
 
@@ -139,42 +143,11 @@ def _additional_root_certificates(bundle: bytes | str) -> bytes:
 
 def _default_root_certificates() -> bytes:
     try:
-        bundled_roots = (
-            files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
-        )
-        system_roots = ssl.create_default_context().get_ca_certs(binary_form=True)
-        certificates = [bundled_roots] + [
-            ssl.DER_cert_to_PEM_cert(certificate).encode("ascii")
-            for certificate in system_roots
-        ]
-        certificates.extend(_system_root_directory_certificates())
         configured_file = os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH")
         if configured_file:
-            certificates.append(
-                _additional_root_certificates(Path(configured_file).read_bytes())
-            )
-        return b"\n".join(certificates)
+            return _additional_root_certificates(Path(configured_file).read_bytes())
+        return (
+            files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
+        )
     except (OSError, ValueError, ssl.SSLError) as failure:
         raise ValueError("flow_service_tls: cannot load default root CAs") from failure
-
-
-# OpenSSL loads hashed CA-directory entries lazily, so get_ca_certs alone omits their roots.
-def _system_root_directory_certificates() -> list[bytes]:
-    paths = ssl.get_default_verify_paths()
-    root_directories = os.environ.get(paths.openssl_capath_env, paths.openssl_capath)
-    certificates = []
-    for directory_name in root_directories.split(os.pathsep):
-        directory = Path(directory_name)
-        if not directory_name or not directory.is_dir():
-            continue
-        for certificate_file in directory.iterdir():
-            if (
-                re.fullmatch(r"[0-9a-fA-F]{8}\.[0-9]+", certificate_file.name)
-                and certificate_file.is_file()
-            ):
-                bundle = certificate_file.read_bytes()
-                try:
-                    certificates.append(_additional_root_certificates(bundle))
-                except ValueError:
-                    continue
-    return certificates

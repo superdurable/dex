@@ -27,13 +27,12 @@ from dex._credential_transport import (
     _reject_credential_token,
     async_credential_metadata,
 )
-from dex._flow_service_tls import FlowServiceTransport, flow_service_transport
+from dex._flow_service_tls import FlowServiceTransport
 from dex._grpc_errors import _worker_error_status
 from dex._server_protocol import sdk_version
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.flow import Registry
-from dex.flow_service_tls_options import FlowServiceTlsOptions
 from dex.pull_registration import _PullRegistration
 from dex.worker_options import PullWorkerOptions
 
@@ -107,9 +106,9 @@ class PullWorkerRuntime:
         executor: ThreadPoolExecutor | None,
         app_worker_id: str | None = None,
         credential_runner: AsyncCredentialRunner | None = None,
-        flow_service_tls: FlowServiceTlsOptions | None = None,
+        transport: FlowServiceTransport | None = None,
     ) -> None:
-        self._transport = flow_service_transport(server_address, flow_service_tls)
+        self._transport = transport
         self._registry = registry
         self.app_worker_id = app_worker_id or resolve_app_worker_id(registry, options)
         self.flow_types = sorted(registry._registered_flows)
@@ -183,10 +182,8 @@ class PullWorkerRuntime:
         self._started.set()
         channel: grpc.aio.Channel | None = None
         try:
-            channel = (
-                outbound_worker_task_channel(self._server_address)
-                if self._transport.credentials is None
-                else outbound_worker_task_channel(self._server_address, self._transport)
+            channel = outbound_worker_task_channel(
+                self._server_address, self._transport
             )
             stub = dex_pb2_grpc.WorkerTaskServiceStub(channel)  # type: ignore[no-untyped-call]
             self._wake.set()

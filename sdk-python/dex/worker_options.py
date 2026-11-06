@@ -118,8 +118,8 @@ class WorkerOptions:
             for trust, address validation, and a complete example.
         credential: Supplies the current bearer token for FlowService calls and
             each pull stream open. ``None`` sends no authorization metadata.
-            Token errors fail calls before Dex is contacted. Protect the plaintext
-            network path. A rotated token is used on the next call or reconnect.
+            Token errors fail calls before Dex is contacted. Enable TLS
+            to protect bearer tokens in transit. A rotated token is used on the next call or reconnect.
             AsyncWorker accepts awaitable tokens and bounds pull stream token
             lookup to 30 seconds. Synchronous token lookup must return promptly.
     """

@@ -23,7 +23,7 @@ from typing import Any, NamedTuple, cast
 
 import grpc
 
-from dex._flow_service_tls import flow_service_transport
+from dex._flow_service_tls import FlowServiceTransport, flow_service_transport
 from dex.credential import Credential
 from dex.flow_service_tls_options import FlowServiceTlsOptions
 
@@ -324,8 +324,11 @@ def sync_channel(
     server_address: str,
     credential: Credential | None,
     flow_service_tls: FlowServiceTlsOptions | None = None,
+    *,
+    transport: FlowServiceTransport | None = None,
 ) -> grpc.Channel:
-    transport = flow_service_transport(server_address, flow_service_tls)
+    if transport is None:
+        transport = flow_service_transport(server_address, flow_service_tls)
     channel = (
         grpc.insecure_channel(server_address)
         if transport.credentials is None
@@ -342,8 +345,11 @@ def async_channel(
     server_address: str,
     credential_runner: AsyncCredentialRunner | None,
     flow_service_tls: FlowServiceTlsOptions | None = None,
+    *,
+    transport: FlowServiceTransport | None = None,
 ) -> grpc.aio.Channel:
-    transport = flow_service_transport(server_address, flow_service_tls)
+    if transport is None:
+        transport = flow_service_transport(server_address, flow_service_tls)
     if transport.credentials is not None:
         interceptors = (
             [

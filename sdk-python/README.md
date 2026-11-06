@@ -132,13 +132,21 @@ with Worker(registry, cache, WorkerOptions(
 - `additional_root_cas_pem` accepts PEM bytes or text. Omit it, or use an empty
   value, for gRPC's default trust. A nonempty bundle must contain at least one
   parsable certificate; malformed and non-certificate blocks are skipped when
-  another certificate parses. Added roots never replace defaults: the SDK
-  combines grpcio's bundled roots, roots loaded by Python's
-  `ssl.create_default_context()` (including `SSL_CERT_FILE` and `SSL_CERT_DIR`),
-  and `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when configured. These sources are read
-  at construction. An unreadable or invalid configured gRPC root file fails
-  construction instead of silently discarding its trust. This explicit combined
-  bundle is needed because gRPC's `root_certificates` argument replaces defaults.
+  another certificate parses. The trust is the gRPC default roots (grpcio's
+  bundled roots, or `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when set) plus the added
+  roots. A configured gRPC root file replaces the bundled roots. Unlike Go,
+  this is not the OS store; `SSL_CERT_FILE` and `SSL_CERT_DIR` do not affect it.
+  These sources are read at construction. An unreadable bundled root file, or an
+  unreadable or invalid configured gRPC root file, fails construction when adding
+  roots. To trust OS or corporate CAs, pass their PEM bundle explicitly:
+
+  ```python
+  tls = FlowServiceTlsOptions(
+      additional_root_cas_pem=Path("/etc/ssl/certs/ca-certificates.crt").read_bytes(),
+  )
+  ```
+
+  Use the CA bundle path supplied by your OS or organization.
 - `server_name` defaults to `None`, which verifies the address host and preserves
   the host and port as HTTP/2 authority. Set a DNS name or IP without a port only
   when the certificate name differs. It controls verification, SNI, and HTTP/2

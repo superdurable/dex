@@ -20,6 +20,7 @@ import grpc
 from google.protobuf import empty_pb2
 
 from dex._credential_transport import AsyncCredentialRunner, sync_channel
+from dex._flow_service_tls import flow_service_transport
 from dex._pull_worker import PullWorkerRuntime, resolve_app_worker_id
 from dex._server_protocol import (
     NegotiatedServerProtocol,
@@ -80,6 +81,9 @@ class Worker:
         self.registry = registry
         self.blob_cache = blob_cache
         self.options = options or WorkerOptions()
+        transport = flow_service_transport(
+            self.options.server_address, self.options.flow_service_tls
+        )
         self._credential_runner = (
             AsyncCredentialRunner(self.options.credential)
             if self.options.credential is not None
@@ -91,7 +95,7 @@ class Worker:
         self._flow_channel = sync_channel(
             self.options.server_address,
             self.options.credential,
-            self.options.flow_service_tls,
+            transport=transport,
         )
         self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
@@ -119,7 +123,7 @@ class Worker:
             self._executor,
             app_worker_id,
             self._credential_runner,
-            self.options.flow_service_tls,
+            transport=transport,
         )
 
     def __enter__(self) -> Worker:
