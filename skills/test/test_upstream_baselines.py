@@ -1526,10 +1526,10 @@ class DevDurabilityStreamStoreReferencesTest(unittest.TestCase):
         self.references = copy_references(Path(temporary.name), *self.PAGES)
 
     def check(self):
-        CHECKER.check_dev_durability_stream_store_references(self.references)
+        CHECKER.check_dev_durability_stream_store_references(CHECKER.ROOT.parent, self.references)
 
     def test_real_references_pass(self):
-        CHECKER.check_dev_durability_stream_store_references(CHECKER.SDK_REFERENCES)
+        CHECKER.check_dev_durability_stream_store_references(CHECKER.ROOT.parent, CHECKER.SDK_REFERENCES)
 
     def test_each_reference_statement_must_be_enforced(self):
         for page, needles in CHECKER.DEV_DURABILITY_STREAM_STORE_REFERENCE_STATEMENTS:
