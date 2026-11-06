@@ -172,7 +172,7 @@ at every external boundary.
 
 | Application need | Capability | Composition |
 | --- | --- | --- |
-| Provider read or write during a Flow | Query or Mutation | the operation-specific factory as a Connector Step |
+| Provider read or write during a Flow | Query or Mutation | the operation-specific factory as a Connector Step; never low-level Connector SDK wire types instead |
 | External event starts work | Trigger | `NewDexFlowTriggerTarget` with a typed Flow, filter, Flow ID resolver, and input mapper |
 | External event updates existing work | Trigger | `NewDexRPCTriggerTarget` with a registered typed RPC, filter, Flow ID resolver, and input mapper |
 | User or API RPC requests provider work | Query or Mutation plus an application RPC | the RPC validates and commits state, then returns a movement to a Connector Step |

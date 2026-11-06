@@ -191,6 +191,8 @@ Rules:
 - `Worker::start()` blocks until the Worker stops. Call it once, on a
   dedicated OS thread, and keep the `JoinHandle`. A start error must fail the
   service.
+- A Worker starts only once. To replace or restart one, build a new Worker
+  over the same Registry and cache, start it, and wait for its registration.
 - `wait_pull_registered()` is async. Wrap it in `tokio::time::timeout` and
   await it before reporting the service ready. Outside an async context, build
   a current-thread Tokio runtime and `block_on` it.
@@ -214,8 +216,9 @@ Rules:
   bounded by the Step method timeout. Never spawn a future from a handler and
   drop it.
 - Every `Client` method blocks the calling thread. In an async server, call it through
-  `tokio::task::spawn_blocking` or `tokio::task::block_in_place`, never
-  directly on an executor thread. The examples use a `run_blocking` helper in
+  `tokio::task::spawn_blocking`, never directly on an executor thread.
+  `tokio::task::block_in_place` panics on a current-thread runtime, which is
+  the `#[tokio::test]` default, so use it only on a multi-thread runtime. The examples use a `run_blocking` helper in
   [http_response.rs](https://github.com/superdurable/dex/blob/main/examples/rust/src/server/http_response.rs).
 
 ## Pull Workers and Dex credentials
@@ -227,8 +230,8 @@ Rules:
   change must stay compatible with open Flows.
 - When the Server requires authentication, set `credential(Arc<dyn Credential>)`
   on both `ClientOptions` and `WorkerOptions`. Use `FileCredential` for a
-  rotated token file, or the API-key credential when the application holds an
-  API key. Share one `Arc`.
+  rotated token file, or `ApiKeyCredential::builder(token_url, server_id,
+  api_key)` when the application holds an API key. Share one `Arc`.
 - The API-key credential performs its first token exchange in
   `build().await`, so a bad key fails before the Client or Worker exists. It
   refreshes on a background Tokio task; keep that runtime alive and running

@@ -208,6 +208,8 @@ class RecordChargeFailure implements Step<Order> {
 - `stream.write` counts as liveness but does not replace a checkpoint.
 - Check `context.cancellationSignal.aborted` between work units and pass the
   signal to `fetch` and other abort-aware calls.
+- `context.recordEvent(name, value, codec)` adds a business milestone to Flow
+  history.
 - `context.setStepExecutionLocal(key, value, codec)` and
   `getStepExecutionLocal(key, codec)` pass a value from `waitFor` to
   `execute` of the same Step execution. Dex commits it with the method's
@@ -236,10 +238,16 @@ const customerEmail = new Attribute("customer-email", stringCodec).syncToAttribu
   `attributeMap.get/set/delete(context, instance)`,
   `getAllInstanceKeys(context)`, `getMapSize(context)`. Setting `null` or
   `undefined` deletes.
-- AttributeMap instances load only when selected: `loadAttributeMaps`, or
-  `loadAttributeMapInstances: [map.load(instance)]` in StepOptions or
-  RPCOptions. Reading an unselected instance throws
+- AttributeMap instances load only when selected. StepOptions use the method
+  prefix: `waitForLoadAttributeMaps`, `waitForLoadAttributeMapInstances`,
+  `executeLoadAttributeMaps`, `executeLoadAttributeMapInstances`, and the same
+  `waitForLoad*` / `executeLoad*` forms for Channels and ChannelMaps. RPCOptions
+  and RPC invoke options use the unprefixed `loadAttributeMaps`,
+  `loadAttributeMapInstances: [map.load(instance)]`, `loadChannels`, and
+  `loadChannelMapInstances`. Reading an unselected instance throws
   `AttributeMapNotLoadedError`.
+- `getAllInstanceKeys` and `getMapSize` need a whole-map load. To test one
+  known key, load that instance and check `get(...) !== undefined`.
 - Locks: `attribute.lock()` or `attributeMap.lock(instance)` in
   `waitForLockAttributes`, `executeLockAttributes`, or RPC `lockAttributes`.
   Read-modify-write of a map instance selects both `lock(instance)` and
@@ -251,6 +259,8 @@ const customerEmail = new Attribute("customer-email", stringCodec).syncToAttribu
 - `hardDeleteOnNull()` accepts only string and object codecs and cannot be
   combined with an index or `syncToAttributeStore()`. Pass the value at start
   with `InitialAttribute.of(apiKey, value)` in `StartFlowOptions.attributes`.
+  An initial AttributeMap instance uses `InitialAttribute.mapValue(map,
+  instance, value)`.
   `waitForAttributeMatch` rejects it.
 
 ## Channel and ChannelMap
@@ -260,9 +270,13 @@ const customerEmail = new Attribute("customer-email", stringCodec).syncToAttribu
 - Wait with `forOne()`, `forN(n)`, `atLeast`, `atMost`, or `range`. Read the
   consumed messages with `channel.results(context)`.
 - Pending messages load only when selected: `loadChannels`, or
-  `loadChannelMapInstances: [map.loadMessages(instance)]`. An RPC reads
+  `loadChannelMapInstances: [map.loadMessages(instance)]` on an RPC, and the
+  `waitForLoad*` / `executeLoad*` forms in StepOptions. An RPC reads
   `pendingMessages` and `findPendingMessage` and calls
-  `delete(context, messageId)`.
+  `delete(context, messageId)`. ChannelMap forms take the instance too.
+- `pendingMessages` returns the loaded snapshot. It ignores this handler's own
+  staged `publish` and `delete` calls, so compute a returned queue from the
+  snapshot and your changes.
 - `isTransactional: true` on an RPC validates its deletions and commits its
   writes atomically. It does not lock the snapshot; use a shared Attribute
   lock for that.
@@ -287,7 +301,7 @@ export class NotebookFlow implements Flow<void> {
   }
 
   public updateNote(context: Context, input: { readonly noteId: string; readonly text: string }): RPCResult<boolean> {
-    const existed = notes.getAllInstanceKeys(context).includes(input.noteId);
+    const existed = notes.get(context, input.noteId) !== undefined;
     notes.set(context, input.noteId, { text: input.text });
     return { output: existed };
   }
@@ -321,6 +335,10 @@ export async function updateOneNote(client: Client, notebookFlow: NotebookFlow, 
   `isTransactional`, and loads. `client.invokeRPCWithOptions` adds only
   `lockAttributeMapInstances`, `loadAttributeMapInstances`, and
   `loadChannelMapInstances` for one call.
+- A Step decision cancels Steps Flow-wide with
+  `withCancelingSteps(decision, StepA, ...)`, or only the siblings started by
+  the same parent with `withCancelingSiblingSteps(decision, ...)`. Steps
+  scheduled by the same decision or RPC result are never canceled by it.
 - `RPCResult.nextSteps` schedules Steps. `RPCResult.cancelingSteps` cancels
   every current execution of the named Step types.
 - A held lock fails the RPC with `RpcLockConflictError`.
@@ -437,7 +455,8 @@ export async function approveOrder(client: Client, orderFlow: OrderFlow): Promis
 - `startFlow(flow, flowId, input, options)` resolves to the run ID once Dex
   accepts the start.
 - `invokeRPC(flow.method, flowId, input?)` takes the bound method of the
-  registered Flow instance.
+  registered Flow instance. For an RPC without input, the third positional
+  argument is the optional `runId`, not an input; never pass a payload there.
 - `waitForFlow(flowId, timeoutMs?)` resolves to a `FlowResult` for a closed
   Flow and throws `LongPollTimeoutError` while it is open. Check
   `result.status` before `singleOutput(codec)`.

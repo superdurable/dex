@@ -29,7 +29,8 @@ Use Attributes for current state. Use Channels for ordered durable messages. Do 
 ## Loading
 
 - Steps, timeout handlers, and RPCs receive ordinary Attribute values automatically.
-- AttributeMap values must be selected explicitly: exact instances for known keys, the whole map only to enumerate it. Map size and keys need no load.
+- AttributeMap values must be selected explicitly: exact instances for known keys, the whole map only to enumerate it.
+- Map size and the list of instance keys need a whole-map load. With only exact instances loaded, they raise the not-loaded error. To test whether one known key exists, load that instance and read it.
 - Reading an unselected instance raises the SDK's not-loaded error.
 - A load controls data transfer only. It does not lock, and it does not make an RPC transactional or isolated.
 

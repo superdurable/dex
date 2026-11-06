@@ -14,7 +14,12 @@ use the async surface; see [Choose async or sync](python.md#choose-async-or-sync
 - `get_step_options` returns the Step's static `StepOptions`.
 - Decisions: `go_to(target, input)`, `go_to_many(StepMovement.of(...), ...)`,
   `dead_end()`, `graceful_complete(output)`, `force_complete(output)`,
-  `force_fail(reason)`, and `force_complete_if_channels_empty(output, fallback)`.
+  `force_fail(reason)`, and `force_complete_if_channels_empty(output, fallback, *channels)`,
+  which completes only when every named Channel is empty and otherwise moves to
+  `fallback`.
+- `decision.with_canceling_steps(StepA, ...)` cancels Steps Flow-wide, and
+  `with_canceling_sibling_steps(...)` cancels the siblings of the same parent.
+  Steps scheduled by the same decision are never canceled by it.
 - A target is a registered instance, a class with exactly one registered
   instance, or `StepRef("StepType")` for a Step defined later or elsewhere.
   An unknown or ambiguous target raises `FlowDefinitionError`.
@@ -91,8 +96,10 @@ class OrderApprovalFlow(Flow[OrderRequest]):
   Use whole seconds.
 - In `execute`, `context.has_timer_fired()` tells whether a Timer won, and
   `channel.results(context)` returns the messages the winning Channel
-  condition consumed. Pass `condition_id=` when several conditions of one kind
-  must be told apart.
+  condition consumed. Results are never read by Condition ID, so leave
+  Conditions unnamed in `until`, `any_of`, and `all_of`. Pass `condition_id=`
+  on every Condition inside `any_combination_of`, and on a Timer that
+  `skip_timer` targets by ID.
 
 ## Attribute and AttributeMap
 
@@ -102,7 +109,9 @@ class OrderApprovalFlow(Flow[OrderRequest]):
 - Ordinary Attributes load into every handler. AttributeMap instances load only
   when selected: `StepOptions(execute_load_attribute_map_instances=(notes.load(key),))`,
   `@rpc(load_attribute_map_instances=...)`, or a whole map with
-  `load_attribute_maps`. Reading an unselected instance raises
+  `load_attribute_maps`. `get_map_size` and `get_all_instance_keys` need that
+  whole-map load; to test one known key, load the instance and read it.
+  Reading an unselected instance raises
   `AttributeMapNotLoadedError`; that is not "absent".
 - Locks: `attribute.lock()` or `attribute_map.lock(instance)` in
   `StepOptions(execute_lock_attributes=...)` or `@rpc(lock_attributes=...)`.
@@ -127,9 +136,11 @@ class OrderApprovalFlow(Flow[OrderRequest]):
   has no publish call; expose a typed `@rpc` that publishes.
 - Pending messages load only on request: `StepOptions(execute_load_channels=(queue,))`
   or `@rpc(load_channels=...)`; ChannelMap instances use
-  `channel_map.load_messages(instance)`. Then use
+  `channel_map.load_messages(instance)`, or per call
+  `RPCInvokeOptions(load_channel_map_instances=...)`. Then use
   `pending_messages(context)`, `find_pending_message(context, message_id)`, and
-  `delete(context, message_id)`.
+  `delete(context, message_id)`. The ChannelMap forms take the instance after
+  `context`.
 
 ## RPC
 
@@ -267,6 +278,8 @@ class ChargeInBatches(Step[OrderRequest]):
 - Check `context.is_cancellation_requested()` between bounded units of work.
 - A Flow timeout handler overrides `handle_timeout(self, context)` and returns
   a decision; configure it with `StartFlowOptions(timeout=..., timeout_policy=FlowTimeoutPolicy.HANDLER)`.
+  `FlowTimeoutHandlerOptions(...).on_failure_proceed_to(RecoveryStep)` routes
+  an exhausted handler to a `Step[None]` recovery Step.
 
 ## Context values
 

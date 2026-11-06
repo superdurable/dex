@@ -14,8 +14,9 @@ rules. This page maps them to Java. Keep three kinds of failure apart:
 - Throwing from `waitFor` or `execute` fails that attempt. Dex discards every
   Attribute write and Channel publish the attempt staged, then retries
   according to `waitForRetry` or `executeRetry`.
-- The recovery error type Dex records is the thrown exception's class name. Use
-  your own exception classes when recovery must branch on the cause.
+- The recovery error type Dex records is the thrown exception's fully
+  qualified class name, from `getClass().getName()`. Use your own exception
+  classes when recovery must branch on the cause.
 - Never catch an exception only to return a success decision. That commits
   partial state and hides the retry.
 - An external call may succeed even when the attempt fails afterward. Make

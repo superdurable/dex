@@ -110,10 +110,15 @@ impl Step for AwaitApproval {
 | No wait | `Wait::skip_immediately()` or the default `wait_for` |
 
 - Condition factories: `CHANNEL.for_one()`, `for_n(n)`, `at_least(n)`,
-  `at_most(n)`, `range(min, max)`; `CHANNEL_MAP.for_one(instance)` and
-  friends; `Timer::by_duration(duration)`; `SubFlow::run(&child, input)?`.
-- `.with_id("...")` names a Condition. Name Conditions when `execute` must
-  tell winners apart, and every Condition inside `any_combination_of`.
+  `at_most(n)`, `range(Some(min), Some(max))` (each bound an `Option<usize>`);
+  `CHANNEL_MAP.for_one(instance)` and friends; `Timer::by_duration(duration)`;
+  `SubFlow::run(&child, input).map_err(HandlerError::from_error)?`, because
+  `SubFlow::run` returns an `SdkResult`.
+- `.with_id("...")` names a Condition. Leave Conditions unnamed in `until`,
+  `any_of`, and `all_of`; `execute` reads results from the Channel and the
+  Timer accessors, never by ID. Name every Condition inside
+  `any_combination_of`, and a Timer that `skip_timer` targets with
+  `TimerId::by_condition_id`.
 - Which ready Condition wins an `any_of`, and which messages a Channel
   Condition consumes, follow [../core/step.md](../core/step.md). For strict
   priority, wait on the higher-priority Condition alone.
@@ -194,7 +199,8 @@ pub static ORDER_NOTES: LazyLock<AttributeMap<String>> =
   `get_required(context)?` fails the handler when absent;
   `set(context, value)?`; `delete(context)?`. Maps add the instance:
   `ORDER_NOTES.get(context, "n1")?`, `set(context, "n1", value)?`,
-  `map_size(context)?`, `all_instance_keys(context)?`.
+  `map_size(context)?`, `all_instance_keys(context)?`. Size and keys need a
+  whole-map load; to test one known key, load that instance and read it.
 - Singleton Attributes are always readable. Map instances are readable only
   when loaded.
 - Index: `AttributeIndex::keyword()`, `full_text()`, `keyword_array()`,
@@ -373,7 +379,9 @@ impl Step for StartShipment {
 Return `Some(Self::handle_timeout)` from `timeout_handler()` to make the
 Flow's timeout run a business decision instead of failing. Set the timeout in
 `StartFlowOptions::timeout`. Configure the handler's retries, locks, loads,
-and failure route with `FlowTimeoutHandlerOptions`. Keep it bounded and
+and failure route with `FlowTimeoutHandlerOptions`, passed to
+`StartFlowOptions::timeout_handler_options` (or the `SubFlowOptions` method of
+the same name) together with `timeout_policy`. Keep it bounded and
 idempotent.
 
 ```rust
@@ -386,6 +394,11 @@ fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
 ## Heartbeats, cancellation, and invocation data
 
 ```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    // The summary instance is read below, so Execute must load it.
+    StepOptions::new().execute_load_attribute_map_instance(ORDER_NOTES.load("summary"))
+}
+
 fn execute(&self, context: &mut Context, pages: Self::Input) -> HandlerResult<StepDecision> {
     let progress = ORDER_PROGRESS.buffered_text(context)?;
     let first_page = context.last_heartbeat_value::<u32>()?.unwrap_or(0);

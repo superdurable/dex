@@ -52,8 +52,20 @@ call chain.
 - The `Step` base class declares a sync `execute`, so mypy reports an async
   override. Mark the line `async def execute(  # type: ignore[override]`, as
   the SDK's own type contracts do.
-- A sync generator Step must `yield` every heartbeat and Stream output. An
-  output that is created but not yielded never reaches Dex.
+- A sync generator Step is typed `Generator[StepOutput, None, StepDecision]`.
+  It must `yield` every heartbeat and Stream output; an output that is created
+  but not yielded never reaches Dex. The decision is the generator's `return`
+  value, never a yielded item:
+
+  ```python
+  def execute(self, context: Context, input: Job) -> Generator[StepOutput, None, StepDecision]:
+      for index, item in enumerate(input.items):
+          process(item)
+          yield heartbeat(index)
+      return graceful_complete(len(input.items))
+  ```
+
+- An `execute` must not be an async generator; the Registry rejects it.
 - Async handlers share one event loop. A blocking call (sync HTTP client,
   `time.sleep`, CPU loop) stalls every handler on the Worker. Use async I/O or
   `asyncio.to_thread`.
@@ -164,8 +176,15 @@ and the [sync composition](https://github.com/superdurable/dex/blob/main/example
   `field(default_factory=...)`).
 - Dataclass field names are the JSON wire names. Add new fields with
   defaults so open runs still decode.
+- The JSON codec checks types only at the top level of a value. Inside a
+  dataclass field or a container, a union decodes a value that matches no
+  alternative as the raw JSON value, a nested `Literal` is not enforced, and a
+  `float` field can hold a JSON integer as an `int`. Validate untrusted
+  payload fields in application code.
 - When a payload must match another SDK's JSON shape, use dataclass field
-  metadata such as `dex_json_name`. A custom codec goes in the
+  metadata: `dex_json_name` for the wire name, `dex_json_omit_default=True` to
+  omit default values, and `dex_json_format="rfc3339"` for Go-compatible
+  timestamps. A custom codec goes in the
   `CodecRegistry` passed to `Registry`.
 - Use `None` for no payload: `Step[None]`, `Channel("ready", type(None))`.
 - An unset Attribute reads as its type's zero value (`0`, `0.0`, `False`) or

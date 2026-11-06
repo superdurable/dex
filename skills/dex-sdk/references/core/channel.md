@@ -37,6 +37,7 @@ A ChannelMap partitions one message contract by a runtime key, such as an approv
 - A loaded empty queue is empty. Reading an unloaded queue is a usage error.
 - Every pending message has a server-assigned message ID.
 - A pending-message read is a snapshot. Other handlers can consume, delete, or publish while the current handler runs.
+- The snapshot also ignores the current handler's own staged publishes and deletes. To return the queue after a change, compute it from the snapshot and your own changes.
 
 For a durable queue UI, expose a typed read-only RPC that loads the Channel and lists pending messages in FIFO order without consuming them.
 

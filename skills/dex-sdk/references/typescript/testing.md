@@ -2,8 +2,7 @@
 
 Read [core testing](../core/testing.md) for the strategy, the scenario list,
 and the local server settings. This page gives the TypeScript harness. The
-block type-checks; `GreetingFlow` is the Flow from the
-[handbook](typescript.md#wiring-skeleton).
+block type-checks and defines its own `GreetingFlow`.
 
 ## Harness
 
@@ -16,9 +15,34 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
-  Client, FlowAlreadyStartedError, IdReusePolicy, Registry, Worker, openBlobCache,
-  stringCodec, type Flow,
+  Client, FlowAlreadyStartedError, IdReusePolicy, Registry, StepList, Worker,
+  gracefulComplete, openBlobCache, stringCodec,
+  type Context, type Flow, type Step, type StepDecision,
 } from "@superdurable/dex";
+
+class Greet implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "Greet";
+  }
+
+  public execute(_context: Context, name: string): StepDecision {
+    return gracefulComplete(`greeted ${name}`);
+  }
+}
+
+class GreetingFlow implements Flow<string> {
+  private readonly greet = new Greet();
+
+  public getFlowType(): string {
+    return "GreetingFlow";
+  }
+
+  public getSteps(): StepList<string> {
+    return StepList.startStep(this.greet);
+  }
+}
 
 const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
 
@@ -72,8 +96,8 @@ test("greeting completes and rejects a duplicate Flow ID", async () => {
 
 ## Worker replacement and crashes
 
-- Replacement: start a new `Worker` with the same Flow instances and a new
-  BlobCache handle, then close the old Worker at a durable boundary, and
+- A Worker starts only once. Replacement: start a new `Worker` with the same
+  Flow instances and a new BlobCache handle, then close the old Worker at a durable boundary, and
   finish the Flow. Starting the replacement first, or using a Worker of the
   test's own, keeps the test parallel-safe. Never close a shared Worker.
 - To act while a Step runs, have the fake resolve a `started` promise when it
@@ -86,8 +110,12 @@ test("greeting completes and rejects a duplicate Flow ID", async () => {
 
 ## Commands
 
+Start an isolated `dexcli dev` on its own ports and data directory, as
+[core testing](../core/testing.md#harness) says, and point
+`DEX_FLOW_SERVICE_ADDRESS` at the address it prints. Never share the user's
+long-lived dev server.
+
 ```bash
-dexcli dev
 cd examples/typescript
 npm run typecheck
 npm test

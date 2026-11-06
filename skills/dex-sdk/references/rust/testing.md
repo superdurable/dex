@@ -78,6 +78,11 @@ impl Drop for DexTestEnvironment {
 A test:
 
 ```rust
+fn unique_flow_id(prefix: &str) -> String {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock after 1970").as_nanos();
+    format!("{prefix}-{}-{nanos}", std::process::id())
+}
+
 #[test]
 #[ignore = "requires dexcli dev"]
 fn approved_order_is_charged() {

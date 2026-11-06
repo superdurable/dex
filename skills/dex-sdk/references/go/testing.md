@@ -86,6 +86,58 @@ func TestOrderApprovalShipsApprovedOrder(t *testing.T) {
 call may pass any value of the registered Flow type; the Registry resolves
 Flows by type.
 
+## Failure assertions
+
+Assert the typed error and the terminal state, not just that something failed.
+Workers that serve the same Flow type share its tasks, so a fake decides its
+behavior from the input, never from which Worker runs it:
+
+```go
+type fakeShipping struct{}
+
+func (fakeShipping) Ship(_ context.Context, orderID string, _ string) error {
+	if strings.HasPrefix(orderID, "fail-") {
+		return errors.New("carrier rejected the shipment")
+	}
+	return nil
+}
+
+func TestOrderApprovalFailsWhenShippingFails(t *testing.T) {
+	ctx := testContext(t)
+	flow := &OrderApprovalFlow{}
+	flowID := newFlowID(t, "fail-order")
+	order := Order{OrderID: flowID, Amount: 100}
+
+	if _, err := testApplication.client.StartFlow(ctx, flow, flowID, order, dex.StartFlowOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := testApplication.client.StartFlow(ctx, flow, flowID, order, dex.StartFlowOptions{})
+	var alreadyStarted *dex.FlowAlreadyStartedError
+	if !errors.As(err, &alreadyStarted) {
+		t.Fatalf("second start returned %v, want *dex.FlowAlreadyStartedError", err)
+	}
+	err = testApplication.client.InvokeRPC(ctx, flowID, flow.SubmitApproval,
+		ApprovalDecision{IsApproved: true, Approver: "test"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := testApplication.client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != dex.FlowFailed || result.ErrorType != dex.FlowErrorWorkerMethod {
+		t.Fatalf("flow %s ended with %s (%v): %s", flowID, result.Status, result.ErrorType, result.ErrorMessage)
+	}
+}
+```
+
+- A failed or canceled Flow is a `FlowResult.Status`, not a Go error from
+  `WaitForFlow`. Check `ErrorType` and `ErrorMessage` too.
+- When a failure route runs a recovery Step, assert its durable outcome, such
+  as an Attribute it writes, with `client.GetAttributes`. To wait for the
+  recovery Step while the Flow stays open, use `WaitForStepCompletion` with
+  `dex.StepExecutionID{StepType: dex.GetFinalStepType[Order](recoveryStep{})}`.
+
 ## Crash and replacement tests
 
 - `Worker.Stop` drains running handlers, so it cannot simulate a crash during

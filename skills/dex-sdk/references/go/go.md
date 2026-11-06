@@ -72,18 +72,18 @@ func StartApplication(flowServiceAddress string, cacheDir string, shipping Shipp
 	if err != nil {
 		return nil, errors.Join(err, cache.Close())
 	}
-	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
-		FlowServiceAddress: flowServiceAddress,
-		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 16},
-	})
-	if err != nil {
-		return nil, errors.Join(err, cache.Close())
-	}
 	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
 		FlowServiceAddress: flowServiceAddress,
 	})
 	if err != nil {
 		return nil, errors.Join(err, cache.Close())
+	}
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		FlowServiceAddress: flowServiceAddress,
+		Pull:               &dex.PullWorkerOptions{MaxConcurrentTasks: 16},
+	})
+	if err != nil {
+		return nil, errors.Join(err, client.Close(), cache.Close())
 	}
 	application := &Application{cache: cache, worker: worker, client: client, workerResult: make(chan error, 1)}
 	go func() { application.workerResult <- worker.Start() }()
@@ -120,6 +120,9 @@ and the [examples bootstrap](https://github.com/superdurable/dex/blob/main/examp
   address.
 - `Worker.Start()` blocks until the Worker stops. Run it on a goroutine and
   keep its result.
+- A Worker is one-shot: `Start` runs once. To replace or restart a Worker,
+  build a new one over the same Registry and BlobCache, start it, and wait for
+  its registration.
 - Gate traffic on `WaitPullRegistered(ctx)` with a deadline. Serve readiness
   from `worker.PullRegistrationState().IsReady` plus application health.
 - `Worker.Stop(ctx)` takes no new tasks and lets running handlers finish. It

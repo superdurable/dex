@@ -84,6 +84,7 @@ Rules:
 - GracefulComplete and ForceComplete can carry output. The Flow result lists each output with its Step type and Step execution ID.
 - A Channel stays non-empty for ForceCompleteIfChannelsEmpty while a consumed message's Step has not finished Execute.
 - A decision can also cancel active Steps: by Step type, or the siblings started by the same parent Step execution. Use cancellation deliberately, for example after a first-winner branch.
+- Dex selects the Steps to cancel after the decision commits. Steps that the same decision starts are never canceled by it, so one decision can cancel a Step type and start a fresh execution of it.
 - Cancellation is cooperative. The SDK signals it to the handler, and Dex discards the canceled Step's later result, writes, retries, and recovery routes. A handler that ignores the signal keeps running and its external calls still take effect.
 - A movement can override StepOptions for that one Step execution.
 

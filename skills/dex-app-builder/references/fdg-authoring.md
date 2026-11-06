@@ -19,7 +19,8 @@ Action input structs in one source file.
 - Register every Step in `GetSteps`.
 - Register both view RPCs in `GetRPCs`.
 - Use Go type-derived Flow and Step identities. Do not add `GetFlowType` or
-  `GetStepType` overrides.
+  `GetStepType` overrides, except on a generic Flow or Step type, which must
+  implement them to get a stable name.
 - A Connector factory Step uses its generated configuration's static
   `StepType`, `ConnectionName`, and `Annotations`. Inspect that exact released
   factory type.

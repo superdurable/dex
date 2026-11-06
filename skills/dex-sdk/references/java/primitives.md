@@ -58,7 +58,7 @@ public class OrderFlow implements Flow<OrderRequest> {
         @Override
         public Wait waitFor(Context context, OrderRequest order) {
             return Wait.anyOf(
-                    approvals.forOne("approval"),
+                    approvals.forOne(),
                     Timer.byDuration(Duration.ofHours(24), "approval-deadline"));
         }
 
@@ -76,7 +76,8 @@ public class OrderFlow implements Flow<OrderRequest> {
 }
 ```
 
-- The start Step's input type equals the Flow's type argument.
+- The start Step's input type equals the Flow's type argument. A Flow that
+  only RPCs drive uses `StepList.withoutStartStep(...)`.
 - Omit `waitFor` when the Step needs no wait. Dex then runs `execute`
   immediately without a WaitFor invocation. `Wait.skipImmediately()` is the
   explicit form.
@@ -104,9 +105,11 @@ public class OrderFlow implements Flow<OrderRequest> {
   `Timer.byDuration(duration)`; `SubFlow.run(ChildFlow.class, input[, options])`.
 - Channel, ChannelMap, and Timer factories have an overload taking a
   condition ID. A SubFlow takes its ID from
-  `SubFlowOptions.newBuilder().conditionId(...)`. Give an ID when
-  `execute` must tell winners apart, and to every Condition inside
-  `anyCombinationOf`.
+  `SubFlowOptions.newBuilder().conditionId(...)`. Leave Conditions unnamed in
+  `until`, `anyOf`, and `allOf`; `execute` reads results from the Channel and
+  from `hasTimerFired`, never by ID. Give an ID to every Condition inside
+  `anyCombinationOf`, and to a Timer that `skipTimer` targets by ID, as the
+  `approval-deadline` Timer above.
 - Which ready Condition wins an `anyOf`, and which messages a Channel
   Condition consumes, follow [../core/step.md](../core/step.md). For strict
   priority, wait on the higher-priority Condition alone.
@@ -185,7 +188,8 @@ public final AttributeMap<String> orderNotes = AttributeMap.define("order-notes"
 - Handler access: `attribute.get(context)`, `set(context, value)`,
   `delete(context)`. Map access adds the instance key:
   `orderNotes.get(context, "n1")`, `set(context, "n1", value)`,
-  `getMapSize(context)`, `getAllInstanceKeys(context)`.
+  `getMapSize(context)`, `getAllInstanceKeys(context)`. Size and keys need a
+  whole-map load; to test one known key, load that instance and read it.
 - Singleton Attributes are always readable. Map instances are readable only
   when loaded by the handler's options.
 - Index: pass an `AttributeIndex` with a type and an explicit generic search
@@ -336,8 +340,11 @@ static final class StartShipment implements Step<String> {
 
     @Override
     public StepDecision execute(Context context, String orderId) {
-        String output = SubFlow.getConditionResults(context).getSingleOutput(String.class);
-        return StepDecision.gracefulComplete(output);
+        FlowResult shipment = SubFlow.getConditionResults(context);
+        if (shipment.getStatus() != FlowStatus.COMPLETED) {
+            return StepDecision.forceFail("shipment ended " + shipment.getStatus());
+        }
+        return StepDecision.gracefulComplete(shipment.getSingleOutput(String.class));
     }
 }
 ```
@@ -386,7 +393,7 @@ public StepDecision execute(Context context, Integer pages) {
         writer.write("page " + page + " rendered\n");
         context.recordHeartbeat(page + 1);
     }
-    return StepDecision.deadEnd();
+    return StepDecision.gracefulComplete(pages);
 }
 ```
 
@@ -417,7 +424,7 @@ Use the Client at the service boundary only. Every call blocks.
 | Idempotent start | `StartFlowOptions.newBuilder().requestId(stableId).ignoreAlreadyStarted(true)` |
 | Call an RPC | `client.invokeRPC(client.newRpcStub(Flow.class, flowId)::method, input)` |
 | Read committed Attributes | `client.getAttributes(flowId, reads...)` |
-| Wait for a value | `client.waitForAttributeMatch(flowId, attribute, AttributeMatch.greaterThan(0), options)` |
+| Wait for a value | `client.waitForAttributeMatch(flowId, attribute, AttributeMatch.greaterThan(0L), options)` |
 | Wait for a Step | `client.waitForStepCompletion(flowId, StepExecutionId.of("ChargePayment"), options)` |
 | Wait for the end | `client.waitForFlow(flowId[, timeout])` |
 | Current status | `client.describeFlow(flowId)` |
@@ -450,6 +457,8 @@ Optional<String> summary = values.get(orderFlow.orderNotes.instance("summary"));
 ```
 
 - Pass varargs or a `List<AttributeRead<?>>`. Pass one read to read one value.
+- `AttributeValues.get` returns the decoded object without copying it. Copy a
+  mutable value before you change it.
 - Each read must be the exact definition object of a registered Flow;
   otherwise `FlowDefinitionException` before any request.
   `attributeMap.instance(key)` selects a map instance for this call.

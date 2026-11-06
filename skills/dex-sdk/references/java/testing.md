@@ -68,7 +68,7 @@ Wait on Dex state with a deadline. Never use a fixed sleep as the assertion.
 | A computed state | poll a read-only RPC until a deadline |
 
 ```java
-private static void awaitStatus(String flowId, String expected) {
+private static void awaitStatus(String flowId, String expected) throws InterruptedException {
     OrderFlow stub = dex.client().newRpcStub(OrderFlow.class, flowId);
     long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
     String lastStatus = null;
@@ -77,7 +77,7 @@ private static void awaitStatus(String flowId, String expected) {
         if (expected.equals(lastStatus)) {
             return;
         }
-        Thread.onSpinWait();
+        Thread.sleep(100);
     }
     fail("order " + flowId + " stayed at " + lastStatus + ", expected " + expected);
 }
@@ -93,7 +93,20 @@ this language:
 
 - Worker replacement: while the Flow waits or retries, start a new Worker
   with the same Registry, then stop the old Worker, and assert progress
-  continues. Start the replacement first, or give the test its own Worker, so
+  continues. A stopped Worker cannot start again; only a newly created Worker
+  may start. Build the replacement like this:
+
+```java
+Worker replacement = new Worker(registry, blobCache, WorkerOptions.newBuilder()
+        .serverAddress(serverAddress)
+        .build());
+Thread replacementThread = new Thread(replacement::start, "dex-replacement-worker");
+replacementThread.start();
+replacement.waitPullRegistered(Duration.ofSeconds(30));
+testOwnedWorker.close(); // the Worker this test started, never the shared one
+// assert the Flow continues, then close the replacement and join its thread
+```
+ Start the replacement first, or give the test its own Worker, so
   the test can run in parallel with the others. Never stop a shared Worker.
 - Running Steps: to test drain, cancellation, or replacement while a Step
   runs, have the fake signal a `CountDownLatch` when it is called, and wait with
@@ -101,7 +114,32 @@ this language:
   started.
 - Fakes record every call and never deduplicate, so a test can count
   duplicate effects.
-- Timers: assert a generous bound, and use `client.skipTimer` to shorten long ones.
+- Timers: assert a generous bound, and use `client.skipTimer` to shorten long
+  ones. A Step registers its Timer only after its `waitFor` commits, so an
+  early `skipTimer` fails. Retry it with a deadline until the Timer exists:
+
+```java
+private static void skipApprovalDeadline(String flowId) throws InterruptedException {
+    long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+    DexServiceException lastFailure = null;
+    while (System.nanoTime() < deadline) {
+        try {
+            dex.client().skipTimer(flowId, StepExecutionId.of("AwaitApproval"),
+                    TimerId.byConditionId("approval-deadline"));
+            return;
+        } catch (FlowNotActiveOrNotFoundException closed) {
+            throw closed;
+        } catch (DexServiceException timerNotRegisteredYet) {
+            lastFailure = timerNotRegisteredYet;
+            Thread.sleep(100);
+        }
+    }
+    throw new AssertionError("Timer approval-deadline of " + flowId + " was never registered", lastFailure);
+}
+```
+
+  Target the Timer with `TimerId.byConditionId` (its condition ID) or
+  `TimerId.byConditionIndex`.
 - Failure paths: make the fake dependency fail deterministically and assert
   the recovery Step or the terminal status.
 

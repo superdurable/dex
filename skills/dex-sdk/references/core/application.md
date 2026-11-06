@@ -129,7 +129,7 @@ Treat these names as data: Flow types, Step types, RPC names, Attribute, Attribu
 
 - Keep old Step and RPC handlers while open executions can reach them, through retries and any approved time travel.
 - Before removing a definition, search for Flows that can still reach it, including recoverable terminal Flows. For example: `dexcli flow search --query 'FlowType = "OldFlowType"'`. Keep the result with the change record.
-- During a rolling deployment that adds Step types or RPC names, start the new Workers first. Old Workers decline names they do not register, and Dex reassigns without consuming an attempt. Old Workers still run every name they do register, so keep changed logic compatible.
+- During a rolling deployment that adds Step types or RPC names, start the new Workers first. Dex hands a Step only to a Worker that registers its Step type. A Step type that no connected Worker registers waits in the task queue without consuming an attempt, and an RPC name that no connected Worker registers fails. Old Workers still run every name they do register, so keep changed logic compatible.
 
 ### Incompatible changes
 

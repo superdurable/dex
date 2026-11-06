@@ -96,8 +96,15 @@ export async function cancelShipment(client: Client, flow: ShipmentFlow, flowId:
     if (!(error instanceof FlowNotActiveOrNotFoundError)) {
       throw error;
     }
-    const info = await client.describeFlow(flowId);
-    return info.status === "completed" ? "already-done" : "unknown";
+    try {
+      const info = await client.describeFlow(flowId);
+      return info.status === "completed" ? "already-done" : "unknown";
+    } catch (describeError: unknown) {
+      if (describeError instanceof FlowNotFoundError) {
+        return "unknown";
+      }
+      throw describeError;
+    }
   }
 }
 ```

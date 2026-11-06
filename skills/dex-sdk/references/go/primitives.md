@@ -164,8 +164,10 @@ func (step shipOrder) Execute(ctx dex.Context, order Order) (*dex.StepDecision, 
   `dex.AnyComboOf(dex.Combo(...), ...)`, or `dex.SkipWaitImmediately()`.
 - Conditions: `channel.ForOne()`, `channel.ForN(n)`, `AtLeast`, `AtMost`,
   `AtLeastAtMost`, `dex.Timer(duration)`, and `dex.SubFlow(flow, input)`.
-  `dex.WithConditionID(id)` names a condition so `Execute` can tell winners
-  apart.
+  Leave Conditions unnamed in `Until`, `AnyOf`, and `AllOf`; results are read
+  by Channel and Timer index, not by ID. `dex.WithConditionID(id)` is required
+  on every Condition inside `dex.AnyComboOf`, and on a Timer that
+  `client.SkipTimer` targets by ID.
 - In `Execute`, read the outcome with `ctx.HasTimerFired()`,
   `ctx.HasTimerFiredByIndex(i)`, `channel.GetConditionResults(ctx)`, and
   `dex.SubFlowResult(ctx)`.
@@ -183,6 +185,9 @@ func (step shipOrder) Execute(ctx dex.Context, order Order) (*dex.StepDecision, 
 - Options: `dex.Indexed(dex.AttributeIndex{Type, IndexKey})` for search,
   `dex.SyncToAttributeStore()` for the external store, and
   `dex.HardDeleteOnNull()` for secrets.
+- `SyncToAttributeStore()` alone projects nothing. The Flow must also name
+  its stores: `FlowConfig.AttributeStoreNames`, set at start through
+  `StartFlowOptions.ConfigOverride`.
 - Index keys are typed generic slots such as `keyword1`, `int1`, or `text1`.
   Reuse a slot across Flow types only with the same index type. Scope searches
   by Flow type. An AttributeMap index needs an explicit `IndexKey`.
@@ -191,6 +196,9 @@ func (step shipOrder) Execute(ctx dex.Context, order Order) (*dex.StepDecision, 
   successfully.
 - A map handler reads only instances it loaded. A missing load returns
   `*dex.AttributeMapNotLoadedError`. That is a modeling bug, not an absent key.
+- `MapSize(ctx)` and `AllInstanceKeys(ctx)` need a whole-map load
+  (`ExecuteLoadAttributeMaps`, `RPCOptions.LoadAttributeMaps`). To test one
+  known key, load that instance and call `Get`.
 - Load on registration with `StepOptions.ExecuteLoadAttributeMapInstances`,
   `WaitForLoadAttributeMapInstances`, or `RPCOptions.LoadAttributeMapInstances`.
   Load a request-chosen instance per call with `RPCInvokeOptions`.
@@ -277,9 +285,11 @@ var ModelAPIKey = dex.DefineAttribute[string]("model-api-key", dex.HardDeleteOnN
   callers publish through a typed RPC; the Client has no direct publish.
 - A condition consumes messages only when it wins. `GetConditionResults(ctx)`
   returns the consumed values.
-- `PendingMessages`, `FindPendingMessage`, and `Delete` need the Channel loaded
+- `PendingMessages` and `FindPendingMessage` need the Channel loaded
   through `ExecuteLoadChannels`, `RPCOptions.LoadChannels`, or the map
   variants. A missing load returns `*dex.ChannelMessagesNotLoadedError`.
+  `Delete` needs no load, but the handler usually loads the queue to find the
+  message ID.
 - Pending reads are a snapshot of the invocation. Other handlers may publish
   or consume concurrently. Set `RPCOptions.IsTransactional` when an RPC deletes
   and publishes as one unit. When a decision needs the queue unchanged, every
@@ -341,6 +351,10 @@ func (*ReportFlow) RestartReport(_ dex.Context, query string) (*dex.RPCResult[bo
 - `RPCResult.NextSteps` moves Steps. `RPCResult.CancelSteps(...)` cancels
   every current execution of a Step type, Flow-wide. An RPC has no Step
   lineage, so it has no sibling cancellation.
+- Steps scheduled by the same result are never canceled by it. That is why
+  `RestartReport` can cancel `generateReport` and start a new one in one
+  result. The same holds for `StepDecision.CancelSteps` and
+  `CancelSiblingSteps`.
 - An RPC without locks, transaction, or returned effects can read a retained
   closed run. Locks, `IsTransactional`, `NextSteps`, or cancellation require an
   open run.
@@ -484,8 +498,8 @@ func waitForCaseRevision(ctx context.Context, client *dex.Client, flowID string,
   `ExecuteDurability` per method.
 - `Context` embeds `context.Context`. Pass `ctx` into external calls; its
   deadline is the attempt deadline. Check `ctx.Err()` in long loops; Dex
-  cancels the context on timeout, heartbeat loss, Step cancellation, or Worker
-  stop.
+  cancels the context on timeout, heartbeat loss, Step cancellation, or when a
+  stopping Worker reaches its drain deadline.
 - `ctx.FlowID()` plus `ctx.StepExecutionID()` is stable across retries of one
   Step execution. Use it as an idempotency key. `ctx.Attempt()` is not one.
 - `ctx.FlowStartedAt()` is the run's start time. Use it, not `time.Now()`, for

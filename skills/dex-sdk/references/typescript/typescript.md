@@ -98,7 +98,9 @@ application's configuration.
   contract. Generic annotations do not validate anything.
 - Scalar wire values need an explicit codec: `stringCodec`, `booleanCodec`,
   `int64Codec` (`bigint`), `doubleCodec` (`number`), `bytesCodec`,
-  `voidCodec`. Omitted codecs mean JSON. A Step whose input is a `number` or
+  `voidCodec`. Omitted codecs mean JSON. The default JSON codec decodes a JSON
+  `null` as `null`, while `voidCodec` and `optionalCodec(codec)` decode it as
+  `undefined`. A Step whose input is a `number` or
   `string` must set `inputCodec`. An RPC with a scalar input or output must
   set `inputCodec` or `outputCodec`.
 - Use `jsonCodec<T>({ typeName, decode })` for objects. Validate in `decode`

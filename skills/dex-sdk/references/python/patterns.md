@@ -22,7 +22,7 @@ This page maps each pattern to its Python API shape and runnable example.
 | Manual recovery | failure route to a Step waiting on operator Channels; verb-named `@rpc` methods publish | [intervention](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py) |
 | Graceful timeout | `FlowTimeoutPolicy.HANDLER` and `handle_timeout` returning a decision | [timeout](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py) |
 | Internal Channel drain | `go_to_many` main and side Steps; the side Step waits on `channel.for_one()` | [internal drain](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/drain-channels/internal/drain_internal_channels_flow.py) |
-| External publishing drain | accept by RPC; close with `force_complete_if_channels_empty` | [external drain](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py) |
+| External publishing drain | accept by RPC; close with `force_complete_if_channels_empty(output, fallback, channel)` | [external drain](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py) |
 | Interruptible execution | an `@rpc` sets an Attribute; `execute` reads it between slices | [interruptible](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/interruptible/interruptible_execution_flow.py) |
 | Responsive Step completion | `wait_for_step_completion` for one named Step execution | [step completion](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/wait-for-step-completion/wait_for_step_completion_flow.py) |
 | Responsive Attribute match | `wait_for_attribute_match` on a revision Attribute | [job post controller](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/products/job-post/controller.py) |
@@ -169,10 +169,8 @@ class AwaitInbound(Step[None]):
         replies = REPLIES.results(context)
         if not replies:
             return go_to(ResolveConversation, RESOLUTIONS.results(context)[0])
-        try:
-            transcript = TRANSCRIPT.get(context)
-        except KeyError:
-            transcript = []
+        # An unset list Attribute reads as None.
+        transcript = TRANSCRIPT.get(context) or []
         TRANSCRIPT.set(context, [*transcript, *replies])
         return go_to(AwaitInbound, None)
 

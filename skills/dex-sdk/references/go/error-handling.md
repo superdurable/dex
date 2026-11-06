@@ -64,7 +64,9 @@ func StartOrder(ctx context.Context, client *dex.Client, flow *OrderApprovalFlow
 - Wait for a required business milestone with `WaitForAttributeMatch` or
   `WaitForStepCompletion` under a deadline.
 - A Step starts a dependent top-level Flow through a late-bound Client, with
-  a request ID derived from its own Flow ID:
+  a request ID derived from its own Flow ID. The dependent Flow has its own
+  Flow type and ID; `ShipmentFlow` is another Flow registered in the same
+  Registry:
 
 ```go
 type ClientProvider func() *dex.Client
@@ -76,7 +78,7 @@ type startShipment struct {
 
 func (step startShipment) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
 	requestID := ctx.FlowID() + "/start-shipment"
-	_, err := step.clientProvider().StartFlow(ctx, &OrderApprovalFlow{}, "order-"+order.OrderID, order,
+	_, err := step.clientProvider().StartFlow(ctx, &ShipmentFlow{}, "shipment-"+order.OrderID, order,
 		dex.StartFlowOptions{
 			RequestID:      &requestID,
 			AlreadyStarted: &dex.AlreadyStartedOptions{IgnoreError: true},
@@ -194,3 +196,8 @@ func (recordChargeFailure) Execute(ctx dex.Context, order Order) (*dex.StepDecis
 - A Flow-level soft timeout: implement `HandleTimeout(ctx dex.Context)
   (*dex.StepDecision, error)` on the Flow and set a positive
   `StartFlowOptions.Timeout`. It returns an explicit decision.
+- `StartFlowOptions.TimeoutHandlerOptions` sets the handler's timeouts,
+  retry, loads, and locks. Its `Failure:
+  dex.ProceedToOnFlowTimeoutHandlerFailure(step, nil)` routes an exhausted
+  handler to a recovery Step. That Step is a `dex.Step[dex.None]` registered
+  in the same Flow, and it reads the final error from `ctx.RecoveryError()`.

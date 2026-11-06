@@ -349,7 +349,7 @@ instead creates failed Flows, which is a `diverged` row.
   daily schedule, because a same-day edit to a later time would otherwise be
   deduplicated into the earlier run.
 - Give the waiting Step an explicit long Execute retry total duration. The
-  default is bounded, so a longer Worker outage across an occurrence would
+  default is finite, so a longer Worker outage across an occurrence would
   fail that Step and end the scheduler.
 - Decide how local times that a DST change skips or repeats are handled before
   you compute occurrences. The source's own DST behavior comes from the cron
