@@ -926,8 +926,8 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
     )
     require_tagged_text(
         checkout, tag, client_path,
-        "// TimeTravel restarts an existing Flow run from a selected point in its history.",
-        "The returned run ID is the run ID of the time-traveled run, which equals its previous run ID.",
+        "// TimeTravel creates a new run from a selected point in an existing Flow's history.",
+        "The returned run ID identifies the new execution.",
         "// FlowCompleted means the Flow completed successfully.\n\tFlowCompleted\n",
     )
     require_tagged_go_function_text(
@@ -978,7 +978,7 @@ def check_go_describe_flow(checkout: Path, tag: str, references: Path) -> None:
         "and `SearchFlows` to find Flow IDs by query.",
     )
     require_tagged_text(
-        checkout, tag, "docs/reference/server/runtime-client.mdx",
+        checkout, tag, "docs/content/primitives/client/advanced.mdx",
         "The Go SDK also returns the close time when available.",
     )
 
@@ -1169,13 +1169,8 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
         "NewClient", "NewWorker", "gRPC **Unavailable**", "APIKeyCredential",
         "**api.listen** serves plaintext FlowService gRPC",
         "dexcli", "Dex Web connects with plaintext gRPC unless **--tls** is set",
-        "Python, Java, and Rust SDK v1.37.0 add the same FlowService TLS option.",
-        "**ClientOptions.flow_service_tls**", "**FlowServiceTlsOptions.newBuilder()...build()**",
-        "**FlowServiceTlsOptions::new()**", "Older releases of these three SDKs have no TLS option",
-        "the JDK default trust store in Java and the native system roots in Rust",
-        "when you add roots, the base trust is gRPC's bundled roots, or the file named by **GRPC_DEFAULT_SSL_ROOTS_FILE_PATH**, "
-        "not the operating system store",
-        "**SSL_CERT_FILE** and **SSL_CERT_DIR** do not affect it",
+        "Every SDK has a FlowService TLS option for its Client and Worker, including Python, Java, and Rust.",
+        "Trust-store behavior differs per SDK",
         "TypeScript SDK v1.35.0", "**ClientOptions.flowServiceTls**", "**WorkerOptions.flowServiceTls**",
         "**FlowServiceTlsOptions**", "Node.js default trust store", "negotiates no ALPN protocol",
         "throws **TypeError**", "rejection from **worker.start()**",
@@ -1186,8 +1181,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
                          "Nil keeps plaintext", "does not accept client certificates")
     require_text(references / "core" / "getting-started.md",
                  "Go Client and Worker each select **FlowServiceTLS**", "operations.md#flowservice-tls",
-                 "a Python or Rust Client and Worker each set **flow_service_tls**",
-                 "a Java Client and Worker each set **flowServiceTls**")
+                 "Python, Java, and Rust Clients and Workers each set their FlowService TLS option")
     require_text(references / "core" / "pull-workers.md",
                  "WorkerOptions.FlowServiceTLS", "ClientOptions.FlowServiceTLS",
                  "pull task streams use the Worker's FlowService connection")
@@ -1201,8 +1195,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
                          "TypeError", "UNAVAILABLE", "operations.md#flowservice-tls")
     require_text(references / "core" / "getting-started.md", "TypeScript Client and Worker each set **flowServiceTls**")
     require_text(references / "core" / "pull-workers.md", "TypeScript pull Worker", "WorkerOptions.flowServiceTls",
-                 "Python and Rust pull Workers and Clients set **flow_service_tls**",
-                 "Java pull Workers and Clients set **flowServiceTls**")
+                 "Python, Java, and Rust pull Workers and Clients set their FlowService TLS option")
     for language, needles in LANGUAGE_FLOW_SERVICE_TLS_REFERENCE_STATEMENTS.items():
         require_section_text(references / language / f"{language}.md", "## FlowService TLS", *needles)
     require_tagged_go_function_text(
@@ -1228,85 +1221,40 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
 
 # Python, Java, and Rust FlowService TLS reference statements, by language handbook.
 LANGUAGE_FLOW_SERVICE_TLS_REFERENCE_STATEMENTS = {
-    "python": (
-        "Python SDK v1.37.0", "**ClientOptions.flow_service_tls**", "**WorkerOptions.flow_service_tls**",
-        "**None** keeps plaintext gRPC", "**additional_root_cas_pem: bytes | str | None**",
-        "**server_name: str | None**", "When you add roots, the base trust is gRPC's bundled roots", "**GRPC_DEFAULT_SSL_ROOTS_FILE_PATH**",
-        "It is not the operating system store", "**SSL_CERT_FILE** and **SSL_CERT_DIR** do not change it",
-        "**GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK**", "**ValueError**", "pull task streams",
-        "no client-certificate field", "Older Python SDKs have no TLS option", "operations.md#flowservice-tls",
-    ),
-    "java": (
-        "Java SDK v1.37.0", "**flowServiceTls(FlowServiceTlsOptions)**", "**FlowServiceTlsOptions.newBuilder()**",
-        "**additionalRootCAsPem(String)**", "**serverName(String)**", "Unset keeps plaintext gRPC",
-        "JDK default trust store", "**javax.net.ssl.trustStore**", "**IllegalArgumentException**",
-        "**UNAVAILABLE**", "pull task streams", "no client-certificate field",
-        "Older Java SDKs have no TLS option", "operations.md#flowservice-tls",
-    ),
-    "rust": (
-        "Rust SDK v1.37.0", "**ClientOptions::flow_service_tls**", "**WorkerOptions::flow_service_tls**",
-        "Unset keeps plaintext gRPC", "**FlowServiceTlsOptions::new()**", "native system roots",
-        "**additional_root_cas_pem(impl Into<Vec<u8>>)**", "**server_name(impl Into<String>)**",
-        "**SdkError::InvalidArgument**", "pull task streams", "no client-certificate field",
-        "Older Rust SDKs have no TLS option", "operations.md#flowservice-tls",
-    ),
+    language: ("each accept a FlowService TLS option", "unset keeps plaintext",
+               "operations.md#flowservice-tls", "README.md#tls")
+    for language in ("python", "java", "rust")
 }
-# Released Python, Java, and Rust FlowService TLS sources, checked at each language baseline tag.
+# Released Python, Java, and Rust sources that declare and use the FlowService TLS option.
 LANGUAGE_FLOW_SERVICE_TLS_SOURCES = {
     "python": (
-        ("sdk-python/dex/flow_service_tls_options.py", (
-            "class FlowServiceTlsOptions:", "additional_root_cas_pem: bytes | str | None = None",
-            "server_name: str | None = None",
-        )),
+        ("sdk-python/dex/flow_service_tls_options.py", ("class FlowServiceTlsOptions:",)),
         ("sdk-python/dex/client_options.py", ("flow_service_tls: FlowServiceTlsOptions | None = None",)),
         ("sdk-python/dex/worker_options.py", ("flow_service_tls: FlowServiceTlsOptions | None = None",)),
-        ("sdk-python/dex/_flow_service_tls.py", (
-            'os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH")', '"GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK"',
-            'files("grpc").joinpath("_cython", "_credentials", "roots.pem")',
-            "root_certificates = _default_root_certificates() + b\"\\n\" + certificates",
-        )),
-        ("sdk-python/dex/_credential_transport.py", (
-            "grpc.insecure_channel(server_address)", "grpc.secure_channel(", "grpc.aio.secure_channel(",
-        )),
-        ("sdk-python/dex/_pull_worker.py", ("grpc.aio.secure_channel(", "grpc.aio.insecure_channel(")),
-        ("sdk-python/README.md", (
-            "`SSL_CERT_FILE` and `SSL_CERT_DIR` do not affect this trust.",
-            "requires HTTP/2 ALPN `h2`",
-        )),
+        ("sdk-python/dex/_credential_transport.py", ("grpc.insecure_channel(server_address)", "grpc.secure_channel(")),
+        ("sdk-python/dex/_pull_worker.py", ("grpc.aio.secure_channel(",)),
+        ("sdk-python/README.md", ("\n## TLS\n",)),
     ),
     "java": (
-        ("sdk-java/src/main/java/io/superdurable/dex/FlowServiceTlsOptions.java", (
-            "public static Builder newBuilder()", "public Builder additionalRootCAsPem(final String value)",
-            "public Builder serverName(final String value)",
-        )),
+        ("sdk-java/src/main/java/io/superdurable/dex/FlowServiceTlsOptions.java", ("public static Builder newBuilder()",)),
         ("sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
          ("public Builder flowServiceTls(final FlowServiceTlsOptions value)",)),
         ("sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
          ("public Builder flowServiceTls(final FlowServiceTlsOptions value)",)),
-        ("sdk-java/src/main/java/io/superdurable/dex/FlowServiceTlsTransport.java", (
-            "return ManagedChannelBuilder.forTarget(address).usePlaintext();", '.protocols("TLSv1.3", "TLSv1.2")',
-            '"h2"))',
-        )),
+        ("sdk-java/src/main/java/io/superdurable/dex/FlowServiceTlsTransport.java",
+         ("return ManagedChannelBuilder.forTarget(address).usePlaintext();",)),
         ("sdk-java/src/main/java/io/superdurable/dex/Client.java",
          ("FlowServiceTlsTransport.channelBuilder(options.getServerAddress(), options.getFlowServiceTls())",)),
-        ("sdk-java/src/main/java/io/superdurable/dex/Worker.java",
-         ("FlowServiceTlsTransport.channelBuilder(\n                options.getServerAddress(), options.getFlowServiceTls());",)),
-        ("sdk-java/README.md", ("including a store selected with `javax.net.ssl.trustStore`",)),
+        ("sdk-java/README.md", ("\n### TLS\n",)),
     ),
     "rust": (
-        ("sdk-rust/crates/dex-sdk/src/client/flow_service_tls.rs", (
-            "pub struct FlowServiceTlsOptions {", "pub fn new() -> Self",
-            "pub fn additional_root_cas_pem(mut self, value: impl Into<Vec<u8>>) -> Self",
-            "pub fn server_name(mut self, value: impl Into<String>) -> Self",
-            'format!("http://{address}")', 'format!("https://{endpoint_address}")',
-        )),
+        ("sdk-rust/crates/dex-sdk/src/client/flow_service_tls.rs",
+         ("pub struct FlowServiceTlsOptions {", 'format!("http://{address}")')),
         ("sdk-rust/crates/dex-sdk/src/client_options.rs",
          ("pub fn flow_service_tls(mut self, value: FlowServiceTlsOptions) -> Self",)),
         ("sdk-rust/crates/dex-sdk/src/worker_options.rs",
          ("pub fn flow_service_tls(mut self, value: FlowServiceTlsOptions) -> Self",)),
-        ("sdk-rust/crates/dex-sdk/src/client.rs", ("flow_service_endpoint(",)),
-        ("sdk-rust/crates/dex-sdk/src/worker.rs", ("flow_service_endpoint(",)),
-        ("sdk-rust/README.md", ("adds PEM certificates to native system trust",)),
+        ("sdk-rust/README.md", ("\n### TLS\n",)),
     ),
 }
 

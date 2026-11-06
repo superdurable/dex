@@ -37,7 +37,7 @@ The `superdurable/dex-web` image binds `0.0.0.0:8802` and runs as UID and GID 65
 
 With Dex Server auth enabled, set `--flow-service-credential-file` for Web's calls to FlowService. This does not authenticate Web users: protect the Web port with network controls or an authenticating proxy. Keep this bearer-token file separate from the local Connector development credential store. Use `--tls` when Web sends the credential to a remote FlowService. See [public API authentication](../../dex-sdk/references/core/operations.md#public-api-authentication).
 
-To inspect a deployed server from a workstation, `dexcli --server ADDRESS web` serves the same Dex Web against it, often through an SSH tunnel, with `dexcli`'s own TLS and credential flags. It disables the local **Connectors** view, so configure Connectors in the `dexcli dev` stack. See [Deploy Dex Web](../../dex-sdk/references/core/operations.md#deploy-dex-web).
+`dexcli web` serves the same Dex Web against an existing server. Connector configuration is available only in `dexcli dev`. See [Deploy Dex Web](../../dex-sdk/references/core/operations.md#deploy-dex-web).
 
 Released connector modules may require an older Connector SDK; at connectors
 `main` `980a6f9`, modules require exact releases from `sdkgo/v0.7.0` through
