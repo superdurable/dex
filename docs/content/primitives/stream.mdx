@@ -344,6 +344,8 @@ When usage reaches the trim trigger threshold, one background trimmer removes th
 
 The server also limits the size of each Stream message. The default is 100 KiB.
 
+The server caps **streamCapacityBytes** at **streamStore.maxStreamCapacityBytes**, which defaults to 64 MiB. It also caps the memory of all Streams on a server at **streamStore.maxTotalBytes**, which defaults to 1 GiB. A Client write past that total fails with **RESOURCE_EXHAUSTED**, and background trimming then removes the oldest messages of the largest Streams. See [Streams](/production/server-zd-operations#streams).
+
 ### Best-effort storage
 
 The Stream Store keeps messages in the memory of the active server process. **streamStore.backend** defaults to **memory** for both **dexcli dev** and a production server. Memory contents disappear when the server process restarts or a standby takes over. Trimming or capacity pressure can also remove or reject messages. An operator can set the backend to **disabled**. Client Stream writes and reads then fail with **FAILED_PRECONDITION**, and Step writes are dropped without failing the Step. See [Streams](/production/server-zd-operations#streams).

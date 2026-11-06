@@ -18,6 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dexzd_apply::FlowStateReader;
 use dexzd_keyspace::row_keys::hard_delete_current_key;
 use dexzd_keyspace::{ColumnFamily, TenantId};
+use dexzd_metrics::StepStreamWriteDropReason;
 use dexzd_protocol::dex::{self, PollWorkerTaskFrame, StepStreamWrite, Value};
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, HardDeleteObjectRecord, StepAttemptFailedCommand, StepAttemptFailureKind,
@@ -29,7 +30,9 @@ use dexzd_worker_dispatch::{StepTaskEvent, StepTaskSendFailure};
 use tokio::time::{Instant, sleep_until};
 use tokio_util::sync::CancellationToken;
 
-use super::attempt_checkpoints::{CheckpointTracker, heartbeat_change, into_step_stream_write};
+use super::attempt_checkpoints::{
+    CheckpointTracker, heartbeat_change, into_step_stream_write, step_stream_write_drop_reason,
+};
 use super::attempt_deadlines::{AttemptEnd, AttemptTimeouts, MethodDeadline, task_event_end};
 use super::attempt_handout::pull_routing;
 use crate::blocking_work::BlockingWorkFailure;
@@ -740,6 +743,10 @@ impl MethodAttempt {
                 stream_name = %write.stream_name,
                 "Worker Stream write without a Value was dropped"
             );
+            self.context
+                .metrics
+                .step_stream_writes_dropped
+                .record(StepStreamWriteDropReason::InvalidArgument);
             return;
         };
         let input = WriteStreamInput {
@@ -752,11 +759,17 @@ impl MethodAttempt {
             source: String::new(),
         };
         // The store logs every dropped write itself.
-        let _is_written = self
+        if let Err(error) = self
             .context
             .stream_store
             .write_worker_best_effort(input, &self.key.step_execution_id)
-            .await;
+            .await
+        {
+            self.context
+                .metrics
+                .step_stream_writes_dropped
+                .record(step_stream_write_drop_reason(&error));
+        }
     }
 
     async fn complete(

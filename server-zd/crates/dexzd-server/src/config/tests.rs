@@ -745,6 +745,12 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("streamStore.trimTargetPercent", |config| {
             config.stream_store.trim_target_percent = 90
         }),
+        ("streamStore.maxTotalBytes", |config| {
+            config.stream_store.max_total_bytes = 0
+        }),
+        ("streamStore.maxStreamCapacityBytes", |config| {
+            config.stream_store.max_stream_capacity_bytes = 2 << 30
+        }),
         ("streamStore.backgroundTrimBatchSize", |config| {
             config.stream_store.background_trim_batch_size = 0
         }),

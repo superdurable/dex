@@ -379,6 +379,17 @@ impl Config {
             "must be below streamStore.trimTriggerPercent",
         )?;
         ensure(
+            self.stream_store.max_total_bytes > 0,
+            "streamStore.maxTotalBytes",
+            "must be positive",
+        )?;
+        ensure(
+            self.stream_store.max_stream_capacity_bytes > 0
+                && self.stream_store.max_stream_capacity_bytes <= self.stream_store.max_total_bytes,
+            "streamStore.maxStreamCapacityBytes",
+            "must be positive and at most streamStore.maxTotalBytes",
+        )?;
+        ensure(
             self.stream_store.background_trim_batch_size > 0,
             "streamStore.backgroundTrimBatchSize",
             "must be positive",

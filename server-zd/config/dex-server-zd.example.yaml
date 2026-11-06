@@ -121,6 +121,8 @@ streamStore:
   backend: memory
   maxMessageBytes: 102400
   maxReadMessages: 1000
+  maxTotalBytes: 1073741824
+  maxStreamCapacityBytes: 67108864
   estimatedMessageOverheadBytes: 512
   trimTriggerPercent: 90
   trimTargetPercent: 80

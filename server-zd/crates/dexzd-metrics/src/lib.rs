@@ -56,8 +56,9 @@ pub use semantic::{
     StepRetriesExhausted,
 };
 pub use worker_stream::{
-    StepAttemptReturnReason, StepAttemptsReturned, UnservedTaskQueueReason, UnservedTaskQueues,
-    WorkerStreamEvent, WorkerStreamEvents, WorkerStreamProtocolError, WorkerStreamProtocolErrors,
+    StepAttemptReturnReason, StepAttemptsReturned, StepStreamWriteDropReason,
+    StepStreamWritesDropped, UnservedTaskQueueReason, UnservedTaskQueues, WorkerStreamEvent,
+    WorkerStreamEvents, WorkerStreamProtocolError, WorkerStreamProtocolErrors,
 };
 
 /// The node's fixed set of metric handles.
@@ -143,6 +144,8 @@ pub struct NodeMetrics {
     pub step_schedule_to_start_latency: AtomicHistogram<7>,
     /// Task deliveries and persistent Worker stream closes.
     pub worker_stream_events: WorkerStreamEvents,
+    /// Step Stream writes the server dropped, by reason.
+    pub step_stream_writes_dropped: StepStreamWritesDropped,
     /// Attribute Sync entries waiting to be written, as of the projector's last scan.
     pub attribute_sync_backlog_entries: Gauge,
     /// Age of the oldest pending Attribute Sync entry's retry window, 0 when none.
@@ -455,6 +458,11 @@ impl NodeMetrics {
             metrics.worker_stream_events.clone(),
         );
         registry.register(
+            "dexzd_step_stream_writes_dropped",
+            "Step Stream writes dropped without failing the Step, by reason.",
+            metrics.step_stream_writes_dropped.clone(),
+        );
+        registry.register(
             "dexzd_attribute_sync_backlog_entries",
             "Attribute Sync entries waiting to be written.",
             metrics.attribute_sync_backlog_entries.clone(),
@@ -624,6 +632,7 @@ impl NodeMetrics {
             flow_end_to_end_latency: AtomicHistogram::new(&FLOW_LATENCY_BOUNDS),
             step_schedule_to_start_latency: AtomicHistogram::new(&SCHEDULE_LATENCY_BOUNDS),
             worker_stream_events: WorkerStreamEvents::default(),
+            step_stream_writes_dropped: StepStreamWritesDropped::default(),
             attribute_sync_backlog_entries: Gauge::default(),
             attribute_sync_oldest_pending_age: Gauge::default(),
             attribute_sync_write_failures: AttributeSyncWriteFailures::default(),

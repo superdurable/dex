@@ -184,7 +184,9 @@ fn stream_store_error(error: StreamStoreError) -> FlowOperationError {
         StreamStoreError::InvalidArgument(_) | StreamStoreError::InvalidResumeToken => {
             FlowOperationError::invalid_argument(error.to_string())
         }
-        StreamStoreError::MessageTooLarge | StreamStoreError::CapacityExceeded => {
+        StreamStoreError::MessageTooLarge
+        | StreamStoreError::CapacityExceeded
+        | StreamStoreError::TotalCapacityExceeded => {
             FlowOperationError::resource_exhausted(error.to_string())
         }
         StreamStoreError::Closed | StreamStoreError::TrimWorkerFailed => {

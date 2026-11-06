@@ -62,7 +62,7 @@ async fn serve_without_stream_store_section_serves_streams_from_memory() {
 async fn serve_with_disabled_stream_store_rejects_stream_calls() {
     let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
     let directory = TempDir::new().expect("temporary directory exists");
-    let mut process = spawn_serve(&primary, &directory, Some("disabled"));
+    let mut process = spawn_serve(&primary, &directory, Some("  backend: disabled\n"));
     let mut client = FlowServiceClient::new(process.wait_until_serving().await);
 
     let write_status = client
@@ -82,15 +82,56 @@ async fn serve_with_disabled_stream_store_rejects_stream_calls() {
     assert_stream_store_disabled("ListStreamMessages", &list_status);
 
     let status = process.terminate(SHUTDOWN_BUDGET).await;
-    assert_eq!(status.code(), Some(0), "{}", process.log());
+    let log = process.log();
+    assert_eq!(status.code(), Some(0), "{log}");
+    assert!(
+        log.contains("streamStore.backend is disabled; Step Stream writes will be dropped"),
+        "startup warns about the disabled backend: {log}"
+    );
     primary.shutdown().await;
 }
 
-/// Starts `serve`, appending a streamStore section only when `stream_store_backend` is set.
+/// A WriteStream past `streamStore.maxTotalBytes` returns RESOURCE_EXHAUSTED.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn serve_rejects_a_stream_write_past_the_total_byte_bound() {
+    let primary = S3Emulator::start(PRIMARY_BUCKET, SignatureVerification::Strict).await;
+    let directory = TempDir::new().expect("temporary directory exists");
+    let mut process = spawn_serve(
+        &primary,
+        &directory,
+        Some("  maxTotalBytes: 4096\n  maxStreamCapacityBytes: 4096\n"),
+    );
+    let mut client = FlowServiceClient::new(process.wait_until_serving().await);
+    let large_write = || WriteStreamRequest {
+        value: Some(string_value(&"a".repeat(2048))),
+        ..write_stream_request()
+    };
+
+    client
+        .write_stream(large_write())
+        .await
+        .expect("the first write fits in maxTotalBytes");
+    let status = client
+        .write_stream(large_write())
+        .await
+        .expect_err("the second write exceeds maxTotalBytes");
+    assert_service_error(
+        "WriteStream",
+        &status,
+        tonic::Code::ResourceExhausted,
+        "Stream Store total capacity is exhausted; retry after background trimming",
+    );
+
+    let exit_status = process.terminate(SHUTDOWN_BUDGET).await;
+    assert_eq!(exit_status.code(), Some(0), "{}", process.log());
+    primary.shutdown().await;
+}
+
+/// Starts `serve`, appending a streamStore section with `stream_store_fields` when set.
 fn spawn_serve(
     primary: &S3Emulator,
     directory: &TempDir,
-    stream_store_backend: Option<&str>,
+    stream_store_fields: Option<&str>,
 ) -> ServeProcess {
     let api_address = free_loopback_address();
     let configuration_path = directory.path().join("stream-store.yaml");
@@ -104,10 +145,10 @@ fn spawn_serve(
         parade_db: None,
     }
     .write(&configuration_path);
-    if let Some(backend) = stream_store_backend {
+    if let Some(fields) = stream_store_fields {
         let mut configuration =
             fs::read_to_string(&configuration_path).expect("configuration is readable");
-        configuration.push_str(&format!("streamStore:\n  backend: {backend}\n"));
+        configuration.push_str(&format!("streamStore:\n{fields}"));
         fs::write(&configuration_path, configuration).expect("configuration is writable");
     }
     ServeProcess::spawn(
@@ -118,11 +159,17 @@ fn spawn_serve(
 }
 
 fn assert_stream_store_disabled(api: &str, status: &tonic::Status) {
-    assert_eq!(
-        status.code(),
+    assert_service_error(
+        api,
+        status,
         tonic::Code::FailedPrecondition,
-        "{api}: {status:?}"
+        "Stream Store is disabled",
     );
+}
+
+/// Asserts the gRPC code, the UNCATEGORIZED sub-status, and the detail of a Stream failure.
+fn assert_service_error(api: &str, status: &tonic::Status, code: tonic::Code, detail: &str) {
+    assert_eq!(status.code(), code, "{api}: {status:?}");
     let details = GoogleRpcStatus::decode(status.details())
         .unwrap_or_else(|error| panic!("{api}: {status:?} has no google.rpc.Status: {error}"));
     let response = details
@@ -137,7 +184,7 @@ fn assert_stream_store_disabled(api: &str, status: &tonic::Status) {
         ErrorSubStatus::Uncategorized as i32,
         "{api}"
     );
-    assert_eq!(response.detail, "Stream Store is disabled", "{api}");
+    assert_eq!(response.detail, detail, "{api}");
 }
 
 fn write_stream_request() -> WriteStreamRequest {

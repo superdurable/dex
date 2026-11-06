@@ -943,6 +943,7 @@ key label。
 | Flow 关闭 | **dexzd_flow_closes_total**，带 **close_status**；**dexzd_flow_end_to_end_latency_seconds** |
 | 派发延迟 | **dexzd_step_schedule_to_start_latency_seconds** |
 | Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks**（只计内存中的等待者） |
+| 被丢弃的 Step Stream 写入 | **dexzd_step_stream_writes_dropped_total**，带 **reason** |
 | Step 任务队列 | **dexzd_step_task_queue_entries**；**dexzd_step_task_queue_oldest_age_seconds**；**dexzd_matching_unserved_task_queues**，带 **reason**；**dexzd_matching_heads_restored_refs_total**；**dexzd_matching_heads_incomplete_scans_total**；**dexzd_step_task_queue_incomplete_seeks_total** |
 | 提交延迟 | **dexzd_commit_latency_seconds** |
 | 对象存储 | **dexzd_object_store_requests_total**，带 **operation** 和 **object_kind**；**dexzd_object_store_request_errors_total**，带 **operation** |
@@ -1095,7 +1096,22 @@ RPC 从不排队。如果在 **dispatchWait** 内没有可用的 Worker，RPC �
 用 **streamStore.backend** 控制 best-effort [Stream](/primitives/stream)，取值为 **memory**（默认）
 或 **disabled**。memory Stream 只存在于 active server 进程中。重启、standby 接管或让位之后，
 Stream 都从空开始；trim 也可能删除较早的消息。backend 为 disabled 时，Client 的 Stream 写入和
-读取返回 **FAILED_PRECONDITION**。Step 的 Stream 写入会被丢弃并记录日志，但 Step 不会失败。
+读取返回 **FAILED_PRECONDITION**。Step 的 Stream 写入会被丢弃并记录日志，但 Step 不会失败；
+server 启动时也会记录一条警告。
+
+memory 后端会限制自己使用的内存：
+
+- **streamStore.maxTotalBytes**（默认 1 GiB）限制节点上所有 Stream 合计保存的字节数。
+  超过它的 Client 写入返回 **RESOURCE_EXHAUSTED**。随后后台 trim 会删除最大的 Stream 中
+  最早的消息，直到用量降到上限的 **trimTargetPercent**。
+- **streamStore.maxStreamCapacityBytes**（默认 64 MiB）是单个 Stream 可用的最大容量。
+  更大的 **streamCapacityBytes** 会被降到这个值。
+- 每条消息计入它的 Value、Flow ID、source 和 **estimatedMessageOverheadBytes**（默认 512）。
+- **backgroundTrimBatchSize**、**trimBatchYieldTime** 和 **trimWorkers** 控制 trim 的节奏。
+
+server 丢弃的 Step Stream 写入从不会让 Step 失败。**dexzd_step_stream_writes_dropped_total**
+按 **reason** 统计这些写入：**disabled**、**invalid_argument**、**message_too_large**、
+**stream_capacity_exceeded**、**total_capacity_exceeded** 或 **closed**。
 
 ## 身份验证
 

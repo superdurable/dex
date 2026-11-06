@@ -196,6 +196,7 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         "dexzd_flow_end_to_end_latency_seconds",
         "dexzd_step_schedule_to_start_latency_seconds",
         "dexzd_worker_stream_events_total",
+        "dexzd_step_stream_writes_dropped_total",
         "dexzd_attribute_sync_backlog_entries",
         "dexzd_attribute_sync_oldest_pending_age_seconds",
         "dexzd_attribute_sync_write_failures_total",
