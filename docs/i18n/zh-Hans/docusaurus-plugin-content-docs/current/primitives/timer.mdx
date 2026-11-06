@@ -129,9 +129,11 @@ impl Step for TimerExampleStep {
 </SdkSnippet>
 </SdkTabs>
 
+<a id="如何跳过-timer"></a>
+
 ## 跳过 Timer
 
-Client 可以用 **SkipTimer** 跳过一个 Timer。它按 Flow ID、Step execution ID 和 condition 在 **WaitFor** 中的序号选择 Timer。被跳过的 Timer 等同于已经触发。在测试中可以用它；在生产中，也可以用它让等待中的 Step 提前运行。
+Client 可以用 **SkipTimer** 跳过一个 Timer。它按 Flow ID、Step execution ID 和 condition 在 **WaitFor** 中的序号选择 Timer。被跳过的 Timer 等同于已经触发。在测试中可以用它；在生产中，也可以用它让等待中的 Step 提前运行。见 [Skip a Timer](/reference/server/runtime-client#skip-a-timer)。
 
 在 order-processing 示例的这个测试里，**Ship** Step 等待一个 Timer，测试跳过了它：
 

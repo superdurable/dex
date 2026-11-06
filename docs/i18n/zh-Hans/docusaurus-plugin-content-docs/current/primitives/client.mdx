@@ -12,12 +12,12 @@ slug: /primitives/client
 
 在应用和它的 Flow 之间的边界上使用 Client：
 
-- **启动** Flow：一个请求开始一个业务流程时。
-- **调用 RPC**：向 Flow 发送命令，或读取需要 Flow 逻辑的视图。
-- **读取 Attribute**：只需要已存储的值时。
+- <a id="启动-flow"></a>**启动** Flow：一个请求开始一个业务流程时。见 [Start a Flow](/reference/server/runtime-client#start-a-flow)。
+- <a id="调用-rpc"></a><a id="读写-flow-状态"></a>**调用 RPC**：向 Flow 发送命令，或读取需要 Flow 逻辑的视图。见 [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc)。
+- <a id="read-attributes"></a>**读取 Attribute**：只需要已存储的值时。见 [Read Attributes](/reference/server/runtime-client#read-attributes)。
 - **等待**：等 Flow 结束、Step 完成，或 Attribute 达到某个值。
 - **搜索**：按 Flow type、状态或已索引的 Attribute 查找 Flow。
-- **运维** Flow：查看、停止、跳过 Timer、更新配置或 time travel。
+- <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 time travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
 
 ## 和其他 Primitive 的关系
 

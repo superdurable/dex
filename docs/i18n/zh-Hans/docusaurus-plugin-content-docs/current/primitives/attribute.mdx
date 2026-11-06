@@ -302,9 +302,13 @@ self.progress
 </SdkSnippet>
 </SdkTabs>
 
+<a id="initial-attribute-values"></a>
+<a id="read-from-outside-a-flow"></a>
+<a id="indexed-attributes"></a>
+
 ## 读取和搜索 Attribute
 
-Flow 外的代码通过 [Client](/primitives/client) 读取 Attribute。Dex Server 直接回答这个读取，不运行 Worker。如果读取需要 Flow 逻辑，例如授权或派生视图，就改用 [RPC](/primitives/rpc)。
+Flow 外的代码通过 [Client](/primitives/client) 读取 Attribute。Dex Server 直接回答这个读取，不运行 Worker。如果读取需要 Flow 逻辑，例如授权或派生视图，就改用 [RPC](/primitives/rpc)。见 [Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow)。在 Flow 启动时设置初始值，见 [Initial values](/reference/server/runtime-data#initial-attribute-values)。
 
 带 index 的 Attribute 可以用在 **SearchFlows** 查询里，查找 Flow execution。上面的例子给 status Attribute 建了 index。index 类型、index key 和 AttributeMap index 见 [Indexes](/reference/server/runtime-data#attribute-indexes)。
 
@@ -379,7 +383,13 @@ StepOptions::new()
 </SdkSnippet>
 </SdkTabs>
 
-lock 的获取时机、lock conflict 和锁住整张 AttributeMap 的方法，见 [Locks](/reference/server/runtime-data#attribute-locks)。
+<a id="whole-map-coordination"></a>
+<a id="lock-waitfor"></a>
+<a id="lock-execute"></a>
+<a id="lock-an-rpc"></a>
+<a id="rpc-lock-conflicts"></a>
+
+lock 的获取时机，以及 **WaitFor**、**Execute** 和 RPC 的 lock，见 [Locks](/reference/server/runtime-data#attribute-locks)。lock conflict 见 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)，锁住整张 AttributeMap 见 [whole-map coordination](/reference/server/runtime-data#whole-map-coordination)。
 
 ## 短期 secret {#hard-delete-attributes}
 

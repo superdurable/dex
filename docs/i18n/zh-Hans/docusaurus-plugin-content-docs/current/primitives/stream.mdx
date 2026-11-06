@@ -18,6 +18,11 @@ Stream 适合能改善用户体验、但不属于关键业务的数据：
 
 不能丢失的数据，用 [Channel](/primitives/channel) 或 [Attribute](/primitives/attribute)。
 
+<a id="语义"></a>
+<a id="写入语义"></a>
+<a id="近似容量"></a>
+<a id="best-effort-storage"></a>
+
 ## 保证
 
 Stream 用 durability 换取速度：
@@ -28,13 +33,17 @@ Stream 用 durability 换取速度：
 - Stream 写入失败永远不会让 Step 失败。
 - 读取方按 Dex 保存的顺序看到消息。
 
-容量由同一 Flow type 和 Stream name 下的所有 Flow execution 共享，不是每个 Flow ID 的限制。
+容量由同一 Flow type 和 Stream name 下的所有 Flow execution 共享，不是每个 Flow ID 的限制。见 [Write semantics](/reference/server/runtime-data#stream-write-semantics)、[Capacity and trimming](/reference/server/runtime-data#stream-capacity) 和 [Best-effort storage](/reference/server/runtime-data#stream-storage)。
+
+<a id="定义并注册-stream"></a>
 
 ## 定义并写入 Stream
 
 Stream 有稳定的名字、消息类型和容量。把它加到 Flow 的 persistence schema。
 
-这个例子通过 buffered text writer 写入进度文本。Dex 在 Step 结果之前 flush 缓冲的文本。Step 不等待 server 保存文本。
+<a id="buffer-text-chunk"></a>
+
+这个例子通过 buffered text writer 写入进度文本。Dex 在 Step 结果之前 flush 缓冲的文本。Step 不等待 server 保存文本。见 [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text)。
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -236,8 +245,10 @@ impl Step for RenderPreview {
 
 Client 有两种方式读取 Stream：
 
-- **ReadStream** 向前读取，每次一条消息。每条消息带一个 resume token。把 token 传回去就能读下一条。没有新消息时，调用会等待。
-- **ListStreamMessages** 从最新的消息向后分页。它立即返回。
+- <a id="可续读"></a>**ReadStream** 向前读取，每次一条消息。每条消息带一个 resume token。把 token 传回去就能读下一条。没有新消息时，调用会等待。
+- <a id="列出消息"></a>**ListStreamMessages** 从最新的消息向后分页。它立即返回。
+
+见 [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) 和 [List messages](/reference/server/runtime-data#stream-listing)。
 
 Client 也可以写入 Stream，Flow 关闭后也可以。RPC handler 通过注入的 Client 写入。
 

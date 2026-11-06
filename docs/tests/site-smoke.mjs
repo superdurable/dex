@@ -248,6 +248,18 @@ for (const [route, ids] of Object.entries(transitionAnchors)) {
     assert.ok(html.includes(`id="${id}"`), `${route} lost the old anchor #${id}`);
   }
 }
+// Old Primitives URLs keep every section id at the page they now resolve to.
+const movedPrimitiveAnchors = JSON.parse(
+  await readFile(join(docsRoot, 'tests', 'moved-primitive-anchors.json'), 'utf8'),
+);
+for (const [route, ids] of Object.entries(movedPrimitiveAnchors)) {
+  const redirectTarget = expectedRedirects.get(route);
+  const finalRoute = redirectTarget ? new URL(redirectTarget).pathname : route;
+  const html = await readFile(join(root, ...finalRoute.split('/').filter(Boolean), 'index.html'), 'utf8');
+  for (const id of ids) {
+    assert.ok(html.includes(`id="${id}"`), `${route}#${id} does not resolve at ${finalRoute}`);
+  }
+}
 assert.match(serverTransition, /href="\/reference\/server\/configuration\/#history-window"/);
 assert.match(zhPullWorkersTransition, /id="readiness"/);
 assert.match(zhPullWorkersTransition, /id="enable-pull-mode"/);

@@ -192,6 +192,8 @@ impl Step for SubFlowParent {
 </SdkSnippet>
 </SdkTabs>
 
+<a id="use-subflows-with-other-conditions"></a>
+
 ## Wait for several SubFlows
 
 Use **allOf** to make the parent wait for all SubFlows to complete.
@@ -199,11 +201,15 @@ Use **allOf** to make the parent wait for all SubFlows to complete.
 Use **anyOf** when the parent does not need to wait for all of them. A SubFlow
 keeps running after **WaitFor** stops waiting. **Execute** can still get the
 SubFlow ID to stop it, or pass the ID to another Step to decide how to handle
-it.
+it. See [SubFlow results](/reference/server/runtime-steps#subflow-results) for combining SubFlows with
+other conditions.
+
+<a id="subflowoptions-and-subflowreusepolicy"></a>
 
 ## Reference
 
 **SubFlowOptions** accept the same options as starting a Flow from a Client,
 plus a reuse policy. See
-[SubFlows](/reference/server/runtime-data#subflows) for the options and the
+[SubFlowOptions](/reference/server/runtime-data#subflow-options) and
+[SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy) for the options and the
 reuse policy for each state of an existing child.

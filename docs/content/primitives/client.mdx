@@ -14,15 +14,19 @@ Dex Server. It does not run Flow code. Workers do that.
 
 Use a Client at the boundary between your application and its Flows:
 
-- **Start** a Flow when a request begins a business process.
-- **Call an RPC** to send a command to a Flow, or to read a view that needs Flow
-  logic.
-- **Read Attributes** when you only need stored values.
+- <a id="start-a-flow"></a>**Start** a Flow when a request begins a business
+  process. See [Start a Flow](/reference/server/runtime-client#start-a-flow).
+- <a id="invoke-an-rpc"></a><a id="read-and-write-flow-state"></a>**Call an RPC**
+  to send a command to a Flow, or to read a view that needs Flow logic. See
+  [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc).
+- <a id="read-attributes"></a>**Read Attributes** when you only need stored
+  values. See [Read Attributes](/reference/server/runtime-client#read-attributes).
 - **Wait** for a Flow to finish, a Step to complete, or an Attribute to reach a
   value.
 - **Search** for Flows by Flow type, status, or indexed Attributes.
-- **Operate** a Flow: describe it, stop it, skip a Timer, update its
-  configuration, or time travel it.
+- <a id="stop-a-flow"></a>**Operate** a Flow: describe it, stop it, skip a
+  Timer, update its configuration, or time travel it. See
+  [Stop a Flow](/reference/server/runtime-client#stop-a-flow).
 
 ## How it relates to the other Primitives
 

@@ -27,9 +27,9 @@ Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任�
 
 在你的语言里实现 **Flow** interface，就定义了一个 Flow。它声明三样东西：
 
-- **Steps**：start Step，以及 Flow 能到达的其他所有 Step。[Step](/primitives/step) 执行后台工作。
-- **Persistence schema**：保存 Flow durable 状态的 [Attribute](/primitives/attribute) 和 [Channel](/primitives/channel)。读写未声明的名称会被 Dex 拒绝。
-- **RPC handlers**：client 在运行中的 Flow 上调用的方法。见 [RPC](/primitives/rpc)。
+- <a id="steps"></a>**Steps**：start Step，以及 Flow 能到达的其他所有 Step。[Step](/primitives/step) 执行后台工作。
+- <a id="persistence-schema"></a>**Persistence schema**：保存 Flow durable 状态的 [Attribute](/primitives/attribute) 和 [Channel](/primitives/channel)。读写未声明的名称会被 Dex 拒绝。
+- <a id="rpc-handlers"></a>**RPC handlers**：client 在运行中的 Flow 上调用的方法。见 [RPC](/primitives/rpc)。
 
 start Step 的 input type 也是 Flow 的 start input type。下面这个 Flow 有两个 Step、一个 Attribute、一个 Channel 和一个 RPC。
 

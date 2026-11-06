@@ -38,12 +38,12 @@ when a parent Step must wait for a child Flow's result.
 You define a Flow by implementing the **Flow** interface in your language. It
 declares three things:
 
-- **Steps**: the start Step and every other Step the Flow can reach.
+- <a id="steps"></a>**Steps**: the start Step and every other Step the Flow can reach.
   [Steps](/primitives/step) run the background work.
-- **Persistence schema**: the [Attributes](/primitives/attribute) and
+- <a id="persistence-schema"></a>**Persistence schema**: the [Attributes](/primitives/attribute) and
   [Channels](/primitives/channel) that hold the Flow's durable state. Dex
   rejects reads and writes to names that are not declared.
-- **RPC handlers**: methods that a client calls on a running Flow. See
+- <a id="rpc-handlers"></a>**RPC handlers**: methods that a client calls on a running Flow. See
   [RPC](/primitives/rpc).
 
 The start Step's input type is also the Flow's start input type. This Flow has

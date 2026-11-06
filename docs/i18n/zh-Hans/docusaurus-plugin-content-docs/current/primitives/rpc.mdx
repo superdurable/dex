@@ -25,13 +25,17 @@ RPC handler 可以做四件事：
 - 启动新的 [Step](/primitives/step)；
 - 取消正在运行的 Step。
 
-Client 不用 RPC 也能读取已存储的 Attribute。只有读取需要 Flow 逻辑时，例如校验、授权或派生视图，才用 RPC 来读。
+<a id="read-only-rpcs-and-terminal-flows"></a>
+
+Client 不用 RPC 也能读取已存储的 Attribute。只有读取需要 Flow 逻辑时，例如校验、授权或派生视图，才用 RPC 来读。见 [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows)。
 
 ## 保证
 
 每次 RPC 调用都是一个 commit 边界。Dex Server 暂存 RPC 中的 Attribute 写入和 Channel 发布。只有 method 成功返回后，它才把这些变更和 RPC 结果一起 commit。RPC 失败时，这些 durable 变更都不会 commit。外部 API 调用不在这个原子边界内。
 
-RPC 和 Step 一样在 Worker 上运行。每次 handler 调用都受 timeout 限制。
+<a id="rpc-timeout"></a>
+
+RPC 和 Step 一样在 Worker 上运行。每次 handler 调用都受 timeout 限制。见 [RPC timeout](/reference/server/runtime-data#rpc-timeout)。
 
 ## 定义和调用 RPC
 
@@ -176,19 +180,32 @@ let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+<a id="java-和-kotlin"></a>
+<a id="typescript-codec"></a>
+
+Java、Kotlin 和 TypeScript 还有额外的 RPC 规则，见 [RPC stubs and Kotlin](/reference/java/#rpc-stubs-and-kotlin) 和 [RPC codecs](/reference/typescript/#rpc-codecs)。
+
 ## 取消正在运行的 Step {#cancel-running-steps}
 
-RPC 的结果可以按 Step type 取消所在 Flow 中的活跃 Step。外部请求让进行中的工作失去意义时用它，例如报告或模型调用运行时用户按下 Stop。Dex 在 commit 这个 RPC 时执行取消。Step 代码必须检查取消并停下。示例、与已完成 Step 的竞争，以及各 SDK 如何传递取消，见 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps)。
+<a id="cancel-race"></a>
+<a id="cancel-honour"></a>
+
+RPC 的结果可以按 Step type 取消所在 Flow 中的活跃 Step。外部请求让进行中的工作失去意义时用它，例如报告或模型调用运行时用户按下 Stop。Dex 在 commit 这个 RPC 时执行取消。Step 代码必须检查取消并停下。示例见 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps)，与先完成的 Step 的竞争见 [Resolve the race from committed state](/reference/server/runtime-data#cancel-race)，各 SDK 如何传递取消见 [Make the Step stop](/reference/server/runtime-data#cancel-honour)。
 
 ## Lock 和 transactional RPC {#transactional-reads-and-writes}
 
-并发的 Step 和 RPC 可能修改同一份状态。RPC 可以获取 [Attribute lock](/primitives/attribute#locking)，与它们依次执行。RPC 拿不到 lock 会立即失败，由调用方重试。
+<a id="attribute-locks"></a>
+
+并发的 Step 和 RPC 可能修改同一份状态。RPC 可以获取 [Attribute lock](/primitives/attribute#locking)，与它们依次执行。RPC 拿不到 lock 会立即失败，由调用方重试。见 [Locks](/reference/server/runtime-data#attribute-locks) 和 [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)。
 
 **transactional** RPC 在 Dex commit 它时多做一次检查。如果它删除的 Channel 消息已经不在队列中，RPC 失败，什么也不 commit。非 transactional RPC 会跳过缺失的删除，commit 其余变更。持有 lock 的 RPC 总是 transactional。见 [Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes)。
 
+<a id="load-collection-state"></a>
+<a id="运行时选择-map-instance"></a>
+
 ## 加载集合
 
-RPC 会收到普通 Attribute 和 Channel 大小。只有声明之后，它才加载 AttributeMap 条目和待处理的 Channel 消息。这样不用这些大集合的 RPC 就不会带上它们。见 [Selective state loading](/reference/server/runtime-data#load-collection-state)。
+RPC 会收到普通 Attribute 和 Channel 大小。只有声明之后，它才加载 AttributeMap 条目和待处理的 Channel 消息。这样不用这些大集合的 RPC 就不会带上它们。见 [Selective state loading](/reference/server/runtime-data#load-collection-state) 和 [Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances)。
 
 ## 参考
 

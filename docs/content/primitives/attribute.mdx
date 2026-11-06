@@ -316,12 +316,18 @@ self.progress
 </SdkSnippet>
 </SdkTabs>
 
+<a id="initial-attribute-values"></a>
+<a id="read-from-outside-a-flow"></a>
+<a id="indexed-attributes"></a>
+
 ## Read and search Attributes
 
 Code outside the Flow reads Attributes through the [Client](/primitives/client).
 Dex Server answers the read itself, without running a Worker. Use an
 [RPC](/primitives/rpc) instead when the read needs Flow logic, such as
-authorization or a derived view.
+authorization or a derived view. See
+[Read Attributes from outside a Flow](/reference/server/runtime-data#read-attributes-from-outside-a-flow).
+To set values when the Flow starts, see [Initial values](/reference/server/runtime-data#initial-attribute-values).
 
 An indexed Attribute can be used in **SearchFlows** queries to find Flow
 executions. The example above indexes the status Attribute. See
@@ -403,8 +409,15 @@ StepOptions::new()
 </SdkSnippet>
 </SdkTabs>
 
-See [Locks](/reference/server/runtime-data#attribute-locks) for lock timing,
-lock conflicts, and locking a whole AttributeMap.
+<a id="whole-map-coordination"></a>
+<a id="lock-waitfor"></a>
+<a id="lock-execute"></a>
+<a id="lock-an-rpc"></a>
+<a id="rpc-lock-conflicts"></a>
+
+See [Locks](/reference/server/runtime-data#attribute-locks) for lock timing and **WaitFor**,
+**Execute**, and RPC locks. See [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts)
+and [whole-map coordination](/reference/server/runtime-data#whole-map-coordination) for the rest.
 
 ## Short-lived secrets {#hard-delete-attributes}
 

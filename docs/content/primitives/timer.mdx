@@ -134,12 +134,14 @@ impl Step for TimerExampleStep {
 </SdkSnippet>
 </SdkTabs>
 
+<a id="how-to-skip-a-timer"></a>
+
 ## Skip a Timer
 
 A Client can skip a Timer with **SkipTimer**. It selects the Timer by Flow ID,
 Step execution ID, and the index of the condition in **WaitFor**. A skipped
 Timer acts as if it had fired. Use it in tests, or in production to run a
-waiting Step early.
+waiting Step early. See [Skip a Timer](/reference/server/runtime-client#skip-a-timer).
 
 In this test of the order-processing example, the **Ship** Step waits on a
 Timer, and the test skips it:

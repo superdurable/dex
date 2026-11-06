@@ -249,6 +249,8 @@ Attribute with another value type fails to decode.
 
 The SDK doc comments name each error type.
 
+<a id="等待-flow"></a>
+
 ## Wait for a Flow {#wait-for-a-flow}
 
 **WaitForFlow** waits for a terminal Flow status. A bounded wait can return a
@@ -296,6 +298,8 @@ Stream long-polls.
   the same Request ID. The cap does not reset **RequestTimeout**.
 - **InternalHandlerTimeout** is deprecated. Leave it unset.
 
+<a id="查看-flow"></a>
+
 ## Describe a Flow {#describe-a-flow}
 
 **DescribeFlow** reads the current or latest run's IDs, Flow type, status, and
@@ -303,6 +307,8 @@ start time. The Go SDK also returns the close time when available. It does not
 wait for the Flow to finish. Use it for a one-off status check, for example
 after a read-only RPC returns a non-terminal business state. A missing ID, or an
 ID that does not belong to a Flow, returns a typed Flow-not-found error.
+
+<a id="搜索-flow"></a>
 
 ## Search Flows {#search-flows}
 
@@ -317,11 +323,15 @@ continue a search. Keep the query unchanged across pages. See
 Choose the Step execution, and either the Timer's condition ID or its zero-based
 condition index.
 
+<a id="更新-flowconfig"></a>
+
 ## Update FlowConfig {#update-flowconfig}
 
 **UpdateFlowConfig** changes the **FlowConfig** of an active Flow. See
 [Update FlowConfig with a Client](/reference/server/runtime-steps#update-flow-config-with-a-client)
 for the merge rules and the fields.
+
+<a id="触发-continue-as-new"></a>
 
 ## TriggerContinueAsNew {#trigger-continue-as-new}
 

@@ -21,6 +21,11 @@ business-critical:
 Use a [Channel](/primitives/channel) or an [Attribute](/primitives/attribute)
 for data that must not be lost.
 
+<a id="semantics"></a>
+<a id="write-semantics"></a>
+<a id="approximate-capacity"></a>
+<a id="best-effort-storage"></a>
+
 ## Guarantees
 
 A Stream gives up durability for speed:
@@ -35,16 +40,22 @@ A Stream gives up durability for speed:
 - A reader sees messages in the order Dex stored them.
 
 The capacity is shared by all Flow executions with the same Flow type and
-Stream name. It is not a limit for each Flow ID.
+Stream name. It is not a limit for each Flow ID. See [Write semantics](/reference/server/runtime-data#stream-write-semantics),
+[Capacity and trimming](/reference/server/runtime-data#stream-capacity), and
+[Best-effort storage](/reference/server/runtime-data#stream-storage).
+
+<a id="define-and-register-a-stream"></a>
 
 ## Define and write a Stream
 
 A Stream has a stable name, a message type, and a capacity. Add it to the Flow
 persistence schema.
 
+<a id="buffer-text-chunks"></a>
+
 This example writes progress text through a buffered text writer. Dex flushes
 the buffered text before the Step result. The Step does not wait for the server
-to store the text.
+to store the text. See [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text).
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -246,11 +257,14 @@ impl Step for RenderPreview {
 
 A Client has two ways to read a Stream:
 
-- **ReadStream** reads forward, one message at a time. Each message carries a
+- <a id="resumable-reads"></a>**ReadStream** reads forward, one message at a time. Each message carries a
   resume token. Pass the token back to read the next message. When no new
   message exists, the call waits for one.
-- **ListStreamMessages** pages backward from the newest message. It returns at
-  once.
+- <a id="listing-messages"></a>**ListStreamMessages** pages backward from the
+  newest message. It returns at once.
+
+See [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) and
+[List messages](/reference/server/runtime-data#stream-listing).
 
 A Client can also write to a Stream, even when the Flow has closed. An RPC
 handler writes through an injected Client.

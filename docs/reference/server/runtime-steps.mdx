@@ -275,6 +275,9 @@ impl Flow for ExampleFlow {
 **IDReusePolicy** says what to do when this Flow ID already exists.
 **RequestID** says whether this call retries the same start request.
 
+<a id="how-these-options-work-together"></a>
+<a id="这些选项如何一起工作"></a>
+
 These options answer different questions, in this order:
 
 1. **RequestID** identifies one start request. When omitted, the SDK generates
@@ -303,6 +306,9 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 | **IDReuseAllowIfNotRunning** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run. |
 | **IDReuseDisallow** | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
 | **IDReuseTerminateIfRunning** | Terminates the active run and starts a replacement. It does not produce an already-started error. | Starts a new run. |
+
+<a id="what-dex-server-does"></a>
+<a id="dex-server-的逻辑"></a>
 
 #### What Dex Server does {#start-request-server-behavior}
 
@@ -758,6 +764,8 @@ Use **AnyOf** for a race among the current alternatives. For strict priority
 that must keep waiting for a higher-priority input, return only that condition
 until it is resolved.
 
+<a id="channel-结果"></a>
+
 #### Channel results {#channel-results}
 
 <SdkTabs
@@ -910,6 +918,8 @@ impl Step for ChannelWait {
 
 </SdkSnippet>
 </SdkTabs>
+
+<a id="subflow-结果"></a>
 
 #### SubFlow results {#subflow-results}
 
