@@ -185,6 +185,7 @@ fn stream_store_error(error: StreamStoreError) -> FlowOperationError {
             FlowOperationError::invalid_argument(error.to_string())
         }
         StreamStoreError::MessageTooLarge
+        | StreamStoreError::MessageExceedsStreamCapacity
         | StreamStoreError::CapacityExceeded
         | StreamStoreError::TotalCapacityExceeded => {
             FlowOperationError::resource_exhausted(error.to_string())

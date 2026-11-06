@@ -1237,12 +1237,12 @@ async fn a_rejected_write_below_the_trim_target_reclaims_room_for_itself() {
         .expect("the retried write fits");
     assert_eq!(
         write_charged(&store, "Huge", &value_charging(6000), 1 << 20).await,
-        Err(StreamStoreError::MessageTooLarge),
+        Err(StreamStoreError::MessageExceedsStreamCapacity),
         "a charge above the clamped Stream capacity can never fit"
     );
     assert_eq!(
         write_charged(&store, "Tiny", &two_thousand_bytes, 1500).await,
-        Err(StreamStoreError::MessageTooLarge),
+        Err(StreamStoreError::MessageExceedsStreamCapacity),
         "a charge above the requested Stream capacity can never fit"
     );
     store.close().await.unwrap();
@@ -1368,40 +1368,48 @@ async fn concurrent_stream_and_total_trims_keep_total_accounting_exact() {
     store.close().await.unwrap();
 }
 
+/// A wall clock frozen at one millisecond, so consecutive writes share it.
+struct FrozenWallClock;
+
+impl dexzd_clock::WallClock for FrozenWallClock {
+    fn now_unix_micros(&self) -> i64 {
+        1_700_000_000_000_000
+    }
+}
+
 #[tokio::test(flavor = "current_thread", start_paused = true)]
 async fn a_stream_recreated_after_a_total_trim_keeps_increasing_identities() {
-    let store = StreamStore::new(&StreamStoreConfig {
-        max_total_bytes: 1000,
-        max_stream_capacity_bytes: 1000,
-        ..thousand_byte_message_config("value", "flow-a", "source")
-    })
+    let store = StreamStore::new_with_identity_clock_for_test(
+        &StreamStoreConfig {
+            max_total_bytes: 1000,
+            max_stream_capacity_bytes: 1000,
+            ..thousand_byte_message_config("value", "flow-a", "source")
+        },
+        Arc::new(FrozenWallClock),
+    )
     .unwrap();
-    let mut same_millisecond_rounds = 0;
-    for _ in 0..100 {
-        write_thousand_bytes(&store, "Progress").await.unwrap();
-        let removed = read_one(&store, 0, "OrderFlow", "flow-a", "Progress", "").await;
-        // Reaching 1000 bytes triggers a total trim that empties and removes the Stream.
-        run_trim_workers_for(Duration::ZERO).await;
-        assert_eq!(retained_count(&store, "Progress").await, 0);
-        write_thousand_bytes(&store, "Progress").await.unwrap();
-        let replacement = read_one(
-            &store,
-            0,
-            "OrderFlow",
-            "flow-a",
-            "Progress",
-            &removed.resume_token,
-        )
-        .await;
-        assert_ne!(replacement.resume_token, removed.resume_token);
-        if replacement.created_time == removed.created_time {
-            same_millisecond_rounds += 1;
-        }
-        run_trim_workers_for(Duration::ZERO).await;
-    }
-    assert!(
-        same_millisecond_rounds > 0,
-        "at least one replacement shares its predecessor's millisecond"
+    write_thousand_bytes(&store, "Progress").await.unwrap();
+    let removed = read_one(&store, 0, "OrderFlow", "flow-a", "Progress", "").await;
+    // Reaching 1000 bytes triggers a total trim that empties and removes the Stream.
+    run_trim_workers_for(Duration::ZERO).await;
+    assert_eq!(retained_count(&store, "Progress").await, 0);
+    write_thousand_bytes(&store, "Progress").await.unwrap();
+    let replacement = read_one(
+        &store,
+        0,
+        "OrderFlow",
+        "flow-a",
+        "Progress",
+        &removed.resume_token,
+    )
+    .await;
+    assert_eq!(
+        replacement.created_time, removed.created_time,
+        "the frozen clock puts both messages in one millisecond"
+    );
+    assert_ne!(
+        replacement.resume_token, removed.resume_token,
+        "the recreated Stream does not reuse the removed message's identity"
     );
     store.close().await.unwrap();
 }

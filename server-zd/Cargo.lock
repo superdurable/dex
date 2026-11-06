@@ -1461,7 +1461,9 @@ dependencies = [
 name = "dexzd-stream-store"
 version = "0.1.0"
 dependencies = [
+ "dexzd-clock",
  "dexzd-protocol",
+ "dexzd-stream-store",
  "prost",
  "thiserror",
  "tokio",

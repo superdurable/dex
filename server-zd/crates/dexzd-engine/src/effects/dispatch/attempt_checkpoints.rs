@@ -60,7 +60,9 @@ pub(super) fn step_stream_write_drop_reason(error: &StreamStoreError) -> StepStr
         StreamStoreError::InvalidArgument(_)
         | StreamStoreError::InvalidResumeToken
         | StreamStoreError::InvalidConfig(_) => StepStreamWriteDropReason::InvalidArgument,
-        StreamStoreError::MessageTooLarge => StepStreamWriteDropReason::MessageTooLarge,
+        StreamStoreError::MessageTooLarge | StreamStoreError::MessageExceedsStreamCapacity => {
+            StepStreamWriteDropReason::MessageTooLarge
+        }
         StreamStoreError::CapacityExceeded => StepStreamWriteDropReason::StreamCapacityExceeded,
         StreamStoreError::TotalCapacityExceeded => StepStreamWriteDropReason::TotalCapacityExceeded,
         StreamStoreError::Closed | StreamStoreError::TrimWorkerFailed => {

@@ -16,7 +16,8 @@ batches, until usage reaches the low water mark. A write that cannot fit returns
 `StreamStoreError::CapacityExceeded` and schedules trimming deep enough to admit
 it; the caller retries, because the store never retries a write. A message whose
 charge exceeds the Stream's capacity can never fit and returns
-`StreamStoreError::MessageTooLarge` without trimming.
+`StreamStoreError::MessageExceedsStreamCapacity` without trimming. Message
+identities read an injected wall clock; `new` uses the system clock.
 
 `max_total_bytes` (1 GiB by default) bounds the bytes charged across every scope.
 A write past it returns `StreamStoreError::TotalCapacityExceeded` and schedules a

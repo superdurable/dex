@@ -12,6 +12,7 @@ mod stream_store_config;
 
 pub use stream_store_config::StreamStoreConfig;
 
+use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_protocol::dex::Value;
 use prost::Message as ProstMessage;
 use std::collections::{HashMap, VecDeque};
@@ -33,10 +34,12 @@ pub enum StreamStoreError {
     /// Invalid startup configuration has no gRPC mapping.
     #[error("invalid Stream Store configuration: {0}")]
     InvalidConfig(&'static str),
-    /// Oversized Values, or a charge above the Stream's capacity, map to ResourceExhausted.
-    /// The write can never succeed, so callers should not retry it.
+    /// Oversized Values map to ResourceExhausted.
     #[error("serialized Stream Value exceeds configured max_message_bytes")]
     MessageTooLarge,
+    /// A message charged more than its Stream's capacity maps to ResourceExhausted; never retry it.
+    #[error("Stream message charge exceeds the Stream capacity, so it can never fit")]
+    MessageExceedsStreamCapacity,
     /// Exhausted capacity maps to ResourceExhausted.
     #[error("Stream capacity is exhausted; retry after background trimming")]
     CapacityExceeded,
@@ -83,6 +86,8 @@ pub struct StreamMessagePage {
 /// A process-local Stream Store. Call close before dropping it to drain its trim workers.
 pub struct StreamStore {
     config: StreamStoreConfig,
+    /// Supplies the millisecond part of message identities.
+    identity_clock: Arc<dyn WallClock>,
     state: Arc<Mutex<StoreState>>,
     trim_sender: mpsc::UnboundedSender<TrimCommand>,
     /// Becomes true on close, so a worker pausing between batches stops at once.
@@ -160,6 +165,22 @@ struct ReadWaiter {
 impl StreamStore {
     /// Starts the trim workers in the current Tokio runtime. Invalid configuration fails startup.
     pub fn new(config: &StreamStoreConfig) -> Result<Self, StreamStoreError> {
+        Self::with_identity_clock(config, Arc::new(SystemWallClock))
+    }
+
+    /// Creates a store whose message identities read `identity_clock`, such as a frozen clock.
+    #[cfg(feature = "test-util")]
+    pub fn new_with_identity_clock_for_test(
+        config: &StreamStoreConfig,
+        identity_clock: Arc<dyn WallClock>,
+    ) -> Result<Self, StreamStoreError> {
+        Self::with_identity_clock(config, identity_clock)
+    }
+
+    fn with_identity_clock(
+        config: &StreamStoreConfig,
+        identity_clock: Arc<dyn WallClock>,
+    ) -> Result<Self, StreamStoreError> {
         config.validate().map_err(StreamStoreError::InvalidConfig)?;
         if !config.enabled {
             tracing::warn!(
@@ -194,6 +215,7 @@ impl StreamStore {
         }
         Ok(Self {
             config: config.clone(),
+            identity_clock,
             state,
             trim_sender,
             trim_shutdown,
@@ -242,6 +264,9 @@ impl StreamStore {
             flow_type: input.flow_type,
             stream_name: input.stream_name,
         };
+        // A pre-epoch clock reads as 0; next_identity still keeps identities increasing.
+        let now_milliseconds =
+            u64::try_from(self.identity_clock.now_unix_micros() / 1000).unwrap_or(0);
         let mut state = self
             .state
             .lock()
@@ -251,7 +276,7 @@ impl StreamStore {
         }
         // Capacity never exceeds max_total_bytes, so this also rejects a charge that no trim can admit.
         if charged_bytes > capacity {
-            return Err(StreamStoreError::MessageTooLarge);
+            return Err(StreamStoreError::MessageExceedsStreamCapacity);
         }
         let max_total_bytes = self.config.max_total_bytes;
         let total_trim_target_bytes =
@@ -264,7 +289,7 @@ impl StreamStore {
             );
             return Err(StreamStoreError::TotalCapacityExceeded);
         }
-        let identity = state.next_identity();
+        let identity = state.next_identity(now_milliseconds);
         let scope = state.scopes.entry(scope_key.clone()).or_default();
         if charged_bytes > capacity - scope.total_bytes.min(capacity) {
             let scope_target_bytes = percentage_of(capacity, self.config.trim_target_percent)
@@ -517,11 +542,8 @@ impl Drop for ReadWaiter {
 }
 
 impl StoreState {
-    fn next_identity(&mut self) -> (u64, u64) {
-        let now_milliseconds = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after the Unix epoch")
-            .as_millis() as u64;
+    /// Returns an identity above every one issued before, even if `now_milliseconds` moved back.
+    fn next_identity(&mut self, now_milliseconds: u64) -> (u64, u64) {
         let (last_milliseconds, last_sequence) = self.last_identity;
         self.last_identity = if now_milliseconds > last_milliseconds {
             (now_milliseconds, 0)
