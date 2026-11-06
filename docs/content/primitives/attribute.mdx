@@ -641,7 +641,7 @@ Each Flow keeps one stored value per Attribute key and overwrites it in place. P
 - A deleted value always reads as absent. Time travel does not restore it. A restarted SubFlow starts from the original initial value, so it reads as absent when an earlier run deleted that value.
 - Removing the option from a definition leaves the stored value in place until Dex removes the Flow. Delete the value with the hard-delete definition first.
 
-A value remains stored until it is deleted, or until Dex removes the Flow after its retention period. Object storage backups and bucket versioning outside Dex can keep copies. See [Object storage](/production/server-zd-operations#object-storage).
+A value remains stored until it is deleted, or until Dex removes the Flow after its retention period. Object storage backups and bucket versioning outside Dex can keep copies. See [Object storage](/reference/server/object-storage).
 
 ## Attribute Sync {#attribute-store-projection}
 
@@ -709,7 +709,7 @@ attributeStore:
 Only PostgreSQL is supported as an Attribute Store. Redis support is tracked in [issue 616](https://github.com/superdurable/dex/issues/616).
 Create the destination first. Attribute Sync writes latest state asynchronously
 and does not automatically backfill existing Flows. See
-[Custom Attribute Store operations](/production/attribute-store) for target
+[External Attribute Sync](/primitives/components/external-attribute-sync) for target
 contracts, type mappings, and retry behavior.
 
 Start the local server with the file:

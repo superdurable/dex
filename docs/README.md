@@ -17,6 +17,17 @@ npm start
 Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.
 
+The Developer Reference lives under [`reference/`](reference/). Each component
+(`server`, `cli`, `web`, `go`, `python`, `java`, `typescript`, `rust`) is its
+own docs plugin instance with the id `reference-<component>`, the route
+`/reference/<component>/`, and the sidebar file `reference/sidebars/<component>.ts`.
+The landing page with the compatibility matrix is `content/reference/index.mdx`.
+The reference pages are English only; the `zh-Hans` build serves the English
+text at `/zh-Hans/reference/...`. The old `/production/server-zd-operations` and
+`/production/pull-workers` pages are transition pages that keep their old
+section ids and link each section to its new location. Do not add content to
+them.
+
 Application code samples must use `<SdkTabs>` / `<SdkSnippet>` so readers can
 switch Python, Go, Java, TypeScript, and Rust when `examples/rust` has the same
 sample. Do not use per-language headings or stacked fenced blocks. `bash` /

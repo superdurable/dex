@@ -26,4 +26,4 @@ Use additive fields with tolerant decoders where semantics allow. A compile-time
 
 A Flow retry creates a new run and may receive a new timeout budget. It does not transform application state for you. server-zd rejects a Flow-level retry policy with INVALID_ARGUMENT, so this applies only to restarts the application performs.
 
-See the canonical [Application Operations versioning section](https://docs.superdurable.io/production/application-operations#versioning-flow-code).
+See the canonical [Application Operations versioning section](https://docs.superdurable.io/primitives/components/application#versioning-flow-code).

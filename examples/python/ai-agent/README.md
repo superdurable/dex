@@ -97,7 +97,7 @@ user may use the session before every call.
   recent messages. Every message stays in the session: compaction shortens
   the model input, not the stored history, so a long session's state grows
   toward the Dex Server's run budget. The
-  [agent deployment guide](https://docs.superdurable.io/production/agents#limits)
+  [agent deployment guide](https://docs.superdurable.io/agent-frameworks/deploy-agents#limits)
   gives the bound.
 
 ## Run locally

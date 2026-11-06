@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.69.1 - 2026-11-06
+
+- Update the docs links for the new docs layout. The server-zd operation guide moved to the Developer Reference under **/reference/server/**, split by topic. Pull Worker details moved to **/reference/server/workers**. Application operations moved to the Application component at **/primitives/components/application**. The CLI and Flow visualization references moved to **/reference/cli** and **/reference/web/flow-visualization**. The Custom Attribute Store contract moved to **/reference/server/attribute-store-sync**. The old URLs still resolve. Synchronize the bundle and plugin manifests at 0.69.1.
+
 ## 0.69.0 - 2026-11-05
 
 - Advance `DEX_SERVER_BASELINE` to server-zd/v0.1.19 and `DEX_CLI_BASELINE` to cli-v1.36.0 (which bundles it), and refresh the pinned CLI and server-zd source links. The SDK baselines stay at v1.35.0 and `DEX_WEB_BASELINE` stays at web/v1.35.0, because cli-v1.36.0 and server-zd v0.1.19 add no SDK or Web release.

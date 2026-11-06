@@ -1,0 +1,70 @@
+---
+id: index
+title: Developer Reference
+sidebar_label: Overview
+slug: /reference
+---
+
+# Developer Reference
+
+The Developer Reference holds the details that change from release to release:
+configuration keys, flags, defaults, limits, metrics, edge cases, and version
+differences. The [Primitives](/primitives) and
+[Components](/primitives/components) pages explain the concepts.
+
+## Check your version first
+
+Each component has its own reference. Check the version of the component you
+run before you rely on a detail. Each reference describes the latest release,
+and a version selector for older releases will appear in its sidebar.
+
+Dex releases follow a shared release train. A release tags only the components
+that changed, so a component can skip minor numbers. For a component, the
+release train number N means its newest release at or below N.
+
+## Component references
+
+| Component | Reference | Release tags |
+| --- | --- | --- |
+| Server (server-zd) | [Server reference](/reference/server/) | **server-zd/v0.1.N** |
+| CLI (dexcli) | [CLI reference](/reference/cli/) | **cli-vX.Y.Z** |
+| Web (Dex Web) | [Web reference](/reference/web/) | **web/vX.Y.Z** |
+| Go SDK | [Go reference](/reference/go/) | **sdk-go/vX.Y.Z** |
+| Python SDK | [Python reference](/reference/python/) | **sdk-python/vX.Y.Z** |
+| Java SDK | [Java reference](/reference/java/) | **sdk-java/vX.Y.Z** |
+| TypeScript SDK | [TypeScript reference](/reference/typescript/) | **sdk-typescript/vX.Y.Z** |
+| Rust SDK | [Rust reference](/reference/rust/) | **sdk-rust/vX.Y.Z** |
+
+## Compatibility matrix
+
+Workers and Clients negotiate a protocol version with the server. server-zd
+0.1.17 and newer provide protocol version 4.
+
+| Component | Version | server-zd it needs |
+| --- | --- | --- |
+| Go, Python, Java, TypeScript, and Rust SDKs | 1.35 | 0.1.17 or newer (protocol version 4) |
+| Dex Web | 1.35 | 0.1.17 or newer (protocol version 4) |
+
+server-zd protocol version 4 does not raise the minimum protocol. SDK releases
+before 1.35 keep working on server-zd 0.1.17 and newer. Upgrade the server
+first, then the SDKs. See
+[Upgrades and compatibility](/reference/server/upgrades).
+
+Each **dexcli** release bundles one server-zd release, which **dexcli dev**
+runs:
+
+| dexcli | Bundled server-zd |
+| --- | --- |
+| 1.36 | 0.1.19 |
+| 1.35 | 0.1.18 |
+| 1.34 | 0.1.16 |
+| 1.33 | 0.1.15 |
+| 1.32 | 0.1.14 |
+
+To run SDK 1.35 applications with **dexcli dev**, use **dexcli** 1.35 or newer.
+
+## Release notes
+
+Each component publishes release notes on GitHub. server-zd notes list breaking
+changes, features, fixes, and upgrade steps for every release. See the
+[Dex releases](https://github.com/superdurable/dex/releases).

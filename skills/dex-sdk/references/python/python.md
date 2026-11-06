@@ -90,7 +90,7 @@ types, unknown names, ambiguous class targets, rebinding, reflection, and
 attribute interception. The Python analyzer does not track every escape of a
 Step object, so keep Step objects in the Flow file and do not mutate them
 outside their construction. See the
-[Flow visualization reference](https://docs.superdurable.io/references/flow-visualization).
+[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
 
 ## Minimal Flow
 

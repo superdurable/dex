@@ -1,0 +1,455 @@
+---
+title: Application (Worker and Client)
+sidebar_label: Application
+---
+
+# Application (Worker and Client)
+
+Your Dex application is the code you deploy. It has two parts:
+
+- A **Worker** hosts Flow definitions. It runs **WaitFor**, **Execute**, and RPC
+  handlers when Dex hands it work.
+- A **Client** starts Flows, calls RPCs, reads Attributes, and searches Flows.
+  See [Client](/primitives/client).
+
+A process can run a Worker, a Client, or both. Operate the application as a
+production service: record the deployed version, expose useful logs, and keep
+its network path to Dex Server healthy.
+
+Every Dex Worker is a pull Worker. It opens outbound task streams to Dex Server
+and never listens for incoming calls. Workers need only an outbound connection
+to Dex Server, so they can run behind NAT or firewalls without an inbound port.
+Pull Workers also offer sticky routing when a Worker keeps useful state in
+memory between calls.
+
+## Start a Worker {#enable-pull-mode}
+
+Set the Worker's Dex Server address. The pull options are optional. Use them to
+tune task capacity, registration, and shutdown. A Client needs only the Dex
+Server address. Dex sends every Flow, SubFlow, Step, and RPC call to pull
+Workers, so there is no Worker address or target to configure.
+
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. See the [Go](https://github.com/superdurable/dex/blob/main/sdk-go/README.md#running-a-worker),
+[Python](https://github.com/superdurable/dex/blob/main/sdk-python/README.md#workers),
+[Java](https://github.com/superdurable/dex/blob/main/sdk-java/README.md#pull-workers),
+[TypeScript](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md#workers),
+and [Rust](https://github.com/superdurable/dex/blob/main/sdk-rust/README.md#pull-mode)
+READMEs for startup details.
+
+Dex Web v2 starts a Flow through a pull Worker. **Start Flow** does not ask for a
+Worker address, and the start request can send **workerTargetPull: true**.
+Dex Web does not check whether a pull Worker is registered before the start;
+availability is determined when Dex dispatches work. See
+[Dex Web](/reference/web/dex-web#start-flow).
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/production/pull_workers.py', go: 'examples/go/production/pull-workers/worker.go', java: 'examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java', typescript: 'examples/typescript/src/production/pull-workers.ts', rust: 'examples/rust/src/production/pull_workers.rs'}}>
+
+<SdkSnippet lang="python">
+
+```python
+async def start_pull_greeting(
+    cache: BlobCache, server_address: str
+) -> tuple[GreetingFlow, AsyncWorker, AsyncClient, asyncio.Task[None]]:
+    flow = GreetingFlow()
+    registry = Registry((flow,), allow_async_handlers=True)
+    worker = AsyncWorker(
+        registry,
+        cache,
+        WorkerOptions(
+            server_address=server_address,
+            pull=PullWorkerOptions(
+                max_concurrent_tasks=8,
+                # Keep one slot for RPCs so Flows stay responsive.
+                reserved_rpc_tasks=1,
+            ),
+        ),
+    )
+    worker_task = asyncio.create_task(worker.start())
+    client = AsyncClient(
+        registry,
+        cache,
+        ClientOptions(server_address=server_address),
+    )
+    try:
+        await worker.wait_pull_registered(timeout=30)
+    except BaseException:
+        await stop_pull_greeting(worker, client, worker_task)
+        raise
+    return flow, worker, client, worker_task
+
+
+async def stop_pull_greeting(
+    worker: AsyncWorker, client: AsyncClient, worker_task: asyncio.Task[None]
+) -> None:
+    await client.close()
+    await worker.close()
+    await worker_task
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="go">
+
+```go
+type PullGreetingDiagnostics struct {
+	IsReady             bool
+	ReservedRPCDeclines uint64
+}
+
+func StartPullGreeting(cache *blobcache.Cache, serverAddress string) (*GreetingFlow, *dex.Worker, *dex.Client, <-chan error, error) {
+	flow := &GreetingFlow{}
+	registry, err := dex.NewRegistry([]dex.Flow{flow})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		FlowServiceAddress: serverAddress,
+		Pull: &dex.PullWorkerOptions{
+			MaxConcurrentTasks: 8,
+			// Keep one slot for RPCs so Flows stay responsive.
+			ReservedRPCTasks: ptr.Any(1),
+		},
+	})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: serverAddress,
+	})
+	if err != nil {
+		return nil, nil, nil, nil, errors.Join(err, worker.Stop(context.Background()))
+	}
+	workerResult := make(chan error, 1)
+	go reportWorkerResult(worker, workerResult)
+	startupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := worker.WaitPullRegistered(startupContext); err != nil {
+		return nil, nil, nil, nil, errors.Join(err, StopPullGreeting(context.Background(), worker, client, workerResult))
+	}
+	return flow, worker, client, workerResult, nil
+}
+
+func StopPullGreeting(ctx context.Context, worker *dex.Worker, client *dex.Client, workerResult <-chan error) error {
+	clientCloseErr := client.Close()
+	workerStopErr := worker.Stop(ctx)
+	var workerRunErr error
+	select {
+	case workerRunErr = <-workerResult:
+	case <-ctx.Done():
+		workerRunErr = ctx.Err()
+	}
+	return errors.Join(clientCloseErr, workerStopErr, workerRunErr)
+}
+
+func PullGreetingReadiness(worker *dex.Worker) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !worker.PullRegistrationState().IsReady {
+			http.Error(w, "pull queues unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func GetPullGreetingDiagnostics(worker *dex.Worker) PullGreetingDiagnostics {
+	return PullGreetingDiagnostics{
+		IsReady:             worker.PullRegistrationState().IsReady,
+		ReservedRPCDeclines: worker.PullReservedRPCDeclines(),
+	}
+}
+
+func reportWorkerResult(worker *dex.Worker, workerResult chan<- error) {
+	workerResult <- worker.Start()
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="java">
+
+```java
+public final class PullGreetingExample {
+    private PullGreetingExample() {
+    }
+
+    public static RunningPullGreeting start(
+            final BlobCache cache, final String serverAddress) throws InterruptedException, TimeoutException {
+        final GreetingFlow flow = new GreetingFlow();
+        final Registry registry = new Registry(List.<Flow<?>>of(flow));
+        final Worker worker = new Worker(registry, cache, WorkerOptions.newBuilder()
+                .serverAddress(serverAddress)
+                .pull(PullWorkerOptions.newBuilder()
+                        .maxConcurrentTasks(8)
+                        // Keep one slot for RPCs so Flows stay responsive.
+                        .reservedRpcTasks(1)
+                        .build())
+                .build());
+        final Client client = new Client(registry, cache, new ClientOptions(serverAddress));
+        final CompletableFuture<Void> workerResult = new CompletableFuture<>();
+        final Thread workerThread = new Thread(() -> {
+            try {
+                worker.start();
+                workerResult.complete(null);
+            } catch (final Throwable failure) {
+                workerResult.completeExceptionally(failure);
+            }
+        }, "pull-greeting-worker");
+        workerThread.start();
+        final RunningPullGreeting running = new RunningPullGreeting(
+                flow, worker, client, workerThread, workerResult);
+        try {
+            worker.waitPullRegistered(Duration.ofSeconds(30));
+        } catch (final InterruptedException | TimeoutException | RuntimeException | Error failure) {
+            try {
+                running.close();
+            } catch (final InterruptedException | RuntimeException | Error cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+                if (cleanupFailure instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            throw failure;
+        }
+        return running;
+    }
+
+    public static boolean isPullGreetingReady(final Worker worker) {
+        return worker.getPullRegistrationState().isReady();
+    }
+
+    public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
+        return new PullGreetingDiagnostics(
+                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+    }
+
+    public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
+    }
+
+    public record RunningPullGreeting(
+            GreetingFlow flow, Worker worker, Client client, Thread workerThread,
+            CompletableFuture<Void> workerResult) implements AutoCloseable {
+        @Override
+        public void close() throws InterruptedException {
+            client.close();
+            worker.close();
+            workerThread.join();
+            workerResult.join();
+        }
+    }
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function startPullGreeting(
+  cache: BlobCache,
+  serverAddress: string,
+): Promise<{ flow: GreetingFlow; worker: Worker; client: Client }> {
+  const flow = new GreetingFlow();
+  const registry = new Registry([flow]);
+  const worker = new Worker(registry, cache, {
+    serverAddress,
+    pull: {
+      maxConcurrentTasks: 8,
+      // Keep one slot for RPCs so Flows stay responsive.
+      reservedRpcTasks: 1,
+    },
+  });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+  } catch (failure) {
+    try {
+      await worker.close();
+    } catch (cleanupFailure) {
+      throw new AggregateError([failure, cleanupFailure], "pull Worker startup and cleanup failed");
+    }
+    throw failure;
+  }
+  const client = new Client(registry, cache, { serverAddress });
+  return { flow, worker, client };
+}
+
+export async function stopPullGreeting(worker: Worker, client: Client): Promise<void> {
+  await client.close();
+  await worker.close();
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="rust">
+
+```rust
+pub type RunningPullGreeting = (Arc<Worker>, Client, JoinHandle<SdkResult<()>>);
+
+pub fn start_pull_greeting(
+    cache: Arc<BlobCache>,
+    server_address: &str,
+) -> Result<RunningPullGreeting, Box<dyn Error + Send + Sync>> {
+    let registry = Registry::new().register(GreetingFlow::default())?;
+    let worker = Arc::new(Worker::try_new(
+        registry.clone(),
+        Arc::clone(&cache),
+        WorkerOptions::new().server_address(server_address).pull(
+            PullWorkerOptions::new()
+                .max_concurrent_tasks(8)
+                // Keep one slot for RPCs so Flows stay responsive.
+                .reserved_rpc_tasks(1),
+        ),
+    )?);
+    let client = Client::try_new(
+        registry,
+        cache,
+        ClientOptions::new().server_address(server_address),
+    )?;
+    let startup_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let running_worker = Arc::clone(&worker);
+    let worker_thread = thread::spawn(move || running_worker.start());
+    let startup_result: Result<(), Box<dyn Error + Send + Sync>> =
+        startup_runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(30), worker.wait_pull_registered()).await??;
+            Ok(())
+        });
+    if let Err(failure) = startup_result {
+        match stop_pull_greeting(worker, client, worker_thread) {
+            Ok(Ok(())) => {}
+            Ok(Err(cleanup_failure)) => {
+                eprintln!("pull Worker cleanup failed: {cleanup_failure}");
+            }
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+        return Err(failure);
+    }
+    Ok((worker, client, worker_thread))
+}
+
+pub fn stop_pull_greeting(
+    worker: Arc<Worker>,
+    client: Client,
+    worker_thread: JoinHandle<SdkResult<()>>,
+) -> thread::Result<SdkResult<()>> {
+    worker.stop();
+    let worker_result = worker_thread.join();
+    drop(client);
+    worker_result
+}
+```
+
+</SdkSnippet>
+
+</SdkTabs>
+
+## Capacity and shutdown
+
+A Worker opens one stream for each task slot. Dex sends a task only to a free
+slot, so a Worker never declines work for capacity. A Step that no Worker takes
+waits in a durable task queue. An RPC fails when no Worker takes it in time.
+Stop Workers gracefully during a deployment so running tasks can finish.
+
+See [Workers and the task queue](/reference/server/workers) for readiness,
+routing, capacity, shutdown, and network settings. Your SDK reference lists the
+option names: [Go](/reference/go/workers), [Python](/reference/python/workers),
+[Java](/reference/java/workers), [TypeScript](/reference/typescript/workers),
+and [Rust](/reference/rust/workers).
+
+## Worker API availability
+
+When a Worker cannot receive or complete a Step call, a Flow cannot advance.
+You may see a Step remain active, retries increase, or a terminal failure after
+the retry policy is exhausted.
+
+Check these items in order:
+
+1. Collect the Flow ID, Run ID, Flow type, Worker version, and Dex Server
+   address. Put them in the incident record before changing anything.
+2. Check the Worker logs for handler exceptions, registration failures, and
+   startup configuration. Include the Flow ID or Run ID in log searches.
+3. Check the network route between Dex Server and the Worker: service discovery,
+   address, TLS, authentication, and any load-balancer health checks. For a
+   [pull Worker](#enable-pull-mode), check its outbound streams and
+   Matching availability.
+4. Confirm that the deployed Worker registered the Flow, Step, and RPC names
+   used by the open Flow. A deployment can be healthy while an old Step type is
+   missing from that Worker version.
+5. Inspect the affected Step in Dex Web. The retry attempt, Worker error,
+   gRPC status, and stack trace distinguish an unavailable Worker from an
+   application failure.
+
+After fixing availability, let an active retry continue when its retry budget
+is still valid. For a terminal Flow, verify the fix with a new run first, then
+use [Time Travel](/primitives/client/advanced#time-travel) from a safe Step
+boundary when that is the intended recovery. Do not restart or time travel a
+Flow merely to test connectivity.
+
+## Flow failure and timeout
+
+A Flow can fail because a Worker handler returns a failure, Worker retries are
+exhausted, or the Flow reaches its configured timeout.
+
+Flow timeouts are durable Dex timers configured when a Flow starts; zero
+disables them. Choose **FAIL**, **CANCEL**, or a Flow timeout handler. Inspect
+the start event for the configured duration and resolved policy. The deadline
+is absolute.
+
+Every positive timeout has one internal **sys:timeout_handler** timer. It is
+visible in active-Step diagnostics and **SkipTimer** can fire it early by timer
+index. Fix the underlying cause before recovering a failed timeout.
+
+For a step-by-step, read-only investigation with Dex Web and **dexcli**, see
+[Debug a Flow run](/reference/web/debugging).
+
+## Versioning Flow code
+
+Dex does not replay your Flow handler code to decide later transitions, so a
+deployment does not produce a user-code replay nondeterminism error. That does
+not remove compatibility work. Open Flows can still observe changed business
+rules, unavailable Step implementations, renamed RPCs, or incompatible data.
+
+### Lock business behavior at Flow start
+
+Persist a business version value when a Flow starts, such as an Attribute or a
+field in the start state. Branch on that stored value, not on the Worker build
+currently serving the call. Existing Flows keep their old behavior; new Flows
+can use the new behavior after deployment.
+
+Use this when a change alters a decision, payment rule, retry policy, deadline,
+or other customer-visible meaning. A code rollout alone is not a versioning
+strategy because a long-running Flow can call a newly deployed Worker later.
+
+### Evolve data and contracts additively
+
+Add optional fields. Readers must tolerate absent fields from older runs and
+ignore unknown fields sent by newer components. Supply a safe default for an
+absent field, and keep the previous meaning of existing field values. For an
+incompatible payload or output contract, introduce a new Step type or RPC name
+instead of silently changing the old one.
+
+### Keep old definitions until old Flows finish
+
+Do not delete or rename a Flow type, Step type, or RPC implementation while an
+open Flow can still call it. Deploy the new definition alongside the old one,
+route only new-version Flows to it, and keep the old implementation available
+through retries and any approved Time Travel recovery.
+
+During a rolling deployment, a pull Worker that lacks a requested Step or RPC
+can hand the call to another capable Worker without consuming a Step attempt.
+See [Routing and availability](/reference/server/workers#routing-and-availability).
+
+Before removing the old definition, search for the legacy Flow type and confirm
+that no running, waiting, retrying, or recoverable terminal Flow needs it. Keep
+the search result with the change record. The exact query depends on your
+visibility-store fields; begin with a bounded Flow-type search such as:
+
+~~~bash
+dexcli flow search --query 'FlowType = "OldFlowType"'
+~~~
+
+Only remove the old code after the result is empty or every remaining Flow has
+an explicitly approved retirement plan.

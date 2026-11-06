@@ -1,0 +1,65 @@
+---
+title: Java Workers
+sidebar_label: Workers
+---
+
+# Java Workers
+
+This page lists the Java names for the Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Readiness
+
+Java provides **waitPullRegistered(Duration)** and
+**getPullRegistrationState()** in SDK 1.14.0. Java's
+**stopOnPermanentStreamRejection** provides the same opt-in shutdown behavior
+as Go.
+
+A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
+**POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```java
+    public static boolean isPullGreetingReady(final Worker worker) {
+        return worker.getPullRegistrationState().isReady();
+    }
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)
+
+## Capacity and shutdown
+
+| Setting | Java name |
+| --- | --- |
+| Concurrent tasks | **maxConcurrentTasks** |
+| Reserved RPC slots | **reservedRpcTasks** |
+| Stop drain timeout | **stopDrainTimeout** |
+| Shutdown | **stop** |
+
+The option names are builder methods.
+
+The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **getPullReservedRpcDeclines()**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+This diagnostics helper exposes registration readiness and the deprecated
+reserve-decline counter. A full Worker stays ready.
+
+```java
+    public static PullGreetingDiagnostics getPullGreetingDiagnostics(final Worker worker) {
+        return new PullGreetingDiagnostics(
+                worker.getPullRegistrationState().isReady(), worker.getPullReservedRpcDeclines());
+    }
+
+    public record PullGreetingDiagnostics(boolean isReady, long reservedRpcDeclines) {
+    }
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/production/pullworkers/PullGreetingExample.java)

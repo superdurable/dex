@@ -9,7 +9,7 @@
   },
   {
     "from": "/production/versioning",
-    "to": "/production/application-operations"
+    "to": "/primitives/components/application"
   },
   {
     "from": "/use-cases/ai-agent-email",
@@ -21,11 +21,11 @@
   },
   {
     "from": "/production/supervision",
-    "to": "/production/dex-web"
+    "to": "/reference/web/dex-web"
   },
   {
     "from": "/zh-Hans/production/supervision",
-    "to": "/zh-Hans/production/dex-web"
+    "to": "/zh-Hans/reference/web/dex-web"
   },
   {
     "from": "/design-patterns/polling/backoff",
@@ -61,10 +61,82 @@
   },
   {
     "from": "/production/metrics",
-    "to": "/production/server-zd-operations"
+    "to": "/reference/server/metrics"
   },
   {
     "from": "/zh-Hans/production/metrics",
-    "to": "/zh-Hans/production/server-zd-operations"
+    "to": "/zh-Hans/reference/server/metrics"
+  },
+  {
+    "from": "/production",
+    "to": "/primitives/components"
+  },
+  {
+    "from": "/zh-Hans/production",
+    "to": "/zh-Hans/primitives/components"
+  },
+  {
+    "from": "/production/application-operations",
+    "to": "/primitives/components/application"
+  },
+  {
+    "from": "/zh-Hans/production/application-operations",
+    "to": "/zh-Hans/primitives/components/application"
+  },
+  {
+    "from": "/production/agents",
+    "to": "/agent-frameworks/deploy-agents"
+  },
+  {
+    "from": "/zh-Hans/production/agents",
+    "to": "/zh-Hans/agent-frameworks/deploy-agents"
+  },
+  {
+    "from": "/production/dex-web",
+    "to": "/reference/web/dex-web"
+  },
+  {
+    "from": "/zh-Hans/production/dex-web",
+    "to": "/zh-Hans/reference/web/dex-web"
+  },
+  {
+    "from": "/production/local-connector-setup",
+    "to": "/primitives/components/connector"
+  },
+  {
+    "from": "/zh-Hans/production/local-connector-setup",
+    "to": "/zh-Hans/primitives/components/connector"
+  },
+  {
+    "from": "/production/attribute-store",
+    "to": "/primitives/components/external-attribute-sync"
+  },
+  {
+    "from": "/zh-Hans/production/attribute-store",
+    "to": "/zh-Hans/primitives/components/external-attribute-sync"
+  },
+  {
+    "from": "/references",
+    "to": "/reference"
+  },
+  {
+    "from": "/zh-Hans/references",
+    "to": "/zh-Hans/reference"
+  },
+  {
+    "from": "/references/cli",
+    "to": "/reference/cli"
+  },
+  {
+    "from": "/zh-Hans/references/cli",
+    "to": "/zh-Hans/reference/cli"
+  },
+  {
+    "from": "/references/flow-visualization",
+    "to": "/reference/web/flow-visualization"
+  },
+  {
+    "from": "/zh-Hans/references/flow-visualization",
+    "to": "/zh-Hans/reference/web/flow-visualization"
   }
 ]

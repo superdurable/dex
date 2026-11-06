@@ -25,4 +25,4 @@ Additive changes are safest when old paths never reference the new Step or field
 
 A Flow retry creates a new run and may receive a fresh timeout budget. Do not assume it migrates application data automatically. server-zd rejects a Flow-level retry policy with INVALID_ARGUMENT, so this applies only to restarts the application performs.
 
-The canonical operational guidance is the [Application Operations versioning section](https://docs.superdurable.io/production/application-operations#versioning-flow-code).
+The canonical operational guidance is the [Application Operations versioning section](https://docs.superdurable.io/primitives/components/application#versioning-flow-code).

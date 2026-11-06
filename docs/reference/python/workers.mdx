@@ -1,0 +1,67 @@
+---
+title: Python Workers
+sidebar_label: Workers
+---
+
+# Python Workers
+
+This page lists the Python names for the Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Readiness
+
+Python provides **wait_pull_registered(timeout)**
+and **pull_registration_state()** on both Worker and AsyncWorker in SDK 1.14.0;
+await the AsyncWorker wait. Python's
+**stop_on_permanent_stream_rejection** provides the same opt-in shutdown
+behavior as Go.
+
+A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
+kind.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```python
+def is_pull_greeting_ready(worker: AsyncWorker) -> bool:
+    return worker.pull_registration_state().is_ready
+```
+
+Example: [examples/python/dex_examples/production/pull_workers.py](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/production/pull_workers.py)
+
+## Capacity and shutdown
+
+| Setting | Python name |
+| --- | --- |
+| Concurrent tasks | **max_concurrent_tasks** |
+| Reserved RPC slots | **reserved_rpc_tasks** |
+| Stop drain timeout | **stop_drain_timeout** |
+| Shutdown | **stop** |
+
+The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **pull_reserved_rpc_declines**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+This diagnostics helper exposes registration readiness and the deprecated
+reserve-decline counter. A full Worker stays ready.
+
+```python
+@dataclass(frozen=True)
+class PullGreetingDiagnostics:
+    is_ready: bool
+    reserved_rpc_declines: int
+
+
+def get_pull_greeting_diagnostics(worker: AsyncWorker) -> PullGreetingDiagnostics:
+    return PullGreetingDiagnostics(
+        is_ready=worker.pull_registration_state().is_ready,
+        reserved_rpc_declines=worker.pull_reserved_rpc_declines,
+    )
+```
+
+Example: [examples/python/dex_examples/production/pull_workers.py](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/production/pull_workers.py)

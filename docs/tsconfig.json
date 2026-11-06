@@ -13,5 +13,5 @@
       "@superdurable/flow-definition-renderer": ["./node_modules/@superdurable/flow-definition-renderer/src/index.ts"]
     }
   },
-  "include": ["src/", "docusaurus.config.ts", "sidebars.ts"]
+  "include": ["src/", "docusaurus.config.ts", "sidebars.ts", "reference/sidebars/"]
 }

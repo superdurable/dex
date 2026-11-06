@@ -1,0 +1,267 @@
+---
+title: Dex CLI reference
+sidebar_label: Overview
+slug: /
+---
+
+# Dex CLI reference
+
+**dexcli** provides a JSON-first interface for operating and inspecting Flows. It
+is designed for shell automation and AI agents as well as human operators.
+
+## Start a local development server {#start-locally}
+
+**dexcli dev** starts server-zd and embedded Dex Web. server-zd is the only
+engine. Existing scripts can keep **--engine zd**; it has no effect.
+The release package includes **dex-server-zd** next to **dexcli**. Binary lookup
+uses **--zd-binary**, then **DEX_SERVER_ZD_BINARY**, then the executable directory
+(including its resolved symlink directory), then PATH.
+
+```bash
+dexcli dev --open=false --zd-data-dir ./dex-state
+```
+
+| Flag | Default and behavior |
+|---|---|
+| **--engine** | **zd**; accepted for compatibility. |
+| **--zd-binary** | Override the bundled server-zd executable. |
+| **--zd-data-dir** | **$HOME/.dex/zd/&lt;dex-port&gt;**; persistent local state. |
+| **--zd-config** | Optional server-zd YAML overrides. |
+| **--attribute-store-config** | Optional YAML file; server-zd reads its **attributeStore** section. Supports PostgreSQL. Since dexcli 1.19.0. |
+| **--bind-address** | **127.0.0.1**; bind IP for local services. |
+| **--dex-port** | **8801**; Dex gRPC port. |
+| **--web-port** | **8802**; embedded Dex Web port. |
+| **--open** | **true**; use **--open=false** to keep the browser closed. |
+| **--server-log-folder** | Empty; logs go to stderr. When set, also writes **dex-server-zd.log** in that directory. |
+| **--flow-rendering-dir** | Optional Flow Definition Graph JSON directory. |
+| **--connector-config-dir** | **$HOME/.dex/connectors**; local Connector credentials. |
+| **--connector-release-override** | Repeatable **connector-id=artifact-directory** for a local Connector release. |
+
+If a default port is occupied, Dex selects the next available port and prints
+its addresses. An explicitly requested occupied port fails. The state directory
+uses the selected Dex port. Ctrl+C stops Web and the server-zd child process.
+server-zd supports pull Workers. See [Server reference](/reference/server/)
+for storage, durability, and Attribute Store configuration.
+
+The Temporal engine was removed. **--engine temporal**, all
+**--external-temporal-*** and **--temporal-*** flags, **--sqlite-db-filename**,
+**--verbose-engine-log**, and **--blob-store-dir** now fail with an error that
+names server-zd as the only engine. Remove those flags and use **--zd-data-dir**
+and **--zd-config** instead. Start with a new server-zd data directory;
+Temporal SQLite files cannot be used as server-zd state.
+
+## Connect to Dex
+
+Commands connect to **127.0.0.1:8801** by default. Set
+**DEX_FLOW_SERVICE_ADDRESS** for a process-wide target or pass **--server** for one
+command. The server address is a gRPC **host:port**, not an HTTP URL. The
+connection is plaintext unless you enable TLS.
+
+```bash
+DEX_FLOW_SERVICE_ADDRESS=dex.example.internal:8801 dexcli health
+dexcli --server 127.0.0.1:9901 flow search
+```
+
+### Connect over TLS
+
+When Dex, or a load balancer in front of it, terminates TLS, pass **--tls** or
+set **DEX_TLS=true**. The CLI then uses TLS 1.2 or later and verifies the server
+certificate against the system root CAs. The certificate must match the
+**--server** host, which is also sent as the TLS server name. TLS never falls
+back to plaintext.
+
+```bash
+dexcli --server dex.example.com:443 --tls health
+DEX_TLS=true dexcli --server dex.example.com:443 flow search
+```
+
+Two optional settings require TLS:
+
+- **--tls-ca-file** or **DEX_TLS_CA_FILE** names a PEM file of root CAs that are
+  trusted in addition to the system roots. Use it when a private or self-signed
+  CA issued the server certificate.
+- **--tls-server-name** or **DEX_TLS_SERVER_NAME** sets the name that the server
+  certificate must match, for example when **--server** is an IP address.
+
+```bash
+dexcli --server 10.0.0.12:443 --tls \
+  --tls-ca-file /etc/dex/ca.pem --tls-server-name dex.example.internal health
+```
+
+The CLI negotiates HTTP/2 with the **h2** ALPN protocol. A load balancer that
+terminates TLS must accept **h2** and forward gRPC to Dex over HTTP/2.
+
+## Authentication
+
+When Dex requires a bearer credential, set **--credential-file** to a token file,
+set **DEX_CREDENTIAL_FILE** to a token file path, or set **DEX_CREDENTIAL** to the
+token value. That is the precedence order. The file is read before the first
+call and checked for changes at most once per second during long-running
+commands such as **flow watch**. Empty or unreadable files stop the call before
+it contacts Dex. Surrounding whitespace is removed from the token.
+
+```bash
+dexcli flow search --credential-file /run/secrets/dex/token
+DEX_CREDENTIAL_FILE=/run/secrets/dex/token dexcli flow watch order-123
+```
+
+There is no flag for a raw token because command arguments can appear in shell
+history and process listings. Without **--tls**, the FlowService connection is
+plaintext gRPC and the token crosses the network unencrypted. Enable TLS or
+protect the network path.
+
+## View a remote server in Dex Web {#web}
+
+**web** serves Dex Web against the existing server given by **--server**. It
+does not start a server. To reach a server whose FlowService port is bound only
+to the remote host's loopback address, open an SSH tunnel in one terminal and
+leave it running:
+
+```bash
+ssh -N -L 8801:127.0.0.1:8801 operator@dex-host
+```
+
+In another terminal, start Dex Web:
+
+```bash
+dexcli --server 127.0.0.1:8801 web
+```
+
+Then open [http://127.0.0.1:8802](http://127.0.0.1:8802). Startup fails when **HealthCheck** cannot reach
+the server. **--timeout** bounds only the startup checks. **--open=false** skips
+the browser. A running **dexcli dev** also uses ports 8801 and 8802, so pick
+another tunnel port and **--web-port** to run both. Dex Web has no
+authentication, so keep **--bind-address** on loopback. See
+[View a remote server with dexcli web](/reference/web/dex-web#dexcli-web) for every
+flag.
+
+## Friendly Flow operations
+
+Use **flow search**, **summary**, **state**, **history**, and **inspect** for bounded JSON
+responses. **inspect** combines summary, current state, and history, making it the
+best starting point for an agent investigating a Flow.
+
+```bash
+dexcli flow inspect order-123 --all-history
+```
+
+Stored strings and objects are hydrated automatically. Use **--no-hydrate** when
+only structure and blob identities are needed. The output then contains stable
+**__dexBlobReference** objects rather than the stored payload.
+
+**flow watch** first emits available semantic history events and then long-polls
+for new events. Each line is one JSON object. It stops at a terminal status;
+**--follow-runs** keeps following the Flow ID's current run.
+
+Stop and time travel always require an exact **--run-id** and explicit **--yes**. This
+prevents an agent from mutating a newer run after resolving an older one.
+
+## Complete public API access
+
+The **api** commands expose every public **FlowService** RPC known to the installed
+CLI version:
+
+```bash
+dexcli api list
+dexcli api describe InvokeRPC
+dexcli api call InvokeRPC --data @invoke.json --yes
+```
+
+**api describe** reports request and response fields, oneofs, enums, maps, and
+reachable message definitions. **api call** accepts canonical protobuf JSON from
+an inline string, **@file**, or stdin via **--data -**. It returns canonical
+protobuf JSON and does not perform friendly value hydration.
+
+**WorkerService** and **InternalService** are intentionally excluded because they
+are worker callbacks and server-internal protocols rather than public operator
+APIs.
+
+## Check protocol compatibility
+
+**dexcli version** prints the CLI build version. **dexcli version check** calls
+the Server and verifies that its inclusive protocol interval overlaps the
+interval built into this CLI:
+
+```bash
+dexcli version check --server dex.example.internal:8801
+dexcli version check --output table
+```
+
+A successful result includes the client and Server versions, both intervals,
+the highest common protocol as **negotiatedProtocol**, and **compatible: true**.
+It exits with status 0. An unimplemented information RPC, invalid response,
+connection failure, or disjoint interval produces a structured compatibility
+error and exits with status 1. The command supports the normal **--server**,
+**--timeout**, and **--output** flags.
+
+## Describe or step down the active server process {#admin-step-down}
+
+**dexcli admin describe** prints the **nodeId**, **nodeEpoch**, and
+**holderProcessId** of the active server process, and changes nothing. It fails
+with **FAILED_PRECONDITION** while a step down or its hold-off is in progress,
+and with **UNAVAILABLE** when no server process is reachable. Then wait past the
+hold-off and describe again.
+
+**dexcli admin step-down --yes** asks the active server process of a node ID to
+give up its lease, so that another process of the same node ID can take over.
+Both commands call **AdminService**, not **FlowService**. Step down needs
+**--yes**, because the server stops serving until a process takes over.
+
+```bash
+dexcli --server dex.example.internal:8801 admin describe \
+  --credential-file /run/secrets/dex/admin-token
+dexcli --server dex.example.internal:8801 admin step-down --yes \
+  --credential-file /run/secrets/dex/admin-token
+```
+
+Every step down request expects a node ID and node epoch, and a process that
+does not match answers **FAILED_PRECONDITION** and changes nothing. Without
+**--expected-node-id** and **--expected-node-epoch**, the command first describes
+the active process and expects the node ID and node epoch that describe returns.
+With **--expected-node-id** alone, it describes first, refuses if the server
+reports another node ID, and otherwise expects the described node epoch. That
+guards a first run against a wrong **--server**. With both flags, it does not
+describe. **--expected-node-epoch** alone is a usage error. If the first describe
+fails, the command steps nothing down; a step down in progress may be one that
+you or someone else already started.
+
+The commands support the normal connection, TLS, credential, **--timeout**, and
+**--output** flags. **dexcli admin step-down** waits up to 2 minutes by default,
+longer than the default attempt drain plus the hold-off before the stepped-down
+process competes for the lease again. If the server sets a longer
+**lifecycle.attemptDrainTimeout**, raise **--timeout** by at least the same
+amount. When the server requires authentication, the credential must be an admin
+JWT. The API key exchange cannot ask for an admin audience. See
+[admin credentials](/reference/server/authentication#admin-credentials).
+
+The step down output reports **expectedNodeId**, **expectedNodeEpoch**,
+**nodeId**, **releasedNodeEpoch**, **leaseReacquisitionHoldOff**, and
+**leaseHolderAfterStepDown**. That last field is **takenOverByAnotherProcess**,
+**takenBackByThisProcess**, or **unknown**. **activeNodeEpoch** and
+**activeHolderProcessId** identify the process that holds the lease when it is
+known. Node epochs are decimal strings.
+
+A step down that fails with **DEADLINE_EXCEEDED**, **CANCELLED**, or
+**UNAVAILABLE** has an unknown outcome. Its error output carries
+**stepDownOutcome** set to **unknown**, the **expectedNodeId** and
+**expectedNodeEpoch** that the call used, and a **hint**. Retry only with those
+values: the node ID and epoch of the process you originally meant to step down.
+Never use an epoch that describe printed after the failed call, because it
+identifies whichever process is active by then. If describe now shows another
+node epoch or holder process ID, the step down already happened, so do not
+retry. Do not run the command again without these flags; it would describe and
+step down whichever process is active now. A server without **AdminService** answers **UNIMPLEMENTED**. See
+[retry a step down safely](/reference/server/high-availability#retry-step-down)
+for details.
+
+## Output and errors
+
+JSON is the default stable output. **--output table** is intended for human
+display and is not a machine compatibility contract. Use **--timeout 0** to
+disable the default 30-second client deadline for a bounded command; watch
+manages its long-poll lifecycle until interrupted.
+
+Errors are JSON on stderr. They include **kind**, **operation**, **message**, and,
+when applicable, **grpcCode**, **grpcCodeName**, and structured status details.
+Exit status 2 means invalid usage or missing confirmation; status 1 means the
+request failed.
