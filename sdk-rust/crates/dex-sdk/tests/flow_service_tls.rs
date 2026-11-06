@@ -90,6 +90,12 @@ fn validates_tls_options_at_client_and_worker_construction() {
             "server_address",
         );
     }
+    assert_invalid(
+        &cache,
+        "例子.example:443",
+        FlowServiceTlsOptions::new(),
+        "host is not a valid DNS name or IP address",
+    );
     for name in [
         "",
         "localhost:443",
@@ -104,10 +110,7 @@ fn validates_tls_options_at_client_and_worker_construction() {
         assert_invalid(
             &cache,
             "localhost:443",
-            FlowServiceTlsOptions {
-                server_name: Some(name.to_string()),
-                ..Default::default()
-            },
+            FlowServiceTlsOptions::new().server_name(name),
             "server_name",
         );
     }
@@ -119,10 +122,7 @@ fn validates_tls_options_at_client_and_worker_construction() {
         assert_invalid(
             &cache,
             "localhost:443",
-            FlowServiceTlsOptions {
-                additional_root_cas_pem: Some(bundle),
-                ..Default::default()
-            },
+            FlowServiceTlsOptions::new().additional_root_cas_pem(bundle),
             "additional_root_cas_pem",
         );
     }
@@ -133,10 +133,8 @@ fn validates_tls_options_at_client_and_worker_construction() {
         Client::try_new(
             Registry::new(),
             Arc::clone(&cache),
-            ClientOptions::new().flow_service_tls(FlowServiceTlsOptions {
-                additional_root_cas_pem: Some(bundle),
-                server_name: None,
-            }),
+            ClientOptions::new()
+                .flow_service_tls(FlowServiceTlsOptions::new().additional_root_cas_pem(bundle)),
         )
         .unwrap();
     }
@@ -244,10 +242,7 @@ fn tls_client_and_pull_worker_use_verified_transport_and_bearer_metadata() {
     let certificates = TestCertificates::generate("primary");
     let proxy = TlsProxy::start(&certificates, server.address, &[b"h2"]);
     let address = format!("localhost:{}", proxy.address.port());
-    let tls = FlowServiceTlsOptions {
-        additional_root_cas_pem: Some(certificates.ca_pem.clone()),
-        server_name: None,
-    };
+    let tls = FlowServiceTlsOptions::new().additional_root_cas_pem(certificates.ca_pem.clone());
     let worker = RunningWorker::start(
         Worker::try_new(
             registry.clone(),
@@ -323,10 +318,7 @@ fn tls_client_and_pull_worker_use_verified_transport_and_bearer_metadata() {
     for options in [
         None,
         Some(FlowServiceTlsOptions::default()),
-        Some(FlowServiceTlsOptions {
-            server_name: Some("wrong.example".to_string()),
-            ..tls.clone()
-        }),
+        Some(tls.clone().server_name("wrong.example")),
     ] {
         let expected_code = if options.is_none() {
             GrpcCode::Unknown
@@ -346,15 +338,15 @@ fn tls_client_and_pull_worker_use_verified_transport_and_bearer_metadata() {
         }
         let rejected =
             Client::try_new(registry.clone(), Arc::clone(&cache), client_options).unwrap();
-        assert_eq!(
-            rejected
-                .search_flows("", 1)
-                .unwrap_err()
-                .service_error()
-                .unwrap()
-                .code(),
-            expected_code
-        );
+        let error = rejected.search_flows("", 1).unwrap_err();
+        let service = error.service_error().unwrap();
+        assert_eq!(service.code(), expected_code);
+        if expected_code == GrpcCode::Unavailable {
+            assert!(
+                service.detail().contains("invalid peer certificate"),
+                "TLS failure must include a certificate verification cause: {error}"
+            );
+        }
         let rejected =
             Worker::try_new(registry.clone(), Arc::clone(&cache), worker_options).unwrap();
         assert_eq!(
@@ -396,15 +388,16 @@ fn tls_client_and_pull_worker_use_verified_transport_and_bearer_metadata() {
         (proxy.address.to_string(), Some("127.0.0.1")),
         (proxy.address.to_string(), Some("::1")),
     ] {
+        let options = match server_name {
+            Some(server_name) => tls.clone().server_name(server_name),
+            None => tls.clone(),
+        };
         let accepted = Client::try_new(
             registry.clone(),
             Arc::clone(&cache),
             ClientOptions::new()
                 .server_address(address)
-                .flow_service_tls(FlowServiceTlsOptions {
-                    server_name: server_name.map(str::to_string),
-                    ..tls.clone()
-                })
+                .flow_service_tls(options)
                 .credential(credential.clone()),
         )
         .unwrap();
@@ -432,18 +425,38 @@ fn default_roots_remain_trusted_with_additional_roots() {
         let cache = cache(directory.path());
         let additional =
             std::fs::read(std::env::var("DEX_TLS_TRUST_PROBE_ADDITIONAL_ROOT").unwrap()).unwrap();
+        let mut options = FlowServiceTlsOptions::new().additional_root_cas_pem(additional);
+        if let Ok(server_name) = std::env::var("DEX_TLS_TRUST_PROBE_SERVER_NAME") {
+            options = options.server_name(server_name);
+        }
+        let worker = Worker::try_new(
+            Registry::new(),
+            Arc::clone(&cache),
+            WorkerOptions::new()
+                .server_address(&address)
+                .flow_service_tls(options.clone()),
+        )
+        .unwrap();
         let client = Client::try_new(
             Registry::new(),
             Arc::clone(&cache),
             ClientOptions::new()
                 .server_address(address)
-                .flow_service_tls(FlowServiceTlsOptions {
-                    additional_root_cas_pem: Some(additional),
-                    server_name: None,
-                }),
+                .flow_service_tls(options),
         )
         .unwrap();
-        assert!(client.health_check().is_err());
+        let error = client.health_check().unwrap_err();
+        let expected = if std::env::var("DEX_TLS_TRUST_PROBE_EMPTY_ROOTS").is_ok() {
+            assert!(
+                error.to_string().contains("invalid peer certificate"),
+                "{error}"
+            );
+            GrpcCode::Unavailable
+        } else {
+            GrpcCode::Unimplemented
+        };
+        assert_eq!(error.service_error().unwrap().code(), expected, "{error}");
+        drop(worker);
         drop(client);
         cache.close().unwrap();
     } else {
@@ -454,35 +467,70 @@ fn default_roots_remain_trusted_with_additional_roots() {
         let additional_file = directory.path().join("additional.pem");
         std::fs::write(&default_file, &default.ca_pem).unwrap();
         std::fs::write(&additional_file, &additional.ca_pem).unwrap();
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let upstream = listener.local_addr().unwrap();
-        drop(listener);
-        for certificates in [&default, &additional] {
-            let proxy = TlsProxy::start(certificates, upstream, &[b"h2"]);
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+        let empty_file = directory.path().join("empty.pem");
+        std::fs::write(&empty_file, []).unwrap();
+        for (certificates, native_file, added_file, server_name, expected_trust) in [
+            (&default, &default_file, &additional_file, None, true),
+            (&additional, &default_file, &additional_file, None, true),
+            (&additional, &empty_file, &additional_file, None, true),
+            (
+                &additional,
+                &empty_file,
+                &additional_file,
+                Some("localhost"),
+                true,
+            ),
+            (
+                &additional,
+                &empty_file,
+                &additional_file,
+                Some("::1"),
+                true,
+            ),
+            (&additional, &empty_file, &empty_file, None, false),
+        ] {
+            let proxy = TlsProxy::start_authority_probe(certificates);
+            let address = format!("localhost:{}", proxy.address.port());
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
                 .args([
                     "--exact",
                     "default_roots_remain_trusted_with_additional_roots",
                     "--nocapture",
                 ])
-                .env("SSL_CERT_FILE", &default_file)
+                .env("SSL_CERT_FILE", native_file)
                 .env("SSL_CERT_DIR", directory.path().join("no-cert-directory"))
-                .env(
-                    "DEX_TLS_TRUST_PROBE_ADDRESS",
-                    format!("localhost:{}", proxy.address.port()),
-                )
-                .env("DEX_TLS_TRUST_PROBE_ADDITIONAL_ROOT", &additional_file)
-                .output()
-                .unwrap();
+                .env("DEX_TLS_TRUST_PROBE_ADDRESS", &address)
+                .env("DEX_TLS_TRUST_PROBE_ADDITIONAL_ROOT", added_file);
+            if let Some(server_name) = server_name {
+                command.env("DEX_TLS_TRUST_PROBE_SERVER_NAME", server_name);
+            }
+            if !expected_trust {
+                command.env("DEX_TLS_TRUST_PROBE_EMPTY_ROOTS", "1");
+            }
+            let output = command.output().unwrap();
             assert!(
                 output.status.success(),
-                "trust-store probe failed: {}",
+                "trust-store probe failed: {} {}",
+                String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
             );
-            assert!(
+            assert_eq!(
                 !proxy.handshakes.lock().unwrap().is_empty(),
-                "SDK did not trust both default and additional root CAs"
+                expected_trust,
+                "TLS handshake must succeed exactly when a root CA is trusted"
             );
+            let authorities = proxy.authorities.lock().unwrap();
+            if expected_trust {
+                let expected_authority = match server_name {
+                    Some("::1") => "[::1]",
+                    Some(server_name) => server_name,
+                    None => &address,
+                };
+                assert_eq!(authorities.as_slice(), [expected_authority]);
+            } else {
+                assert!(authorities.is_empty());
+            }
         }
     }
 }

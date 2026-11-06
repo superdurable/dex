@@ -38,7 +38,7 @@ connection uses plaintext gRPC. Enable TLS to protect tokens on the network.
 Set `ClientOptions::flow_service_tls` and `WorkerOptions::flow_service_tls` independently
 to reach a TLS endpoint, such as a server behind a TLS-terminating gateway. Omitting
 this option preserves plaintext gRPC for local development. Setting it to
-`FlowServiceTlsOptions::default()` enables TLS 1.2 or newer with certificate and
+`FlowServiceTlsOptions::new()` enables TLS 1.2 or newer with certificate and
 hostname verification. The endpoint must negotiate HTTP/2 through ALPN h2; both
 http/1.1-only endpoints and endpoints without ALPN are rejected.
 
@@ -49,10 +49,8 @@ use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, FileCredential,
 let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
     "/tmp/dex-tls-blobs", 64 * 1024 * 1024, 0,
 )?)?);
-let tls = FlowServiceTlsOptions {
-    additional_root_cas_pem: Some(std::fs::read("/etc/dex/root-ca.pem")?),
-    server_name: None,
-};
+let tls = FlowServiceTlsOptions::new()
+    .additional_root_cas_pem(std::fs::read("/etc/dex/root-ca.pem")?);
 let credential = Arc::new(FileCredential::new("/var/run/secrets/dex/token")?);
 let registry = Registry::new();
 let worker = Worker::try_new(registry.clone(), cache.clone(), WorkerOptions::new()
@@ -69,13 +67,19 @@ worker.start()?;
 replaces the system roots. Omit it for a certificate signed by a system-trusted
 CA. Empty bytes also use system roots alone. A nonempty bundle must contain at
 least one parsable certificate; unrelated or malformed blocks are skipped when
-another certificate parses. Roots are read at construction, without file watching.
+another certificate parses. Skipped malformed certificate blocks produce a warning
+with their count. Roots are read at construction, without file watching. Additional roots work even when
+the native trust store is empty or fails to load. Native load errors produce a
+warning with their count; successfully loaded roots remain usable. An empty
+combined trust store constructs successfully, but connections fail verification.
 
 `server_name` optionally overrides the address host for certificate verification,
 SNI, and HTTP/2 `:authority`. It must be a nonempty DNS name or unbracketed IP
 address without a port. An IP address requires a matching IP SAN and sends no SNI.
 An override becomes the authority without a port, so a gateway must accept that name.
-Without an override, authority retains the address host and port.
+For example, `.server_name("dex.example.com")` sets a DNS override. An IPv6
+override is bracketed in authority (`[::1]`), while certificate verification uses
+the bare address. Without an override, authority retains the address host and port.
 
 With TLS, `server_address` accepts `host:port`, `dns:///host:port`, and
 `dns://authority/host:port`, including bracketed IPv6 hosts and ports 1–65535.
@@ -84,9 +88,9 @@ accepted; tonic resolves the endpoint through the operating system resolver rath
 than querying that authority. The authority is never used as the certificate name.
 
 Invalid addresses, PEM bundles, or server names return `SdkError::InvalidArgument`
-from `Client::try_new` or `Worker::try_new`. Native trust-store initialization errors
-return `SdkError::Service`. Connections open lazily, so certificate, hostname,
-and handshake failures return service errors from the first Client call or
+from `Client::try_new` or `Worker::try_new`. Connector construction failures return
+`SdkError::Service` with the underlying causes. Connections open lazily, so
+certificate, hostname, and handshake failures return service errors from the first Client call or
 `Worker::start`.
 
 Workers use these settings for startup, blob hydration, and every pull task stream.

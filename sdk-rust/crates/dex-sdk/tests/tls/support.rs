@@ -70,6 +70,7 @@ pub(crate) type HandshakeObservations = Arc<Mutex<Vec<(Option<String>, Option<Ve
 pub(crate) struct TlsProxy {
     pub(crate) address: SocketAddr,
     pub(crate) handshakes: HandshakeObservations,
+    pub(crate) authorities: Arc<Mutex<Vec<String>>>,
     runtime: Runtime,
     task: tokio::task::JoinHandle<()>,
 }
@@ -78,6 +79,18 @@ impl TlsProxy {
     pub(crate) fn start(
         certificates: &TestCertificates,
         upstream: SocketAddr,
+        alpn: &[&[u8]],
+    ) -> Self {
+        Self::start_endpoint(certificates, Some(upstream), alpn)
+    }
+
+    pub(crate) fn start_authority_probe(certificates: &TestCertificates) -> Self {
+        Self::start_endpoint(certificates, None, &[b"h2"])
+    }
+
+    fn start_endpoint(
+        certificates: &TestCertificates,
+        upstream: Option<SocketAddr>,
         alpn: &[&[u8]],
     ) -> Self {
         let certificate = CertificateDer::from_pem_slice(&certificates.certificate)
@@ -100,15 +113,18 @@ impl TlsProxy {
         let handshakes = Arc::new(Mutex::new(Vec::new()));
         let acceptor = TlsAcceptor::from(Arc::new(config));
         let observations = Arc::clone(&handshakes);
+        let authorities = Arc::new(Mutex::new(Vec::new()));
         let task = runtime.spawn(Self::accept_connections(
             listener,
             acceptor,
             observations,
             upstream,
+            Arc::clone(&authorities),
         ));
         Self {
             address,
             handshakes,
+            authorities,
             runtime,
             task,
         }
@@ -118,14 +134,15 @@ impl TlsProxy {
         listener: TcpListener,
         acceptor: TlsAcceptor,
         observations: HandshakeObservations,
-        upstream: SocketAddr,
+        upstream: Option<SocketAddr>,
+        authorities: Arc<Mutex<Vec<String>>>,
     ) {
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
                 connection = listener.accept() => {
                     let (connection, _) = connection.expect("accept TLS proxy connection");
-                    connections.spawn(Self::forward(acceptor.clone(), connection, upstream, Arc::clone(&observations)));
+                    connections.spawn(Self::forward(acceptor.clone(), connection, upstream, Arc::clone(&observations), Arc::clone(&authorities)));
                 }
                 completion = connections.join_next(), if !connections.is_empty() => { completion.expect("connection task exists").expect("TLS forwarding task completed"); }
             }
@@ -135,8 +152,9 @@ impl TlsProxy {
     async fn forward(
         acceptor: TlsAcceptor,
         connection: TcpStream,
-        upstream: SocketAddr,
+        upstream: Option<SocketAddr>,
         observations: HandshakeObservations,
+        authorities: Arc<Mutex<Vec<String>>>,
     ) {
         match acceptor.accept(connection).await {
             Ok(mut downstream) => {
@@ -148,6 +166,10 @@ impl TlsProxy {
                         session.server_name().map(str::to_owned),
                         session.alpn_protocol().map(<[u8]>::to_vec),
                     ));
+                let Some(upstream) = upstream else {
+                    Self::observe_authority(downstream, authorities).await;
+                    return;
+                };
                 let mut upstream = match TcpStream::connect(upstream).await {
                     Ok(connection) => connection,
                     Err(error) => {
@@ -163,6 +185,35 @@ impl TlsProxy {
                 }
             }
             Err(error) => tracing::debug!(%error, "test TLS handshake rejected"),
+        }
+    }
+    async fn observe_authority(
+        connection: tokio_rustls::server::TlsStream<TcpStream>,
+        authorities: Arc<Mutex<Vec<String>>>,
+    ) {
+        let mut connection = h2::server::handshake(connection)
+            .await
+            .expect("accept probe HTTP/2 connection");
+        while let Some(request) = connection.accept().await {
+            let (request, mut response) = request.expect("accept probe request");
+            authorities
+                .lock()
+                .expect("lock authority observations")
+                .push(
+                    request
+                        .uri()
+                        .authority()
+                        .expect("request authority")
+                        .to_string(),
+                );
+            let response_headers = tonic::codegen::http::Response::builder()
+                .header("content-type", "application/grpc")
+                .header("grpc-status", "12")
+                .body(())
+                .expect("valid gRPC probe response");
+            response
+                .send_response(response_headers, true)
+                .expect("send probe response");
         }
     }
 }

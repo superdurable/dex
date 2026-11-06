@@ -6,11 +6,12 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::error::Error;
 use std::net::{IpAddr, Ipv6Addr};
 
 use rustls::RootCertStore;
 use rustls::pki_types::{CertificateDer, pem::PemObject};
-use tonic::transport::{Certificate, ClientTlsConfig, Endpoint};
+use tonic::transport::{ClientTlsConfig, Endpoint};
 
 use crate::{SdkError, SdkResult, ServiceError};
 
@@ -26,7 +27,8 @@ use crate::{SdkError, SdkResult, ServiceError};
 ///
 /// [`crate::Client::try_new`] and [`crate::Worker::try_new`] return
 /// [`SdkError::InvalidArgument`] for an invalid address, nonempty bundle without a valid root,
-/// or invalid server name. Native-root loading errors return [`SdkError::Service`].
+/// or invalid server name. Native-root loading errors are logged; successfully loaded roots
+/// remain usable. An empty trust store constructs successfully but cannot verify a server.
 /// Connections open lazily: certificate, hostname, and handshake failures appear on the first
 /// Client call or [`crate::Worker::start`] as service errors.
 ///
@@ -37,10 +39,8 @@ use crate::{SdkError, SdkResult, ServiceError};
 /// let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
 ///     "/tmp/dex-tls-blobs", 64 * 1024 * 1024, 0,
 /// )?)?);
-/// let tls = FlowServiceTlsOptions {
-///     additional_root_cas_pem: Some(std::fs::read("/etc/dex/root-ca.pem")?),
-///     server_name: None,
-/// };
+/// let tls = FlowServiceTlsOptions::new()
+///     .additional_root_cas_pem(std::fs::read("/etc/dex/root-ca.pem")?);
 /// let credential = Arc::new(FileCredential::new("/var/run/secrets/dex/token")?);
 /// let registry = Registry::new();
 /// let worker = Worker::try_new(registry.clone(), cache.clone(), WorkerOptions::new()
@@ -55,20 +55,47 @@ use crate::{SdkError, SdkResult, ServiceError};
 /// ```
 #[derive(Clone, Default)]
 pub struct FlowServiceTlsOptions {
+    additional_root_cas_pem: Option<Vec<u8>>,
+    server_name: Option<String>,
+}
+
+impl FlowServiceTlsOptions {
+    /// Creates verified TLS options using native system roots and the address host.
+    ///
+    /// Equivalent to [`Self::default`]. No additional roots or server name override are set.
+    /// Pass these options to a Client or Worker as shown in the enclosing type's example.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Adds PEM-encoded CA certificates to the native system trust store.
     ///
-    /// Defaults to `None`, using native roots alone. Empty bytes have the same effect.
-    /// Construction reads the owned bytes once; file changes are not watched. A nonempty bundle
-    /// must contain at least one parsable certificate. Other blocks and malformed certificates
-    /// are skipped when another certificate parses. See the enclosing type's example.
-    pub additional_root_cas_pem: Option<Vec<u8>>,
+    /// Defaults to no additional certificates. Empty bytes have the same effect.
+    /// Takes ownership of `value` and returns these options with that bundle. Construction reads
+    /// the bytes once; file changes are not watched. A nonempty bundle must contain at least
+    /// one parsable certificate, or construction returns [`SdkError::InvalidArgument`].
+    /// Other blocks and malformed certificates are skipped when another certificate parses.
+    /// Additional roots remain usable when the native store is empty or fails to load.
+    /// See the enclosing type's example.
+    pub fn additional_root_cas_pem(mut self, value: impl Into<Vec<u8>>) -> Self {
+        self.additional_root_cas_pem = Some(value.into());
+        self
+    }
+
     /// Overrides the address host for certificate verification, SNI, and HTTP/2 authority.
     ///
-    /// Defaults to `None`, verifying the address host and retaining its host and port as authority.
-    /// Use a DNS name or unbracketed IP address without a port. `Some("")` is invalid.
-    /// An IP address sends no SNI and requires a matching IP SAN. An override becomes the
-    /// authority without a port; a gateway must accept that name. See the enclosing type's example.
-    pub server_name: Option<String>,
+    /// Defaults to verifying the address host and retaining its host and port as authority.
+    /// Takes ownership of `value` and returns these options with that override. Use a DNS name
+    /// or unbracketed IP address without a port. Empty or invalid names cause construction to
+    /// return [`SdkError::InvalidArgument`]. An IP address sends no SNI and requires a matching
+    /// IP SAN. An override becomes the authority without a port; a gateway must accept that name.
+    /// An IPv6 override is bracketed in `:authority` (for example, `[::1]`), while certificate
+    /// verification uses the bare address. See the enclosing type's example, adding
+    /// `.server_name("dex.example.com")` to the TLS options when a gateway requires that name.
+    pub fn server_name(mut self, value: impl Into<String>) -> Self {
+        self.server_name = Some(value.into());
+        self
+    }
 }
 
 impl std::fmt::Debug for FlowServiceTlsOptions {
@@ -95,14 +122,27 @@ pub(crate) fn flow_service_endpoint(
         } else {
             format!("http://{address}")
         };
-        return Endpoint::from_shared(address).map_err(|error| transport_error(operation, error));
+        return Endpoint::from_shared(address)
+            .map_err(|error| transport_error(operation, "build FlowService endpoint", error));
     };
     let endpoint_address = tls_endpoint_address(address)?;
     let (host, _) = endpoint_address
         .rsplit_once(':')
         .expect("validated TLS endpoint has a port");
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    let mut tls = ClientTlsConfig::new().with_native_roots().domain_name(host);
+    let mut tls = ClientTlsConfig::new().domain_name(host);
+    let native = rustls_native_certs::load_native_certs();
+    if !native.errors.is_empty() {
+        tracing::warn!(
+            error_count = native.errors.len(),
+            "failed to load some native root CAs"
+        );
+    }
+    let mut roots = RootCertStore::empty();
+    let (_, skipped_count) = roots.add_parsable_certificates(native.certs);
+    if skipped_count > 0 {
+        tracing::warn!(skipped_count, "skipped invalid native root CAs");
+    }
     if let Some(server_name) = &options.server_name {
         if !is_valid_tls_name(server_name)
             || rustls::pki_types::ServerName::try_from(server_name.as_str()).is_err()
@@ -114,18 +154,15 @@ pub(crate) fn flow_service_endpoint(
         tls = tls.domain_name(server_name);
     }
     if let Some(bundle) = &options.additional_root_cas_pem {
-        let certificates = additional_certificates(bundle);
-        if !bundle.is_empty() && certificates.is_empty() {
+        let added_count = add_additional_certificates(&mut roots, bundle);
+        if !bundle.is_empty() && added_count == 0 {
             return Err(invalid_tls(
                 "flow_service_tls.additional_root_cas_pem contains no PEM certificate",
             ));
         }
-        for certificate in certificates {
-            tls = tls.ca_certificate(Certificate::from_pem(certificate));
-        }
     }
     let mut endpoint = Endpoint::from_shared(format!("https://{endpoint_address}"))
-        .map_err(|error| transport_error(operation, error))?;
+        .map_err(|error| transport_error(operation, "build FlowService endpoint", error))?;
     if let Some(server_name) = &options.server_name {
         let authority = if server_name.parse::<Ipv6Addr>().is_ok() {
             format!("[{server_name}]")
@@ -137,8 +174,8 @@ pub(crate) fn flow_service_endpoint(
         })?);
     }
     endpoint
-        .tls_config(tls)
-        .map_err(|error| transport_error(operation, error))
+        .tls_config(tls.trust_anchors(roots.roots))
+        .map_err(|error| transport_error(operation, "build FlowService TLS connector", error))
 }
 
 fn tls_endpoint_address(address: &str) -> SdkResult<&str> {
@@ -173,8 +210,12 @@ fn tls_endpoint_address(address: &str) -> SdkResult<&str> {
         }
         host
     };
+    if rustls::pki_types::ServerName::try_from(host).is_err() {
+        return Err(invalid_tls(
+            "flow_service_tls server_address host is not a valid DNS name or IP address",
+        ));
+    }
     if !is_valid_tls_name(host)
-        || rustls::pki_types::ServerName::try_from(host).is_err()
         || [
             "dns",
             "unix",
@@ -204,25 +245,31 @@ fn is_valid_tls_name(name: &str) -> bool {
         && (!name.contains(':') || name.parse::<IpAddr>().is_ok())
 }
 
-fn additional_certificates(bundle: &[u8]) -> Vec<Vec<u8>> {
+fn add_additional_certificates(roots: &mut RootCertStore, bundle: &[u8]) -> usize {
     let bundle = String::from_utf8_lossy(bundle);
-    bundle
-        .split("-----BEGIN CERTIFICATE-----")
-        .skip(1)
-        .filter_map(|block| {
-            let (body, _) = block.split_once("-----END CERTIFICATE-----")?;
-            let certificate =
-                format!("-----BEGIN CERTIFICATE-----{body}-----END CERTIFICATE-----").into_bytes();
-            let parsed = match CertificateDer::from_pem_slice(&certificate) {
-                Ok(parsed) => parsed,
-                Err(_) => return None,
-            };
-            match RootCertStore::empty().add(parsed) {
-                Ok(()) => Some(certificate),
-                Err(_) => None,
-            }
-        })
-        .collect()
+    let mut added_count = 0;
+    let mut skipped_count = 0;
+    for block in bundle.split("-----BEGIN CERTIFICATE-----").skip(1) {
+        let Some((body, _)) = block.split_once("-----END CERTIFICATE-----") else {
+            skipped_count += 1;
+            continue;
+        };
+        let certificate = format!("-----BEGIN CERTIFICATE-----{body}-----END CERTIFICATE-----");
+        match CertificateDer::from_pem_slice(certificate.as_bytes()) {
+            Ok(parsed) => match roots.add(parsed.into_owned()) {
+                Ok(()) => added_count += 1,
+                Err(_) => skipped_count += 1,
+            },
+            Err(_) => skipped_count += 1,
+        }
+    }
+    if skipped_count > 0 {
+        tracing::warn!(
+            skipped_count,
+            "skipped invalid additional root CA PEM blocks"
+        );
+    }
+    added_count
 }
 
 fn invalid_tls(message: &str) -> SdkError {
@@ -231,8 +278,15 @@ fn invalid_tls(message: &str) -> SdkError {
     }
 }
 
-fn transport_error(operation: &'static str, error: impl std::fmt::Display) -> SdkError {
+fn transport_error(operation: &'static str, object: &str, error: impl Error + 'static) -> SdkError {
+    let mut detail = format!("{object}: {error}");
+    let mut source = error.source();
+    while let Some(cause) = source {
+        detail.push_str(": ");
+        detail.push_str(&cause.to_string());
+        source = cause.source();
+    }
     SdkError::Service {
-        service: ServiceError::local(operation, error.to_string()),
+        service: ServiceError::local(operation, detail),
     }
 }
