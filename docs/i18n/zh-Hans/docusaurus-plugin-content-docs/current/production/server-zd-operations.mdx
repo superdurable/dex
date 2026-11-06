@@ -94,8 +94,7 @@ dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] 
 中的键。文件中只写你要修改的键。文件中出现的每个键都会替换单节点的默认值。不要复制整个示例
 配置：复制后 **api.listen** 会变成 **0.0.0.0:8801**，除非文件同时配置了 authenticator，否则
 没有身份验证；**lease.duration** 也会变成 10 秒。对象存储连接、节点 ID **dev** 和本地存储目录
-由 **local** 自己设置。**--listen** 会覆盖文件中的 **api.listen**。第一次启动会记录
-**cluster.partitionCount**，之后不能修改。
+由 **local** 自己设置。**--listen** 会覆盖文件中的 **api.listen**。
 
 可选的 **--attribute-store-config** 只读取一个 YAML 文件中的
 **attributeStore** 段，该段至少要定义一个 store。**--config** 文件不能再设置
@@ -103,6 +102,27 @@ dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] 
 
 节点 ID **dev**、bucket **dex-dev**、锁文件 **dev.lock** 和覆盖配置中的 **dev** 段特意保留了
 **dev** 的名字。**local** 和 **dev** 共用它们，所以数据目录可以在两个命令之间迁移。
+
+### 分区数 {#single-node-partition-count}
+
+**dev** 和 **local** 默认把 **cluster.partitionCount** 设为 32，**serve** 默认是 1024。
+所有分区都由一个节点拥有。默认的 applier lane 数是 8 与 CPU 数中的较大者，最多为分区数，
+所以只有在超过 32 个 CPU 的主机上，32 个分区才会减少 lane 数。分区更少，每次
+SearchFlows 调用要扫描的也更少。要使用其他 2 的幂，请在覆盖配置中设置
+**cluster.partitionCount**。
+
+第一次启动会记录分区数，之后不能修改。之后用不同分区数启动会失败。错误信息会给出数据目录和
+两个分区数，并要求使用已记录的分区数。
+
+早期版本的 **dev** 或 **local** 创建的数据目录有 1024 个分区。要继续使用这样的目录，请在覆盖
+配置中加入下面的内容。使用 **dexcli dev** 时，用 **--zd-config** 传入这个文件。
+
+~~~yaml
+cluster:
+  partitionCount: 1024
+~~~
+
+如果不需要其中的数据，也可以删除数据目录。下次启动会用 32 个分区重新创建它。
 
 ### 持久性 {#single-node-local-durability}
 
@@ -157,6 +177,7 @@ authenticator 时，它会在启动时记录一条警告。对外开放之前，
 | 节点 | 一个。 | 一个。 | 一个活动进程，可选热 standby。 |
 | 停止时的 Step attempt drain | 2 秒。 | 30 秒。 | 30 秒。 |
 | Lease 时长 | 30 秒。 | 30 秒。 | 10 秒。 |
+| 默认分区数 | 32 | 32 | 1024 |
 | 默认监听地址 | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
 | 配置 | flag 和可选的覆盖文件。 | flag 和可选的覆盖文件。 | 一个 YAML 文件。 |
 

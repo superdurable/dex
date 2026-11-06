@@ -650,6 +650,7 @@ fn is_configuration_error(error: &EngineStartError) -> bool {
         EngineStartError::Metadata(error) => matches!(
             error,
             MetadataError::ClusterMismatch { .. }
+                | MetadataError::PartitionCountMismatch { .. }
                 | MetadataError::InvalidNodeIdentifier(_)
                 | MetadataError::InvalidConfig { .. }
         ),

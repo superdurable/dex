@@ -41,6 +41,11 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 server-zd 支持 pull Worker。存储、持久性和 Attribute Store 配置见
 [server-zd 运维](../production/server-zd-operations.mdx)。
 
+新的状态目录有 32 个分区。早期版本创建的状态目录有 1024 个分区，使用默认值时 server-zd
+会拒绝在它上面启动。要继续使用它，请用 **--zd-config** 传入一个把
+**cluster.partitionCount** 设为 1024 的文件；否则删除状态目录。详见
+[分区数](../production/server-zd-operations.mdx#single-node-partition-count)。
+
 Temporal engine 已移除。**--engine temporal**、所有 **--external-temporal-*** 和
 **--temporal-*** flag、**--sqlite-db-filename**、**--verbose-engine-log** 和
 **--blob-store-dir** 现在都会报错，并明确说明 server-zd 是唯一的 engine。

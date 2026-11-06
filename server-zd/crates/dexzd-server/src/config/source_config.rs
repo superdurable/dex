@@ -23,6 +23,8 @@ const SINGLE_NODE_DEFAULT_LISTEN: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8801);
 /// A single node has no standby, so a longer lease rides out host stalls; only crash restarts wait longer.
 const SINGLE_NODE_LEASE_DURATION: Duration = Duration::from_secs(30);
+/// Cuts SearchFlows fan-out for one node; default applier lanes shrink only above 32 CPUs.
+pub(crate) const SINGLE_NODE_PARTITION_COUNT: u32 = 32;
 /// Keeps the drain and teardown inside the 10-second stop budget of dexcli dev.
 const DEV_ATTEMPT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -181,6 +183,8 @@ impl Config {
         let has_lease_duration_override =
             has_yaml_key(override_document.as_ref(), &["lease", "duration"]);
         let has_listen_override = has_yaml_key(override_document.as_ref(), &["api", "listen"]);
+        let has_partition_count_override =
+            has_yaml_key(override_document.as_ref(), &["cluster", "partitionCount"]);
         let has_attempt_drain_timeout_override = has_yaml_key(
             override_document.as_ref(),
             &["lifecycle", "attemptDrainTimeout"],
@@ -232,6 +236,9 @@ impl Config {
         configuration.local_storage.directory = options.data_dir.join("store");
         if !has_lease_duration_override {
             configuration.lease.duration = SINGLE_NODE_LEASE_DURATION;
+        }
+        if !has_partition_count_override {
+            configuration.cluster.partition_count = SINGLE_NODE_PARTITION_COUNT;
         }
         if !has_attempt_drain_timeout_override {
             configuration.lifecycle.attempt_drain_timeout = profile.default_attempt_drain_timeout();

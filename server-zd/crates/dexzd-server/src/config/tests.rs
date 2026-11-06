@@ -441,6 +441,36 @@ fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
 }
 
 #[test]
+fn single_node_partition_count_defaults_to_32_unless_the_overrides_set_it() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let other_cluster_key_path = temporary.path().join("cluster-node.yaml");
+    fs::write(&other_cluster_key_path, "cluster:\n  nodeId: other\n").expect("write test config");
+    let explicit_count_path = temporary.path().join("partition-count.yaml");
+    fs::write(&explicit_count_path, "cluster:\n  partitionCount: 1024\n")
+        .expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
+            .expect("configuration without YAML");
+        assert_eq!(without_overrides.cluster.partition_count, 32);
+        let with_other_cluster_key = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(other_cluster_key_path.clone()),
+        ))
+        .expect("configuration with another cluster key");
+        assert_eq!(with_other_cluster_key.cluster.partition_count, 32);
+        let with_explicit_count = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(explicit_count_path.clone()),
+        ))
+        .expect("configuration with an explicit partition count");
+        assert_eq!(with_explicit_count.cluster.partition_count, 1024);
+    }
+
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert_eq!(serve.cluster.partition_count, 1024);
+}
+
+#[test]
 fn single_node_listen_prefers_the_flag_then_api_listen_then_loopback() {
     let temporary = tempfile::tempdir().expect("test directory");
     let yaml_path = temporary.path().join("listen.yaml");

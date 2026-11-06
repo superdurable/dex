@@ -16,7 +16,11 @@ use serde::{Deserialize, Serialize};
 pub struct ClusterConfig {
     /// Defaults to empty and must be set before serving; identifies one lease owner across restarts.
     pub node_id: String,
-    /// Defaults to 1024; a positive power of two used only when a cluster is created, then checked against its manifest.
+    /// Defaults to 1024 for `serve`, and to 32 for `dev` and `local` unless the `--config` file sets it.
+    ///
+    /// A positive power of two, at most 65536. It is used only when a cluster is created; every
+    /// later start must configure the recorded count, or it fails with both counts. A data
+    /// directory that an earlier `dev` or `local` release created has 1024 partitions.
     pub partition_count: u32,
 }
 
