@@ -112,11 +112,9 @@ impl Step for AwaitApproval {
   friends; `Timer::by_duration(duration)`; `SubFlow::run(&child, input)?`.
 - `.with_id("...")` names a Condition. Name Conditions when `execute` must
   tell winners apart, and every Condition inside `any_combination_of`.
-- Among ready `any_of` candidates, Dex picks Timers first, then Channels, then
-  SubFlows, and keeps iterator order within each kind. An unready earlier
-  Condition never blocks a later ready one. For strict priority, wait on the
-  higher-priority Condition alone until it resolves.
-- Only the winning Channel Conditions consume messages.
+- Which ready Condition wins an `any_of`, and which messages a Channel
+  Condition consumes, follow [../core/step.md](../core/step.md). For strict
+  priority, wait on the higher-priority Condition alone.
 - Read results in `execute` from the same invocation's `Context`:
   `CHANNEL.condition_results(context)?`, `context.has_any_timer_fired()`,
   `context.has_timer_fired(index)`, `SubFlow::condition_result(context)?`.
@@ -226,9 +224,8 @@ pub static ORDER_NOTES: LazyLock<AttributeMap<String>> =
   `RPC.load_channel(&QUEUE)`): `pending_messages(context)?`,
   `find_pending_message(context, id)?`, `delete(context, message_id)?`,
   `size(context)?`.
-- Pending-message reads are a snapshot. Other handlers may change the queue at
-  the same time. When a decision needs the queue unchanged, every cooperating
-  writer must hold the same Attribute lock.
+- Pending-message reads are a snapshot, not a lock. See
+  [../core/channel.md](../core/channel.md).
 - An RPC that deletes a message and must abort when it is missing uses
   `RPC.is_transactional()`.
 
@@ -293,9 +290,7 @@ client.invoke_rpc_with_options(
 )
 ```
 
-- An RPC with no locks, no transaction, and no returned effects can read a
-  retained closed Flow. Locks, transactions, movements, or cancellations need
-  an active Flow.
+- Which RPCs can read a closed Flow is in [../core/rpc.md](../core/rpc.md).
 - `RpcResult::new(output).then(StepMovement::to(&Step, input))` starts a Step.
   `.cancel_step(&Step)` cancels Steps Flow-wide; an RPC has no siblings.
 - A lock conflict fails at once with `SdkError::RpcLockConflict`. Retry it
@@ -317,10 +312,8 @@ progress.write(format!("page {page} rendered"))?;
 - `STREAM.write(context, value)?` sends one message. `buffered_text` and
   `buffered_text_with_options` batch text deltas such as model tokens. Create
   one writer per invocation and propagate its errors.
-- Buffered writes are asynchronous. A successful handler does not prove every
-  frame was stored.
-- Streams are best effort and retention-bound. Keep authoritative progress and
-  results in Attributes or the Flow output.
+- Buffered writes are asynchronous, and Streams are best effort. Keep
+  authoritative state in Attributes.
 - Readers use `client.read_stream_with_timeout(flow_id, &STREAM, resume_token, timeout)`
   for forward long-polling reads and `client.list_stream_messages(flow_id,
   &STREAM, page_size, before_page_token)` for newest-first pages. Pass tokens
@@ -445,19 +438,14 @@ executor threads.
 
 - `start_flow` checks that the Flow value's Rust type is the registered one;
   pass any instance of it, such as `&OrderFlow::default()`.
-- Start options also set the Flow timeout, timeout policy, start delay, ID
-  reuse policy, initial Attributes, and config override.
+- Start options also set the timeout, start delay, ID reuse policy, initial
+  Attributes, and config override.
 - The Client has no direct write. Write Flow state through an RPC.
-- `WaitForAttributeOptions` and `WaitForStepCompletionOptions` take
-  `request_timeout`. The SDK reattaches transport waits by itself;
-  `SdkError::RequestTimeout` means only that the caller's budget ran out.
-- `wait_for_attribute_match` returns the matched value. Values can coalesce,
-  so a revision counter is a watermark, not a change log.
+- Wait options take `request_timeout`. `SdkError::RequestTimeout` means only
+  the caller's budget ran out.
 - `wait_for_flow*` returns a `FlowResult`; check `status()` before
-  `single_output()`. Do not poll `describe_flow` to wait, and do not call it
-  before `start_flow`.
-- `search_flows` is for discovery, not coordination. Constrain application
-  queries by FlowType.
+  `single_output()`. See [../core/client.md](../core/client.md) for revision
+  watermarks, `describe_flow`, and search rules.
 
 ## Client Attribute reads
 
@@ -471,22 +459,16 @@ let (status, note) =
 let status = status.unwrap_or_else(|| "new".to_string());
 ```
 
-- `reads` is a tuple of one or more reads; the result is a tuple of `Option<T>`
-  in the same order. Use `(&ORDER_STATUS,)` for one value. There is a maximum
-  tuple size; for more values from one commit, use a read-only RPC.
-- `MAP.instance(key)` selects a map instance for this call. It is a different
-  type from `MAP.load(key)`, which is for handler loads.
-- A read must match a definition that a Flow in the Client's Registry
-  declares: same name, kind, Rust value type, index, Store sync, and
-  hard-delete settings. Reuse the Flow's statics.
-- `None` means unset. A set `""` or `0` is `Some`.
-- A closed Flow stays readable until purge. A missing Flow returns
-  `SdkError::FlowNotFound`, never `FlowNotActiveOrNotFound`.
-- `SdkError::ValueMapping` while resolving a large value can come from a
-  concurrent overwrite or purge. Retry once; a repeat is a defect.
-- Use `get_attributes` when the answer is a stored value. Use a read-only RPC
-  when it needs Flow code, pending Channel messages, or values from one
-  consistent computation. See [../core/client.md](../core/client.md).
+- `reads` is a tuple of one or more reads; the result is a tuple of
+  `Option<T>` in the same order. Use `(&ORDER_STATUS,)` for one value. The
+  tuple size is bounded; for more values from one commit, use a read-only RPC.
+- `MAP.instance(key)` selects a map instance for this call. It is a
+  different type from `MAP.load(key)`, which is for handler loads.
+- A read must match a registered definition: name, kind, Rust value type,
+  index, Store sync, and hard-delete settings. Reuse the Flow's statics.
+- A missing Flow returns `SdkError::FlowNotFound`; a closed Flow stays
+  readable until purge. Retry a large-value `SdkError::ValueMapping` once.
+- When to prefer a read-only RPC is in [../core/client.md](../core/client.md).
 
 ## Patterns in Rust
 

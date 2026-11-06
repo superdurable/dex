@@ -146,21 +146,14 @@ Report the last observed value in the panic message.
 
 ## Required scenarios
 
-1. Happy path from `start_flow` to the expected terminal output.
-2. Waiting: the Flow stays waiting until the Channel, RPC, Timer, or SubFlow
-   input arrives.
-3. Execute exhaustion and the modeled recovery, manual recovery, or failure.
-4. WaitFor exhaustion, including the `Proceed` branch when used.
-5. Channels: publication, deletion by message ID, and the typed missing-message
-   error.
-6. RPCs: typed results plus the expected `SdkError` for invalid state, lock
-   conflicts, or missing data.
-7. Timers within a generous bound; `skip_timer` can shorten long ones.
-8. Worker replacement: stop the Worker while the Flow is open, start a new one
-   with the same Registry, and prove progress continues.
-9. Cancellation observed by long-running `execute` loops.
-10. Terminal behavior: the intended `FlowStatus`, and no background Step keeps
-    changing state.
+Cover the scenario list in [../core/testing.md](../core/testing.md). In
+this language:
+
+- Worker replacement: stop the Worker while the Flow waits or retries, start
+  a new Worker with the same Registry, and assert progress continues.
+- Timers: assert a generous bound, and use `client.skip_timer` to shorten long ones.
+- Failure paths: make the fake dependency fail deterministically and assert
+  the recovery Step or the terminal status.
 
 ## Running
 

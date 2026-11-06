@@ -87,24 +87,14 @@ but not flaky.
 
 ## Required scenarios
 
-1. Happy path: start, interact, wait for the terminal status, and assert the
-   typed output.
-2. Waiting: the Flow stays waiting until the Channel, RPC, Timer, or SubFlow
-   input arrives; publish both before and after the wait registers.
-3. Execute exhaustion: fail deterministically and assert the recovery Step or
-   terminal failure.
-4. WaitFor exhaustion, including the `PROCEED` branch when used.
-5. RPCs: typed results, concurrent calls when locks matter, and the expected
-   exception for lock conflicts and invalid state.
-6. Timers: assert they do not fire early and do fire within a generous bound.
-   `client.skipTimer` can shorten long Timers.
-7. Worker replacement: stop the Worker while the Flow waits or retries, start a
-   new one with the same Registry, and prove progress continues.
-8. Cancellation: long handlers stop and the cleanup path runs.
-9. Terminal behavior: RPCs and publishes after completion raise the expected
-   exception, and no background Step keeps changing state.
-10. Streams: messages and resume tokens work; authoritative assertions use
-    Attributes or the Flow output.
+Cover the scenario list in [../core/testing.md](../core/testing.md). In
+this language:
+
+- Worker replacement: stop the Worker while the Flow waits or retries, start
+  a new Worker with the same Registry, and assert progress continues.
+- Timers: assert a generous bound, and use `client.skipTimer` to shorten long ones.
+- Failure paths: make the fake dependency fail deterministically and assert
+  the recovery Step or the terminal status.
 
 ## Running
 

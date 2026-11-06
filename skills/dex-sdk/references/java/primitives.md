@@ -100,14 +100,14 @@ public class OrderFlow implements Flow<OrderRequest> {
 - Condition factories: `channel.forOne()`, `forN(n)`, `atLeast(n)`, `atMost(n)`,
   `range(min, max)`; `channelMap.forOne(instance)` and friends;
   `Timer.byDuration(duration)`; `SubFlow.run(ChildFlow.class, input[, options])`.
-- Every factory has an overload taking a condition ID. Give an ID when
+- Channel, ChannelMap, and Timer factories have an overload taking a
+  condition ID. A SubFlow takes its ID from
+  `SubFlowOptions.newBuilder().conditionId(...)`. Give an ID when
   `execute` must tell winners apart, and to every Condition inside
   `anyCombinationOf`.
-- Among ready `anyOf` candidates, Dex picks Timers first, then Channels, then
-  SubFlows, and keeps argument order within each kind. An unready earlier
-  Condition never blocks a later ready one. For strict priority, wait on the
-  higher-priority Condition alone until it resolves.
-- Only the winning Channel Conditions consume messages.
+- Which ready Condition wins an `anyOf`, and which messages a Channel
+  Condition consumes, follow [../core/step.md](../core/step.md). For strict
+  priority, wait on the higher-priority Condition alone.
 - Read results in `execute` from the same invocation's `Context`:
   `channel.getConditionResults(context)`, `context.hasTimerFired()` (or the
   index overload), `SubFlow.getConditionResults(context)`.
@@ -217,9 +217,8 @@ public final ChannelMap<String> tenantCommands = ChannelMap.define("tenant-comma
 - Manage a queue explicitly only with a load (`addExecuteLoadChannel`, or
   `@RPC(loadChannels = ...)`): `pendingMessages(context)`,
   `findPendingMessage(context, id)`, `delete(context, messageId)`, `size(context)`.
-- Pending-message reads are a snapshot. Other handlers may change the queue at
-  the same time. When a decision needs the queue unchanged, every cooperating
-  writer must hold the same Attribute lock.
+- Pending-message reads are a snapshot, not a lock. See
+  [../core/channel.md](../core/channel.md).
 - An RPC that deletes a message and must abort when it is missing sets
   `@RPC(isTransactional = true, ...)`.
 
@@ -276,9 +275,7 @@ client.invokeRPC(stub::appendSummary, line, RPCInvokeOptions.newBuilder()
         .build());
 ```
 
-- An RPC with no locks, no transaction, and no returned effects can read a
-  retained closed Flow. Locks, transactions, movements, or cancellations need
-  an active Flow.
+- Which RPCs can read a closed Flow is in [../core/rpc.md](../core/rpc.md).
 - `RPCResult.of(output, movement)` starts a Step. `.withCancelingSteps(X.class)`
   cancels Steps Flow-wide; an RPC has no siblings.
 - A lock conflict fails the call at once with `RpcLockConflictException`. Retry
@@ -299,8 +296,7 @@ writer.write("page " + page + " rendered\n");
 - `stream.write(context, value)` sends one message right away. Use
   `BufferedTextStream` for text deltas such as model tokens. Create one writer
   per invocation; it flushes when the handler finishes.
-- Streams are best effort and retention-bound. Keep authoritative progress and
-  results in Attributes or the Flow output.
+- Streams are best effort; keep authoritative state in Attributes.
 - Readers use `client.readStream(flowId, stream, resumeToken, timeout)` for
   forward long-polling reads, and `client.listStreamMessages(flowId, stream,
   pageSize, beforePageToken)` for newest-first pages. Pass tokens back
@@ -423,18 +419,12 @@ Use the Client at the service boundary only. Every call blocks.
 | Search | `client.searchFlows(query, pageSize)` |
 | Stop | `client.stopFlow(flowId[, StopFlowOptions])` |
 
-- Start options also set the Flow timeout, timeout policy, start delay, ID
-  reuse policy, initial Attributes, and config override.
+- Start options also set the timeout, start delay, ID reuse policy, initial
+  Attributes, and config override.
 - The Client has no direct write. Write Flow state through an RPC.
-- `waitForAttributeMatch` and `waitForStepCompletion` take a request timeout in
-  their options builder. The SDK reattaches transport waits by itself; a
-  `RequestTimeoutException` means only that the caller's budget ran out.
-- `waitForAttributeMatch` returns the matched value. Values can coalesce, so
-  a revision counter is a watermark, not a change log.
-- Do not poll `describeFlow` to wait; use `waitForFlow`. Do not call it before
-  `startFlow`.
-- `searchFlows` is for discovery, not coordination. Constrain application
-  queries by FlowType.
+- Wait options take a request timeout. `RequestTimeoutException` means only
+  the caller's budget ran out. See [../core/client.md](../core/client.md)
+  for revision watermarks, `describeFlow`, and search rules.
 
 ## Client Attribute reads
 
@@ -451,19 +441,15 @@ Optional<String> status = values.get(orderFlow.orderStatus);
 Optional<String> summary = values.get(orderFlow.orderNotes.instance("summary"));
 ```
 
-- Pass varargs or a `List<AttributeRead<?>>` built at runtime. There is no
-  single-value method; pass one read.
+- Pass varargs or a `List<AttributeRead<?>>`. Pass one read to read one value.
 - Each read must be the exact definition object of a registered Flow;
-  otherwise the call throws `FlowDefinitionException` before any request.
-  `attributeMap.instance(key)` selects a map instance for this call only.
-- `get(read)` returns `Optional`. An unset value and a stored `null` are both
-  empty. `""`, `0`, and `false` are present. Looking up a read that was not in
-  the call throws `IllegalArgumentException`.
-- A closed Flow stays readable until it is purged. A missing Flow throws
-  `FlowNotFoundException`, never `FlowNotActiveOrNotFoundException`.
-- Use `getAttributes` when the answer is a stored value. Use a read-only RPC
-  when it needs Flow code, pending Channel messages, or values from one
-  consistent computation. See [../core/client.md](../core/client.md).
+  otherwise `FlowDefinitionException` before any request.
+  `attributeMap.instance(key)` selects a map instance for this call.
+- `get(read)` returns `Optional`: unset and stored `null` are empty; `""`,
+  `0`, and `false` are present. A read not in the call throws.
+- A missing Flow throws `FlowNotFoundException`; a closed Flow stays
+  readable until purge.
+- When to prefer a read-only RPC is in [../core/client.md](../core/client.md).
 
 ## Patterns in Java
 

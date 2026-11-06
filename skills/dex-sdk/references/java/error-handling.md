@@ -91,13 +91,8 @@ public StepDecision execute(Context context, String job) {
 }
 ```
 
-### Other recovery shapes
-
-- Manual recovery: route exhaustion to a Step that waits on operator retry and
-  skip Channels. Authenticate and audit the RPC that publishes them.
-- Flow deadline: model it with `handleTimeout` or a Timer winner, not with an
-  exception.
-- `deadEnd()` ends one branch; `forceFail(reason)` fails the whole Flow.
+Manual recovery, Flow deadlines, and `deadEnd()` versus `forceFail` are in
+[../core/error-handling.md](../core/error-handling.md).
 
 ## Cancellation
 
@@ -148,25 +143,15 @@ public String startOrder(OrderRequest request, String requestId) {
 }
 ```
 
-- Use one stable request ID per logical request. A retry with the same ID and
-  `ignoreAlreadyStarted(true)` returns the existing run.
-- A remaining `FlowAlreadyStartedException` means another request owns that
-  Flow ID.
-- Another `DexServiceException` can leave acceptance unknown. Retry with the
-  same Flow ID and request ID, or read the domain state. Do not build a
-  separate start-deduplication table.
+- One stable request ID per logical request, with `ignoreAlreadyStarted(true)`. A remaining
+  `FlowAlreadyStartedException` means another request owns the Flow ID. Rules for unknown
+  acceptance are in [../core/error-handling.md](../core/error-handling.md).
 
 ## Waiting for a business milestone
 
-When the API promises that something has happened, wait for it after start or
-after the RPC:
-
-- `client.waitForAttributeMatch(...)` on an Attribute the Flow writes only
-  after the effect commits; or
-- `client.waitForStepCompletion(flowId, StepExecutionId.of("ChargePayment"), options)`.
-
-Always set a request timeout. A timeout does not undo acceptance and does not
-prove failure. An API that only promises acceptance needs no wait.
+When the API promises an effect happened, wait with a request timeout on
+an Attribute the Flow writes after the effect commits, or on the Step's
+completion. See [../core/error-handling.md](../core/error-handling.md).
 
 ## Query-only reads
 
@@ -216,12 +201,8 @@ public CancelOutcome cancelOrder(String flowId) {
 }
 ```
 
-- Treat `COMPLETED` as success only when completion guarantees the requested
-  condition.
-- Any other terminal status or a missing Flow is an explicit failure or
-  unknown outcome. Do not retry a terminal fact forever.
-- If the Flow is still running, read its domain state before one bounded,
-  idempotent retry.
+- The full reconcile rules are in
+  [../core/error-handling.md](../core/error-handling.md).
 
 ## Best-effort Stream writes
 

@@ -104,13 +104,8 @@ fn execute(&self, context: &mut Context, job: Self::Input) -> HandlerResult<Step
 }
 ```
 
-### Other recovery shapes
-
-- Manual recovery: route exhaustion to a Step that waits on operator retry and
-  skip Channels. Authenticate and audit the RPC that publishes them.
-- Flow deadline: model it with a timeout handler or a Timer winner, not an
-  error.
-- `dead_end()` ends one branch; `force_fail(reason)` fails the whole Flow.
+Manual recovery, Flow deadlines, and `dead_end()` versus `force_fail` are in
+[../core/error-handling.md](../core/error-handling.md).
 
 ## Cancellation
 
@@ -179,21 +174,15 @@ pub fn start_order(client: &Client, request: OrderRequest, request_id: &str) -> 
 }
 ```
 
-- Use one stable request ID per logical request. A retry with the same ID and
-  `ignore_already_started(true)` returns the existing run.
-- A remaining `SdkError::FlowAlreadyStarted` means another request owns the
-  Flow ID.
-- Another remote error can leave acceptance unknown. Retry with the same Flow
-  ID and request ID, or read the domain state. Do not build a separate
-  start-deduplication table.
+- One stable request ID per logical request, with `ignore_already_started(true)`. A remaining
+  `SdkError::FlowAlreadyStarted` means another request owns the Flow ID. Rules for unknown
+  acceptance are in [../core/error-handling.md](../core/error-handling.md).
 
 ## Waiting for a business milestone
 
-When the API promises that something has happened, wait for it after start or
-after the RPC with `wait_for_attribute_match` on an Attribute the Flow writes
-only after the effect commits, or with `wait_for_step_completion`. Always set
-`request_timeout`. A timeout does not undo acceptance and does not prove
-failure. An API that only promises acceptance needs no wait.
+When the API promises an effect happened, wait with a request timeout on
+an Attribute the Flow writes after the effect commits, or on the Step's
+completion. See [../core/error-handling.md](../core/error-handling.md).
 
 ## Query-only reads
 
@@ -235,12 +224,8 @@ pub fn cancel_order(client: &Client, flow_id: &str) -> Result<CancelOutcome, Sdk
 }
 ```
 
-- Treat `FlowStatus::Completed` as success only when completion guarantees the
-  requested condition.
-- Any other terminal status or a missing Flow is an explicit failure or
-  unknown outcome. Do not retry a terminal fact forever.
-- If the Flow is still running, read its domain state before one bounded,
-  idempotent retry.
+- The full reconcile rules are in
+  [../core/error-handling.md](../core/error-handling.md).
 
 ## Best-effort Stream writes
 
