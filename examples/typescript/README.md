@@ -142,6 +142,5 @@ npm start
 ```
 
 `./run-with-dexcli-dev.sh` starts its own `dexcli dev` and runs the same file.
-Until a released SDK includes `declareRPCMethod`, this package installs
-`@superdurable/dex` from `../../../sdk-typescript`. Build that package first
-with `npm ci && npm run build:native && npm run build`.
+The package installs the published `@superdurable/dex` 1.35.0, the first
+release that includes `declareRPCMethod`.
