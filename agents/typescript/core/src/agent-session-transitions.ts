@@ -15,6 +15,7 @@ import {
   stringCodec,
   type AsyncContext,
   type Context,
+  type RecoveryErrorInfo,
   type StepDecision,
 } from "@superdurable/dex";
 
@@ -1069,7 +1070,11 @@ export function toolStepTypeForEffect(effect: ToolEffect): string {
 
 /** Returns the text of the failure that selected a recovery Step. */
 export function readRecoveryDetail(context: Context): string {
-  const recoveryError = context.recoveryError;
+  return recoveryErrorDetail(context.recoveryError);
+}
+
+/** Returns the text of a recovery error: its detail, else its error type, else "unknown failure". */
+export function recoveryErrorDetail(recoveryError: RecoveryErrorInfo | undefined): string {
   if (recoveryError === undefined) {
     return "unknown failure";
   }

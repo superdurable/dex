@@ -20,7 +20,7 @@
     "@ai-sdk/openai": "4.0.106",
     "@ai-sdk/react": "4.0.163",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@superdurable/dex": "1.30.0",
+    "@superdurable/dex": "1.35.0",
     "@superdurable/dex-agents": "file:../../agents/typescript/core",
     "ai": "7.0.159",
     "express": "^5.1.0",

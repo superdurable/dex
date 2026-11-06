@@ -16,7 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "dex-agents==0.1.0",
-    "dex-python-sdk==1.30.0",
+    "dex-python-sdk==1.35.0",
     "langchain>=1.4.7,<2",
     "langchain-core>=1.7.3,<2",
     "langgraph>=1.2.19,<2",

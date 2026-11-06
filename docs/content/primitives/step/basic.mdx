@@ -729,7 +729,7 @@ For both durabilities, the attempts of one Step are not strictly sequential. Can
 
 ### A failure route cannot tell whether the work ran {#unknown-outcome}
 
-When no Worker accepts an attempt within the dispatch wait, the attempt fails without running and uses a retry. This happens when every Worker of the Flow type is at its task limit, or when none is running. The failure has the same recovery error type as a Worker that disconnected in the middle of an attempt: **FLOW_ERROR_TYPE_WORKER_API_FAIL**. Only the error detail differs.
+A Step attempt that no Worker takes does not fail. It waits in the durable task queue, uses no retry, and runs when a Worker takes it. Only an RPC fails when no Worker takes it within the dispatch wait. A Step attempt that does fail can fail before or after a Worker received it, and its error type and detail alone do not always tell which.
 
 The recovery error (**RecoveryErrorInfo**) also carries **attempt_progress**. It is the furthest progress across all attempts of the failed method call:
 

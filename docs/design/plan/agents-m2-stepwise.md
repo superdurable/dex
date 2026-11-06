@@ -1756,3 +1756,12 @@ RPC before the tool runs (existing primitives, one round trip per call), or
 an engine change: acknowledged heartbeats, or the dispatch reason in the
 recovery error.
 
+**Resolved:** the fix is in the engine, because every Dex application with a
+single-attempt Step has the same gaps. Dex Server starts an attempt when it
+hands it to a Worker and never hands that attempt number to a second Worker.
+A Step without a Worker waits in a queue instead of failing. The recovery
+error carries `attempt_progress`, so the tool Steps' failure routes record
+`failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX` for a call that never ran, and
+keep `outcome_unknown` for one that may have run. See
+`agent-framework-adapters.md`, "Known limits".
+

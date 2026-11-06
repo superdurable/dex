@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.30.0`:
+later and requires the released `dex-python-sdk==1.35.0`:
 
 ```bash
 pip install dex-agents
@@ -764,13 +764,23 @@ exception is a Step failure. `read` and `idempotent_write` calls retry up to
 three attempts, and then `RecordToolFailure` records `failed` for a read and
 `outcome_unknown` for a write, because the write may have taken effect.
 Single-attempt calls do not retry; `RecordToolOutcomeUnknown` records
-`outcome_unknown`.
+`outcome_unknown`. Both read the recovery error's `attempt_progress`. When it
+is `NOT_STARTED`, no attempt reached a Worker and the tool never ran, so both
+record `failed` with an `error` that starts with
+`TOOL_CALL_NOT_RUN_ERROR_PREFIX` (`the tool did not run, so it is safe to call
+again`), then `": "` and the recovery detail. The model may call the tool
+again. A call whose tool already asked a question ran before, so it keeps the
+status of its effect.
 
 Before calling the runner, the tool Step writes `tool_call_started` and awaits
-a heartbeat. Dex hands each attempt number to one Worker only: a Worker that
-disconnects after it received the task fails the attempt, and the call records
-`outcome_unknown`. Earlier Dex Servers could redeliver the attempt to another
-Worker when no output had reached them, and this output narrowed that window.
+a heartbeat. A Worker that disconnects after it received the task fails the
+attempt, and the call records `outcome_unknown`. The heartbeat matters because
+Dex treats a stream that half-closes before any output as one whose task never
+ran: the attempt returns to pending with the same attempt number, uses no
+retry, and is handed out again. After output, a half-close is a disconnect
+that fails the attempt with `NOT_COMPLETED`. So a tool that started is never
+returned as not run at the same attempt number, and never reported later as
+`NOT_STARTED`.
 
 ### Tool tasks
 
@@ -925,8 +935,8 @@ ApplyTurnControl -> RunModel with steered messages, else AwaitUserMessage
 | `CallTool` (tool call ID) | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started`. 3 attempts, failure route `RecordToolFailure`. Records `succeeded`, or `failed` for `ToolExecutionError`, and publishes `ToolCallResults`. A `ToolInputRequested` result raises a question instead, and a `ToolTaskStarted` result records `waiting_for_task` and writes `tool_task_started`. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
 | `CallSingleAttemptTool` (tool call ID) | Runs one `non_idempotent_write` or `unclassified` call. 1 attempt, failure route `RecordToolOutcomeUnknown`. | Ends, `AwaitQuestionAnswer`, or `PollToolTask` |
 | `PollToolTask` (tool call ID) | Waits on a Timer for `task_poll_interval_seconds`, or a zero Timer while `task_answer_pending`, then calls `poll_tool_task`. 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls and `RecordToolOutcomeUnknown` otherwise. No lock: steering waits for the task's result, and `cancel_turn` cancels the poll and drops its result. Records the result and publishes `ToolCallResults`, stores the next interval and continuation, or records the task's question. | Ends, itself, `AwaitQuestionAnswer`, or `FinishTurnCancellation` |
-| `RecordToolFailure` (tool call ID) | Records `failed` for a read and `outcome_unknown` for a write, with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
-| `RecordToolOutcomeUnknown` (tool call ID) | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. | Ends |
+| `RecordToolFailure` (tool call ID) | Records `failed` for a read and `outcome_unknown` for a write, with the recovery detail in `error`, and publishes `ToolCallResults`. A call whose tool Step never started (`attempt_progress` `NOT_STARTED`) records `failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX` instead. | Ends |
+| `RecordToolOutcomeUnknown` (tool call ID) | Records `outcome_unknown` with the recovery detail in `error`, and publishes `ToolCallResults`. A call whose tool Step never started records `failed` with `TOOL_CALL_NOT_RUN_ERROR_PREFIX` instead. | Ends |
 | `ResumeTurn` (expected result count) | Waits for `ToolCallResults.for_n(count)` or `TurnControlRequests`. Locks `PendingInterrupts` in Execute. A steer wake cancels the pending interrupts of the turn's approvals and of questions no task asked, and wakes each such approval, question, and durable wait through `ToolCallCancellations`, then waits again. | `RunModel`, `ApplyTurnControl` when steered or cancelled, or itself |
 | `ApplyTurnControl` (none) | Consumes every steered message and stale wake. Ends an active steered or cancelled turn with the runner's unfinished-turn messages or a note, and writes `turn_steered` or `turn_cancelled`. | `RunModel` with the steered messages, else `AwaitUserMessage` |
 | `RecordTurnFailure` (the failing Step's input, ignored) | Records `last_turn_error`. Appends the runner's unfinished-turn messages when it implements `build_unfinished_turn_messages`. When the turn has final tool call records, appends one turn-failure note. Clears the turn's records and run state. | `AwaitUserMessage` |
@@ -1212,8 +1222,10 @@ resolved, which runs at once, sends the resolution with `tasks/update`: an
 `accept` input response with the answer, `decline` for a declined question,
 or `cancel` for a passed deadline. It sends it only while the task still
 lists that same request, so it never answers a different later request
-under the same key, and only on its first attempt, after a heartbeat, so Dex
-retries rather than redelivers that attempt once the send may have happened.
+under the same key, and only on its first attempt, after a heartbeat. With
+output sent, a half-close of the stream fails the attempt instead of returning
+it as not run, so once the send may have happened, Dex retries that attempt
+rather than handing it out again under the same attempt number.
 A retried attempt cannot tell whether the first one sent it, and the task may
 since have asked the identical request again, so it asks the user again
 instead: the user may answer twice, but an answer never reaches a later
@@ -1644,8 +1656,13 @@ carry content, because 1.36.0 recorded content as events.
 
 `dex_agents.testing` runs integration tests against a private `dexcli dev
 --engine zd` engine. It reads `DEXCLI` and expects `dex-server-zd` next to it
-(or `DEX_SERVER_ZD_BINARY`). The Worker runs in a child process in its own
-process group, so a test can SIGKILL it at an exact moment.
+(or `DEX_SERVER_ZD_BINARY`). The engine runs with
+`dev.durabilityMode: processCrashSafe`, which skips fsync and survives a
+process kill, through a `-zd-config` file that also works with `dexcli`
+releases that predate `--durability`. A
+`server_zd_config` file of your own replaces it, so set `dev.durabilityMode`
+there too. The Worker runs in a child process in its own process group, so a
+test can SIGKILL it at an exact moment.
 
 ```python
 # tests/my_worker.py: the Worker child.
@@ -1723,6 +1740,10 @@ The plan records each of these decisions too.
 - `RecordToolFailure` records `failed` for a read and `outcome_unknown` for a
   write: it is reached only through crashes, timeouts, or exceptions other
   than `ToolExecutionError`, so a write may have taken effect.
+- A failed tool Step whose recovery error reports `attempt_progress`
+  `NOT_STARTED` never ran the tool, so its call records `failed` with
+  `TOOL_CALL_NOT_RUN_ERROR_PREFIX` rather than a new status. The model sees an
+  ordinary failure and can call the tool again.
 - `AgentToolCall.deferral_order` keeps model order for display and for the
   turn-failure note; AttributeMap keys alone do not keep order.
 - By default nothing from a turn is stored until it completes: `TurnCompleted`
@@ -1760,6 +1781,10 @@ The plan records each of these decisions too.
   to a second Worker, so a single-attempt tool does not run twice after a
   Worker crash. Cancellation is cooperative, though: a cancelled run may keep
   running while the failure route starts.
+- `attempt_progress` `NOT_COMPLETED` is conservative, so a call whose tool
+  never ran can still record `outcome_unknown`, such as when Dex Server
+  crashed after it recorded the attempt start but before the task reached the
+  Worker.
 - A tool the framework cannot defer runs inside `RunModel` and repeats on a
   `RunModel` retry.
 - Whether turn records cleared at turn end still count against the Server's

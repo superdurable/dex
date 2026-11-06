@@ -130,8 +130,9 @@ const (
 	ToolCallStatusRejected ToolCallStatus = "rejected"
 	// ToolCallStatusSucceeded means the tool ran and returned AgentToolCall.Output.
 	ToolCallStatusSucceeded ToolCallStatus = "succeeded"
-	// ToolCallStatusFailed means the tool returned a ToolExecutionError, or a read call's attempts
-	// ran out; AgentToolCall.Error holds the message.
+	// ToolCallStatusFailed means the tool returned a ToolExecutionError, a read call's attempts
+	// ran out, or the tool did not run (Error starts with ToolCallNotRunErrorPrefix);
+	// AgentToolCall.Error holds the message.
 	ToolCallStatusFailed ToolCallStatus = "failed"
 	// ToolCallStatusOutcomeUnknown means a write's tool Step ended without a result, so the effect
 	// may or may not have happened.
@@ -629,7 +630,8 @@ type AgentToolCall struct {
 	// Output is the tool output text after succeeded, or nil.
 	Output *string `json:"output"`
 	// Error is the ToolExecutionError message after failed, or the recovery detail of the failed
-	// Step after outcome_unknown, or nil.
+	// Step after outcome_unknown, or nil. A tool Step that failed before the tool ran records failed
+	// with ToolCallNotRunErrorPrefix, ": ", and the recovery detail.
 	Error *string `json:"error"`
 	// RejectionMessage is the message after rejected, or nil when the person gave none.
 	RejectionMessage *string `json:"rejection_message"`

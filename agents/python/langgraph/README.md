@@ -19,7 +19,7 @@ running.
 ## Installation
 
 The package needs Python 3.11 or later. It requires `dex-agents` at the same
-version, the released `dex-python-sdk==1.30.0`, `langchain>=1.4.7,<2`,
+version, the released `dex-python-sdk==1.35.0`, `langchain>=1.4.7,<2`,
 `langchain-core>=1.7.3,<2`, and `langgraph>=1.2.19,<2`:
 
 ```bash

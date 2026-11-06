@@ -20,6 +20,11 @@ import (
 const OutcomeUnknownToolResult = "The tool call's outcome is unknown: it stopped without returning a result, " +
 	"so it may or may not have taken effect. It will not be retried automatically."
 
+// ToolCallNotRunErrorPrefix starts the error of a failed record whose tool Step certainly never ran
+// the tool. The record's error is this prefix, ": ", and the recovery detail, so the model sees a
+// failed call that it may make again.
+const ToolCallNotRunErrorPrefix = "the tool did not run, so it is safe to call again"
+
 // TurnFailureNoteHeader is the first line of the note RecordTurnFailure stores after a failed
 // turn ran tools.
 const TurnFailureNoteHeader = "[Dex] The previous turn failed after these tool calls ran:"

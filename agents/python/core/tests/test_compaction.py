@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -789,7 +790,7 @@ async def _run_padded_session(
     message bytes are measured.
     """
     config_path = tmp_path / "server-zd.yaml"
-    config_path.write_text(server_config)
+    config_path.write_text(_with_process_crash_safe_durability(server_config))
     state_dir = tmp_path / "agent-state"
     state_dir.mkdir()
     flow = build_compaction_agent_flow(state_dir)
@@ -981,3 +982,11 @@ def _assert_bounded_state(
     baseline = states[baseline_milestone].live_state_bytes
     growth = DEFAULT_MESSAGE_CHUNK_SIZE * bytes_per_message + LIVE_STATE_ALLOWANCE_BYTES
     assert all(state.live_state_bytes <= baseline + growth for state in states), states
+
+
+def _with_process_crash_safe_durability(server_config: str) -> str:
+    """Add process-crash-safe durability, which a config of its own replaces, unless it sets dev."""
+    if re.search(r"^dev\s*:", server_config, re.MULTILINE):
+        return server_config
+    separator = "" if not server_config or server_config.endswith("\n") else "\n"
+    return f"{server_config}{separator}dev:\n  durabilityMode: processCrashSafe\n"

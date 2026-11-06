@@ -365,9 +365,11 @@ above the drain timeout. Wait for the new Workers to
 
 A single-attempt tool runs in a **CallSingleAttemptTool** Step. That Step serves
 **non_idempotent_write** and **unclassified** tools. It should run the tool at
-most once, and record **outcome_unknown** when the tool may have run. Two cases
-break that. Plan for both. They follow from how Dex hands out any Step attempt.
-See [Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
+most once, and record **outcome_unknown** when the tool may have run. When the
+tool certainly did not run, the call records **failed** instead, so the model
+can call the tool again. Two cases break the at-most-once promise. Plan for
+both. They follow from how Dex hands out any Step attempt. See
+[Failure and redelivery](/primitives/step/basic#failure-and-redelivery).
 
 ### A single-attempt tool can run twice {#tool-runs-twice}
 
@@ -386,10 +388,6 @@ Only two narrow cases can still run a single-attempt tool twice:
 - Cancellation is cooperative. When Dex cancels an attempt, an interrupted run
   may keep running while the failure route starts.
 
-The failure route can also see **NOT_COMPLETED** when the tool never ran. For
-example, the server crashed before the task reached the Worker. Treat that
-outcome as unknown. See [Failure and redelivery](/primitives/step/basic#unknown-outcome).
-
 To make a second run harmless, pass the call's idempotency key to the service
 that the tool writes to. Every tool call receives one: the session's Flow ID,
 the turn ID, and the tool call ID, joined by slashes, such as
@@ -397,6 +395,25 @@ the turn ID, and the tool call ID, joined by slashes, such as
 **idempotent_write**, so it also retries after a failure.
 
 ### A call that never ran can record outcome_unknown {#never-run-outcome-unknown}
+
+When a tool Step fails, its failure route reads **attempt_progress** from the
+recovery error. See [Failure and redelivery](/primitives/step/basic#unknown-outcome).
+**CallTool** and **CallSingleAttemptTool** use it the same way:
+
+| **attempt_progress** | What the call records |
+| --- | --- |
+| **NOT_STARTED** | No attempt reached a Worker, so the tool did not run. The call records **failed**. Its error starts with "the tool did not run, so it is safe to call again". The model sees a failed tool call and can call the tool again. A call whose tool already asked the user a question ran before, so it follows the next row. |
+| **NOT_COMPLETED**, or **UNSPECIFIED** when the server reported no progress | The tool may have run. A read records **failed**. Any other call records **outcome_unknown**, and the session does not run its tool again. |
+
+To recognize such a call in **get_agent_snapshot** or your own code, compare the
+start of its error with **TOOL_CALL_NOT_RUN_ERROR_PREFIX** in Python,
+**toolCallNotRunErrorPrefix** in TypeScript, or **ToolCallNotRunErrorPrefix** in
+Go.
+
+**NOT_COMPLETED** is conservative, so a call that never ran can still record
+**outcome_unknown**. For example, the server crashed after it recorded the
+attempt start but before the task reached the Worker. Treat that outcome as
+unknown.
 
 When no Worker accepts a tool Step, the call waits in the queue. This happens
 when every Worker of the Flow type is at its task limit, or when none is
@@ -425,8 +442,10 @@ Reconcile it outside the session:
    is unknown.
 2. Check the target system for the effect, by the call's idempotency key or by
    your own business key.
-3. If the Flow's history shows that the tool Step's attempt never reached a
-   Worker, the call did not run.
+3. A call that Dex knows never ran records **failed**, not **outcome_unknown**.
+   If the Flow's history still shows that the tool Step's attempt never reached
+   a Worker, such as for a call that started before a server upgrade, the call
+   did not run.
 4. Tell the session the real outcome with **send_user_message**, so the next
    turn's model works from it.
 

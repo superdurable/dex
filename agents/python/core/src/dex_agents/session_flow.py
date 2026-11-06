@@ -48,9 +48,11 @@ from dex import (
     Context,
     Flow,
     PersistenceSchema,
+    RecoveryErrorInfo,
     RetryPolicy,
     RPCResult,
     Step,
+    StepAttemptProgress,
     StepDecision,
     StepDurability,
     StepList,
@@ -133,6 +135,7 @@ from dex_agents.runner import (
     APPROVAL_DEADLINE_PASSED,
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
+    TOOL_CALL_NOT_RUN_ERROR_PREFIX,
     TOOL_TASK_ABANDONED_ERROR,
     TURN_CANCELLED_NOTE_HEADER,
     TURN_STEERED_NOTE_HEADER,
@@ -2009,7 +2012,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             events = self._event_writer(context, tool_call.turn_id)
             events.write_tool_call_started(tool_call.tool_call_id, tool_call.tool_name)
             heartbeats = _ToolStepHeartbeats(context)
-            # Dex may redeliver a task without output to another Worker, at the same attempt.
+            # Output first: Dex returns an attempt as not run when its stream half-closes
+            # before any output.
             await heartbeats.record()
             execution = DeferredToolExecution(
                 flow_id=context.flow_id,
@@ -2154,13 +2158,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         if tool_call.status.is_final:
             return dead_end()
-        # An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
-        error = (
-            TOOL_TASK_ABANDONED_ERROR
-            if _is_abandoned_tool_task(tool_call) and tool_call.cancellation_reason is not None
-            else _recovery_detail(context)
-        )
-        finished = replace(tool_call, status=status, error=error)
+        finished = _recovered_tool_call(tool_call, context.recovery_error, status)
         return _finish_tool_call(context, finished, self._event_writer(context, tool_call.turn_id))
 
     def _resume_turn_after_tool_calls(
@@ -3757,10 +3755,47 @@ def _validate_tool_calls_requested(
 
 
 def _recovery_detail(context: Context) -> str:
-    error = context.recovery_error
+    return _recovery_error_detail(context.recovery_error)
+
+
+def _recovery_error_detail(error: RecoveryErrorInfo | None) -> str:
     if error is None:
         return "unknown failure"
     return error.detail or error.error_type
+
+
+def _recovered_tool_call(
+    tool_call: AgentToolCall,
+    recovery_error: RecoveryErrorInfo | None,
+    status: ToolCallStatus,
+) -> AgentToolCall:
+    """Return the final record that a tool Step's failure route writes."""
+    # An abandoned task keeps the text CancelToolTask records, whatever made its attempts fail.
+    error = (
+        TOOL_TASK_ABANDONED_ERROR
+        if _is_abandoned_tool_task(tool_call) and tool_call.cancellation_reason is not None
+        else _recovery_error_detail(recovery_error)
+    )
+    if _is_tool_call_not_run(tool_call, recovery_error):
+        return replace(
+            tool_call,
+            status=ToolCallStatus.FAILED,
+            error=f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {error}",
+        )
+    return replace(tool_call, status=status, error=error)
+
+
+def _is_tool_call_not_run(
+    tool_call: AgentToolCall, recovery_error: RecoveryErrorInfo | None
+) -> bool:
+    """Report whether the failed Step certainly never ran the call's tool."""
+    # Polls and cancellations follow a tool that already ran, as does an answered question's call.
+    return (
+        recovery_error is not None
+        and recovery_error.attempt_progress is StepAttemptProgress.NOT_STARTED
+        and tool_call.status is ToolCallStatus.APPROVED
+        and not tool_call.input_answers
+    )
 
 
 def _optional_agent_state(context: Context) -> AgentState | None:

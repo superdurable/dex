@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,6 +15,8 @@ import { ChildProcessGroup } from "./child-process-group.js";
 
 const engineReadyLine = "Dex development environment is ready";
 const startAttempts = 3;
+// A config file also works with dexcli releases that predate --durability.
+const processCrashSafeServerZdConfig = "dev:\n  durabilityMode: processCrashSafe\n";
 
 /** Options of {@link PrivateDexEngine.start}. */
 export interface PrivateDexEngineOptions {
@@ -38,7 +40,10 @@ export interface PrivateDexEngineOptions {
   /**
    * Path of a `dex-server-zd` YAML file with configuration overrides, passed as `dexcli dev -zd-config`.
    * Use it to test server settings, such as `streamStore: { backend: disabled }`, the production
-   * default that drops Stream writes. Defaults to none.
+   * default that drops Stream writes. When omitted, the engine gets a file that sets only
+   * `dev.durabilityMode: processCrashSafe`, which skips fsync and survives a process kill but not a host
+   * crash. A file of your own replaces it, so set `dev.durabilityMode` there too, or the engine uses the
+   * slower `strict` default of `dex-server-zd` 0.1.18 and later.
    */
   readonly serverZdConfigPath?: string;
 }
@@ -92,6 +97,11 @@ export class PrivateDexEngine {
       options.stateDirectory ?? mkdtempSync(join(tmpdir(), "dex-agents-engine-"));
     mkdirSync(stateDirectory, { recursive: true });
     const logPath = join(stateDirectory, "dexcli.log");
+    let configPath = options.serverZdConfigPath;
+    if (configPath === undefined) {
+      configPath = join(stateDirectory, "zd-overrides.yaml");
+      writeFileSync(configPath, processCrashSafeServerZdConfig);
+    }
     let lastFailure: unknown;
     for (let attempt = 1; attempt <= startAttempts; attempt += 1) {
       const [dexPort, webPort] = await findFreeLoopbackPorts(2);
@@ -117,9 +127,7 @@ export class PrivateDexEngine {
       if (serverZdPath !== undefined) {
         commandArguments.push("-zd-binary", serverZdPath);
       }
-      if (options.serverZdConfigPath !== undefined) {
-        commandArguments.push("-zd-config", options.serverZdConfigPath);
-      }
+      commandArguments.push("-zd-config", configPath);
       try {
         const processGroup = await ChildProcessGroup.start({
           description: "dexcli dev",

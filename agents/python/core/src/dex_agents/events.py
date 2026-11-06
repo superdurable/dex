@@ -251,7 +251,8 @@ class AgentEventWriter:
             tool_call_id: Framework tool call ID.
             tool_name: Tool name.
             status: ``SUCCEEDED`` or ``FAILED`` for a call that ran, or another
-                final status the session recorded.
+                final status the session recorded. The session also records
+                ``FAILED`` for a call whose tool Step failed before the tool ran.
         """
         self.write_event(
             AgentEventType.TOOL_CALL_FINISHED,

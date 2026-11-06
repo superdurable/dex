@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.30.0
+npm i @superdurable/dex-agents @superdurable/dex@1.35.0
 ```
 
-`@superdurable/dex` 1.30.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.35.0 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -855,6 +855,13 @@ so the tool's source can resolve the tool without listing it again.
   or on a crash or timeout, the call is recorded as `failed` for a `read` tool
   and `outcome_unknown` for a write. The model then sees
   `outcomeUnknownToolResult`, because the write may have taken effect.
+- When a tool Step's recovery error has `attemptProgress`
+  `StepAttemptProgress.NOT_STARTED`, no attempt reached a Worker and the tool
+  never ran. The call is then recorded as `failed` with an `error` that starts with
+  `toolCallNotRunErrorPrefix` (`the tool did not run, so it is safe to call
+  again`), then `": "` and the recovery detail. The model may call the tool
+  again. A call whose tool already asked a question ran before, so it keeps the
+  status of its effect.
 
 ### Tool tasks
 
@@ -1019,8 +1026,8 @@ A turn with one read tool and a final answer therefore runs `RunModel`,
 | `CallTool` | tool call ID | Runs one `read` or `idempotent_write` call, unless the turn is steered or cancelled before `tool_call_started` | 3 attempts, failure route `RecordToolFailure` |
 | `CallSingleAttemptTool` | tool call ID | Runs one `non_idempotent_write` or `unclassified` call | 1 attempt, failure route `RecordToolOutcomeUnknown` |
 | `PollToolTask` | tool call ID | Waits on a Timer for `taskPollIntervalSeconds`, or a zero Timer while `taskAnswerPending`, then calls `pollToolTask`; records the result, stores the next interval and continuation, or records the task's question. Steering waits for the task's result; `cancel_turn` cancels the poll and drops its result | 3 attempts, failure route `RecordToolFailure` for `read` and `idempotent_write` calls, else `RecordToolOutcomeUnknown`; no lock |
-| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text | Retry backoff capped at 5 s |
-| `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text | Retry backoff capped at 5 s |
+| `RecordToolFailure` | tool call ID | Records `failed` for a `read` call and `outcome_unknown` for a write, with the recovery error text. A call whose tool Step never started (`StepAttemptProgress.NOT_STARTED`) records `failed` with `toolCallNotRunErrorPrefix` instead | Retry backoff capped at 5 s |
+| `RecordToolOutcomeUnknown` | tool call ID | Records `outcome_unknown` with the recovery error text. A call whose tool Step never started records `failed` with `toolCallNotRunErrorPrefix` instead | Retry backoff capped at 5 s |
 | `ResumeTurn` | expected result count | Waits for that many `ToolCallResults` messages or a `TurnControlRequests` message. A steer wake cancels the pending interrupts of the turn's approvals and of questions no task asked, wakes each such approval, question, and durable wait through `ToolCallCancellations`, and waits again. With every result in, moves to `RunModel`, or to `ApplyTurnControl` when steered or cancelled | Locks `PendingInterrupts` in Execute |
 | `ApplyTurnControl` | none | Consumes every steered message and stale wake. Ends an active steered or cancelled turn with the runner's unfinished-turn messages or a note, and writes `turn_steered` or `turn_cancelled`; then starts a turn with the steered messages | Retry backoff capped at 5 s |
 | `RecordTurnFailure` | the failing Step's input, ignored | Records `last_turn_error` and clears the turn; first appends the runner's unfinished-turn messages, when it has the method, and the turn failure note when the turn has final tool call records | Retry backoff capped at 5 s |
@@ -1150,7 +1157,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.30.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.35.0 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
@@ -1735,7 +1742,7 @@ real Dex Server with no model key:
 
 | Export | Purpose |
 | --- | --- |
-| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli`. `serverZdConfigPath` passes `dex-server-zd` overrides, such as a disabled Stream Store |
+| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli`. The engine runs with `dev.durabilityMode: processCrashSafe`, which skips fsync and survives a process kill, through a `-zd-config` file that also works with `dexcli` releases that predate `--durability`. `serverZdConfigPath` passes `dex-server-zd` overrides instead, such as a disabled Stream Store; set `dev.durabilityMode` there too |
 | `KillableWorkerProcess.start({ entryModulePath, serverAddress, logPath, environment })` | Worker child in its own process group; `kill()` sends SIGKILL to the group, `stop()` drains |
 | `runAgentWorkerProcess(flows)` | Body of the Worker child module; 8 concurrent tasks; prints `dex-agents test Worker ready` once registered |
 | `AgentTestEnvironment.start({ serverAddress, flows, isWorkerInProcess })` | Registry, BlobCache, Client, and optional in-process Worker with 8 concurrent tasks |
@@ -1892,11 +1899,14 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   as in the Python core; records and the snapshot list calls in the order the
   model made them.
 - **Output before a single-attempt tool runs.** A tool Step writes
-  `tool_call_started` and awaits a heartbeat before calling the runner. Dex
-  hands each attempt number to one Worker only, so a crash during the tool
-  fails the attempt instead of re-running the tool. Earlier Dex Servers
-  re-delivered an attempt whose Worker disconnected before sending any output
-  within the dispatch wait, and the heartbeat narrowed that window.
+  `tool_call_started` and awaits a heartbeat before calling the runner. A
+  crash during the tool fails the attempt instead of re-running the tool. Dex
+  treats a stream that half-closes before any output as one whose task never
+  ran: the attempt returns to pending with the same attempt number, uses no
+  retry, and is handed out again. After output, a half-close is a disconnect
+  that fails the attempt with `NOT_COMPLETED`. The heartbeat therefore keeps a
+  started tool from being returned as not run at the same attempt number and
+  later reported as `NOT_STARTED`.
 - **Background heartbeats.** `RunModel` and the tool Steps heartbeat every 20
   seconds while the runner works, so a silent model or tool call stays within
   the heartbeat timeout. Method timeouts still bound hung calls.
@@ -1933,6 +1943,9 @@ built-in loop on the AI SDK's `MockLanguageModelV4`, scripted from its prompt
   `outcome_unknown` instead of running the tool again. Cancellation is
   cooperative, though: a cancelled run may keep running while the failure
   route starts.
+- `StepAttemptProgress.NOT_COMPLETED` is conservative, so a call whose tool never
+  ran can still record `outcome_unknown`, such as when Dex Server crashed after
+  it recorded the attempt start but before the task reached the Worker.
 - Tools a framework cannot defer run inside `RunModel` and repeat with it; each
   adapter documents them as at-least-once.
 - Queued user messages are consumed one per turn, and a queued message does

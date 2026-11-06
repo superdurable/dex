@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -90,7 +91,8 @@ func newAgentTestStackWithServerZDConfig(t *testing.T, serverZDConfig string) *a
 	configPath := ""
 	if serverZDConfig != "" {
 		configPath = filepath.Join(stateDir, "server-zd.yaml")
-		require.NoError(t, os.WriteFile(configPath, []byte(serverZDConfig), 0o600))
+		configText := withProcessCrashSafeDurability(serverZDConfig)
+		require.NoError(t, os.WriteFile(configPath, []byte(configText), 0o600))
 	}
 	engine, err := agentstest.NewPrivateDexEngineWithServerZDConfig(filepath.Join(stateDir, "engine"), configPath)
 	require.NoError(t, err)
@@ -308,3 +310,17 @@ func (stack *agentTestStack) callCount(toolName string) int {
 func ptr[Value any](value Value) *Value {
 	return &value
 }
+
+// withProcessCrashSafeDurability adds process-crash-safe durability unless the config sets dev.
+func withProcessCrashSafeDurability(serverZDConfig string) string {
+	if topLevelDevKey.MatchString(serverZDConfig) {
+		return serverZDConfig
+	}
+	if serverZDConfig != "" && !strings.HasSuffix(serverZDConfig, "\n") {
+		serverZDConfig += "\n"
+	}
+	return serverZDConfig + "dev:\n  durabilityMode: processCrashSafe\n"
+}
+
+// topLevelDevKey matches a top-level dev key, which a test config sets to choose its own durability.
+var topLevelDevKey = regexp.MustCompile(`(?m)^dev\s*:`)

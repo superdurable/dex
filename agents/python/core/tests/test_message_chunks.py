@@ -219,6 +219,7 @@ async def small_value_chunk_harness(tmp_path: Path) -> AsyncIterator[ChunkHarnes
     config_path = tmp_path / "server-zd.yaml"
     config_path.write_text(
         f"values:\n  maxValueBytes: {SMALL_MAX_VALUE_BYTES}\n  blobDbMinValueBytes: 4096\n"
+        "dev:\n  durabilityMode: processCrashSafe\n"
     )
     async with _chunk_harness(tmp_path, config_path) as harness:
         yield harness

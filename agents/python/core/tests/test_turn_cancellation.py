@@ -317,7 +317,7 @@ async def test_a_worker_killed_in_finish_turn_cancellation_ends_the_turn_once(
         if entry.step_type == "FinishTurnCancellation"
         and entry.event_type == EXECUTE_COMPLETED_EVENT
     ]
-    # Dex redelivers the killed attempt, so the decision commits once.
+    # Dex fails the killed attempt and retries it, so the decision commits once.
     assert len(finished) == 1
     steps = await harness.executed_step_types(session_id)
     assert steps.count("ApplyTurnControl") == 1

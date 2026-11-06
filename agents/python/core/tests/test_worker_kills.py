@@ -63,6 +63,7 @@ async def test_worker_killed_during_a_single_attempt_write_records_outcome_unkno
     gate = harness.gate("write-gate")
     await gate.wait_until_reached()
 
+    # The attempt reached the Worker, so its progress is NOT_COMPLETED and the outcome unknown.
     worker.kill()
     await harness.stack.start_worker()
     snapshot = await harness.wait_for_turns(session_id, 1)

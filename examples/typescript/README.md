@@ -1,6 +1,6 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@1.30.0`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@1.35.0`](https://www.npmjs.com/package/@superdurable/dex).
 
 The [AI Agent](./src/products/ai-agent) also depends on the Dex Agents library,
 [`@superdurable/dex-agents`](../../agents/typescript/core). Until its 0.2.0

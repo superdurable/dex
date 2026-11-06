@@ -1130,7 +1130,7 @@ describe("steering with a Worker killed with SIGKILL", () => {
     const history = await readStepHistory(engine.serverAddress, sessionId);
     const executed = (stepType: string) =>
       history.filter((entry) => entry.stepType === stepType && entry.eventType === executeCompletedEvent).length;
-    // Dex redelivers the killed attempt, so the decision commits once.
+    // Dex fails the killed attempt and retries it, so the decision commits once.
     assert.equal(executed("FinishTurnCancellation"), 1);
     assert.equal(executed("ApplyTurnControl"), 1);
   });

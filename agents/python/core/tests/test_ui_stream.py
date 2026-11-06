@@ -415,7 +415,9 @@ async def test_snapshot_and_event_frames_work_with_the_stream_store_disabled(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "server-zd.yaml"
-    config_path.write_text("streamStore:\n  backend: disabled\n")
+    config_path.write_text(
+        "streamStore:\n  backend: disabled\ndev:\n  durabilityMode: processCrashSafe\n"
+    )
     state_dir = tmp_path / "agent-state"
     state_dir.mkdir()
     flow = build_scripted_agent_flow(state_dir)

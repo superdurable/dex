@@ -228,9 +228,10 @@ export type ToolEffect = "read" | "idempotent_write" | "non_idempotent_write" | 
  *
  * `awaiting_approval` and `approved` are open. The other statuses are final: the session
  * never runs a call whose record is final, and the runner reports the result to the model.
- * `failed` means the tool threw {@link ToolExecutionError}, or a `read` call ended without a result after
- * its attempts ran out. `outcome_unknown` means a write's tool Step ended without a result, through a
- * Worker crash, a timeout, or another error after its attempts ran out.
+ * `failed` means the tool threw {@link ToolExecutionError}, a `read` call ended without a result after
+ * its attempts ran out, or the tool did not run (its error starts with {@link toolCallNotRunErrorPrefix}).
+ * `outcome_unknown` means a write's tool Step ended without a result, through a Worker crash, a timeout,
+ * or another error after its attempts ran out.
  *
  * The set of final statuses never grows, so an exhaustive mapping of final statuses stays complete.
  * A stored record can also hold an {@link AgentToolCallWaitingStatus}; runners never see one.
@@ -322,7 +323,8 @@ export interface AgentToolCall {
   readonly output: string | null;
   /**
    * The `ToolExecutionError` message, or the failed Step's recovery detail, after `failed` or
-   * `outcome_unknown`; otherwise `null`. Wire field: `error`.
+   * `outcome_unknown`; otherwise `null`. Wire field: `error`. A tool Step that failed before the tool
+   * ran records `failed` with {@link toolCallNotRunErrorPrefix}, `": "`, and the recovery detail.
    */
   readonly error: string | null;
   /** Rejection text after `rejected`, otherwise `null`. Wire field: `rejection_message`. */
@@ -1090,6 +1092,12 @@ export const invalidToolTaskPollInterval = "the tool task's poll interval is not
 /** Error of an `outcome_unknown` record whose task `cancel_turn` abandoned; the same text as the Python core. */
 export const toolTaskAbandonedError =
   "the turn was cancelled while the tool's task was running; the task may have taken effect";
+
+/**
+ * Start of the `error` of a `failed` record whose tool Step certainly never ran the tool; the same text as the
+ * Python core.
+ */
+export const toolCallNotRunErrorPrefix = "the tool did not run, so it is safe to call again";
 
 /**
  * Returns the note text that tells the model what a failed turn already did.

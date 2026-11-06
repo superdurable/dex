@@ -267,6 +267,13 @@ type AgentFrameworkRunner interface {
 - `ExecuteDeferredToolCall` runs one tool, possibly concurrently with others.
   A `*ToolExecutionError` records `failed` with its message and is not
   retried; any other error fails the Step attempt.
+- When a tool Step's attempts fail and its recovery error's `AttemptProgress`
+  is `dex.StepAttemptProgressNotStarted`, no attempt reached a Worker and the
+  tool never ran. `RecordToolFailure` and `RecordToolOutcomeUnknown` then
+  record `failed` with an `Error` that starts with `ToolCallNotRunErrorPrefix`
+  (`the tool did not run, so it is safe to call again`), then `": "` and the
+  recovery detail, so the model may call the tool again. Any other progress
+  records `failed` for a read and `outcome_unknown` otherwise.
 - `DeferredToolOutcome` is sealed and has one result, `*ToolExecutionResult`.
 - `DeferredToolExecution.HeartbeatCheckpoint` is the checkpoint an earlier
   attempt saved with `SaveHeartbeatCheckpoint`. Every heartbeat of a tool Step
@@ -371,7 +378,10 @@ being chosen per agent at construction.
 `agentstest` has what the Python core's `dex_agents.testing` has:
 `ScriptedModelClient`, `PrivateDexEngine` (a `dexcli dev` engine on free
 ports, with an optional dex-server-zd configuration file), `KillableProcess` (a child process in its own process group, for
-SIGKILL tests), `ServeAgentWorker`, and `ReadStepHistory`.
+SIGKILL tests), `ServeAgentWorker`, and `ReadStepHistory`. `PrivateDexEngine`
+runs with `dev.durabilityMode: processCrashSafe`, which skips fsync and
+survives a process kill. A configuration file of your own replaces that
+setting, so set `dev.durabilityMode` there too.
 
 `./ci.sh` with `DEXCLI` set to the `dexcli` binary runs vet, gofmt, the public
 API documentation check, and every test with the race detector. The
@@ -444,5 +454,9 @@ The model clients are tested against fake HTTP servers; no test needs a key.
 - Dex never hands a tool Step's attempt number to a second Worker, so a
   single-attempt tool does not run twice after a Worker crash. A cancelled run
   may still overlap its failure route. See the contract's Known limits.
+- `dex.StepAttemptProgressNotCompleted` is conservative, so a call whose tool
+  never ran can still record `outcome_unknown`, such as when Dex Server
+  crashed after it recorded the attempt start but before the task reached the
+  Worker.
 - `EstimateInputTokens` of the provider clients counts four characters per
   token; the Go core does not compact, so nothing reads it today.
