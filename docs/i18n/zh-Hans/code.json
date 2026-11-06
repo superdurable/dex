@@ -30,5 +30,17 @@
   "shell.docsSidebar.toggleLabel": {
     "message": "文档目录",
     "description": "The label of the button that opens the docs sidebar on narrow screens"
+  },
+  "reference.version.label": {
+    "message": "版本",
+    "description": "Label of the Developer reference sidebar version selector"
+  },
+  "reference.version.latest": {
+    "message": "{version}（最新）",
+    "description": "Label of the latest Developer reference version"
+  },
+  "reference.version.banner": {
+    "message": "当前查看的是 {version}。最新版本为 {latest}。",
+    "description": "Notice on an older Developer reference version"
   }
 }

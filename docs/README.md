@@ -28,6 +28,62 @@ text at `/zh-Hans/reference/...`. The old `/production/server-zd-operations` and
 section ids and link each section to its new location. Do not add content to
 them.
 
+## Reference versions and release snapshots
+
+Edit only the current reference content under `reference/<component>/`.
+`reference/versions.json` records the latest released version for each component.
+SDKs, CLI, and Web use minor versions such as `1.35.x`. Server uses each
+`0.1.N` release before 1.0, then minor versions. Release train numbers can skip
+for a component; never invent a missing minor.
+
+The left sidebar selector uses Docusaurus's version metadata. It preserves the
+document ID when switching versions and falls back to the target version's
+index when that document is absent. The selector also appears in the mobile
+docs drawer. Archived pages link back to the latest matching page in a banner.
+Current routes stay at `/reference/<component>/`; archived routes add the
+version, such as `/reference/web/1.32.x/`. The Chinese shell serves the same
+English reference content with translated selector labels.
+
+To capture a released component, run from this directory:
+
+```bash
+node scripts/snapshot-reference.mjs web 1.36.0
+node scripts/snapshot-reference.mjs server 0.1.20
+```
+
+The script runs `docusaurus docs:version:reference-<component>`, updates the
+latest label, and keeps five released snapshots, including the latest. The
+snapshot matching the latest label is stored but hidden: current content serves
+that release at the permanent unversioned route. When a newer release arrives,
+that stored snapshot becomes an archived version. Repeating a release or
+releasing a patch within the same minor does not duplicate its snapshot.
+
+Snapshots use Docusaurus's `reference-<component>_versions.json`,
+`reference-<component>_versioned_docs/`, and
+`reference-<component>_versioned_sidebars/` files. Older snapshots change only
+to correct factual errors. The initial site has no historical snapshots;
+backfill must use the actual releases rather than relabeling current content.
+
+Pruning removes obsolete snapshot files and adds direct redirects in both
+locale shells. Each dropped page goes to the latest page with the same document
+ID, or to the component index if that document no longer exists. Existing
+redirects are retargeted to avoid chains. Archived pages have self-canonical
+URLs and Docusaurus's noindex metadata, and are excluded from the sitemap.
+Current pages remain indexable.
+
+After creating release tags, `release-changed-components.yml` snapshots only
+the selected SDK, CLI, and Web components, runs `npm run check`, and opens one
+pull request with the snapshots and latest-version updates. It pushes an
+`automation/reference-snapshots-*` branch and never pushes to main. The
+repository must allow GitHub Actions to create pull requests. Server releases
+use a separate workflow; run the server snapshot command above when preparing
+its reference update. The automation does not alter component publishing.
+
+`npm run test:reference` checks version boundaries, retention, file pruning,
+page fallback, locale redirects, idempotence, and isolation between instances.
+`npm run check` also builds both locale shells and audits the selectors,
+archived routes, banners, canonicals, robots metadata, redirects, and sitemaps.
+
 Application code samples must use `<SdkTabs>` / `<SdkSnippet>` so readers can
 switch Python, Go, Java, TypeScript, and Rust when `examples/rust` has the same
 sample. Do not use per-language headings or stacked fenced blocks. `bash` /

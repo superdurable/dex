@@ -2,11 +2,37 @@ import assert from 'node:assert/strict';
 import {access, readFile, readdir} from 'node:fs/promises';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {readReferenceDocuments, compareVersions} from '../scripts/snapshot-reference.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const docsRoot = join(root, '..');
 const redirectsPath = join(root, '..', 'redirects.json');
+const latestReferenceVersions = JSON.parse(await readFile(join(docsRoot, 'reference/versions.json'), 'utf8'));
+const referenceVersions = new Map();
+for (const [component, latest] of Object.entries(latestReferenceVersions)) {
+  let snapshots;
+  try {
+    snapshots = JSON.parse(await readFile(join(docsRoot, `reference-${component}_versions.json`), 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    snapshots = [];
+  }
+  const archived = snapshots.filter((version) => version !== latest);
+  assert.ok(archived.length < 5, `${component} must publish at most five versions including current`);
+  assert.deepEqual(snapshots, [...new Set(snapshots)].sort((first, second) => compareVersions(second, first)));
+  referenceVersions.set(component, ['current', ...archived]);
+  for (const version of ['current', ...archived]) {
+    const sourceDirectory = version === 'current' ? join(docsRoot, 'reference', component)
+      : join(docsRoot, `reference-${component}_versioned_docs/version-${version}`);
+    for (const document of await readReferenceDocuments(sourceDirectory)) {
+      for (const localePrefix of ['', 'zh-Hans/']) {
+        const versionPrefix = version === 'current' ? '' : `${version}/`;
+        await access(join(root, `${localePrefix}reference/${component}/${versionPrefix}${document.slug}`, 'index.html'));
+      }
+    }
+  }
+}
 const redirectRules = JSON.parse(await readFile(redirectsPath, 'utf8'));
 const expectedRedirects = new Map(
   redirectRules.map(({from, to}) => [
@@ -348,7 +374,8 @@ await Promise.all([
 const outputFiles = await collectOutputFiles(root);
 const outputFilePaths = new Set(outputFiles.map((filePath) => relativeOutputPath(filePath)));
 const htmlIndexFiles = outputFiles.filter((filePath) => filePath.endsWith(`${sep}index.html`));
-const indexablePages = new Map();
+const canonicalPages = new Map();
+const archivedCanonicalUrls = new Set();
 const actualRedirects = new Map();
 
 for (const filePath of htmlIndexFiles) {
@@ -375,9 +402,32 @@ for (const filePath of htmlIndexFiles) {
     expectedAlternateLanguageLinks(route),
     `${route} has incorrect alternate-language URLs`,
   );
-  assert.equal(hasNoIndexOrNoFollow(html), false, `${route} blocks search indexing`);
-  assert.equal(indexablePages.has(expectedCanonical), false, `${route} duplicates canonical ${expectedCanonical}`);
-  indexablePages.set(expectedCanonical, {html, route});
+  const referenceMatch = route.match(/^\/(?:zh-Hans\/)?reference\/(server|cli|web|go|python|java|typescript|rust)\/(?:(\d+\.\d+\.(?:x|\d+))\/)?/);
+  const isArchivedReference = Boolean(referenceMatch?.[2]);
+  const selectorMarkers = html.match(/data-reference-version-selector=/g) ?? [];
+  assert.equal(selectorMarkers.length, referenceMatch ? 1 : 0, `${route} has an incorrect sidebar version selector`);
+  if (referenceMatch) {
+    const [, component, version] = referenceMatch;
+    const select = html.match(/<select\b[^>]*>[\s\S]*?<\/select>/)?.[0];
+    assert.ok(select, `${route} needs a native version select`);
+    const versionNames = [...select.matchAll(/<option[^>]*value="([^"]+)"/g)].map((match) => match[1]);
+    assert.deepEqual(versionNames, referenceVersions.get(component), `${route} must list its own versions newest first`);
+    if (version) assert.ok(referenceVersions.get(component).includes(version), `${route} has an undeclared version`);
+    assert.ok(html.includes(latestReferenceVersions[component]), `${route} needs the latest component version`);
+    if (isArchivedReference) {
+      archivedCanonicalUrls.add(expectedCanonical);
+      assert.ok(select.includes(`value="${version}" selected=""`), `${route} must select its own version`);
+      assert.match(html, /data-reference-version-banner/);
+      const robotsMeta = htmlTags(html, 'meta').find((tag) => attributeValue(tag, 'name') === 'robots');
+      assert.equal(attributeValue(robotsMeta, 'content'), 'noindex, nofollow');
+    } else {
+      assert.match(select, /value="current" selected=""/);
+      assert.doesNotMatch(html, /data-reference-version-banner/);
+    }
+  }
+  assert.equal(hasNoIndexOrNoFollow(html), isArchivedReference, `${route} has incorrect indexing directives`);
+  assert.equal(canonicalPages.has(expectedCanonical), false, `${route} duplicates canonical ${expectedCanonical}`);
+  canonicalPages.set(expectedCanonical, {html, route});
 }
 
 assert.deepEqual(
@@ -386,7 +436,7 @@ assert.deepEqual(
   'the production build must contain every declared redirect and no undeclared redirects',
 );
 
-for (const [canonical, {html, route}] of indexablePages) {
+for (const [canonical, {html, route}] of canonicalPages) {
   for (const href of anchorTargets(html)) {
     const target = new URL(href, canonical);
     if (target.origin !== siteOrigin) {
@@ -394,7 +444,7 @@ for (const [canonical, {html, route}] of indexablePages) {
     }
     assert.equal(expectedRedirects.has(target.pathname), false, `${route} links to redirect ${target.pathname}`);
     assert.ok(
-      indexablePages.has(new URL(target.pathname, siteOrigin).href) ||
+      canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
         outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')),
       `${route} links to missing route ${target.pathname}`,
     );
@@ -413,8 +463,8 @@ const sitemapUrls = (
 assert.equal(new Set(sitemapUrls).size, sitemapUrls.length, 'sitemap URLs must be unique');
 assert.deepEqual(
   [...sitemapUrls].sort(),
-  [...indexablePages.keys()].sort(),
-  'sitemap must contain every indexable canonical URL and no redirects or duplicate variants',
+  [...canonicalPages.keys()].filter((url) => !archivedCanonicalUrls.has(url)).sort(),
+  'sitemap must contain current canonical URLs and exclude archived references, redirects, and duplicate variants',
 );
 
 const robots = await readFile(join(root, 'robots.txt'), 'utf8');
@@ -425,7 +475,7 @@ assert.match(robots, /^Sitemap: https:\/\/docs\.superdurable\.io\/sitemap\.xml$/
 assert.match(robots, /^Sitemap: https:\/\/docs\.superdurable\.io\/zh-Hans\/sitemap\.xml$/m);
 
 console.log(
-  `Docs shell and SEO audit passed for ${indexablePages.size} indexable routes and ${actualRedirects.size} redirects.`,
+  `Docs shell and SEO audit passed for ${canonicalPages.size} canonical routes and ${actualRedirects.size} redirects.`,
 );
 
 function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {

@@ -149,6 +149,76 @@ jobs:
             fi
           done
 
+  snapshot-references:
+    name: Propose released reference snapshots
+    needs: [plan, create-releases]
+    if: >-
+      needs.plan.outputs.go == 'true' || needs.plan.outputs.python == 'true' ||
+      needs.plan.outputs.java == 'true' || needs.plan.outputs.typescript == 'true' ||
+      needs.plan.outputs.rust == 'true' || needs.plan.outputs.web == 'true' ||
+      needs.plan.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: Install docs dependencies
+        run: npm ci --prefix docs
+      - name: Snapshot selected components
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+          GO_SELECTED: ${{ needs.plan.outputs.go }}
+          PYTHON_SELECTED: ${{ needs.plan.outputs.python }}
+          JAVA_SELECTED: ${{ needs.plan.outputs.java }}
+          TYPESCRIPT_SELECTED: ${{ needs.plan.outputs.typescript }}
+          RUST_SELECTED: ${{ needs.plan.outputs.rust }}
+          WEB_SELECTED: ${{ needs.plan.outputs.web }}
+          CLI_SELECTED: ${{ needs.plan.outputs.cli }}
+        run: |
+          for component in go python java typescript rust web cli; do
+            selected_name="${component^^}_SELECTED"
+            if [[ "${!selected_name}" == "true" ]]; then
+              node docs/scripts/snapshot-reference.mjs "${component}" "${RELEASE_VERSION}"
+            fi
+          done
+      - name: Check snapshots
+        run: npm run check --prefix docs
+      - name: Open reference snapshot pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          git add docs
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          branch="automation/reference-snapshots-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "${branch}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "docs: snapshot released component references ${RELEASE_VERSION}"
+          git push origin "${branch}"
+          description="$(mktemp)"
+          cat > "${description}" <<'BODY'
+          ## Summary
+          Snapshot the released component references, update their latest labels, and retain the five newest releases.
+
+          ## Why
+          The component release completed. Preserve its reference content for readers selecting an older version after the next release.
+
+          ## Testing
+          Ran the docs typecheck, snapshot fixtures, production builds for both locales, and route and search-index audit.
+          BODY
+          gh pr create --base main --head "${branch}" \
+            --title "docs: snapshot component references ${RELEASE_VERSION}" \
+            --body-file "${description}"
+
   publish-java:
     name: Publish Java SDK
     needs: [plan, create-releases]
