@@ -21,13 +21,13 @@ const sidebars: SidebarsConfig = {
       items: [
         'primitives/flow/index',
         'primitives/step/index',
-        'primitives/connector',
         'primitives/attribute',
         'primitives/rpc',
         'primitives/channel',
         'primitives/stream',
         'primitives/timer',
         'primitives/subflow',
+        'primitives/connector',
         'primitives/client',
         {
           type: 'category',

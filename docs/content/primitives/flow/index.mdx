@@ -17,8 +17,7 @@ or a job queue to keep the process going across crashes and restarts.
 
 Use one Flow for each business identity whose process Dex should own. Put work
 that shares that identity and lifecycle into [Steps](/primitives/step) of the
-same Flow. Steps can
-run in parallel inside one Flow.
+same Flow. Steps can run in parallel inside one Flow.
 
 Start a separate Flow when the work has its own owner and lifecycle. Two Flows
 coordinate through RPCs and Channels. Use a [SubFlow](/primitives/subflow) only
