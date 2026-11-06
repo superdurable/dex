@@ -20,7 +20,7 @@ and Cursor. Its only public skills are `dex-sdk`, `dex-app-builder`, and
 - All three Skills may be selected by matching natural-language descriptions.
 - `dex-app-builder` is the default end-to-end product workflow for business
   discovery, Flow and FDG modeling, an explicit no-custom-UI or custom-UI
-  decision, Go backend implementation, and local verification with open-source
+  decision, Go backend implementation, and local verification with source-available
   Dex tooling.
 - `dex-sdk` is the specialist for implementing, debugging, testing, and
   operating applications through the public Dex SDK.
@@ -41,11 +41,11 @@ and Cursor. Its only public skills are `dex-sdk`, `dex-app-builder`, and
 - App Builder constraints are stricter: Go only, strict FDG 2.0, provider effects
   only in `Execute`, and no provider or Dex mutations in `WaitFor`.
 
-## Open-source product boundary
+## Public product boundary
 
-Dex Skills is open-source Dex material and contains no information about any
+Dex Skills is public Dex material and contains no information about any
 product built on Dex (no product names, template contracts or platform
-concepts). Describe only open-source Dex: the Dex SDKs, `dexcli` including
+concepts). Describe only source-available Dex: the Dex SDKs, `dexcli` including
 `dexcli dev`, Dex Server (server-zd), Dex Web, the FDG analyzer, and the
 official connectors. A product built on Dex keeps its own platform-specific guidance in
 its own repository; nothing here refers to it.
