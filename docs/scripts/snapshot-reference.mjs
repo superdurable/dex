@@ -114,7 +114,9 @@ export async function rewriteSnapshotLinks(fromPath, toPath, {siteDirectory = do
     throw new Error('Cannot rewrite links to the site root');
   }
   const toRoute = toPath.replace(/\/+$/, '');
-  const linkPattern = new RegExp(`(?<=^|[\\s("'\\[=])${escapeRegExp(fromRoute)}(/?)(?=$|[\\s)"'\\]#?])`, 'gm');
+  // Markdown destinations may be wrapped in angle brackets: [a](</path>) or [ref]: </path>.
+  const linkPattern = new RegExp(
+    `(?<=^|[\\s("'\\[=]|\\(<|\\]:[ \\t]*<)${escapeRegExp(fromRoute)}(/?)(?=$|[\\s)"'\\]#?>])`, 'gm');
   const changedFiles = [];
   for (const entry of await readdir(siteDirectory, {withFileTypes: true})) {
     if (!entry.isDirectory() || !/^reference-[a-z]+_versioned_(?:docs|sidebars)$/.test(entry.name)) {
@@ -231,11 +233,14 @@ async function writeJSON(path, value) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(process.argv[1], 'file:///'))) {
   const commandArguments = process.argv.slice(2);
-  if (commandArguments[0] === '--rewrite-links' && commandArguments.length === 3) {
+  if (commandArguments[0] === '--reference-version' && commandArguments.length === 3) {
+    console.log(referenceVersion(commandArguments[1], commandArguments[2]));
+  } else if (commandArguments[0] === '--rewrite-links' && commandArguments.length === 3) {
     console.log(JSON.stringify(await rewriteSnapshotLinks(commandArguments[1], commandArguments[2])));
   } else if (commandArguments.length === 2 && !commandArguments[0].startsWith('-')) {
     console.log(JSON.stringify(await snapshotReference(commandArguments[0], commandArguments[1])));
   } else {
-    throw new Error('Usage: node scripts/snapshot-reference.mjs <component> <version> | --rewrite-links <from> <to>');
+    throw new Error('Usage: node scripts/snapshot-reference.mjs <component> <version>'
+      + ' | --rewrite-links <from> <to> | --reference-version <component> <version>');
   }
 }

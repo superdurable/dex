@@ -21,6 +21,11 @@ test('release versions follow component boundaries', () => {
   assert.equal(referenceVersion('cli', '1.36.x'), '1.36.x');
   assert.equal(referenceVersion('server', 'v0.1.19'), '0.1.19');
   assert.equal(referenceVersion('server', '1.0.2'), '1.0.x');
+  assert.equal(referenceVersion('server', '0.1.20'), '0.1.20');
+  assert.equal(referenceVersion('server', '1.2.3'), '1.2.x');
+  for (const version of ['0.1.20-smoke.7', '1.0.0-rc.1', '0.2.0', '1.2.3+build']) {
+    assert.throws(() => referenceVersion('server', version), /Invalid server/);
+  }
   for (const version of ['../bad', '1.2.0-beta.1', '0.1.x', '1.2', '1.2.3/evil']) {
     assert.throws(() => referenceVersion('go', version));
   }
@@ -137,6 +142,8 @@ test('link rewrites update whole paths in retained snapshots only', async () => 
     await writeFile(join(snapshot, 'index.mdx'), [
       '[a](/primitives/old) [b](/primitives/old/#retry) <Link to="/primitives/old/">c</Link>',
       '[keep](/primitives/older) [keep](/x/primitives/old) [ref]: /primitives/old',
+      '[angle](</primitives/old>) [anchored](</primitives/old/#section>) </primitives/older>',
+      '[angle-ref]: </primitives/old>',
     ].join('\n'));
     await writeFile(join(siteDirectory, 'reference-go_versioned_sidebars/version-1.32.x-sidebars.json'),
       '{"docs": [{"type": "link", "href": "/primitives/old"}]}');
@@ -149,6 +156,8 @@ test('link rewrites update whole paths in retained snapshots only', async () => 
     assert.equal(await readFile(join(snapshot, 'index.mdx'), 'utf8'), [
       '[a](/primitives/new) [b](/primitives/new/#retry) <Link to="/primitives/new/">c</Link>',
       '[keep](/primitives/older) [keep](/x/primitives/old) [ref]: /primitives/new',
+      '[angle](</primitives/new>) [anchored](</primitives/new/#section>) </primitives/older>',
+      '[angle-ref]: </primitives/new>',
     ].join('\n'));
     assert.equal(await readFile(join(siteDirectory, 'reference/go/index.mdx'), 'utf8'), '[a](/primitives/old)');
     await assert.rejects(rewriteSnapshotLinks('/a#b', '/c', {siteDirectory}), /without anchors/);

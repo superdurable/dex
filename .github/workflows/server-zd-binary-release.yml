@@ -417,26 +417,25 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: main
-      - name: Check reference version
-        id: reference
-        env:
-          VERSION: ${{ needs.metadata.outputs.version }}
-        run: |
-          if [[ "${VERSION}" =~ ^0\.1\.[0-9]+$ ]]; then
-            echo "selected=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "No server reference snapshot for ${VERSION}; only 0.1.N releases are snapshotted." >> "${GITHUB_STEP_SUMMARY}"
-            echo "selected=false" >> "${GITHUB_OUTPUT}"
-          fi
       - uses: actions/setup-node@v4
-        if: steps.reference.outputs.selected == 'true'
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: docs/package-lock.json
       - name: Install docs dependencies
-        if: steps.reference.outputs.selected == 'true'
         run: npm ci --prefix docs
+      # The snapshot script owns the version policy: stable 0.1.N, then X.Y.Z minors from 1.0.
+      - name: Check reference version
+        id: reference
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          if node docs/scripts/snapshot-reference.mjs --reference-version server "${VERSION}"; then
+            echo "selected=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "No server reference snapshot for ${VERSION}; prereleases are not snapshotted." >> "${GITHUB_STEP_SUMMARY}"
+            echo "selected=false" >> "${GITHUB_OUTPUT}"
+          fi
       - name: Snapshot server reference
         if: steps.reference.outputs.selected == 'true'
         env:

@@ -149,8 +149,9 @@ URLs and Docusaurus's noindex metadata, and are excluded from the sitemap and
 
 After creating release tags, `release-changed-components.yml` snapshots the
 selected SDK, CLI, and Web components. `server-zd-binary-release.yml` snapshots
-the server after publishing a `0.1.N` release, starting from main rather than
-the tag. Each job runs `npm run check` and pushes one
+the server after publishing a stable release (each `0.1.N`, then minor
+versions from 1.0), starting from main rather than the tag. Prereleases are
+skipped. Each job runs `npm run check` and pushes one
 `automation/reference-snapshots-<run_id>-<attempt>` branch. It never pushes to
 main. The job is `continue-on-error`, so a snapshot failure never fails the
 release run.
@@ -169,8 +170,11 @@ Until then, a person opens each pull request:
 3. Merge snapshot branches in release order. Each branch starts from main as
    it was at its release, so a later branch may miss or conflict with an
    earlier one. Merge the earlier branch first. If the later branch then
-   conflicts, run its snapshot command by hand on the updated main instead. A
-   job rerun reuses the old commit, so it does not help.
+   conflicts, run its snapshot command by hand on the updated main instead.
+   Rerunning the `release-changed-components.yml` job does not help, because it
+   checks out the original release commit. Rerunning the
+   `server-zd-binary-release.yml` job checks out the current main, so it picks
+   up the merged earlier branch.
 
 If a snapshot job fails, run the snapshot command above by hand and open its
 pull request.
@@ -179,7 +183,8 @@ pull request.
 
 `npm run test:reference` checks version boundaries, retention, file pruning,
 page fallback, locale redirects, patch replacement, the missing-bootstrap error,
-link rewrites, and isolation between instances. `npm run check` also builds both
+link rewrites (including angle-bracket destinations), and isolation between
+instances. `npm run check` also builds both
 locale shells and audits the selectors, archived routes, banners, canonicals,
 robots metadata, redirects, sitemaps, and `llms.txt`.
 
