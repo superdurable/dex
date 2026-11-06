@@ -284,10 +284,12 @@ Server 要求 page size 为正数，并通过 **maxReadMessages** 设置上限�
 
 Dex server 根据每条消息的 serialized value、Flow ID、source 和可配置的 per-message overhead 计算估算大小。
 
-当 usage 达到 trim trigger threshold 时，全局只有一个 background trimmer 会删除所有 instance 中最旧的消息，直到 usage 降至 trim target threshold。极少数情况下，如果 trimming 太慢，usage 达到 capacity limit（**streamCapacityBytes**），write request 会被拒绝。
+当 usage 达到 trim trigger threshold 时，后台 trim 会删除所有 instance 中最旧的消息，直到 usage 降至 trim target threshold。server 会运行多个 trim worker，但同一个 Stream 同一时间只由一个 trim 任务处理。如果 trimming 太慢，usage 达到 capacity limit（**streamCapacityBytes**），write request 会以 **RESOURCE_EXHAUSTED** 被拒绝。拒绝的同时会让 trim 为这条消息腾出空间，所以 Client 可以重试这次写入。大于 Stream 容量的消息也会这样被拒绝，但它永远放不下，不要重试。
 
 Server 还会限制单条 Stream message 的大小，默认上限为 100 KiB。
 
+Server 把 **streamCapacityBytes** 限制在 **streamStore.maxStreamCapacityBytes** 以内，默认 64 MiB。它还用 **streamStore.maxTotalBytes** 限制一个 server 上所有 Stream 的内存，默认 1 GiB。超过这个总量的 Client 写入返回 **RESOURCE_EXHAUSTED**，随后后台 trim 会删除最大的 Stream 中最早的消息，直到这条消息放得下。稍等片刻后重试这次写入。见 [Stream](/production/server-zd-operations#streams)。
+
 ### Best-effort storage
 
-当 **streamStore.backend** 为 **memory** 时，Stream Store 把消息保存在内存中；**dexcli dev** 会设置它。生产 server 的默认值是 **disabled**，此时 Stream 写入会被丢弃。见 [Stream](/production/server-zd-operations#streams)。memory backend 会在 server 进程重启时丢失全部内容。trim 或容量压力也可能删除或拒绝消息。
+Stream Store 把消息保存在 active server 进程的内存中。无论是 **dexcli dev** 还是生产 server，**streamStore.backend** 的默认值都是 **memory**。server 进程重启或 standby 接管时，memory 中的内容会全部丢失。trim 或容量压力也可能删除或拒绝消息。运维人员可以把 backend 设为 **disabled**。这时 Client 的 Stream 写入和读取返回 **FAILED_PRECONDITION**，Step 写入会被丢弃，但不会让 Step 失败。见 [Stream](/production/server-zd-operations#streams)。

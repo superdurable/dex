@@ -670,11 +670,12 @@ async fn worker_write_is_best_effort_and_close_wakes_readers() {
                 "step-17"
             )
             .await
+            .is_ok()
     );
     let message = read_one(&store, 0, "OrderFlow", "flow-a", "Progress", "").await;
     assert_eq!(message.source, "#step-17");
     assert!(
-        !store
+        store
             .write_worker_best_effort(
                 write_input(
                     0,
@@ -688,6 +689,7 @@ async fn worker_write_is_best_effort_and_close_wakes_readers() {
                 "",
             )
             .await
+            .is_err()
     );
     assert_eq!(
         store
@@ -699,12 +701,13 @@ async fn worker_write_is_best_effort_and_close_wakes_readers() {
         1,
     );
     assert!(
-        !store
+        store
             .write_worker_best_effort(
                 write_input(0, "OrderFlow", "flow-a", "Progress", "ignored", "worker", 1),
                 "step-17"
             )
             .await
+            .is_err()
     );
     let reader_store = Arc::clone(&store);
     let reader = tokio::spawn(async move {
@@ -1060,6 +1063,31 @@ async fn configuration_rules_fail_at_startup() {
             trim_target_percent: 90,
             ..enabled_config()
         },
+        StreamStoreConfig {
+            max_total_bytes: 0,
+            ..enabled_config()
+        },
+        StreamStoreConfig {
+            max_stream_capacity_bytes: 0,
+            ..enabled_config()
+        },
+        StreamStoreConfig {
+            max_total_bytes: 1 << 20,
+            max_stream_capacity_bytes: 2 << 20,
+            ..enabled_config()
+        },
+        StreamStoreConfig {
+            background_trim_batch_size: 0,
+            ..enabled_config()
+        },
+        StreamStoreConfig {
+            trim_batch_yield_time: Duration::ZERO,
+            ..enabled_config()
+        },
+        StreamStoreConfig {
+            trim_workers: 0,
+            ..enabled_config()
+        },
     ];
     for configuration in configurations {
         assert!(matches!(
@@ -1067,4 +1095,321 @@ async fn configuration_rules_fail_at_startup() {
             Err(StreamStoreError::InvalidConfig(_))
         ));
     }
+}
+
+/// Returns a config whose every write of `value` from `flow_id` and `source` charges 1000 bytes.
+fn thousand_byte_message_config(value: &str, flow_id: &str, source: &str) -> StreamStoreConfig {
+    let payload_bytes = (string_value(value).encoded_len() + flow_id.len() + source.len()) as u64;
+    StreamStoreConfig {
+        estimated_message_overhead_bytes: 1000 - payload_bytes,
+        ..enabled_config()
+    }
+}
+
+/// Returns a Value that charges `charged_bytes` under [`thousand_byte_message_config`].
+fn value_charging(charged_bytes: usize) -> String {
+    // Values of 128..16384 bytes have a two-byte length prefix, one more than "value".
+    let value = "a".repeat(charged_bytes - 1000 + 4);
+    assert_eq!(
+        string_value(&value).encoded_len(),
+        string_value("value").encoded_len() + charged_bytes - 1000
+    );
+    value
+}
+
+async fn retained_count(store: &StreamStore, stream_name: &str) -> usize {
+    store
+        .list(0, "OrderFlow", "flow-a", stream_name, 100, "")
+        .await
+        .expect("the Stream lists")
+        .messages
+        .len()
+}
+
+async fn write_charged(
+    store: &StreamStore,
+    stream_name: &str,
+    value: &str,
+    capacity: u64,
+) -> Result<(), StreamStoreError> {
+    store
+        .write(write_input(
+            0,
+            "OrderFlow",
+            "flow-a",
+            stream_name,
+            "source",
+            value,
+            capacity,
+        ))
+        .await
+}
+
+async fn write_thousand_bytes(
+    store: &StreamStore,
+    stream_name: &str,
+) -> Result<(), StreamStoreError> {
+    write_charged(store, stream_name, "value", 1 << 20).await
+}
+
+/// Lets paused-time trim workers run every batch whose pause ends within `elapsed`.
+async fn run_trim_workers_for(elapsed: Duration) {
+    let step = Duration::from_millis(1);
+    let mut advanced = Duration::ZERO;
+    loop {
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
+        if advanced >= elapsed {
+            return;
+        }
+        tokio::time::advance(step).await;
+        advanced += step;
+    }
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn total_capacity_rejects_at_the_limit_and_accepts_after_trimming() {
+    let store = StreamStore::new(&StreamStoreConfig {
+        max_total_bytes: 5000,
+        max_stream_capacity_bytes: 5000,
+        ..thousand_byte_message_config("value", "flow-a", "source")
+    })
+    .unwrap();
+    for stream_name in ["Small", "Small", "Large", "Large", "Large"] {
+        write_thousand_bytes(&store, stream_name).await.unwrap();
+    }
+    assert_eq!(
+        write_thousand_bytes(&store, "Small").await,
+        Err(StreamStoreError::TotalCapacityExceeded),
+        "a write past maxTotalBytes is rejected before trimming runs"
+    );
+    run_trim_workers_for(Duration::from_millis(10)).await;
+    assert_eq!(
+        retained_count(&store, "Large").await,
+        2,
+        "trimming takes the oldest messages of the largest Stream down to the 80% target"
+    );
+    assert_eq!(retained_count(&store, "Small").await, 2);
+    write_thousand_bytes(&store, "Small")
+        .await
+        .expect("trimming released total capacity");
+    store.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn a_rejected_write_below_the_trim_target_reclaims_room_for_itself() {
+    let store = StreamStore::new(&StreamStoreConfig {
+        max_total_bytes: 5000,
+        max_stream_capacity_bytes: 5000,
+        ..thousand_byte_message_config("value", "flow-a", "source")
+    })
+    .unwrap();
+    let small_streams = ["First", "Second", "Third", "Fourth"];
+    for stream_name in small_streams {
+        write_thousand_bytes(&store, stream_name).await.unwrap();
+    }
+    run_trim_workers_for(Duration::from_millis(10)).await;
+    let mut retained = 0;
+    for stream_name in small_streams {
+        retained += retained_count(&store, stream_name).await;
+    }
+    assert_eq!(
+        retained, 4,
+        "4000 bytes sit at the 80% target, below every trigger"
+    );
+    let two_thousand_bytes = value_charging(2000);
+    assert_eq!(
+        write_charged(&store, "Large", &two_thousand_bytes, 1 << 20).await,
+        Err(StreamStoreError::TotalCapacityExceeded)
+    );
+    run_trim_workers_for(Duration::from_millis(10)).await;
+    let mut retained = 0;
+    for stream_name in small_streams {
+        retained += retained_count(&store, stream_name).await;
+    }
+    assert_eq!(
+        retained, 3,
+        "trimming reclaims room for the rejected 2000-byte write"
+    );
+    write_charged(&store, "Large", &two_thousand_bytes, 1 << 20)
+        .await
+        .expect("the retried write fits");
+    assert_eq!(
+        write_charged(&store, "Huge", &value_charging(6000), 1 << 20).await,
+        Err(StreamStoreError::MessageExceedsStreamCapacity),
+        "a charge above the clamped Stream capacity can never fit"
+    );
+    assert_eq!(
+        write_charged(&store, "Tiny", &two_thousand_bytes, 1500).await,
+        Err(StreamStoreError::MessageExceedsStreamCapacity),
+        "a charge above the requested Stream capacity can never fit"
+    );
+    store.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn a_rejected_write_below_the_stream_trim_target_reclaims_room_for_itself() {
+    let store =
+        StreamStore::new(&thousand_byte_message_config("value", "flow-a", "source")).unwrap();
+    for _ in 0..4 {
+        write_charged(&store, "Progress", "value", 5000)
+            .await
+            .unwrap();
+    }
+    let two_thousand_bytes = value_charging(2000);
+    assert_eq!(
+        write_charged(&store, "Progress", &two_thousand_bytes, 5000).await,
+        Err(StreamStoreError::CapacityExceeded),
+        "4000 bytes sit at the 4000-byte trim target, yet 2000 more do not fit"
+    );
+    run_trim_workers_for(Duration::from_millis(10)).await;
+    assert_eq!(retained_count(&store, "Progress").await, 3);
+    write_charged(&store, "Progress", &two_thousand_bytes, 5000)
+        .await
+        .expect("trimming reclaimed room for the retried write");
+    store.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn requested_capacity_is_clamped_and_overhead_is_configurable() {
+    let store = StreamStore::new(&StreamStoreConfig {
+        max_stream_capacity_bytes: 2000,
+        ..thousand_byte_message_config("value", "flow-a", "source")
+    })
+    .unwrap();
+    write_thousand_bytes(&store, "Progress").await.unwrap();
+    write_thousand_bytes(&store, "Progress").await.unwrap();
+    assert_eq!(
+        write_thousand_bytes(&store, "Progress").await,
+        Err(StreamStoreError::CapacityExceeded),
+        "a 1 MiB request is clamped to maxStreamCapacityBytes, which two 1000-byte messages fill"
+    );
+    store.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn trim_batch_size_and_yield_time_pace_trimming_and_close_interrupts_the_pause() {
+    let store = StreamStore::new(&StreamStoreConfig {
+        background_trim_batch_size: 1,
+        trim_batch_yield_time: Duration::from_secs(3600),
+        trim_workers: 1,
+        trim_target_percent: 10,
+        ..thousand_byte_message_config("value", "flow-a", "source")
+    })
+    .unwrap();
+    for _ in 0..4 {
+        write_charged(&store, "Progress", "value", 4000)
+            .await
+            .unwrap();
+    }
+    run_trim_workers_for(Duration::ZERO).await;
+    assert_eq!(
+        retained_count(&store, "Progress").await,
+        3,
+        "one batch removes one message"
+    );
+    tokio::time::advance(Duration::from_secs(3599)).await;
+    run_trim_workers_for(Duration::ZERO).await;
+    assert_eq!(
+        retained_count(&store, "Progress").await,
+        3,
+        "the next batch waits for the whole yield time"
+    );
+    tokio::time::advance(Duration::from_secs(1)).await;
+    run_trim_workers_for(Duration::ZERO).await;
+    assert_eq!(retained_count(&store, "Progress").await, 2);
+    let started = tokio::time::Instant::now();
+    store.close().await.unwrap();
+    assert_eq!(
+        tokio::time::Instant::now(),
+        started,
+        "close interrupts the pause without waiting"
+    );
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn concurrent_stream_and_total_trims_keep_total_accounting_exact() {
+    let store = StreamStore::new(&StreamStoreConfig {
+        max_total_bytes: 10_000,
+        max_stream_capacity_bytes: 10_000,
+        background_trim_batch_size: 1,
+        trim_workers: 4,
+        ..thousand_byte_message_config("value", "flow-a", "source")
+    })
+    .unwrap();
+    for stream_name in ["First", "Second"] {
+        for _ in 0..4 {
+            write_charged(&store, stream_name, "value", 4000)
+                .await
+                .unwrap();
+        }
+    }
+    write_charged(&store, "Third", "value", 10_000)
+        .await
+        .unwrap();
+    // Both Streams reached their 3600-byte trigger and the total reached its 9000-byte trigger.
+    run_trim_workers_for(Duration::from_millis(20)).await;
+    assert_eq!(retained_count(&store, "First").await, 3);
+    assert_eq!(retained_count(&store, "Second").await, 3);
+    assert_eq!(retained_count(&store, "Third").await, 1);
+    let mut accepted = 0;
+    for index in 0..5 {
+        match write_charged(&store, &format!("Fresh{index}"), "value", 10_000).await {
+            Ok(()) => accepted += 1,
+            Err(StreamStoreError::TotalCapacityExceeded) => break,
+            Err(error) => panic!("unexpected write error: {error}"),
+        }
+    }
+    assert_eq!(
+        accepted, 3,
+        "trimming released exactly the 3000 bytes it removed from the total"
+    );
+    store.close().await.unwrap();
+}
+
+/// A wall clock frozen at one millisecond, so consecutive writes share it.
+struct FrozenWallClock;
+
+impl dexzd_clock::WallClock for FrozenWallClock {
+    fn now_unix_micros(&self) -> i64 {
+        1_700_000_000_000_000
+    }
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn a_stream_recreated_after_a_total_trim_keeps_increasing_identities() {
+    let store = StreamStore::new_with_identity_clock_for_test(
+        &StreamStoreConfig {
+            max_total_bytes: 1000,
+            max_stream_capacity_bytes: 1000,
+            ..thousand_byte_message_config("value", "flow-a", "source")
+        },
+        Arc::new(FrozenWallClock),
+    )
+    .unwrap();
+    write_thousand_bytes(&store, "Progress").await.unwrap();
+    let removed = read_one(&store, 0, "OrderFlow", "flow-a", "Progress", "").await;
+    // Reaching 1000 bytes triggers a total trim that empties and removes the Stream.
+    run_trim_workers_for(Duration::ZERO).await;
+    assert_eq!(retained_count(&store, "Progress").await, 0);
+    write_thousand_bytes(&store, "Progress").await.unwrap();
+    let replacement = read_one(
+        &store,
+        0,
+        "OrderFlow",
+        "flow-a",
+        "Progress",
+        &removed.resume_token,
+    )
+    .await;
+    assert_eq!(
+        replacement.created_time, removed.created_time,
+        "the frozen clock puts both messages in one millisecond"
+    );
+    assert_ne!(
+        replacement.resume_token, removed.resume_token,
+        "the recreated Stream does not reuse the removed message's identity"
+    );
+    store.close().await.unwrap();
 }

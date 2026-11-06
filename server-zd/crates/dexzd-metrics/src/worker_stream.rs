@@ -278,3 +278,98 @@ impl EncodeMetric for UnservedTaskQueues {
         MetricType::Gauge
     }
 }
+
+/// Why the server dropped a Step Stream write that a Worker sent.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum StepStreamWriteDropReason {
+    /// The Stream Store backend is disabled.
+    Disabled,
+    /// The write had no Value, Step execution ID, or valid capacity.
+    InvalidArgument,
+    /// The serialized Value exceeded streamStore.maxMessageBytes, or the message exceeded its
+    /// Stream's capacity.
+    MessageTooLarge,
+    /// The Stream's capacity was full until background trimming caught up.
+    StreamCapacityExceeded,
+    /// streamStore.maxTotalBytes was full until background trimming caught up.
+    TotalCapacityExceeded,
+    /// The Stream Store was closing.
+    Closed,
+}
+
+label_value!(StepStreamWriteDropReason {
+    Disabled => "disabled",
+    InvalidArgument => "invalid_argument",
+    MessageTooLarge => "message_too_large",
+    StreamCapacityExceeded => "stream_capacity_exceeded",
+    TotalCapacityExceeded => "total_capacity_exceeded",
+    Closed => "closed",
+});
+
+impl StepStreamWriteDropReason {
+    const ALL: [Self; 6] = [
+        Self::Disabled,
+        Self::InvalidArgument,
+        Self::MessageTooLarge,
+        Self::StreamCapacityExceeded,
+        Self::TotalCapacityExceeded,
+        Self::Closed,
+    ];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Disabled => 0,
+            Self::InvalidArgument => 1,
+            Self::MessageTooLarge => 2,
+            Self::StreamCapacityExceeded => 3,
+            Self::TotalCapacityExceeded => 4,
+            Self::Closed => 5,
+        }
+    }
+}
+
+#[derive(Clone, Debug, EncodeLabelSet)]
+struct StepStreamWriteDropLabel {
+    reason: StepStreamWriteDropReason,
+}
+
+/// Step Stream writes dropped by reason; a dropped write never fails the Step.
+#[derive(Clone, Debug)]
+pub struct StepStreamWritesDropped {
+    counts: Arc<[Counter; 6]>,
+}
+
+impl Default for StepStreamWritesDropped {
+    fn default() -> Self {
+        Self {
+            counts: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl StepStreamWritesDropped {
+    /// Records one dropped write.
+    pub fn record(&self, reason: StepStreamWriteDropReason) {
+        self.counts[reason.index()].inc();
+    }
+
+    /// Returns the drops recorded for `reason`.
+    pub fn count(&self, reason: StepStreamWriteDropReason) -> u64 {
+        self.counts[reason.index()].get()
+    }
+}
+
+impl EncodeMetric for StepStreamWritesDropped {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for reason in StepStreamWriteDropReason::ALL {
+            encoder
+                .encode_family(&StepStreamWriteDropLabel { reason })?
+                .encode_counter::<NoLabelSet, _, u64>(&self.counts[reason.index()].get(), None)?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}

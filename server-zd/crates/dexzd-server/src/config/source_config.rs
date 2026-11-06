@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use super::{
     AttributeStoreConfig, Config, CredentialSource, DevConfig, DevDurabilityMode,
-    ObjectStoreCredentials, SearchBackend, StandbyMode, StreamStoreBackend,
+    ObjectStoreCredentials, SearchBackend, StandbyMode,
 };
 use crate::DevCommandOptions;
 
@@ -126,8 +126,6 @@ impl Config {
         } else {
             (Self::default(), None)
         };
-        let has_stream_store_backend_override =
-            has_yaml_key(override_document.as_ref(), &["streamStore", "backend"]);
         let has_attribute_store_override =
             has_yaml_key(override_document.as_ref(), &["attributeStore"]);
         let has_lease_duration_override =
@@ -171,9 +169,6 @@ impl Config {
             configuration.dev.durability_mode = durability;
         }
         configuration.local_storage.directory = options.data_dir.join("store");
-        if !has_stream_store_backend_override {
-            configuration.stream_store.backend = StreamStoreBackend::Memory;
-        }
         if !has_lease_duration_override {
             configuration.lease.duration = DEV_LEASE_DURATION;
         }

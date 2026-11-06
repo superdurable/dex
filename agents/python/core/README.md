@@ -1439,9 +1439,9 @@ the snapshot with `AgentSessionClient.resolve_interrupt`.
 
 Limits:
 
-- A production Dex Server drops Stream writes until a Stream backend is
-  enabled (`streamStore.backend`), and trimming can remove old events. With the
-  Stream Store disabled, the snapshot still works, with an empty token, and the
+- Stream events live in the memory of the active Dex Server process, so a
+  restart or failover loses them, and trimming can remove old events. With the
+  Stream Store disabled (`streamStore.backend: disabled`), the snapshot still works, with an empty token, and the
   event stream yields only keep-alive comments; poll the snapshot instead.
 - The event stream never ends by itself; the web framework closes it when the
   browser disconnects. An async generator stops when the framework cancels

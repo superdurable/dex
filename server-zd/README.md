@@ -170,6 +170,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_flow_end_to_end_latency_seconds` | histogram, buckets 1, 10, 60, 600, 3600, 21600, 86400 | — | Run start to close using committed timestamps |
 | `dexzd_step_schedule_to_start_latency_seconds` | histogram, buckets 0.005, 0.025, 0.1, 0.5, 2.5, 10 | — | Committed SYNC Step task becoming dispatchable to Worker delivery; ASYNC speculative dispatches have no committed schedule time |
 | `dexzd_worker_stream_events_total` | counter | `event`: delivered, closed | Task deliveries and persistent Worker stream closes |
+| `dexzd_step_stream_writes_dropped_total` | counter | `reason`: disabled, invalid_argument, message_too_large, stream_capacity_exceeded, total_capacity_exceeded, closed | Step Stream writes dropped without failing the Step |
 | `dexzd_attribute_sync_backlog_entries` | gauge | — | Attribute Sync entries waiting to be written to an Attribute Store, as of the projector's last scan |
 | `dexzd_attribute_sync_oldest_pending_age_seconds` | gauge | — | Age of the oldest pending Attribute Sync entry's retry window, 0 when none |
 | `dexzd_attribute_sync_write_failures_total` | counter | `failure_kind`: retryable, non_retryable | Failed Attribute Store write transactions; non-retryable failures drop their entries |
@@ -209,6 +210,24 @@ dex-server-zd serve --config /etc/dex/dex-server-zd.yaml
 with its default. Set at least `cluster.nodeId`, `objectStore.bucket`, and
 `localStorage.directory`. Unknown keys and a `dev` section with non-default values fail startup.
 An invalid value fails startup with the YAML path of the rejected field.
+
+`streamStore.backend` defaults to `memory` in `serve` and `dev`. Stream messages live only in the
+active process and are lost on restart, standby takeover, or step down; trimming can also drop
+older messages. With `backend: disabled`, WriteStream, ReadStream, and ListStreamMessages return
+`FailedPrecondition` with the `UNCATEGORIZED` sub-status, a Step Stream write is dropped with a
+warning log without failing the Step, and startup logs a warning.
+
+The memory backend bounds its memory. `streamStore.maxTotalBytes` (default 1 GiB) caps the bytes
+charged across every Stream on the node. A write past it returns `ResourceExhausted` with the
+`UNCATEGORIZED` sub-status, and background trimming removes the oldest messages of the largest
+Streams until usage falls to `trimTargetPercent` of the bound, or lower when the rejected message
+needs more room; the caller retries. A message whose charge exceeds its Stream's capacity can never
+fit and returns `ResourceExhausted` without trimming. `streamStore.maxStreamCapacityBytes`
+(default 64 MiB) clamps the capacity that a caller requests for one Stream. Each message is charged
+its serialized Value, Flow ID, source, and `estimatedMessageOverheadBytes`. Trimming removes up to
+`backgroundTrimBatchSize` messages per batch, pauses `trimBatchYieldTime` between batches, and runs
+at most `trimWorkers` jobs at once. `dexzd_step_stream_writes_dropped_total` counts Step Stream
+writes the server dropped, by reason.
 
 `localStorage.directory` needs room for the live state plus `localStorage.maxWalBytes` of RocksDB
 write-ahead log and up to four uncompacted level-0 files per column family, each about

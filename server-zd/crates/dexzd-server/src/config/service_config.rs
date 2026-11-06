@@ -130,10 +130,10 @@ impl Default for MatchingConfig {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum StreamStoreBackend {
-    /// Default; Stream operations are unavailable.
-    #[default]
+    /// Stream operations fail with FailedPrecondition; Step Stream writes are dropped and logged.
     Disabled,
-    /// Process-local Stream storage for development or a single node.
+    /// Default; Stream messages live in the active process and are lost on restart or failover.
+    #[default]
     Memory,
 }
 
@@ -141,12 +141,19 @@ pub enum StreamStoreBackend {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct StreamStoreConfig {
-    /// Defaults to disabled; dev mode defaults to memory when YAML does not set this field.
+    /// Defaults to memory in serve and dev; disabled rejects client Stream calls.
     pub backend: StreamStoreBackend,
     /// Defaults to 100 KiB; maximum serialized Value in one Stream message.
     pub max_message_bytes: u64,
     /// Defaults to 1000; maximum messages in one ListStreamMessages page.
     pub max_read_messages: u32,
+    /// Defaults to 1 GiB; bytes retained across every Stream on the node, as charged per message.
+    /// A write past it returns RESOURCE_EXHAUSTED, and background trimming takes the oldest messages
+    /// of the largest Streams down to trimTargetPercent of it.
+    pub max_total_bytes: u64,
+    /// Defaults to 64 MiB; upper bound for a caller's stream_capacity_bytes. A larger request is
+    /// clamped to it. Must not exceed maxTotalBytes.
+    pub max_stream_capacity_bytes: u64,
     /// Defaults to 512 bytes; accounting added to each message beyond value, Flow ID, and source.
     pub estimated_message_overhead_bytes: u64,
     /// Defaults to 90%; asynchronous trimming starts at this capacity usage.
@@ -165,9 +172,11 @@ pub struct StreamStoreConfig {
 impl Default for StreamStoreConfig {
     fn default() -> Self {
         Self {
-            backend: StreamStoreBackend::Disabled,
+            backend: StreamStoreBackend::Memory,
             max_message_bytes: 100 * 1024,
             max_read_messages: 1_000,
+            max_total_bytes: 1 << 30,
+            max_stream_capacity_bytes: 64 << 20,
             estimated_message_overhead_bytes: 512,
             trim_trigger_percent: 90,
             trim_target_percent: 80,

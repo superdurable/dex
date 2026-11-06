@@ -12,6 +12,7 @@ mod stream_store_config;
 
 pub use stream_store_config::StreamStoreConfig;
 
+use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_protocol::dex::Value;
 use prost::Message as ProstMessage;
 use std::collections::{HashMap, VecDeque};
@@ -20,10 +21,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, mpsc, watch};
 use tokio::task::JoinHandle;
-
-const ESTIMATED_MESSAGE_OVERHEAD_BYTES: u64 = 512;
-const TRIM_BATCH_SIZE: usize = 256;
-const TRIM_BATCH_PAUSE: Duration = Duration::from_millis(1);
 
 /// Store errors map to gRPC codes below; read None maps to DeadlineExceeded/LONG_POLL_TIME_OUT.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -40,9 +37,15 @@ pub enum StreamStoreError {
     /// Oversized Values map to ResourceExhausted.
     #[error("serialized Stream Value exceeds configured max_message_bytes")]
     MessageTooLarge,
+    /// A message charged more than its Stream's capacity maps to ResourceExhausted; never retry it.
+    #[error("Stream message charge exceeds the Stream capacity, so it can never fit")]
+    MessageExceedsStreamCapacity,
     /// Exhausted capacity maps to ResourceExhausted.
     #[error("Stream capacity is exhausted; retry after background trimming")]
     CapacityExceeded,
+    /// Exhausted process-wide capacity maps to ResourceExhausted.
+    #[error("Stream Store total capacity is exhausted; retry after background trimming")]
+    TotalCapacityExceeded,
     /// Invalid tokens map to InvalidArgument.
     #[error("invalid Stream resume token")]
     InvalidResumeToken,
@@ -80,12 +83,16 @@ pub struct StreamMessagePage {
     pub next_page_token: String,
 }
 
-/// A process-local Stream Store. Call close before dropping it to drain its trim worker.
+/// A process-local Stream Store. Call close before dropping it to drain its trim workers.
 pub struct StreamStore {
     config: StreamStoreConfig,
+    /// Supplies the millisecond part of message identities.
+    identity_clock: Arc<dyn WallClock>,
     state: Arc<Mutex<StoreState>>,
     trim_sender: mpsc::UnboundedSender<TrimCommand>,
-    trim_worker: AsyncMutex<Option<JoinHandle<()>>>,
+    /// Becomes true on close, so a worker pausing between batches stops at once.
+    trim_shutdown: watch::Sender<bool>,
+    trim_workers: AsyncMutex<Vec<JoinHandle<()>>>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -99,6 +106,12 @@ struct ScopeKey {
 struct StoreState {
     scopes: HashMap<ScopeKey, StreamScope>,
     pending_trims: HashMap<ScopeKey, u64>,
+    /// Sum of every scope's total_bytes.
+    total_bytes: u64,
+    /// Bytes the pending total trim reduces total_bytes to; None when none is pending.
+    total_trim_target_bytes: Option<u64>,
+    /// Last issued message identity; store-wide, so a recreated scope never reuses one.
+    last_identity: (u64, u64),
     is_closed: bool,
 }
 
@@ -107,8 +120,6 @@ struct StreamScope {
     total_bytes: u64,
     fifo: VecDeque<Arc<StoredMessage>>,
     instances: HashMap<String, StreamInstance>,
-    last_milliseconds: u64,
-    last_sequence: u64,
 }
 
 struct StreamInstance {
@@ -127,7 +138,22 @@ struct StoredMessage {
 
 enum TrimCommand {
     Scope(ScopeKey),
+    Total,
     Shutdown,
+}
+
+/// Settings each trim worker copies from the store configuration.
+#[derive(Clone, Copy)]
+struct TrimSettings {
+    batch_size: usize,
+    batch_yield_time: Duration,
+}
+
+/// What one trim job reports after an atomic batch.
+enum TrimProgress {
+    Complete,
+    Incomplete,
+    Closed,
 }
 
 struct ReadWaiter {
@@ -137,21 +163,63 @@ struct ReadWaiter {
 }
 
 impl StreamStore {
-    /// Starts the trim worker in the current Tokio runtime. Invalid configuration fails startup.
+    /// Starts the trim workers in the current Tokio runtime. Invalid configuration fails startup.
     pub fn new(config: &StreamStoreConfig) -> Result<Self, StreamStoreError> {
+        Self::with_identity_clock(config, Arc::new(SystemWallClock))
+    }
+
+    /// Creates a store whose message identities read `identity_clock`, such as a frozen clock.
+    #[cfg(feature = "test-util")]
+    pub fn new_with_identity_clock_for_test(
+        config: &StreamStoreConfig,
+        identity_clock: Arc<dyn WallClock>,
+    ) -> Result<Self, StreamStoreError> {
+        Self::with_identity_clock(config, identity_clock)
+    }
+
+    fn with_identity_clock(
+        config: &StreamStoreConfig,
+        identity_clock: Arc<dyn WallClock>,
+    ) -> Result<Self, StreamStoreError> {
         config.validate().map_err(StreamStoreError::InvalidConfig)?;
+        if !config.enabled {
+            tracing::warn!(
+                "streamStore.backend is disabled; Step Stream writes will be dropped and client Stream calls will fail"
+            );
+        }
         let state = Arc::new(Mutex::new(StoreState::default()));
         let (trim_sender, trim_receiver) = mpsc::unbounded_channel();
-        let worker_state = Arc::clone(&state);
-        let worker_sender = trim_sender.clone();
-        let trim_worker = tokio::spawn(async move {
-            run_trim_worker(worker_state, trim_receiver, worker_sender).await
-        });
+        let trim_receiver = Arc::new(AsyncMutex::new(trim_receiver));
+        let (trim_shutdown, _) = watch::channel(false);
+        let settings = TrimSettings {
+            batch_size: config.background_trim_batch_size,
+            batch_yield_time: config.trim_batch_yield_time,
+        };
+        let mut trim_workers = Vec::with_capacity(config.trim_workers);
+        for _ in 0..config.trim_workers {
+            let worker_state = Arc::clone(&state);
+            let worker_receiver = Arc::clone(&trim_receiver);
+            let worker_sender = trim_sender.clone();
+            let worker_shutdown = trim_shutdown.subscribe();
+            let trim_worker = tokio::spawn(async move {
+                run_trim_worker(
+                    worker_state,
+                    worker_receiver,
+                    worker_sender,
+                    worker_shutdown,
+                    settings,
+                )
+                .await
+            });
+            trim_workers.push(trim_worker);
+        }
         Ok(Self {
             config: config.clone(),
+            identity_clock,
             state,
             trim_sender,
-            trim_worker: AsyncMutex::new(Some(trim_worker)),
+            trim_shutdown,
+            trim_workers: AsyncMutex::new(trim_workers),
         })
     }
 
@@ -176,7 +244,8 @@ impl StreamStore {
                     "stream_capacity_bytes is required",
                 ));
             }
-        };
+        }
+        .min(self.config.max_stream_capacity_bytes);
         if !self.config.enabled {
             return Err(StreamStoreError::Disabled);
         }
@@ -188,13 +257,16 @@ impl StreamStore {
             .expect("a serialized Value size fits in u64")
             .checked_add(input.flow_id.len() as u64)
             .and_then(|bytes| bytes.checked_add(input.source.len() as u64))
-            .and_then(|bytes| bytes.checked_add(ESTIMATED_MESSAGE_OVERHEAD_BYTES))
+            .and_then(|bytes| bytes.checked_add(self.config.estimated_message_overhead_bytes))
             .ok_or(StreamStoreError::MessageTooLarge)?;
         let scope_key = ScopeKey {
             tenant_id: input.tenant_id,
             flow_type: input.flow_type,
             stream_name: input.stream_name,
         };
+        // A pre-epoch clock reads as 0; next_identity still keeps identities increasing.
+        let now_milliseconds =
+            u64::try_from(self.identity_clock.now_unix_micros() / 1000).unwrap_or(0);
         let mut state = self
             .state
             .lock()
@@ -202,19 +274,29 @@ impl StreamStore {
         if state.is_closed {
             return Err(StreamStoreError::Closed);
         }
-        let scope = state.scopes.entry(scope_key.clone()).or_default();
-        let is_full = scope.total_bytes >= capacity
-            || charged_bytes > capacity.saturating_sub(scope.total_bytes);
-        if is_full {
-            schedule_trim(
+        // Capacity never exceeds max_total_bytes, so this also rejects a charge that no trim can admit.
+        if charged_bytes > capacity {
+            return Err(StreamStoreError::MessageExceedsStreamCapacity);
+        }
+        let max_total_bytes = self.config.max_total_bytes;
+        let total_trim_target_bytes =
+            percentage_of(max_total_bytes, self.config.trim_target_percent);
+        if charged_bytes > max_total_bytes - state.total_bytes.min(max_total_bytes) {
+            schedule_total_trim(
                 &mut state,
                 &self.trim_sender,
-                scope_key,
-                percentage_of(capacity, self.config.trim_target_percent),
+                total_trim_target_bytes.min(max_total_bytes - charged_bytes),
             );
+            return Err(StreamStoreError::TotalCapacityExceeded);
+        }
+        let identity = state.next_identity(now_milliseconds);
+        let scope = state.scopes.entry(scope_key.clone()).or_default();
+        if charged_bytes > capacity - scope.total_bytes.min(capacity) {
+            let scope_target_bytes = percentage_of(capacity, self.config.trim_target_percent)
+                .min(capacity - charged_bytes);
+            schedule_trim(&mut state, &self.trim_sender, scope_key, scope_target_bytes);
             return Err(StreamStoreError::CapacityExceeded);
         }
-        let identity = scope.next_identity();
         let entry = Arc::new(StoredMessage {
             flow_id: input.flow_id.clone(),
             value: input.value,
@@ -230,6 +312,10 @@ impl StreamStore {
         instance.version_sender.send_replace(next_version);
         let needs_trim =
             scope.total_bytes >= percentage_of(capacity, self.config.trim_trigger_percent);
+        state.total_bytes += charged_bytes;
+        if state.total_bytes >= percentage_of(max_total_bytes, self.config.trim_trigger_percent) {
+            schedule_total_trim(&mut state, &self.trim_sender, total_trim_target_bytes);
+        }
         if needs_trim {
             let base_target = percentage_of(capacity, self.config.trim_target_percent);
             schedule_trim(
@@ -243,11 +329,13 @@ impl StreamStore {
     }
 
     /// Appends a Worker message with source #<StepExecutionID>; store failures are logged and do not fail the Step.
+    ///
+    /// Returns the error that dropped the write so the caller can count it; nothing retries it.
     pub async fn write_worker_best_effort(
         &self,
         mut input: WriteStreamInput,
         step_execution_id: &str,
-    ) -> bool {
+    ) -> Result<(), StreamStoreError> {
         if step_execution_id.is_empty() {
             tracing::warn!(
                 flow_type = %input.flow_type,
@@ -256,19 +344,19 @@ impl StreamStore {
                 reason = "missing Step execution ID",
                 "Worker Stream write was dropped"
             );
-            return false;
+            return Err(StreamStoreError::InvalidArgument(
+                "Step execution ID is required",
+            ));
         }
         input.source = format!("#{step_execution_id}");
         let flow_type = input.flow_type.clone();
         let stream_name = input.stream_name.clone();
         let source = input.source.clone();
-        match self.write(input).await {
-            Ok(()) => true,
-            Err(error) => {
-                tracing::warn!(%error, %flow_type, %stream_name, %source, "Worker Stream write was dropped");
-                false
-            }
+        let result = self.write(input).await;
+        if let Err(error) = &result {
+            tracing::warn!(%error, %flow_type, %stream_name, %source, "Worker Stream write was dropped");
         }
+        result
     }
 
     /// Reads the first retained message after a token. Returns None when the supplied deadline expires.
@@ -393,7 +481,7 @@ impl StreamStore {
         })
     }
 
-    /// Stops reads and joins the background trim worker. Repeated calls are safe.
+    /// Stops reads and joins the background trim workers. Repeated calls are safe.
     pub async fn close(&self) -> Result<(), StreamStoreError> {
         {
             let mut state = self
@@ -407,14 +495,19 @@ impl StreamStore {
                 }
             }
         }
-        if self.trim_sender.send(TrimCommand::Shutdown).is_err() {
-            tracing::debug!("Stream Store trim worker had already stopped");
+        self.trim_shutdown.send_replace(true);
+        let mut trim_workers = self.trim_workers.lock().await;
+        for _ in 0..trim_workers.len() {
+            if self.trim_sender.send(TrimCommand::Shutdown).is_err() {
+                tracing::debug!("Stream Store trim workers had already stopped");
+            }
         }
-        let mut trim_worker = self.trim_worker.lock().await;
-        if let Some(worker_handle) = trim_worker.as_mut() {
-            let join_result = worker_handle.await;
-            *trim_worker = None;
-            join_result.map_err(|_| StreamStoreError::TrimWorkerFailed)?;
+        let mut has_failed_worker = false;
+        for worker_handle in std::mem::take(&mut *trim_workers) {
+            has_failed_worker |= worker_handle.await.is_err();
+        }
+        if has_failed_worker {
+            return Err(StreamStoreError::TrimWorkerFailed);
         }
         Ok(())
     }
@@ -422,7 +515,7 @@ impl StreamStore {
 
 impl Drop for StreamStore {
     fn drop(&mut self) {
-        if let Some(trim_worker) = self.trim_worker.get_mut().take() {
+        for trim_worker in self.trim_workers.get_mut().drain(..) {
             trim_worker.abort();
         }
     }
@@ -448,6 +541,21 @@ impl Drop for ReadWaiter {
     }
 }
 
+impl StoreState {
+    /// Returns an identity above every one issued before, even if `now_milliseconds` moved back.
+    fn next_identity(&mut self, now_milliseconds: u64) -> (u64, u64) {
+        let (last_milliseconds, last_sequence) = self.last_identity;
+        self.last_identity = if now_milliseconds > last_milliseconds {
+            (now_milliseconds, 0)
+        } else if last_sequence == u64::MAX {
+            (last_milliseconds + 1, 0)
+        } else {
+            (last_milliseconds, last_sequence + 1)
+        };
+        self.last_identity
+    }
+}
+
 impl StreamScope {
     fn instance(&mut self, flow_id: &str) -> &mut StreamInstance {
         self.instances.entry(flow_id.to_owned()).or_insert_with(|| {
@@ -460,25 +568,12 @@ impl StreamScope {
         })
     }
 
-    fn next_identity(&mut self) -> (u64, u64) {
-        let now_milliseconds = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after the Unix epoch")
-            .as_millis() as u64;
-        if now_milliseconds > self.last_milliseconds {
-            self.last_milliseconds = now_milliseconds;
-            self.last_sequence = 0;
-        } else if self.last_sequence == u64::MAX {
-            self.last_milliseconds += 1;
-            self.last_sequence = 0;
-        } else {
-            self.last_sequence += 1;
-        }
-        (self.last_milliseconds, self.last_sequence)
-    }
-
-    fn trim_batch(&mut self, target_bytes: u64) -> bool {
-        for _ in 0..TRIM_BATCH_SIZE {
+    /// Removes up to `batch_size` oldest messages until `target_bytes`.
+    ///
+    /// Returns whether the scope reached its target or emptied, and the bytes released.
+    fn trim_batch(&mut self, target_bytes: u64, batch_size: usize) -> (bool, u64) {
+        let starting_bytes = self.total_bytes;
+        for _ in 0..batch_size {
             if self.total_bytes <= target_bytes {
                 break;
             }
@@ -502,52 +597,139 @@ impl StreamScope {
             }
             self.total_bytes -= entry.charged_bytes;
         }
-        self.total_bytes <= target_bytes || self.fifo.is_empty()
+        let is_complete = self.total_bytes <= target_bytes || self.fifo.is_empty();
+        (is_complete, starting_bytes - self.total_bytes)
+    }
+
+    fn is_removable(&self) -> bool {
+        self.fifo.is_empty() && self.instances.is_empty()
     }
 }
 
 async fn run_trim_worker(
     state: Arc<Mutex<StoreState>>,
-    mut receiver: mpsc::UnboundedReceiver<TrimCommand>,
+    receiver: Arc<AsyncMutex<mpsc::UnboundedReceiver<TrimCommand>>>,
     sender: mpsc::UnboundedSender<TrimCommand>,
+    mut shutdown: watch::Receiver<bool>,
+    settings: TrimSettings,
 ) {
-    while let Some(command) = receiver.recv().await {
-        let TrimCommand::Scope(scope_key) = command else {
+    loop {
+        let Some(command) = receiver.lock().await.recv().await else {
             return;
         };
-        let is_complete = {
-            let mut state = state
-                .lock()
-                .expect("Stream Store state mutex is not poisoned");
-            if state.is_closed {
-                return;
-            }
-            let Some(target_bytes) = state.pending_trims.get(&scope_key).copied() else {
-                continue;
-            };
-            let is_complete = state
-                .scopes
-                .get_mut(&scope_key)
-                .is_none_or(|scope| scope.trim_batch(target_bytes));
-            if is_complete {
-                state.pending_trims.remove(&scope_key);
-                if state
-                    .scopes
-                    .get(&scope_key)
-                    .is_some_and(|scope| scope.fifo.is_empty() && scope.instances.is_empty())
-                {
-                    state.scopes.remove(&scope_key);
+        let progress = match &command {
+            TrimCommand::Shutdown => return,
+            TrimCommand::Scope(scope_key) => trim_scope_batch(&state, scope_key, settings),
+            TrimCommand::Total => trim_total_batch(&state, settings),
+        };
+        match progress {
+            TrimProgress::Closed => return,
+            TrimProgress::Complete => {}
+            TrimProgress::Incomplete => {
+                let is_shutting_down = tokio::time::timeout(
+                    settings.batch_yield_time,
+                    shutdown.wait_for(|is_shutdown| *is_shutdown),
+                )
+                .await
+                .is_ok();
+                if is_shutting_down {
+                    return;
+                }
+                if sender.send(command).is_err() {
+                    tracing::warn!("Stream Store trim queue closed during trimming");
+                    return;
                 }
             }
-            is_complete
-        };
-        if !is_complete {
-            tokio::time::sleep(TRIM_BATCH_PAUSE).await;
-            if sender.send(TrimCommand::Scope(scope_key)).is_err() {
-                tracing::warn!("Stream Store trim queue closed during trimming");
-                return;
-            }
         }
+    }
+}
+
+fn trim_scope_batch(
+    state: &Mutex<StoreState>,
+    scope_key: &ScopeKey,
+    settings: TrimSettings,
+) -> TrimProgress {
+    let mut state = state
+        .lock()
+        .expect("Stream Store state mutex is not poisoned");
+    if state.is_closed {
+        return TrimProgress::Closed;
+    }
+    let Some(target_bytes) = state.pending_trims.get(scope_key).copied() else {
+        return TrimProgress::Complete;
+    };
+    let (is_complete, released_bytes) =
+        state.scopes.get_mut(scope_key).map_or((true, 0), |scope| {
+            scope.trim_batch(target_bytes, settings.batch_size)
+        });
+    state.total_bytes -= released_bytes;
+    if !is_complete {
+        return TrimProgress::Incomplete;
+    }
+    state.pending_trims.remove(scope_key);
+    if state
+        .scopes
+        .get(scope_key)
+        .is_some_and(StreamScope::is_removable)
+    {
+        state.scopes.remove(scope_key);
+    }
+    TrimProgress::Complete
+}
+
+/// Trims the largest scope by one batch toward the pending total trim target.
+fn trim_total_batch(state: &Mutex<StoreState>, settings: TrimSettings) -> TrimProgress {
+    let mut state = state
+        .lock()
+        .expect("Stream Store state mutex is not poisoned");
+    if state.is_closed {
+        return TrimProgress::Closed;
+    }
+    let Some(target_bytes) = state.total_trim_target_bytes else {
+        return TrimProgress::Complete;
+    };
+    let excess_bytes = state.total_bytes.saturating_sub(target_bytes);
+    let largest_scope_key = state
+        .scopes
+        .iter()
+        .filter(|(_, scope)| scope.total_bytes > 0)
+        .max_by_key(|(_, scope)| scope.total_bytes)
+        .map(|(scope_key, _)| scope_key.clone());
+    let Some(scope_key) = largest_scope_key.filter(|_| excess_bytes > 0) else {
+        state.total_trim_target_bytes = None;
+        return TrimProgress::Complete;
+    };
+    let scope = state
+        .scopes
+        .get_mut(&scope_key)
+        .expect("the largest scope was just found");
+    let scope_target_bytes = scope.total_bytes.saturating_sub(excess_bytes);
+    let (_, released_bytes) = scope.trim_batch(scope_target_bytes, settings.batch_size);
+    let is_removable = scope.is_removable();
+    state.total_bytes -= released_bytes;
+    if is_removable {
+        state.scopes.remove(&scope_key);
+    }
+    if state.total_bytes <= target_bytes {
+        state.total_trim_target_bytes = None;
+        return TrimProgress::Complete;
+    }
+    TrimProgress::Incomplete
+}
+
+/// Requests a total trim down to `target_bytes`, lowering the target of a pending one.
+fn schedule_total_trim(
+    state: &mut StoreState,
+    sender: &mpsc::UnboundedSender<TrimCommand>,
+    target_bytes: u64,
+) {
+    if let Some(existing_target) = state.total_trim_target_bytes.as_mut() {
+        *existing_target = (*existing_target).min(target_bytes);
+        return;
+    }
+    state.total_trim_target_bytes = Some(target_bytes);
+    if sender.send(TrimCommand::Total).is_err() {
+        tracing::warn!("Stream Store trim worker is unavailable");
     }
 }
 

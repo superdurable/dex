@@ -11,6 +11,7 @@
 
 use std::collections::BTreeSet;
 
+use dexzd_metrics::StepStreamWriteDropReason;
 use dexzd_protocol::dex::{
     ChannelMessage, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, RetryPolicy,
     StepDurability, StepOptions, StepStreamWrite, Value,
@@ -66,6 +67,11 @@ async fn step_stream_writes_reach_the_stream_store_in_frame_order_including_fail
         ..progress_write("")
     });
     first.send_stream_write(progress_write("wait-for-2"));
+    first.send_stream_write(StepStreamWrite {
+        stream_name: "tiny".to_owned(),
+        stream_capacity_bytes: 1,
+        ..progress_write("over-capacity")
+    });
     first.fail_with_worker_error("retry after progress");
     let second = harness.dispatcher.next_dispatch().await;
     assert_eq!(second.context().attempt, 2);
@@ -84,6 +90,14 @@ async fn step_stream_writes_reach_the_stream_store_in_frame_order_including_fail
             .to_vec(),
         "a write without a Value is dropped and later writes still arrive"
     );
+    let dropped = &harness.effect_context().metrics.step_stream_writes_dropped;
+    assert_eq!(dropped.count(StepStreamWriteDropReason::InvalidArgument), 1);
+    assert_eq!(
+        dropped.count(StepStreamWriteDropReason::MessageTooLarge),
+        1,
+        "a message larger than its Stream's capacity can never fit"
+    );
+    assert_eq!(dropped.count(StepStreamWriteDropReason::Disabled), 0);
     assert!(
         harness
             .flow_effect_operations

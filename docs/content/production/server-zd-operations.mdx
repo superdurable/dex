@@ -1138,6 +1138,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
 | Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
 | Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** (in-memory waiters only) |
+| Dropped Step Stream writes | **dexzd_step_stream_writes_dropped_total** with **reason** |
 | Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total**; **dexzd_step_task_queue_incomplete_seeks_total** |
 | Commit latency | **dexzd_commit_latency_seconds** |
 | Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
@@ -1316,10 +1317,34 @@ endpoint.
 
 ## Streams {#streams}
 
-Set **streamStore.backend** to **disabled** (default) or **memory** to control
-best-effort [Streams](/primitives/stream). Memory Streams live in the server
-process and start empty after a restart. While the backend is disabled, a Stream
-write is dropped without failing the Step.
+Set **streamStore.backend** to **memory** (default) or **disabled** to control
+best-effort [Streams](/primitives/stream). Memory Streams live only in the
+active server process. They start empty after a restart, a standby takeover, or
+a step down, and trimming can remove older messages. While the backend is
+disabled, Client Stream writes and reads fail with **FAILED_PRECONDITION**. A
+Step Stream write is dropped and logged without failing the Step, and the server
+logs a warning at startup.
+
+The memory backend bounds the memory it uses:
+
+- **streamStore.maxTotalBytes** (default 1 GiB) caps the bytes held across every
+  Stream on the node. A Client write past it fails with **RESOURCE_EXHAUSTED**.
+  Background trimming then removes the oldest messages of the largest Streams
+  until usage falls to **trimTargetPercent** of the bound, or lower when the
+  rejected message needs more room. The client retries the write.
+- A message larger than its Stream's capacity can never fit. It fails with
+  **RESOURCE_EXHAUSTED** without trimming, and a retry fails again.
+- **streamStore.maxStreamCapacityBytes** (default 64 MiB) is the largest
+  capacity one Stream can use. A larger **streamCapacityBytes** is reduced to it.
+- Each message counts its Value, Flow ID, source, and
+  **estimatedMessageOverheadBytes** (default 512).
+- **backgroundTrimBatchSize**, **trimBatchYieldTime**, and **trimWorkers** pace
+  trimming.
+
+A Step Stream write that the server drops never fails the Step.
+**dexzd_step_stream_writes_dropped_total** counts these writes by **reason**:
+**disabled**, **invalid_argument**, **message_too_large**,
+**stream_capacity_exceeded**, **total_capacity_exceeded**, or **closed**.
 
 ## Authentication
 

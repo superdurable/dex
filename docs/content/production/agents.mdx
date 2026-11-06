@@ -54,16 +54,15 @@ before an upgrade.
 Build the same session Flow in every process that starts sessions or calls
 their RPCs.
 
-## Enable a Stream backend {#stream-backend}
+## Stream backend {#stream-backend}
 
 Live model text, reasoning summaries, tool progress, and approval events go to
-the **AgentEvents** [Stream](/primitives/stream). The production default for
-**streamStore.backend** is **disabled**. A Step write is then dropped without
-failing the Step. Client writes and Stream reads fail with
-**FAILED_PRECONDITION**.
-**dexcli dev** sets the memory backend, so live events can work locally and
-then vanish in production. Enable the memory backend in the server
-configuration:
+the **AgentEvents** [Stream](/primitives/stream). **streamStore.backend**
+defaults to **memory** for both **dexcli dev** and a production server, so live
+events need no extra server configuration. Do not set the backend to
+**disabled** for agents. With **disabled**, a Step write is dropped without
+failing the Step, and Client writes and Stream reads fail with
+**FAILED_PRECONDITION**. The default is equivalent to:
 
 ```yaml
 streamStore:

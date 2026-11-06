@@ -288,6 +288,18 @@ impl ComponentConfigs {
             )?,
             trim_trigger_percent: config.stream_store.trim_trigger_percent,
             trim_target_percent: config.stream_store.trim_target_percent,
+            max_total_bytes: config.stream_store.max_total_bytes,
+            max_stream_capacity_bytes: config.stream_store.max_stream_capacity_bytes,
+            estimated_message_overhead_bytes: config.stream_store.estimated_message_overhead_bytes,
+            background_trim_batch_size: to_usize(
+                "streamStore.backgroundTrimBatchSize",
+                u64::from(config.stream_store.background_trim_batch_size),
+            )?,
+            trim_batch_yield_time: config.stream_store.trim_batch_yield_time,
+            trim_workers: to_usize(
+                "streamStore.trimWorkers",
+                u64::from(config.stream_store.trim_workers),
+            )?,
             ..StreamStoreConfig::default()
         };
         let flow_service = FlowServiceConfig {

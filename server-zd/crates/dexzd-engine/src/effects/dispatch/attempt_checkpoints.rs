@@ -8,10 +8,12 @@
 
 use std::time::Duration;
 
+use dexzd_metrics::StepStreamWriteDropReason;
 use dexzd_protocol::dex::{
     PollWorkerTaskFrame, StepStreamWrite, Value, invoke_execute_method_output,
     invoke_wait_for_method_output, poll_worker_task_frame,
 };
+use dexzd_stream_store::StreamStoreError;
 use tokio::time::Instant;
 
 /// A checkpoint change carried by a Worker frame: `Some(value)` sets it, `None` clears it.
@@ -48,6 +50,24 @@ pub(super) fn into_step_stream_write(frame: PollWorkerTaskFrame) -> Option<StepS
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// Returns the metric label of the store error that dropped a Step Stream write.
+pub(super) fn step_stream_write_drop_reason(error: &StreamStoreError) -> StepStreamWriteDropReason {
+    match error {
+        StreamStoreError::Disabled => StepStreamWriteDropReason::Disabled,
+        StreamStoreError::InvalidArgument(_)
+        | StreamStoreError::InvalidResumeToken
+        | StreamStoreError::InvalidConfig(_) => StepStreamWriteDropReason::InvalidArgument,
+        StreamStoreError::MessageTooLarge | StreamStoreError::MessageExceedsStreamCapacity => {
+            StepStreamWriteDropReason::MessageTooLarge
+        }
+        StreamStoreError::CapacityExceeded => StepStreamWriteDropReason::StreamCapacityExceeded,
+        StreamStoreError::TotalCapacityExceeded => StepStreamWriteDropReason::TotalCapacityExceeded,
+        StreamStoreError::Closed | StreamStoreError::TrimWorkerFailed => {
+            StepStreamWriteDropReason::Closed
+        }
     }
 }
 

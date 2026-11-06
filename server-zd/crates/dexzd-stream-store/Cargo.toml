@@ -9,6 +9,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+dexzd-clock.workspace = true
 dexzd-protocol.workspace = true
 prost.workspace = true
 thiserror.workspace = true
@@ -16,7 +17,13 @@ tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
+[features]
+# Exposes a constructor that takes the identity clock, for deterministic tests.
+test-util = []
+
 [dev-dependencies]
+# Enables test-util for this crate's own integration tests.
+dexzd-stream-store = { workspace = true, features = ["test-util"] }
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
