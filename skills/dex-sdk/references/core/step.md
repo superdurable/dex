@@ -68,7 +68,7 @@ Rules:
 | GoToMany | Start several next Steps, each with its own input and optional StepOptions. This is how a Flow runs work in parallel. |
 | GracefulComplete | End this branch and request completion. The Flow completes when every branch has stopped. |
 | DeadEnd | End this branch only. A Flow with no active Steps keeps running, for example while RPCs can still move it. |
-| ForceComplete | Complete the Flow at once. Other active Steps are canceled. |
+| ForceComplete | Complete the Flow at once and abandon other active Steps. |
 | ForceFail | Fail the Flow at once with a reason. |
 | ForceCompleteIfChannelsEmpty | Atomically check the named Channels. If all are empty, complete; otherwise take the supplied movement. |
 
