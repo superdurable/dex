@@ -6,21 +6,35 @@ sidebar_label: Stream
 
 # Stream
 
-**Stream** 是一种实时、可续读的消息传递通道，提供 best-effort storage。Step 或 Client 会立即写入消息，Client 使用 resume token 按顺序继续读取。
+**Stream** 把消息从 Flow 实时传给读取方。Step 或 Client 写入消息。Client 按顺序读取，并能从上次停下的地方继续。Dex 只以 best-effort 方式保存 Stream 消息。
 
-Stream 适合传递能够改善用户体验的 nice-to-have 数据，而不是关键业务数据：
+## 什么时候用 Stream
+
+Stream 适合能改善用户体验、但不属于关键业务的数据：
 
 - LLM reasoning summary、生成文本 chunk 和 agent progress
 - 进度条、诊断事件与实时预览
 - Step 仍在运行时展示的临时状态
 
-Stream 只提供 best-effort durability，底层使用内存存储。达到 capacity threshold 后触发 trim，或 storage backend 重启时，消息都可能丢失。需要 guaranteed durability 时，应使用 [Channel](/primitives/channel) 和 [Attribute](/primitives/attribute) 等其他 primitive。
+不能丢失的数据，用 [Channel](/primitives/channel) 或 [Attribute](/primitives/attribute)。
 
-## 定义并注册 Stream
+## 保证
 
-Stream 包含稳定名称、消息类型和 **streamCapacityBytes**。streamCapacityBytes 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
+Stream 用 durability 换取速度：
 
-下面的 Step 使用 buffered text writer。Dex 会在 Step result 之前 flush 累积的 progress。Handler 不会等待 Stream Store acknowledgement。
+- Dex 把消息保存在 server 内存中。server 重启或 standby 接管时，消息会丢失。
+- 每个 Stream 有以字节计的容量。容量满时，Dex 删除最旧的消息。读得慢的一方可能错过它们。
+- Step 的写入立即发出，此时 Step 仍在运行。之后 Step 失败也不会撤回它。
+- Stream 写入失败永远不会让 Step 失败。
+- 读取方按 Dex 保存的顺序看到消息。
+
+容量由同一 Flow type 和 Stream name 下的所有 Flow execution 共享，不是每个 Flow ID 的限制。
+
+## 定义并写入 Stream
+
+Stream 有稳定的名字、消息类型和容量。把它加到 Flow 的 persistence schema。
+
+这个例子通过 buffered text writer 写入进度文本。Dex 在 Step 结果之前 flush 缓冲的文本。Step 不等待 server 保存文本。
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -46,6 +60,12 @@ class RenderPreview(Step[str]):
 class StreamFlow(Flow[str]):
     progress = Stream("Progress", str, 10 * 1024 * 1024)
 
+    def __init__(self) -> None:
+        self.render_preview = RenderPreview(self.progress)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.render_preview)
+
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.progress)
 ```
@@ -56,8 +76,20 @@ class StreamFlow(Flow[str]):
 ```go
 var Progress = dex.DefineStream[string]("Progress", 10<<20)
 
+type StreamFlow struct {
+	dex.FlowDefaults
+}
+
+func (*StreamFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep[string](renderPreview{})}
+}
+
 func (*StreamFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{Streams: []dex.StreamDef{Progress}}
+}
+
+type renderPreview struct {
+	dex.StepDefaultsNoWaitFor[string]
 }
 
 func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
@@ -82,6 +114,12 @@ func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, 
 public final class StreamFlow implements Flow<String> {
     public final Stream<String> progress =
             Stream.define("Progress", String.class, 10L * 1024L * 1024L);
+    private final RenderPreview renderPreview = new RenderPreview();
+
+    @Override
+    public StepList<String> getSteps() {
+        return StepList.startStep(renderPreview);
+    }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
@@ -89,6 +127,11 @@ public final class StreamFlow implements Flow<String> {
     }
 
     final class RenderPreview implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
         @Override
         public StepDecision execute(final Context context, final String input) {
             final BufferedTextStream writer = BufferedTextStream.create(context, progress);
@@ -107,6 +150,12 @@ public final class StreamFlow implements Flow<String> {
 export const progress = new Stream("Progress", stringCodec, 10 * 1024 * 1024);
 
 class RenderPreview implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RenderPreview";
+  }
+
   public async execute(context: Context, input: string): Promise<StepDecision> {
     const writer = progress.bufferedText(context, { flushIntervalMs: 500 });
     writer.write(`Rendering preview for ${input}`);
@@ -115,7 +164,17 @@ class RenderPreview implements Step<string> {
   }
 }
 
+const renderPreview = new RenderPreview();
+
 export class StreamFlow implements Flow<string> {
+  public getFlowType(): string {
+    return "StreamFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(renderPreview);
+  }
+
   public getPersistenceSchema(): PersistenceSchema {
     return { streams: [progress] };
   }
@@ -129,13 +188,25 @@ export class StreamFlow implements Flow<string> {
 pub static PROGRESS: LazyLock<Stream<String>> =
     LazyLock::new(|| Stream::new("Progress", 10 * 1024 * 1024));
 
+#[derive(Default)]
+pub struct StreamFlow {
+    render_preview: RenderPreview,
+}
+
 impl Flow for StreamFlow {
     type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.render_preview)
+    }
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new().stream(&PROGRESS)
     }
 }
+
+#[derive(Default)]
+struct RenderPreview;
 
 impl Step for RenderPreview {
     type Input = String;
@@ -161,135 +232,15 @@ impl Step for RenderPreview {
 </SdkSnippet>
 </SdkTabs>
 
-## 语义
+## 读取 Stream
 
-### 写入语义
+Client 有两种方式读取 Stream：
 
-Step 直接写入 Stream 时：
+- **ReadStream** 向前读取，每次一条消息。每条消息带一个 resume token。把 token 传回去就能读下一条。没有新消息时，调用会等待。
+- **ListStreamMessages** 从最新的消息向后分页。它立即返回。
 
-- Dex 在 **WaitFor** 或 **Execute** 期间立即发送，不会缓存到 Step 完成。
-- Step 随后失败不会回滚已经写入的消息。
-- 一次 method invocation 可以向同一个或不同 Stream 写入任意数量的消息。每次写入都是 implicit heartbeat，并保留最近一次 explicit heartbeat value。[Polling](/design-patterns/polling) 模式用这些写入报告进度。
-- SDK 只确认本地编码并把消息交给 Worker output stream。Stream Store 被禁用、不可用、已满或拒绝写入时，消息会被丢弃，但 Step 不会失败。
-- 每条 Step message 的 source 都是 **#StepExecutionID**。同一个 Step execution 的不同 attempt 与 message 共用 source。Source 只表示来源，不要求唯一，也不会 deduplicate retry。Dex Server 节点崩溃之后，ASYNC Step 还可能再次运行同一个 attempt 编号，它的 batch 可能在同一个 source 中重复。
+Client 也可以写入 Stream，Flow 关闭后也可以。RPC handler 通过注入的 Client 写入。
 
-即使 Flow instance 不存在或已经结束，Client 仍可以写入。每次写入都要提供非空 source。Source 可以重复，也可以包含 **#**；每次调用都会追加一条消息。RPC handler 不能通过自己的 Context 写入，但可以通过注入的 Client dependency 发送 Stream message。
+## 参考
 
-Python coroutine Step 调用 **Stream.write** 时不使用 **await**。Python synchronous Step 必须从 generator yield 返回的 **StepOutput**。其他 SDK 通过 Step Context 发送 frame，并在本地 enqueue 后返回。
-
-### Buffer text chunk
-
-当许多小 chunk 共同组成一段文本时，例如 LLM delta，请使用 buffered text writer。默认 flush interval 是一秒，soft threshold 是 16 KiB UTF-8 数据。Timer、size threshold 或 invocation 完成时，都会发送当前非空 batch。Helper 会原样保留文本，不拆分单个 chunk，并忽略空 chunk。
-
-Go、Java、Python async、TypeScript 和 Rust 会在发送最终 result 或 error 前停止 timer 并 flush 尾部。Python sync generator 使用 cooperative elapsed-time check，必须从显式的最终 flush yield output。空 buffer 不会产生 Stream message 或 implicit heartbeat。Retry 不会恢复尚未发送的文本；retry 前已经发送的 batch 可能再次出现。
-
-### 可续读
-
-**ReadStream** 每次返回一条消息，包括 value、resume token、created time 与 source。
-
-- 空 token 从当前保留的头部开始。
-- token 比当前头部更旧时，也从当前头部开始。
-- 下一次读取应原样传回上次返回的 token。
-- 没有下一条消息时，请求会 long-poll，直到消息到达或等待超时。
-
-续读也是 best effort。读取太慢时，Client 可能错过已经被 trim 的消息。
-
-### 列出消息
-
-使用 **ListStreamMessages** 可以从最新到最早查看当前保留的消息。调用不会阻塞，而是立即返回不超过指定 page size 的消息。
-
-before-page token 为空时，从当前保留的尾部开始。读取下一页时，应原样传回 next-page token；该 token 是排他锚点，并绑定到 Flow type、Flow ID 和 Stream name。next-page token 为空表示已经到达末页。
-
-<SdkTabs examples={{
-python: 'examples/python/dex_examples/primitives/stream/controller.py',
-go: 'examples/go/primitives/stream/controller.go',
-java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java',
-typescript: 'examples/typescript/src/primitives/stream/controller.ts',
-rust: 'examples/rust/src/primitives/stream/controller.rs',
-}}>
-<SdkSnippet lang="python">
-
-```python
-        page = await app_state.client.list_stream_messages(
-            required_query("workflowId"),
-            app_state.stream.progress,
-            required_int_query("pageSize"),
-            optional_query("beforePageToken", ""),
-        )
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-	var page sdk.StreamMessagesPage[string]
-	err = controller.client.ListStreamMessages(
-		request.Request.Context(),
-		flowID,
-		Progress,
-		int32(pageSize),
-		request.Query("beforePageToken"),
-		&page,
-	)
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-        final StreamMessagesPage<String> page = client.listStreamMessages(
-                workflowId,
-                flow.progress,
-                pageSize,
-                beforePageToken);
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-    const page = await client.listStreamMessages(
-      String(request.query.workflowId ?? ""),
-      progress,
-      Number(request.query.pageSize),
-      String(request.query.beforePageToken ?? ""),
-    );
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-        client
-            .list_stream_messages(
-                &query.workflow_id,
-                &PROGRESS,
-                query.page_size,
-                &query.before_page_token,
-            )
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-倒序分页提供 best-effort retained-message snapshot，并不是 transactional snapshot。第一页之后新追加的消息不会混入这个更早消息的分页链，但 trim 可能在两次调用之间删除消息。如果 trim 后 retained head 已经越过 page anchor，Dex 会返回空页，而不会从 tail 重新开始。
-
-Server 要求 page size 为正数，并通过 **maxReadMessages** 设置上限。默认上限为 1000。
-
-需要正向逐条消费、long-poll 和续读时，请使用 **ReadStream**。需要倒序、非阻塞地分页查看当前保留消息时，请使用 **ListStreamMessages**。
-
-### 近似容量
-
-**streamCapacityBytes** 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
-
-Dex server 根据每条消息的 serialized value、Flow ID、source 和可配置的 per-message overhead 计算估算大小。
-
-当 usage 达到 trim trigger threshold 时，后台 trim 会删除所有 instance 中最旧的消息，直到 usage 降至 trim target threshold。server 会运行多个 trim worker，但同一个 Stream 同一时间只由一个 trim 任务处理。如果 trimming 太慢，usage 达到 capacity limit（**streamCapacityBytes**），write request 会以 **RESOURCE_EXHAUSTED** 被拒绝。拒绝的同时会让 trim 为这条消息腾出空间，所以 Client 可以重试这次写入。大于 Stream 容量的消息也会这样被拒绝，但它永远放不下，不要重试。
-
-Server 还会限制单条 Stream message 的大小，默认上限为 100 KiB。
-
-Server 把 **streamCapacityBytes** 限制在 **streamStore.maxStreamCapacityBytes** 以内，默认 64 MiB。它还用 **streamStore.maxTotalBytes** 限制一个 server 上所有 Stream 的内存，默认 1 GiB。超过这个总量的 Client 写入返回 **RESOURCE_EXHAUSTED**，随后后台 trim 会删除最大的 Stream 中最早的消息，直到这条消息放得下。稍等片刻后重试这次写入。见 [Stream](/reference/server/configuration#streams)。
-
-### Best-effort storage
-
-Stream Store 把消息保存在 active server 进程的内存中。无论是 **dexcli dev** 还是生产 server，**streamStore.backend** 的默认值都是 **memory**。server 进程重启或 standby 接管时，memory 中的内容会全部丢失。trim 或容量压力也可能删除或拒绝消息。运维人员可以把 backend 设为 **disabled**。这时 Client 的 Stream 写入和读取返回 **FAILED_PRECONDITION**，Step 写入会被丢弃，但不会让 Step 失败。见 [Stream](/reference/server/configuration#streams)。
+[Data primitive semantics](/reference/server/runtime-data#streams) 详细说明写入语义、buffered text、读取、列表、容量和存储。server 配置见 [Streams](/reference/server/configuration#streams)。

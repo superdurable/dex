@@ -42,6 +42,12 @@ TSDoc comments in the
 [sdk-typescript source](https://github.com/superdurable/dex/tree/main/sdk-typescript)
 and its [README](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md).
 
+## RPC codecs {#rpc-codecs}
+
+TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide
+a codec when the input or output is not JSON, including scalar values such as
+strings, numbers, booleans, and bigints.
+
 ## Pages
 
 - [Workers](/reference/typescript/workers): TypeScript names for Worker

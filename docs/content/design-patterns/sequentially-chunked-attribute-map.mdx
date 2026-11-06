@@ -19,7 +19,7 @@ A single Attribute grows into one large blob. Every append then reads and rewrit
 
 **RegisterSubscriber** locks the state and **current** instance. Most calls rewrite one bounded chunk. When **current** already contains 100 records, the same commit writes the archived chunk, creates the next **current** chunk, and advances the state.
 
-Concurrent appends can receive a lock-conflict error. Retry after it; see [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/primitives/attribute#whole-map-coordination).
+Concurrent appends can receive a lock-conflict error. Retry after it; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/reference/server/runtime-data#whole-map-coordination).
 
 **GetSubscriberPage** starts at **current** unless the caller supplies a page token. The application adapter uses **RPCInvokeOptions** to load only that instance. Pages return newest-first records plus the next older token.
 

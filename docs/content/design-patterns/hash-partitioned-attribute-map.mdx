@@ -25,7 +25,7 @@ A hash collision only places multiple emails in one partition. The dictionary st
 
 The adapter and handler both calculate the partition. **UpsertCustomerProfile** adds an exact load and an instance lock for the same partition. The handler recalculates it, reads the bucket, updates one profile, and writes the bucket back. Writes to one partition serialize. Writes to different partitions can run concurrently.
 
-Concurrent writes to one partition can receive a lock-conflict error. Retry the idempotent upsert after it; see [RPC lock conflicts](/primitives/attribute#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/primitives/attribute#whole-map-coordination).
+Concurrent writes to one partition can receive a lock-conflict error. Retry the idempotent upsert after it; see [RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts). To coordinate writes across the whole map, see [whole-map coordination](/reference/server/runtime-data#whole-map-coordination).
 
 **GetCustomerProfileByEmail** loads one partition without a write lock. A missing partition and a missing canonical email both return not found.
 
