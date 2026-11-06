@@ -20,6 +20,8 @@ const GET_ATTRIBUTES_OPERATION: &str = "get_attributes";
 
 /// Selects one Attribute or AttributeMap instance for [`Client::get_attributes`].
 ///
+/// Since 1.31.0.
+///
 /// [`Attribute<T>`] and [`AttributeMapInstance<T>`] implement this trait.
 /// References to them and `LazyLock` statics that hold them also implement it.
 /// Create an [`AttributeMapInstance`] with [`AttributeMap::instance`](crate::AttributeMap::instance).
@@ -51,6 +53,8 @@ pub trait AttributeRead: sealed::SealedAttributeRead {
 }
 
 /// Lists the Attribute reads of one [`Client::get_attributes`] call as a tuple.
+///
+/// Since 1.31.0.
 ///
 /// Tuples of 1 to 12 [`AttributeRead`] values implement this trait.
 /// Each tuple element is usually a reference, such as `&ORDER_STATUS` or `&NOTES.instance("n1")`.
@@ -278,6 +282,8 @@ impl_attribute_reads!(
 
 impl Client {
     /// Reads committed Attribute values from the current or latest run of a Flow.
+    ///
+    /// Since 1.31.0.
     ///
     /// Use this method to read Flow state from outside the Flow without defining an RPC.
     /// Pass a tuple of reads.

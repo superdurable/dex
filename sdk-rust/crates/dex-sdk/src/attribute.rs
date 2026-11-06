@@ -25,6 +25,8 @@ pub struct AttributeMapLoad {
 
 /// Selects one AttributeMap instance for [`Client::get_attributes`](crate::Client::get_attributes).
 ///
+/// Since 1.31.0.
+///
 /// Create it with [`AttributeMap::instance`] and pass a reference to it in the tuple of reads.
 /// It carries the AttributeMap definition, the instance key, and the value type `T`.
 /// The read returns `Option<T>`, which is `None` when the instance is not set.
@@ -82,6 +84,13 @@ impl<T> Clone for AttributeMapInstance<T> {
 /// Declare Attributes on the Flow, add them to [`crate::PersistenceSchema`], and reuse the same
 /// definition from Step and RPC code. Values use Serde serialization. `get` distinguishes a missing
 /// value with `None`; `get_required` converts absence into [`HandlerError`].
+///
+/// Register definitions once, preferably as module-level [`std::sync::LazyLock`] statics.
+/// Singleton Attributes are loaded into each handler Context. AttributeMap values require explicit
+/// instance or whole-map loads. Lock every cooperating read-modify-write operation on the same
+/// Attribute or map instance; a read alone does not serialize concurrent writers.
+/// Indexing and Attribute Store synchronization are opt-in and independent. Attribute Store
+/// projection is asynchronous; use the Context or Client to read committed Dex state directly.
 ///
 /// # Examples
 ///
@@ -480,6 +489,8 @@ impl<T> AttributeMap<T> {
     /// - `instance` is the map instance key. The SDK percent-encodes it into the physical key.
     ///
     /// Returns a typed selector whose read yields `Option<T>`.
+    ///
+    /// Since 1.31.0.
     pub fn instance(&self, instance: impl Into<String>) -> AttributeMapInstance<T> {
         AttributeMapInstance {
             attribute_map: self.clone(),

@@ -66,6 +66,11 @@ use crate::{
 /// A positive request timeout on a wait method also bounds negotiation and the wait for another
 /// caller's negotiation; its expiry returns [`SdkError::RequestTimeout`] and is not cached.
 ///
+/// Changed in 1.35.0: protocol 4 is required (server-zd newer than v0.1.16).
+/// Upgrade the Server first. A Client call never retries a failed application RPC automatically.
+/// Inspect [`SdkError`] variants and [`crate::ServiceError`] status details before retrying an
+/// operation whose external effects may already have happened.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -140,6 +145,21 @@ impl Client {
     /// Starts a registered Flow on pull Workers with other options using server defaults.
     ///
     /// Returns the server-assigned run ID. `input` is encoded for the registered starting Step.
+    /// Changed in 1.25.0: starts always route to pull Workers.
+    /// Success acknowledges the start; it does not wait for a Worker or Flow completion.
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Client, Flow, SdkResult, StopFlowOptions};
+    /// fn start_and_cancel<F: Flow>(client: &Client, flow: &F, input: F::StartInput)
+    ///     -> SdkResult<()> {
+    ///     let run_id = client.start_flow(flow, "order-1", input)?;
+    ///     client.stop_flow("order-1", StopFlowOptions::cancel().reason("Cancelled by caller"))?;
+    ///     let result = client.wait_for_flow("order-1")?;
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Use [`Self::wait_for_flow`] to observe the terminal result.
     ///
     /// # Errors
     ///
@@ -243,6 +263,18 @@ impl Client {
     }
 
     /// Invokes a registered RPC with typed input and decodes its typed output.
+    ///
+    /// ```no_run
+    /// use dex_sdk::{Client, Rpc, SdkResult};
+    /// fn describe_order(client: &Client, rpc: Rpc<(), String>) -> SdkResult<String> {
+    ///     client.invoke_rpc("order-1", rpc, ())
+    /// }
+    /// ```
+    ///
+    /// The call blocks until the handler result is decoded or a request error occurs.
+    /// RPCs do not enter the durable Step queue. When no Worker takes the RPC within the dispatch
+    /// wait (ten seconds, bounded by the caller's deadline), Dex returns an Unavailable service error.
+    /// A timeout or lost response does not prove the handler performed no effects; make retries safe.
     ///
     /// A non-transactional RPC without Attribute locks starts from a backend query. A retained
     /// terminal execution can serve it when the handler returns no durable effects. Locks,
@@ -373,6 +405,10 @@ impl Client {
     /// An empty `before_page_token` starts at the retained tail. Pass
     /// [`StreamMessagesPage::next_page_token`] unchanged to read the next, older page. Stream
     /// trimming may remove messages between pages.
+    /// Tokens are exclusive and scoped to the selected Flow type and Stream. If trimming passes
+    /// the page anchor, the server returns an empty page rather than restarting at the tail.
+    /// New writes after the first page do not enter that older-page chain. The server caps
+    /// `page_size` with `maxReadMessages`, which defaults to 1000.
     ///
     /// # Errors
     ///
@@ -451,7 +487,10 @@ impl Client {
         self.wait_for_flow_result(flow_id, None)
     }
 
-    /// Blocks up to `timeout` and returns all output-bearing completions for a successful Flow.
+    /// Blocks up to `timeout` and returns the terminal result with all output-bearing completions.
+    ///
+    /// Like [`Self::wait_for_flow`], terminal failures are returned as [`FlowResult`], not as
+    /// request errors. A wait timeout does not stop the Flow. Durations use whole seconds.
     ///
     /// # Errors
     ///
@@ -592,6 +631,10 @@ impl Client {
     }
 
     /// Cancels, terminates, or fails an active Flow according to `options`.
+    ///
+    /// Success acknowledges the stop request. Use [`Self::wait_for_flow`] to observe its terminal
+    /// status. This does not stop the Worker or undo effects in an external service.
+    /// Changed in 1.25.0: cancellation follows server-zd's cooperative handler-cancellation behavior.
     ///
     /// # Errors
     ///

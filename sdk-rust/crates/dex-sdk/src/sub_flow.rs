@@ -31,9 +31,13 @@ pub enum SubFlowReusePolicy {
 #[derive(Clone)]
 /// Configures one durable SubFlow Condition.
 ///
-/// The SubFlow always selects pull Workers, overriding any parent push target. Other omitted
+/// Changed in 1.25.0: the SubFlow always selects pull Workers. Other omitted
 /// configuration fields inherit the parent's effective settings. Dex generates its Flow ID and
 /// request ID. Builder methods preserve normal Flow start defaults when omitted.
+/// Matching generated request IDs always attach to an existing child, regardless of reuse policy.
+/// For different request IDs, the reuse policy decides whether to attach or restart.
+/// Completing an any-of wait does not stop non-winning SubFlows; use their generated Flow IDs
+/// with [`crate::Client::stop_flow`] when those children should stop.
 pub struct SubFlowOptions {
     pub(crate) timeout: Option<Duration>,
     pub(crate) timeout_policy: FlowTimeoutPolicy,
@@ -139,6 +143,22 @@ impl Default for SubFlowOptions {
 }
 
 /// Creates durable SubFlow Conditions and reads their Execute results.
+///
+/// Construction encodes input and returns a Condition; Dex starts or attaches to the child when
+/// the Worker submits that wait. The target Flow must be in the Worker's Registry. The parent
+/// waits durably without holding a handler thread. Inspect [`FlowResult`] for child failure;
+/// a child's abnormal terminal status is a result rather than a local value-mapping error.
+/// Result indexes are zero-based within the SubFlow Conditions, not all Condition kinds.
+///
+/// ```no_run
+/// use dex_sdk::{Flow, SdkResult, SubFlow, SubFlowOptions, Wait};
+/// use std::time::Duration;
+/// fn wait_for_child<F: Flow>(flow: &F, input: F::StartInput) -> SdkResult<Wait> {
+///     let child = SubFlow::run_with_options(flow, input,
+///         SubFlowOptions::new().timeout(Duration::from_secs(60)))?;
+///     Ok(Wait::until(child))
+/// }
+/// ```
 pub struct SubFlow;
 
 impl SubFlow {
@@ -174,21 +194,41 @@ impl SubFlow {
     }
 
     /// Returns the first SubFlow result during Step `execute`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::HandlerError`] outside Execute or when the selected SubFlow result is
+    /// unavailable or malformed. See [`SubFlow`] for constructing the matching wait.
     pub fn condition_result(context: &Context) -> HandlerResult<FlowResult> {
         Self::condition_result_at(context, 0)
     }
 
     /// Returns one stable-indexed SubFlow result during Step `execute`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::HandlerError`] outside Execute or when the selected SubFlow result is
+    /// unavailable or malformed. See [`SubFlow`] for constructing the matching wait.
     pub fn condition_result_at(context: &Context, index: usize) -> HandlerResult<FlowResult> {
         context.sub_flow_result(index)
     }
 
     /// Returns the generated Flow ID for the first SubFlow Condition during Step `execute`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::HandlerError`] outside Execute or when the selected SubFlow result is
+    /// unavailable or malformed. See [`SubFlow`] for constructing the matching wait.
     pub fn flow_id(context: &Context) -> HandlerResult<String> {
         Self::flow_id_at(context, 0)
     }
 
     /// Returns the generated Flow ID for one stable-indexed SubFlow Condition during `execute`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::HandlerError`] outside Execute or when the selected SubFlow result is
+    /// unavailable or malformed. See [`SubFlow`] for constructing the matching wait.
     pub fn flow_id_at(context: &Context, index: usize) -> HandlerResult<String> {
         context.sub_flow_id(index)
     }
