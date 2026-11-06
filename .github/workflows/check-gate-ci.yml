@@ -3,7 +3,8 @@ name: Check Gate CI
 on:
   pull_request:
     # Adding or removing the ci:fast-merge label changes the required workflows.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    # edited re-evaluates the description opt-out lines that Skills CI reads.
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   workflow_dispatch:
 
 permissions:
@@ -232,6 +233,8 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          PR_UPDATED_AT: ${{ github.event.pull_request.updated_at }}
           FILTER_AGENTS: ${{ steps.filter.outputs.agents }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
@@ -357,6 +360,12 @@ jobs:
           echo "Waiting for workflows: ${expected[*]}"
           echo "head_sha=$HEAD_SHA"
 
+          # Skills CI reads the description; after an edit, count only runs the edit created.
+          skills_min_created_at=""
+          if [[ "$EVENT_NAME" == "pull_request" && "$EVENT_ACTION" == "edited" ]]; then
+            skills_min_created_at="$PR_UPDATED_AT"
+          fi
+
           deadline=$((SECONDS + 85 * 60))
           while (( SECONDS < deadline )); do
             runs_json="$(gh api \
@@ -365,8 +374,10 @@ jobs:
             failed=0
             pending=0
             for name in "${expected[@]}"; do
-              row="$(jq -c --arg name "$name" '
-                [.workflow_runs[] | select(.name == $name)]
+              min_created_at=""
+              [[ "$name" == "Skills CI" ]] && min_created_at="$skills_min_created_at"
+              row="$(jq -c --arg name "$name" --arg min_created_at "$min_created_at" '
+                [.workflow_runs[] | select(.name == $name and .created_at >= $min_created_at)]
                 | sort_by(.id)
                 | reverse
                 | if length == 0 then empty

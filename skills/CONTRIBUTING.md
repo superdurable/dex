@@ -47,7 +47,8 @@ directory, and the English docs pages under `docs/content/primitives/` or
 `docs/content/design-patterns/` that it mirrors.
 Skills CI fails a pull request that changes a mapped file on one side but none
 of its counterparts. When the other side really needs no change, add this line
-to the pull request description and re-run Skills CI and Check Gate CI:
+to the pull request description. Editing the description re-runs Skills CI and
+Check Gate CI. A manual re-run replays the old description, so edit instead:
 
 ```text
 doc-map: no change needed: <reason>

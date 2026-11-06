@@ -19,7 +19,9 @@ Discuss Server internals only when the user operates or develops Dex itself. For
 - On a graceful stop or a planned step down, the active process stops handing out Step tasks, keeps its lease while running attempts finish up to a drain timeout, then releases the lease.
 - Steps not yet handed to a Worker do not fail; the next active process dispatches them.
 - Attempts still running when the lease is released fail as possibly run and consume a retry.
-- Client calls still open at a step down end with UNAVAILABLE. They are safe to retry.
+- Client calls still open at a step down end with UNAVAILABLE. The outcome is unknown: the call may have committed, and an RPC handler may already have run.
+- Retry reads and replay-safe operations with backoff, such as a StartFlow with the same Flow ID, Request ID, and options.
+- Retry a mutation only when it is idempotent, or after you reconcile it through authoritative state, such as a typed read. An RPC retry is a new request and can run the handler again. See [error-handling.md](error-handling.md#ambiguous-mutations).
 - On Kubernetes, set the termination grace period well above the drain timeout. See the [Kubernetes reference](https://docs.superdurable.io/reference/server/kubernetes#graceful-shutdown).
 
 ## Streams
