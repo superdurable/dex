@@ -22,10 +22,16 @@ import io.superdurable.gen.ServerInfo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import javax.net.ssl.ManagerFactoryParameters;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.TrustManagerFactorySpi;
+import javax.net.ssl.X509TrustManager;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
+import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.Collections;
@@ -65,12 +71,16 @@ final class FlowServiceTlsTest {
                 "dns://bad\nauthority/localhost:443", "user@localhost:443", "[localhost]:443", "[127.0.0.1]:443", "dns:///[localhost]:443",
                 "localhost:0", "localhost:65536", "localhost:https", "localhost:", "localhost:+443",
                 "localhost:-1", "[::1]:+443", "localhost:999999999999999999999", "localhost:443?query")) {
-            assertTrue(assertThrows(IllegalArgumentException.class, () -> new Client(registry, cache,
-                    ClientOptions.newBuilder().serverAddress(address).flowServiceTls(tls).build()))
-                    .getMessage().contains("flowServiceTls requires serverAddress"), address);
-            assertTrue(assertThrows(IllegalArgumentException.class, () -> new Worker(registry, cache,
-                    WorkerOptions.newBuilder().serverAddress(address).flowServiceTls(tls).build()))
-                    .getMessage().contains("flowServiceTls requires serverAddress"), address);
+            final IllegalArgumentException clientFailure = assertThrows(IllegalArgumentException.class,
+                    () -> new Client(registry, cache,
+                            ClientOptions.newBuilder().serverAddress(address).flowServiceTls(tls).build()));
+            final IllegalArgumentException workerFailure = assertThrows(IllegalArgumentException.class,
+                    () -> new Worker(registry, cache,
+                            WorkerOptions.newBuilder().serverAddress(address).flowServiceTls(tls).build()));
+            for (final IllegalArgumentException failure : Arrays.asList(clientFailure, workerFailure)) {
+                assertTrue(failure.getMessage().contains("flowServiceTls requires serverAddress"), address);
+                assertTrue(failure.getMessage().contains("got \"" + address + "\""), address);
+            }
         }
     }
 
@@ -104,6 +114,40 @@ final class FlowServiceTlsTest {
         assertTrue(combined.containsAll(FlowServiceTlsTransport.parseAdditionalRootCertificates(certificates.caPem)));
     }
 
+    @Test
+    void rejectsPlainTrustManagersBeforeAndAfterCombiningRoots() throws Exception {
+        final X509TrustManager plainTrustManager = new PlainTrustManager();
+        final IllegalArgumentException defaultFailure = assertThrows(IllegalArgumentException.class,
+                () -> FlowServiceTlsTransport.trustManager(null,
+                        new StubTrustManagerFactory(plainTrustManager, plainTrustManager)));
+        assertEquals("flowServiceTls requires an X509ExtendedTrustManager for hostname verification",
+                defaultFailure.getMessage());
+        final TlsTestCertificates certificates = TlsTestCertificates.create(directory, "plain-manager");
+        final X509TrustManager defaultTrustManager = FlowServiceTlsTransport.trustManager(null);
+        final IllegalArgumentException combinedFailure = assertThrows(IllegalArgumentException.class,
+                () -> FlowServiceTlsTransport.trustManager(certificates.caPem,
+                        new StubTrustManagerFactory(defaultTrustManager, plainTrustManager)));
+        assertEquals(defaultFailure.getMessage(), combinedFailure.getMessage());
+    }
+
+    @Test
+    void rejectsAdditionalRootsWhenDefaultTrustManagerReportsNoAnchors() throws Exception {
+        final KeyStore emptyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        emptyStore.load(null, null);
+        final TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        factory.init(emptyStore);
+        final X509TrustManager emptyTrustManager = (X509TrustManager) factory.getTrustManagers()[0];
+        assertEquals(0, emptyTrustManager.getAcceptedIssuers().length);
+        final StubTrustManagerFactory stubFactory = new StubTrustManagerFactory(emptyTrustManager, emptyTrustManager);
+        assertSame(emptyTrustManager, FlowServiceTlsTransport.trustManager(null, stubFactory));
+        final TlsTestCertificates certificates = TlsTestCertificates.create(directory, "empty-defaults");
+        final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> FlowServiceTlsTransport.trustManager(certificates.caPem, stubFactory));
+        assertEquals("flowServiceTls cannot preserve JDK default trust when adding root CAs: "
+                + "the default trust manager reports no accepted issuers", failure.getMessage());
+    }
+
+    // Mutates JVM-wide javax.net.ssl properties; this test must not run in parallel.
     @Test
     void retainsConfiguredDefaultTrustStoreWhenAddingAnotherCa() throws Exception {
         final TlsTestCertificates defaults = TlsTestCertificates.create(directory, "default");
@@ -150,8 +194,15 @@ final class FlowServiceTlsTest {
                 TlsTestProxy httpOne = new TlsTestProxy(certificates, "127.0.0.1", server.getPort(), "http/1.1");
                 TlsTestProxy noAlpn = new TlsTestProxy(certificates, "127.0.0.1", server.getPort())) {
             for (final String address : Arrays.asList("localhost:" + proxy.port(), "dns:///localhost:" + proxy.port(),
-                    "DNS:///localhost:" + proxy.port(), "dns://127.0.0.1:53/127.0.0.1:" + proxy.port())) {
-                assertEquals("tls-test", serverInfo(address, tls).getServerVersion());
+                    "DNS:///localhost:" + proxy.port(), "dns://dns.invalid/localhost:" + proxy.port())) {
+                final ManagedChannel dnsChannel = FlowServiceTlsTransport.channelBuilder(address, tls).build();
+                try {
+                    assertEquals("localhost:" + proxy.port(), dnsChannel.authority());
+                    assertEquals("tls-test", FlowServiceGrpc.newBlockingStub(dnsChannel).withDeadlineAfter(5, TimeUnit.SECONDS)
+                            .getServerInfo(Empty.getDefaultInstance()).getServerVersion());
+                } finally {
+                    closeChannel(dnsChannel);
+                }
             }
             final FlowServiceTlsOptions override = FlowServiceTlsOptions.newBuilder()
                     .additionalRootCAsPem(certificates.caPem).serverName("dex.test").build();
@@ -211,6 +262,55 @@ final class FlowServiceTlsTest {
         public void getServerInfo(final Empty request, final StreamObserver<ServerInfo> response) {
             response.onNext(ServerInfo.newBuilder().setServerVersion("tls-test").build());
             response.onCompleted();
+        }
+    }
+
+    private static final class StubTrustManagerFactory extends TrustManagerFactory {
+        private StubTrustManagerFactory(final TrustManager defaultManager, final TrustManager combinedManager) {
+            super(new StubTrustManagerFactorySpi(defaultManager, combinedManager), null, "test");
+        }
+    }
+
+    private static final class StubTrustManagerFactorySpi extends TrustManagerFactorySpi {
+        private final TrustManager defaultManager;
+        private final TrustManager combinedManager;
+        private boolean hasCombinedRoots;
+
+        private StubTrustManagerFactorySpi(final TrustManager defaultManager, final TrustManager combinedManager) {
+            this.defaultManager = defaultManager;
+            this.combinedManager = combinedManager;
+        }
+
+        @Override
+        protected void engineInit(final KeyStore keyStore) {
+            hasCombinedRoots = keyStore != null;
+        }
+
+        @Override
+        protected void engineInit(final ManagerFactoryParameters parameters) {
+            throw new UnsupportedOperationException("test factory accepts only KeyStore initialization");
+        }
+
+        @Override
+        protected TrustManager[] engineGetTrustManagers() {
+            return new TrustManager[]{hasCombinedRoots ? combinedManager : defaultManager};
+        }
+    }
+
+    private static final class PlainTrustManager implements X509TrustManager {
+        @Override
+        public void checkClientTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
+            throw new CertificateException("test manager cannot validate certificates");
+        }
+
+        @Override
+        public void checkServerTrusted(final X509Certificate[] chain, final String authType) throws CertificateException {
+            throw new CertificateException("test manager cannot validate certificates");
+        }
+
+        @Override
+        public X509Certificate[] getAcceptedIssuers() {
+            return new X509Certificate[0];
         }
     }
 

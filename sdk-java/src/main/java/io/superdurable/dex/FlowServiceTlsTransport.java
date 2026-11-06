@@ -18,7 +18,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.ApplicationProtocolConfig;
 
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.X509ExtendedTrustManager;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -68,7 +68,7 @@ final class FlowServiceTlsTransport {
 
     static String validateTarget(final String address) {
         if (address == null) {
-            throw unsupportedAddress();
+            throw unsupportedAddress(address);
         }
         String endpoint = address;
         String target = address;
@@ -77,7 +77,7 @@ final class FlowServiceTlsTransport {
             final String dnsTarget = address.substring(schemeEnd + 3);
             final int authorityEnd = dnsTarget.indexOf('/');
             if (authorityEnd < 0 || INVALID_DNS_AUTHORITY_CHARACTERS.matcher(dnsTarget.substring(0, authorityEnd)).find()) {
-                throw unsupportedAddress();
+                throw unsupportedAddress(address);
             }
             endpoint = dnsTarget.substring(authorityEnd + 1);
             target = "dns://" + dnsTarget;
@@ -86,27 +86,27 @@ final class FlowServiceTlsTransport {
             final String scheme = colon < 0 ? "" : address.substring(0, colon).toLowerCase(Locale.ROOT);
             if (scheme.equals("dns") || scheme.equals("unix") || scheme.equals("unix-abstract")
                     || scheme.equals("passthrough") || scheme.equals("ipv4") || scheme.equals("ipv6")) {
-                throw unsupportedAddress();
+                throw unsupportedAddress(address);
             }
         }
         if (endpoint.indexOf('/') >= 0 || endpoint.indexOf('?') >= 0 || endpoint.indexOf('#') >= 0) {
-            throw unsupportedAddress();
+            throw unsupportedAddress(address);
         }
         final int separator = endpoint.lastIndexOf(':');
         if (separator < 0) {
-            throw unsupportedAddress();
+            throw unsupportedAddress(address);
         }
         String host = endpoint.substring(0, separator);
         if (host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
             if (!host.contains(":") || !InetAddresses.isInetAddress(host)) {
-                throw unsupportedAddress();
+                throw unsupportedAddress(address);
             }
         } else if (host.contains(":")) {
-            throw unsupportedAddress();
+            throw unsupportedAddress(address);
         }
         if (!isValidServerName(host)) {
-            throw unsupportedAddress();
+            throw unsupportedAddress(address);
         }
         final String port = endpoint.substring(separator + 1);
         try {
@@ -114,7 +114,7 @@ final class FlowServiceTlsTransport {
                 throw new NumberFormatException();
             }
         } catch (NumberFormatException failure) {
-            throw new IllegalArgumentException("flowServiceTls requires serverAddress port 1-65535");
+            throw new IllegalArgumentException("flowServiceTls requires serverAddress port 1-65535; got \"" + address + "\"");
         }
         return target;
     }
@@ -149,20 +149,30 @@ final class FlowServiceTlsTransport {
         return certificates;
     }
 
-    static X509TrustManager trustManager(final String additionalRootCAsPem)
+    static X509ExtendedTrustManager trustManager(final String additionalRootCAsPem)
             throws GeneralSecurityException, IOException {
         final TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        return trustManager(additionalRootCAsPem, factory);
+    }
+
+    static X509ExtendedTrustManager trustManager(final String additionalRootCAsPem, final TrustManagerFactory factory)
+            throws GeneralSecurityException, IOException {
         factory.init((KeyStore) null);
-        final X509TrustManager defaultTrustManager = x509TrustManager(factory);
+        final X509ExtendedTrustManager defaultTrustManager = x509TrustManager(factory);
         final List<X509Certificate> additionalRoots = parseAdditionalRootCertificates(additionalRootCAsPem);
         if (additionalRoots.isEmpty()) {
             return defaultTrustManager;
         }
         // Keep every active JDK trust anchor, including javax.net.ssl.trustStore overrides, before adding roots.
-        final KeyStore combinedRoots = KeyStore.getInstance("JKS");
+        final X509Certificate[] defaultRoots = defaultTrustManager.getAcceptedIssuers();
+        if (defaultRoots.length == 0) {
+            throw new IllegalArgumentException("flowServiceTls cannot preserve JDK default trust when adding root CAs: "
+                    + "the default trust manager reports no accepted issuers");
+        }
+        final KeyStore combinedRoots = KeyStore.getInstance(KeyStore.getDefaultType());
         combinedRoots.load(null, null);
         int certificateIndex = 0;
-        for (final X509Certificate certificate : defaultTrustManager.getAcceptedIssuers()) {
+        for (final X509Certificate certificate : defaultRoots) {
             combinedRoots.setCertificateEntry("default-" + certificateIndex++, certificate);
         }
         for (final X509Certificate certificate : additionalRoots) {
@@ -172,16 +182,16 @@ final class FlowServiceTlsTransport {
         return x509TrustManager(factory);
     }
 
-    private static X509TrustManager x509TrustManager(final TrustManagerFactory factory) {
+    private static X509ExtendedTrustManager x509TrustManager(final TrustManagerFactory factory) {
         for (final TrustManager manager : factory.getTrustManagers()) {
-            if (manager instanceof X509TrustManager) {
-                return (X509TrustManager) manager;
+            if (manager instanceof X509ExtendedTrustManager) {
+                return (X509ExtendedTrustManager) manager;
             }
         }
-        throw new IllegalArgumentException("flowServiceTls requires a JDK default X.509 trust manager");
+        throw new IllegalArgumentException("flowServiceTls requires an X509ExtendedTrustManager for hostname verification");
     }
 
-    private static IllegalArgumentException unsupportedAddress() {
-        return new IllegalArgumentException("flowServiceTls requires serverAddress as host:port, dns:///host:port, or dns://authority/host:port");
+    private static IllegalArgumentException unsupportedAddress(final String address) {
+        return new IllegalArgumentException("flowServiceTls requires serverAddress as host:port, dns:///host:port, or dns://authority/host:port; got \"" + address + "\"");
     }
 }

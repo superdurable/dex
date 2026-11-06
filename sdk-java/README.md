@@ -532,7 +532,10 @@ final class TlsExample {
   Null or an empty string uses only default roots. A nonempty bundle must contain
   at least one parsable X.509 certificate. Other text and malformed blocks are
   ignored when another certificate parses. The bundle is read at construction;
-  it is not watched for changes. No new dependency is needed.
+  it is not watched for changes. The combined store uses the JVM's default
+  KeyStore type. Adding roots fails if the default trust manager reports no
+  accepted issuers, because the SDK cannot preserve its trust anchors.
+  No new dependency is needed.
 - `serverName` overrides the address host for certificate verification, SNI, and
   HTTP/2 `:authority`. Omit it when the certificate covers the address host.
   Supply a DNS name or unbracketed IP address without a port. An explicit empty
@@ -543,6 +546,9 @@ final class TlsExample {
   IPv6 address hosts require brackets. The DNS resolver authority never becomes
   the certificate name or HTTP/2 authority. Java gRPC uses the JVM's DNS resolver.
   Other resolver schemes remain available only with plaintext connections.
+- The JDK trust manager provider must return `X509ExtendedTrustManager` for both
+  default and combined roots so the transport can verify hostnames. Providers
+  returning only `X509TrustManager` fail at Client/Worker construction.
 - The endpoint must negotiate HTTP/2 with ALPN `h2`. HTTP/1.1-only endpoints and
   endpoints without ALPN are rejected. An IP endpoint requires a matching IP SAN.
   Netty omits SNI for IP addresses and single-label DNS names such as `localhost`.
