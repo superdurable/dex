@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::Credential;
+use crate::{Credential, FlowServiceTlsOptions};
 
 /// Configures outbound polling for a Worker.
 ///
@@ -145,6 +145,7 @@ pub struct WorkerOptions {
     pull: PullWorkerOptions,
     attribute_index_sync_timeout: Duration,
     credential: Option<Arc<dyn Credential>>,
+    flow_service_tls: Option<FlowServiceTlsOptions>,
 }
 
 impl WorkerOptions {
@@ -155,12 +156,26 @@ impl WorkerOptions {
             pull: PullWorkerOptions::default(),
             attribute_index_sync_timeout: Duration::from_secs(120),
             credential: None,
+            flow_service_tls: None,
         }
     }
 
-    /// Sets the plaintext Dex FlowService `host:port` used by the Worker.
+    /// Sets the Dex FlowService address used by the Worker.
+    ///
+    /// With TLS, accepts `host:port`, `dns:///host:port`, or `dns://authority/host:port`.
     pub fn server_address(mut self, value: impl Into<String>) -> Self {
         self.server_address = value.into();
+        self
+    }
+
+    /// Enables TLS for every outbound Worker FlowService connection.
+    ///
+    /// Omitted by default, preserving plaintext gRPC. Takes ownership of `value` and returns
+    /// these options with TLS enabled. [`crate::Worker::try_new`] validates the address,
+    /// additional roots, and server name, returning [`crate::SdkError::InvalidArgument`] for
+    /// invalid input. See [`FlowServiceTlsOptions`] for defaults and a complete example.
+    pub fn flow_service_tls(mut self, value: FlowServiceTlsOptions) -> Self {
+        self.flow_service_tls = Some(value);
         self
     }
 
@@ -168,7 +183,7 @@ impl WorkerOptions {
     ///
     /// The default sends no authorization metadata. The credential may be called concurrently;
     /// errors fail calls locally. Pull streams evaluate it at opening and again on reconnect.
-    /// The token uses Dex's plaintext connection, so protect the network path.
+    /// Enable [`Self::flow_service_tls`] to protect the token on the network.
     pub fn credential(mut self, value: Arc<dyn Credential>) -> Self {
         self.credential = Some(value);
         self
@@ -204,6 +219,10 @@ impl WorkerOptions {
 
     pub(crate) fn attribute_index_sync_timeout_value(&self) -> Duration {
         self.attribute_index_sync_timeout
+    }
+
+    pub(crate) fn flow_service_tls_value(&self) -> Option<&FlowServiceTlsOptions> {
+        self.flow_service_tls.as_ref()
     }
 
     pub(crate) fn credential_value(&self) -> Option<Arc<dyn Credential>> {

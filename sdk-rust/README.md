@@ -30,8 +30,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 The Client sends the token with every FlowService call. The Worker sends it with
 FlowService calls, including startup synchronization and blob hydration, and
 when each pull task stream opens. Reconnected streams use the current token.
-Without a credential, the SDK sends no authorization metadata. Dex uses
-plaintext gRPC, so protect the network path carrying the token.
+Without a credential, the SDK sends no authorization metadata. The default
+connection uses plaintext gRPC. Enable TLS to protect tokens on the network.
+
+### TLS
+
+Set `ClientOptions::flow_service_tls` and `WorkerOptions::flow_service_tls` independently
+to reach a TLS endpoint, such as a server behind a TLS-terminating gateway. Omitting
+this option preserves plaintext gRPC for local development. Setting it to
+`FlowServiceTlsOptions::new()` enables TLS 1.2 or newer with certificate and
+hostname verification. The endpoint must negotiate HTTP/2 through ALPN h2; both
+http/1.1-only endpoints and endpoints without ALPN are rejected.
+
+```rust
+use std::sync::Arc;
+use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, FileCredential,
+    FlowServiceTlsOptions, Registry, Worker, WorkerOptions};
+let cache = Arc::new(BlobCache::open(BlobCacheConfig::new(
+    "/tmp/dex-tls-blobs", 64 * 1024 * 1024, 0,
+)?)?);
+let tls = FlowServiceTlsOptions::new()
+    .additional_root_cas_pem(std::fs::read("/etc/dex/root-ca.pem")?);
+let credential = Arc::new(FileCredential::new("/var/run/secrets/dex/token")?);
+let registry = Registry::new();
+let worker = Worker::try_new(registry.clone(), cache.clone(), WorkerOptions::new()
+    .server_address("dex.example.com:443").flow_service_tls(tls.clone())
+    .credential(credential.clone()))?;
+let client = Client::try_new(registry, cache, ClientOptions::new()
+    .server_address("dex.example.com:443").flow_service_tls(tls)
+    .credential(credential))?;
+client.health_check()?;
+worker.start()?;
+```
+
+`additional_root_cas_pem` adds PEM certificates to native system trust; it never
+replaces the system roots. Omit it for a certificate signed by a system-trusted
+CA. Empty bytes also use system roots alone. A nonempty bundle must contain at
+least one parsable certificate; unrelated or malformed blocks are skipped when
+another certificate parses. Skipped malformed certificate blocks produce a
+warning with their count. Roots are read at construction, without file watching.
+Additional roots work even when the native trust store is empty or fails to load.
+Native load errors produce a warning with their count; successfully loaded roots
+remain usable. An empty combined trust store constructs successfully, but
+connections fail verification.
+
+`server_name` optionally overrides the address host for certificate verification,
+SNI, and HTTP/2 `:authority`. It must be a nonempty DNS name or unbracketed IP
+address without a port. An IP address requires a matching IP SAN and sends no SNI.
+An override becomes the authority without a port, so a gateway must accept that name.
+For example, `.server_name("dex.example.com")` sets a DNS override. An IPv6
+override is bracketed in authority (`[::1]`), while certificate verification uses
+the bare address. Without an override, authority retains the address host and port.
+
+With TLS, `server_address` accepts `host:port`, `dns:///host:port`, and
+`dns://authority/host:port`, including bracketed IPv6 hosts and ports 1–65535.
+Signed ports and bracketed non-IPv6 hosts are rejected. DNS authority syntax is
+accepted; tonic resolves the endpoint through the operating system resolver rather
+than querying that authority. The authority is never used as the certificate name.
+
+Invalid addresses, PEM bundles, or server names return `SdkError::InvalidArgument`
+from `Client::try_new` or `Worker::try_new`. Connector construction failures return
+`SdkError::Service` with the underlying causes. Connections open lazily, so
+certificate, hostname, and handshake failures return service errors from the first Client call or
+`Worker::start`.
+
+Workers use these settings for startup, blob hydration, and every pull task stream.
+`FileCredential`, `ApiKeyCredential`, and custom credentials continue sending bearer
+tokens as call metadata. TLS options do not change the API-key token endpoint.
 
 ## Flow state I/O
 
@@ -662,6 +727,11 @@ then removes the temporary state. It uses server-zd and pull Workers.
 `DEX_INTEG_ENGINE=zd` remains accepted. Set `DEX_SERVER_ZD_BINARY` to reuse a
 built `dex-server-zd`. Each Worker
 synchronizes its registered Indexed Attributes before serving; failure or the default two-minute deadline aborts startup.
+
+`tests/flow_service_tls.rs` also starts an isolated token-authenticated server-zd
+behind a TLS proxy. Its certificates and private keys are generated at test time
+with `rcgen`; no external certificate tool is required. Regular tests verify
+construction errors and that additional roots preserve default trust.
 
 ### Measure integration coverage
 

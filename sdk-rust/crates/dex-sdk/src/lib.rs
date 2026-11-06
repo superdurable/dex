@@ -61,6 +61,7 @@ pub use attribute::{
 };
 pub use attribute_match::AttributeMatch;
 pub use channel::{Channel, ChannelGuard, ChannelMap, ChannelMapLoad, ChannelMessage};
+pub use client::FlowServiceTlsOptions;
 pub use client::{AttributeRead, AttributeReads, Client};
 pub use client_options::ClientOptions;
 pub use context::{Context, RecoveryErrorInfo, StepAttemptProgress};

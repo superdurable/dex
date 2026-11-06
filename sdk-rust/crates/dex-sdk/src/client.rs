@@ -24,10 +24,14 @@ use dex_protocol::dex::{
     WorkerTarget as ProtoWorkerTarget, WriteStreamRequest,
 };
 use tokio::runtime::Runtime;
-use tonic::{Code, Request, transport::Endpoint};
+use tonic::{Code, Request};
 use uuid::Uuid;
 
 mod attribute_reads;
+pub(crate) mod flow_service_tls;
+
+pub use flow_service_tls::FlowServiceTlsOptions;
+use flow_service_tls::flow_service_endpoint;
 
 pub use attribute_reads::{AttributeRead, AttributeReads};
 
@@ -91,7 +95,7 @@ impl Client {
     ///
     /// # Panics
     ///
-    /// Panics if a Tokio runtime cannot be created or the server address is invalid.
+    /// Panics if a Tokio runtime cannot be created or the server address or TLS settings are invalid.
     pub fn new(registry: Registry, blob_cache: Arc<BlobCache>, options: ClientOptions) -> Self {
         Self::try_new(registry, blob_cache, options)
             .unwrap_or_else(|error| panic!("cannot create Dex Client: {error}"))
@@ -102,15 +106,19 @@ impl Client {
     /// # Errors
     ///
     /// Returns [`SdkError::Service`] if runtime or endpoint initialization fails. The transport connects lazily,
-    /// so server availability is checked by the first operation.
+    /// so server availability is checked by the first operation. Invalid TLS options return
+    /// [`SdkError::InvalidArgument`]. Certificate and handshake failures occur on the first call.
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,
         options: ClientOptions,
     ) -> SdkResult<Self> {
         let runtime = Runtime::new().map_err(service_error)?;
-        let endpoint = Endpoint::from_shared(endpoint_address(options.server_address_value()))
-            .map_err(service_error)?;
+        let endpoint = flow_service_endpoint(
+            options.server_address_value(),
+            options.flow_service_tls_value(),
+            "client",
+        )?;
         let service = {
             let _runtime_guard = runtime.enter();
             FlowServiceClient::new(CredentialChannel::new(
@@ -1504,14 +1512,6 @@ pub(crate) fn seconds32(duration: Duration) -> SdkResult<i32> {
         return Err(invalid("Duration must use whole seconds"));
     }
     i32::try_from(duration.as_secs()).map_err(|_| invalid("Duration exceeds int32"))
-}
-
-fn endpoint_address(address: &str) -> String {
-    if address.contains("://") {
-        address.to_string()
-    } else {
-        format!("http://{address}")
-    }
 }
 
 fn require_name(value: &str, kind: &str) -> SdkResult<()> {

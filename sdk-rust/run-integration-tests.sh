@@ -70,6 +70,7 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
   (cd "$repo_root" && cargo build --release --locked --manifest-path server-zd/Cargo.toml -p dexzd-server --bin dex-server-zd)
   DEX_SERVER_ZD_BINARY="$repo_root/server-zd/target/release/dex-server-zd"
 fi
+export DEX_SERVER_ZD_BINARY
 # A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
 printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
 dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -zd-config "$test_dir/zd-overrides.yaml")
@@ -100,6 +101,7 @@ if $coverage; then
   DEX_SERVER_ADDRESS="$dex_address" cargo llvm-cov --no-report -p dex-sdk \
     --test integ \
     --test cross_sdk \
+    --test flow_service_tls \
     -- \
     --ignored \
     --skip test_subflow_partial_results_survive_continue_as_new_without_restart \
@@ -111,6 +113,7 @@ else
   DEX_SERVER_ADDRESS="$dex_address" cargo test --locked -p dex-sdk \
     --test integ \
     --test cross_sdk \
+    --test flow_service_tls \
     -- \
     --ignored \
     --skip test_subflow_partial_results_survive_continue_as_new_without_restart \

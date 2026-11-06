@@ -10,12 +10,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
+use crate::client::flow_service_tls::flow_service_endpoint;
 use crate::credential::{CredentialChannel, CredentialInterceptor};
 use dex_protocol::dex::SyncAttributeIndexRequest;
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
-use tonic::transport::Endpoint;
 
 use crate::server_protocol::{NegotiatedServerProtocolVersion, negotiate_server_protocol};
 use crate::value_hydrator::ValueHydrator;
@@ -64,7 +64,7 @@ impl Worker {
     /// # Panics
     ///
     /// Panics for invalid pull options, zero index-sync timeout, invalid Dex endpoint, or Tokio
-    /// runtime creation failure. Prefer [`Self::try_new`] for recoverable startup.
+    /// runtime creation failure. Invalid TLS settings also panic. Prefer [`Self::try_new`] for recoverable startup.
     pub fn new(registry: Registry, blob_cache: Arc<BlobCache>, options: WorkerOptions) -> Self {
         Self::try_new(registry, blob_cache, options)
             .unwrap_or_else(|error| panic!("cannot create Rust Worker: {error}"))
@@ -75,7 +75,8 @@ impl Worker {
     /// # Errors
     ///
     /// Returns [`SdkError::FlowDefinition`] for invalid Worker options, or Service for runtime
-    /// and endpoint initialization failures. The Dex connection is lazy.
+    /// and endpoint initialization failures. Invalid TLS options return [`SdkError::InvalidArgument`].
+    /// The connection is lazy; certificate and handshake failures occur during [`Self::start`].
     pub fn try_new(
         registry: Registry,
         blob_cache: Arc<BlobCache>,
@@ -87,8 +88,11 @@ impl Worker {
                 message: "attribute index sync timeout must be positive".to_string(),
             });
         }
-        let endpoint = Endpoint::from_shared(endpoint_address(options.server_address_value()))
-            .map_err(service_error)?;
+        let endpoint = flow_service_endpoint(
+            options.server_address_value(),
+            options.flow_service_tls_value(),
+            "worker",
+        )?;
         let flow_service = {
             let _runtime_guard = runtime.enter();
             FlowServiceClient::new(CredentialChannel::new(
@@ -276,14 +280,6 @@ impl Worker {
         self.pull.stop_accepting_tasks();
         self.pull.registration.finish(None);
         self.shutdown.send_replace(true);
-    }
-}
-
-fn endpoint_address(address: &str) -> String {
-    if address.contains("://") {
-        address.to_string()
-    } else {
-        format!("http://{address}")
     }
 }
 
