@@ -8,9 +8,9 @@
   connections, including async APIs and pull streams. Trust is the gRPC default
   roots (grpcio's bundled roots, or `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when set)
   plus the added roots. Adding roots fails when
-  `GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK` is true and
-  `GRPC_NOT_USE_SYSTEM_SSL_ROOTS` is not true, including system roots selected
-  with `GRPC_SYSTEM_SSL_ROOTS_DIR`. Both flags accept `true`, `t`, `yes`, `y`,
+  `GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK` is true, regardless of
+  `GRPC_NOT_USE_SYSTEM_SSL_ROOTS`, including system roots selected
+  with `GRPC_SYSTEM_SSL_ROOTS_DIR`. The preference flag accepts `true`, `t`, `yes`, `y`,
   and `1` as true, ignoring case. A configured `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`
   takes precedence and still supports added roots. Otherwise, disable the
   system-roots preference and pass the full OS or corporate CA bundle as

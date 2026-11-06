@@ -331,40 +331,42 @@ def test_falsy_system_root_preference_preserves_bundled_roots(
 
 
 @pytest.mark.parametrize(
-    "flag_value", ["true", "t", "yes", "y", "1", "TRUE", "T", "YES", "Y"]
-)
-def test_disabled_system_roots_preserve_bundled_roots(
-    certificates: TlsCertificates,
-    monkeypatch: pytest.MonkeyPatch,
-    flag_value: str,
-) -> None:
-    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
-    monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", "true")
-    monkeypatch.setenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", flag_value)
-    with patch(
-        "grpc.ssl_channel_credentials", wraps=grpc.ssl_channel_credentials
-    ) as credentials:
-        flow_service_transport(
-            "localhost:443", FlowServiceTlsOptions(certificates.root_pem)
-        )
-    bundled_roots = (
-        files("grpc").joinpath("_cython", "_credentials", "roots.pem").read_bytes()
-    )
-    credentials.assert_called_once_with(
-        bundled_roots + b"\n" + certificates.root_pem.strip()
-    )
-
-
-@pytest.mark.parametrize(
     "flag_value",
-    ["", "false", "f", "no", "n", "0", "FALSE", "F", "NO", "N", "invalid", " true "],
+    [
+        "true",
+        "t",
+        "yes",
+        "y",
+        "1",
+        "TRUE",
+        "T",
+        "YES",
+        "Y",
+        "",
+        "false",
+        "f",
+        "no",
+        "n",
+        "0",
+        "FALSE",
+        "F",
+        "NO",
+        "N",
+        "invalid",
+        " true ",
+    ],
 )
-def test_falsy_system_roots_disable_flag_still_rejects_added_roots(
+@pytest.mark.parametrize("configured_root_file", [None, ""])
+def test_system_roots_disable_flag_cannot_bypass_added_roots_guard(
     certificates: TlsCertificates,
     monkeypatch: pytest.MonkeyPatch,
     flag_value: str,
+    configured_root_file: str | None,
 ) -> None:
-    monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+    if configured_root_file is None:
+        monkeypatch.delenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", raising=False)
+    else:
+        monkeypatch.setenv("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", configured_root_file)
     monkeypatch.setenv("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK", "true")
     monkeypatch.setenv("GRPC_NOT_USE_SYSTEM_SSL_ROOTS", flag_value)
     with pytest.raises(

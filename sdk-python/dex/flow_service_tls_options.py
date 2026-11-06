@@ -33,9 +33,9 @@ class FlowServiceTlsOptions:
             bundled roots, or ``GRPC_DEFAULT_SSL_ROOTS_FILE_PATH`` when set)
             plus the added roots. A configured root file takes precedence over
             system roots. Adding roots fails when
-            ``GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK`` is true and
-            ``GRPC_NOT_USE_SYSTEM_SSL_ROOTS`` is not true, unless a root file
-            is configured. True values are ``true``, ``t``, ``yes``, ``y``, and
+            ``GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK`` is true, unless a
+            root file is configured, regardless of ``GRPC_NOT_USE_SYSTEM_SSL_ROOTS``.
+            True values are ``true``, ``t``, ``yes``, ``y``, and
             ``1``, ignoring case. This includes system roots selected with
             ``GRPC_SYSTEM_SSL_ROOTS_DIR``. To add roots in that configuration,
             disable the system-roots preference and pass the full PEM bundle

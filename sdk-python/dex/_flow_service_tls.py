@@ -144,10 +144,10 @@ def _additional_root_certificates(bundle: bytes | str) -> bytes:
 
 def _default_root_certificates() -> bytes:
     configured_file = os.environ.get("GRPC_DEFAULT_SSL_ROOTS_FILE_PATH")
-    if (
-        not configured_file
-        and _is_environment_flag_true("GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK")
-        and not _is_environment_flag_true("GRPC_NOT_USE_SYSTEM_SSL_ROOTS")
+    # gRPC tries preferred system roots even when GRPC_NOT_USE_SYSTEM_SSL_ROOTS is true.
+    # https://github.com/grpc/grpc/blob/v1.83.0/src/core/credentials/transport/tls/ssl_utils.cc#L559-L606
+    if not configured_file and _is_environment_flag_true(
+        "GRPC_USE_SYSTEM_ROOTS_OVER_LANGUAGE_CALLBACK"
     ):
         raise ValueError(
             "flow_service_tls: added roots cannot be combined with gRPC system roots; "
