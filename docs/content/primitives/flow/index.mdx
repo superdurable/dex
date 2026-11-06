@@ -6,9 +6,234 @@ slug: /primitives/flow
 
 # Flow
 
-**Flow** is the top-level primitive and concept in Dex.
+A **Flow** is the top-level primitive in Dex. A Flow type describes one kind
+of business process, such as an order, a subscription, or an approval. A Flow
+execution is one instance of it, such as order 42.
 
-A Flow is usually a business entity. It contains some [Steps](/primitives/step), a persistence schema of [Attributes](/primitives/attribute) and [Channels](/primitives/channel), and optional [RPC](/primitives/rpc) handlers.
+Dex owns the Flow's lifecycle and state. Your code does not need a database
+or a job queue to keep the process going across crashes and restarts.
 
-- [Basics](/primitives/flow/basic) — basic concepts and interface
-- [Flow options](/primitives/flow/flow-options) — advanced StartFlowOptions, FlowConfig
+## What a Flow contains {#implement-a-flow}
+
+You define a Flow by implementing the **Flow** interface in your language. It
+declares three things:
+
+- **Steps**: the start Step and every other Step the Flow can reach.
+  [Steps](/primitives/step) run the background work.
+- **Persistence schema**: the [Attributes](/primitives/attribute) and
+  [Channels](/primitives/channel) that hold the Flow's durable state. Dex
+  rejects reads and writes to names that are not declared.
+- **RPC handlers**: methods that a client calls on a running Flow. See
+  [RPC](/primitives/rpc).
+
+The start Step's input type is also the Flow's start input type. This Flow has
+two Steps, one Attribute, one Channel, and one RPC.
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+go: 'examples/go/primitives/flow/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+rust: 'examples/rust/src/primitives/flow/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+status = Attribute("status", str)
+notify = Channel("notify", None)
+
+
+class ExampleFlow(Flow[int]):
+    def __init__(self) -> None:
+        self.finish = Finish()
+        self.example = Example(self.finish)
+
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.example).other_steps(self.finish)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(status, notify)
+
+    @rpc
+    def describe(self, context: Context) -> RPCResult[str]:
+        return RPCResult.of(status.get(context))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+type ExampleFlow struct {
+	dex.FlowDefaults
+}
+
+func (*ExampleFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(Example{}),
+		dex.DefineStep(Finish{}),
+	}
+}
+
+func (flow *ExampleFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.Describe, nil)}
+}
+
+func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Status},
+		Channels:   []dex.ChannelDef{Notify},
+	}
+}
+
+func (*ExampleFlow) Describe(ctx dex.Context, _ dex.None) (*dex.RPCResult[string], error) {
+	value, err := Status.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: value}, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public class ExampleFlow implements Flow<Integer> {
+    public static final Attribute<String> status = Attribute.define("status", String.class);
+    public static final Channel<Void> notify = Channel.define("notify", Void.class);
+
+    @Override
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(exampleStep).otherSteps(finishStep);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(status, notify);
+    }
+
+    @RPC
+    public RPCResult<String> describe(final Context context) {
+        return RPCResult.of(status.get(context));
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export class ExampleFlow implements Flow<number> {
+  public getSteps() {
+    return StepList.startStep(this.example).otherSteps(this.finish);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [status], channels: [notify] };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public describe(context: Context): RPCResult<string> {
+    return { output: status.get(context) ?? "" };
+  }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl Flow for ExampleFlow {
+    type StartInput = i32;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.example).and(&self.finish)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&status())
+            .channel(&notify())
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().function(DESCRIBE, Self::describe)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Identifiers {#identifiers}
+
+The word Flow can mean a Flow definition or a Flow execution. The context tells
+which. These identifiers keep them apart.
+
+| Identifier | Who sets it | Meaning |
+|----------|-------------|---------|
+| **FlowType** | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results. |
+| **Flow ID** | Application client on start | Business identity for one Flow execution. The ID reuse policy controls whether another execution may start with the same Flow ID. |
+| **Run ID** | Dex Server | Identity of one run of the Flow ID. Time travel keeps it and creates a new run attempt. Address a Flow by its Flow ID; the Run ID is diagnostic. |
+| **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
+| **StepExecutionID** | Dex Server | One execution of a Step type, formatted as **StepType-Number**. |
+
+Most SDKs derive the **FlowType** from the native type name unless you override
+it. Keep these names stable while executions are open.
+
+## Lifecycle {#lifecycle}
+
+A [Client](/primitives/client) starts a Flow with a Flow ID and the start
+input. Dex then runs the start Step on a Worker. Each Step returns a decision
+that moves to the next Steps or closes the Flow. Several Steps can be active
+at the same time.
+
+A Flow closes when a Step completes or fails it, when its timeout fails or
+cancels it, or when a client stops it. A timeout can instead run a handler that
+decides the outcome. While it runs, clients read and change it through RPCs
+and Channels.
+
+## Start options and configuration {#start-options}
+
+Two sets of options shape a Flow execution:
+
+- **StartFlowOptions** apply once, at start. They set the Flow timeout, the ID
+  reuse policy, the start request ID, and initial Attribute values.
+- **FlowConfig** holds runtime settings, such as the default Step durability.
+  You can update it while the Flow runs.
+
+Start a Flow directly with a stable business Flow ID. Do not read or search
+first to avoid a conflict. To retry one start safely, send the same request ID
+each time. Dex then returns the same execution instead of an error.
+
+## When to use a Flow {#when-to-use}
+
+Use one Flow for each business identity whose process Dex should own. Put work
+that shares that identity and lifecycle into Steps of the same Flow. Steps can
+run in parallel inside one Flow.
+
+Start a separate Flow when the work has its own owner and lifecycle. Two Flows
+coordinate through RPCs and Channels. Use a [SubFlow](/primitives/subflow) only
+when a parent Step must wait for a child Flow's result.
+
+## Guarantees {#guarantees}
+
+- A Flow ID has at most one active run at a time.
+- Each Step method commits its state changes together with its result, or not
+  at all.
+- With the default SYNC durability, a Step's result is stored durably before
+  the next Step starts. It survives Worker crashes and Dex Server restarts.
+- A Step that no Worker takes waits in a durable queue. It runs when a Worker
+  becomes available.
+
+## Details
+
+The [Flow and Step runtime](/reference/server/runtime-steps) reference covers:
+
+- [StartFlowOptions](/reference/server/runtime-steps#start-flow-options) and
+  the [Flow timeout and timeout handler](/reference/server/runtime-steps#timeout-and-timeout-policy);
+- [Flow ID, RequestID, and already-started handling](/reference/server/runtime-steps#flow-id-request-id-and-already-started);
+- [StartFlow best practices](/reference/server/runtime-steps#start-flow-best-practices);
+- [FlowConfig](/reference/server/runtime-steps#flow-config) and how to update
+  it.

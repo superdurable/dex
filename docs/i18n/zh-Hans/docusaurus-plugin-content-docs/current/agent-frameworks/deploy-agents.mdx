@@ -145,7 +145,7 @@ runner 工作时，**RunModel**、**CompactContext** 和两种 tool Step 每 20 
 一次模型调用必须在 15 分钟内完成。把 provider 或 framework 的请求超时设得比它短，这样慢
 调用会带着 provider 的错误失败，后续 attempt 也还能落在 30 分钟的重试窗口内。Claude Agent
 SDK session 在一个 **RunModel** 中运行整段轮次，所以这一段必须在 15 分钟内完成。Dex 如何
-发现丢失的 attempt，见 [Heartbeat](/primitives/step/step-options#heartbeat)。
+发现丢失的 attempt，见 [Heartbeat](/reference/server/runtime-steps#heartbeat)。
 
 ### 分开的 Worker 池 {#worker-pools}
 
@@ -293,7 +293,7 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
 已经运行过时记录 **outcome_unknown**。tool 确定没有运行时，这次调用改为记录 **failed**，模型
 可以再次调用这个 tool。有两种情况会打破“最多运行一次”这一承诺，两种都要提前准备。它们源于 Dex 交出任何
-Step attempt 的方式。见[失败与重新投递](/primitives/step/basic#failure-and-redelivery)。
+Step attempt 的方式。见[失败与重新投递](/reference/server/runtime-steps#failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
 
@@ -317,7 +317,7 @@ session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **se
 ### 从未运行的调用也可能记录 outcome_unknown {#never-run-outcome-unknown}
 
 tool Step 失败时，它的 failure route 会从 recovery error 中读取 **attempt_progress**。见
-[失败与重新投递](/primitives/step/basic#unknown-outcome)。**CallTool** 和
+[失败与重新投递](/reference/server/runtime-steps#unknown-outcome)。**CallTool** 和
 **CallSingleAttemptTool** 的处理方式相同：
 
 | **attempt_progress** | 这次调用记录的结果 |

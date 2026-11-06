@@ -19,23 +19,8 @@ const sidebars: SidebarsConfig = {
       label: 'Primitives',
       link: {type: 'doc', id: 'primitives/index'},
       items: [
-        {
-          type: 'category',
-          label: 'Flow',
-          link: {type: 'doc', id: 'primitives/flow/index'},
-          items: ['primitives/flow/basic', 'primitives/flow/flow-options'],
-        },
-        {
-          type: 'category',
-          label: 'Step',
-          link: {type: 'doc', id: 'primitives/step/index'},
-          items: [
-            'primitives/step/basic',
-            'primitives/step/waiting-condition',
-            'primitives/step/step-decision',
-            'primitives/step/step-options',
-          ],
-        },
+        'primitives/flow/index',
+        'primitives/step/index',
         'primitives/connector',
         'primitives/attribute',
         'primitives/rpc',

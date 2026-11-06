@@ -4,15 +4,248 @@ sidebar_label: Step
 slug: /primitives/step
 ---
 
+import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
+import StepDecisionMovementsDiagram from '@site/src/components/primitives/step/StepDecisionMovementsDiagram';
+
 # Step
 
-**Step** 是 durable 控制流的基本单元。Dex 在后台调度 Step、重试失败的方法，并按你的策略在耗尽后恢复。每种 Step 类型会等待（WaitFor）、执行工作（Execute），然后返回 **StepDecision** 推动 Flow 前进。
+**Step** 是 [Flow](/primitives/flow) 里的一个后台工作单元。它可以先 durable 地等待某件事发生，再执行工作，然后决定下一步运行什么。Dex 在你的 Worker 上运行 Step，并记录每个结果。
 
-- [基础](/primitives/step/basic) — typed input、WaitFor/Execute 生命周期与简单的 Step decision
-- [等待](/primitives/step/waiting-condition) — Condition 组合与 WaitFor 完成后读取 Condition 结果
-- [Step decision](/primitives/step/step-decision) — movement、关闭决策、输出、取消与 forceCompleteIfChannelsEmpty
-- [Step options](/primitives/step/step-options) — timeout、retry、failure policy、durability、heartbeat 与按 StepExecution 覆盖 StepOptions
+Step 由一个原生 struct 或 class 实现，它的类型就是 **StepType**。同一个 Step type 在一个 Flow 里可以运行多次，甚至并行运行。每次运行是一个 **StepExecution**，用 **StepExecutionID** 标识，比如 **Charge-2**。
 
-第一次实现 Flow 时，建议按“基础 → 等待 → Step decision → Step options”的顺序阅读。
+## Step input {#step-input}
 
-可运行示例位于 examples/go, examples/java, examples/python, examples/typescript, and examples/rust
+每个 Step execution 有自己的 typed input，Dex 把它和 execution 一起保存。input 用来区分同一个 Step type 的不同 execution。start Step 的 input 就是 Flow 的 start input。
+
+## WaitFor 和 Execute {#waitfor-and-execute}
+
+一个 Step 有一个或两个方法。
+
+- **WaitFor** 可选。它返回一个 durable 的 **Wait**。Dex 保存这个 wait，替你检查条件，条件满足后调用 **Execute**。
+- **Execute** 必需。它执行工作，并返回一个 **StepDecision**。
+
+Step 没有 **WaitFor** 时，**Execute** 立即运行。
+
+<StepWaitExecuteDiagram />
+
+下面这个 Step 等待一条审批消息，然后进入第二个 Step，由它完成 Flow。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step/step_flow.py',
+    go: 'examples/go/primitives/step/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/StepFlow.java',
+    typescript: 'examples/typescript/src/primitives/step/step-flow.ts',
+    rust: 'examples/rust/src/primitives/step/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+approval = Channel("Approval", str)
+
+
+class StepSecond(Step[int]):
+    def execute(self, context: Context, input: int) -> StepDecision:
+        return graceful_complete(input + 1)
+
+
+class Example(Step[int]):
+    def __init__(self, second: StepSecond) -> None:
+        self.second = second
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        return Wait.until(approval.for_one())
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        return go_to(StepSecond, input + 1)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+var Approval = dex.DefineChannel[string]("Approval")
+
+type Example struct {
+	dex.StepDefaults
+}
+
+func (Example) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
+	return dex.Until(Approval.ForOne()), nil
+}
+
+func (Example) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GoTo(stepSecond{}, input+1), nil
+}
+
+type stepSecond struct {
+	dex.StepDefaultsNoWaitFor[int]
+}
+
+func (stepSecond) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(input + 1), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final class Example implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.until(approval.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.goTo(StepSecond.class, input + 1);
+    }
+}
+
+static final class StepSecond implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.gracefulComplete(input + 1);
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const approval = new Channel("Approval", stringCodec);
+
+class Example implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public constructor(private readonly flow: StepFlow) {}
+
+  public getStepType(): string {
+    return "Example";
+  }
+
+  public waitFor(_context: Context, _input: number): Wait {
+    return Wait.until(approval.forOne());
+  }
+
+  public execute(_context: Context, input: number): StepDecision {
+    return goTo(StepSecond, input + 1);
+  }
+}
+
+class StepSecond implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "StepSecond";
+  }
+
+  public execute(_context: Context, input: number): StepDecision {
+    return gracefulComplete(input + 1);
+  }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
+
+#[derive(Default)]
+struct Example;
+
+impl Step for Example {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(APPROVAL.for_one()))
+    }
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to(&StepSecond, input + 1))
+    }
+}
+
+#[derive(Default)]
+struct StepSecond;
+
+impl Step for StepSecond {
+    type Input = i32;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input + 1))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 等待 {#waiting}
+
+等待不占用 Worker 或线程。Dex 把它保存在 Flow 的状态里，条件满足时唤醒 Step。Step 可以等待三类条件：
+
+- [Timer](/primitives/timer) 触发；
+- [Channel](/primitives/channel) 上有消息到达；
+- [SubFlow](/primitives/subflow) 完成。
+
+用 **AnyOf** 或 **AllOf** 组合条件。**AnyCombinationOf** 在几组条件中任意一组全部满足时成立。等待结束后，**Execute** 可以读取满足它的结果，比如它消费的 Channel 消息。
+
+## StepDecision {#stepdecision-movements}
+
+**Execute** 返回一个 **StepDecision**。它可以进入下一个 Step，也可以同时进入多个 Step。分支、循环和并行工作都这样构建。
+
+<StepDecisionMovementsDiagram />
+
+决定也可以关闭 Flow 或结束一个分支：
+
+- **GracefulComplete** 在没有其他 active Step 时完成 Flow。
+- **ForceComplete** 立即完成 Flow。
+- **ForceFail** 立即让 Flow 失败。
+- **DeadEnd** 结束这个分支，但不关闭 Flow。
+
+完成类的决定可以返回 Flow output，client 把它作为 Flow result 读取。决定还可以取消其他 active Step。见 [Parallel Steps](/design-patterns/parallel) 和 [Parallel SubFlows](/design-patterns/parallel-subflows) 模式。
+
+## StepOptions {#stepoptions}
+
+Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 **Execute** 各有自己的设置。
+
+- **Timeout** 限制方法的一次 attempt。
+- **Retry policy** 在 attempt 失败后再次运行同一个方法。
+- **Failure policy** 决定重试用完之后怎么办。默认让 Flow 失败。**Execute** 可以改为进入一个 recovery Step，**WaitFor** 可以继续执行 **Execute**。
+- **Durability** 决定 Dex 什么时候存储结果。默认的 **SYNC** 在下一步工作开始前存储。**ASYNC** 更快，但 server 故障可能让方法再运行一次。
+- **Heartbeat** 让长时间运行的方法报告进度并保存 checkpoint。
+- **State loading** 和 **Attribute locks** 决定方法加载哪些状态、锁住哪些 Attribute。
+
+**StepDecision** 可以为某一次 Step execution 覆盖这些选项。
+
+## 保证 {#guarantees}
+
+每次 **WaitFor** 或 **Execute** 调用是一个独立的提交。Dex 把它的 Attribute 写入和 Channel 发布与结果一起提交，而且只在方法成功时提交。对外部系统的调用不在这个提交里。
+
+一个 Step 方法可能运行不止一次：失败后的重试会再运行它。Dex 不一定知道失败的 attempt 有没有执行工作。请让每个外部副作用都幂等，用 Flow ID 加 StepExecutionID，或你自己的业务 key 作为幂等 key。
+
+重试用完时，recovery Step 能知道工作是肯定没有运行，还是可能运行过。取消是协作式的：被取消的方法应检查取消状态并返回。
+
+## 细节
+
+英文的 [Flow and Step runtime](/reference/server/runtime-steps) 参考包含：
+
+- [等待](/reference/server/runtime-steps#waits)、条件结果和 [AnyCombinationOf](/reference/server/runtime-steps#anycombinationof)；
+- [Step decision](/reference/server/runtime-steps#step-decisions)，包括 [ForceCompleteIfChannelsEmpty](/reference/server/runtime-steps#forcecompleteifchannelsempty)；
+- [重试和失败策略](/reference/server/runtime-steps#retry-and-failure-policies)、[durability](/reference/server/runtime-steps#durability)、[超时](/reference/server/runtime-steps#timeouts-and-total-duration)、[heartbeat](/reference/server/runtime-steps#heartbeat) 和[取消](/reference/server/runtime-steps#cancellation)；
+- [状态加载](/reference/server/runtime-steps#selective-state-loading)和 [Attribute locks](/reference/server/runtime-steps#attribute-locks)；
+- [失败与重新投递](/reference/server/runtime-steps#failure-and-redelivery)。
