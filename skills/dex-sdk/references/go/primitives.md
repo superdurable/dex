@@ -1,145 +1,475 @@
 # Go primitives
 
-Read core primitive semantics first. This page supplies Go API shapes at the pinned baseline.
+This page shows each Primitive in Go. Read the matching core file for what it
+guarantees. Every skeleton here compiles and runs against the current SDK. The
+running example is an order that waits for approval, then ships.
 
 ## Flow, Step, and decisions
 
-A Flow implements `dex.Flow`; embedding `dex.FlowDefaults` supplies optional behavior. Register the start Step with `dex.DefineStartStep` and every reachable Step with `dex.DefineStep`. Embed `dex.StepDefaultsNoWaitFor[T]` when there is no WaitFor; otherwise implement both methods. Use the inherited type-name defaults and a domain Flow type name such as `OrderFlow`, never just `Flow`; follow the [production-rename exception](versioning.md#default-flow-and-step-type-names) before adding `GetFlowType` or `GetStepType`.
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/flow/workflow.go)
-<!-- dex-source: examples/go/primitives/flow/workflow.go -->
 ```go
-func (ExampleStep) WaitFor(ctx dex.Context, _ int) (*dex.Wait, error) {
-	if err := Status.Set(ctx, "running"); err != nil {
-		return nil, err
-	}
-	return dex.SkipWaitImmediately(), nil
+var (
+	OrderStatus = dex.DefineAttribute[string]("order-status",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "keyword1"}))
+	ApprovalDecisions = dex.DefineChannel[ApprovalDecision]("approval-decisions")
+	OrderProgress     = dex.DefineStream[string]("order-progress", 1<<20)
+)
+
+type OrderApprovalFlow struct {
+	dex.FlowDefaults
+	shipping ShippingService
 }
 
-func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
-	return dex.GoTo(Finish{}, input+1), nil
+func NewOrderApprovalFlow(shipping ShippingService) *OrderApprovalFlow {
+	return &OrderApprovalFlow{shipping: shipping}
+}
+
+func (flow *OrderApprovalFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(recordOrder{}),
+		dex.DefineStep(awaitApproval{}),
+		dex.DefineStep(shipOrder{shipping: flow.shipping}),
+	}
+}
+
+func (*OrderApprovalFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{ApprovalDecisions},
+		Streams:    []dex.StreamDef{OrderProgress},
+	}
+}
+
+func (flow *OrderApprovalFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.SubmitApproval, nil),
+		dex.DefineRPC(flow.GetOrderStatus, nil),
+	}
+}
+
+type recordOrder struct {
+	dex.StepDefaultsNoWaitFor[Order]
+}
+
+func (recordOrder) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
+	if err := OrderStatus.Set(ctx, "awaiting-approval"); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(awaitApproval{}, order), nil
+}
+
+type awaitApproval struct {
+	dex.StepDefaults
+}
+
+func (awaitApproval) WaitFor(_ dex.Context, _ Order) (*dex.Wait, error) {
+	return dex.AnyOf(
+		ApprovalDecisions.ForOne(),
+		dex.Timer(72*time.Hour),
+	), nil
+}
+
+func (awaitApproval) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		if err := OrderStatus.Set(ctx, "expired"); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete("expired"), nil
+	}
+	decisions, err := ApprovalDecisions.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !decisions[0].IsApproved {
+		if err := OrderStatus.Set(ctx, "rejected"); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete("rejected"), nil
+	}
+	return dex.GoTo(shipOrder{}, order), nil
+}
+
+type shipOrder struct {
+	dex.StepDefaultsNoWaitFor[Order]
+	shipping ShippingService
+}
+
+func (shipOrder) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteMethodTimeout: 30 * time.Second,
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    5,
+		},
+	}
+}
+
+func (step shipOrder) Execute(ctx dex.Context, order Order) (*dex.StepDecision, error) {
+	idempotencyKey := ctx.FlowID() + "/" + ctx.StepExecutionID()
+	if err := step.shipping.Ship(ctx, order.OrderID, idempotencyKey); err != nil {
+		return nil, err
+	}
+	if err := OrderProgress.Write(ctx, "shipped "+order.OrderID); err != nil {
+		return nil, err
+	}
+	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(order.OrderID), nil
 }
 ```
 
-Use `GoTo`, `GoToMany`, or `DeadEnd` to keep work open. Graceful completion waits for compatible active branches; force completion/failure is an explicit terminal override.
+- A Flow embeds `dex.FlowDefaults` and implements `GetSteps` and
+  `GetPersistenceSchema`. It overrides `GetRPCs` when it has RPCs.
+- `DefineStartStep` marks at most one start Step. Its input type is the Flow's
+  start input. A Flow with no start Step runs no Step until an RPC moves one.
+- Register every Step a decision, failure route, or RPC can reach with
+  `DefineStep`.
+
+| Step shape | Embed | Implement |
+| --- | --- | --- |
+| No wait | `dex.StepDefaultsNoWaitFor[IN]` | `Execute` |
+| Wait, then execute | `dex.StepDefaults` | `WaitFor` and `Execute` |
+| Custom options | either | also `GetStepOptions() *dex.StepOptions` |
+
+| Decision | Go |
+| --- | --- |
+| Move to one Step | `dex.GoTo(step, input)` |
+| Move to several Steps | `dex.GoToMany(dex.MovementOf(a, x), dex.MovementOf(b, y))` |
+| End this branch only | `dex.DeadEnd()` |
+| Complete after open branches finish | `dex.GracefulComplete(output)` |
+| Complete now, canceling other branches | `dex.ForceComplete(output)` |
+| Fail the Flow | `dex.ForceFail(reason)` |
+| Complete only if Channels are empty, else move | `dex.ForceCompleteIfChannelsEmpty(output, channels, otherwise...)` |
+| Cancel Steps after this decision | `.CancelSiblingSteps(steps...)` or `.CancelSteps(steps...)` |
+| Override target options for one move | `dex.MovementOf(step, input, dex.WithStepOptions(options))` |
 
 ## Wait and Timer
 
-`dex.Until(condition)` waits for one condition; `AllOf` and `AnyOf` combine conditions. Among ready `AnyOf` candidates, Dex uses canonical Timer, Channel, then SubFlow order and preserves argument order within each kind. An earlier unready Condition does not block a later ready one. Only the winning Channel consumes messages. For strict priority, return only the current higher-priority Condition until it resolves. Timers are durable conditions, not sleeps inside Execute.
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/timer/workflow.go)
-<!-- dex-source: examples/go/primitives/timer/workflow.go -->
-```go
-func (timerStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
-	return dex.Until(dex.Timer(time.Duration(input) * time.Second)), nil
-}
-
-func (timerStep) Execute(_ dex.Context, _ int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete("timer-fired"), nil
-}
-```
+- `WaitFor` returns `dex.Until(condition)`, `dex.AnyOf(...)`, `dex.AllOf(...)`,
+  `dex.AnyComboOf(dex.Combo(...), ...)`, or `dex.SkipWaitImmediately()`.
+- Conditions: `channel.ForOne()`, `channel.ForN(n)`, `AtLeast`, `AtMost`,
+  `AtLeastAtMost`, `dex.Timer(duration)`, and `dex.SubFlow(flow, input)`.
+  `dex.WithConditionID(id)` names a condition so `Execute` can tell winners
+  apart.
+- In `Execute`, read the outcome with `ctx.HasTimerFired()`,
+  `ctx.HasTimerFiredByIndex(i)`, `channel.GetConditionResults(ctx)`, and
+  `dex.SubFlowResult(ctx)`.
+- `WaitFor` decides what to wait for. Keep it deterministic and free of
+  external effects. It may retry.
+- A Timer is a durable condition. It survives Worker loss. Never use
+  `time.Sleep` for business time.
 
 ## Attribute and AttributeMap
 
-Define typed state at package scope with `DefineAttribute[T]` or `DefineAttributeMap[T]` and register it in `PersistenceSchema`. Reads/writes use `dex.Context` and return errors. AttributeMap instances partition one schema definition; selectively load exact instances when handlers do not receive the whole map. Index only query fields. Use an Attribute Store only when state must be queryable outside an invocation. For a short-lived secret, such as an API key, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes); it supports only string and object values and cannot be indexed or synced.
+- `dex.DefineAttribute[T](name, options...)` and
+  `dex.DefineAttributeMap[T](name, options...)` define typed state at package
+  scope. List them in `PersistenceSchema.Attributes`.
+- Options: `dex.Indexed(dex.AttributeIndex{Type, IndexKey})` for search,
+  `dex.SyncToAttributeStore()` for the external store, and
+  `dex.HardDeleteOnNull()` for secrets.
+- Index keys are typed generic slots such as `keyword1`, `int1`, or `text1`.
+  Reuse a slot across Flow types only with the same index type. Scope searches
+  by Flow type. An AttributeMap index needs an explicit `IndexKey`.
+- `Get` returns `*dex.AttributeNotFoundError` for an unset value. `Set` and
+  `Delete` stage a write. Writes commit only when the handler returns
+  successfully.
+- A map handler reads only instances it loaded. A missing load returns
+  `*dex.AttributeMapNotLoadedError`. That is a modeling bug, not an absent key.
+- Load on registration with `StepOptions.ExecuteLoadAttributeMapInstances`,
+  `WaitForLoadAttributeMapInstances`, or `RPCOptions.LoadAttributeMapInstances`.
+  Load a request-chosen instance per call with `RPCInvokeOptions`.
+- Lock with `dex.LockAttribute(attribute)` or
+  `dex.LockAttributeMap(attributeMap, instance)` in
+  `StepOptions.{WaitFor,Execute}LockAttributes`, `RPCOptions.LockAttributes`,
+  or `RPCInvokeOptions.LockAttributeMapInstances`. A lock does not load the
+  value. A read-modify-write needs both the lock and the load.
+
+```go
+var (
+	CaseNotes    = dex.DefineAttributeMap[Note]("case-notes")
+	CaseRevision = dex.DefineAttribute[int64]("case-revision")
+)
+
+func (flow *CaseFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.UpdateNote, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(CaseRevision)},
+		}),
+		dex.DefineRPC(flow.GetNote, nil),
+	}
+}
+
+func (*CaseFlow) UpdateNote(ctx dex.Context, update NoteUpdate) (*dex.RPCResult[dex.None], error) {
+	revision, err := CaseRevision.Get(ctx)
+	var notFound *dex.AttributeNotFoundError
+	if err != nil && !errors.As(err, &notFound) {
+		return nil, err
+	}
+	if err := CaseNotes.Set(ctx, update.NoteID, Note{Text: update.Text}); err != nil {
+		return nil, err
+	}
+	if err := CaseRevision.Set(ctx, revision+1); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func updateNote(ctx context.Context, client *dex.Client, flow *CaseFlow, flowID string, update NoteUpdate) error {
+	return client.InvokeRPCWithOptions(ctx, flowID, flow.UpdateNote, update, nil, dex.RPCInvokeOptions{
+		LockAttributeMapInstances: []dex.AttributeLock{dex.LockAttributeMap(CaseNotes, update.NoteID)},
+		LoadAttributeMapInstances: []dex.AttributeMapLoad{CaseNotes.Load(update.NoteID)},
+	})
+}
+```
+
+The singleton `CaseRevision` lock serializes every writer that requests it.
+Every cooperating Step and RPC must request the same lock. The lock is held by
+the request, not by the value: never toggle an Attribute to "acquire" it.
+
+### Hard-delete Attributes
+
+```go
+var ModelAPIKey = dex.DefineAttribute[string]("model-api-key", dex.HardDeleteOnNull())
+```
+
+- Use it for a short-lived secret, such as an API key passed at start with
+  `dex.InitialAttribute(ModelAPIKey, apiKey)` in `StartFlowOptions.Attributes`.
+  `InitialAttribute` returns an error; check it.
+- `Delete`, or `Set` with nil, removes the value permanently. Delete it as soon
+  as the Flow no longer needs it. A deleted value reads as
+  `*dex.AttributeNotFoundError`.
+- Only string and object value types are allowed. It cannot be indexed or
+  synced, and Attribute-match waits reject it.
+- A write or delete can become visible before its attempt commits. Keep the
+  handler safe to repeat, and never read-modify-write the value.
 
 ## Channel and ChannelMap
 
-Channels are durable queues. `ForOne` and `ForN` create conditions; after firing, read condition results and delete/move messages deliberately. ChannelMap separates queues by validated instance name. External callers invoke a typed Flow RPC; its handler publishes through Context.
-
-Pending-message reads inside a Step or RPC are invocation snapshots. Other handlers may consume, delete, or publish concurrently. Transactional execution validates selected deletions and commits writes atomically, but does not lock the whole snapshot. Read and write pending messages directly only when the operation explicitly tolerates that race. When a decision requires the queue to remain unchanged, every cooperating Step and RPC writer must use the same Attribute lock.
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/channel/workflow.go)
-<!-- dex-source: examples/go/primitives/channel/workflow.go -->
-```go
-func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
-	return dex.AnyOf(
-		ApprovalMessages.ForOne(),
-		dex.Timer(time.Duration(input)*time.Second),
-	), nil
-}
-```
+- `dex.DefineChannel[T](name)` is a durable FIFO queue. `dex.DefineChannelMap[T]`
+  gives one queue per instance name. List them in `PersistenceSchema.Channels`.
+- Publish from an RPC or a Step with `channel.Publish(ctx, value)`. External
+  callers publish through a typed RPC; the Client has no direct publish.
+- A condition consumes messages only when it wins. `GetConditionResults(ctx)`
+  returns the consumed values.
+- `PendingMessages`, `FindPendingMessage`, and `Delete` need the Channel loaded
+  through `ExecuteLoadChannels`, `RPCOptions.LoadChannels`, or the map
+  variants. A missing load returns `*dex.ChannelMessagesNotLoadedError`.
+- Pending reads are a snapshot of the invocation. Other handlers may publish
+  or consume concurrently. Set `RPCOptions.IsTransactional` when an RPC deletes
+  and publishes as one unit. When a decision needs the queue unchanged, every
+  cooperating writer requests the same Attribute lock.
+- Runnable: [Channel example](https://github.com/superdurable/dex/blob/main/examples/go/primitives/channel/workflow.go).
 
 ## RPC
 
-Only methods returned from `GetRPCs` are Worker RPCs. Register direct bound Flow methods with `dex.DefineRPC`. Put timeout, locks, transactions, and selective loads in its `dex.RPCOptions`; `Client.InvokeRPC` takes no options argument. A definition without locks or transactional execution can query a retained terminal run when the handler returns no durable effects. Locks, transactions, returned effects, or Server policy require an active execution. Keep handlers short and lock conflicting Attributes. RPC results may request supported movements, publishing, or cancellation; never emulate transactions with process-local locks.
-
-From Go SDK v1.35.0, `RPCOptions.Name` sets the RPC's protocol name: the RPC name that Workers serve, that Clients in every language invoke, and that `dexcli` and Dex Web use. Empty keeps the Go method name, such as `GetStatus`. Set it when a Flow type that another language defines names the RPC, such as `send_user_message`, so a Go Worker serves it and a Go Client invokes it. Go code still refers to the RPC by its bound method in `dex.DefineRPC` and `Client.InvokeRPC`.
-
-[Released Go RPC names](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/README.md#rpc-names)
-<!-- dex-source: sdk-go/README.md -->
 ```go
-dex.DefineRPC(flow.SendUserMessage, &dex.RPCOptions{Name: "send_user_message"})
+func (*OrderApprovalFlow) SubmitApproval(
+	ctx dex.Context,
+	decision ApprovalDecision,
+) (*dex.RPCResult[dex.None], error) {
+	if err := ApprovalDecisions.Publish(ctx, decision); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
 
-var queued bool
-err := client.InvokeRPC(ctx, flowID, flow.SendUserMessage, message, &queued)
+func (*ReportFlow) RestartReport(_ dex.Context, query string) (*dex.RPCResult[bool], error) {
+	result := &dex.RPCResult[bool]{
+		Output:    true,
+		NextSteps: []dex.StepMovement{dex.MovementOf(generateReport{}, query)},
+	}
+	return result.CancelSteps(generateReport{}), nil
+}
 ```
 
-Registry construction rejects a name with characters other than ASCII letters, digits, `_`, and `-`; a name equal to another RPC's protocol name or Go method name in the same Flow, so two RPCs cannot swap names; and one method registered twice. Keep the name stable: running Flows and their callers use it. From the same release, a Go Worker reads a request without input for an RPC whose input is `dex.None` as JSON null, so a TypeScript Client can call it; earlier Go Workers reject that request. A request without input for an RPC that takes an input still fails with `INVALID_ARGUMENT`. [Released RPCOptions](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/options.go)
+- An RPC is a bound Flow method with the shape
+  `func (flow *F) VerbNoun(ctx dex.Context, input IN) (*dex.RPCResult[OUT], error)`.
+  Only methods listed in `GetRPCs` through `dex.DefineRPC` are RPCs.
+- Start every RPC name with a verb, such as `GetOrderStatus` or
+  `SubmitApproval`.
+- `dex.RPCOptions` fixes the timeout, locks, `IsTransactional`, and loads at
+  registration. `RPCOptions.Name` sets the protocol name that every language's
+  Client calls. Set it when another language's code names the RPC. Keep it
+  stable.
+- Callers invoke `client.InvokeRPC(ctx, flowID, flow.Method, input, &output)`.
+  Use `InvokeRPCWithOptions` only to add request-chosen map locks and loads.
+- `RPCResult.NextSteps` moves Steps. `RPCResult.CancelSteps(...)` cancels
+  every current execution of a Step type, Flow-wide. An RPC has no Step
+  lineage, so it has no sibling cancellation.
+- An RPC without locks, transaction, or returned effects can read a retained
+  closed run. Locks, `IsTransactional`, `NextSteps`, or cancellation require an
+  open run.
+- Keep RPC handlers short. Do no remote I/O while holding locks.
 
 ## Stream
 
-Define a Stream with a byte limit and register it. A Step writes ordered progress; consumers resume from the Client token. A Stream is a feed, not authoritative state.
+- `dex.DefineStream[T](name, capacityBytes)` defines an ordered progress feed.
+  List it in `PersistenceSchema.Streams`.
+- A Step writes with `stream.Write(ctx, value)`. For text output, wrap the
+  Stream with `dex.NewBufferedTextStream(ctx, stream, options...)`; it flushes
+  when the invocation ends.
+- A reader calls `client.ReadStream(ctx, flowID, stream, resumeToken, &value)`
+  and keeps `StreamMessage.ResumeToken` for the next call. An empty token
+  starts at the beginning.
+- `client.ListStreamMessages(ctx, flowID, stream, pageSize, beforePageToken, &page)`
+  returns newest-first pages. Pass `NextPageToken` back unchanged.
+- A Stream is best-effort output, not authoritative state. Readers tolerate
+  duplicates.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/stream/workflow.go)
-<!-- dex-source: examples/go/primitives/stream/workflow.go -->
+## SubFlow
+
 ```go
-var Progress = dex.DefineStream[string]("Progress", 10<<20)
+func (step awaitReview) WaitFor(_ dex.Context, documentID string) (*dex.Wait, error) {
+	return dex.Until(dex.SubFlow(step.child, documentID)), nil
+}
 
-type StreamFlow struct {
-	dex.FlowDefaults
+func (awaitReview) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var review string
+	if err := result.DecodeSingleOutput(&review); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(review), nil
 }
 ```
 
-Use `Client.ReadStream` for forward, one-at-a-time, optionally long-polling consumption. Use `Client.ListStreamMessages` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `NextPageToken` unchanged to the next call until it is empty.
+- `dex.SubFlow(childFlow, input, dex.SubFlowOptions{...})` is a Wait condition
+  owned by the parent. Register parent and child in the same Registry.
+- `SubFlowOptions` sets the child's timeout, reuse policy, initial Attributes,
+  and condition ID. `dex.SubFlowID(ctx)` returns the child's Flow ID.
+- Runnable: [SubFlow example](https://github.com/superdurable/dex/blob/main/examples/go/primitives/subflow/parent_flow.go).
 
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/stream/controller.go)
-<!-- dex-source: examples/go/primitives/stream/controller.go -->
+## Client
+
 ```go
-var page sdk.StreamMessagesPage[string]
-err = controller.client.ListStreamMessages(
-	request.Request.Context(),
-	flowID,
-	Progress,
-	int32(pageSize),
-	request.Query("beforePageToken"),
-	&page,
-)
+func startAndWait(ctx context.Context, client *dex.Client, flow *OrderApprovalFlow, order Order) (string, error) {
+	flowID := "order-" + order.OrderID
+	if _, err := client.StartFlow(ctx, flow, flowID, order, dex.StartFlowOptions{}); err != nil {
+		return "", err
+	}
+	if err := client.InvokeRPC(ctx, flowID, flow.SubmitApproval,
+		ApprovalDecision{IsApproved: true, Approver: "ops"}, nil); err != nil {
+		return "", err
+	}
+	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{NeedsResults: true})
+	if err != nil {
+		return "", err
+	}
+	if result.Status != dex.FlowCompleted {
+		return "", errors.New("order flow did not complete: " + result.ErrorMessage)
+	}
+	var status string
+	if _, err := client.GetAttributes(ctx, flowID, dex.ReadAttribute(OrderStatus, &status)); err != nil {
+		return "", err
+	}
+	return status, nil
+}
+
+func waitForCaseRevision(ctx context.Context, client *dex.Client, flowID string, revision int64) (int64, error) {
+	var current int64
+	err := client.WaitForAttributeMatch(ctx, flowID, CaseRevision,
+		dex.AttributeMatchGreaterThanOrEqual(revision), &current, dex.WaitForAttributeOptions{})
+	return current, err
+}
 ```
 
-The before-page token is exclusive and scope-bound. The first page uses an empty token. Listing is a best-effort retained snapshot: concurrent newer writes stay outside the older-page chain, while trimming may remove messages. A trimmed anchor returns an empty page. The server requires a positive page size and caps it at 1000 by default.
+| Need | Go Client call |
+| --- | --- |
+| Start a Flow | `StartFlow(ctx, flow, flowID, input, options)` |
+| Wait for the terminal result | `WaitForFlow(ctx, flowID, options)` |
+| Read committed Attributes | `GetAttributes(ctx, flowID, reads...)` |
+| Mutate state or compute a snapshot | `InvokeRPC` / `InvokeRPCWithOptions` |
+| Wait for a committed Attribute value | `WaitForAttributeMatch` / `WaitForAttributeMapInstanceMatch` |
+| Wait for one Step execution | `WaitForStepCompletion(ctx, flowID, dex.StepExecutionID{StepType: ...}, options)` |
+| One-off status of a known Flow | `DescribeFlow(ctx, flowID)` |
+| Find Flows by indexed Attributes | `SearchFlows(ctx, query, pageSize, nextPageToken)` |
+| Read or list Stream output | `ReadStream` / `ListStreamMessages` |
+| Stop a Flow | `StopFlow(ctx, flowID, dex.StopOptions{...})` |
 
-## SubFlow and Client
-
-`dex.SubFlow(child, input)` is a parent-owned Wait condition. Register parent and child, and explicitly model what parent completion means for unfinished children. Client owns Flow lifecycle, committed Attribute reads, typed RPC invocation, Attribute-match waits, Stream operations, history, search, config, timers, and reset. Read committed Attributes with [`Client.GetAttributes`](#client-attribute-reads). Write Flow-owned Attribute and Channel state, and read pending Channel messages, through typed RPCs; the Client has no direct write method. Always pass a bounded context and match typed errors with `errors.As`.
+- Pass a bounded `context.Context` to every call.
+- `WaitForFlow` may return `*dex.LongPollTimeoutError` when the Server ends one
+  long poll. Call it again. A failed Flow is a `FlowResult.Status`, not a Go
+  error.
+- `WaitForAttributeMatch` needs an open run. After the run closes it returns
+  `*dex.FlowNotActiveOrNotFoundError`; read the final value with
+  `GetAttributes`.
+- The output pointer of an Attribute-match wait receives the actual matched
+  value. A revision Attribute is a coalescing watermark: one wait can skip
+  intermediate values. Reload state after the wait.
+- The Client has no direct state write. Write Flow-owned state through a typed
+  RPC.
 
 ## Client Attribute reads
 
-From Go SDK v1.25.0, `Client.GetAttributes(ctx, flowID, reads...)` reads committed values of registered Attributes and AttributeMap instances in one server call, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass one `dex.ReadAttribute(attribute, &value)` or `dex.ReadAttributeMapInstance(attributeMap, instance, &value)` per value; destinations are plain `*T`. There is no single-Attribute method.
+- `client.GetAttributes(ctx, flowID, reads...)` reads committed values of
+  registered Attributes in one call, without a Worker. It reads a retained
+  closed run too.
+- Pass `dex.ReadAttribute(attribute, &value)` or
+  `dex.ReadAttributeMapInstance(attributeMap, instance, &value)` for each value.
+- An unset value leaves its destination unchanged. Use the returned
+  `AttributeReadResult.IsSet` or `IsMapInstanceSet` when unset must differ
+  from a stored zero value.
+- On any error no destination is written.
+- Each definition must equal one registered by a Flow in the Client's
+  Registry: same name, kind, value type, and options.
 
-[Released Go Client Attribute read](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/README.md)
-<!-- dex-source: sdk-go/README.md -->
+## StepOptions, durability, and heartbeat
+
+- `StepOptions` holds per-method timeouts, `HeartbeatTimeout`, `WaitForRetry`
+  and `ExecuteRetry` (`*dex.RetryPolicy`), failure routes, durability, locks,
+  and loads. Leave a field zero to use the default.
+- Route an exhausted `Execute` with
+  `ExecuteFailure: dex.ProceedToOnExecuteFailure(recoveryStep{}, nil)`. Route an
+  exhausted `WaitFor` with `WaitForFailure: dex.ProceedOnWaitForFailure`; the
+  following `Execute` sees `ctx.WaitForMethodFailed()`.
+- Durability: `StepDurabilitySync` persists before the next move.
+  `StepDurabilityAsync` is faster but can rerun recent work after a node
+  failure. Set a Flow default with `FlowConfig.StepDurability` through
+  `StartFlowOptions.ConfigOverride`, and override `WaitForDurability` or
+  `ExecuteDurability` per method.
+- `Context` embeds `context.Context`. Pass `ctx` into external calls; its
+  deadline is the attempt deadline. Check `ctx.Err()` in long loops; Dex
+  cancels the context on timeout, heartbeat loss, Step cancellation, or Worker
+  stop.
+- `ctx.FlowID()` plus `ctx.StepExecutionID()` is stable across retries of one
+  Step execution. Use it as an idempotency key. `ctx.Attempt()` is not one.
+- `ctx.FlowStartedAt()` is the run's start time. Use it, not `time.Now()`, for
+  deterministic identities.
+
 ```go
-orderStatus := dex.DefineAttribute[string]("order-status")
-notes := dex.DefineAttributeMap[Note]("notes")
-var status string
-var note Note
-result, err := client.GetAttributes(ctx, flowID,
-	dex.ReadAttribute(orderStatus, &status),
-	dex.ReadAttributeMapInstance(notes, "n1", &note),
-)
-if err != nil {
-	return err
+func (importRecords) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteMethodTimeout: time.Hour,
+		HeartbeatTimeout:     time.Minute,
+	}
 }
-if !result.IsSet(orderStatus) {
-	status = "new"
+
+func (importRecords) Execute(ctx dex.Context, batchCount int) (*dex.StepDecision, error) {
+	var checkpoint ImportCheckpoint
+	if _, err := ctx.GetLastHeartbeatValue(&checkpoint); err != nil {
+		return nil, err
+	}
+	for batch := checkpoint.NextBatch; batch < batchCount; batch++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// Import one batch idempotently here.
+		if err := ctx.RecordHeartbeat(ImportCheckpoint{NextBatch: batch + 1}); err != nil {
+			return nil, err
+		}
+	}
+	return dex.GracefulComplete(batchCount), nil
 }
 ```
 
-An unset Attribute or AttributeMap instance leaves its destination unchanged. Most callers ignore the returned `AttributeReadResult`; use `IsSet` or `IsMapInstanceSet` when an unset value must be told apart from a stored zero value. The zero result reports nothing as set. Destinations are written only after every value decodes, so an error never leaves partial writes. Each definition must match one registered by a Flow in the Client's Registry: the same name, Attribute or AttributeMap kind, index, `SyncToAttributeStore`, `HardDeleteOnNull` setting, and value type `T`. `IsSet` and `IsMapInstanceSet` report true only for a definition deeply equal to the one passed to the read; another definition with the same name reports false. Duplicate reads, an empty Flow ID, a nil destination, and an invalid instance name fail before the server call. See [Client Attribute read errors](error-handling.md#client-attribute-read-errors). [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/client_attributes.go)
-
-## Selection rule
-
-With Go SDK v1.21.0, use `Client.DescribeFlow(ctx, flowID)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state and the caller needs to know whether the Flow has failed. The pinned example module selects SDK v1.29.0, which has it; still check the project's installed SDK first. It returns `dex.FlowInfo` with Flow ID, run ID, Flow type, status, start time, and close time; zero `ClosedAt` means the run is open or its close time is unavailable. A missing Flow returns `*dex.FlowNotFoundError`. It does not wait: use `Client.WaitForFlow` for a terminal result, repeat it after its long-poll timeout, and do not loop on DescribeFlow. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `WaitForFlow` returns immediately, and a failed result carries them in `FlowResult.ErrorType` and `ErrorMessage`. Do not use DescribeFlow as a StartFlow preflight. Use `Client.SearchFlows` to discover Flows by query. [Released Go Client API](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/client.go)
-
-Use Attribute for current state, Channel for queued intent, `Client.GetAttributes` for a direct read of committed Attributes, RPC for synchronous mutation or a computed snapshot, Stream for incremental output, Timer for durable time, and SubFlow for an independently identified durable child.
+- `RecordHeartbeat` keeps a long attempt alive and stores a checkpoint for the
+  next attempt. Checkpoints are lossy: a retry can see an older value. Never
+  use a checkpoint as the only proof of an external effect.
+- `GetLastHeartbeatValue` returns false and leaves the target unchanged when
+  no checkpoint exists.
+- Step cancellation is cooperative. A canceled attempt's late writes and
+  decision are discarded, but its external calls already happened.

@@ -1,169 +1,237 @@
 # TypeScript handbook
 
-The SDK API reference uses the [released v1.35.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current API.
+Read this page first for TypeScript application work. It gives the
+TypeScript rules only. Concepts and guarantees live in core:
+[Flow](../core/flow.md), [Step](../core/step.md),
+[Attribute](../core/attribute.md), [RPC](../core/rpc.md),
+[Channel](../core/channel.md), [Stream](../core/stream.md),
+[Timer](../core/timer.md), [SubFlow](../core/subflow.md),
+[Connector](../core/connector.md), [Client](../core/client.md),
+[Application](../core/application.md), [error handling](../core/error-handling.md),
+[testing](../core/testing.md), and [patterns](../core/patterns.md).
 
-Read this page first for TypeScript application work, then open only the topic reference needed. The [baseline package](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/package.json) uses `@superdurable/dex@1.30.0` on Node.js 22 or 24. Always inspect the application's lockfile and installed declarations before using a precise API.
+| Task | Page |
+| --- | --- |
+| Write Flows, Steps, state, RPCs, Streams, SubFlows, Client calls | [primitives](primitives.md) |
+| Apply a design pattern | [patterns](patterns.md) |
+| Client boundaries, retries, recovery | [error handling](error-handling.md) |
+| Verify against a real Dex Server | [testing](testing.md) |
+
+## Version rule
+
+Find the SDK version the project resolves before you rely on an API detail:
+
+```bash
+npm ls @superdurable/dex
+```
+
+Open the [TypeScript SDK reference](https://docs.superdurable.io/reference/typescript/)
+and pick that minor in the left-sidebar version selector. API signatures,
+defaults, units, and errors live in the TSDoc comments of the installed
+package (`node_modules/@superdurable/dex/dist/src/*.d.ts`). The installed
+declarations win over anything remembered. Do not invent an API that the
+declarations do not contain.
 
 ## Project shape
 
-Keep Flow/Step definitions separate from HTTP handlers, construct all Flow instances in one registry module, and create one `Registry`, `BlobCache`, `Worker`, and `Client` per process. Pass the Client into adapters or a controlled holder when async Steps start or interact with other Flows. Values cross the boundary through `Codec<T>`.
+- Import everything from `@superdurable/dex`. The package is ESM only. Use
+  `"type": "module"` and `module`/`moduleResolution` `NodeNext`.
+- Use a supported Node.js LTS line. The SDK reference lists them.
+- Keep Flow and Step classes in application modules. Keep HTTP handlers in
+  separate controller modules.
+- Construct every Flow instance once, in one registry module. Inject business
+  services through Flow and Step constructors.
+- Create one `Registry`, one `BlobCache`, one `Worker`, and one `Client` per
+  process. The Worker and the Client share the same Registry and BlobCache.
+- When a Step needs the Client (for example to start another top-level Flow),
+  inject a holder that is set after bootstrap. Do not import the Client from
+  a module that the Flow module also imports.
+- `@rpc` is a TC39 standard (stage 3) decorator. Keep
+  `experimentalDecorators` off. When the runtime cannot transform decorators,
+  such as Node.js type stripping, use `declareRPCMethod` instead
+  ([RPC](primitives.md#rpc)).
 
-## Pull Workers and Dex credentials
+Runnable layout: [examples/typescript](https://github.com/superdurable/dex/tree/main/examples/typescript)
+([registry](https://github.com/superdurable/dex/blob/main/examples/typescript/src/registry.ts),
+[bootstrap](https://github.com/superdurable/dex/blob/main/examples/typescript/src/main.ts),
+[Worker startup](https://github.com/superdurable/dex/blob/main/examples/typescript/src/config/worker.ts)).
 
-From TypeScript SDK v1.25.0, every Worker is a pull Worker. Pass `{ serverAddress }` to both the Worker and the Client; no Worker address or target is configured, and StartFlow and SubFlow always route to pull Workers. v1.25.0 removed `WorkerOptions.bindAddress`, `WorkerOptions.workerTarget`, `ClientOptions.workerTarget`, `FlowConfig.workerTarget`, `Worker.workerTarget`, `WorkerTarget`, and `PullWorkerTarget`; delete them when upgrading. `updateFlowConfig` does not change a Flow's Worker routing. Omitting `pull` uses the defaults; pass `{ pull: { maxConcurrentTasks: 8 } }` to tune it. Pull options also include `idleStreamsPerQueue`, `appWorkerID`, and `stopDrainTimeoutMs`; defaults are one idle stream per queue, a generated process ID, and 30,000 milliseconds. Change an explicit app Worker ID after restart. `worker.close()` drains active handlers within that timeout. With TypeScript SDK v1.12.0, a Worker that lacks a requested Step type or RPC name declines it before the handler runs, so Dex can reassign the task without consuming the Step attempt. Follow the [pull Worker guarantees](../core/pull-workers.md) for sticky routing, retries, heartbeats, and stream capacity. [Released TypeScript options](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/options.ts) [Runnable pull Worker example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/production/pull-workers.ts)
+## Wiring skeleton
 
-From TypeScript SDK v1.23.0, a queue that declines a Step for reserved RPC capacity keeps one extra idle stream for 30 seconds; set `pull` idle streams per queue to at least two for heavy Step backlogs. The Worker also sends an internal upstream Pong every 20 seconds while a task runs, so proxy idle timeouts must exceed 20 seconds and Server **matching.pingInterval**.
+`GreetingFlow` is any Flow class ([primitives](primitives.md#flow-and-step)).
 
-TypeScript SDK v1.14.0 adds **await worker.waitPullRegistered({ timeoutMs: 10_000 })** after **await worker.start()**. The wait accepts **signal: AbortSignal**; abort or timeout ends only that wait. Probe **worker.pullRegistrationState().isReady**; queue entries expose **queue**, **hasRegisteredStream**, and **lastPermanentError**. **PullRegistrationError** preserves the rejected **queue** and original gRPC **cause**. Set **pull.stopOnPermanentStreamRejection: true** to drain on a permanent rejection that leaves a queue without another registered stream. To supervise fatal rejection, launch **worker.run()** instead of calling **start()**, attach rejection handling immediately, and await registration separately. **run()** reports **PullRegistrationError** after draining; **start()** remains non-blocking after local startup. Do not call both startup methods on one Worker. Always call **close()** afterward. Follow the shared [readiness contract](../core/pull-workers.md#startup-registration-and-readiness), including stable readiness across reconnects and close. [Released TypeScript readiness API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/worker.ts)
-
-With SDK v1.15.0, **PullWorkerOptions.reservedRpcTasks** reserves RPC capacity. Leave it **undefined** for the default; pass **0** to opt out. Unset reserves one slot when resolved maximum concurrent tasks **M ≥ 2**; otherwise it reserves zero and logs one startup warning. Require **0 ≤ R < M**; invalid reserves fail construction. This intentionally gives Steps one fewer slot by default. Both API-direct and transactional RPC tasks may use all **M** slots; WaitFor and Execute, including local attempts, are declined at **M − R** total busy handlers. Export **Worker.pullReservedRpcDeclines** to measure reserve declines. Follow the shared [reserve semantics and sizing advice](../core/pull-workers.md#reserved-rpc-capacity) for dispatch exhaustion, counter scope, and long-running Steps. [Released capacity guidance](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md)
-
-With SDK v1.14.1, the Worker gracefully closes surplus idle streams after load drops while preserving readiness and the configured registered idle streams per queue. Size steady-state streams as **M + (F + 1) × I**, where **M** is maximum concurrent tasks, **F** is registered Flow types, and **I** is idle streams per queue. Burst peaks remain bounded by **matching.maxConcurrentTasksCap** and **matching.maxStreams**; follow the shared [capacity guidance](../core/pull-workers.md#heartbeats-capacity-and-shutdown).
-
-TypeScript SDK releases newer than v1.32.0 replace the decline, extra idle stream, and **M + (F + 1) × I** rules above. They require Server protocol 4 (server-zd newer than v0.1.16): against an older Server, **worker.start()** rejects and a **Client** fails its first call, so upgrade the Server first. The Worker keeps exactly **maxConcurrentTasks** long-lived streams, one per execution slot; **reservedRpcTasks** of them accept only RPCs and the rest accept Steps and RPCs. Each stream runs every task it receives; Steps are never declined for capacity. **worker.pullReservedRpcDeclines** is deprecated and always returns zero; **pull.idleStreamsPerQueue** is deprecated, still accepted, and has no effect. **waitPullRegistered** waits for one STEP_AND_RPC stream and, when reserved, one RPC_ONLY stream; readiness **queues** and **PullRegistrationError** **queue** hold those slot kinds. Startup fails when **maxConcurrentTasks** exceeds the Server's **matching.maxConcurrentTasksCap**. **close()** lets running handlers finish and send their output; Dex returns tasks that arrive during shutdown without consuming a retry. Follow the shared [reserved RPC capacity](../core/pull-workers.md#reserved-rpc-capacity) and [shutdown](../core/pull-workers.md#heartbeats-capacity-and-shutdown) guidance.
-
-Set `credential` separately in ClientOptions and WorkerOptions for an authenticated Dex Server. `FileCredential` reads a rotating file, while a custom `Credential.token()` can return a string or Promise for each call or pull stream opening. A thrown or rejected token fails the call locally. Keep the token out of Flow state, and set **flowServiceTls** or protect the plaintext connection. [Released TypeScript credentials](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/credential.ts)
-
-With TypeScript SDK v1.16.0, use **new ApiKeyCredential({ tokenUrl, serverId, apiKey })** when the application holds an API key instead of a rotated token file. The optional **exchangeTimeoutMs** defaults to 10,000 and covers connection and response. The optional **fetch** replaces global fetch for a proxy or a test endpoint; the application owns it. The constructor makes no request and throws **TypeError** for an invalid string, URL, timeout, or fetch. The first call performs the exchange. Pass the same instance as **credential** to Client and Worker options. A second rejection of a pull stream uses the Worker's 60–90 second backoff. The credential has no close method and holds no persistent HTTP client or timer. Closing a Client or Worker leaves it usable by the others. Follow the shared [API key Credential contract](../core/operations.md#api-key-credential) for refresh, rejection retries, and redaction. [README example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md)
-
-## FlowService TLS
-
-TypeScript SDK v1.35.0 accepts **ClientOptions.flowServiceTls** and **WorkerOptions.flowServiceTls**, each a **FlowServiceTlsOptions** object. Set them independently for the Client and Worker. Omitting it keeps plaintext gRPC; any value, even **{}**, uses TLS 1.2 or newer and verifies the server certificate. **additionalRootCAsPem?: string | Uint8Array** adds PEM root CAs to the Node.js default trust store, and **serverName?: string** overrides the **serverAddress** host for certificate verification, SNI, and HTTP/2 **:authority**. The option has no client-certificate field. With TLS, **serverAddress** must be **host:port**, **dns:///host:port**, or **dns://authority/host:port**, and the gateway must forward gRPC over HTTP/2. A Worker uses the same TLS connection settings for its pull task streams. An invalid address, name, or PEM bundle throws **TypeError** from the constructor; certificate and handshake failures appear as **UNAVAILABLE** on the first Client call or as a rejection from **worker.start()**. Prefer a DNS name: an IP target is sent as SNI, which Node.js 26 rejects. See [FlowService TLS](../core/operations.md#flowservice-tls) for the trust store, ALPN, and IPv6 authority details. [Released TypeScript TLS options](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/options.ts) · [README](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md)
-
-## Connector runtime support
-
-A TypeScript application can use an official Connector only where the published catalog lists `typescript` in that connector's `languages` map and in the `languages` list of every operation and Trigger the application needs. A package implements only the capabilities that list its language. Java and Rust have no Connector SDK.
-
-Install the connector package from npm as `@superdurable/connector-<slug>`, for example `@superdurable/connector-newsapi`. It requires `@superdurable/connectors-sdk`. Use the version that `languages.typescript` gives for the connector, and use Node.js 22 or 24 for the Worker.
-
-At startup, call `await loadFromEnvironment()` from `@superdurable/connectors-sdk/projectconfig` once ([loader](https://github.com/superdurable/dex-connectors-library/blob/sdkts/v0.1.1/sdkts/src/projectconfig/environment.ts), read at `sdkts/v0.1.1`). Open each connection with the connector package's `newProjectConnection(project, connectionName)`. Pass that connection to the operation-specific step factory, such as `newSearchArticlesStep(...)`. Register the Flow in a `Registry` and run it with the Dex `Worker`. The runnable [NewsAPI company news Worker](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/typescript/v0.1.0/connectors/newsapi/typescript/examples/company-news/worker.ts) and [integration test](https://github.com/superdurable/dex-connectors-library/blob/connectors/newsapi/typescript/v0.1.0/connectors/newsapi/typescript/examples/company-news/integration.ts) show this at `connectors/newsapi/typescript/v0.1.0`.
-
-Do not write your own loader or deserialize Dex Web's credential file into Flow state.
-
-## Deployed configuration and recovery boundary
-
-Dex provides no deployed Connector configuration or credential store. A deployed
-TypeScript application reads its connections with `loadFromEnvironment` from the Connector
-SDK's `@superdurable/connectors-sdk/projectconfig`, the TypeScript counterpart of the Go
-`sdkgo/projectconfig`; see
-[deployed Connector configuration](../core/operations.md#deployed-connector-configuration).
-Keep credentials behind the deployment's secret management; a browser, Flow input,
-or ordinary Attribute cannot select secret storage.
-When the Flow itself must hold a short-lived secret, such as an API key passed
-at start, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes)
-instead of an ordinary Attribute.
-For recovery after a Worker fix, preserve the original resource and Flow ID,
-reconcile external effects, and use an explicitly authorized, recorded Step
-boundary as described in [safe recovery](../core/operations.md#safe-recovery).
-
-## Dex Web v2 management metadata
-
-The current FDG 2.0 management-interface analyzer reads TypeScript source only
-for Step groups and explanations and for Connector package manifests, from
-cli-v1.28.0. A TypeScript Flow still cannot publish the Summary, Display, Action,
-Indexed Attribute, or Action input capture metadata that drives the full Dex Web
-v2 management interface; do not invent TypeScript syntax for it. Put exactly one
-`// dex:group group-id:lookup group-label:"Lookup"` line and one
-`// dex:explanation text:"Look up a catalog record."` line directly above each
-local Step class (decorators may sit between them and the class in Python), then
-run `dexcli visualize SOURCE --schema-version 2.0`. Follow the Core
-[FDG 2.0 guidance](../core/operations.md#fdg-20-management-metadata) for Connector
-package manifests.
-
-`dexcli visualize` and `--lint app` (cli-v1.28.1) accept several instances of one
-Step class and `new StepRef("Type")` with a string literal or the registered Step object as a
-movement, execute-failure, or cancellation target. They reject computed Step
-types, unknown names, ambiguous class targets, and a Step or Flow object used
-where the analyzer cannot prove it is unchanged, for example a Step passed to
-an imported function or cast. Keep Step objects in the Flow file; the reference
-lists the exact allowed uses. See the
-[Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization).
-
-## Minimal Flow
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/flow/example-flow.ts)
-<!-- dex-source: examples/typescript/src/primitives/flow/example-flow.ts -->
 ```typescript
-export class ExampleFlow implements Flow<number> {
-  private readonly finish = new Finish();
-  private readonly example = new ExampleStep(this.finish);
+import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
 
-  public getFlowType(): string {
-    return "ExampleFlow";
+export async function startDexApplication(serverAddress: string, blobCacheDirectory: string) {
+  const greetingFlow = new GreetingFlow();
+  const registry = new Registry([greetingFlow]);
+  const blobCache = openBlobCache({ directory: blobCacheDirectory, maxBytes: 1 << 30 });
+  const worker = new Worker(registry, blobCache, { serverAddress });
+  try {
+    await worker.start();
+    await worker.waitPullRegistered({ timeoutMs: 30_000 });
+  } catch (failure) {
+    await worker.close();
+    blobCache.close();
+    throw failure;
+  }
+  const client = new Client(registry, blobCache, { serverAddress });
+
+  async function stop(): Promise<void> {
+    await client.close();
+    await worker.close();
+    blobCache.close();
   }
 
-  public getSteps(): StepList<number> {
-    return StepList.startStep<number>(this.example).otherSteps(this.finish);
-  }
-
-  public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [status], channels: [notify] };
-  }
-```
-
-Each Step supplies a stable `getStepType()` and an input codec when a non-default wire form is required. A Flow returns all registered Step instances once. The starting Step input must match `Flow<I>`.
-
-[Pinned Step source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/flow/example-flow.ts)
-<!-- dex-source: examples/typescript/src/primitives/flow/example-flow.ts -->
-```typescript
-class ExampleStep implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
-  public constructor(private readonly finish: Finish) {}
-
-  public getStepType(): string {
-    return "ExampleStep";
-  }
-
-  public waitFor(context: Context, _input: number): Wait {
-    status.set(context, "running");
-    return Wait.skipImmediately();
-  }
-
-  public execute(_context: Context, input: number): StepDecision {
-    return goTo(Finish, input + 1);
-  }
+  return { greetingFlow, client, worker, stop };
 }
 ```
 
-## Registry, Worker, and Client
+The sizes and timeouts above are placeholders. Take real values from the
+application's configuration.
 
-[Released Worker bootstrap](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md#workers)
-<!-- dex-source: sdk-typescript/README.md -->
-```typescript
-const worker = new Worker(registry, cache, {
-  serverAddress: "dex.example:8801",
-  pull: {
-    maxConcurrentTasks: 8,
-    reservedRpcTasks: 1,
-    stopDrainTimeoutMs: 30_000,
-  },
-});
-await worker.start();
-const client = new Client(registry, cache, {
-  serverAddress: "dex.example:8801",
-});
-```
+## Names and types
 
-Create one Registry and one BlobCache for the process and share them with the Worker and Client. Await **start()** and then the bounded pull registration wait before accepting application traffic. Close Client and Worker and then close BlobCache on shutdown.
+- `Flow.getFlowType()` and `Step.getStepType()` are required. Return a
+  constant string. Name each Flow after its domain, such as `ApprovalFlow`,
+  never just `Flow`. Flow types are unique in a Registry. Step types are
+  unique in a Flow.
+- These strings, Attribute, Channel, Stream, and RPC names, and codec wire
+  shapes are durable identity. Open Flows resume on new code with them.
+  Renaming a class is safe only when the returned type strings stay the same.
+- TypeScript types are erased at run time. A `Codec<T>` is the runtime
+  contract. Generic annotations do not validate anything.
+- Scalar wire values need an explicit codec: `stringCodec`, `booleanCodec`,
+  `int64Codec` (`bigint`), `doubleCodec` (`number`), `bytesCodec`,
+  `voidCodec`. Omitted codecs mean JSON. A Step whose input is a `number` or
+  `string` must set `inputCodec`. An RPC with a scalar input or output must
+  set `inputCodec` or `outputCodec`.
+- Use `jsonCodec<T>({ typeName, decode })` for objects. Validate in `decode`
+  when the data is untrusted or evolves. Cross-language Flows depend on these
+  wire shapes.
+- Millisecond options are plain numbers named `...Ms`. Keep units in names.
 
-Install the application's resolved `@superdurable/dex` version with its package manager. Adapters call the shared Client and `await` starts, [`getAttributes`](primitives.md#client-attribute-reads) reads of committed Attributes, typed RPCs for Flow-owned state, Attribute-match waits, searches, Streams, and stops.
+## Handlers
 
-## Run locally
+- `execute`, `waitFor`, RPC handlers, and `handleTimeout` may be synchronous
+  or return a Promise. Await every Promise you start.
+- A handler that records heartbeats takes `AsyncContext` and is `async`.
+  RPC handlers get `Context` and cannot record heartbeats.
+- `Wait` is a description that `waitFor` returns. It is not a Promise. Never
+  `await` it and never sleep in `waitFor`.
+- Async work yields the event loop, so one Worker can serve the Flow or RPC
+  that its own handler calls. Synchronous CPU work blocks every handler of the
+  Worker. Split long CPU work or move it out of process.
+- `context.cancellationSignal` is cooperative. Pass it to abort-aware APIs.
+  Cancellation never undoes an external effect.
+- Staged Attribute writes, Channel publishes, and deletes commit only with
+  the handler's successful result. Module globals, files, and remote calls are
+  not durable. A thrown error discards the staged writes.
 
-```bash
-dexcli dev
-cd examples/typescript
-npm install
-npm start
-```
+## Worker lifecycle
 
-Use `npm run test:integ` with Dex already running, or `./run-integration-tests.sh` for the managed suite. The examples always run a pull Worker, which needs only an outbound connection to Dex. See the [pinned example README](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/README.md).
+Every Worker is a pull Worker. It needs only an outbound connection to the Dex
+Server. No Worker address or routing target exists.
 
-## Continue reading
+- `await worker.start()`. It negotiates the Server protocol, synchronizes
+  Attribute indexes, and resolves after the first slot registers. A Server
+  that is too old, unreachable, or rejects the configured capacity fails
+  `start()`.
+- Then `await worker.waitPullRegistered({ timeoutMs })` with a deadline before
+  you report the process ready or stop the old Worker in a rolling deploy.
+- Probe later readiness with `worker.pullRegistrationState().isReady`.
+  Reconnects do not flap it.
+- Use `worker.run()` instead of `start()` when a supervisor must observe a
+  fatal stream rejection. Call only one of the two on a Worker.
+- `PullWorkerOptions.maxConcurrentTasks` is the slot count.
+  `reservedRpcTasks` keeps some slots for RPCs only. Steps are never declined
+  for capacity. A reserved slot cannot bypass an Attribute lock held by a Step.
+- On shutdown call `client.close()`, then `worker.close()`, then
+  `blobCache.close()`. `worker.close()` stops taking tasks and lets running
+  handlers finish within the drain timeout. Handlers still running at the
+  deadline are canceled, and Dex treats those attempts as possibly run.
+- Use a fresh `appWorkerID` after every restart if you set one.
 
-- [Primitives](primitives.md) and [patterns](patterns.md) for modeling.
-- [Error handling](error-handling.md) before writing Client, admission, RPC, cleanup, wait, or external Stream boundaries.
-- [Testing](testing.md) before delivery.
-- [Data](data-handling.md), [observability](observability.md), and [versioning](versioning.md) for production.
-- [Gotchas](gotchas.md) and [advanced features](advanced-features.md) for async, loading, heartbeat, and cancellation details.
+Readiness, capacity, and shutdown settings:
+[TypeScript Workers reference](https://docs.superdurable.io/reference/typescript/workers)
+and [Server Workers reference](https://docs.superdurable.io/reference/server/workers).
+Runnable: [pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts).
+
+## Authentication and TLS
+
+- Set `credential` separately in `ClientOptions` and `WorkerOptions`.
+  `FileCredential` reads a rotating token file. `ApiKeyCredential` exchanges
+  an API key. A custom `Credential` returns the current token, or a Promise of
+  it, for each call and each stream opening.
+- Set `flowServiceTls` separately in `ClientOptions` and `WorkerOptions`.
+  Omitting it keeps plaintext gRPC. Any value, even `{}`, uses TLS and never
+  falls back to plaintext.
+- Keep tokens out of Flow input, Attributes, and logs.
+
+Details: [Server authentication reference](https://docs.superdurable.io/reference/server/authentication).
+
+## Connectors
+
+- Use an official Connector only when the published catalog lists
+  `typescript` for the connector and for every operation and Trigger you need.
+- Install the connector package `@superdurable/connector-<slug>` at the version
+  the catalog gives. It depends on `@superdurable/connectors-sdk`.
+- At startup call `await loadFromEnvironment()` from
+  `@superdurable/connectors-sdk/projectconfig` once. Open each connection with
+  the connector package's `newProjectConnection(project, connectionName)`.
+  Pass the connection to the operation's Step factory, such as
+  `newSearchArticlesStep(...)`, and register the Flow as usual.
+- Do not write your own configuration loader. Do not copy credentials into
+  Flow input or Attributes.
+- Hold a short-lived secret that the Flow itself must keep in a hard-delete
+  Attribute ([primitives](primitives.md#attribute-and-attributemap)).
+
+## Dex Web and the FDG analyzer
+
+- `dexcli visualize` reads TypeScript Flow source. Only Go Flows can publish
+  the full Dex Web management metadata (Summary, Display, Actions, and
+  indexed Attribute presentation). Do not invent TypeScript syntax for it.
+- Put exactly one `// dex:group group-id:<id> group-label:"<Label>"` line and
+  one `// dex:explanation text:"<one sentence>"` line directly above each
+  local Step class, with no blank line between them and the class.
+- The analyzer has TypeScript limits, such as Step classes that extend another
+  class, dynamic access to Flow or Step fields, and decisions hidden in helper
+  functions. Keep Step objects in the Flow file and return decisions directly.
+  Check the [Flow visualization reference](https://docs.superdurable.io/reference/web/flow-visualization)
+  for the current list.
+
+## Gotchas
+
+- Return the same Step instances from `getSteps()` on every call. Create them
+  once as Flow fields.
+- Pass the exact registered Flow instance to Client methods. A structurally
+  identical new instance is not registered.
+- `syncToAttributeStore()` and `hardDeleteOnNull()` return a new definition.
+  Register and use the returned object everywhere.
+- Inside a handler, an absent Attribute reads as the codec zero value for
+  scalar numeric and Boolean codecs (`0`, `0n`, `false`) and as `undefined`
+  otherwise. `client.getAttributes` returns `undefined` for absent values.
+- Map instance keys are non-empty and contain no `/`.
+- `void somePromise` hides rejections. Await, or attach a rejection handler and
+  state who owns the failure.
+- An unhandled rejection from `context.recordHeartbeat` can terminate Node.js.
+  Always await it.
+- Catch exported SDK error classes with `instanceof`, never by message text.
+- A Stream is best effort. Keep authoritative state in Attributes or output.
+
+## Completion checklist
+
+- [ ] Every Step reachable by `goTo`, `StepMovement`, failure routes, or
+      cancellation is in `getSteps()`, and every Attribute, Channel, and
+      Stream is in `getPersistenceSchema()`.
+- [ ] Each Flow and Step returns a stable, domain-named type string.
+- [ ] Scalar inputs and outputs have explicit codecs. Objects use a validated
+      `jsonCodec` where data is untrusted.
+- [ ] Every Promise is awaited. Heartbeats use `AsyncContext`.
+- [ ] Worker startup waits for registration with a deadline and closes on
+      failure. Shutdown closes Client, Worker, then BlobCache.
+- [ ] Client calls handle typed errors ([error handling](error-handling.md)).
+- [ ] Tests run against a real Dex Server with unique Flow IDs
+      ([testing](testing.md)).
+- [ ] No application code depends on Dex Server internals.

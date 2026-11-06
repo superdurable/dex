@@ -1,110 +1,303 @@
 # Python primitives
 
-Read core semantics first; this page gives Python shapes at the pinned baseline.
+Python shapes for each Primitive. Read the core page for the semantics first;
+this page adds only how to write it in Python. Skeletons use the async surface
+unless noted; the sync form differs only as described in
+[Choose async or sync](python.md#choose-async-or-sync).
 
-## Flow, Step, Wait, decisions
+## Flow, Step, and decisions
 
-Subclass `Flow[InputT]` and `Step[InputT]`. `get_steps` returns `StepList.start_step(instance).other_steps(...)`. A Step without `wait_for` executes immediately. `Wait.until`, all/any condition APIs, and `Wait.skip_immediately` control waiting. Return `go_to`, `go_to_many`, `dead_end`, graceful, or force decisions.
+- Subclass `Flow[StartInput]` and `Step[Input]`. `get_steps` returns
+  `StepList.start_step(first).other_steps(...)` with every reachable Step.
+- Create each Step instance once in the Flow constructor and return those same
+  instances. A Flow without a start Step uses `StepList.without_start_step(...)`.
+- A Step without `wait_for` executes immediately. Override `wait_for` only when
+  the Step waits.
+- `get_step_options` returns the Step's static `StepOptions`.
+- Decisions: `go_to(target, input)`, `go_to_many(StepMovement.of(...), ...)`,
+  `dead_end()`, `graceful_complete(output)`, `force_complete(output)`,
+  `force_fail(reason)`, and `force_complete_if_channels_empty(output, fallback)`.
+- A target is a registered instance, a class with exactly one registered
+  instance, or `StepRef("StepType")` for a Step defined later or elsewhere.
+  An unknown or ambiguous target raises `FlowDefinitionError`.
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/flow/example_flow.py)
-<!-- dex-source: examples/python/dex_examples/primitives/flow/example_flow.py -->
 ```python
-class Example(Step[int]):
-    def __init__(self, finish: Finish) -> None:
-        self.finish = finish
+from dataclasses import dataclass
+from datetime import timedelta
 
-    def wait_for(self, context: Context, input: int) -> Wait:
-        status.set(context, "running")
-        return Wait.skip_immediately()
-
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return go_to(Finish, input + 1)
-```
-
-Among ready `Wait.any_of` candidates, Dex uses canonical Timer, Channel, then SubFlow order and preserves argument order within each kind. An earlier unready Condition does not block a later ready one. Only the winning Channel consumes messages. For strict priority, return only the current higher-priority Condition until it resolves.
-
-From SDK v1.28.0, register several instances of one Step class by overriding `get_step_type()` to return a distinct Step type for each. Pass registered instances in `StepList`. `go_to`, `StepMovement.of`, `StepOptions.on_execute_failure_proceed_to`, `FlowTimeoutHandlerOptions.on_failure_proceed_to`, and cancellation selections accept a registered instance, `StepRef("StepType")`, or a class. A class target is valid only when exactly one instance of that class is registered. Use `StepRef` when the target is defined later or in another module; it holds only a Step type, so the destination codec checks its input at run time. A new instance of a registered class is rejected because instances match by identity. For a generic Step whose input annotation is a `TypeVar`, override `get_input_type()` to return the concrete input type, or `type(None)` for no input. Unknown or ambiguous targets raise `FlowDefinitionError` at registration, at start-option mapping, or when the Worker applies a returned decision.
-
-`Context.flow_started_at` (SDK v1.28.0) is the run's server start time as a timezone-aware UTC `datetime` with one-second precision. It is identical across Steps, retries, timeout handlers, and RPC handlers for both `Worker` and `AsyncWorker`. Derive deterministic identities from the Flow ID and this value, not `datetime.now`.
-
-`Context.deadline` (SDK v1.28.0) is the absolute UTC `datetime` deadline of the current `wait_for`, `execute`, or timeout-handler attempt, or `None` for RPC handlers and tasks without one. Compute the remaining budget with `(context.deadline - datetime.now(timezone.utc)).total_seconds()` after checking for `None`, and use it to size external call timeouts. On server-zd v0.1.16 and earlier, a shorter remaining `RetryPolicy.total_duration` shortens it; newer server-zd derives it only from the method timeout. Each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
-
-## Attribute/AttributeMap and Channel/ChannelMap
-
-Create `Attribute(name, value_type)` and `AttributeMap(name, value_type)` at module scope and include them in `PersistenceSchema`. Access via invocation Context. Maps partition by validated instance. Indexed definitions support search; Attribute Store sync supports external entity access. For a short-lived secret, such as an API key, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes); it supports only string and object values and cannot be indexed or synced.
-
-Channels are durable queues. Conditions wait for one/N messages; after firing, inspect condition messages and delete/move them deliberately. ChannelMap gives one logical definition with independent instance queues. External callers invoke a typed Flow RPC; its handler publishes through Context.
-
-Pending-message reads inside a Step or RPC are invocation snapshots. Other handlers may consume, delete, or publish concurrently. Transactional execution validates selected deletions and commits writes atomically, but does not lock the whole snapshot. Read and write pending messages directly only when the operation explicitly tolerates that race. When a decision requires the queue to remain unchanged, every cooperating Step and RPC writer must use the same Attribute lock.
-
-## Timer, RPC, Stream, SubFlow
-
-Timer belongs in `wait_for` as a durable condition, never `asyncio.sleep` for durable scheduling. Decorate Flow methods with `@rpc`; type the input/output with `RPCResult[T]`, keep handlers short, and lock conflicting state. An RPC without locks or `is_transactional` can query a retained terminal run when it returns no durable effects. Locks, transactions, returned effects, or Server policy require an active execution.
-
-Streams are typed feeds registered in persistence schema. In sync generator handlers, `yield` every Stream output. In async handlers, Stream writes are synchronous API calls at the pinned surface while heartbeat is awaited. Consumers resume from tokens.
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/stream/stream_flow.py)
-<!-- dex-source: examples/python/dex_examples/primitives/stream/stream_flow.py -->
-```python
-class RenderPreview(Step[str]):
-    def __init__(self, progress: Stream[str]) -> None:
-        self.progress = progress
-
-    async def execute(self, context: AsyncContext, input: str) -> StepDecision:
-        progress = self.progress.buffered_text(context)
-        progress.write(f"Rendering preview for {input}")
-        progress.write(f"Preview ready for {input}")
-        return graceful_complete(f"Rendered {input}")
-```
-
-Use `read_stream` for forward, one-at-a-time, optionally long-polling consumption. Use `list_stream_messages` on `Client` or `AsyncClient` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `next_page_token` unchanged until it is empty.
-
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/dex_examples/primitives/stream/controller.py)
-<!-- dex-source: examples/python/dex_examples/primitives/stream/controller.py -->
-```python
-page = await app_state.client.list_stream_messages(
-    required_query("workflowId"),
-    app_state.stream.progress,
-    required_int_query("pageSize"),
-    optional_query("beforePageToken", ""),
+from dex import (
+    AsyncContext, Attribute, Channel, Context, Flow, PersistenceSchema, RPCResult,
+    Step, StepDecision, StepList, StepOptions, Timer, Wait, go_to,
+    graceful_complete, rpc,
 )
+
+
+@dataclass(frozen=True)
+class OrderRequest:
+    order_id: str
+    amount_cents: int
+
+
+ORDER_STATUS = Attribute("order-status", str)
+APPROVALS = Channel("approvals", bool)
+
+
+class ChargeOrder(Step[OrderRequest]):
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: OrderRequest
+    ) -> StepDecision:
+        ORDER_STATUS.set(context, "charged")
+        return graceful_complete(input.order_id)
+
+
+class AwaitApproval(Step[OrderRequest]):
+    def wait_for(self, context: Context, input: OrderRequest) -> Wait:
+        return Wait.any_of(
+            APPROVALS.for_one(),
+            Timer.by_duration(timedelta(days=2)),
+        )
+
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+        if context.has_timer_fired():
+            ORDER_STATUS.set(context, "expired")
+            return graceful_complete(input.order_id)
+        if APPROVALS.results(context)[0]:
+            return go_to(ChargeOrder, input)
+        ORDER_STATUS.set(context, "rejected")
+        return graceful_complete(input.order_id)
+
+
+class OrderApprovalFlow(Flow[OrderRequest]):
+    def __init__(self) -> None:
+        self.await_approval = AwaitApproval()
+        self.charge_order = ChargeOrder()
+
+    def get_steps(self) -> StepList[OrderRequest]:
+        return StepList.start_step(self.await_approval).other_steps(self.charge_order)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(ORDER_STATUS, APPROVALS)
+
+    @rpc(timeout=timedelta(seconds=10))
+    def approve_order(self, context: Context, is_approved: bool) -> RPCResult[str]:
+        APPROVALS.publish(context, is_approved)
+        return RPCResult(ORDER_STATUS.get(context))
 ```
 
-The before-page token is exclusive and scope-bound. The first page uses an empty token. Listing is a best-effort retained snapshot: concurrent newer writes stay outside the older-page chain, while trimming may remove messages. A trimmed anchor returns an empty page. The server requires a positive page size and caps it at 1000 by default.
+## Wait and Timer
 
-`SubFlow(child, input)` is a parent Wait condition. Register both definitions and model unfinished-child behavior explicitly.
+- `Wait.until(condition)`, `Wait.all_of(...)`, `Wait.any_of(...)`, and
+  `Wait.any_combination_of(ConditionCombination.of(...), ...)` compose
+  conditions. `Wait.skip_immediately()` proceeds without waiting.
+- `Timer.by_duration(timedelta)` is a durable Timer. It holds no Worker slot.
+  Use whole seconds.
+- In `execute`, `context.has_timer_fired()` tells whether a Timer won, and
+  `channel.results(context)` returns the messages the winning Channel
+  condition consumed. Pass `condition_id=` when several conditions of one kind
+  must be told apart.
+- `wait_for` decides only what to wait for. It performs no external side
+  effect.
 
-## Client
+## Attribute and AttributeMap
 
-`Client` and `AsyncClient` own Flow lifecycle, committed Attribute reads, typed RPC invocation, Attribute-match waits, Stream reads/listing, history, search, config, timers, and reset. Read committed Attributes with [`get_attributes`](#client-attribute-reads). Write Flow-owned Attribute and Channel state, and read pending Channel messages, through typed RPCs; the Client has no direct write method. Async calls must be awaited; sync calls must not run on an event loop thread. Use typed exceptions and explicit deadlines.
+- `Attribute(name, value_type)` and `AttributeMap(name, value_type)`. Read and
+  write through the handler Context: `ORDER_STATUS.get(context)`,
+  `.set(context, value)`, `.delete(context)`; maps add the instance argument.
+- Ordinary Attributes load into every handler. AttributeMap instances load only
+  when selected: `StepOptions(execute_load_attribute_map_instances=(notes.load(key),))`,
+  `@rpc(load_attribute_map_instances=...)`, or a whole map with
+  `load_attribute_maps`. Reading an unselected instance raises
+  `AttributeMapNotLoadedError`; that is not "absent".
+- Locks: `attribute.lock()` or `attribute_map.lock(instance)` in
+  `StepOptions(execute_lock_attributes=...)` or `@rpc(lock_attributes=...)`.
+  Every handler that must serialize uses the same lock.
+- Search index: `index=AttributeIndex(IndexType.KEYWORD, "keyword1")`. Reuse
+  generic typed index keys across Flow types and filter searches by FlowType.
+  An AttributeMap index needs an explicit key and holds only the last written
+  instance.
+- Attribute Store projection: `sync_to_attribute_store=True`, plus
+  `FlowConfig(attribute_store_names=[...])`. The projection is an asynchronous
+  copy; the Flow stays authoritative. A dataclass instance becomes one row
+  whose columns are its field names.
+- A short-lived secret uses `hard_delete_on_null=True`. It accepts only string
+  and object values, cannot be indexed or synced, and is rejected by Attribute
+  match waits. `delete`, or `set` to `None`, removes it permanently; afterwards
+  it reads as absent. Its write is visible before the attempt commits, so keep
+  the handler safe to repeat and never read-modify-write it.
+- Initial values at start: `StartFlowOptions().with_attribute(ORDER_STATUS, "new")`
+  or `.with_attribute(notes, "n1", note)`.
+
+## Channel and ChannelMap
+
+- `Channel(name, value_type)` and `ChannelMap(name, value_type)`. Wait with
+  `for_one()`, `for_n(count)`, `at_least(count)`, `at_most(count)`, or
+  `for_range(...)`; only the winning condition consumes messages.
+- Publish from an RPC or Step: `APPROVALS.publish(context, value)`. External
+  callers never publish directly; they invoke a typed RPC that publishes.
+- Pending messages load only on request: `StepOptions(execute_load_channels=(queue,))`
+  or `@rpc(load_channels=...)`; ChannelMap instances use
+  `channel_map.load_messages(instance)`. Then use
+  `pending_messages(context)`, `find_pending_message(context, message_id)`, and
+  `delete(context, message_id)`.
+- A pending-message read is a snapshot. When a decision needs the queue
+  unchanged, every cooperating Step and RPC takes the same Attribute lock.
+
+## RPC
+
+- Decorate a Flow method with `@rpc` or `@rpc(...)`. The handler takes
+  `(self, context: Context)` plus at most one typed input, and returns
+  `RPCResult[T]` or `None`.
+- Registration-time options: `name` (protocol RPC name; defaults to the method
+  name), `timeout`, `lock_attributes`, `is_transactional`, and the `load_*`
+  selections. Name RPCs with a leading verb, such as `approve_order` or
+  `get_order_status`. Keep the name stable for running Flows.
+- Per-call additions for instances chosen by request data:
+  `RPCInvokeOptions(lock_attribute_map_instances=(notes.lock(key),), load_attribute_map_instances=(notes.load(key),))`
+  passed as `options=`. A read-modify-write includes both the lock and the load.
+- `RPCResult(output, next_steps=(StepMovement.of(target, input),))` starts
+  Steps; `.with_canceling_steps(target)` cancels every current execution of a
+  Step type after the RPC commits.
+- An RPC with no locks, not transactional, and no returned effects can read a
+  retained closed run. Anything else needs an active run.
+- Call it with the bound method of the registered Flow instance:
+  `await client.invoke_rpc(flow.approve_order, flow_id, True)`.
 
 ## Client Attribute reads
 
-From Python SDK v1.29.0, `Client.get_attributes(flow_id, *reads)` and `await AsyncClient.get_attributes(flow_id, *reads)` read committed values of registered Attributes and AttributeMap instances in one request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass singleton Attributes, or AttributeMap instances selected with `AttributeMap.instance(key)`. There is no single-Attribute method; pass one read to read one value.
+`get_attributes` reads committed Attributes and AttributeMap instances in one
+request, without a Worker, from an open or retained closed run.
 
-[Released Python Client Attribute read](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/README.md)
-<!-- dex-source: sdk-python/README.md -->
 ```python
-values = client.get_attributes(flow_id, ORDER_STATUS, NOTES.instance("n1"))
-status = values.get(ORDER_STATUS, "new")
-if NOTES.instance("n1") in values:
-    note = values[NOTES.instance("n1")]
+from dex import AsyncClient, AttributeMap
+
+
+@dataclass(frozen=True)
+class OrderNote:
+    text: str
+
+
+ORDER_NOTES = AttributeMap("order-notes", OrderNote)
+
+
+async def get_order_view(client: AsyncClient, flow_id: str) -> tuple[str, OrderNote | None]:
+    values = await client.get_attributes(flow_id, ORDER_STATUS, ORDER_NOTES.instance("n1"))
+    status = values.get(ORDER_STATUS, "new")
+    note = values.get(ORDER_NOTES.instance("n1"))
+    return status, note
 ```
 
-The result is a read-only `AttributeValues` keyed by the reads, and type checkers infer each value type from its key. An unset Attribute or map instance is absent: `values[key]` raises `KeyError`, `values.get(key)` returns `None`, `values.get(key, default)` returns `default`, and `key in values` is `False`. A stored value that decodes to `None` is still present. A freshly built `NOTES.instance("n1")` looks up the same entry. `AttributeValues` is not iterable, and its `repr` omits values.
+- Pass singleton Attributes, or map instances selected with
+  `attribute_map.instance(key)`. There is no single-value method.
+- The result is a read-only `AttributeValues`. An unset value is absent:
+  `values.get(key)` returns `None` or the default, `key in values` is `False`,
+  and `values[key]` raises `KeyError`.
+- Each read must equal a definition registered by a Flow in the Client's
+  Registry; otherwise `FlowDefinitionError` is raised before any request.
+- Use an RPC instead when the response needs Flow code or pending Channel
+  messages. Errors are listed in [error handling](error-handling.md).
 
-Each read must equal a definition declared by some Flow in the Client's Registry: the same class, name, value type, index, `sync_to_attribute_store`, and `hard_delete_on_null`. Errors:
+## Stream
 
-- `FlowNotFoundError`: the Flow does not exist, or its latest run is being purged. A closed run is still readable. At a business Get boundary, return the not-found result directly.
-- `FlowDefinitionError`: no registered Flow declares a matching definition. It is raised before contacting Dex.
-- `ValueError`: an empty Flow ID, no reads, a duplicate read, or an invalid server response. `TypeError`: a read that is not an `Attribute` or `AttributeMapInstance`, such as a bare `AttributeMap`.
-- `ValueMappingError`: a value cannot be resolved or decoded as its value type.
-- `DexServiceError`: another FlowService or LoadBlobs failure. A LoadBlobs failure for a missing Flow raises `FlowNotFoundError`.
+- `Stream(name, value_type, stream_capacity_bytes)`, registered in the
+  persistence schema. A Stream is a best-effort feed, not authoritative state.
+  Retries can repeat messages.
+- Async Step: `PROGRESS.write(context, value)`, not awaited.
+  `PROGRESS.buffered_text(context)` batches `str` chunks and flushes when the
+  handler returns.
+- Sync generator Step: `yield PROGRESS.write(context, value)`; a sync buffered
+  writer returns outputs to `yield from` and needs a final `flush()`.
+- RPC and timeout-handler Contexts reject Stream writes.
+- Readers: `read_stream(flow_id, stream, resume_token, timeout)` reads forward
+  one message at a time; persist the resume token. `list_stream_messages(flow_id,
+  stream, page_size, before_page_token)` pages newest-first; pass
+  `next_page_token` unchanged until it is empty.
 
-On any error the call returns no values. [Released Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/client.py)
+## SubFlow
 
-## Selection
+- `Wait.until(SubFlow.run(child_flow, input))` starts or attaches the child
+  after the Wait commits. Register both Flows in the Worker's Registry.
+- In `execute`, `SubFlow.get_condition_results(context, index)` returns the
+  child's `FlowResult`, and `SubFlow.get_flow_id(context, index)` returns its
+  Flow ID. The index counts only SubFlow conditions.
+- An `any_of` winner does not stop losing children. Stop them explicitly when
+  that matters.
 
-Use `Client.describe_flow(flow_id)` or await `AsyncClient.describe_flow(flow_id)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow raises `FlowNotFoundError`. The call does not wait for terminal status: use `wait_for_flow` when the caller must wait, and do not loop on `describe_flow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `wait_for_flow` returns immediately, and a failed result carries them in `error_type` and `error_message`. Do not use `describe_flow` as a `start_flow` preflight. Use `search_flows` for indexed discovery. [Released Python Client API](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/sdk-python/dex/client.py)
+## Client
 
-Attribute = current state; Channel = queued intent; `get_attributes` = direct read of committed Attributes; RPC = synchronous mutation or computed snapshot; Stream = incremental output; Timer = durable time; SubFlow = independently identified durable child.
+| Need | Call |
+| --- | --- |
+| Start | `start_flow(flow, flow_id, input, StartFlowOptions(...))` returns the run ID |
+| Wait for the terminal result | `wait_for_flow(flow_id, timeout)`; `LongPollTimeoutError` means call again |
+| Read committed state | `get_attributes(flow_id, *reads)` |
+| Mutate or compute | `invoke_rpc(flow.method, flow_id, input, options=...)` |
+| One-off status | `describe_flow(flow_id)` returns `FlowInfo`; never poll it |
+| Wait for state | `wait_for_attribute_match(flow_id, attribute, AttributeMatch.greater_than(n), WaitForAttributeOptions(request_timeout=...))` |
+| Wait for one Step | `wait_for_step_completion(flow_id, StepExecutionId("ChargeOrder"), WaitForStepCompletionOptions(request_timeout=...))` |
+| Find Flows | `search_flows(query, page_size, next_page_token)` |
+| Stop | `stop_flow(flow_id, StopFlowOptions(...))` |
+
+`AsyncClient` methods are awaited; `Client` has the same methods, blocking.
+Bound every wait. The Client has no direct Attribute or Channel write.
+
+## StepOptions, durability, heartbeat, cancellation
+
+```python
+import asyncio
+
+from dex import RetryPolicy, StepDurability, force_fail
+
+
+class RecordChargeFailure(Step[OrderRequest]):
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+        failure = context.recovery_error
+        return force_fail(failure.detail if failure is not None else "charge failed")
+
+
+class ChargeInBatches(Step[OrderRequest]):
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_method_timeout=timedelta(minutes=10),
+            heartbeat_timeout=timedelta(minutes=1),
+            execute_retry=RetryPolicy(maximum_attempts=5),
+            execute_durability=StepDurability.SYNC,
+        ).on_execute_failure_proceed_to(RecordChargeFailure)
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: OrderRequest
+    ) -> StepDecision:
+        completed_batches = context.get_last_heartbeat_value(int) or 0
+        for batch in range(completed_batches, 10):
+            if context.is_cancellation_requested():
+                return graceful_complete(input.order_id)
+            await asyncio.sleep(1)
+            await context.heartbeat(batch + 1)
+        return graceful_complete(input.order_id)
+```
+
+- `StepOptions` holds per-method timeouts, `RetryPolicy`, heartbeat timeout,
+  durability, locks, loads, `wait_for_failure=WaitForFailurePolicy.PROCEED`,
+  and the execute failure route. `on_execute_failure_proceed_to` returns a
+  copy; the fallback Step takes the same input type.
+- Durability: leave `StepDurability.DEFAULT`, set a Flow default with
+  `FlowConfig(step_durability=...)` in `StartFlowOptions(config_override=...)`,
+  and override a known long or non-idempotent method with `SYNC`. The
+  trade-off is in [Step](../core/step.md).
+- Heartbeat is a progress checkpoint for one long attempt, not business state.
+  `get_last_heartbeat_value(T)` returns `None` when no checkpoint exists.
+- Cancellation is cooperative. Check `context.is_cancellation_requested()`
+  between bounded units of work.
+- A Flow timeout handler overrides `handle_timeout(self, context)` and returns
+  a decision; configure it with `StartFlowOptions(timeout=..., timeout_policy=FlowTimeoutPolicy.HANDLER)`.
+
+## Context values
+
+- `context.flow_id`, `run_id`, `step_execution_id`, and `attempt` identify the
+  invocation. Log them; derive idempotency keys from the Flow ID and Step
+  execution ID.
+- `context.flow_started_at` is the run's start time, identical across Steps and
+  retries. Derive time-based identities from it, never from `datetime.now()`.
+- `context.deadline` is the current attempt's deadline, or `None` (RPCs and
+  tasks without one). Size external call timeouts from it.
+- `context.recovery_error` is set only on a recovery path.
+- `set_step_execution_local` keeps process-local, in-memory data for one Step
+  execution. It is lost on Worker restart; never use it as durable state.

@@ -1,135 +1,441 @@
 # TypeScript primitives
 
-Choose primitives from the business behavior first, then encode them with the SDK's TypeScript shapes.
+TypeScript shapes for each Primitive. Read the matching core file first for
+the concept and its guarantees. Every skeleton type-checks against the
+current SDK. Imports come from `@superdurable/dex`.
 
-| Primitive | TypeScript shape | Use it for | Key constraint |
-| --- | --- | --- | --- |
-| Flow | `Flow<I>` | Durable application boundary | Stable `getFlowType`, complete Step/schema registry |
-| Step | `Step<I>` | Retryable work and transitions | Stable Step type and matching `Codec<I>` |
-| Wait | `Wait.until`, `anyOf`, `allOf`, `anyCombinationOf` | Durable readiness | Wait is returned, never awaited as a Promise |
-| Attribute / AttributeMap | `new Attribute`, `new AttributeMap` | Durable latest state | Durable name and codec are compatibility surface |
-| Channel / ChannelMap | `new Channel`, `new ChannelMap` | Durable FIFO messages | Selected waits consume messages |
-| RPC | `@rpc({...})` or `declareRPCMethod`, and `RPCResult<T>` | Synchronous command or query | Query-only handlers can read retained terminal runs; locks, transactions, and returned effects require active execution |
-| Stream | `new Stream` | Best-effort progress | Not a source of truth |
-| Timer | `Timer.byDuration`, `Timer.byTimestamp` | Durable deadlines | Milliseconds are numbers; no event-loop timer survives Worker loss |
-| SubFlow | `SubFlow.run` | Durable child work | Parent/child lifetime is an application decision |
-| Client | Promise-returning `Client` methods | Lifecycle, committed Attribute reads, RPCs, Attribute-match waits, Streams, search | Await network operations and catch typed errors |
+| Primitive | TypeScript shape | Core |
+| --- | --- | --- |
+| Flow | class `implements Flow<I>` | [flow](../core/flow.md) |
+| Step | class `implements Step<I>`; decisions `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd` | [step](../core/step.md) |
+| Wait | `Wait.until`, `allOf`, `anyOf`, `anyCombinationOf`, `skipImmediately` | [step](../core/step.md) |
+| Timer | `Timer.byDuration(ms, conditionId?)` in `waitFor` | [timer](../core/timer.md) |
+| Attribute | `new Attribute(name, codec, index?)`, `new AttributeMap(...)` | [attribute](../core/attribute.md) |
+| Channel | `new Channel(name, codec)`, `new ChannelMap(...)` | [channel](../core/channel.md) |
+| RPC | `@rpc({...})` or `declareRPCMethod(...)`, returns `RPCResult<T>` or `void` | [rpc](../core/rpc.md) |
+| Stream | `new Stream(name, codec, capacityBytes)` | [stream](../core/stream.md) |
+| SubFlow | `SubFlow.run(flow, input, options?)` in `waitFor` | [subflow](../core/subflow.md) |
+| Client | `Client` methods return Promises | [client](../core/client.md) |
 
-## Step instances, run start time, and attempt deadline
+## Flow and Step
 
-From SDK v1.28.0, register several instances of one Step class by overriding `getStepType()` to return a distinct Step type for each; each instance keeps its own `inputCodec`, so a generic class can handle different input types in one Flow. `goTo`, `StepMovement.of`, `ExecuteFailure.proceedTo`, `FlowTimeoutHandlerFailure.proceedTo`, and cancellation selections accept a registered instance, `new StepRef("StepType")`, or a class. A class target is valid only when exactly one instance of that class is registered, and a new instance of a registered class is rejected because instances match by identity. `StepRef` holds only a Step type, cannot execute or appear in a `StepList`, and its input is checked by the destination codec at run time. Unknown or ambiguous targets raise `FlowDefinitionError` at registration or start and `InvalidStepResultError` for handler results.
-
-The fields that hold targets (`StepMovement.step`, `ExecuteFailure.step`, `FlowTimeoutHandlerFailure.step`, and the cancellation fields) are typed `StepTarget` from v1.28.0. Code that reads one as a class must narrow first with `typeof target === "function"` or `target instanceof StepRef`. `Client.startFlow` now throws `FlowDefinitionError`, not `TypeError`, for a start-option failure target that does not belong to the Flow.
-
-`Context.flowStartedAt` is the run's start time as a `Date`, identical across Steps and retries; derive deterministic identities from the Flow ID and this value rather than `Date.now()`. `Context.deadline` (v1.28.0) is the absolute `Date` deadline of the current `waitFor`, `execute`, or timeout-handler attempt, or `undefined` for RPC handlers and tasks without one. After checking for `undefined`, use `context.deadline.getTime() - Date.now()` for the remaining milliseconds and to size external call timeouts. On server-zd v0.1.16 and earlier, a shorter remaining `RetryPolicy.totalDurationMs` shortens it; newer server-zd derives it only from the method timeout. Each retry has its own. See the Core [attempt deadline guidance](../core/step-options.md#budget-work-against-the-attempt-deadline).
-
-## Wait composition
-
-[Pinned wait example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
-<!-- dex-source: examples/typescript/src/primitives/wait-types/wait-types-flow.ts -->
 ```typescript
-if (input.mode === "any") {
-  return Wait.anyOf(
-    channelA.forOne("signal"),
-    Timer.byDuration(timeoutMs, "timeout"),
-  );
+interface Order {
+  readonly orderId: string;
+  readonly amountCents: number;
 }
-if (input.mode === "all") {
-  return Wait.allOf(
-    channelA.forOne("signal-a"),
-    channelB.forOne("signal-b"),
-  );
+
+const orderCodec = jsonCodec<Order>({
+  typeName: "Order",
+  decode: (value) => {
+    const candidate = value as Partial<Order>;
+    if (typeof candidate.orderId !== "string" || typeof candidate.amountCents !== "number") {
+      throw new TypeError("invalid Order");
+    }
+    return { orderId: candidate.orderId, amountCents: candidate.amountCents };
+  },
+});
+
+const orderStatus = new Attribute("order-status", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "keyword1",
+});
+const approvals = new Channel("approvals", stringCodec);
+
+class ValidateOrder implements Step<Order> {
+  public readonly inputCodec = orderCodec;
+
+  public getStepType(): string {
+    return "ValidateOrder";
+  }
+
+  public execute(context: Context, order: Order): StepDecision {
+    orderStatus.set(context, "validated");
+    return goTo(AwaitApproval, order);
+  }
 }
-```
 
-Among ready `Wait.anyOf` candidates, Dex uses canonical Timer, Channel, then SubFlow order and preserves argument order within each kind. An earlier unready Condition does not block a later ready one. Only the winning Channel consumes messages. For strict priority, return only the current higher-priority Condition until it resolves.
+export class OrderFlow implements Flow<Order> {
+  private readonly validateOrder = new ValidateOrder();
+  private readonly awaitApproval = new AwaitApproval();
+  private readonly chargeOrder = new ChargeOrder();
+  private readonly recordChargeFailure = new RecordChargeFailure();
 
-Use condition IDs when execution must distinguish winners and for every condition inside `anyCombinationOf`. Inspect results on the current `Context`.
+  public getFlowType(): string {
+    return "OrderFlow";
+  }
 
-## Codecs and schema
+  public getSteps(): StepList<Order> {
+    return StepList.startStep(this.validateOrder).otherSteps(
+      this.awaitApproval,
+      this.chargeOrder,
+      this.recordChargeFailure,
+    );
+  }
 
-Use `stringCodec`, `booleanCodec`, `int64Codec`, `doubleCodec`, `bytesCodec`, or a deliberate `jsonCodec<T>` with validation for application models. Default JSON encoding does not validate TypeScript shapes at runtime. Register every Attribute, Channel, and Stream in exactly one Flow schema. For a short-lived secret, such as an API key, use a [hard-delete Attribute](data-handling.md#hard-delete-attributes); it supports only string and object values and cannot be indexed or synced.
-
-## Stream reads
-
-Use `Client.readStream` for forward, one-at-a-time, optionally long-polling consumption. Use `Client.listStreamMessages` for non-blocking newest-first pages. Pass the typed Stream directly, and pass `nextPageToken` unchanged until it is empty.
-
-[Pinned runnable listing](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/stream/controller.ts)
-<!-- dex-source: examples/typescript/src/primitives/stream/controller.ts -->
-```typescript
-const page = await client.listStreamMessages(
-  String(request.query.workflowId ?? ""),
-  progress,
-  Number(request.query.pageSize),
-  String(request.query.beforePageToken ?? ""),
-);
-```
-
-The before-page token is exclusive and scope-bound. The first page uses an empty token. Listing is a best-effort retained snapshot: concurrent newer writes stay outside the older-page chain, while trimming may remove messages. A trimmed anchor returns an empty page. The server requires a positive page size and caps it at 1000 by default.
-
-## State, locks, and transaction
-
-[Pinned Channel transaction example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/channel/channel-flow.ts)
-<!-- dex-source: examples/typescript/src/primitives/channel/channel-flow.ts -->
-```typescript
-@rpc({
-  isTransactional: true,
-  loadChannels: [queuedMessages],
-  inputCodec: queuedMessageReferenceCodec,
-})
-public moveQueuedMessageToPrioritizedMessages(
-  context: Context,
-  queuedMessage: QueuedMessageReference,
-): void {
-  const messageToPrioritize = queuedMessages.findPendingMessage(
-    context,
-    queuedMessage.messageId,
-  );
-  queuedMessages.delete(context, queuedMessage.messageId);
-  if (messageToPrioritize !== undefined) {
-    prioritizedMessages.publish(context, messageToPrioritize.value);
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [orderStatus], channels: [approvals] };
   }
 }
 ```
 
-Staged Attribute and Channel mutations commit with a successful handler result. An exception discards that attempt's mutations. Locks coordinate only handlers requesting the same lock; external effects still need idempotency.
+Rules:
 
-Pending-message reads inside a Step or RPC are invocation snapshots. Other handlers may consume, delete, or publish concurrently. Transactional execution validates selected deletions and commits writes atomically, but does not lock the whole snapshot. Read and write pending messages directly only when the operation explicitly tolerates that race. When a decision requires the queue to remain unchanged, every cooperating Step and RPC writer must use the same Attribute lock.
+- `StepList.startStep(step).otherSteps(...)` registers the start Step and every
+  other reachable Step. A Flow driven only by RPCs uses
+  `StepList.withoutStartStep(...)` or `StepList.empty()`. The start Step input
+  type must equal the Flow's `I`.
+- A Step without `waitFor` executes immediately.
+- A movement target (`goTo`, `StepMovement.of`, failure routes, cancellation)
+  may be the Step class, the registered instance, or `new StepRef("StepType")`.
+  A class target needs exactly one registered instance of that class. Use
+  `StepRef` for a Step defined later or in another module; its input is
+  checked only by the destination codec at run time.
+- Several instances of one Step class may be registered when each returns a
+  distinct `getStepType()`. Target them by instance or `StepRef`.
+- `gracefulComplete` waits for other active branches. `forceComplete` and
+  `forceFail` close the Flow now. `deadEnd` ends only this branch.
+  `forceCompleteIfChannelsEmpty(output, fallbackMovement, ...channels)`
+  completes atomically only when the named Channels are empty.
+- Derive deterministic identities from `context.flowId` and
+  `context.flowStartedAt`, never from `Date.now()` or random values.
+- `context.deadline` is the absolute deadline of the current `waitFor`,
+  `execute`, or timeout-handler attempt, or `undefined` (RPC handlers). Size
+  external call timeouts from `context.deadline.getTime() - Date.now()`.
+  Never store a deadline in a heartbeat checkpoint.
+- `context.attempt` is the retry attempt of this method call.
+  `context.recoveryError` is set on a recovery path
+  ([error handling](error-handling.md#recovery)).
 
-Read committed Attributes from outside the Flow with [`client.getAttributes`](#client-attribute-reads). Use typed RPCs for application writes of Flow-owned Attribute and Channel state, and for reads that need Flow code or pending Channel messages. The Client has no direct write method. Attribute match remains the blocking observation surface.
+## Wait and Timer
 
-An RPC without Attribute locks or `isTransactional` can query a retained terminal run when it returns no durable effects. Locks, transactions, returned effects, or Server policy require an active execution. RPC success alone does not prove the Flow is active.
-
-## Decorator-free RPC declaration
-
-From TypeScript SDK v1.35.0, `declareRPCMethod(FlowClass, "methodName", options)` declares a Flow method as an RPC handler without the `@rpc` decorator. Use it when the runtime that loads the Flow module cannot transform decorators, such as Node.js type stripping with `node --experimental-transform-types` or plain `node main.ts` on Node.js 22.18 and later. Such a runtime rejects `@rpc` with a SyntaxError. Keep `@rpc` when the build transforms decorators, for example with `tsc`.
-
-[Pinned decorator-free RPC example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/decorator-free-rpc/order-status-flow.ts)
-<!-- dex-source: examples/typescript/decorator-free-rpc/order-status-flow.ts -->
 ```typescript
-declareRPCMethod(OrderStatusFlow, "getOrderStatus", { outputCodec: stringCodec });
-declareRPCMethod(OrderStatusFlow, "updateOrderStatus", {
-  inputCodec: stringCodec,
-  outputCodec: stringCodec,
-  lockAttributes: [orderStatus.lock()],
-});
+class AwaitApproval implements Step<Order> {
+  public readonly inputCodec = orderCodec;
+
+  public getStepType(): string {
+    return "AwaitApproval";
+  }
+
+  public waitFor(_context: Context, _order: Order): Wait {
+    return Wait.anyOf(approvals.forOne(), Timer.byDuration(24 * 60 * 60_000, "approval-deadline"));
+  }
+
+  public execute(context: Context, order: Order): StepDecision {
+    if (context.hasTimerFired()) {
+      orderStatus.set(context, "expired");
+      return gracefulComplete("expired");
+    }
+    const [decision] = approvals.results(context);
+    orderStatus.set(context, decision ?? "unknown");
+    return goTo(new StepRef("ChargeOrder"), order);
+  }
+}
 ```
 
-- It takes the same `RPCOptions` as `@rpc`, and Registry construction reports the same errors for both forms.
-- Call it at module top level, right after the class and before constructing the Registry. A later declaration does not affect a Registry that already exists.
-- Pass the class and the method name as a string literal. The `RPCMethodName` type accepts only public methods whose first parameter is `Context`. An instance field, such as an arrow function, is not a class method and throws `TypeError`.
-- Declare a method through the class that defines it. A method declared on a base class is an RPC of every subclass that inherits it. Naming a subclass for a method it only inherits throws `TypeError`; override the method in the subclass and declare the override instead.
-- Declare each method once. Declaring it again, declaring a method that already has `@rpc`, or declaring `handleTimeout` throws `TypeError`. One Flow may use both forms on different methods.
-- Client calls are unchanged, such as `client.invokeRPC(flow.getOrderStatus, flowId)`.
+- `waitFor` returns a `Wait`. It has no side effects on external systems.
+- Among ready `anyOf` conditions Dex picks Timers, then Channels, then
+  SubFlows, in argument order within a kind. Only the winning Channel
+  condition consumes messages. For strict priority, return only the
+  higher-priority condition until it resolves.
+- In `execute`, read the winner with `context.hasTimerFired(index?)`,
+  `channel.results(context)`, or `SubFlow.getConditionResults(context, i)`.
+- `anyCombinationOf(ConditionCombination.of(...))` requires a non-empty,
+  unique `conditionId` on every condition.
+- A Timer `conditionId` lets an operator skip it with `client.skipTimer`.
+- `setTimeout` or `sleep` in a handler is not a durable Timer. Put business
+  time (deadlines, reminders, inactivity) in `waitFor`.
 
-[Released declaration rules](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md#declaring-rpc-methods)
+## StepOptions, retry, and durability
+
+```typescript
+class ChargeOrder implements Step<Order> {
+  public readonly inputCodec = orderCodec;
+
+  public getStepType(): string {
+    return "ChargeOrder";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeMethodTimeoutMs: 60_000,
+      executeRetry: { maximumAttempts: 5 },
+      executeDurability: "sync",
+      executeFailure: ExecuteFailure.proceedTo(RecordChargeFailure),
+    };
+  }
+
+  public async execute(context: AsyncContext, order: Order): Promise<StepDecision> {
+    const idempotencyKey = `${context.flowId}:charge`;
+    await chargeCard(order, idempotencyKey, context.cancellationSignal);
+    orderStatus.set(context, "charged");
+    return gracefulComplete(order.orderId);
+  }
+}
+```
+
+- `getStepOptions()` holds method timeouts, `heartbeatTimeoutMs`,
+  `waitForRetry`/`executeRetry` (`RetryPolicy`), durability, locks, selective
+  loads, `waitForFailure: "proceed"`, and `executeFailure`.
+- `ExecuteFailure.proceedTo(Target)` routes exhausted retries to a registered
+  recovery Step. It receives the failing Step's input. Without it the Flow
+  fails.
+- Durability is `"sync"` or `"async"`. Set a Flow-wide default with
+  `StartFlowOptions.configOverride.stepDurability`, then override per method
+  with `waitForDurability` or `executeDurability`. Use `"async"` only for
+  idempotent work ([step](../core/step.md)).
+- Do not infer durability from a timeout. Defaults and units are in the
+  installed TSDoc.
+
+## Heartbeat and cancellation
+
+- Take `AsyncContext` and `await context.recordHeartbeat(value, codec?)`
+  within the heartbeat timeout. Read the last checkpoint with
+  `context.getLastHeartbeatValue(codec?)`. Use the same codec for both.
+  `context.hasLastHeartbeatValue()` tells absent from a stored `null`.
+- A Stream write also counts as liveness, but it does not replace a checkpoint.
+- Check `context.cancellationSignal.aborted` between work units and pass the
+  signal to `fetch` and other abort-aware calls. Return promptly when it
+  aborts.
+- `context.setStepExecutionLocal` passes process-local data from `waitFor` to
+  `execute`. It is lost on Worker replacement. Treat absence as normal.
+
+## Attribute and AttributeMap
+
+```typescript
+interface Note {
+  readonly text: string;
+}
+
+const notes = new AttributeMap("notes", jsonCodec<Note>());
+const tenantCommands = new ChannelMap("tenant-commands", stringCodec);
+const apiKey = new Attribute("api-key", stringCodec).hardDeleteOnNull();
+const customerEmail = new Attribute("customer-email", stringCodec).syncToAttributeStore();
+```
+
+- Define every Attribute, AttributeMap, Channel, ChannelMap, and Stream once at
+  module scope or as a Flow field. Register it in exactly one Flow's
+  `getPersistenceSchema()`. Reuse the same object in handlers and Client calls.
+- Handler access: `attribute.get/set/delete(context)`;
+  `attributeMap.get/set/delete(context, instance)`,
+  `getAllInstanceKeys(context)`, `getMapSize(context)`. Setting `null` or
+  `undefined` deletes.
+- Singleton Attributes load automatically. AttributeMap instances load only
+  when selected: `loadAttributeMaps` (whole map) or
+  `loadAttributeMapInstances: [map.load(instance)]` in StepOptions or
+  RPCOptions. Reading an unselected instance throws
+  `AttributeMapNotLoadedError`. That is modeling feedback, not absence.
+- Locks: `attribute.lock()` or `attributeMap.lock(instance)` in
+  `waitForLockAttributes`, `executeLockAttributes`, or RPC `lockAttributes`.
+  A lock coordinates only handlers that request the same lock. Lock the
+  smallest stable key. Keep remote I/O out of locked handlers.
+  Read-modify-write of a map instance selects both its lock and its load.
+- Index for search: pass `{ type: IndexType.KEYWORD, indexKey: "keyword1" }`.
+  Keep the business Attribute name and use generic typed index keys
+  (`keyword1`, `text1`, `int1`). Reuse the same slots across Flow types and
+  filter searches by Flow type.
+- `syncToAttributeStore()` projects latest values asynchronously to the
+  Attribute Stores named in `FlowConfig.attributeStoreNames`. The Flow stays
+  authoritative. Never wait on the projection for correctness.
+- `hardDeleteOnNull()` is for short-lived secrets. It accepts only string and
+  object values and cannot be indexed or synced. `delete` removes the value
+  permanently. Pass it at start with `InitialAttribute.of(apiKey, value)` in
+  `StartFlowOptions.attributes`. `waitForAttributeMatch` rejects it. Writes
+  can become visible before the attempt commits, so keep handlers repeatable
+  and never read-modify-write the secret.
+
+## Channel and ChannelMap
+
+- Publish with `channel.publish(context, value)` or
+  `channelMap.publish(context, instance, value)` from a Step or an RPC.
+- Wait with `forOne()`, `forN(n)`, `atLeast`, `atMost`, `range`. The satisfied
+  condition consumes its messages. Read them with `channel.results(context)`.
+- Pending messages load only when selected (`loadChannels`,
+  `loadChannelMapInstances: [map.loadMessages(instance)]`). An RPC can read
+  `pendingMessages`, `findPendingMessage`, and `delete(context, messageId)`.
+- A pending-message read is a snapshot. Other handlers may change the queue.
+  `isTransactional: true` validates selected deletions and commits atomically,
+  but does not lock the snapshot. When a decision needs the queue unchanged,
+  every cooperating writer uses the same Attribute lock.
+- External callers publish through a typed RPC. The Client has no direct
+  Channel write.
+
+## RPC
+
+```typescript
+  @rpc({ inputCodec: stringCodec })
+  public submitApproval(context: Context, decision: string): void {
+    approvals.publish(context, decision);
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public getOrderStatus(context: Context): RPCResult<string> {
+    return { output: orderStatus.get(context) };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: booleanCodec, lockAttributes: [orderStatus.lock()] })
+  public cancelOrder(context: Context, reason: string): RPCResult<boolean> {
+    if (orderStatus.get(context) === "charged") {
+      return { output: false };
+    }
+    orderStatus.set(context, `canceled: ${reason}`);
+    return { output: true, cancelingSteps: [AwaitApproval] };
+  }
+```
+
+Decorator-free form, for runtimes that cannot transform decorators:
+
+```typescript
+declareRPCMethod(NotebookFlow, "updateNote", { outputCodec: booleanCodec });
+```
+
+- An RPC is a public Flow method whose first parameter is `Context`. It
+  returns `RPCResult<T>`, a Promise of it, or `void` for a procedure.
+- Name RPCs with an action verb: `getOrderStatus`, `submitApproval`. The
+  method name is the RPC name. `RPCOptions.name` overrides it, for example to
+  serve an RPC that another language's Flow defines. Keep RPC names stable.
+- `declareRPCMethod(FlowClass, "method", options)` takes the same options.
+  Call it at module top level after the class and before building the
+  Registry. Declare each method once, on the class that defines it. Arrow
+  function fields cannot be RPCs. One Flow may mix both forms.
+- Registration-time options fix codecs, `timeoutMs`, `lockAttributes`,
+  `isTransactional`, and loads. Per call, `client.invokeRPCWithOptions(...)`
+  adds only `lockAttributeMapInstances`, `loadAttributeMapInstances`, and
+  `loadChannelMapInstances`.
+- `RPCResult.nextSteps` schedules Steps and `cancelingSteps` cancels every
+  current execution of the named Step types, atomically with the RPC's writes.
+- An RPC without locks, without `isTransactional`, and without returned
+  effects can read a retained closed run. Anything else needs an active run.
+- Keep handlers short. An RPC that requests a held lock fails with
+  `RpcLockConflictError`.
+
+```typescript
+const existed = await client.invokeRPCWithOptions(
+  notebookFlow.updateNote,
+  flowId,
+  { noteId: "n1", text: "hello" },
+  {
+    lockAttributeMapInstances: [notes.lock("n1")],
+    loadAttributeMapInstances: [notes.load("n1")],
+  },
+);
+```
+
+## Stream
+
+```typescript
+const progress = new Stream("progress", stringCodec, 1 << 20);
+
+class RenderReport implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RenderReport";
+  }
+
+  public async execute(context: AsyncContext, reportId: string): Promise<StepDecision> {
+    progress.write(context, `started ${reportId}`);
+    const writer = progress.bufferedText(context);
+    writer.write("chunk-1");
+    writer.write("chunk-2");
+    return gracefulComplete(reportId);
+  }
+}
+```
+
+- Register the Stream in `getPersistenceSchema().streams`. A Stream is a best
+  effort feed. Retries can repeat messages, and trimming can drop them.
+- `stream.write` sends immediately and does not fail the handler on storage
+  failure. `bufferedText` (string Streams in a Step) batches chunks and
+  flushes before the result.
+- Consumers: `client.readStream(flowId, stream, resumeToken, timeoutMs?)`
+  reads forward one message and returns its `resumeToken`. Persist and reuse
+  it. `client.listStreamMessages(flowId, stream, pageSize, beforePageToken)`
+  returns newest-first pages. Pass `nextPageToken` back unchanged.
+- `client.writeStream(flowId, stream, source, value)` writes from outside a
+  Flow ([error handling](error-handling.md#best-effort-stream-writes)).
+
+## SubFlow
+
+```typescript
+class RunChildren implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public constructor(private readonly childFlow: ChildFlow) {}
+
+  public getStepType(): string {
+    return "RunChildren";
+  }
+
+  public waitFor(_context: Context, count: number): Wait {
+    return Wait.allOf(
+      ...Array.from({ length: count }, (_, index) => SubFlow.run(this.childFlow, index)),
+    );
+  }
+
+  public execute(context: Context, count: number): StepDecision {
+    let total = 0;
+    for (let index = 0; index < count; index++) {
+      const result = SubFlow.getConditionResults(context, index);
+      if (result.status !== "completed") {
+        return gracefulComplete(`child ${SubFlow.getFlowId(context, index)} ended ${result.status}`);
+      }
+      total += result.singleOutput(doubleCodec);
+    }
+    return gracefulComplete(total);
+  }
+}
+```
+
+- Register both parent and child Flow instances in the same Registry. Pass
+  the registered child instance to `SubFlow.run`.
+- A failed child is a result to inspect, not an exception. Check
+  `result.status` before decoding output.
+- With `anyOf`, losing children keep running. Decide explicitly what happens
+  to them.
+
+## Client
+
+```typescript
+const runId = await client.startFlow(orderFlow, "order-42", { orderId: "42", amountCents: 100 }, {
+  requestId: "start-order-42",
+  ignoreAlreadyStarted: true,
+});
+await client.invokeRPC(orderFlow.submitApproval, "order-42", "approved");
+const matched = await client.waitForAttributeMatch(
+  "order-42",
+  orderStatus,
+  AttributeMatch.equalTo("charged"),
+  { requestTimeoutMs: 30_000 },
+);
+await client.waitForStepCompletion("order-42", StepExecutionId.of("ChargeOrder"), {
+  requestTimeoutMs: 30_000,
+});
+const info = await client.describeFlow("order-42");
+```
+
+- `startFlow(flow, flowId, input, options)` returns the run ID after Dex
+  accepts the start. It does not mean any Step ran.
+- `invokeRPC(flow.method, flowId, input?)` takes the bound method of the
+  registered Flow instance.
+- `waitForFlow(flowId, timeoutMs?)` returns a `FlowResult` for a closed Flow.
+  It throws `LongPollTimeoutError` while the Flow is still open; call again.
+  Check `result.status` before `singleOutput(codec)`.
+- `waitForAttributeMatch` (singleton or map instance) and
+  `waitForStepCompletion` wait for a committed milestone. `requestTimeoutMs`
+  bounds the whole call; omit it only for a deliberate unbounded wait. After
+  the wait, read canonical state again.
+- `describeFlow(flowId)` is a one-off status read of a known Flow. Do not loop
+  on it and do not use it as a start preflight.
+- `searchFlows(query, pageSize, nextPageToken)` discovers Flows by indexed
+  Attributes.
+- `stopFlow`, `timeTravel`, `skipTimer`, and `updateFlowConfig` are
+  operator actions. Use them deliberately.
+- The Client has no direct Attribute or Channel write. Write through typed
+  RPCs.
 
 ## Client Attribute reads
 
-From TypeScript SDK v1.29.0, `client.getAttributes(flowId, ...reads)` reads committed values of registered Attributes and AttributeMap instances in one FlowService request, without a Worker. Follow the shared [semantics and selection rule](../core/primitives.md#read-attributes-from-outside-a-flow). Pass singleton Attributes, or AttributeMap instances selected with `attributeMap.instance(key)`. There is no single-Attribute method; pass one read to read one value.
-
-[Released TypeScript Client Attribute read](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md)
-<!-- dex-source: sdk-typescript/README.md -->
 ```typescript
 const [status, note] = await client.getAttributes(
   "order-42",
@@ -138,21 +444,21 @@ const [status, note] = await client.getAttributes(
 );
 ```
 
-The call resolves to a typed tuple in read order. Each element is `T | undefined`, and `undefined` means the value is not set. Writing `null` or `undefined` deletes an Attribute, so it then reads as `undefined`. Falsy values such as `""`, `0n`, and `false` are set values. A stored value that its codec decodes to `null` stays `null`. Zero reads do not compile; to spread an array, pass its first read separately, as in `client.getAttributes(flowId, first, ...rest)`. `AttributeMapInstance` is nominally branded, so `notes.load("n1")` and object literals are rejected at compile time.
+- `client.getAttributes(flowId, ...reads)` reads committed values of
+  singleton Attributes and AttributeMap instances in one call, without a
+  Worker. It also reads a retained closed run.
+- Pass singleton Attributes, or map instances selected with
+  `map.instance(key)`. `map.load(key)` is a load selection and does not
+  compile here. Pass at least one read.
+- The result is a typed tuple in read order. `undefined` means not set.
+  Falsy values such as `""`, `0n`, and `false` are set values.
+- Each read must be the exact definition object a registered Flow returns
+  from `getPersistenceSchema()`. Another object with the same name fails with
+  `FlowDefinitionError` before any request.
+- Use `getAttributes` for a plain read of stored state. Use a read RPC when
+  Flow code must shape the answer or read pending Channel messages.
+- Errors are listed in [error handling](error-handling.md#client-errors).
 
-Each definition must be the exact object that a Flow in the Client's Registry returns from `getPersistenceSchema`. A different object with the same name, such as one from a second `hardDeleteOnNull()` call, is rejected. Errors:
-
-- `FlowNotFoundError`: the Flow does not exist, or its latest run is being purged. A closed run is still readable. At a business Get boundary, return the not-found result directly.
-- `FlowDefinitionError`: a definition is not the registered object. It is thrown before any request.
-- `TypeError`: an empty Flow ID, no reads, a read that is not an Attribute or AttributeMap instance selection, or a duplicate read. It is thrown before any request.
-- `ValueMappingError`: a value cannot be hydrated or decoded with its codec.
-- `DexServiceError`: another FlowService failure. A failed LoadBlobs request has `operation` `loadBlobs` and keeps the gRPC `code`.
-- `Error`: an invalid server response, or a BlobCache failure while large values are hydrated.
-
-On any error the Promise rejects and returns no values. [Released Client API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/client.ts)
-
-## Decisions
-
-Use `await client.describeFlow(flowId)` for a one-off status read of a known Flow, such as after a read-only RPC returns non-terminal business state. `FlowInfo` contains Flow ID, run ID, Flow type, status, and start time. A missing Flow throws `FlowNotFoundError`. The call does not wait for terminal status: use `waitForFlow` when the caller must wait, and do not loop on `describeFlow`. `FlowInfo` has no error type or message; for a closed Flow that is still retained, `waitForFlow` returns immediately, and a failed result carries them in `errorType` and `errorMessage`. Do not use `describeFlow` as a `startFlow` preflight. Use `searchFlows` for indexed discovery. [Released TypeScript Client API](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/client.ts)
-
-Use `goTo`, `goToMany`, `gracefulComplete`, `forceComplete`, `forceFail`, `deadEnd`, and conditional completion helpers to express lifecycle. Do not encode control flow in mutable module globals. A Flow can have `StepList.empty()` or `withoutStartStep` when started work is driven by RPCs.
+Runnable primitives:
+[examples/typescript/src/primitives](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives),
+[decorator-free RPC](https://github.com/superdurable/dex/tree/main/examples/typescript/decorator-free-rpc).

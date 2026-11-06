@@ -1,105 +1,165 @@
-# Go design patterns
+# Go patterns
 
-Each item states its invariant and pinned runnable implementation. Preserve the invariant when adapting code.
+Choose a pattern with [core patterns](../core/patterns.md) first. This page maps
+each pattern to its runnable Go example and shows the Go skeleton where the
+idiom matters. Examples live under
+[examples/go/patterns](https://github.com/superdurable/dex/tree/main/examples/go/patterns).
 
-## Parallel Steps
+| Pattern | Go example | Go notes |
+| --- | --- | --- |
+| Static parallel Steps | [parallel/static.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/static.go) | `dex.GoToMany(dex.MovementOf(a, x), dex.MovementOf(b, x))` |
+| Dynamic parallel Steps | [parallel/dynamic.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/dynamic.go) | Build `[]dex.StepMovement` from input |
+| Await all | [parallel/await_parallel.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/await_parallel.go) | Skeleton below |
+| First win | [parallel/first_win.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/parallel/first_win.go) | Winner returns a decision with `.CancelSiblingSteps(...)` |
+| Parallel SubFlows | [parallel-subflows/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/parallel-subflows) | `dex.AllOf` over `dex.SubFlow` conditions |
+| Polling | [polling/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/polling/workflow.go) | Skeleton below |
+| Cron | [cron/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/cron/workflow.go) | Timer raced with trigger and skip Channels |
+| Reminder | [reminders/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/reminders/workflow.go) | Timer raced with an opt-out Channel |
+| Inactivity timer | [inactiveness-tracker-timer/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/inactiveness-tracker-timer/workflow.go) | Activity restarts the wait |
+| Execute failure recovery | [recovery/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/recovery/workflow.go) | `ProceedToOnExecuteFailure` |
+| WaitFor failure recovery | [proceed-on-wait-failure/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/proceed-on-wait-failure/workflow.go) | `ProceedOnWaitForFailure` plus `ctx.WaitForMethodFailed()` |
+| Manual recovery | [intervention/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/intervention/workflow.go) | Operator decision Channels behind verb-named RPCs |
+| Graceful timeout | [timeout/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/timeout/workflow.go) | Flow implements `HandleTimeout(ctx)` |
+| Internal Channel drain | [drain-channels/internal-drain/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/internal-drain/workflow.go) | Finalize after accepted messages drain |
+| External publishing drain | [drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/drain-channels/external-publishing/workflow.go) | `dex.ForceCompleteIfChannelsEmpty` |
+| Interruptible work | [interruptible/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/interruptible/workflow.go) | Bounded slices; check the signal between them |
+| Responsive Step completion | [wait-for-step-completion/](https://github.com/superdurable/dex/tree/main/examples/go/patterns/wait-for-step-completion) | `client.WaitForStepCompletion` |
+| Responsive Attribute match | [products/job-post/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/products/job-post/workflow.go) | Revision Attribute under one lock |
+| Responsive Stream | [primitives/stream/controller.go](https://github.com/superdurable/dex/blob/main/examples/go/primitives/stream/controller.go) | `ReadStream` with resume tokens |
+| Entity store | [entity-store/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/entity-store/workflow.go) | `SyncToAttributeStore`; RPC-only Flow |
+| Sequentially chunked AttributeMap | [sequentially-chunked-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/sequentially-chunked-attribute-map/workflow.go) | Load one chunk per call with `RPCInvokeOptions` |
+| Hash-partitioned AttributeMap | [hash-partitioned-attribute-map/workflow.go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/hash-partitioned-attribute-map/workflow.go) | Same bucket in the lock and the load |
 
-- **Static:** emit a fixed heterogeneous set with `GoToMany`; branches are independent. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel/static.go).
-- **Dynamic:** build `[]dex.StepMovement` from input; each branch carries retry-safe input. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel/dynamic.go).
-- **Await all:** workers publish once and `DeadEnd`; a coordinator waits on `Channel.ForN(count)`. Count exactly once per successful branch. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel/await_parallel.go).
-- **First win:** winner completes with `CancelSiblingSteps`; losers tolerate cooperative cancellation and cannot leave uncompensated commits. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel/first_win.go).
+## Await all
 
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel/static.go)
-<!-- dex-source: examples/go/patterns/parallel/static.go -->
 ```go
-func (staticInit) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
-	return dex.GoToMany(dex.MovementOf(workA{}, input), dex.MovementOf(workB{}, input)), nil
-}
-```
+var ShardDone = dex.DefineChannel[int]("shard-done")
 
-## Parallel SubFlows
-
-Apply the Core SubFlow evolution gate before using these APIs. The runnable
-examples document confirmed parent-child shapes; they do not make SubFlows the
-default for new designs or for ordinary parallel work.
-
-- **Basic:** turn each request into `dex.SubFlow` and wait with `AllOf`; use only when one parent can hold the batch. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel-subflows/basic_parent_flow.go).
-- **Long-lived parent:** RPC checks queue size and publishes; a loop drains into children. Complete only after stop plus drain invariants. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel-subflows/advanced_long_live_parent_flow.go).
-- **Short-lived parent:** process a bounded batch and atomically complete only when Channels are empty. A later run uses explicit ID reuse. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel-subflows/advanced_short_live_parent_flow.go).
-- **Wait for half:** race children against an all-done signal and wait for `(total+1)/2`; success means quorum, not universal completion. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel-subflows/wait_for_half_parent_flow.go).
-- **Partitioning:** hash a stable affinity key to a fixed parent-ID set. Version the set when changing count would break affinity. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel-subflows/submit_request_flow.go).
-- **Back pressure:** submit through a durable Flow; rejection becomes a Step error, so retry/backoff survives Worker loss. Bound the parent queue before accepting. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel-subflows/submit_request_flow.go).
-
-[Pinned runnable source](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/parallel-subflows/basic_parent_flow.go)
-<!-- dex-source: examples/go/patterns/parallel-subflows/basic_parent_flow.go -->
-```go
-func (step subFlows) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
-	conditions := make([]dex.Condition, 0, len(requests))
-	for _, request := range requests {
-		conditions = append(conditions, dex.SubFlow(step.exampleFlow, request))
+func (shardFanOut) Execute(_ dex.Context, shardCount int) (*dex.StepDecision, error) {
+	movements := []dex.StepMovement{dex.MovementOf(awaitShards{}, shardCount)}
+	for shard := 0; shard < shardCount; shard++ {
+		movements = append(movements, dex.MovementOf(processShard{}, shard))
 	}
-	return dex.AllOf(conditions...), nil
+	return dex.GoToMany(movements...), nil
+}
+
+func (processShard) Execute(ctx dex.Context, shard int) (*dex.StepDecision, error) {
+	// Process the shard idempotently, then report exactly once.
+	if err := ShardDone.Publish(ctx, shard); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+func (awaitShards) WaitFor(_ dex.Context, shardCount int) (*dex.Wait, error) {
+	return dex.Until(ShardDone.ForN(shardCount)), nil
+}
+
+func (awaitShards) Execute(_ dex.Context, shardCount int) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(shardCount), nil
 }
 ```
+
+- Each worker branch publishes once in the same commit as its result, then
+  ends with `DeadEnd`.
+- The coordinator is moved in the same decision as the workers, so it waits
+  from the start.
 
 ## Polling
 
-Apply the Core [Polling pattern](../core/patterns.md#polling) to every wait on an external system: one long-running Step's `Execute` loops until a terminal status, and its StepOptions alone bound the wait. Follow the [design pattern](https://docs.superdurable.io/design-patterns/polling); the pinned baseline has no runnable example of it yet.
+One long-running Step polls the external system. Its StepOptions alone bound
+the wait.
 
-- **Round:** call the provider through `context.WithTimeout(ctx, 10*time.Second)`. Return a transient error wrapped with `dex.ErrorWithStack`; “not ready” stays in the loop. Return the next decision on a terminal status, including a business-failure decision when the provider reports a definite failure. Never compute a deadline in the loop.
-- **Progress:** write a Stream frame when the status changes, otherwise call `ctx.RecordHeartbeat(checkpoint)`; then `time.Sleep(interval)`. Do not `select` on `ctx.Done()`. A new attempt resumes with `ctx.GetLastHeartbeatValue(&checkpoint)`; the checkpoint holds resume state such as the last reported status, never a deadline.
-- **StepOptions:** `ExecuteMethodTimeout` is the maximum wait; `ExecuteRetry` allows a few attempts with `TotalDuration` equal to the maximum wait (all attempts, measured from the first hand-out to a Worker); keep `HeartbeatTimeout` at one minute with `interval + call timeout <= HeartbeatTimeout - 10s`.
-- **Expiry:** set `ExecuteFailure: dex.ProceedToOnExecuteFailure(recordFailureStep, nil)`. The recovery Step reads `ctx.RecoveryError()` (`Detail`, `ErrorType`) and records the business failure; without `ExecuteFailure` the Flow fails. With Go SDK v1.17.0, tell the limits apart with `IsMethodTimeout()`, `IsHeartbeatTimeout()`, and `IsRetryTotalDurationExceeded()`, never by comparing `ErrorType` with a string; a total duration that ends between attempts reports the final attempt's error type. See [Go recovery errors](error-handling.md#commit-and-recovery). On server-zd newer than v0.1.16, `TotalDuration` starts at the first hand-out to a Worker, only decides whether to retry after a failure, and never ends a running attempt, so `IsRetryTotalDurationExceeded()` matches only older records and the wait can last about `TotalDuration` plus one `ExecuteMethodTimeout`; see the Core [Polling pattern](../core/patterns.md#polling).
-- **Forbidden:** a WaitFor Timer plus `GoTo` loop, `RetryAfter` or retry policy as the loop, a hand-written deadline that duplicates `ExecuteMethodTimeout` or `TotalDuration`, and `GoTo` the same Step with a page token.
+```go
+const (
+	pollInterval   = 5 * time.Second
+	jobCallTimeout = 10 * time.Second
+	maxJobWait     = 30 * time.Minute
+)
+
+func (awaitJob) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteMethodTimeout: maxJobWait,
+		HeartbeatTimeout:     time.Minute,
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    3,
+			TotalDuration:      maxJobWait,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(recordJobWaitFailure{}, nil),
+	}
+}
+
+func (step awaitJob) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
+	var reportedState JobState
+	if _, err := ctx.GetLastHeartbeatValue(&reportedState); err != nil {
+		return nil, err
+	}
+	for {
+		callCtx, cancel := context.WithTimeout(ctx, jobCallTimeout)
+		status, err := step.jobs.GetJobStatus(callCtx, jobID)
+		cancel()
+		if err != nil {
+			return nil, dex.ErrorWithStack(err)
+		}
+		switch status.State {
+		case JobSucceeded:
+			return dex.GracefulComplete(status.Result), nil
+		case JobFailed:
+			return dex.ForceFail("job " + jobID + " failed"), nil
+		}
+		if status.State != reportedState {
+			if err := JobProgress.Write(ctx, status); err != nil {
+				return nil, err
+			}
+			reportedState = status.State
+		} else if err := ctx.RecordHeartbeat(reportedState); err != nil {
+			return nil, err
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+func (recordJobWaitFailure) Execute(ctx dex.Context, jobID string) (*dex.StepDecision, error) {
+	failure := ctx.RecoveryError()
+	if failure == nil {
+		return dex.ForceFail("waiting for job " + jobID + " failed"), nil
+	}
+	return dex.ForceFail("waiting for job " + jobID + " failed: " + failure.Detail), nil
+}
+```
+
+- Each round bounds the provider call with `context.WithTimeout(ctx, ...)`.
+- "Not ready yet" stays in the loop. A transient call error returns, wrapped
+  with `dex.ErrorWithStack`, so Step retry owns it.
+- Each round writes a Stream frame on a status change, else records a
+  heartbeat. Keep `pollInterval + jobCallTimeout` well under
+  `HeartbeatTimeout`.
+- The checkpoint holds resume state, never a deadline.
+- `ExecuteMethodTimeout` and `RetryPolicy.TotalDuration` set the maximum wait.
+  `ExecuteFailure` turns expiry into a business result; without it, the Flow
+  fails.
+- Forbidden: a WaitFor Timer plus `GoTo` loop, `dex.RetryAfter` or retry policy
+  as the loop, and a hand-written deadline that duplicates the StepOptions.
 
 ## Durable Timer
 
-- **Cron:** race Timer with trigger/skip Channels, then schedule the run and next wait in parallel. Validate interval/count. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/cron/workflow.go).
-- **Reminder:** race Timer with opt-out, send at most once each iteration, and carry schedule in durable input. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/reminders/workflow.go).
-- **Inactivity:** race Timer with activity; activity restarts wait, Timer moves to processing. Drain/coalesce bursts. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/inactiveness-tracker-timer/workflow.go).
+- Cron, reminders, and inactivity tracking race `dex.Timer(...)` against
+  Channels with `dex.AnyOf` in `WaitFor`.
+- Carry the schedule in the Step input, not in process memory. Validate the
+  interval and count before the first wait.
+- In `Execute`, branch on `ctx.HasTimerFired()` first. Send a reminder at most
+  once per iteration, then `GoTo` the wait Step again with the next schedule.
+- Activity restarts the wait: the activity branch moves back to the wait Step.
+  Drain or coalesce bursts of activity messages.
 
-## Failure handling
+## Partitioned AttributeMaps
 
-- **Execute recovery:** proceed to an idempotent compensating Step with enough durable input to identify the original commit. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/recovery/workflow.go).
-- **WaitFor recovery:** proceed only when the recovery Step can distinguish failure and rebuild wait-side state. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/proceed-on-wait-failure/workflow.go).
-- **Manual recovery:** after exhaustion, wait on durable operator decision Channels exposed through action-verb RPCs. Add durable command-ID deduplication when repeats must be idempotent. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/intervention/workflow.go).
-- **Graceful timeout:** start with Handler policy and return an explicit terminal decision from `HandleTimeout`; request map/channel loads it needs. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/timeout/workflow.go).
-
-## Draining, interruption, responsive updates, and entity state
-
-- **Internal Channel drain:** coordinate main/side Steps, then finalize only after accepted messages drain. Keep publish/consume/delete accounting aligned. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/drain-channels/internal-drain/workflow.go).
-- **External publishing drain:** accept via RPC while active and use `ForceCompleteIfChannelsEmpty` for atomic close. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/drain-channels/external-publishing/workflow.go).
-- **Interruptible execution:** RPC records a signal; work uses bounded slices and checks between them. Latency is the slice duration. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/interruptible/workflow.go).
-- **Responsive Step:** Client waits for one named Step boundary, not Flow completion. The Request ID is optional; server-zd does not use it. [Runnable SDK test](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/client_integration_test.go).
-- **Responsive Attribute:** wait for a revision match, keep the returned watermark, then reload durable state. [Runnable SDK test](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/client_integration_test.go).
-- **Responsive Stream:** long-poll and resume with the returned token; make consumers duplicate-tolerant. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/primitives/stream/controller.go).
-- **Entity store:** use AttributeMap instances for entities, opt into Attribute Store, and lock exactly the instance an RPC mutates. Read one entity's stored instance with `Client.GetAttributes` when no Flow code must shape the response. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/entity-store/workflow.go).
-
-## Partitioned AttributeMap state
-
-- **Sequentially chunked:** `ChunkedSubscriberFlow` keeps at most 100 ordered records in `current`, archives full chunks under zero-padded starting sequences, and reads one page through `RPCInvokeOptions.LoadAttributeMapInstances`. Use this for append-only message, event, or subscriber history. Concurrent appenders share the `current` lock and retry a rejected call after `RPCLockConflictError`. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/sequentially-chunked-attribute-map/workflow.go).
-- **Hash-partitioned:** `CustomerDirectoryFlow` canonicalizes ASCII email, computes wrapping FNV-1a 32-bit, and stores the complete canonical key in one of 1000 buckets. Upserts pass the same bucket through both `LockAttributeMapInstances` and `LoadAttributeMapInstances`; reads load only the bucket. [Runnable](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/patterns/hash-partitioned-attribute-map/workflow.go).
-
-Keep the hash algorithm and partition count versioned with persisted state. Hash collisions share a bucket but remain distinct map entries. Changing 1000 to another count requires rehashing every record or introducing a new Flow version.
-
-### Revision Attribute match
-
-Initialize the integer revision Attribute to zero. Every state-changing Step or RPC must use the same Attribute lock and increment the revision inside the locked invocation. The [Job Posting Flow](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/examples/go/products/job-post/workflow.go) demonstrates that mutation boundary.
-
-Use `AttributeMatchEqual`, `AttributeMatchNotEqual`, `AttributeMatchGreaterThan`, `AttributeMatchGreaterThanOrEqual`, `AttributeMatchLessThan`, or `AttributeMatchLessThanOrEqual`. Pass a non-nil output pointer; the Client decodes the actual matched current value into it, including for non-equal operators. Singleton Attributes use `WaitForAttributeMatch`; AttributeMap entries use `WaitForAttributeMapInstanceMatch` with the instance name. `RequestID` is optional; server-zd does not use it. `RequestTimeout` bounds the complete call across transparent reattachments; zero waits indefinitely, and the earlier of it or the caller context wins. A positive expiry returns `*dex.RequestTimeoutError`. `InternalHandlerTimeout` is deprecated and ignored; leave it unset. Each waiting call holds one of the Flow's concurrent wait slots until it returns or the caller disconnects. See the core responsive-update guidance for the full tradeoff. After the wait, read canonical state with [`Client.GetAttributes`](primitives.md#client-attribute-reads) or the application's read RPC. The revision is a coalescing watermark, so one wait may skip intermediate values.
-
-[Runnable durable Attribute wait](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/client_integration_test.go)
-<!-- dex-source: sdk-go/dex/client_integration_test.go -->
-```go
-var matched string
-attributeOptions := WaitForAttributeOptions{}
-require.NoError(t, client.WaitForAttributeMatch(
-	ctx,
-	"reattach-attribute",
-	clientTestStatus,
-	AttributeMatchEqual("ready"),
-	&matched,
-	attributeOptions,
-))
-require.Equal(t, "ready", matched)
-```
+- Keep the hash function and partition count stable with persisted state.
+  Changing either needs a rehash of every record or a new Flow type.
+- An upsert passes the same bucket to `LockAttributeMapInstances` and
+  `LoadAttributeMapInstances`. A read loads only the bucket.
+- Append-only history keeps a bounded `current` instance and archives full
+  chunks under zero-padded start sequences. Appenders lock only `current` and
+  retry after `*dex.RPCLockConflictError`.
