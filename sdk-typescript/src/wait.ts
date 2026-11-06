@@ -68,13 +68,26 @@ export const ConditionCombination = Object.freeze({
   },
 });
 
-/** Creates durable Timer conditions without blocking a worker thread. */
+/**
+ * Creates durable Timer conditions without blocking a worker thread.
+ * Return the condition in a Wait from waitFor; Dex persists the wait and releases the Worker.
+ * The Timer delay starts when Dex applies that Wait, not when this definition object is constructed.
+ * A zero delay is immediately ready. Use a stable conditionId to address it with Client.skipTimer.
+ * Wait.anyCombinationOf requires a nonempty condition ID, unique per distinct condition.
+ *
+ * @example
+ * ```ts
+ * const wait = Wait.until(Timer.byDuration(60_000, "review-window"));
+ * ```
+ */
 export const Timer = Object.freeze({
   /**
    * Creates a Timer ready after a non-negative delay.
    * @param durationMs - Durable delay in milliseconds.
    * @param conditionId - Optional stable ID used by skip-Timer APIs.
    * @returns A Timer condition accepted by Wait factories.
+   * @throws {RangeError} When durationMs is negative or nonfinite.
+   * @throws {TypeError} When an explicitly supplied conditionId is empty.
    */
   byDuration(durationMs: number, conditionId?: string): Condition {
     if (durationMs < 0 || !Number.isFinite(durationMs)) {
@@ -102,6 +115,20 @@ export interface ChannelMessage<T> {
 
 /**
  * Defines a typed, durable singleton message stream owned by a Flow.
+ * Register the exact definition in getPersistenceSchema and reuse it in handlers and Client calls.
+ * Publications commit with the handler decision and remain queued until consumed or deleted.
+ * Satisfied Channel conditions consume messages in FIFO order; results exposes them during execute.
+ * Loading pending messages does not consume them and requires an explicit Step or RPC load option.
+ * Unselected pending reads throw ChannelMessagesNotLoadedError; a selected empty queue returns [].
+ * Pending snapshots can become stale while a handler runs. Use a shared Attribute lock when all
+ * cooperating writers must preserve a queue-dependent decision. Size metadata needs no message load.
+ *
+ * @example
+ * ```ts
+ * const approvals = new Channel("approvals", stringCodec);
+ * const persistence: PersistenceSchema = { channels: [approvals] };
+ * const wait = Wait.until(approvals.atLeast(1));
+ * ```
  * @typeParam T - Type of every published value.
  */
 export class Channel<T> {

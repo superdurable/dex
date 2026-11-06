@@ -37,6 +37,8 @@ type WorkerState = "created" | "starting" | "running" | "stopping" | "stopped" |
  * the drain deadline and are then reset. A stream whose final output Dex has not yet confirmed, by ending
  * the stream or assigning its next task, gets 5 more seconds, so `close` can return up to 5 seconds later.
  * A handler that ignores cancellation can delay shutdown.
+ * Changed in SDK v1.35.0: reserved RPC slots and protocol 4 require server-zd v0.1.17 or later.
+ * Upgrade the Server first. See PullWorkerOptions for defaults, concurrency caps, and slot selection.
  *
  * @example
  * ```ts
@@ -172,6 +174,7 @@ export class Worker {
 
   /**
    * Returns the retained reserved RPC decline counter.
+   * Changed in SDK v1.35.0: reserved slots accept only RPCs and this counter is always zero.
    * @deprecated Reserved slots never decline Steps for capacity. Always returns zero, including after close.
    * @returns The constant value zero.
    * @example
@@ -213,6 +216,8 @@ export class Worker {
    * The Server confirms it by ending the stream or assigning the slot's next task.
    * Close can therefore return up to 5 seconds after the drain deadline.
    * Dex treats a task dropped on a reset stream as possibly run.
+   * Changed in SDK v1.35.0: a graceful half-close returns unstarted tasks without consuming a retry.
+   * Running handlers can finish and send output; a forced reset or disconnect loses this guarantee.
    * Calls before `start` and repeated calls after shutdown are safe.
    */
   public async close(): Promise<void> {

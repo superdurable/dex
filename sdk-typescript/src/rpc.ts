@@ -172,6 +172,7 @@ export function rpc(options: RPCOptions<any, any> = {}) {
  * `declareRPCMethod` rejects `handleTimeout` but no other Flow interface method, such as
  * `getFlowType`.
  * @typeParam FlowType - Flow instance type that declares the RPC method.
+ * @since 1.35.0
  */
 export type RPCMethodName<FlowType> = Exclude<
   {
@@ -294,6 +295,7 @@ export type RPCMethodName<FlowType> = Exclude<
  * @throws {@link TypeError} when the method is already declared as an RPC handler.
  * @throws {@link TypeError} when `name` is blank.
  * @throws {@link RangeError} when `timeoutMs` is negative.
+ * @since 1.35.0
  */
 export function declareRPCMethod<FlowType extends object, Input = unknown, Output = unknown>(
   flowClass: abstract new (...args: never) => FlowType,
