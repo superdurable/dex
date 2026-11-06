@@ -1596,8 +1596,9 @@ remove the key.
   response; the turn keeps running in Dex. To stop the turn, the application's
   stop route calls `cancel_turn`. A steered or cancelled turn ends its stream
   with `finish` reason `other`.
-- **Streams are best effort.** A production Dex Server drops Stream writes
-  until a Stream backend is enabled (`streamStore.backend`). Trimming can also
+- **Streams are best effort.** Stream events live in the memory of the active
+  Dex Server process, so a restart or failover loses them. A server with
+  `streamStore.backend: disabled` drops Step Stream writes. Trimming can also
   remove old events. Without the events, the UI message stream ends with
   reason `other` once the turn ends, and `readAgentSessionUIMessages` shows the
   active turn's tool calls and approvals with a `null` token; poll it until the

@@ -118,7 +118,7 @@ matching:
   unsupportedTypeCacheEntries: 10000
   pingInterval: 20s
 streamStore:
-  backend: disabled
+  backend: memory
   maxMessageBytes: 102400
   maxReadMessages: 1000
   estimatedMessageOverheadBytes: 512

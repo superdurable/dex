@@ -49,13 +49,13 @@ peer 依赖的方式依赖它。每个版本都固定了它支持的 Dex SDK，�
 
 在每个启动 session 或调用其 RPC 的进程中，构建同一个 session Flow。
 
-## 启用 Stream 后端 {#stream-backend}
+## Stream 后端 {#stream-backend}
 
 模型的实时文本、推理摘要、tool 进度和审批事件都写入 **AgentEvents**
-[Stream](/primitives/stream)。**streamStore.backend** 在生产环境的默认值是
-**disabled**。这时 Step 写入会被丢弃，但不会让 Step 失败；Client 写入和 Stream 读取则返回
-**FAILED_PRECONDITION**。**dexcli dev** 会设置 memory 后端，所以实时事件可能在本地正常，
-到了生产环境却消失。在服务器配置中启用 memory 后端：
+[Stream](/primitives/stream)。无论是 **dexcli dev** 还是生产 server，**streamStore.backend**
+的默认值都是 **memory**，所以实时事件不需要额外的服务器配置。不要为 agent 把后端设为
+**disabled**。设为 **disabled** 时，Step 写入会被丢弃，但不会让 Step 失败；Client 写入和
+Stream 读取则返回 **FAILED_PRECONDITION**。默认配置等同于：
 
 ```yaml
 streamStore:

@@ -27,6 +27,7 @@ mod standby_failover;
 mod standby_health;
 mod standby_takeover;
 mod startup_calls;
+mod stream_store_backend;
 
 use std::time::Duration;
 

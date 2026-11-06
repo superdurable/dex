@@ -205,11 +205,14 @@ mod tests {
 
     use dexzd_keyspace::TenantId;
     use dexzd_protocol::dex::{
-        ListStreamMessagesRequest, ReadStreamRequest, Value, WriteStreamRequest, value,
+        ErrorSubStatus, ListStreamMessagesRequest, ReadStreamRequest, Value, WriteStreamRequest,
+        value,
     };
     use dexzd_stream_store::{StreamStore, StreamStoreConfig};
+    use tonic::Code;
 
     use super::StreamOperations;
+    use crate::FlowOperationError;
 
     #[tokio::test]
     async fn stream_reads_outlive_the_flow_run_like_the_go_server() {
@@ -264,6 +267,63 @@ mod tests {
             .await
             .expect("list independent of Flow existence");
         assert_eq!(listed.messages.len(), 1);
+        stream_store.close().await.expect("close Stream Store");
+    }
+
+    #[tokio::test]
+    async fn disabled_stream_store_rejects_every_stream_call_with_failed_precondition() {
+        let stream_store =
+            Arc::new(StreamStore::new(&StreamStoreConfig::default()).expect("Stream Store"));
+        let operations = StreamOperations::new(stream_store.clone(), Duration::from_secs(1));
+        let write_error = operations
+            .write_stream(
+                TenantId::DEFAULT,
+                WriteStreamRequest {
+                    flow_id: "disabled-flow".to_owned(),
+                    flow_type: "OrderFlow".to_owned(),
+                    stream_name: "Progress".to_owned(),
+                    stream_capacity_bytes: 1 << 20,
+                    value: Some(Value {
+                        kind: Some(value::Kind::StringValue("rejected".to_owned())),
+                    }),
+                    source: "test".to_owned(),
+                },
+            )
+            .await
+            .expect_err("a disabled store rejects WriteStream");
+        let read_error = operations
+            .read_stream(
+                TenantId::DEFAULT,
+                ReadStreamRequest {
+                    flow_id: "disabled-flow".to_owned(),
+                    flow_type: "OrderFlow".to_owned(),
+                    stream_name: "Progress".to_owned(),
+                    ..ReadStreamRequest::default()
+                },
+            )
+            .await
+            .expect_err("a disabled store rejects ReadStream");
+        let list_error = operations
+            .list_stream_messages(
+                TenantId::DEFAULT,
+                ListStreamMessagesRequest {
+                    flow_id: "disabled-flow".to_owned(),
+                    flow_type: "OrderFlow".to_owned(),
+                    stream_name: "Progress".to_owned(),
+                    page_size: 1,
+                    ..ListStreamMessagesRequest::default()
+                },
+            )
+            .await
+            .expect_err("a disabled store rejects ListStreamMessages");
+        let expected = FlowOperationError::rejected(
+            Code::FailedPrecondition,
+            ErrorSubStatus::Uncategorized,
+            "Stream Store is disabled",
+        );
+        assert_eq!(write_error, expected);
+        assert_eq!(read_error, expected);
+        assert_eq!(list_error, expected);
         stream_store.close().await.expect("close Stream Store");
     }
 }

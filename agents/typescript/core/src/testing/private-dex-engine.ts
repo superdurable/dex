@@ -39,8 +39,8 @@ export interface PrivateDexEngineOptions {
   readonly readyTimeoutMs?: number;
   /**
    * Path of a `dex-server-zd` YAML file with configuration overrides, passed as `dexcli dev -zd-config`.
-   * Use it to test server settings, such as `streamStore: { backend: disabled }`, the production
-   * default that drops Stream writes. When omitted, the engine gets a file that sets only
+   * Use it to test server settings, such as `streamStore: { backend: disabled }`, which drops
+   * Step Stream writes. When omitted, the engine gets a file that sets only
    * `dev.durabilityMode: processCrashSafe`, which skips fsync and survives a process kill but not a host
    * crash. A file of your own replaces it, so set `dev.durabilityMode` there too, or the engine uses the
    * slower `strict` default of `dex-server-zd` 0.1.18 and later.

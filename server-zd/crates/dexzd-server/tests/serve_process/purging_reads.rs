@@ -40,26 +40,27 @@ const PURGE_BUDGET: Duration = Duration::from_secs(30);
 const SECRET_ATTRIBUTE: &str = "secret";
 const REPORT_ATTRIBUTE: &str = "report";
 const ORDERS_CHANNEL: &str = "orders";
-const SERVICE_ERROR_RESPONSE_TYPE_URL: &str = "type.googleapis.com/dex.ServiceErrorResponse";
+pub(crate) const SERVICE_ERROR_RESPONSE_TYPE_URL: &str =
+    "type.googleapis.com/dex.ServiceErrorResponse";
 
 /// The `google.rpc.Status` that carries the `ServiceErrorResponse` in `grpc-status-details-bin`.
 #[derive(Clone, PartialEq, prost::Message)]
-struct GoogleRpcStatus {
+pub(crate) struct GoogleRpcStatus {
     #[prost(int32, tag = "1")]
-    code: i32,
+    pub(crate) code: i32,
     #[prost(string, tag = "2")]
-    message: String,
+    pub(crate) message: String,
     #[prost(message, repeated, tag = "3")]
-    details: Vec<StatusDetail>,
+    pub(crate) details: Vec<StatusDetail>,
 }
 
 /// One `google.protobuf.Any` detail of a [`GoogleRpcStatus`].
 #[derive(Clone, PartialEq, prost::Message)]
-struct StatusDetail {
+pub(crate) struct StatusDetail {
     #[prost(string, tag = "1")]
-    type_url: String,
+    pub(crate) type_url: String,
     #[prost(bytes = "vec", tag = "2")]
-    value: Vec<u8>,
+    pub(crate) value: Vec<u8>,
 }
 
 /// A serve process whose only run is purging, with its object listing failing before RunPurge.

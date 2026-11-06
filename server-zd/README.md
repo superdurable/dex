@@ -210,6 +210,12 @@ with its default. Set at least `cluster.nodeId`, `objectStore.bucket`, and
 `localStorage.directory`. Unknown keys and a `dev` section with non-default values fail startup.
 An invalid value fails startup with the YAML path of the rejected field.
 
+`streamStore.backend` defaults to `memory` in `serve` and `dev`. Stream messages live only in the
+active process and are lost on restart, standby takeover, or step down; trimming can also drop
+older messages. With `backend: disabled`, WriteStream, ReadStream, and ListStreamMessages return
+`FailedPrecondition` with the `UNCATEGORIZED` sub-status, and a Step Stream write is dropped with a
+warning log without failing the Step.
+
 `localStorage.directory` needs room for the live state plus `localStorage.maxWalBytes` of RocksDB
 write-ahead log and up to four uncompacted level-0 files per column family, each about
 `localStorage.writeBufferBytes` (64 MiB by default). A compaction

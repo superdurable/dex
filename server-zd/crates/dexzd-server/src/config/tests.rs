@@ -50,7 +50,7 @@ fn example_declares_every_default_key_and_value() {
     assert_eq!(parsed.api.max_wait_seconds, 60);
     assert!(parsed.metrics.listen.is_empty());
     assert_eq!(parsed.matching.dispatch_wait, Duration::from_secs(10));
-    assert_eq!(parsed.stream_store.backend, StreamStoreBackend::Disabled);
+    assert_eq!(parsed.stream_store.backend, StreamStoreBackend::Memory);
     assert_eq!(
         parsed.stream_store.trim_batch_yield_time,
         Duration::from_millis(1)

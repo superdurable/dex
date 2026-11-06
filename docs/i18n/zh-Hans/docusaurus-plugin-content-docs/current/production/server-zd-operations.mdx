@@ -1092,9 +1092,10 @@ RPC 从不排队。如果在 **dispatchWait** 内没有可用的 Worker，RPC �
 
 ## Stream {#streams}
 
-用 **streamStore.backend** 控制 best-effort [Stream](/primitives/stream)，取值为 **disabled**（默认）
-或 **memory**。memory Stream 存在于 server 进程中，重启后为空。backend 为 disabled 时，写入 Stream 的
-消息会被丢弃，但 Step 不会失败。
+用 **streamStore.backend** 控制 best-effort [Stream](/primitives/stream)，取值为 **memory**（默认）
+或 **disabled**。memory Stream 只存在于 active server 进程中。重启、standby 接管或让位之后，
+Stream 都从空开始；trim 也可能删除较早的消息。backend 为 disabled 时，Client 的 Stream 写入和
+读取返回 **FAILED_PRECONDITION**。Step 的 Stream 写入会被丢弃并记录日志，但 Step 不会失败。
 
 ## 身份验证
 
