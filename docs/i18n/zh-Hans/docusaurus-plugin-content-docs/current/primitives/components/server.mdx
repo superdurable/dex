@@ -1,0 +1,46 @@
+---
+title: Server（server-zd）
+sidebar_label: Server
+---
+
+# Server（server-zd）
+
+server-zd 是 Dex Server。它保存每个 Flow 的状态，并把 Step 和 RPC 交给 Worker。它唯一的
+运行时依赖是对象存储，例如 Amazon S3 或兼容 S3 的存储。
+
+## 工作方式
+
+server-zd 先把每次写入提交到对象存储，再确认这次写入。它在本地保存一份 store 作为缓存。
+重启之后，节点从对象存储重建这份缓存。
+
+一个集群由一个 active 进程服务。它在对象存储中持有一个 lease，因此第二个进程不能同时写入。
+你可以运行 standby 进程，在 active 进程停止时接管。
+
+## 与其他组件的关系
+
+- [Worker 和 Client](/primitives/components/application) 连接 server 的 API 端口。Worker
+  主动建立出站 stream，server 从不主动调用它们。
+- [Dex Web](/primitives/components/web) 作为单独的进程运行，通过同一个 API 读取 Flow。
+- [dexcli](/primitives/components/cli) 调用同一个 API。**dexcli dev** 还会在你的机器上启动
+  server-zd。
+- [External Attribute Sync](/primitives/components/external-attribute-sync) 是 server 的功能。
+  server-zd 把选定的 Attribute 写入 PostgreSQL。
+
+## 运行
+
+本地开发时运行 **dexcli dev**。它启动使用内嵌对象存储的 server-zd，同时启动 Dex Web。
+
+生产环境用一个 YAML 配置文件运行 **dex-server-zd serve**。每个版本都发布二进制文件和容器镜像。
+在 Kubernetes 上，把它作为 StatefulSet 运行。
+
+```bash
+dex-server-zd serve --config /etc/dex-server-zd/config.yaml
+```
+
+要在本地磁盘上运行一个不依赖外部对象存储的生产节点，运行 **dex-server-zd local**。它把内嵌的
+对象存储放在数据目录中，没有 standby。
+
+## 参考
+
+英文的 [Server 参考](/reference/server/) 介绍配置、Kubernetes、高可用、对象存储、身份验证、
+Worker 分发、搜索、Attribute Store 同步、指标和升级。

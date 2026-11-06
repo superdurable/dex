@@ -1,0 +1,70 @@
+---
+title: Rust Workers
+sidebar_label: Workers
+---
+
+# Rust Workers
+
+This page lists the Rust names for the Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Readiness
+
+Rust exposes **wait_pull_registered**,
+**pull_registration_state**, and **stop_on_permanent_stream_rejection** in SDK
+1.14.0, with the same readiness semantics. Rust waits can be cancelled by
+dropping the future or bounded with a Tokio timeout. Opt-in fatal rejections
+are returned by **start** after draining.
+
+A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
+kind.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```rust
+pub fn is_pull_greeting_ready(worker: &Worker) -> bool {
+    worker.pull_registration_state().is_ready
+}
+```
+
+Example: [examples/rust/src/production/pull_workers.rs](https://github.com/superdurable/dex/blob/main/examples/rust/src/production/pull_workers.rs)
+
+## Capacity and shutdown
+
+| Setting | Rust name |
+| --- | --- |
+| Concurrent tasks | **max_concurrent_tasks** |
+| Reserved RPC slots | **reserved_rpc_tasks** |
+| Stop drain timeout | **stop_drain_timeout** |
+| Shutdown | **stop** |
+
+The option names are builder methods.
+
+The idle stream option, **idle_streams_per_queue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **pull_reserved_rpc_declines()**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+This diagnostics helper exposes registration readiness and the deprecated
+reserve-decline counter. A full Worker stays ready.
+
+```rust
+pub struct PullGreetingDiagnostics {
+    pub is_ready: bool,
+    pub reserved_rpc_declines: u64,
+}
+
+pub fn get_pull_greeting_diagnostics(worker: &Worker) -> PullGreetingDiagnostics {
+    PullGreetingDiagnostics {
+        is_ready: worker.pull_registration_state().is_ready,
+        reserved_rpc_declines: worker.pull_reserved_rpc_declines(),
+    }
+}
+```
+
+Example: [examples/rust/src/production/pull_workers.rs](https://github.com/superdurable/dex/blob/main/examples/rust/src/production/pull_workers.rs)

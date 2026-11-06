@@ -641,7 +641,7 @@ Hard-delete Attribute 有以下要求：
 - 已删除的 value 总是读作不存在，time travel 也不会恢复它。重新启动的 SubFlow 从原来的 initial value 开始；如果之前的 run 已经删除了这个 value，新的 run 会读到不存在。
 - 从定义上移除这个 option 后，已存储的 value 会一直保留，直到 Dex 删除这个 Flow。请先用 hard-delete 定义删除 value，再移除 option。
 
-value 会一直保存，直到被删除，或者 Dex 在 retention period 结束后删除这个 Flow。Dex 之外的对象存储备份和 bucket versioning 可能会保留副本。参见[对象存储](/production/server-zd-operations#对象存储)。
+value 会一直保存，直到被删除，或者 Dex 在 retention period 结束后删除这个 Flow。Dex 之外的对象存储备份和 bucket versioning 可能会保留副本。参见[对象存储](/reference/server/object-storage)。
 
 ## Attribute Sync {#attribute-store-projection}
 
@@ -708,7 +708,7 @@ attributeStore:
 
 目前只支持 PostgreSQL 作为 Attribute Store。Redis 支持由 [issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。请先创建目标。
 Attribute Sync 会异步写入最新状态，不会自动回填已有 Flow。目标契约、类型映射和
-重试行为请参阅[自定义 Attribute Store 运维](/production/attribute-store)。
+重试行为请参阅[自定义 Attribute Store 运维](/primitives/components/external-attribute-sync)。
 
 使用这个文件启动本地 server：
 

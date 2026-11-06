@@ -158,7 +158,7 @@ object、bytes、null、blob-backed、非有限浮点、跨类型比较和无效
 适用于 **WaitForStepCompletion**、**WaitForAttributeMatch** 和 Stream 长轮询。
 
 - **RequestTimeout** 是 SDK 调用的总耗时上限。默认 0，表示一直等到成功、Flow 关闭或调用方取消。正值到期后返回有类型的 request-timeout 错误。之后再次调用会从当前状态重新等待。
-- 每个 Flow 默认允许 1,000 个并发 wait，由 server-zd 的 **limits.maxLongPollWaitersPerFlow** 设置。超出上限的 wait 会以 resource-exhausted 错误失败。见 [server-zd 限制](/production/server-zd-operations#limits)。
+- 每个 Flow 默认允许 1,000 个并发 wait，由 server-zd 的 **limits.maxLongPollWaitersPerFlow** 设置。超出上限的 wait 会以 resource-exhausted 错误失败。见 [server-zd 限制](/reference/server/configuration#limits)。
 - 等待中的调用占用一个 slot，直到它返回、超时、被取消或调用方断开。
 - Server 会限制单次 transport attempt。SDK 会用同一 Request ID 透明重连，这个上限不会重置 **RequestTimeout**。
 - **InternalHandlerTimeout** 已弃用，不要设置。
@@ -283,11 +283,11 @@ client.skip_timer("order-123", StepExecutionId::of(&charge_order), TimerId::by_c
 
 ## 触发 continue-as-new
 
-**TriggerContinueAsNew** 已弃用。Dex 不会把 Flow continue as new。这个调用总是以 **UNIMPLEMENTED** 失败。不要调用它。长期运行的 Flow 不需要滚动，因为 Dex Server 只保留[最近的 history 窗口](/production/server-zd-operations#history-window)。
+**TriggerContinueAsNew** 已弃用。Dex 不会把 Flow continue as new。这个调用总是以 **UNIMPLEMENTED** 失败。不要调用它。长期运行的 Flow 不需要滚动，因为 Dex Server 只保留[最近的 history 窗口](/reference/server/configuration#history-window)。
 
 ## Time travel
 
-**TimeTravel** 从已有 Flow history 的某个点创建一个新的 run attempt。run 保留原来的 Run ID。这个点必须位于[最近的 history 窗口](/production/server-zd-operations#history-window)内，否则调用以 **FAILED_PRECONDITION** 失败。Time travel 到开头总是可用。
+**TimeTravel** 从已有 Flow history 的某个点创建一个新的 run attempt。run 保留原来的 Run ID。这个点必须位于[最近的 history 窗口](/reference/server/configuration#history-window)内，否则调用以 **FAILED_PRECONDITION** 失败。Time travel 到开头总是可用。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
 <SdkSnippet lang="python">

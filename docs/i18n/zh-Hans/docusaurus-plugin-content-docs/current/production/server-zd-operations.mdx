@@ -5,1486 +5,222 @@ sidebar_label: server-zd operation
 
 # server-zd 运维
 
-server-zd 是一种 Dex Server，运行时只依赖对象存储，例如 Amazon S3 或兼容 S3 的存储。
-它把 Flow 状态保存在本地存储中，每次写入都先提交到对象存储，再向调用方确认。本地磁盘
-只是缓存。节点会用对象存储中最新的快照和命令日志重建它。
-
-server-zd 提供 **FlowService**、**WorkerTaskService** 和 **AdminService** API，只支持
-[拉取模式 Worker](/production/pull-workers)。[Dex Web](/production/dex-web) 需要作为单独的进程运行，
-server-zd 不提供它。本地开发时运行 **dexcli dev**，它会启动 server-zd 和 Dex Web。要在本地磁盘上运行一个
-不依赖外部对象存储的生产节点，参见[本地磁盘上的单节点](#single-node-local)。本页介绍
-server-zd 0.1。
+本页已经移走。[Server](/primitives/components/server) 组件页介绍 server-zd 是什么，
+以及它和其他组件的关系。运维细节在英文的 [Server reference](/reference/server/)。
+下面每一节都链接到新的位置。
 
 ## 不支持的功能
 
-server-zd 用 **INVALID_ARGUMENT** 拒绝以下选项：
-
-- Flow 启动延迟，即大于零的 **flow_start_delay_seconds**。由
-  [issue 995](https://github.com/superdurable/dex/issues/995) 跟踪。
-- Flow 级重试策略，即 Flow 启动选项中的 **retry_policy**。由
-  [issue 996](https://github.com/superdurable/dex/issues/996) 跟踪。Step 级重试受支持。
-
-唯一支持的 Attribute Store 是 PostgreSQL。Redis 由
-[issue 616](https://github.com/superdurable/dex/issues/616) 跟踪。
+已移到 [Unsupported features](/reference/server/#unsupported-features)。
 
 ## 安装和启动
 
-每个 **server-zd/vX.Y.Z** GitHub Release 都发布 Linux amd64、Linux arm64、
-macOS amd64 和 macOS arm64 的 **dex-server-zd** 压缩包，并附带 **checksums.txt**。解压前先用它校验
-压缩包。Linux 压缩包需要 glibc 2.28 或更新版本。
-
-**dex-server-zd** 容器镜像支持 linux/amd64 和 linux/arm64。镜像使用配置文件
-**/etc/dex-server-zd/config.yaml** 运行 **serve**。进程以 UID 10001 和 GID 10001 运行。
-
-~~~bash
-dex-server-zd serve --config /etc/dex-server-zd/config.yaml
-~~~
-
-**serve** 从一个 YAML 文件读取全部配置。
-[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
-列出了每个键及其默认值。未知的键会导致启动失败。无效的值也会导致启动失败，错误信息会
-给出被拒绝字段的 YAML 路径。镜像在 **/etc/dex-server-zd/dex-server-zd.example.yaml**
-附带这份示例，仅供参考。
+已移到 [Install and start](/reference/server/configuration#install-and-start)。
 
 ## 最小生产配置
 
-~~~yaml
-cluster:
-  nodeId: dex-zd
-objectStore:
-  region: us-east-1
-  bucket: BUCKET
-  prefix: PREFIX
-localStorage:
-  directory: /var/lib/dex-server-zd/store
-lease:
-  duration: 60s
-retention:
-  closedFlowDuration: 7days
-metrics:
-  listen: 0.0.0.0:9090
-~~~
-
-**cluster.nodeId**、**objectStore.bucket** 和 **localStorage.directory** 是必填项。
-把 **BUCKET** 和 **PREFIX** 换成你的 bucket 和 key 前缀。**objectStore.endpoint**
-留空时使用 AWS 的 endpoint 解析。使用兼容 S3 的存储时，把它设为 HTTP 或 HTTPS URL。
-如果该存储要求 path-style 寻址，设置 **objectStore.forcePathStyle**。
-
-节点 ID 长 1 到 63 个字符，只能包含小写字母、数字和连字符，并以字母或数字开头。
-
-一个对象存储前缀存放一个 Dex 集群，一个集群只运行一个节点。第一次启动会记录
-**cluster.nodeId** 和 **cluster.partitionCount**，之后两者都不能修改。用不同的节点 ID
-启动会失败，错误信息会给出已记录的节点 ID。不要让两个部署指向同一个前缀。
+已移到 [Minimal production configuration](/reference/server/configuration#minimal-production-configuration)。
 
 ## 本地磁盘上的单节点 {#single-node-local}
 
-**dex-server-zd local** 运行一个不依赖外部对象存储的生产节点。它在同一个进程中启动内嵌的
-s3local 对象存储，并把全部数据放在本地磁盘的一个目录中：
-
-~~~bash
-dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>] [--durability strict|process-crash-safe|relaxed]
-~~~
-
-数据目录中，**s3** 存放内嵌对象存储，**store** 存放本地存储，**dev.lock** 是锁文件。内嵌对象
-存储是唯一的事实来源，作用和 **serve** 的 bucket 相同。请把数据目录放在持久磁盘上。设置
-**--log-dir** 后，日志还会写入该目录下的 **dex-server-zd.log**。
-
-可选的 **--config** 文件存放覆盖配置，使用
-[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
-中的键。文件中只写你要修改的键。文件中出现的每个键都会替换单节点的默认值。不要复制整个示例
-配置：复制后 **api.listen** 会变成 **0.0.0.0:8801**，除非文件同时配置了 authenticator，否则
-没有身份验证；**lease.duration** 也会变成 10 秒。对象存储连接、节点 ID **dev** 和本地存储目录
-由 **local** 自己设置。**--listen** 会覆盖文件中的 **api.listen**。第一次启动会记录
-**cluster.partitionCount**，之后不能修改。
-
-可选的 **--attribute-store-config** 只读取一个 YAML 文件中的
-**attributeStore** 段，该段至少要定义一个 store。**--config** 文件不能再设置
-**attributeStore**。
-
-节点 ID **dev**、bucket **dex-dev**、锁文件 **dev.lock** 和覆盖配置中的 **dev** 段特意保留了
-**dev** 的名字。**local** 和 **dev** 共用它们，所以数据目录可以在两个命令之间迁移。
+已移到 [Single node on local disk](/reference/server/configuration#single-node-local)。
 
 ### 持久性 {#single-node-local-durability}
 
-**dev.durabilityMode** 决定内嵌对象存储如何写入已确认的数据。**--durability** flag 用同样
-的模式覆盖它，写作 **strict**、**process-crash-safe** 和 **relaxed**。
-
-| 模式 | 能承受 | 代价 |
-| --- | --- | --- |
-| **strict**（默认） | 进程被 kill、主机崩溃和断电。 | 每次写入都在回复前用 fsync 刷写。 |
-| **processCrashSafe** | 进程被 kill。主机崩溃或断电可能丢失最近的写入。 | 更快。每次写入在回复前写进文件，但不调用 fsync。 |
-| **relaxed** | 只有优雅停止。 | 写入在优雅停止前留在内存中。异常退出之后，每次启动都会失败，直到你删除数据目录。 |
-
-生产环境请保留默认的 **strict** 模式。
+已移到 [Durability](/reference/server/configuration#single-node-local-durability)。
 
 ### 一个节点 {#single-node-local-one-node}
 
-**local** 只运行一个节点。它在整个运行期间对 **dev.lock** 持有排他锁，所以同一数据目录上的
-第二个 **local** 或 **dev** 进程会启动失败。它没有备用节点，会拒绝 **standby.mode: hot** 和
-**objectStore.hardDeleteStore**。持有锁期间，没有其他进程能写它的对象存储，所以崩溃后重启时
-它会立即接管仍被持有的 lease。**lease.duration** 默认是 30 秒。在不支持文件锁的文件系统上，
-这两个命令无法互相排斥，重启也要等上一个 lease 过期。在这种文件系统上，每个数据目录只运行一个
-进程。
-
-收到 SIGTERM 后，**local** 最多等待 **lifecycle.attemptDrainTimeout**（默认 30 秒）让运行中的
-Step attempt 完成，然后按[优雅关闭](#graceful-shutdown)中的步骤停止。请给服务管理器至少 45 秒
-来停止它。
-
-[Stream](#streams) 默认使用 **memory** 后端，和 **serve** 相同。进程停止或重启时，Stream
-消息会丢失。
-
-**local** 默认监听 **127.0.0.1:8801**，只有本机能访问它。要服务其他主机上的客户端和
-Worker，请传入 **--listen 0.0.0.0:8801**，或在覆盖配置中设置 **api.listen**。除非覆盖配置
-设置了 authenticator，**local** 没有[身份验证](#身份验证)。在非 loopback 地址上监听且没有
-authenticator 时，它会在启动时记录一条警告。对外开放之前，请先配置身份验证。在覆盖配置中设置
-**metrics.listen** 可以开启[指标](#metrics)。
+已移到 [One node](/reference/server/configuration#single-node-local-one-node)。
 
 ### 备份和恢复 {#single-node-local-backup}
 
-备份时，先用 SIGTERM 停止 **local**，等它退出，再复制整个数据目录。运行中复制的数据目录
-可能不一致。恢复时，停止 **local**，用副本替换数据目录，再启动 **local**。备份之后确认的
-写入会丢失。
-
-[备份和恢复](#备份和恢复)中的通用规则同样适用。使用 PostgreSQL 或 ParadeDB 搜索后端时，
-恢复后的数据目录需要新的 **search.postgresSchema** 或 **search.paradeDbSchema**，原因见该节。
+已移到 [Back up and restore](/reference/server/configuration#single-node-local-backup)。
 
 ### 与 dev 和 serve 的区别 {#single-node-local-commands}
 
-| | **dev** | **local** | **serve** |
-| --- | --- | --- | --- |
-| 用途 | 开发，由 **dexcli dev** 启动。 | 单节点生产。 | 使用外部对象存储的生产。 |
-| 对象存储 | 内嵌，位于数据目录中。 | 内嵌，位于数据目录中。 | 外部 S3 或兼容 S3 的 bucket。 |
-| 节点 | 一个。 | 一个。 | 一个活动进程，可选热 standby。 |
-| 停止时的 Step attempt drain | 2 秒。 | 30 秒。 | 30 秒。 |
-| Lease 时长 | 30 秒。 | 30 秒。 | 10 秒。 |
-| 默认监听地址 | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
-| 配置 | flag 和可选的覆盖文件。 | flag 和可选的覆盖文件。 | 一个 YAML 文件。 |
-
-**dev** 和 **local** 使用相同的数据目录布局。任一命令都可以运行另一个命令写过的数据目录。
-启动其中一个之前，先停止另一个。
+已移到 [Compared with dev and serve](/reference/server/configuration#single-node-local-commands)。
 
 ## Kubernetes 部署
 
+已移到 [Kubernetes deployment](/reference/server/kubernetes)。
+
 ### StatefulSet 单副本
 
-用副本数恰好为 1 的 StatefulSet 运行 server-zd。StatefulSet 只在旧 pod 消失后才创建
-替代 pod。Deployment 可能在旧 pod 仍在运行时启动新 pod。
-
-不要强制删除 server pod。强制删除会在 Kubernetes 确认进程停止之前，把 pod 从 API 中
-移除。如果节点失联，旧进程可能与替代进程同时运行。
-
-下面的示例用 PersistentVolumeClaim 存放本地存储，并使用名为 **dex-server-zd**、
-包含 **config.yaml** 的 ConfigMap。镜像是已发布的多架构 release 镜像，支持 amd64 和 arm64。
-
-~~~yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: dex-server-zd
-spec:
-  selector:
-    app: dex-server-zd
-  ports:
-    - name: grpc
-      port: 8801
-      targetPort: grpc
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: dex-server-zd
-spec:
-  serviceName: dex-server-zd
-  replicas: 1
-  selector:
-    matchLabels:
-      app: dex-server-zd
-  template:
-    metadata:
-      labels:
-        app: dex-server-zd
-    spec:
-      serviceAccountName: dex-server-zd
-      terminationGracePeriodSeconds: 45
-      securityContext:
-        runAsUser: 10001
-        runAsGroup: 10001
-        fsGroup: 10001
-      containers:
-        - name: dex-server-zd
-          image: docker.io/superdurable/dex-server-zd:0.1.3
-          ports:
-            - name: grpc
-              containerPort: 8801
-            - name: metrics
-              containerPort: 9090
-          startupProbe:
-            grpc:
-              port: 8801
-            periodSeconds: 5
-            failureThreshold: 60
-          readinessProbe:
-            grpc:
-              port: 8801
-            periodSeconds: 5
-          livenessProbe:
-            grpc:
-              port: 8801
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-          volumeMounts:
-            - name: config
-              mountPath: /etc/dex-server-zd/config.yaml
-              subPath: config.yaml
-              readOnly: true
-            - name: data
-              mountPath: /var/lib/dex-server-zd
-      volumes:
-        - name: config
-          configMap:
-            name: dex-server-zd
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 20Gi
-~~~
+已移到 [One replica in a StatefulSet](/reference/server/kubernetes#one-replica-in-a-statefulset)。
 
 ### 优雅关闭 {#graceful-shutdown}
 
-收到 SIGTERM 后，节点停止派发新的 Step 任务，并报告 **NOT_SERVING**。它继续持有
-lease，并保持 pull Worker stream 打开，等待运行中的 attempt 完成。Heartbeat、完成结果
-和失败结果仍然会提交。所有运行中的 attempt 结束且结果提交后，或
-**lifecycle.attemptDrainTimeout** 到期后，节点才释放 lease。热 standby 在此期间跟随提交，
-在 lease 释放后接管。
-
-Drain 期间，新的 Flow RPC 返回 **UNAVAILABLE**，SDK 会重试它们。还没有交给 Worker 的
-Step 会等待，由后继进程拿到 lease 后再 dispatch。drain 开始时 start 已经在写入的 Step
-仍会发给它的 Worker，并像运行中的 attempt 一样被 drain。drain 开始前 Worker 已经从
-[Step 任务队列](#step-task-queue)取走的 Step 也是如此。仍在任务队列中的 Step 会留给后继进程。
-
-**lifecycle.attemptDrainTimeout** 默认为 **30s**，设为 **0s** 可禁用 attempt drain。
-Step 方法和 heartbeat 的超时在 drain 期间仍然生效，drain 不会延长它们。选择 drain 超时
-时，要为希望完成的 Step 方法留出足够的剩余执行时间。**dexcli dev** 在 10 秒后停止
-server，所以除非它的配置设置了这个字段，它使用 **2s** 的 drain。**dex-server-zd local**
-保留默认的 **30s**。
-
-Kubernetes 的 **terminationGracePeriodSeconds** 必须长于 drain 超时，并至少额外留出
-15 秒用于关闭组件。默认 drain 为 **30s**，因此至少应设为 **45** 秒。否则 Kubernetes
-可能在结果提交和 lease 释放之前杀死进程。
-
-Attempt drain 结束后，Worker 重新连接，long poll 和 Stream Store 关闭。在途 RPC 最多
-有 4 秒完成。后台工作停止，然后引擎释放 lease。其他未结束的调用返回 **UNAVAILABLE**，
-客户端会在新的 active 进程上重试。最后关闭 metrics 监听器。这些关闭步骤另有约 15 秒预算。
-
-**Step attempt drain ended** 日志记录 **attempts_waited**、**attempts_finished** 和
-**attempts_running**，包括仍在等待最终提交的 attempt。它的 **outcome** 字段在所有
-attempt 都完成时为 **completed**，在 drain 超时到期时为 **timed_out**，在节点先因其他
-原因停止时为 **node_stopped**。超时为 **0s** 时，节点改为记录
-**Step attempt drain disabled**。
-
-每一步都完成时，进程以 0 退出，使用相同 **cluster.nodeId** 的替代进程会立即获得 lease。
-如果某一步没有按时完成或者失败，例如对象存储拒绝释放 lease，进程以 1 退出。替代进程这时
-最多要等 **lease.duration** 再加约 1 秒。
-
-Dex 还没有交给 Worker 的 attempt 不会失败，由后继进程负责 dispatch。进程交出 lease 时仍在
-运行的 attempt，会被新的 active 进程以 **NOT_COMPLETED** 判为失败，并各消耗一次 retry。
-
-启动期间收到 SIGTERM 会中断 lease 获取或恢复。如果节点已经持有 lease，它会在关闭预算内
-停止启动并释放 lease。释放失败时进程以 1 退出，下次启动可能要等待旧 lease 过期。如果
-SIGTERM 到达时某次 lease 写入的结果仍然未知，进程以 0 退出，不会释放这次写入，下次启动
-可能要等待它过期。
+已移到 [Graceful shutdown](/reference/server/kubernetes#graceful-shutdown)。
 
 ### 本地存储卷
 
-本地存储是缓存，因为每次已确认的写入都已经在对象存储中。卷的类型只影响重启耗时。
-
-使用 emptyDir 时，新 pod 会恢复最新的快照，再重放快照之后写入的日志。emptyDir 在同一个
-pod 内的容器重启后仍然保留，但不会带到新 pod。使用 PersistentVolumeClaim 时，新 pod
-会复用本地存储，只重放停止之后写入的日志。无论哪种方式，重启后的第一个快照都会把完整的
-本地 checkpoint 上传到对象存储。
-
-把卷挂载到一个父目录，例如 **/var/lib/dex-server-zd**，再把 **localStorage.directory**
-设为其子目录，例如 **/var/lib/dex-server-zd/store**。节点无法复用现有本地存储时，
-会把该目录重命名为带 **.discarded-** 后缀的同级目录，然后重建。打开存储时 RocksDB 报告
-存储损坏、缺少文件或格式不兼容，或者存储无法用保留的日志更新时，就会这样处理。如果该目录
-就是挂载点，重命名会失败。
-
-导致节点无法打开存储的其他错误会让启动失败，并把目录原样保留。例如另一个进程正打开着
-这个存储，或者权限错误。停止另一个进程或修正权限后再重启。如果存储本身无法读取，例如发生
-磁盘错误，请停止节点，移走或删除存储目录，然后重启。节点随后会从对象存储重建存储。
-
-比对象存储中的元数据更新的存储也会被移到一旁，节点会记录一条 error 日志。这个副本可能是
-元数据发生回退的唯一本地证据。
-
-每次启动成功后，节点会删除较旧的被移到一旁的目录。它只保留最新的
-**localStorage.retainedSetAsideStoreCount** 个用于诊断，默认是 1。本次启动移到一旁的副本
-总是算作最新的。设为 0 表示一个都不保留。节点这时会立即删除所有副本，包括比元数据更新的
-存储的副本。节点会在日志中记录每个被删除的路径。删除失败只会记录一条警告，不会让启动失败。
-节点只删除它为这个存储移到一旁的目录。另一个进程持有当前存储的锁时，节点从不把它移到一旁，
-也从不删除它。节点不会再打开被移到一旁的副本。清理时不会检查是否有其他工具正打开着某个
-被移到一旁的副本。
-
-server-zd v0.1.2 及更早的版本从不删除被移到一旁的目录。升级后第一次成功启动时，只会保留最新
-的副本。如果想保留更早的副本，请在升级前调大这个数量，或者把它们移出父目录。这些版本在任何
-打开错误之后都会把存储移到一旁，之后的版本只在上面列出的情况下这样做。
-
-卷的容量应能容纳当前状态，加上 **localStorage.maxWalBytes** 的 write-ahead log
-（默认 256 MiB），再加上大批量重放后尚未压缩的文件。重放后节点会压缩存储，目录会回到
-接近当前状态的大小。
-
-还要为保留的移到一旁的副本预留空间。每个副本最大可能等于节点把它移到一旁时的存储大小。
-启动成功后，卷上最多保留 **localStorage.retainedSetAsideStoreCount** 个副本。一次把存储
-移到一旁的启动，在成功之前会多占一个副本。把存储移到一旁之后失败的启动，例如反复崩溃重启，
-每次都会再增加一个副本，直到某次启动成功。使用默认值 1 时，要按重建后的存储旁边至少有两个
-旧副本来规划。
-
-如果想用 emptyDir 替代 claim 模板，把 **volumeClaimTemplates** 换成下面的卷：
-
-~~~yaml
-      volumes:
-        - name: data
-          emptyDir:
-            sizeLimit: 20Gi
-~~~
+已移到 [Local store volume](/reference/server/kubernetes#local-store-volume)。
 
 ### 健康检查
 
-8801 端口在 **api.listen** 上提供标准的 gRPC health 服务。启动期间，节点等待 lease 和
-重放日志时，health 报告 **NOT_SERVING**。恢复完成后报告 **SERVING**。
-
-三种 probe 都使用 gRPC health：
-
-- **startupProbe** 在第一次 **SERVING** 之前挡住 liveness probe。**failureThreshold**
-  × **periodSeconds** 至少要等于 **lease.duration** + 1 s + 最坏情况下的恢复时间。lease
-  这一部分用于应对上一个 owner 没有释放 lease 的情况。恢复时间随当前状态和日志尾部增长。
-  空存储的冷恢复用时约 4 s，有真实数据时要预留更多。示例允许 5 分钟。
-- **readinessProbe** 在节点不提供服务时挡住流量。
-- **livenessProbe** 重启不再响应的节点。对于从不让位的节点，liveness 优先用 gRPC health
-  而不是 TCP probe：卡住的进程仍可能通过内核的连接队列接受 TCP 连接，却不提供任何服务。
-
-从不让位的服务节点只有在退出时才会回到 **NOT_SERVING**，因为丢失 lease 会结束进程。所以
-对它来说，在 gRPC health 上做 liveness 不会造成反复重启。[让位](#step-down)会让 active
-进程报告 **NOT_SERVING**，同时继续作为 standby 运行，这时基于 gRPC health 的 liveness
-probe 会重启它。可能让位的进程需要使用 standby 的 TCP 或 exec liveness probe。
-
-这组 probe 适用于单副本。standby 副本在接管之前一直是 **NOT_SERVING**，永远过不了这个
-startup probe。standby 需要改用 TCP 或 exec 的 startup probe 和 liveness probe。见
-[热 standby](#hot-standby-health)。
-
-发生致命错误后，例如 lease 丢失或提交失败，进程会自行退出。启动期间，对象存储读取遇到
-暂时性错误或结果未知的错误时，节点会按带抖动的指数退避重试。
-**recovery.startupReadRetryBudget** 为每次读取设置从首次暂时性错误或结果未知的错误开始计算的实际时间窗口，
-默认 30 秒，且必须大于零。退避等待和后续读取都计入该次读取的窗口。并发读取不共享时间，
-之后的独立读取会获得新的窗口。窗口到期时，错误会指出操作、对象键和最后一次错误。
-必需对象缺失、数据损坏、访问被拒绝或 lease 所有权丢失时，启动不会重试读取。
-lease 有效期结束或关闭请求可能更早终止重试。恢复期间重试读取时，lease 仍会续约。
-该窗口限制的是每次读取，而不是整个启动过程。获得 lease 之后，启动没有总体时间上限。
-持续的故障仍会在一次读取的窗口内使启动失败；读取较慢但仍有进展时，续约会让 lease 保持有效。
-startup probe 限制启动的总时长。
-如果启动时无法访问对象存储，条件写入自检也会使进程以 1 退出。启动失败时进程以 1 退出，
-Kubernetes 随后按退避策略重启容器。
+已移到 [Health checks](/reference/server/kubernetes#health-checks)。
 
 ## Lease {#lease}
 
-节点在对象存储中持有一个 lease 对象。**lease.duration** 默认是 10 秒。节点在时长的
-三分之一处续约。
-
-**dex-server-zd dev** 把 **lease.duration** 默认设为 30 秒，除非它的覆盖配置文件设置了
-这个值。dev 节点没有备用节点，所以更长的 lease 不会增加故障切换时间。它还能让节点撑过更长
-的主机停顿。dev 节点对数据目录中的 **dev.lock** 持有排他锁，所以同一目录上的第二个 dev
-进程会启动失败。持有这个锁期间，仍被持有的 lease 一定属于已经停止的进程。dev 节点随后会立即
-接管 lease 并提升 epoch，所以重启不需要等待，崩溃之后也一样。在不支持文件锁的文件系统上，dev
-节点会记录一条警告，并等待 lease 过期，最多 31 秒。默认的 **dev.durabilityMode** 是
-**strict**，它在回复之前用 fsync 刷写每个写入。它在这类崩溃或 kill 之后保留每个已确认的
-写入，也能承受主机崩溃或断电。**processCrashSafe** 跳过 fsync，所以更快，但主机崩溃或断电
-可能丢失最近的写入。**dex-server-zd dev** 的 **--durability** flag 会覆盖这个设置。在
-**relaxed** 模式下异常退出之后，dev 节点会拒绝启动，直到你删除它的数据目录。参见[本地开发](/production/dex-web#run-against-server-zd)。
-**dex-server-zd local** 使用相同的 lease 默认值、锁、接管行为和持久性模式。参见
-[本地磁盘上的单节点](#single-node-local)。
-
-数据安全不依赖这个时长。每次获得 lease 都会提升节点 epoch，每次日志写入都是条件写。
-两者一起把丢失 lease 的进程隔离在外。
-
-时长影响崩溃后的接管时间。优雅关闭会释放 lease，替代进程可以立即启动。崩溃、SIGKILL
-或 Kubernetes 节点丢失之后，替代进程要等旧 lease 过期，再多等 1 秒。这段等待最多是
-**lease.duration** 加 1 秒，之后才开始恢复。恢复时，已经交给 Worker 的 attempt 以 NOT_COMPLETED
-失败，并消耗一次 retry。例外是节点崩溃时开始记录尚未持久化的 ASYNC attempt：
-它以同一个 attempt 编号再次运行，不消耗 retry。
-
-时长对对象存储故障只有部分影响：
-
-- 一次续约尝试因暂时性错误失败时（例如 5xx 或限流响应），节点会在退避后重试。
-- 只要后面还能再容纳一次尝试，每次尝试都会在时长的六分之一（1 到 5 秒之间）后被中断。
-  最后一次尝试可以用完剩余的全部时间，所以 lease 较长时，它可能超过 5 秒。
-- 只有下一次退避能在续约截止时间（当前 lease 期限结束前 100 毫秒）之前结束，重试才会继续。
-  没有重试的余地，或者最后一次尝试失败时，节点停止。
-- 被中断的续约如果实际已经写入，并且后面的某次尝试找到了它，它仍然有效。后面的尝试在自己的
-  写入失败后读取 lease，从而找到它。节点只在续约截止时间之前采用这次写入。
-- 续约输给另一个持有者，或者遇到永久性存储错误时，节点立即停止。
-- 对象存储在 10 秒内没有接受一次日志写入时，节点也会停止。这个限制是固定的，与 lease
-  时长无关。
-
-因此，较长的 lease 能让空闲节点撑过更长时间的对象存储停滞或主机停顿。以上任一情况停止后，
-进程都以 1 退出。
-
-单副本部署建议把 **lease.duration** 设为 60 秒。这时续约每小时大约发出 180 次 PUT
-请求，10 秒时约为 1,080 次。时长最好不超过约 120 秒。更长的 lease 省下的请求很少，
-崩溃后的不可用时间却会继续增长。
-
-默认情况下，如果另一个进程持有 lease，启动中的节点会等待。把 **lease.failIfHeld**
-设为 true 可以改为直接启动失败。
+已移到 [Lease](/reference/server/high-availability#lease)。
 
 ## 热 standby {#hot-standby}
 
-standby 是第二个 server-zd 进程。它的 **nodeId** 和对象存储设置与 active 进程相同，但
-有自己的本地存储。active 进程持有 lease 时，它等待；lease 被释放或过期时，它接管。
-**standby.mode** 决定 standby 等待时做什么：
-
-- **cold** 是默认值，等待时什么都不做。拿到 lease 后，它打开或恢复本地存储并重放日志，
-  和重启一样。
-- **hot** 从对象存储跟随节点的日志，把每个 batch 应用到本地存储。这样接管时只需要
-  重放最后几个 batch。
-
-~~~yaml
-standby:
-  mode: hot
-~~~
-
-**standby** 的其他字段都有默认值，适合大多数部署：
-
-| 字段 | 默认值 | 含义 |
-| --- | --- | --- |
-| **heldLeasePollInterval** | 250ms | 仅 hot 模式。standby 读取其他进程持有的 lease 的间隔。 |
-| **stepDownHoldOff** | 5s | [让位](#step-down)的进程再次竞争 lease 之前等待多久。 |
-| **laggingTakeoverDelay** | 1500ms | 仅 hot 模式。不热的 standby 拿可用的 lease 之前等待多久。 |
-| **behindLagThreshold** | 10s | 仅 hot 模式。落后超过这个值时，standby 算作 behind，不再算热。 |
-
-**hot** 需要把 **lease.failIfHeld** 设为 false。**dex-server-zd dev** 和
-**dex-server-zd local** 只接受 **cold**。hot 模式下，**stepDownHoldOff** 必须大于 **laggingTakeoverDelay** 加
-**heldLeasePollInterval**。不支持热 standby 的版本会拒绝带 **standby** 段的配置。先升级
-所有进程，再加这一段。
-
-热 standby 只读对象存储。它不运行 Step 和 timer，对公开 API 调用返回
-**UNAVAILABLE**。给它的本地卷大小与 active 进程相同。
+已移到 [Hot standby](/reference/server/high-availability#hot-standby)。
 
 ### 接管 {#hot-standby-takeover}
 
-lease 被释放后，热 standby 大约在一个 **heldLeasePollInterval** 内拿到它。崩溃之后，它
-仍要等旧 lease 过期再加 1 秒，见 [Lease](#lease)。热 standby 缩短的是这段等待之后的
-恢复，不是等待本身。
-
-热 standby 写 lease 之前等待 0 到 50 ms。不热的 standby 先等待大约
-**laggingTakeoverDelay**。standby 在这些时候不算热：从快照 bootstrap 时、出错后重启时，
-以及落后日志超过 **behindLagThreshold** 时。所以只要有热 standby，就是它赢。哪个进程
-接管，只由带条件的 lease 写入决定。
-
-如果接管在 standby 拿到 lease 之前失败，standby 会继续跟随日志，并在 1 到 30 秒的退避
-之后重试。拿到 lease 之后的失败会释放 lease，进程以 1 退出。
+已移到 [Takeover](/reference/server/high-availability#hot-standby-takeover)。
 
 ### Health 和 probe {#hot-standby-health}
 
-standby 对默认 service 名、**dex.FlowService** 和 **dex.WorkerTaskService** 报告
-**NOT_SERVING**。所以基于 gRPC health 的 readiness probe 只把流量发给 active 进程。
-
-service 名 **dex.HotStandby** 只在热 standby 上报告 **SERVING**。它在 active 进程上、
-cold standby 上，以及 standby bootstrap、重启或 behind 时，报告 **NOT_SERVING**。用它
-检查 standby 是否已经可以接管。
-
-standby 永远过不了基于 gRPC health 的 startup probe 或 liveness probe。给它使用 TCP 或
-exec 的 startup probe 和 liveness probe。
-
-standby 大约每 3 秒关闭一次每个客户端连接。连到它的客户端，例如通过尚未更新的 Service
-endpoint 连上的，随后会重新连接并到达 active 进程。
-
-node lease 已经失效的进程，例如冻结时间超过 lease 后恢复的进程，会立即对公开 API 调用返回
-**UNAVAILABLE**，对 readiness 名报告 **NOT_SERVING**，然后退出。它不会用其他进程可能已经
-改变的状态回答调用，也不会再给 Worker 分配新任务。在它随后停止服务之前，有两类已经打开的
-stream 例外。已打开的 **PollWorkerTask** stream 仍会传递 ping，以及 Worker 正在执行的任务
-的帧。gRPC health 的 **Watch** stream 仍报告上一次的状态。
+已移到 [Health and probes](/reference/server/high-availability#hot-standby-health)。
 
 ### Kubernetes {#hot-standby-kubernetes}
 
-对 [StatefulSet 示例](#statefulset-单副本)做以下修改：
-
-- 把 **replicas** 设为 2，把 **podManagementPolicy** 设为 **Parallel**。每个 pod 从
-  claim template 得到自己的卷。
-- 把 gRPC 的 **startupProbe** 和 **livenessProbe** 换成 8801 端口上的 **tcpSocket**
-  probe。保留 gRPC 的 **readinessProbe**。
-- 把 **updateStrategy** 的 type 设为 **OnDelete**。滚动更新要等每个更新后的 pod 就绪，
-  而 standby 永远不会就绪。
-
-更新两个 pod 的步骤：
-
-1. 删除 standby pod。等它的替代 pod 上 **state="following"** 的
-   **dexzd_hot_standby_state** 变成 1。
-2. 删除 active pod。它的优雅关闭会释放 lease，更新后的 standby 立即接管。它的替代 pod
-   作为新的 standby 启动。
-
-第 2 步也可以不删除 active pod，而是让它[让位](#step-down)。这样它会一直运行，直到另一个
-进程接管。
+已移到 [Kubernetes](/reference/server/high-availability#hot-standby-kubernetes)。
 
 ### Lease 时长和告警 {#hot-standby-lease-and-alerts}
 
-部署了 standby 时，把 **lease.duration** 保持在默认的 10 秒左右。崩溃之后，standby 要等旧
-lease 过期再加 1 秒，所以 lease 决定了故障切换的时间上限。使用
-[Attribute Store 同步](#attribute-store)时不要把它调得太低：一个写事务最长持续
-**lease.duration** 的四分之一，10 秒的 lease 下是 2.5 秒。见
-[写入超时](#attribute-store-write-timeout)。
-
-在没有 standby 可以接管、standby 失败或反复重启、以及它的落后持续增长时告警：
-
-~~~text
-# No hot standby
-sum(dexzd_hot_standby_state{state="following"}) == 0
-
-# A standby failed or restarts
-max_over_time(dexzd_hot_standby_state{state=~"failed|restarting"}[5m]) == 1
-
-# A standby lag that keeps growing
-dexzd_hot_standby_lag_seconds > 5
-~~~
+已移到 [Lease duration and alerts](/reference/server/high-availability#hot-standby-lease-and-alerts)。
 
 ## 让 active 进程让位 {#step-down}
 
-**dexcli admin step-down** 请求一个 node ID 的 active 进程交出 lease。这个进程停止
-派发新的 Step 任务，按照[优雅关闭](#graceful-shutdown)的方式 drain 运行中的 attempt，
-使用相同的 **lifecycle.attemptDrainTimeout**。Drain 期间继续续约 lease，并接收 Worker
-heartbeat 和最终输出。忙碌的 Worker stream 会保持打开，直到结果提交或超时到期。
-
-随后进程释放 lease，并继续作为 standby 运行。在释放之前完成的调用保留原来的结果。
-释放时仍未结束的调用返回 **UNAVAILABLE**，客户端会在新的 active 进程上重试。
-Drain 到期时仍在运行的 attempt 会被中断，新的 active 进程以 **NOT_COMPLETED** 将其
-判为失败，并按 retry policy 消耗一次 retry。尚未交给 Worker 的 attempt 不会失败，
-新的 active 进程会派发它们。同一个 node ID 的其他进程，包括热 standby，只有在 active
-释放 lease 后才能接管，和优雅关闭之后一样。让位的进程要等待一段 hold-off，即
-**standby.stepDownHoldOff**，才会再次竞争 lease。如果这段时间内没有其他进程接管，它会把
-lease 拿回来。**standby.mode** 为 **hot** 时，它在等待期间作为[热 standby](#hot-standby)
-跟随日志。
-
-**dexcli admin describe** 输出 active 进程的 **nodeId**、**nodeEpoch** 和
-**holderProcessId**，不做任何修改。每次拿到 lease 都会提高 node epoch。两个 command 都需要
-[admin 凭证](#admin-credentials)。让位还需要 **--yes** flag。
-
-~~~bash
-dexcli --server dex.example.internal:8801 admin describe \
-  --credential-file /run/secrets/dex/admin-token
-dexcli --server dex.example.internal:8801 admin step-down --yes \
-  --credential-file /run/secrets/dex/admin-token
-~~~
-
-每个让位请求都带有前置条件：要让位的进程的 node ID 和 node epoch。不匹配的进程返回
-**FAILED_PRECONDITION**，不做任何修改。**dexcli admin step-down** 的 flag 这样组合：
-
-- 没有 **--expected-node-id** 和 **--expected-node-epoch** 时，先查询 active 进程，并以
-  查询返回的 node ID 和 node epoch 作为前置条件。
-- 只有 **--expected-node-id** 时，先查询。如果 server 报告的是另一个 node ID，就拒绝执行，
-  不让任何进程让位。否则以这个 node ID 和查询到的 node epoch 作为前置条件。第一次运行时
-  用它防止 **--server** 写错。
-- 两个 flag 都有时，原样发送，不查询。
-- 只有 **--expected-node-epoch** 是用法错误。
-
-如果让位请求到达的是刚刚接管的进程上的 standby 连接，它会立即返回 **FAILED_PRECONDITION**，
-不做任何修改。再运行一次，请求就会到达 active 进程。
-
-如果先做的查询失败，这个 command 不会让任何进程让位。正在进行的让位可能是你或其他人已经
-发起的。等过 hold-off，运行 **dexcli admin describe**，只有在你想要的切换还没有发生时才再次
-让位。
-
-释放 lease 之后，让位调用会观察 lease。一旦有其他进程接管，调用立即返回。否则，它在
-hold-off 结束、并尝试一次拿回 lease 之后返回。所以调用最长持续：attempt drain 超时、
-提交排空的上限、释放 lease、hold-off，再加一次获取 lease 的尝试。
-
-有一个例外。进程要等已停止的服务阶段的本地 store 关闭之后，才会再次竞争 lease。如果某个
-卡住的任务一直让这个 store 保持打开，进程在释放 lease 之后最多等待约 64 秒。如果到那时还
-没有其他进程接管，调用返回 **INTERNAL**。无论哪种情况，进程都不拿 lease，以 1 退出。重启
-会释放这个 store。在此期间，同一个 node ID 的另一个进程可以接管。
-
-除非设置了 **--timeout**，
-**dexcli admin step-down** 最多等待 2 分钟。这足以覆盖默认 **30s** 的 attempt drain。
-如果调大 **lifecycle.attemptDrainTimeout**，**--timeout** 至少要调大同样的时长，否则
-command 可能在让位完成之前就停止等待。输出包含这些字段：
-
-- **expectedNodeId** 和 **expectedNodeEpoch** 给出 command 发送的前置条件。
-- **nodeId**、**releasedNodeEpoch** 和 **leaseReacquisitionHoldOff** 给出 node ID、
-  被释放的 lease 的 epoch 和 hold-off。
-- **leaseHolderAfterStepDown** 表示调用返回时哪个进程持有 lease：
-  - **takenOverByAnotherProcess**：另一个进程接管了。
-  - **takenBackByThisProcess**：hold-off 内没有其他进程接管，让位的进程把 lease 拿了
-    回来。
-  - **unknown**：两种情况都没有确认，**leaseHolderUnknownDetail** 说明原因。
-- **activeNodeEpoch** 和 **activeHolderProcessId** 在已知时给出持有 lease 的进程。
-
-node epoch 以十进制字符串输出。
+已移到 [Step down the active process](/reference/server/high-availability#step-down)。
 
 ### 安全地重试让位 {#retry-step-down}
 
-让位以 **DEADLINE_EXCEEDED**、**CANCELLED** 或 **UNAVAILABLE** 失败时，结果未知。错误
-输出会说明这一点，并带上这次调用使用的 **expectedNodeId** 和 **expectedNodeEpoch**。
-
-重试时只能使用这两个值，也就是你最初想让位的那个进程的值：
-
-~~~bash
-dexcli --server dex.example.internal:8801 admin step-down --yes \
-  --expected-node-id node-a --expected-node-epoch 7 \
-  --credential-file /run/secrets/dex/admin-token
-~~~
-
-绝不要用失败之后 **dexcli admin describe** 输出的 node epoch 重试。describe 总是显示
-那时的 active 进程。假设失败的调用其实已经让 epoch 7 让位，并且一个 standby 以 epoch 8
-接管了。用 epoch 8 重试会让这个 standby 让位。在单副本上，同一个进程可能已经以 epoch 9
-拿回 lease，用 epoch 9 重试会造成第二次中断。用原来的 epoch 7 重试，在这两种情况下都会
-返回 **FAILED_PRECONDITION**，不做任何修改。
-
-不要在不带这两个 flag 的情况下再次运行这个 command；它会查询并让当前的 active 进程让位。
-
-可以运行 **dexcli admin describe** 查看发生了什么。如果 node epoch 或 holder process ID
-变了，说明让位或其他接管已经发生，不要重试。让位或其 hold-off 进行期间，describe 返回
-**FAILED_PRECONDITION**；没有可访问的 server 进程时，返回 **UNAVAILABLE**。这时等过
-hold-off 后再查询。
+已移到 [Retry a step down safely](/reference/server/high-availability#retry-step-down)。
 
 ### 单副本、probe 和访问控制 {#step-down-single-replica}
 
-单副本时没有其他进程可以接管。让位会停止服务大约一个 hold-off，然后同一个进程用新的
-node epoch 拿回 lease。
-
-让位的进程继续运行，但报告 **NOT_SERVING**。让一个进程让位之前，先确认它的 liveness
-probe 没有使用 gRPC health，见[健康检查](#健康检查)。否则 Kubernetes 会重启让位的进程。
-
-没有身份验证时，任何能访问 **api.listen** 的人都可以让节点让位，而且可以反复这样做。请配置
-[admin 凭证](#admin-credentials)，或者限制对 **api.listen** 的访问。没有
-**AdminService** 的 server 返回 **UNIMPLEMENTED**。
+已移到 [Single replicas, probes, and access](/reference/server/high-availability#step-down-single-replica)。
 
 ## 对象存储
 
+已移到 [Object storage](/reference/server/object-storage)。
+
 ### 凭证
 
-**objectStore.credentialsSource** 选择凭证：
-
-| 值 | 凭证 |
-| --- | --- |
-| **defaultChain**（默认） | AWS SDK 默认的凭证提供链 |
-| **environment** | **DEX_ZD_OBJECT_STORE_ACCESS_KEY_ID**、**DEX_ZD_OBJECT_STORE_SECRET_ACCESS_KEY**，以及可选的 **DEX_ZD_OBJECT_STORE_SESSION_TOKEN** |
-| **anonymous** | 不签名的请求，用于本地模拟器或允许匿名访问的 bucket |
-
-在 Amazon EKS 上，保持 **defaultChain**，并给 pod 的 service account 一个 IAM role，
-例如通过 IAM Roles for Service Accounts 或 EKS Pod Identity。
+已移到 [Credentials](/reference/server/object-storage#credentials)。
 
 ### 只限前缀的 IAM 策略 {#iam-policy}
 
-共享 bucket 时，设置非空的 **objectStore.prefix**，然后只给 server 的 role 授予下面的
-操作。把 **BUCKET** 和 **PREFIX/** 换成 bucket 和配置的前缀，并保留末尾的斜杠。
-
-~~~json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::BUCKET",
-      "Condition": { "StringLike": { "s3:prefix": "PREFIX/*" } }
-    },
-    {
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
-      "Resource": "arn:aws:s3:::BUCKET/PREFIX/*"
-    }
-  ]
-}
-~~~
-
-server 只在自己的前缀下列举对象，检查对象是否存在时也是如此。有了这个授权，AWS S3 对
-不存在的对象返回 404。更窄的授权可能返回 403。只要允许带前缀的列举，server 能处理这
-两种响应。
-
-**s3:ListBucket** 的条件必须使用 **StringLike**，并带上上面示例中末尾的通配符。不支持
-精确匹配前缀的 **StringEquals** 授权，也不支持没有 **s3:ListBucket** 的策略。前缀非空时，
-启动会先在前缀下列举。列举被拒绝时，启动失败，错误信息以下面的文字开头：
-
-~~~text
-startup requires s3:ListBucket with StringLike s3:prefix "PREFIX/*"
-~~~
-
-启动时还会在前缀下写入并删除一个探测对象，用来确认条件写可用。不需要整个 bucket 的
-访问权限，也不需要任何 bucket 管理操作。
-
-硬删除 Attribute 的值默认使用主 bucket 和前缀。如果要把它们放在别处，为
-**objectStore.hardDeleteStore** 单独配置 **endpoint**、**region**、**bucket**、
-**prefix** 和 **credentialsSource**。它的 **environment** 凭证使用后缀相同的
-**DEX_ZD_HARD_DELETE_STORE_** 变量。对那个 bucket 和前缀授予同样的策略。
+已移到 [Prefix-confined IAM policy](/reference/server/object-storage#iam-policy)。
 
 ### 加密
 
-server-zd 不发送服务端加密的请求头，因此使用 bucket 的默认加密。默认的 SSE-KMS 可以
-正常工作。条件写使用 **If-None-Match** 和 **If-Match**，server 把 ETag 当作不透明的值，
-不要求 ETag 是 MD5 摘要。
-
-使用客户管理的 KMS key 时，给 role 授予该 key 的 **kms:GenerateDataKey** 和
-**kms:Decrypt**，并在 key policy 中也允许这两个操作。
+已移到 [Encryption](/reference/server/object-storage#encryption)。
 
 ### 版本控制和生命周期规则
 
-不开版本控制的 bucket 可以正常使用。server-zd 不使用对象版本。
-
-如果 bucket 开启了版本控制，server 删除的每个对象都会留下一个非当前版本，包括旧的日志
-对象和快照，存储只增不减。添加一条让非当前版本过期的生命周期规则。硬删除 Attribute 值
-的非当前版本也会保留已删除的值，直到该版本过期。
-
-无论是否开启版本控制，都要添加一条在 1 到 7 天后中止未完成 multipart upload 的规则。
-崩溃可能留下未完成的上传，而只限前缀的 role 无法列举或清理它们。
-
-下面的生命周期配置包含这两条规则。不开版本控制的 bucket 去掉第二条。
-
-~~~json
-{
-  "Rules": [
-    {
-      "ID": "dex-server-zd-abort-incomplete-uploads",
-      "Status": "Enabled",
-      "Filter": { "Prefix": "PREFIX/" },
-      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 2 }
-    },
-    {
-      "ID": "dex-server-zd-expire-noncurrent-versions",
-      "Status": "Enabled",
-      "Filter": { "Prefix": "PREFIX/" },
-      "NoncurrentVersionExpiration": { "NoncurrentDays": 7 },
-      "Expiration": { "ExpiredObjectDeleteMarker": true }
-    }
-  ]
-}
-~~~
+已移到 [Versioning and lifecycle rules](/reference/server/object-storage#versioning-and-lifecycle-rules)。
 
 ## 保留期
 
-**retention.closedFlowDuration** 设置已关闭的 Flow run 保留多久，默认 7 天。超过这段
-时间后，run 及其保留的数据可以被删除。值写成时长，例如 **72h** 或 **30days**。
-
-每个 run 在启动时记录这个值。新值只对节点用它重启之后启动的 run 生效。已经启动的 run
-保留自己记录的时长。
-
-从 server-zd v0.1.8 起，对已关闭 run 调用事务型或加锁的 RPC，会在 Worker 执行处理函数前返回
-NOT_FOUND 和 FLOW_NOT_EXISTS。使用已记录的请求 ID 重试时，会返回先前的结果。其他 RPC 仍会在尚未清除的
-已关闭 run 上执行处理函数，因此可以读取该 run。处理函数返回的任何写入都会被 server-zd 拒绝。
+已移到 [Retention](/reference/server/configuration#retention)。
 
 ## History 窗口 {#history-window}
 
-server-zd 为每个 run 保留最近的一段 history 窗口。窗口包含 **FlowStart** 事件和大约最新的
-10,000 个 semantic event。更早的事件按每批 1,000 个清理。为 time travel 保留的被替换值超过
-256 MiB 时，窗口也会缩小。
-
-History 读取（例如 **dexcli flow history --all**）只返回保留的事件。
-[Time travel](/primitives/client/advanced#time-travel) 只能以窗口内的点为目标。Time travel
-到开头总是可用。
-
-每个 history 页面还会报告窗口清理掉的事件 ID 范围。Step method 事件会记录启动其 Step execution
-的事件 ID。Execute 事件还会记录该 Step 的
-WaitFor 完成事件 ID。客户端可以用这些 ID 区分已被清理的关联事件和位于其他页面的关联事件。
-
-| Key | 默认值 | 含义 |
-| --- | --- | --- |
-| **history.windowSemanticEvents** | 10000 | 窗口保留的最新 semantic event 的大致数量。窗口超过这个值加一个清理批次时才开始清理。一个 semantic event 可能显示为多行 CLI history。 |
-| **history.pruneChunkSize** | 1000 | 每次清理的旧 semantic event 数。不得超过 **windowSemanticEvents**。 |
-| **history.maxRetainedSupersededBytes** | 268435456（256 MiB） | 窗口内为 time travel 保留的被替换值的最大字节数。 |
-
-每个 run 在启动时记录这些值。新值只对节点用它重启之后启动的 run 生效。
+已移到 [History window](/reference/server/configuration#history-window)。
 
 ## 限制 {#limits}
 
-server-zd 执行以下限制。被限制拒绝的请求会立即失败，不会等待容量。请求 ID 限制从不拒绝请求，而是淘汰最早的请求 ID。
-
-| Key | 默认值 | 含义 |
-| --- | --- | --- |
-| **values.maxValueBytes** | 16777216（16 MiB） | 单个应用值序列化后的最大大小，例如 Attribute 值或 Channel 消息。更大的值会被拒绝。 |
-| **api.grpcMaxMessageBytes** | 33554432（32 MiB） | 收发的单条 gRPC 消息的最大大小。必须大于 **values.maxValueBytes**。 |
-| **limits.maxFlowStateBytes** | 67108864（64 MiB） | 一个 Flow run 的存储预算。它计入当前状态、Attribute 和 Channel 的值，以及为 time travel 保留的被替换值。当一条命令增加 run 的当前存储、而 run 的总存储超出预算时，server-zd 会检查它。受检查的命令是 Flow 启动、Client Attribute 写入、Client Channel 发布、改变 Flow 状态的 RPC、Step heartbeat 和 Step 完成。RPC 写入或删除 Attribute、发布或删除 Channel 消息、启动或取消 Step 时，就会改变 Flow 状态。计算增加量时，不计入 Step attempt 只在其方法结束前持有的内容，例如它加载的 Attribute 和 Channel 消息以及它的锁。这样的 Flow 启动、Client 写入或 RPC 以 RESOURCE_EXHAUSTED 失败。这样的 Step heartbeat 或完成会让 attempt 失败，不会重试。Client 删除、读取以及不改变 Flow 状态的 RPC 仍会执行。在超出预算的 run 上，不改变 Flow 状态的 RPC 不为去重保留回复值和请求 ID。使用相同请求 ID 的重试会被当作新的 RPC 处理：Flow 仍在运行时它会再次执行；Flow 关闭后它以 NOT_FOUND 失败，即使正是那次 RPC 的提交关闭了 Flow。事务型 RPC 的 history 仍会记录它的输出。送达父 Flow 的子 Flow 结果不受检查，由 **limits.maxChildFlowResultBytes** 限制。 |
-| **limits.maxChildFlowResultBytes** | 16777216（16 MiB） | 子 Flow 交给父 Flow 的结果输出的最大总大小。如果一次 Step 完成会让子 Flow 收集的输出超过它，这个 attempt 会失败，不会重试。除非 Step 的失败策略恢复了它，子 Flow 会失败，父 Flow 收到这个失败。没有父 Flow 的 Flow 不受这个限制。 |
-| **limits.maxFlowIdBytes** | 1000 | Flow ID 的最大长度，以 UTF-8 字节计。 |
-| **limits.maxRequestIdsPerRun** | 1000 | 一个 run 为去重保留的最新请求 ID 数。使用更早请求 ID 的重试会作为新请求执行。 |
-| **limits.maxLongPollWaitersPerFlow** | 1000 | 一个 Flow 上的最大并发 wait 数，例如 WaitForStepCompletion 和 WaitForAttributeMatch 调用。超出的 wait 以 RESOURCE_EXHAUSTED 失败。 |
-| **limits.maxLongPollWaitersPerNode** | 100000 | 节点上的最大并发 wait 数。超出的 wait 以 RESOURCE_EXHAUSTED 失败。 |
-| **limits.maxInFlightRpcsPerNode** | 1000 | 节点上同时进行的共享事务型或加锁 RPC 任务的最大数量。超出时，新的请求 ID 以 RESOURCE_EXHAUSTED 失败。 |
-
-每个 run 在启动时记录 **values.maxValueBytes**、**limits.maxFlowStateBytes**、**limits.maxChildFlowResultBytes** 和 **limits.maxRequestIdsPerRun**。新值只对节点用它重启之后启动的 run 生效。
+已移到 [Limits](/reference/server/configuration#limits)。
 
 ## 性能调优 {#performance-tuning}
 
-默认值适合大多数节点。只有负载测试显示出瓶颈时才修改这些 key。它们改变吞吐量和内存用量，不改变 Flow 的结果。例外是 **commit.maxUnappliedBytes**：它限制已接受命令的积压量，所以值越小，负载下以 UNAVAILABLE 失败的请求越多。每个 key 在节点启动时生效。
-
-| Key | 默认值 | 含义 |
-| --- | --- | --- |
-| **commit.applierLanes** | 8 与进程可用 CPU 数中的较大者，最多为 **cluster.partitionCount** 和 1024 | 并行把已提交命令应用到本地存储的 lane 数。同一个 partition 总是使用同一个 lane，所以它的命令按顺序应用。应用命令需要读写本地存储，所以即使是小主机也至少使用 8 个 lane。显式设置的值必须在 1 到 **cluster.partitionCount** 与 1024 中的较小者之间。无法读取 CPU 数时，默认值为 8。 |
-| **commit.applierQueueFrames** | 64 | 每个 lane 排队的已提交 partition 批次数。lane 的队列满时，提交路径会等待它。 |
-| **commit.batchWindow** | 20ms | ASYNC 命令在批次封口之前等待更多命令的时间。只要写入流水线还有空位，SYNC 命令会立即让批次封口。两者写入的数据相同。speculation 上限对两者都起作用：Step proposal 会重试而不会让 Step 失败，而 Client 调用可能收到 UNAVAILABLE。 |
-| **commit.maxBatchRecords** | 10000 | 一个日志批次中的最大命令数。批次达到这个数量、**commit.sealAtBytes** 或 **commit.batchWindow** 时封口。 |
-| **commit.maxUnappliedBytes** | 67108864（64 MiB） | 节点已接受但尚未在本地应用的命令的编码字节数。放不下的命令以 UNAVAILABLE 失败。必须至少为 **api.grpcMaxMessageBytes** 与 32 MiB 中的较小者，这样最大的命令也能放下。 |
-| **localStorage.writeBufferBytes** | 67108864（64 MiB） | 每个 column family 的单个 RocksDB memtable 大小。RocksDB 为六个 column family 各保留最多两个 memtable，所以 memtable 最多使用这个值的 12 倍（默认 768 MiB），另加 **localStorage.blockCacheBytes**。write-ahead log 达到 **localStorage.maxWalBytes** 时会强制 flush，所以要和这个值一起调大。取值范围为 64 KiB 到 **localStorage.maxWalBytes**。 |
-| **localStorage.maxBackgroundJobs** | 进程可用 CPU 数的一半，取值范围为 2 到 1024 | 同时运行的 RocksDB flush 和 compaction 的最大数量。RocksDB 为每个 job 启动一个线程。显式设置的值必须在 1 到 1024 之间。 |
-| **localStorage.maxSubcompactions** | 1 | 一次 RocksDB compaction 可以拆分成的线程数。更大的值可以减少持续写入时的写入停顿。 |
-
-节点在启动时会记录解析后的 **applierLanes** 和 **maxBackgroundJobs** 值。
+已移到 [Performance tuning](/reference/server/configuration#performance-tuning)。
 
 ## Attribute Store 同步 {#attribute-store}
 
-server-zd v0.1.3 或更高版本可以把 Attribute 同步到 PostgreSQL。表契约见
-[自定义 Attribute Store](/production/attribute-store)。Flow 用 **syncToAttributeStore**
-标记 Attribute，并在 **FlowConfig** 中列出一个已配置的 store 名称。server-zd 随后把该
-Attribute 写入这个 store 的表。
+已移到 [Attribute Store sync](/reference/server/attribute-store-sync)。
 
 ### 行为 {#attribute-store-behavior}
 
-- 只支持 **type: postgres**。其他 store 类型无法通过校验，因此启动会失败。
-- Step、RPC 和 SetAttributes 的提交从不等待表写入。
-- 行通常在提交后一秒内出现。应把这张表视为最终一致。
-- store 不可用时，Flow 继续运行。store 恢复后，server-zd 用最新的值写入积压的数据。
-- 首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃。之后对同一 Attribute 的写入照常同步。
-- [Time travel](/primitives/client/advanced#time-travel) 之后，server-zd 会用 time travel
-  之后的状态重写该 run 同步过的每一行。
-- 每个数据库都需要一张 [fencing 表](#attribute-store-fencing-table)。
-- server-zd v0.1.3 关闭 Flow 时不等待同步的 Attribute，行可能在 Flow 完成之后才写入。
-- server-zd v0.1.4 或更高版本会等待。Step 决策使 Flow 完成或失败、Step
-  重试耗尽或 Flow 超时时，Step 立即停止，但 run 保持 RUNNING，直到所有待写入的值都写完或被丢弃。
-  WaitForFlow 到那时才返回。在等待结束前已写入的 entry 对应的行已在表中。被丢弃的 entry 不能保证该行的值，因为同一 run 之前的写入可能已经提交。如果 **dexzd_attribute_sync_dropped_entries_total** 增加，请将受影响的行与 Flow 的 Attribute 对比，并重新写入这些 Attribute。
-- 关闭等待期间，SetAttributes、PublishToChannel 以及既非事务性也不带锁的 RPC 照常接受。它们同步的写入会延长等待，
-  且不会启动新的 Step。等待期间发起的事务性或带锁的 RPC、WaitForStepCompletion、WaitForAttribute
-  和 DeleteChannelMessage 调用返回 FAILED_PRECONDITION。
-- 在 server-zd v0.1.4 或更高版本中，自然关闭还会等待在它之前已被接纳的所有事务性或带锁的 RPC，
-  即使没有配置 Attribute Store 也是如此。这类 RPC 仍会提交，它同步的写入也会加入等待。
-  这些 RPC 提交、失败或超时之后，关闭才会被记录。
-- **syncRetryPolicy.totalDuration** 限制的是每个待写入值的重试时长，而不是整个关闭。PostgreSQL
-  故障期间，关闭会一直等到待写入的值被丢弃。关闭等待期间接受的每个同步写入都会开始自己的重试窗口，从而延长等待。
-- StopFlow 和 Terminate 从不等待。StopFlow 一提交，run 就会关闭，即使关闭正在等待也是如此；
-  待写入的值在关闭后继续同步。之后对该 run 的 **SetAttributes** 返回 NOT_FOUND。从 server-zd v0.1.5 起，
-  只有请求中的每项写入都是把当前存储的
-  [hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 设为 null 时，才会被接受。
-  此例外仅适用于尚未清除的 run。该操作会删除存储的对象，但不会重新打开 run。run 的 Flow history
-  会在关闭之后记录这次擦除。Flow 需要的数据请在停止之前写入。
-- 已不在配置中的 store 的待写入值会被立即丢弃，并计入
-  **dexzd_attribute_sync_dropped_entries_total**。
+已移到 [Behavior](/reference/server/attribute-store-sync#attribute-store-behavior)。
 
 ### 配置 {#attribute-store-configuration}
 
-~~~yaml
-attributeStore:
-  stores:
-    orders:
-      type: postgres
-      dsn: ""
-      tableName: public.orders
-      rowKey: order-{order_id}
-      columnNaming: snake_case
-      attributeMaps:
-        Items:
-          tableName: public.order_items
-          instanceKeyColumn: item_key
-      fencingTableName: dexzd_attribute_sync_fencing
-  schemaSyncInterval: 1m
-  syncBatchSize: 100
-  syncAttemptTimeout: 30s
-  syncRetryPolicy:
-    initialInterval: 100ms
-    backoffCoefficient: 2.0
-    maximumInterval: 30s
-    maximumAttempts: 0
-    totalDuration: 1h
-~~~
-
-时长、**syncBatchSize** 或重试策略字段
-显式设为零时，表示使用默认值。
-[示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
-带注释地列出了这一节。
-
-| 键 | 默认值 | 说明 |
-| --- | --- | --- |
-| **stores** | 空 | 把 **FlowConfig** 可以列出的每个 store 名称映射到一个 PostgreSQL 目标。为空时关闭同步，并拒绝 **FlowConfig** 列出的每个 store 名称。 |
-| **stores.NAME.type** | 无 | 必须是 **postgres**。 |
-| **stores.NAME.dsn** | 空 | PostgreSQL 连接字符串。为空时，server-zd 改为读取环境变量。日志会隐去它。 |
-| **stores.NAME.tableName** | 无 | 主表，写成 **table** 或 **schema.table**。 |
-| **stores.NAME.rowKey**、**columnNaming** 和 **attributeMaps** | 空 | 见[自定义 Attribute Store](/production/attribute-store)。 |
-| **stores.NAME.fencingTableName** | **dexzd_attribute_sync_fencing** | 只存在于 server-zd。见 [Fencing 表](#attribute-store-fencing-table)。 |
-| **schemaSyncInterval** | 1m | 两次表 schema 刷新之间的时间，带 90–110% 的 jitter。写入未知的列会立即刷新 schema。 |
-| **syncBatchSize** | 100 | 一个事务最多写入一个 run 的多少个 Attribute 和 AttributeMap instance。待写入的值更多时，该 run 使用多个事务。 |
-| **syncAttemptTimeout** | 30s | 一个写事务的时长上限。见[写入超时](#attribute-store-write-timeout)。 |
-| **syncRetryPolicy.initialInterval** | 100ms | 第一次写入失败后的等待时间。 |
-| **syncRetryPolicy.backoffCoefficient** | 2 | 每次写入失败后，等待时间乘以这个系数。必须是有限的正数。 |
-| **syncRetryPolicy.maximumInterval** | 30s | 两次尝试之间的最长等待时间。不能小于 **initialInterval**。 |
-| **syncRetryPolicy.maximumAttempts** | 0，不限 | 一个 run 的 entry 连续写入失败达到这个次数后，这些 entry 会被丢弃。计数保存在内存中，重启后重新计数。 |
-| **syncRetryPolicy.totalDuration** | 1h | 首次标记后经过这段时间仍未写入的 entry 会被丢弃。 |
-
-把 **dsn** 留空，可以让连接字符串不出现在配置文件中。server-zd 这时读取
-**DEX_ZD_ATTRIBUTE_STORE_DSN_** 加上大写的 store 名称。ASCII 字母和数字以外的每个字符都会
-换成下划线。例如 store **orders** 对应的变量是 **DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS**。
-两处都没有 DSN 的 store 无法通过校验。
+已移到 [Configuration](/reference/server/attribute-store-sync#attribute-store-configuration)。
 
 ### Fencing 表 {#attribute-store-fencing-table}
 
-每个写事务都会把一行 fencing token 提升到节点的 epoch。因此，丢失 [lease](#lease) 的节点
-无法覆盖更新的值。
-
-每个数据库都需要这张表，表名由 **fencingTableName** 指定。一张表可以服务数据库中的所有
-store 和所有集群。server-zd 从不创建或修改表。启动前，以表 owner 的身份创建这张表，然后把
-它的 **SELECT**、**INSERT** 和 **UPDATE** 权限授予 server-zd 连接时使用的 role。把 **dex**
-换成那个 role。
-
-~~~sql
-CREATE TABLE dexzd_attribute_sync_fencing (
-  store_name text NOT NULL,
-  cluster_id text NOT NULL,
-  scope text NOT NULL,
-  fencing_token bigint NOT NULL,
-  updated_at timestamptz NOT NULL,
-  PRIMARY KEY (store_name, cluster_id, scope)
-);
-GRANT SELECT, INSERT, UPDATE ON dexzd_attribute_sync_fencing TO dex;
-~~~
-
-已经永久停止的集群，其行可以删除。不要删除正在运行的集群的行。
-
-启动时会连接每个 store 并检查它的表。任何失败都会导致启动失败，包括 store 不可达和缺少
-fencing 表。缺少 fencing 表时，错误信息会给出 **CREATE TABLE** 语句。
-启动时不检查授权。缺少授权时，fencing 表会显示为不存在，或者每次写入都因权限错误失败。
+已移到 [Fencing table](/reference/server/attribute-store-sync#attribute-store-fencing-table)。
 
 ### 写入超时 {#attribute-store-write-timeout}
 
-一个写事务最多持续 **syncAttemptTimeout** 和 **lease.duration** 的四分之一中较小的那个。
-**lease.duration** 的四分之一同时也是 lease margin。只有剩余的 lease 有效期大于事务超时
-加 margin 时，才会开始一次写入。PostgreSQL 的 **statement_timeout** 等于事务超时。因此，
-在截止时间前一刻发出的 COMMIT 仍会在 lease 结束前完成。
-
-事务超时加 margin 最多是 **lease.duration** 的一半，少于开始续约时剩余的三分之二有效期，
-所以写入很少需要等待续约。默认的 10 秒 lease 下，一个事务最多持续 2.5 秒。60 秒 lease
-下，最多持续 15 秒。
+已移到 [Write timeout](/reference/server/attribute-store-sync#attribute-store-write-timeout)。
 
 ### 重试和丢弃的 entry {#attribute-store-retries}
 
-失败的写入会按照 **syncRetryPolicy** 的 backoff 重试，直到 **totalDuration**，。失败的类型决定哪些内容进入 backoff：
-
-- **Store。** 连接失败或整个 store 的其他失败，会让该 store 的每个 run 都进入 backoff。
-- **Run。** 由写入的值或与其他会话的冲突导致的失败只让该 run 进入 backoff，其他 Flow 继续同步。
-  例如违反约束、值超出列的长度、死锁和序列化失败。
-- **超时。** 事务超过事务超时（例如等待行锁时），同样只让该 run 进入 backoff。
-
-超时之后，该 run 的重试会把每个事务的语句数减半，最少一条。超时之后，一条语句在同一个事务中写入
-该 run 的所有普通 Attribute，所以主行不会只更新一部分。每个 AttributeMap
-instance 是一条语句，所以超时 run 的各个 instance 可能落在不同的事务中。每个提交成功的
-事务都会被确认，因此重试只写入剩下的部分。
-
-同一个 store 有三个 run 超时，且其间没有任何提交时，整个 store 进入 backoff。store backoff
-之后的重试会先处理失败的那个 run 以外的其他 run。同一 Flow ID 的较新 run 会等待较旧的 run，
-因此行的写入保持 run 的顺序。
-
-首次标记后经过 **syncRetryPolicy.totalDuration** 仍未写入的 entry 会被丢弃，并输出 error
-log。之后对同一 Attribute 的写入照常同步。**dexzd_attribute_sync_dropped_entries_total**
-统计被丢弃的 entry，也统计被 store 以不可重试错误拒绝的 entry。
+已移到 [Retries and dropped entries](/reference/server/attribute-store-sync#attribute-store-retries)。
 
 ### 监控 {#attribute-store-monitoring}
 
-| 指标 | 含义 |
-| --- | --- |
-| **dexzd_attribute_sync_backlog_entries** | 截至上一次扫描，等待写入的 entry 数 |
-| **dexzd_attribute_sync_oldest_pending_age_seconds** | 最早的待写入 entry 的重试窗口已持续的时间，没有时为 0 |
-| **dexzd_attribute_sync_write_failures_total**，带 **failure_kind** | 失败的写事务。**failure_kind** 取 **retryable** 或 **non_retryable**。不可重试的失败会丢弃其 entry。 |
-| **dexzd_attribute_sync_dropped_entries_total** | 因重试策略耗尽或被 store 拒绝而丢弃的 entry |
-| **dexzd_attribute_sync_fenced_writes_total** | 因更新的 owner 提升了 fencing token 而被拒绝的写入 |
-
-~~~text
-# Dropped Attribute Sync entries
-increase(dexzd_attribute_sync_dropped_entries_total[10m]) > 0
-
-# Attribute Sync entries pending for more than 5 minutes
-dexzd_attribute_sync_oldest_pending_age_seconds > 300
-~~~
+已移到 [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring)。
 
 ### 本地开发 {#attribute-store-local-development}
 
-**dex-server-zd dev** 在本地运行一个使用内嵌对象存储的节点。它的
-**--attribute-store-config** 参数只读取 YAML 文件中的 **attributeStore** 一节。
-这一节至少要定义一个 store。**--config** 覆盖文件不能同时设置 **attributeStore**。
-
-~~~bash
-dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-store.yaml
-~~~
-
-数据库仍然需要这些表和 fencing 表。**dexcli dev --attribute-store-config**
-会把文件传给这个参数，需要 dexcli v1.19.0 或更高版本。
+已移到 [Local development](/primitives/components/external-attribute-sync#attribute-store-local-development)。
 
 ## 指标 {#metrics}
 
-设置 **metrics.listen** 后，节点会在独立于 **api.listen** 的监听器上提供明文 HTTP
-**GET /metrics**。默认值为空，表示关闭。这个 endpoint 没有身份验证，不要公开暴露。
-在 Kubernetes 中，把它绑定到 **0.0.0.0:9090**，并用 NetworkPolicy 限制访问。
-
-响应使用 OpenMetrics 文本格式。节点恢复期间或等待 lease 时，指标同样可用。每个 label
-的取值都来自一个封闭集合。没有任何 series 带 Flow、Flow type、partition、tenant 或
-key label。
-
-| 关注点 | Metric family 和 label |
-| --- | --- |
-| API 请求和错误 | **dexzd_api_requests_total**，带 **rpc_class** 和 **code** |
-| API 延迟 | **dexzd_api_request_latency_seconds**，带 **rpc_class**；只统计 unary 调用 |
-| Step 失败 | **dexzd_step_attempt_failures_total**，带 **durability** 和 **failure_kind**，其中包括 **started_attempt_interrupted**；**dexzd_step_retries_exhausted_total**，带 **durability** |
-| 被退回的 attempt | **dexzd_step_attempts_returned_total**，带 **reason** |
-| 不支持的类型 | **dexzd_matching_unsupported_type_entries**；**dexzd_matching_unsupported_type_evictions_total** |
-| Worker stream 协议错误 | **dexzd_worker_stream_protocol_errors_total**，带 **error** |
-| Flow 关闭 | **dexzd_flow_closes_total**，带 **close_status**；**dexzd_flow_end_to_end_latency_seconds** |
-| 派发延迟 | **dexzd_step_schedule_to_start_latency_seconds** |
-| Worker | **dexzd_worker_stream_events_total**，带 **event**；**dexzd_matching_worker_streams**；**dexzd_matching_queued_tasks**（只计内存中的等待者） |
-| 被丢弃的 Step Stream 写入 | **dexzd_step_stream_writes_dropped_total**，带 **reason** |
-| Step 任务队列 | **dexzd_step_task_queue_entries**；**dexzd_step_task_queue_oldest_age_seconds**；**dexzd_matching_unserved_task_queues**，带 **reason**；**dexzd_matching_heads_restored_refs_total**；**dexzd_matching_heads_incomplete_scans_total**；**dexzd_step_task_queue_incomplete_seeks_total** |
-| 提交延迟 | **dexzd_commit_latency_seconds** |
-| 对象存储 | **dexzd_object_store_requests_total**，带 **operation** 和 **object_kind**；**dexzd_object_store_request_errors_total**，带 **operation** |
-| Lease 和节点状态 | **dexzd_node_role**，带 **role**；**dexzd_lease_epoch**；**dexzd_lease_renewals_total**，带 **outcome** |
-| Standby | **dexzd_hot_standby_state**，带 **state**；**dexzd_hot_standby_lag_seconds**；**dexzd_hot_standby_lag_batches**；**dexzd_hot_standby_error**；**dexzd_takeovers_total**，带 **standby_mode** 和 **store_source**；**dexzd_takeover_duration_seconds** |
-| 恢复 | **dexzd_recovery_last_duration_seconds**；**dexzd_recovery_last_replayed_bytes** |
-| Timer | **dexzd_timer_lag_seconds** |
-| 快照 | **dexzd_snapshots_total**，带 **outcome**；**dexzd_snapshot_last_duration_seconds** |
-| 本地磁盘 | **dexzd_local_storage_bytes** |
-| Attribute Store 同步 | 见[监控](#attribute-store-monitoring) |
-| 外部搜索投影 | 见[监控](#search-projection-monitoring) |
-
-**rpc_class** 取 **flow_write**、**flow_read**、**search**、**worker_poll** 或
-**worker_respond**。**code** 是 snake case 形式的 gRPC 状态码，例如 **ok** 或
-**unavailable**。**role** 取 **starting**、**standby**、**recovering**、**serving**
-或 **draining**。**state** 取 **inactive**、**bootstrapping**、**following**、**behind**、
-**restarting** 或 **failed**，只有 **following** 算热。active 进程和 cold standby 报告
-**inactive**。**standby_mode** 取 **hot** 或 **cold**。
-节点使用热 standby 保持最新的 store 时，**store_source** 为 **hot_standby**；节点打开自己的
-store 或恢复快照时为 **restored**，例如 standby 的 store 缺失或过旧时。
-**dexzd_takeover_duration_seconds** 只统计热接管，按 **store_source** 区分。
-
-**dexzd_step_attempts_returned_total** 的 **reason** 统计回到 pending 且没有消耗 retry 的
-attempt，取值为 **unsupported**（Worker 拒绝了该 Step type）、**legacy_no_capacity**（较旧
-SDK 的 Worker 因容量不足而拒绝）和 **not_delivered**（任务从未到达 Worker）。所有 SDK 都升级
-之后，**legacy_no_capacity** 应降为零。**dexzd_worker_stream_protocol_errors_total** 的
-**error** 取值为 **no_capacity_on_reserved_slot**、**half_close_after_output** 和
-**reject_after_output**。出现
-**no_capacity_on_reserved_slot** 表示使用 reserved-slot 的 Worker 因容量不足拒绝了任务，这个
-attempt 按未运行处理而失败，并且 stream 结束。出现 **half_close_after_output** 表示 Worker
-在发出输出之后、发送最终结果之前关闭了 stream，这个 attempt 以 NOT_COMPLETED 失败。出现
-**reject_after_output** 表示 Worker 在已经为某个任务发出输出之后又拒绝了它。这个 attempt
-按可能已运行处理，以 NOT_COMPLETED 失败，server 以 INVALID_ARGUMENT 结束该 stream，因此
-它不会再收到任务。
-**dexzd_matching_unsupported_type_evictions_total** 是 counter，持续上升说明应该调大
-**matching.unsupportedTypeCacheEntries**。被淘汰的条目在对应 Worker 完成一个 Step 之前，
-不会再派给这个 Worker。因此缓存溢出时，Worker 拒绝过的类型可能在它每完成一个 Step 之后再次
-派给它。这个 counter 上升，或者 server 日志出现缓存已满的 WARN 时，请调大
-**matching.unsupportedTypeCacheEntries**。
-
-Worker 通过一个持久的 stream 轮询，因此没有空轮询计数。
-**dexzd_worker_stream_events_total** 统计每次 stream 关闭，并且在 **event="delivered"** 时统计
-每个发出的任务帧，包括 RPC 任务帧。被退回后再次交出的 attempt 会再次计数。long poll 的
-等待时间计入 **flow_read** 延迟。
-
-~~~text
-# Failed API calls by class and code
-sum by (rpc_class, code) (rate(dexzd_api_requests_total{code!="ok"}[5m]))
-
-# A node that is not serving
-dexzd_node_role{role="serving"} == 0
-
-# Failed lease renewals
-increase(dexzd_lease_renewals_total{outcome="error"}[10m]) > 0
-~~~
-
-完整目录，包括类型、histogram bucket 和 Linux 进程指标，见
-[server-zd README](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/README.md#metrics)。
+已移到 [Metrics](/reference/server/metrics)。
 
 ## Pull Worker 分发 {#pull-worker-dispatch}
 
-Worker 的搭建和容量规划见[拉取模式 Worker](/production/pull-workers)。
-server-zd 以单节点运行，因此自己拥有所有 Worker 队列。Worker 和 Client 连接到 **api.listen**，
-默认是 **0.0.0.0:8801**。
-
-~~~yaml
-matching:
-  dispatchWait: 10s
-  stickyWait: 5s
-  syncMatchWait: 200ms
-  headsResyncInterval: 5m
-  maxConcurrentTasksCap: 256
-  maxStreams: 100000
-  unsupportedTypeCacheEntries: 10000
-  maxQueueLength: 256
-  maxFlowTypes: 256
-  maxFlowTypeLength: 256
-  pingInterval: 20s
-~~~
-
-| 键 | 默认值 | 含义 |
-| --- | --- | --- |
-| **matching.dispatchWait** | 10s | 为一次 RPC 寻找 Worker 的总时间。Step 不使用它，而是在持久任务队列中等待。 |
-| **matching.stickyWait** | 5s | 回退到 Flow type 队列之前，尝试已连接 sticky Worker 的时间。不得超过 **dispatchWait**。没有连接上一个 app Worker ID 的 stream 时，server-zd 立即使用 Flow type 队列。 |
-| **matching.syncMatchWait** | 200ms | 在 sticky 等待之后、Step 进入持久任务队列之前，尝试该 Flow 类型任意 Worker 的时间。必须大于 0。 |
-| **matching.headsResyncInterval** | 5m | 后台检查的间隔，用来找出 matching 丢失的排队任务。0 表示禁用。见 [Step 任务队列](#step-task-queue)。 |
-| **matching.maxConcurrentTasksCap** | 256 | 节点上一个 app Worker ID 最多可拥有的 stream 数。Dex 在注册时把它告知 Worker。 |
-| **matching.maxStreams** | 100000 | 节点上已注册 Worker stream 的上限。按总 slot 数估算。 |
-| **matching.unsupportedTypeCacheEntries** | 10000 | Dex 记为不支持的（tenant、Flow type、Step type 或 RPC 名称、app Worker ID）组合的最大数量。 |
-| **matching.maxQueueLength** | 256 | 队列名称的最大字符数。 |
-| **matching.maxFlowTypes** | 256 | 一次 Worker 注册中 Flow type 的最大数量。 |
-| **matching.maxFlowTypeLength** | 256 | 已注册 Flow type 的最大字符数。 |
-| **matching.pingInterval** | 20s | 空闲 Worker stream 上 **Ping** 帧的间隔。 |
-
-使用 reserved-slot dispatch 的 Worker 为每个执行 slot 打开一个 stream。空闲的 stream 就是空闲的
-slot，它服务该 Worker 的 sticky queue 和它声明的每个 Flow type。预留的 RPC slot 是只服务 RPC 的
-stream，不会收到 Step。slot 空闲下来时，等待中的 RPC 先于等待中的 Step 得到它。注册数量超过
-**matching.maxConcurrentTasksCap** 或 **matching.maxStreams** 时会收到 **RESOURCE_EXHAUSTED**。
-
-Worker 以未知为由拒绝某个 Step type 或 RPC 名称时，Dex 会把（tenant、Flow type、Step type 或
-RPC 名称、app Worker ID）这个组合记在一个有上限的缓存中，并不再向该 Worker 提供这个类型。使用
-这个 app Worker ID 的所有 stream 都断开时，Dex 删除这个条目。重启后的 Worker 会得到新的 app
-Worker ID，因此不会被排除。如果你覆盖了 app Worker ID，请在每次进程重启后设置新的值。否则在滚动
-发布中沿用这个 ID 的升级后进程会被旧进程的条目排除，直到使用这个 ID 的所有 stream 都消失，包括
-升级后进程自己的 stream。如果缓存先淘汰了这个条目，使用这个 ID 的 Worker 完成一个 Step 之后，Dex
-会再次向它提供这个类型。对于 RPC，Dex 会在调用方的 deadline
-内尝试其他 Worker。没有 Worker 支持时，RPC 仍然以现有的错误失败。
+已移到 [Pull Worker dispatch](/reference/server/workers#pull-worker-dispatch)。
 
 ### Step 任务队列 {#step-task-queue}
 
-没有 Worker 立即接收的 Step attempt 不会失败。它先尝试已连接的 sticky Worker，最多 **stickyWait**。
-然后尝试该 Flow 类型的任意 Worker，最多 **syncMatchWait**。如果该 Step 类型已有已连接 Worker
-能运行的积压，新的 Step 会直接进入队列。
-
-之后 attempt 在持久任务队列中等待，直到有 Worker 接收它、Flow 超时或 Flow 被停止。队列按租户、
-Flow 类型和 Step 类型划分。没有已连接 Worker 支持的 Step 类型会一直留在队列中，不会阻塞其他
-Step 类型。大致按任务就绪的先后派发，不保证严格顺序。Dex 把每个队列分到多个 partition，
-每个节点服务自己拥有的 partition。
-
-空出的 Worker slot 先服务等待的 RPC，然后是内存中等待的 Step，最后是持久队列。排队时间不计入
-method timeout 和 heartbeat timeout。
-
-RPC 从不排队。如果在 **dispatchWait** 内没有可用的 Worker，RPC 调用方会直接收到
-**Unavailable** 错误。未知的 RPC 名称仍返回现有错误。
-
-请对 **dexzd_step_task_queue_entries** 和 **dexzd_step_task_queue_oldest_age_seconds**
-设置告警，而不是 **dexzd_matching_queued_tasks**。**dexzd_matching_queued_tasks** 现在只计内存中的
-等待者，即等待 slot 的 Step 和 RPC，不计持久积压。
-**dexzd_step_task_queue_entries** 是本节点所拥有 partition 中排队 Step 任务的 gauge。
-**dexzd_step_task_queue_oldest_age_seconds** 是其中最老任务年龄的 gauge。
-**dexzd_matching_unserved_task_queues** 是有积压、但没有已连接 Worker 能服务的队列数的 gauge，
-**reason** 为 **no_worker** 或 **no_supporting_worker**。
-
-重启或 failover 之后，每个 partition 要等它的后台计数完成，才会计入
-**dexzd_step_task_queue_entries**，所以这个 gauge 可能会在一段时间内偏低。这段时间里请以
-**dexzd_step_task_queue_oldest_age_seconds** 为准，重建会根据每个队列的第一个排队任务让它保持准确。
-
-**matching.headsResyncInterval** 设置一个周期性的后台检查。它只能发现丢失排队任务的 server bug。
-**dexzd_matching_heads_restored_refs_total** 是应保持为 0 的 counter。如果它不为 0，请查看 WARN 日志
-"periodic Heads restored a queued task that matching had lost"，并把它当作 bug 报告。
-**dexzd_matching_heads_incomplete_scans_total** 统计未完成的检查次数。
-**dexzd_step_task_queue_incomplete_seeks_total** 统计查找下一个排队任务时跳过了过多已删除条目的次数。Dex 会在退避后重试每一次。持续增长说明 compaction 跟不上。
-
-当前 SDK 在任务运行期间每 20 秒发送一次上行 **Pong** 帧。请为长连接 HTTP/2 stream 配置负载均衡器和
-代理，并把它们的空闲超时设置得高于 20 秒和 **matching.pingInterval**，同时留出网络延迟的余量。
-使用旧版 SDK 的 Worker 需要高于最长任务时长的空闲超时。请在公共入口保持双向 streaming。
+已移到 [Step task queue](/reference/server/workers#step-task-queue)。
 
 ## Stream {#streams}
 
-用 **streamStore.backend** 控制 best-effort [Stream](/primitives/stream)，取值为 **memory**（默认）
-或 **disabled**。memory Stream 只存在于 active server 进程中。重启、standby 接管或让位之后，
-Stream 都从空开始；trim 也可能删除较早的消息。backend 为 disabled 时，Client 的 Stream 写入和
-读取返回 **FAILED_PRECONDITION**。Step 的 Stream 写入会被丢弃并记录日志，但 Step 不会失败；
-server 启动时也会记录一条警告。
-
-memory 后端会限制自己使用的内存：
-
-- **streamStore.maxTotalBytes**（默认 1 GiB）限制节点上所有 Stream 合计保存的字节数。
-  超过它的 Client 写入返回 **RESOURCE_EXHAUSTED**。随后后台 trim 会删除最大的 Stream 中
-  最早的消息，直到用量降到上限的 **trimTargetPercent**；被拒绝的消息需要更多空间时会降得更低。
-  客户端随后重试这次写入。
-- 大于所属 Stream 容量的消息永远放不下。它直接返回 **RESOURCE_EXHAUSTED**，不会触发 trim，
-  重试也会失败。
-- **streamStore.maxStreamCapacityBytes**（默认 64 MiB）是单个 Stream 可用的最大容量。
-  更大的 **streamCapacityBytes** 会被降到这个值。
-- 每条消息计入它的 Value、Flow ID、source 和 **estimatedMessageOverheadBytes**（默认 512）。
-- **backgroundTrimBatchSize**、**trimBatchYieldTime** 和 **trimWorkers** 控制 trim 的节奏。
-
-server 丢弃的 Step Stream 写入从不会让 Step 失败。**dexzd_step_stream_writes_dropped_total**
-按 **reason** 统计这些写入：**disabled**、**invalid_argument**、**message_too_large**、
-**stream_capacity_exceeded**、**total_capacity_exceeded** 或 **closed**。
+已移到 [Streams](/reference/server/configuration#streams)。
 
 ## 身份验证
 
-公共 API 身份验证默认关闭。配置 **auth.authenticators** 后，每个 **FlowService** 和
-**WorkerTaskService** 调用都需要 bearer 凭证。gRPC health 不需要凭证。authenticator
-按顺序尝试。
-
-~~~yaml
-auth:
-  authenticators:
-    - kind: jwt
-      issuer: https://issuer.example.com
-      audiences: ["dex"]
-      adminAudiences: []
-      jwksURL: ""
-      allowInsecureJWKSURL: false
-      caFile: ""
-    - kind: staticTokens
-      file: /etc/dex-server-zd/tokens.yaml
-~~~
-
-**allowInsecureJWKSURL** 允许在可信网络上使用明文 HTTP 的
-**jwksURL**。**jwksURL** 为空时，通过 issuer 的 OpenID 配置发现 key set。**caFile**
-把一个 PEM bundle 加到系统根证书中。**adminAudiences** 列出可以授权
-[admin 调用](#admin-credentials)的 audience。
-
-静态 token 文件只列出 SHA-256 哈希，绝不保存明文 token：
-
-~~~yaml
-tokens:
-  - sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-~~~
-
-启动时文件必须有效。修改会在一秒内生效。格式错误的更新会保留上一次有效的内容。文件
-为空或缺失时，所有 token 都会失效。
-
-server 只在调用开始时检查一次凭证。已经打开的 pull Worker stream 在 token 过期或被
-吊销后仍保持打开。Worker 重新连接时需要有效的凭证。
-
-**api.listen** 提供明文 gRPC，bearer 凭证会以明文在网络上传输。在 server 前面终止
-TLS，或者只允许可信的调用方访问网络。
+已移到 [Authentication](/reference/server/authentication)。
 
 ### Admin 凭证 {#admin-credentials}
 
-admin 调用（例如[查询和让位](#step-down)）需要单独的凭证。每个 **jwt** authenticator 都
-可以配置 **adminAudiences**：这些 JWT audience 会让该 issuer 的 token 成为 admin 凭证。
-这个列表默认为空，所以在你配置之前，没有 issuer 能授权 admin 调用。
-
-~~~yaml
-auth:
-  authenticators:
-    - kind: jwt
-      issuer: https://issuer.example.com
-      audiences: ["dex"]
-      adminAudiences: ["dex-operators"]
-~~~
-
-**auth.authenticators** 不为空时，admin 调用需要一个由其 issuer 的 **jwt** authenticator
-接受的 JWT，并且 token 的某个 audience 必须在这个 authenticator 的 **adminAudiences**
-中。静态 token 永远不能授权 admin 调用。凭证缺失或无效时返回 **UNAUTHENTICATED**。有效的
-公共 API 凭证如果没有 admin audience，返回 **PERMISSION_DENIED**。
-
-只给自己决定 token audience 的 issuer 配置 **adminAudiences**。绝不要给允许调用方自选
-**aud** 的 issuer 配置，例如 Kubernetes projected service account token，或者和其他项目
-共用的 CI OIDC provider。任何能从这类 issuer 拿到 token 的人，都可以申请 admin audience，
-让节点让位。
-
-**adminAudiences** 只适用于 **jwt** authenticator。其中的值不能为空，也不能与同一个
-authenticator 的 **audiences** 重复，这样公共 API 凭证永远不能授权 admin 调用。
-
-只签发 admin 凭证的 issuer，在设置了 **adminAudiences** 时可以让 **audiences** 为空。
-这样它的 token 永远不能授权 **FlowService** 或 **WorkerTaskService** 调用。如果它是唯一的
-authenticator，公共 API 身份验证仍然开启，所以所有 **FlowService** 和 Worker 调用都会被拒绝。
-
-**dexcli** 的 API key 交换只发送 server ID 和 API key，无法申请 admin audience。只有当
-token endpoint 自己为这个 key 签发带 admin audience 的 token 时，API key 才能用于 admin
-command。
-
-身份验证关闭时（例如本地开发 server），admin 调用不需要凭证。这时任何能访问
-**api.listen** 的人都可以让节点让位，而且可以反复这样做。
-
-server-zd 在启动时校验 **adminAudiences**，并记录每个被授权的 admin 调用，以及调用方的
-**iss** 和 **sub** claim。被拒绝的 admin 调用以 warning 记录，最多每 10 秒一次。
+已移到 [Admin credentials](/reference/server/authentication#admin-credentials)。
 
 ## Server 与 SDK 的协议兼容性
 
-server-zd 和每个 SDK 版本都声明闭区间形式的协议范围。两个范围重叠时 Worker 才能启动。
-Worker 会协商出双方都支持的最高协议，然后同步 Attribute 索引，最后绑定 WorkerTaskService。
-server 和 SDK 的制品版本只用于诊断，不决定兼容性。
-
-server-zd 协议版本 4 没有提高最低协议。较旧 SDK 的 Worker 和 Client 在新 server 上继续工作，
-它们因容量不足而被拒绝时，attempt 会被退回，不消耗 retry。**dexzd_step_attempts_returned_total**
-的 **reason="legacy_no_capacity"** 会统计这些情况。这种兼容性持续到 server-zd 1.0。
-
-新 SDK 需要新 server。在较旧的 server 上，新 SDK 的 Worker 无法启动，新 SDK 的 Client 第一次
-调用会失败，两者都会给出清晰的错误。先升级 server，再逐个升级 SDK，不需要停止 Worker。
-
-这次 server 升级不支持混合版本。启动新版本之前，先停止所有旧的 server 进程，包括 active、热
-standby 和冷 standby。新版本写入过某个 storage prefix 之后，旧 server 不能再在其上运行。请向前
-升级，或把升级前的备份恢复到新的 prefix。只有在每个进程都运行新版本之后才设置新的配置项，回滚
-之前要先删除它们。这适用于 **matching.syncMatchWait** 和 **matching.headsResyncInterval**。
-matching 配置会拒绝未知的键。
-
-以后提高最低协议的版本需要同样的谨慎：升级 server 之前先停止旧 Worker 及其流量，或者使用相互
-隔离的蓝绿环境，使协议范围不相交的部署永远不会互相通信。运行中的 Worker 在 server 升级后不会
-重新协商。
-
-协议兼容性只覆盖 Worker 到 server 的 API。它不能替代 open Flow 的兼容性规则，包括
-Flow type 名称、Step 图和已持久化的 payload。
+已移到 [Server and SDK protocol compatibility](/reference/server/upgrades)。
 
 ## 备份和恢复
 
-对象存储前缀是唯一的数据源。本地存储从它重建。外部搜索投影不会重建：恢复之后，
-请配置新的 **search.paradeDbSchema** 或 **search.postgresSchema**，或者新的数据库，
-让服务端从恢复后的状态装载它。见[首次装载](#search-projection-initial-load)。
-继续使用旧 schema 会失败：恢复后的节点 epoch 低于 schema 记录的 epoch，投影因此停止，
-SearchFlows 返回 **UNAVAILABLE**。使用 **search.backend: postgres** 时，继续使用旧 schema
-还可能导致数据库中的 Attribute 注册表版本高于恢复后的注册表版本。此时启动会报
-Attribute slot 注册表不匹配错误。
-配置了 **objectStore.hardDeleteStore** 时，它的前缀存放硬删除 Attribute 的值，
-也要用同样的方式保护。
-
-用 bucket 版本控制或复制到另一个 bucket 来保护前缀。使用版本控制时，非当前版本的过期
-时间决定了能恢复到多久以前。复制是异步的，副本可能落后于源。
-
-恢复步骤：
-
-1. 停止 server-zd。例如，把 StatefulSet 缩到 0 个副本，并等待 pod 终止。
-2. 把前缀下的所有对象恢复到同一个时间点，并删除该时间点之后写入的对象。
-3. 清空本地存储目录。使用 PersistentVolumeClaim 时，删除目录内容或删除该 claim。
-   使用 emptyDir 时，pod 终止后它就已经不存在了。
-4. 启动 server-zd。它会用恢复后的前缀中最新的快照和日志进行恢复。
-
-恢复时间点之后确认的写入会丢失。
+已移到 [Backup and restore](/reference/server/object-storage#backup-and-restore)。
 
 ## 外部搜索投影 {#search-projection}
 
-使用 **search.backend: paradedb** 或 **search.backend: postgres** 时，SearchFlows
-读取已提交搜索文档在 SQL 中的副本。这个副本就是搜索投影。
+已移到 [External search projection](/reference/server/search#search-projection)。
 
 ### 投影如何工作 {#search-projection-behavior}
 
-- run 的搜索文档每次提交变更，都会在同一次本地提交里向持久的 outbox 追加一个 entry。
-  run 被 purge 时也会追加一个。
-- outbox 属于复制状态。重启或接管后，快照和日志重放会恢复它。
-- 持有 lease 的节点按提交顺序读取 outbox，把每个变更过的 run 的当前文档写入 SQL，
-  然后用一条记入日志的确认命令删除已写入的 entry。
-- 两批之间同一个 run 的多次变更只写一次行。
-- 投影是异步的。数据库变慢或不可用时，提交照常进行，outbox 在本地磁盘上增长。
-  搜索结果会延迟，但不会丢失任何变更，也不会重建。数据库恢复后，投影从最早的 entry 继续。
-- 每个分区的 SQL 进度行记录写入方的 lease epoch。epoch 更低的旧 lease 持有者不能再写入。
-- 每个 outbox entry 约占 60 字节。请按希望撑过的最长数据库故障规划本地存储卷的大小。
+已移到 [How the projection works](/reference/server/search#search-projection-behavior)。
 
 ### 首次装载 {#search-projection-initial-load}
 
-启动时，节点会用已提交状态检查每个分区的 SQL 进度。进度无法从 outbox 接着投影时，节点会装载该分区：
-
-| 日志中的 reason | 发生的情况 |
-| --- | --- |
-| **no_progress** | 新建数据库或 schema、从 builtin 搜索切换过来，或者装载被崩溃打断 |
-| **no_outbox_progress** | 进度由没有 outbox 的旧版服务端写入 |
-| **enabled_after_progress** | 集群从 SQL 搜索切换到 builtin 搜索，又切换回同一个 schema |
-| **acked_after_progress** | 数据库被恢复到集群已确认的 entry 之前 |
-| **ahead_of_committed_state** | 防御性检查：进度超前于已提交状态。恢复对象存储前缀之后，请改用新的 schema。 |
-
-装载在同一个事务里删除该分区的行和进度，然后从同一个一致视图复制该分区所有当前搜索文档。
-最后一个事务才记录新的进度，所以装载期间崩溃会再装载一次。之后的变更来自 outbox。
-装载只在启动时发生，不会因为数据库变慢而触发。
-
-日志会为每次装载输出 **loading the partition into the SQL visibility projection**，并带上
-**reason**。**dexzd_search_initial_loads_total** 统计装载次数，所有分区装载完成后，
-**dexzd_search_initial_load_pending_partitions** 降到 0。SearchFlows 会等待正在装载的分区，
-见[读到自己的写入](#search-projection-read-your-writes)。
+已移到 [Initial load](/reference/server/search#search-projection-initial-load)。
 
 ### 读到自己的写入 {#search-projection-read-your-writes}
 
-SearchFlows 会等待，直到投影包含请求之前提交的所有 outbox entry。重启或接管后，它还会等待
-本地存储中已有的 entry 和正在装载的分区。最多等待 **search.readYourWritesWait**。超时后 SearchFlows 返回 **UNAVAILABLE**，不会返回缺少
-这类写入的结果。请带退避重试。
-
-投影遇到无法重试的错误（例如已提交状态无效）而停止后，SearchFlows 返回 **INTERNAL**，
-直到服务端重启。
-schema 记录的节点 epoch 高于本节点时，投影停止，SearchFlows 返回 **UNAVAILABLE**。
-更新的 lease 持有者会导致这种情况；恢复对象存储前缀后继续使用旧 schema 也会。
+已移到 [Read-your-writes](/reference/server/search#search-projection-read-your-writes)。
 
 ### 配置 {#search-projection-configuration}
 
-| 字段 | 默认值 | 含义 |
-| --- | --- | --- |
-| **search.readYourWritesWait** | **2s** | SearchFlows 等待投影的最长时间 |
-| **search.outboxBatchSize** | **1000** | 一个 SQL 事务最多处理的 outbox entry 或装载文档数 |
-| **search.outboxPollInterval** | **100ms** | 空闲的投影多久检查一次新 entry。新的提交会立即唤醒它。 |
-| **search.outboxAckInterval** | **1s** | 同一分区两次确认之间的最短间隔。每次确认都是一条记入日志的命令，因此有 1,024 个繁忙分区的节点每秒最多记录 1,024 条。 |
-| **search.outboxMaxAckEntries** | **10000** | 一次确认最多删除的 outbox entry 数。更长的积压分多条命令确认。不能小于 **search.outboxBatchSize**。 |
+已移到 [Configuration](/reference/server/search#search-projection-configuration)。
 
 ### 监控 {#search-projection-monitoring}
 
-| 指标 | 含义 |
-| --- | --- |
-| **dexzd_search_outbox_oldest_entry_age_seconds** | SQL 尚未包含的最早 outbox entry 的年龄，没有时为 0。这就是投影延迟。 |
-| **dexzd_search_outbox_entries** | SQL 尚未包含的 entry 数，按各分区上一次扫描结果求和 |
-| **dexzd_search_outbox_max_partition_entries** | 上述各分区计数中的最大值 |
-| **dexzd_search_outbox_batches_total**，带 **outcome** | 投影的 SQL 事务。失败的事务会重试。 |
-| **dexzd_search_outbox_projected_entries_total** | 已提交的 SQL 事务覆盖的 outbox entry |
-| **dexzd_search_outbox_projected_runs_total** | 合并同一 run 的变更后写入或删除的行 |
-| **dexzd_search_outbox_ack_proposals_total**，带 **outcome** | 确认命令。失败的提交会重试。 |
-| **dexzd_search_initial_load_pending_partitions** | 首次装载尚未完成的分区数 |
-| **dexzd_search_initial_load_documents_total** | 首次装载写入的文档数 |
-| **dexzd_search_initial_loads_total** | 开始的分区装载次数；每次的原因见日志 |
-| **dexzd_search_projection_mode_skipped_partitions_total** | 启动时保留原投影模式的已停止分区；每个还会输出一条 error log |
-| **dexzd_search_skipped_documents_total** | SQL 无法存储、搜索会忽略的已提交文档 |
-
-~~~text
-# Search results lag committed writes by more than 1 minute
-dexzd_search_outbox_oldest_entry_age_seconds > 60
-
-# Every projection transaction failed for 10 minutes
-increase(dexzd_search_outbox_batches_total{outcome="error"}[10m]) > 0
-  and increase(dexzd_search_outbox_batches_total{outcome="ok"}[10m]) == 0
-
-# Every acknowledgement failed for 10 minutes, so the outbox only grows
-increase(dexzd_search_outbox_ack_proposals_total{outcome="error"}[10m]) > 0
-  and increase(dexzd_search_outbox_ack_proposals_total{outcome="ok"}[10m]) == 0
-
-# An initial load is still running; alert when this lasts 30 minutes
-dexzd_search_initial_load_pending_partitions > 0
-~~~
+已移到 [Monitoring](/reference/server/search#search-projection-monitoring)。
 
 ## PostgreSQL 搜索
 
-选择 **search.backend: postgres**，即可在 PostgreSQL 15 或更新版本上使用索引搜索，
-无需安装扩展。它不依赖 **pg_search**、**btree_gin** 或其他扩展。
-如果需要的索引 Attribute 数量超过 PostgreSQL 槽位上限，请选择 ParadeDB。
-
-~~~yaml
-search:
-  backend: postgres
-  postgresConnectionString: "postgres://USER:PASSWORD@HOST:5432/DATABASE"
-  postgresConnectionPoolSize: 10
-  postgresSchema: public
-  readYourWritesWait: 2s
-~~~
-
-服务端通过 PostgreSQL 协议连接 **postgresConnectionString**，不会绑定或发布这个地址。
-该字段为空时，读取 **DEX_ZD_POSTGRES_CONNECTION_STRING**。
-连接支持与 **paradeDbConnectionString** 相同的 TLS 选项，序列化配置时会隐藏连接字符串。
-连接池大小默认为 10，schema 默认为 **public**。
-
-每个租户有 10 个 Keyword 槽位，Int、Datetime、Double、Bool、KeywordArray 和 Text
-各有 3 个槽位。槽位按注册顺序分配，服务端上的应用共用 registry。
-系统字段（包括 **DexWorkQueuePermissions**）不占用槽位。
-某种类型的槽位用满后，再注册 Attribute 会返回 **FAILED_PRECONDITION**。
-如果已有 registry 超过这些上限，服务端也会拒绝启动。
-registry 没有删除操作，用满后需要使用新的 server。
-
-索引 Keyword 值以及 KeywordArray 中的每个元素最多包含 1024 个 UTF-8 字节。
-新的写入超过上限时返回 **INVALID_ARGUMENT**。
-如果被拒绝的是 Worker 的 Step 结果，该 Step 会失败。
-对于此前已提交、存储类型与注册的 Keyword 或 KeywordArray 类型一致的超长值，
-投影会跳过对应文档并记录 skipped document；Flow 状态仍然保持已提交。
-未注册的索引键不会触发这种跳过。
-
-新注册的 Attribute 在槽位回填完成前使用现有 JSONB 查询路径。
-回填期间结果正确，但查询可能较慢。回填分批提交，重启后会继续，
-不会暂停其他分区的投影。未注册的索引键也使用 JSONB。
-**IS NULL**、**IS NOT NULL** 和否定条件根据已存储的键是否存在判断，
-即使存储类型与注册类型不同也如此。Int 和 Double 值保持不同类型。
-KeywordArray 下存储的标量字符串按一个元素匹配。
-一种类型不一致情况采用更严格的结果：Keyword 的肯定条件不匹配已存储的 KeywordArray。
-文档仍可搜索，否定条件保持 builtin evaluator 的结果。
-**!=** 和 **NOT IN** 等否定条件通常无法使用索引。
-显式 **ORDER BY StartTime** 和 **ORDER BY CloseTime** 会对所有匹配行排序，
-开销随匹配行数量增加。
-
-Text 匹配查询中的所有 term，不按 BM25 相关度排序。
-两种外部搜索后端使用相同的[搜索投影](#search-projection)和 **readYourWritesWait**。
-
-schema 会记录搜索后端。使用不同后端启动时，服务端会报错。
-在 PostgreSQL 和 ParadeDB 之间切换，需要指定新的 database 或 schema。
-服务端会自动从已提交状态装载它。
-已有的 ParadeDB 第三版 schema 只增加后端标记，不清空数据，也不改变版本号。
-接受 schema 版本 3 的旧版服务端仍可使用它。PostgreSQL 使用 schema 版本 4，旧版服务端会拒绝它。
+已移到 [PostgreSQL search](/reference/server/search#postgresql-search)。

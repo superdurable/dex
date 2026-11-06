@@ -131,7 +131,7 @@ across turns.
 The table promises that a `CallSingleAttemptTool` call runs at most once and
 records `outcome_unknown` when it may have run. Two cases break that promise.
 Both are documented for operators in the
-[deployment guide](../../content/production/agents.mdx#tool-call-limits). Dex
+[deployment guide](../../content/agent-frameworks/deploy-agents.mdx#tool-call-limits). Dex
 Server's attempt start and the recovery error's `attempt_progress` narrowed
 both after M2.
 

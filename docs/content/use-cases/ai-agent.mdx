@@ -10,7 +10,7 @@ It is built on Dex Agents: the **dex-agents** package in Python and **@superdura
 
 ## Agent frameworks
 
-An agent already written with an agent framework such as Pydantic AI, LangGraph, the OpenAI Agents SDK, Google ADK, the Vercel AI SDK, Mastra or the Claude Agent SDK runs on the same session Flow without a rewrite. See [Agent Frameworks](/agent-frameworks). To run agent sessions in production, see [Deploy agents](/production/agents).
+An agent already written with an agent framework such as Pydantic AI, LangGraph, the OpenAI Agents SDK, Google ADK, the Vercel AI SDK, Mastra or the Claude Agent SDK runs on the same session Flow without a rewrite. See [Agent Frameworks](/agent-frameworks). To run agent sessions in production, see [Deploy agents](/agent-frameworks/deploy-agents).
 
 ## The session Flow
 
@@ -97,7 +97,7 @@ The allowed models, the system prompt, the context window, and the MCP servers a
 
 The session stores each user message, model output item, and tool result as a message. The newest messages are **AgentMessages** AttributeMap instances, and older ones move into immutable **AgentMessageChunks** instances of up to 32 messages. Model output items are kept exactly as the provider returned them, including encrypted reasoning items and thinking signatures, and replayed unchanged.
 
-When the model input reaches 85 percent of the configured context window, a **CompactContext** Step summarizes older messages before the next model call. The model then receives the summary and the recent messages. Compaction never separates a tool call from its result. Retention then deletes the oldest summarized chunks while keeping the newest 1,000 messages, so a long session's state stays bounded. [Deploy agents](/production/agents#compaction) gives the bound and how to keep the whole transcript.
+When the model input reaches 85 percent of the configured context window, a **CompactContext** Step summarizes older messages before the next model call. The model then receives the summary and the recent messages. Compaction never separates a tool call from its result. Retention then deletes the oldest summarized chunks while keeping the newest 1,000 messages, so a long session's state stays bounded. [Deploy agents](/agent-frameworks/deploy-agents#compaction) gives the bound and how to keep the whole transcript.
 
 ## Queued messages and Steer
 
@@ -268,4 +268,4 @@ The TypeScript example's Flow, routes, and React UI are under [examples/typescri
 - [Channel](/primitives/channel)
 - [Stream](/primitives/stream)
 - [Timer](/primitives/timer)
-- [Deploy agents](/production/agents)
+- [Deploy agents](/agent-frameworks/deploy-agents)

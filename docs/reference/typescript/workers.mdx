@@ -1,0 +1,67 @@
+---
+title: TypeScript Workers
+sidebar_label: Workers
+---
+
+# TypeScript Workers
+
+This page lists the TypeScript names for the Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Readiness
+
+TypeScript exposes **waitPullRegistered**, **pullRegistrationState**, and
+**stopOnPermanentStreamRejection** in SDK 1.14.0. TypeScript waits accept an
+AbortSignal or timeout in milliseconds. Opt-in fatal rejections are returned by
+**run** after draining.
+
+A **PullRegistrationError** reports **STEP_AND_RPC** or **RPC_ONLY** as its slot
+kind.
+
+Call the boolean helper from your probe endpoint and return 200 when true or
+503 when false.
+
+```typescript
+export function isPullGreetingReady(worker: Worker): boolean {
+  return worker.pullRegistrationState().isReady;
+}
+```
+
+Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)
+
+## Capacity and shutdown
+
+| Setting | TypeScript name |
+| --- | --- |
+| Concurrent tasks | **maxConcurrentTasks** |
+| Reserved RPC slots | **reservedRpcTasks** |
+| Stop drain timeout | **stopDrainTimeoutMs** |
+| Shutdown | **close** |
+
+The idle stream option, **idleStreamsPerQueue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **pullReservedRpcDeclines**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+This diagnostics helper exposes registration readiness and the deprecated
+reserve-decline counter. A full Worker stays ready.
+
+```typescript
+export interface PullGreetingDiagnostics {
+  readonly isReady: boolean;
+  readonly reservedRpcDeclines: number;
+}
+
+export function getPullGreetingDiagnostics(worker: Worker): PullGreetingDiagnostics {
+  return {
+    isReady: worker.pullRegistrationState().isReady,
+    reservedRpcDeclines: worker.pullReservedRpcDeclines,
+  };
+}
+```
+
+Example: [examples/typescript/src/production/pull-workers.ts](https://github.com/superdurable/dex/blob/main/examples/typescript/src/production/pull-workers.ts)

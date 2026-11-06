@@ -1,0 +1,47 @@
+---
+id: index
+title: Components
+sidebar_label: Overview
+---
+
+# Components
+
+A Dex application runs on a small set of components. Your code is one of them.
+Dex provides the rest.
+
+| Component | What it does |
+| --- | --- |
+| [Application](/primitives/components/application) | Your Workers and Clients. Workers host Flow definitions and run Steps and RPCs. Clients start Flows, call RPCs, and read Attributes. |
+| [Server](/primitives/components/server) | server-zd stores Flow state and hands work to Workers. |
+| [CLI](/primitives/components/cli) | **dexcli** runs a local Dex and operates Flows from a shell. |
+| [Web](/primitives/components/web) | Dex Web is the operator UI for inspecting and acting on Flows. |
+| [Connector](/primitives/components/connector) | Connectors are released integrations that a Flow calls. |
+| [External Attribute Sync](/primitives/components/external-attribute-sync) | server-zd copies selected Attributes into PostgreSQL tables. |
+
+## How they fit together
+
+```text
+ Client ───────▶ ┌───────────┐ ◀─────── Worker (outbound streams)
+                 │ server-zd │
+ Dex Web ──────▶ │           │ ───────▶ PostgreSQL (External Attribute Sync)
+ dexcli ───────▶ └───────────┘
+                       │
+                       ▼
+                 object storage
+```
+
+Workers, Clients, Dex Web, and **dexcli** all connect to the server's API port.
+A Worker opens outbound streams to the server and never listens for calls. The
+server keeps Flow state in object storage. It can also write selected Attributes
+to PostgreSQL for your own queries.
+
+## Local and production
+
+| Component | Local development | Production |
+| --- | --- | --- |
+| Server | **dexcli dev** starts server-zd | **dex-server-zd serve** with object storage |
+| Web | **dexcli dev** starts Dex Web | A separate **dex-web** process, or **dexcli web** |
+| Application | Your Worker process | Your Worker service, scaled like any service |
+
+Each component page links to its [Developer Reference](/reference), which has
+the configuration, limits, and version details.

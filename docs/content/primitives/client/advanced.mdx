@@ -173,7 +173,7 @@ Object, bytes, null, blob-backed, non-finite floating-point, cross-type, and inv
 These apply to **WaitForStepCompletion**, **WaitForAttributeMatch**, and Stream long-polls.
 
 - **RequestTimeout** is the total time the SDK call may take. Default 0 means wait until success, Flow closure, or caller cancellation. A positive value returns a typed request-timeout error when it expires. A later call waits again from the current state.
-- Each Flow allows 1,000 concurrent waits by default, set by **limits.maxLongPollWaitersPerFlow** in server-zd. A wait beyond the limit fails with a resource-exhausted error. See [server-zd limits](/production/server-zd-operations#limits).
+- Each Flow allows 1,000 concurrent waits by default, set by **limits.maxLongPollWaitersPerFlow** in server-zd. A wait beyond the limit fails with a resource-exhausted error. See [server-zd limits](/reference/server/configuration#limits).
 - A waiting call holds one slot until it returns, times out, is cancelled, or the caller disconnects.
 - The server caps each transport attempt. The SDK reattaches transparently with the same Request ID, and the cap does not reset **RequestTimeout**.
 - **InternalHandlerTimeout** is deprecated. Leave it unset.
@@ -315,11 +315,11 @@ for the fields.
 
 ## Trigger continue-as-new
 
-**TriggerContinueAsNew** is deprecated. Dex does not continue Flows as new. The call always fails with **UNIMPLEMENTED**. Do not call it. A long-running Flow needs no rollover, because Dex Server keeps a [recent history window](/production/server-zd-operations#history-window).
+**TriggerContinueAsNew** is deprecated. Dex does not continue Flows as new. The call always fails with **UNIMPLEMENTED**. Do not call it. A long-running Flow needs no rollover, because Dex Server keeps a [recent history window](/reference/server/configuration#history-window).
 
 ## Time travel
 
-**TimeTravel** creates a new run attempt from a point in an existing Flow's history. The run keeps its Run ID. The point must be inside the [recent history window](/production/server-zd-operations#history-window). Otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the beginning is always available.
+**TimeTravel** creates a new run attempt from a point in an existing Flow's history. The run keeps its Run ID. The point must be inside the [recent history window](/reference/server/configuration#history-window). Otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the beginning is always available.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
 <SdkSnippet lang="python">

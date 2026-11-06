@@ -1,0 +1,212 @@
+---
+title: Connector
+sidebar_label: Connector
+---
+
+# Connector
+
+A [Connector](/primitives/connector) integrates a Flow with an external
+provider. It packages typed operations, Triggers, authorization, and optional
+configuration UI. Official Connectors are released separately from Dex.
+
+## How it fits with the other components
+
+Your [application](/primitives/components/application) imports a Connector
+package and runs its operations as Connector Steps. A Trigger turns a provider event
+into a Flow start or an RPC. Credentials stay outside durable Flow state. For
+local development, [Dex Web](/primitives/components/web) configures accounts and
+Trigger bindings, and **dexcli dev** stores them on your machine.
+
+## Find a Connector
+
+Browse the [Connector catalog](https://connectors.superdurable.io/) for the
+released Connectors, their operations, and their language support. The
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
+holds their source, reference docs, and runnable examples. The catalog is the
+reference for each Connector.
+
+## Local setup with Dex Web
+
+Dex Web can configure official Connector releases for a local Go application.
+The feature runs only in loopback-bound **dexcli dev** with local Flow
+Definition Graph files. Production Dex Web, non-loopback listeners, and
+blobstore definition sources do not expose the setup APIs.
+
+### Start Dex Web
+
+Generate Flow Definition Graph 2.0 files, then start the local stack:
+
+```bash
+dexcli dev --flow-rendering-dir ./build
+```
+
+Open **Connectors** at **/v2/connectors**. Dex Web groups Steps and Trigger
+bindings by Connector ID and connection name. The sidebar lists each group by
+the Connector's release display name, such as **LLM**, with its connection name
+below it. Each group shows the Flows, Steps, operations, bindings, exact module
+version, and one of these states: **Missing**, **Ready**, **Expired**,
+**Conflict**, or **Unsupported**.
+
+Automatic setup requires an operation-specific generated Connector factory or
+Trigger-binding definition, compile-time connection and binding names, and an
+exact published module version: a release such as v0.3.0 or a release candidate
+such as v0.3.0-rc.1. A generic factory, local module replacement,
+unpublished module, missing name, or version conflict stays visible but cannot
+be configured.
+
+### Choose the storage directory
+
+The default directory is **$HOME/.dex/connectors**. The connection file is
+always named **connections.json**. Override the directory when a stack needs
+isolated connections:
+
+```bash
+dexcli dev \
+  --flow-rendering-dir ./build \
+  --connector-config-dir ./local-dex-secrets
+```
+
+Dex resolves the directory to an absolute path. The **Local store** zone of the
+Connectors page shows the directory and the JSON file inside it, and **Copy**
+copies the absolute file path. Several local stacks share the default file.
+Give each stack a different directory when they must not share accounts.
+
+The directory is created with mode **0700** and the file with mode **0600**.
+Dex rejects symlink files, non-regular files, and existing credential files
+with wider permissions. Updates use a same-directory temporary file, sync, and
+atomic rename so an application never reads a partial document.
+
+Restarting Dex Web reloads existing connections and cached UI artifacts. It
+does not clear the JSON file. An OAuth flow or Connector UI session that was in
+progress is memory-only and must be started again after a restart.
+
+### Configure an account
+
+Select the named connection. Dex Web verifies the official release metadata
+and checksum. It loads a compatible Studio UI in an opaque-origin sandbox when
+one exists. Otherwise it renders a generic form from the manifest.
+
+The authorization panel links to the provider's starting page and lists the
+exact setup path supplied by the Connector release. Fields that require user
+input appear first. Fields that can be omitted or use manifest defaults remain
+visible under **Optional settings**. Each non-secret manifest default appears
+below its field in parentheses. Leave the input blank to use that default;
+enter a value only when the field guidance explains why an override is useful.
+URLs in field guidance are clickable.
+
+Some Connectors hold several providers in one connection, such as an LLM
+Connector with OpenAI, Claude, and Gemini keys. Their form shows one card per
+added provider, with that provider's guide, key, and settings. Use **Add
+provider** to add another one and **Remove** to drop one. Saving after a
+removal deletes that provider's key and settings. A connection needs at least
+one provider.
+
+To change a **Ready** connection, choose **Edit connection**. Saved non-secret
+settings are prefilled. Saved keys are never shown again. Each saved key field
+reads **Stored - leave blank to keep**, and a blank field keeps the saved key.
+For an OAuth connection, choose **Reauthorize** instead.
+
+A Connector can render one connection setting, such as the default model, with
+its own picker. The picker appears after the connection is saved.
+
+OAuth always uses state and a ten-minute single-use session. Connectors use
+PKCE when their provider supports that authorization flow. Unless the release
+maps them to credentials, the OAuth client ID and client secret remain in
+memory and are not written to disk. Dex stores the access token after checking
+the granted scopes. Dex Web does not refresh access itself, and it stores a
+refresh token only when the release maps one. Reauthorize when the connection
+becomes **Expired**.
+
+Dex displays the exact Redirect URI before OAuth starts so it can be copied
+into the provider application. When a Connector declares a read-only identity
+derivation, Dex calls that endpoint with the new access token and stores
+the claim only after its declared verification flag is true. Derived fields,
+such as a verified primary email, do not appear as free-text inputs.
+
+Some Connectors cannot know the authorization server in advance, such as the
+OAuth 2.0 HTTP Connector for your own identity provider. Their release asks for
+the authorization endpoint, the token endpoint, and the scopes as connection
+settings. It can also ask how the client authenticates at the token endpoint.
+Dex accepts **client_secret_post** and **client_secret_basic**, and a blank
+value uses the default of the setting. Fill the settings in before you choose
+**Authorize**. Dex checks them first. A missing or blank setting, a scope list
+with an empty entry or an entry that contains a space, a URL that is not
+absolute, or an authentication method that Dex does not support fails with a
+message that names the setting, and nothing is sent to the provider. Dex saves
+the settings with the connection, so the Connector reads the same token
+endpoint when it renews the credential.
+
+An endpoint written in the release must use HTTPS. An endpoint that you type
+into a setting may use **http://** or **https://**. It needs a host and cannot
+contain a user name, a password, or a fragment. Before Dex sends the
+authorization code, the client secret, or a token to such an endpoint, it
+resolves the host, checks every address, and connects only to an address it
+checked. Plain **http://** works only when every address is loopback or
+private, such as an identity provider on your own machine or private network.
+Anything else needs **https://**. Dex refuses link-local addresses, which
+include the cloud metadata service, and unspecified or multicast addresses even
+over **https://**. If Dex refuses any one address of a host, it refuses the whole
+host, so a single public address rules out **http://**. Dex uses no proxy and
+follows no redirect. A refused address stops the setup
+with a message that names the setting, and nothing is sent. Over a permitted
+**http://** address the authorization code, the client secret, and the tokens
+still cross your network unencrypted. Use **https://** wherever you do not trust
+that network.
+
+Deleting local credentials removes only the local record. It does not revoke
+the provider grant.
+
+### Configure Slack Trigger bindings
+
+The Slack connection and each Trigger binding are configured separately. One
+**slack-workspace** connection can therefore be reused by multiple Flows while
+each Flow keeps its own channel, requester, approval phrase, and approver list.
+
+Slack OAuth stores both the bot token and the user token. The app-level token
+cannot be issued by OAuth. Create an **xapp-** token with the
+**connections:write** scope and enter it in the secret field. Tokens stay in
+the Dex Web host and are never sent to the sandboxed Studio UI.
+
+The Slack Studio shows:
+
+- one channel, including its public or private state and stable **C…** ID;
+- optional members allowed to start the Flow, or **any real member**;
+- one or more members allowed to approve; and
+- optional case-insensitive message substring filters.
+
+The picker saves stable Slack IDs even though it displays names and avatars.
+Every raw ID remains visible and copyable. If the Slack API is unavailable,
+enter IDs manually. In Slack, open channel details and choose **Copy channel
+ID**. For a person, open the profile's menu and choose **Copy member ID**. The
+bot must already be a member of a private channel before that channel appears.
+
+The default approval substring in the Slack thread approval example is
+**approve**. Substring matching also accepts text such as **disapprove**. Use a
+more distinctive phrase when exact approval wording matters.
+
+Trigger bindings do not store an RPC name. The application maps Slack thread
+identity to a Flow ID and registers the typed RPC definition used by the
+Trigger runner.
+
+### Start the Go application
+
+After setup, copy the launch command shown by Dex Web. The default path is:
+
+```bash
+DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" <your-app-command>
+```
+
+The Connector Go SDK loads configuration when the application constructs the
+named Connection. Configuration changes require an application restart.
+Credentials are read again before each provider call, so reauthorization takes
+effect on the next call without restarting the application.
+
+The JSON file stores plaintext secrets for local development. Do not commit,
+upload, or use it as a production secret broker. Connector secrets become
+**SecretString** values at the application boundary and must not enter Flow
+state or logs.
+
+The same file stores **triggerBindings** outside each workspace connection.
+Each binding is uniquely identified by Connector ID, connection name, Trigger
+name, and binding name. Changing one Flow's binding does not change another
+Flow that shares the account.

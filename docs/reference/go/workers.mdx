@@ -1,0 +1,74 @@
+---
+title: Go Workers
+sidebar_label: Workers
+---
+
+# Go Workers
+
+This page lists the Go names for the Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Readiness
+
+Starting with Go SDK 1.13.0, **WaitPullRegistered** gates startup until the
+Worker's slot streams have registered. **PullRegistrationState** reports the
+current state, and **StopOnPermanentStreamRejection** opts in to stopping on a
+permanent rejection. Start the Go Worker in a goroutine,
+then wait with a startup deadline before activating it or stopping the old
+Worker during a rolling deployment.
+
+A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
+**POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind.
+
+Register the Go HTTP handler at your readiness probe endpoint.
+
+```go
+func PullGreetingReadiness(worker *dex.Worker) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !worker.PullRegistrationState().IsReady {
+			http.Error(w, "pull queues unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+```
+
+Example: [examples/go/production/pull-workers/worker.go](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)
+
+## Capacity and shutdown
+
+| Setting | Go name |
+| --- | --- |
+| Concurrent tasks | **MaxConcurrentTasks** |
+| Reserved RPC slots | **ReservedRPCTasks** |
+| Stop drain timeout | **StopDrainTimeout** |
+| Shutdown | **Stop** |
+
+The idle stream option, **IdleStreamsPerQueue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **PullReservedRPCDeclines()**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+This diagnostics helper exposes registration readiness and the deprecated
+reserve-decline counter. A full Worker stays ready.
+
+```go
+type PullGreetingDiagnostics struct {
+	IsReady             bool
+	ReservedRPCDeclines uint64
+}
+
+func GetPullGreetingDiagnostics(worker *dex.Worker) PullGreetingDiagnostics {
+	return PullGreetingDiagnostics{
+		IsReady:             worker.PullRegistrationState().IsReady,
+		ReservedRPCDeclines: worker.PullReservedRPCDeclines(),
+	}
+}
+```
+
+Example: [examples/go/production/pull-workers/worker.go](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)

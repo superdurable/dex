@@ -14,6 +14,17 @@ import type {Config, LoadContext} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import redirects from './redirects.json';
 
+const developerReferenceComponents = [
+  'server',
+  'cli',
+  'web',
+  'go',
+  'python',
+  'java',
+  'typescript',
+  'rust',
+];
+
 // src/theme/Navbar/Content renders left items as the site row and right items as the actions.
 const companyHeaderNavigation = {
   sites: [
@@ -165,6 +176,17 @@ const config: Config = {
   ],
 
   plugins: [
+    // Each Developer reference component is its own docs instance, so it can be versioned on its own.
+    ...developerReferenceComponents.map((component) => [
+      '@docusaurus/plugin-content-docs',
+      {
+        id: `reference-${component}`,
+        path: `reference/${component}`,
+        routeBasePath: `reference/${component}`,
+        sidebarPath: `./reference/sidebars/${component}.ts`,
+        editUrl: 'https://github.com/superdurable/dex/tree/main/docs/',
+      },
+    ]),
     (context: LoadContext) =>
       clientRedirects(context, {
         id: 'default',
