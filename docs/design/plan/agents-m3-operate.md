@@ -42,6 +42,9 @@ These come from the owner reviews and apply to every item.
    0.2.0 continue.
 8. **No secrets in session state.** Only references, such as a connection name.
    The Worker resolves them.
+9. **Python and TypeScript first.** They are the first tier for agents, and every
+   item ships there first. Go and other languages are the second tier. A feature
+   that exists only in Go is a gap to close, not a baseline.
 
 ## Preconditions
 
@@ -343,15 +346,25 @@ this today, for three reasons.
    such as `AgentAttention`, with the current need: `none`, `approval`, `question`,
    or `outcome_unknown`. Scanning `AgentToolCalls` is not an option, because reading
    the size or keys of an AttributeMap loads the whole map.
-2. **Actions are Go only.** An Action is a typed Go registration. Most agents are
-   Python or TypeScript, and `resolve_interrupt` is not an Action. Either the SDKs
-   gain Action registration, or Dex Web calls known agent RPCs under a stated
-   permission.
+2. **Actions exist only in Go.** Python and TypeScript must gain them. The protocol,
+   server, and Dex Web are language neutral and need no change: `ActionPermissionMappings`
+   is already in `dex.proto`. Three layers are missing in both SDKs:
+   - a registration API, the equivalent of `DefineAction` and `RPCOptions.Action`;
+   - the Worker sending `ActionPermissionMappings` with its responses;
+   - `dexcli visualize` reading Actions from Python and TypeScript source.
 3. **The Work Queue needs a graph.** It reads a Flow Definition Graph, and no graph
-   exists for the session Flow. `dexcli visualize` on a library-built Flow is
-   untested.
+   exists for the session Flow. The analyzers read application source, and the session
+   Flow is defined in the Dex Agents library. The library probably ships its graph.
+   `dexcli visualize` on a library-built Flow is untested.
 
 Proposed: extend the Work Queue with an agent mode rather than add a surface.
+
+**Approvals are per tool call, and an Action is per run.** A session can hold several
+pending approvals, and `resolve_interrupt` names one. A run-level Action button does not
+fit. The agent view therefore draws one card per pending call and invokes
+`resolve_interrupt` directly. Session RPCs are declared as Actions for their label and
+permission. The alternative, one Action that handles a "current" interrupt at a time, is
+rejected: it hides the other pending calls.
 
 **Rules for `AgentAttention`.** It is a new persisted, indexed Attribute, so it needs
 the rollout rules. Each Step that raises or clears an interrupt writes it in the same
@@ -493,8 +506,9 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 3. **Approval marker.** Add an optional manifest field for high-risk operations,
    leaving the core's rule unchanged?
 4. **Write ordering.** Run writes of one turn in order, instead of in parallel?
-5. **Actions.** Port Action registration to Python and TypeScript, or let Dex Web call
-   known agent RPCs?
+5. **Action permission from the agent view.** The agent view invokes `resolve_interrupt`
+   directly and takes its permission from the Action declaration. Does that fit the
+   Action gateway model?
 6. **Indexed Attribute.** Add `AgentAttention` to the persisted schema?
 7. **Retention.** May adapters have retention without a summary?
 8. **Streams.** Is there a requirement for O7, or does it close?
