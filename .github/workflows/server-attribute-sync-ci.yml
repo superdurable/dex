@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened, labeled]
     paths:
       - "server-zd/**"
-      - "s3mock/**"
+      - "s3local/**"
       - "protos/**"
       - ".github/workflows/server-attribute-sync-ci.yml"
   workflow_dispatch:

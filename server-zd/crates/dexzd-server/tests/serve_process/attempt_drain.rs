@@ -26,7 +26,7 @@ use dexzd_protocol::dex::{
     poll_worker_task_request, poll_worker_task_response,
     step_down_active_node_response::LeaseHolderAfterStepDown,
 };
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -45,7 +45,7 @@ const FIRST_STEP: &str = "RunningStep";
 const NEXT_STEP: &str = "NextStep";
 const RECOVERY_STEP: &str = "RecoverStep";
 const BUDGET: Duration = Duration::from_secs(45);
-/// The longest s3mock delay; clearing the fault rules releases a held write earlier.
+/// The longest s3local delay; clearing the fault rules releases a held write earlier.
 const HELD_WRITE_MILLISECONDS: u64 = 600_000;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1029,7 +1029,7 @@ async fn wait_for_metric_sample(metrics_address: SocketAddr, sample: &str) {
     .unwrap_or_else(|_| panic!("the metrics never reported {sample}"));
 }
 
-/// Returns s3mock fault rules that delay every log batch write by `milliseconds`.
+/// Returns s3local fault rules that delay every log batch write by `milliseconds`.
 fn delayed_log_writes(milliseconds: u64) -> String {
     format!(
         r#"[{{"operation":"PutObject","key_prefix":"{}/log/","action":{{"type":"delay","milliseconds":{milliseconds}}}}}]"#,

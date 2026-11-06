@@ -118,7 +118,7 @@ pub struct RunningServer {
     serving: JoinHandle<Result<(), ServerError>>,
     lease_watchdog: Option<LeaseValidityWatchdog>,
     #[cfg(feature = "test-util")]
-    dev_object_store_for_test: Option<Arc<s3mock::Store>>,
+    dev_object_store_for_test: Option<Arc<s3local::Store>>,
 }
 
 impl RunningServer {
@@ -129,7 +129,7 @@ impl RunningServer {
 
     /// Returns the embedded dev object store for assertions while the server is running.
     #[cfg(feature = "test-util")]
-    pub fn dev_object_store_for_test(&self) -> Option<Arc<s3mock::Store>> {
+    pub fn dev_object_store_for_test(&self) -> Option<Arc<s3local::Store>> {
         self.dev_object_store_for_test.clone()
     }
 

@@ -11,7 +11,8 @@ You use Dex to write a Flow filled with native programming code: Steps, Attribut
 
 Client calls Server to start and interact with Flow runs. Dex Server dispatches Step and RPC tasks to your Workers.
 
-<img width="715" height="318" alt="dex-arch3" src="https://github.com/user-attachments/assets/57eb5344-8707-4fe1-9ed0-7896718a1a33" />
+<img width="1020" height="473" alt="dex-arch4" src="https://github.com/user-attachments/assets/5d22c06f-851d-41f8-aae8-62dbb5588cd7" />
+
 
 
 ## Why Dex
@@ -112,7 +113,7 @@ cargo add dex-sdk
 | [web/](web/) | Standalone Dex Web console and `dex-web` binary |
 | [cli/](cli/) | `dexcli` local development environment |
 | [protos/](protos/) | Protobuf IDL and codec server |
-| [s3mock/](s3mock/) | Local S3-compatible object store for testing purpose|
+| [s3local/](s3local/) | Local S3-compatible object store for testing purpose|
 | [blob-cache-go/](blob-cache-go/) | Shared Go disk blob cache |
 | [benchmark/](benchmark/) | Performance benchmarks |
 | [packages/](packages/) | Shared Web packages |

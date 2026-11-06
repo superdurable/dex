@@ -77,6 +77,8 @@ start_server() {
   cat > "$state_dir/zd-quick.yaml" <<'YAML'
 metrics:
   listen: "127.0.0.1:9901"
+dev:
+  durabilityMode: processCrashSafe
 YAML
   nice -n 10 "$dexcli_binary" dev --engine zd --open=false --dex-port 8801 --web-port 8802 \
     --zd-binary "$zd_binary" --zd-data-dir "$state_dir/zd-data" --zd-config "$state_dir/zd-quick.yaml" >"$state_dir/server.log" 2>&1 &
@@ -90,7 +92,7 @@ YAML
 run_step() {
   local variant="$1" step_concurrency="$2"
   wait_for_load
-  # The dexcli PID is the sampling root, so its children (server-zd, s3mock) are included.
+  # The dexcli PID is the sampling root, so its children (server-zd, s3local) are included.
   DEXBENCH_SERVER_VERSION="$server_version" nice -n 10 "$benchmark_binary" run \
     --address 127.0.0.1:8801 --target zd --engine zd \
     --duration "$duration" --warmup "$warmup" --concurrency "$step_concurrency" \

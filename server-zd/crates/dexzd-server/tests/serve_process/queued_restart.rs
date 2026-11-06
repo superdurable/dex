@@ -24,7 +24,7 @@ use dexzd_protocol::dex::{
     StepDurability, StepMethodInvocationPhase, StepMethodPendingReason, StepOptions,
     WaitForFlowRequest, WorkerTarget,
 };
-use s3mock_server::SignatureVerification;
+use s3local_server::SignatureVerification;
 use tempfile::TempDir;
 use tonic::transport::Channel;
 use tonic_health::pb::HealthCheckRequest;

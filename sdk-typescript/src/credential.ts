@@ -26,7 +26,8 @@ import {
  * Dex asks for a token before each FlowService call and each pull stream opens.
  * A call may overlap another call, so implementations must support concurrent requests.
  * Throwing or rejecting fails the call locally without contacting Dex. The token travels
- * over the same plaintext connection as other calls; protect the network path.
+ * over the same connection as other calls, which is plaintext unless `flowServiceTls` is set;
+ * set it, or otherwise protect the network path.
  * A call deadline or cancellation ends the call even if token() remains pending.
  *
  * @example

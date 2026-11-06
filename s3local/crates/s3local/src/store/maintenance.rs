@@ -1,0 +1,258 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//! Startup cleanup of temporary files and of data files that no committed metadata references.
+
+use std::collections::HashSet;
+use std::fs;
+use std::io;
+use std::path::Path;
+use std::str::FromStr;
+
+use redb::ReadableDatabase;
+use ulid::Ulid;
+
+use super::{
+    BUCKETS, PARTS, Store, UPLOADS, UPLOADS_DIRECTORY_NAME, VERSIONS, decode_json, load_versions,
+    relative_data_file,
+};
+use crate::data_file;
+use crate::error::StoreError;
+use crate::key_codec::{encode_bucket_prefix, prefix_successor};
+use crate::record::{BucketRecord, PartRecord, UploadRecord};
+
+/// Counts reported by [`Store::collect_orphan_data_files`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OrphanCollection {
+    pub examined_files: u64,
+    pub removed_files: u64,
+}
+
+impl Store {
+    /// Removes uploads that an earlier process never finished; the database lock rules out live writers.
+    pub(super) fn remove_temporary_files(&self) -> Result<(), StoreError> {
+        for entry in fs::read_dir(&self.temporary_directory)? {
+            let path = entry?.path();
+            if let Err(error) = fs::remove_file(&path) {
+                tracing::warn!(path = %path.display(), %error, "failed to remove leftover temporary file");
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes data files left by writes that crashed or failed before their metadata commit.
+    ///
+    /// Only files older than this store's open time are examined, so writes in flight are never touched.
+    /// Safe to run on a background thread while the store serves requests.
+    pub fn collect_orphan_data_files(&self) -> Result<OrphanCollection, StoreError> {
+        let mut collection = OrphanCollection::default();
+        let buckets: Vec<BucketRecord> = {
+            let transaction = self.database.begin_read()?;
+            let table = transaction.open_table(BUCKETS)?;
+            let mut buckets = Vec::new();
+            for entry in table.range::<&str>(..)? {
+                let (_, value) = entry?;
+                buckets.push(decode_json(value.value())?);
+            }
+            buckets
+        };
+        let live_incarnations: Vec<&str> = buckets
+            .iter()
+            .map(|bucket| bucket.incarnation.as_str())
+            .collect();
+        for entry in fs::read_dir(&self.data_directory)? {
+            let directory = entry?.path();
+            let name = directory
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            if live_incarnations.contains(&name.as_str()) {
+                continue;
+            }
+            // A relaxed bucket deletion holds this lock across its commit and defers the directory.
+            if self.is_older_than_open(&name) && !self.lock_deferred_removals().contains(&directory)
+            {
+                self.durable_directories.forget(&directory);
+                remove_directory(&directory);
+            }
+        }
+        for bucket in &buckets {
+            self.collect_bucket_orphans(bucket, &mut collection)?;
+        }
+        Ok(collection)
+    }
+
+    fn collect_bucket_orphans(
+        &self,
+        bucket: &BucketRecord,
+        collection: &mut OrphanCollection,
+    ) -> Result<(), StoreError> {
+        let bucket_directory = self.bucket_directory(bucket);
+        let shards = match fs::read_dir(&bucket_directory) {
+            Ok(shards) => shards,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        for shard in shards {
+            let shard = shard?.path();
+            if shard.file_name().and_then(|name| name.to_str()) == Some(UPLOADS_DIRECTORY_NAME) {
+                self.collect_upload_orphans(bucket, &shard, collection)?;
+                continue;
+            }
+            for file in fs::read_dir(shard)? {
+                let path = file?.path();
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_owned();
+                if !self.is_older_than_open(&name) {
+                    continue;
+                }
+                collection.examined_files += 1;
+                if self.is_orphan(bucket, &name, &path)? {
+                    match fs::remove_file(&path) {
+                        Ok(()) => collection.removed_files += 1,
+                        Err(error) => {
+                            tracing::warn!(path = %path.display(), %error, "failed to remove orphan data file");
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes upload directories without an upload record and part files no part record names.
+    fn collect_upload_orphans(
+        &self,
+        bucket: &BucketRecord,
+        uploads_directory: &Path,
+        collection: &mut OrphanCollection,
+    ) -> Result<(), StoreError> {
+        let (live_uploads, live_part_files) = {
+            let transaction = self.database.begin_read()?;
+            let bucket_prefix = encode_bucket_prefix(&bucket.name);
+            let end = prefix_successor(&bucket_prefix)
+                .expect("encoded bucket prefixes end with a terminator below 0xFF");
+            let mut live_uploads = HashSet::new();
+            for entry in transaction
+                .open_table(UPLOADS)?
+                .range(bucket_prefix.as_slice()..end.as_slice())?
+            {
+                let upload: UploadRecord = decode_json(entry?.1.value())?;
+                live_uploads.insert(upload.upload_id);
+            }
+            let mut live_part_files = HashSet::new();
+            for entry in transaction
+                .open_table(PARTS)?
+                .range(bucket_prefix.as_slice()..end.as_slice())?
+            {
+                let part: PartRecord = decode_json(entry?.1.value())?;
+                live_part_files.insert(self.bucket_directory(bucket).join(part.data_file));
+            }
+            (live_uploads, live_part_files)
+        };
+        for upload_directory in fs::read_dir(uploads_directory)? {
+            let upload_directory = upload_directory?.path();
+            let upload_id = upload_directory
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_owned();
+            if !self.is_older_than_open(&upload_id) {
+                continue;
+            }
+            if !live_uploads.contains(&upload_id) {
+                // Relaxed aborts and completions hold this lock across the commit that defers it.
+                if !self.lock_deferred_removals().contains(&upload_directory) {
+                    self.durable_directories.forget(&upload_directory);
+                    remove_directory(&upload_directory);
+                }
+                continue;
+            }
+            // A completion or abort may remove the directory while this scan runs.
+            let files = match fs::read_dir(&upload_directory) {
+                Ok(files) => files,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            for file in files {
+                let path = file?.path();
+                let name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default();
+                if !self.is_older_than_open(name) {
+                    continue;
+                }
+                collection.examined_files += 1;
+                if !live_part_files.contains(&path)
+                    && !self.lock_deferred_removals().contains(&path)
+                {
+                    match fs::remove_file(&path) {
+                        Ok(()) => collection.removed_files += 1,
+                        Err(error) => {
+                            tracing::warn!(path = %path.display(), %error, "failed to remove orphan part file");
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A data file is an orphan when no version references it and no relaxed commit deferred it.
+    fn is_orphan(
+        &self,
+        bucket: &BucketRecord,
+        file_name: &str,
+        path: &Path,
+    ) -> Result<bool, StoreError> {
+        // Superseding relaxed commits hold this lock, so both checks see the same state.
+        let deferred_removals = self.lock_deferred_removals();
+        Ok(!deferred_removals.contains(path) && !self.is_referenced(bucket, file_name, path)?)
+    }
+
+    /// A data file is live when a version of its header's key points back at this file.
+    fn is_referenced(
+        &self,
+        bucket: &BucketRecord,
+        file_name: &str,
+        path: &Path,
+    ) -> Result<bool, StoreError> {
+        let header = match data_file::read_header(path) {
+            Ok(header) => header,
+            Err(StoreError::CorruptDataFile { reason, .. }) => {
+                tracing::warn!(path = %path.display(), %reason, "treating unreadable data file as an orphan");
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        };
+        let transaction = self.database.begin_read()?;
+        let versions = transaction.open_table(VERSIONS)?;
+        let expected_relative_path =
+            relative_data_file(Ulid::from_str(file_name).expect("checked by is_older_than_open"));
+        Ok(load_versions(&versions, &bucket.name, &header.key)?
+            .iter()
+            .any(|stored| {
+                stored.record.data_file.as_deref() == Some(expected_relative_path.as_str())
+            }))
+    }
+
+    fn is_older_than_open(&self, name: &str) -> bool {
+        Ulid::from_str(name).is_ok_and(|ulid| ulid.timestamp_ms() < self.opened_at_unix_ms)
+    }
+}
+
+fn remove_directory(directory: &Path) {
+    if let Err(error) = fs::remove_dir_all(directory) {
+        tracing::warn!(path = %directory.display(), %error, "failed to remove orphan bucket directory");
+    }
+}

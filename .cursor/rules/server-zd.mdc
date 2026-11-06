@@ -21,7 +21,7 @@ alwaysApply: false
   object storage layout, and snapshots) follow the protobuf compatibility
   rules: additive only; never renumber or reuse field numbers or names.
 - Generated protobuf maps use `BTreeMap`.
-- Local tests use the in-process s3mock or the in-memory object store, never
+- Local tests use the in-process s3local or the in-memory object store, never
   MinIO.
 
 ### server-zd Rust conventions ported from the Go rules

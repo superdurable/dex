@@ -549,6 +549,7 @@ async fn failed_dev_server_start(yaml: &str) -> String {
         log_dir: None,
         config: Some(config_path),
         attribute_store_config: None,
+        durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
     })
     .await
     {

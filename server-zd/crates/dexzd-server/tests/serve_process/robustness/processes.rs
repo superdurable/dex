@@ -17,8 +17,8 @@ use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use s3mock::{Durability, EtagMode, Store, StoreConfig};
-use s3mock_server::{ServerConfig, ServerHandle, SignatureVerification};
+use s3local::{Durability, EtagMode, Store, StoreConfig};
+use s3local_server::{ServerConfig, ServerHandle, SignatureVerification};
 use tempfile::TempDir;
 use tokio::process::{Child, Command};
 use tonic::transport::Channel;
@@ -45,7 +45,7 @@ const STOP_POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub(crate) const STALE_BATCH_STOP_REASON: &str =
     "an unacknowledged batch of an earlier epoch holds the next seq; recovery voids it";
 
-/// An s3mock server in this process with the primary bucket and fsync-durable writes.
+/// An s3local server in this process with the primary bucket and fsync-durable writes.
 ///
 /// It skips signature checks, because unoptimized SigV4 checks slow every request.
 pub(crate) struct DurableEmulator {
@@ -70,7 +70,7 @@ impl DurableEmulator {
         let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
             .await
             .expect("the emulator binds a loopback port");
-        let server = s3mock_server::start_with_config(
+        let server = s3local_server::start_with_config(
             store.clone(),
             listener,
             ServerConfig {
@@ -102,7 +102,7 @@ impl DurableEmulator {
         format!("http://{}", self.server.local_address())
     }
 
-    /// Returns the store, so more s3mock servers with their own fault rules can serve it.
+    /// Returns the store, so more s3local servers with their own fault rules can serve it.
     pub(crate) fn store(&self) -> Arc<Store> {
         self.store.clone()
     }

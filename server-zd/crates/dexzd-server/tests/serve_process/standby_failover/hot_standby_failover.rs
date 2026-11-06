@@ -31,7 +31,7 @@ const THIRD: usize = 2;
 const SLOW_STANDBY_LATENCY: Duration = Duration::from_millis(400);
 /// How long a fault burst lasts at a standby's endpoint.
 const FAULT_BURST: Duration = Duration::from_secs(3);
-/// Holds a process's log reads until the fault is cleared; s3mock accepts no longer delay.
+/// Holds a process's log reads until the fault is cleared; s3local accepts no longer delay.
 const HELD_LOG_READS: Duration = Duration::from_secs(600);
 /// The default 10 s `behindLagThreshold` and time for a loaded host to report it.
 const BEHIND_BUDGET: Duration = Duration::from_secs(60);
