@@ -33,6 +33,7 @@ package io.superdurable.dex;
  * }</pre>
  *
  * @param <T> the Java value type stored in every instance of the AttributeMap
+ * @since 1.31.0
  */
 public final class AttributeMapInstance<T> implements AttributeRead<T> {
     private final AttributeMap<T> attributeMap;

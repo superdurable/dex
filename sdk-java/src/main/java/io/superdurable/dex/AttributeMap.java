@@ -150,7 +150,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      *       deletes the running Flow's instance value.</li>
      *   <li>Executions that reuse a Flow ID share the stored values.</li>
      *   <li>{@link Client#timeTravel} does not restore a deleted value. A deleted value reads as absent.</li>
-     *   <li>A Flow retry or a restarted SubFlow starts from the original initial value. If an
+     *   <li>A restarted SubFlow starts from the original initial value. If an
      *       earlier run deleted that value, the new run reads it as absent.</li>
      *   <li>Removing {@code hardDeleteOnNull()} from a definition leaves the stored value in place
      *       until Dex removes the Flow. Delete the value with the hard-delete definition first.</li>
@@ -258,6 +258,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
      * @return an immutable selector for this AttributeMap object and {@code instance}
      * @throws IllegalArgumentException if {@code instance} is {@code null}, blank, or contains
      *     {@code /}
+     * @since 1.31.0
      */
     public AttributeMapInstance<T> instance(final String instance) {
         return new AttributeMapInstance<T>(this, instance);

@@ -46,6 +46,8 @@ public final class PullRegistrationState {
     /**
      * Returns slot-kind snapshots through the legacy queue collection accessor.
      *
+     * <p>Changed in 1.35.0: entries describe slot kinds rather than routing queues.
+     *
      * @return an immutable list ordered STEP_AND_RPC then RPC_ONLY when configured
      */
     public List<PullQueueRegistrationState> getQueues() {

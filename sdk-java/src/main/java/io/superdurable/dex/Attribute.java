@@ -22,6 +22,11 @@ import java.util.Objects;
  * concrete class whose field is a {@code List<String>}, or use {@code String[]} when an array fits
  * the data model.
  *
+ * <p>Writes through a handler Context are staged until its successful result is committed;
+ * reads in that invocation also see its staged writes. A failed invocation does not commit them.
+ * External readers use {@link Client#getAttributes(String, AttributeRead...)} for committed state.
+ * Concurrent writers that need serialization must participate in {@link AttributeLock} locking.
+ *
  * <pre>{@code
  * private final Attribute<Integer> counter =
  *         Attribute.define("counter", Integer.class);
@@ -160,7 +165,7 @@ public final class Attribute<T> extends PersistenceDefinition implements Attribu
      *       running Flow's value.</li>
      *   <li>Executions that reuse a Flow ID share the stored value.</li>
      *   <li>{@link Client#timeTravel} does not restore a deleted value. A deleted value reads as absent.</li>
-     *   <li>A Flow retry or a restarted SubFlow starts from the original initial value. If an
+     *   <li>A restarted SubFlow starts from the original initial value. If an
      *       earlier run deleted that value, the new run reads it as absent.</li>
      *   <li>Removing {@code hardDeleteOnNull()} from a definition leaves the stored value in place
      *       until Dex removes the Flow. Delete the value with the hard-delete definition first.</li>

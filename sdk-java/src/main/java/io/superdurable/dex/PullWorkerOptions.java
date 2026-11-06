@@ -19,6 +19,11 @@ import java.time.Duration;
  * the Worker identity and every registered Flow type. The worker does not open a listener.
  * Zero task count and a zero timeout select defaults. An empty Worker ID is generated per Worker.
  *
+ * <p>Changed in 1.35.0: there are exactly maxConcurrentTasks long-lived streams, one per
+ * execution slot, shared across all registered Flow types. Reserved RPC slots are RPC-only
+ * streams. Other streams accept both Step and RPC tasks. Capacity no longer causes task declines.
+ * Server protocol 4, provided by server-zd 0.1.17 or newer, is required.
+ *
  * <pre>{@code
  * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
  *         .maxConcurrentTasks(8)
@@ -104,7 +109,13 @@ public final class PullWorkerOptions {
          *
          * <p>This also sizes the Worker's handler pool. Worker start fails when this exceeds
          * the Server's per-Worker limit, matching.maxConcurrentTasksCap. Every received task
-         * executes without a capacity rejection.
+         * executes without a capacity rejection. The server limit defaults to 256. Lower this
+         * option or raise the server limit before starting the Worker; this failure is not retried
+         * in the background. Budget server matching.maxStreams for the sum of Worker slots,
+         * including overlap during deployments.
+         *
+         * <p>Changed in 1.35.0: this value is also the exact stream count, and exceeding the
+         * server cap fails startup.
          *
          * @param value a nonnegative count; zero uses the available CPU count
          * @return this builder
@@ -125,6 +136,12 @@ public final class PullWorkerOptions {
          * Set zero to opt out. With one slot and no explicit reserve, Worker start logs a warning
          * about RPC starvation. The remaining streams accept Steps and RPCs. The Server routes
          * Steps only to those streams, and the Worker never declines a Step for capacity.
+         * To retain eight concurrent Step handlers with one reserved slot, configure at least nine
+         * total slots. RPCs may use either slot kind; the reserve does not guarantee RPC latency
+         * when RPC handlers themselves fill those slots.
+         *
+         * <p>Changed in 1.35.0: the reserve uses RPC-only streams instead of declining Steps
+         * after delivery.
          *
          * <pre>{@code
          * PullWorkerOptions pull = PullWorkerOptions.newBuilder()
@@ -144,6 +161,7 @@ public final class PullWorkerOptions {
          * Retains the legacy idle-stream option for source compatibility.
          *
          * <p>This value has no effect. Each execution slot has exactly one long-lived stream.
+         * Changed in 1.35.0: this option is deprecated and ignored.
          *
          * @param value a nonnegative legacy count
          * @return this builder
@@ -163,6 +181,8 @@ public final class PullWorkerOptions {
          *
          * <p>The ID has 1-63 ASCII letters, digits, periods, underscores, or hyphens. It must
          * differ from every registered Flow type. Empty selects a hostname-derived random ID.
+         * A supplied ID must be unique to the process and change after each restart. Reusing an ID
+         * during a rolling deployment can retain another process's unsupported-Step routing state.
          *
          * @param value the Worker ID, or empty to generate one
          * @return this builder
@@ -182,6 +202,12 @@ public final class PullWorkerOptions {
          * <p>A canceled handler must return before Stop completes. A stream whose final output the
          * Server has not yet confirmed gets a five-second flush grace after the timeout. The Server
          * confirms it by ending the stream or by assigning the stream's next task.
+         *
+         * <p>Changed in 1.35.0: Stop closes idle streams immediately and starts no new handler.
+         * Running handlers can finish and send output within the drain timeout. Tasks arriving
+         * after shutdown starts return to Dex without running or consuming a retry. A handler
+         * canceled at the drain deadline may have run and consumes a retry. Handlers must honor
+         * interruption; the drain timeout cannot force unresponsive application code to return.
          *
          * @param value a nonnegative duration; zero uses 30 seconds
          * @return this builder

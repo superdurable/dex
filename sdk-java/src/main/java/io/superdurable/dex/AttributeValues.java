@@ -42,6 +42,8 @@ import java.util.Optional;
  * String status = values.get(orderFlow.orderStatus).orElse("new");
  * Optional<Note> note = values.get(orderFlow.notes.instance("n1"));
  * }</pre>
+ *
+ * @since 1.31.0
  */
 public final class AttributeValues {
     private final String flowId;
