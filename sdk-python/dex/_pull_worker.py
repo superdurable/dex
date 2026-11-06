@@ -29,6 +29,7 @@ from dex._credential_transport import (
 )
 from dex._flow_service_tls import FlowServiceTransport
 from dex._grpc_errors import _worker_error_status
+from dex._message_size import grpc_message_size_channel_options
 from dex._server_protocol import sdk_version
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
@@ -76,17 +77,20 @@ _IDENTITY_COMPRESSION_ONLY_OPTIONS = (
 
 
 def outbound_worker_task_channel(
-    server_address: str, transport: FlowServiceTransport | None = None
+    server_address: str,
+    transport: FlowServiceTransport | None = None,
+    grpc_max_message_bytes: int = 0,
 ) -> grpc.aio.Channel:
+    options = _IDENTITY_COMPRESSION_ONLY_OPTIONS + grpc_message_size_channel_options(
+        grpc_max_message_bytes
+    )
     if transport is not None and transport.credentials is not None:
         return grpc.aio.secure_channel(
             transport.target,
             transport.credentials,
-            options=_IDENTITY_COMPRESSION_ONLY_OPTIONS + transport.channel_options,
+            options=options + transport.channel_options,
         )
-    return grpc.aio.insecure_channel(
-        server_address, options=_IDENTITY_COMPRESSION_ONLY_OPTIONS
-    )
+    return grpc.aio.insecure_channel(server_address, options=options)
 
 
 def resolve_app_worker_id(registry: Registry, options: PullWorkerOptions) -> str:
@@ -107,8 +111,10 @@ class PullWorkerRuntime:
         app_worker_id: str | None = None,
         credential_runner: AsyncCredentialRunner | None = None,
         transport: FlowServiceTransport | None = None,
+        grpc_max_message_bytes: int = 0,
     ) -> None:
         self._transport = transport
+        self._grpc_max_message_bytes = grpc_max_message_bytes
         self._registry = registry
         self.app_worker_id = app_worker_id or resolve_app_worker_id(registry, options)
         self.flow_types = sorted(registry._registered_flows)
@@ -183,7 +189,7 @@ class PullWorkerRuntime:
         channel: grpc.aio.Channel | None = None
         try:
             channel = outbound_worker_task_channel(
-                self._server_address, self._transport
+                self._server_address, self._transport, self._grpc_max_message_bytes
             )
             stub = dex_pb2_grpc.WorkerTaskServiceStub(channel)  # type: ignore[no-untyped-call]
             self._wake.set()

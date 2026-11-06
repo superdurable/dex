@@ -10,6 +10,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from dex._message_size import validate_grpc_max_message_bytes
 from dex.credential import Credential
 from dex.flow_service_tls_options import FlowServiceTlsOptions
 
@@ -139,6 +140,13 @@ class WorkerOptions:
             to protect bearer tokens in transit. A rotated token is used on the next call or reconnect.
             AsyncWorker accepts awaitable tokens and bounds pull stream token
             lookup to 30 seconds. Synchronous token lookup must return promptly.
+        grpc_max_message_bytes: Largest gRPC message this Worker exchanges with Dex,
+            in bytes, on its FlowService calls and pull streams. Zero, the default,
+            receives up to ``DEFAULT_GRPC_MAX_MESSAGE_BYTES`` (32 MiB) and leaves
+            sends unlimited, so the server's limit bounds them. A positive value
+            limits both directions. A negative value raises ``ValueError``.
+
+            .. versionadded:: 1.38.0
     """
 
     server_address: str = "localhost:8801"
@@ -146,8 +154,10 @@ class WorkerOptions:
     pull: PullWorkerOptions = field(default_factory=PullWorkerOptions)
     credential: Credential | None = None
     flow_service_tls: FlowServiceTlsOptions | None = None
+    grpc_max_message_bytes: int = 0
 
     def __post_init__(self) -> None:
+        validate_grpc_max_message_bytes(self.grpc_max_message_bytes)
         if self.pull is None:
             raise ValueError(
                 "push Workers are no longer supported; use PullWorkerOptions() instead of pull=None"

@@ -96,6 +96,7 @@ class Worker:
             self.options.server_address,
             self.options.credential,
             transport=transport,
+            grpc_max_message_bytes=self.options.grpc_max_message_bytes,
         )
         self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
@@ -124,6 +125,7 @@ class Worker:
             app_worker_id,
             self._credential_runner,
             transport=transport,
+            grpc_max_message_bytes=self.options.grpc_max_message_bytes,
         )
 
     def __enter__(self) -> Worker:

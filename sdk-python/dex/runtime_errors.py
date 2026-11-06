@@ -117,6 +117,51 @@ class DexServiceError(RuntimeError):
         self.flow_id = flow_id
 
 
+class BlobMessageTooLargeError(DexServiceError):
+    """Report a blob value that alone exceeds a gRPC message size limit.
+
+    Dex stores large values as blobs, and the SDK hydrates them with LoadBlobs. The SDK
+    first requests every uncached blob in one call. When that response exceeds a gRPC
+    limit, it splits the request in half and retries each half, so N blobs take at most
+    2N-1 calls. This error means a single blob still does not fit in one response.
+
+    The limit that rejected the response is either ``grpc_max_message_bytes`` on the
+    Client or Worker options, or the Dex server's ``api.grpcMaxMessageBytes``. ``detail``
+    keeps gRPC's message, which states the response size and the limit. Raise the smaller
+    limit above the value size plus headroom, or split the value across several
+    Attributes or AttributeMap instances. A Worker reports this as a failed Step or RPC.
+
+    Example:
+        >>> try:
+        ...     values = client.get_attributes("order-42", report)
+        ... except BlobMessageTooLargeError as error:
+        ...     logger.warning("blob %s of %s is too large", error.blob_id, error.flow_id)
+
+    Attributes:
+        blob_id: The Dex blob ID of the value that did not fit.
+
+    .. versionadded:: 1.38.0
+    """
+
+    def __init__(self, flow_id: str, blob_id: str, detail: str) -> None:
+        """Create the error for one blob.
+
+        Args:
+            flow_id: The Flow ID that owns the blob.
+            blob_id: The Dex blob ID of the value that did not fit.
+            detail: gRPC's size failure message.
+        """
+        super().__init__(
+            grpc.StatusCode.RESOURCE_EXHAUSTED,
+            ErrorSubStatus.UNCATEGORIZED,
+            f"blob {blob_id!r} of Flow ID {flow_id!r} exceeds the gRPC message "
+            f"size limit: {detail}",
+            "LoadBlobs",
+            flow_id,
+        )
+        self.blob_id = blob_id
+
+
 class FlowAlreadyStartedError(DexServiceError):
     """Indicate that ``start_flow`` conflicts with an existing Flow ID."""
 

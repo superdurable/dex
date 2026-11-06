@@ -22,6 +22,7 @@ from dex.attribute import (
 )
 from dex.attribute_match import AttributeMatch
 from dex.attribute_values import AttributeValues
+from dex._message_size import DEFAULT_GRPC_MAX_MESSAGE_BYTES
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
 from dex.channel import Channel, ChannelMap, ChannelMapLoad, ChannelMessage
 from dex.client import Client
@@ -80,6 +81,7 @@ from dex.runtime_errors import (
     AttributeMapNotLoadedError,
     ChannelMessageNotFoundError,
     ChannelMessagesNotLoadedError,
+    BlobMessageTooLargeError,
     DexServiceError,
     ErrorSubStatus,
     FlowAlreadyStartedError,
@@ -169,6 +171,8 @@ __all__ = [
     "CodecRegistry",
     "ConditionCombination",
     "Context",
+    "BlobMessageTooLargeError",
+    "DEFAULT_GRPC_MAX_MESSAGE_BYTES",
     "DexServiceError",
     "ErrorSubStatus",
     "Flow",

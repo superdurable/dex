@@ -23,6 +23,7 @@ from typing import Any, NamedTuple, cast
 
 import grpc
 
+from dex._message_size import grpc_message_size_channel_options
 from dex._flow_service_tls import FlowServiceTransport, flow_service_transport
 from dex.credential import Credential
 from dex.flow_service_tls_options import FlowServiceTlsOptions
@@ -326,14 +327,18 @@ def sync_channel(
     flow_service_tls: FlowServiceTlsOptions | None = None,
     *,
     transport: FlowServiceTransport | None = None,
+    grpc_max_message_bytes: int = 0,
 ) -> grpc.Channel:
     if transport is None:
         transport = flow_service_transport(server_address, flow_service_tls)
+    message_size_options = grpc_message_size_channel_options(grpc_max_message_bytes)
     channel = (
-        grpc.insecure_channel(server_address)
+        grpc.insecure_channel(server_address, options=message_size_options)
         if transport.credentials is None
         else grpc.secure_channel(
-            transport.target, transport.credentials, options=transport.channel_options
+            transport.target,
+            transport.credentials,
+            options=message_size_options + transport.channel_options,
         )
     )
     if credential is None:
@@ -347,9 +352,11 @@ def async_channel(
     flow_service_tls: FlowServiceTlsOptions | None = None,
     *,
     transport: FlowServiceTransport | None = None,
+    grpc_max_message_bytes: int = 0,
 ) -> grpc.aio.Channel:
     if transport is None:
         transport = flow_service_transport(server_address, flow_service_tls)
+    message_size_options = grpc_message_size_channel_options(grpc_max_message_bytes)
     if transport.credentials is not None:
         interceptors = (
             [
@@ -364,13 +371,14 @@ def async_channel(
         return grpc.aio.secure_channel(
             transport.target,
             transport.credentials,
-            options=transport.channel_options,
+            options=message_size_options + transport.channel_options,
             interceptors=interceptors,
         )
     if credential_runner is None:
-        return grpc.aio.insecure_channel(server_address)
+        return grpc.aio.insecure_channel(server_address, options=message_size_options)
     return grpc.aio.insecure_channel(
         server_address,
+        options=message_size_options,
         interceptors=[
             cast(
                 grpc.aio.ClientInterceptor,

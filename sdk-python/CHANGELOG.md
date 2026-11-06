@@ -4,6 +4,14 @@
 
 ### Added and fixed
 
+- Raise the gRPC receive limit from 4 MiB to `DEFAULT_GRPC_MAX_MESSAGE_BYTES` (32 MiB)
+  on every FlowService and pull stream channel, matching the Go SDK. Set
+  `grpc_max_message_bytes` on `ClientOptions` or `WorkerOptions` to change it. A
+  positive value limits both directions.
+- Split a LoadBlobs request in half when its response exceeds a gRPC size limit, so a
+  Worker with an empty blob cache no longer fails on a long Flow. A single blob that
+  does not fit raises the new `BlobMessageTooLargeError`.
+
 - Add `FlowServiceTlsOptions` to Client and Worker options for verified TLS 1.2+
   connections, including async APIs and pull streams. Trust is the gRPC default
   roots (grpcio's bundled roots, or `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH` when set)

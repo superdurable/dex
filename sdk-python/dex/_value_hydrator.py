@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import cast
 
+import grpc
+
+from dex._message_size import is_grpc_message_size_error
 from dex.blob_cache import BlobCache
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
+from dex.runtime_errors import BlobMessageTooLargeError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -206,24 +211,43 @@ class ValueHydrator:
     def _load_misses(self, misses: list[_PendingBlob]) -> None:
         if not misses:
             return
-        response = self._service.LoadBlobs(
-            pb.LoadBlobsRequest(
-                entries=[
-                    pb.LoadBlobRequestEntry(
-                        flow_id=miss.flow_id,
-                        blob_value=miss.request,
-                    )
-                    for miss in misses
-                ]
-            )
-        )
+        values = self._load_blob_values(misses)
         for miss in misses:
-            concrete = response.values.get(miss.blob_id)
+            concrete = values.get(miss.blob_id)
             if concrete is None:
                 raise RuntimeError(f"LoadBlobs omitted blob {miss.blob_id}")
             self._validate_hydrated(miss, concrete)
             miss.hydrated = concrete
             self._write_cache(miss, concrete)
+
+    def _load_blob_values(self, misses: list[_PendingBlob]) -> dict[str, pb.Value]:
+        """Load blobs, halving a batch whose response exceeds a gRPC size limit."""
+        try:
+            response = self._service.LoadBlobs(
+                pb.LoadBlobsRequest(
+                    entries=[
+                        pb.LoadBlobRequestEntry(
+                            flow_id=miss.flow_id,
+                            blob_value=miss.request,
+                        )
+                        for miss in misses
+                    ]
+                )
+            )
+        except grpc.RpcError as error:
+            if not is_grpc_message_size_error(error):
+                raise
+            if len(misses) == 1:
+                raise BlobMessageTooLargeError(
+                    misses[0].flow_id,
+                    misses[0].blob_id,
+                    cast(grpc.Call, error).details() or str(error),
+                ) from error
+            half = len(misses) // 2
+            values = self._load_blob_values(misses[:half])
+            values.update(self._load_blob_values(misses[half:]))
+            return values
+        return dict(response.values)
 
     def _read_cache(self, blob: _PendingBlob) -> pb.Value | None:
         try:
