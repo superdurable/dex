@@ -177,7 +177,7 @@ impl AuthenticatedDevServer {
             .expect("a free loopback port exists");
         let server = dexzd_server::start_dev_server(&DevCommandOptions {
             data_dir: directory.path().join("data"),
-            listen,
+            listen: Some(listen),
             log_dir: None,
             config: Some(config),
             attribute_store_config: None,

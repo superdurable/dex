@@ -19,7 +19,7 @@ async fn metrics_listener_is_off_by_default() {
     drop(reserved);
     let server = start_dev_server(&DevCommandOptions {
         data_dir: directory.path().to_path_buf(),
-        listen: api_address,
+        listen: Some(api_address),
         log_dir: None,
         config: None,
         attribute_store_config: None,

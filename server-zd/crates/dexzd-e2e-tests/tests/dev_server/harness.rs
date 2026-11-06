@@ -61,7 +61,7 @@ impl DevServer {
         });
         let server = dexzd_server::start_dev_server(&DevCommandOptions {
             data_dir: data_directory.path().to_path_buf(),
-            listen: free_loopback_address(),
+            listen: Some(free_loopback_address()),
             log_dir: None,
             config,
             attribute_store_config: None,

@@ -79,13 +79,19 @@ async fn local_drains_an_attempt_longer_than_the_dev_drain_and_restarts_on_its_d
     start_flow(channel, StepDurability::Sync).await;
     let task = worker.next_execute().await;
     assert_eq!(execute_request(&task).step_type, FIRST_STEP);
-    let started = Instant::now();
-    let (status, ()) = tokio::join!(
-        active.terminate(BUDGET),
-        worker.complete_after(&task, LOCAL_DRAINED_ATTEMPT_DURATION, None),
-    );
+    active.send_sigterm(BUDGET).await;
+    worker
+        .heartbeat_until(
+            &task,
+            active.wait_for_log_line("Step attempt drain started", BUDGET),
+        )
+        .await;
+    // Timing from the drain start proves the drain outlives the 2-second dev default.
+    worker
+        .complete_after(&task, LOCAL_DRAINED_ATTEMPT_DURATION, None)
+        .await;
+    let status = active.wait_for_exit(BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", active.log());
-    assert!(started.elapsed() >= LOCAL_DRAINED_ATTEMPT_DURATION);
     let active_log = active.log();
     assert!(
         active_log.contains("attempts_finished=1 attempts_running=0"),

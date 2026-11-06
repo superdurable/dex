@@ -768,8 +768,9 @@ dex-server-zd dev --data-dir ./zd-data [--listen 127.0.0.1:8801] [--log-dir <dir
 
 `dev` runs one node with an embedded s3local whose data lives under `<data-dir>/s3`, and keeps local
 state under `<data-dir>/store`. `dexcli dev -engine zd` starts it with these flags. It fixes the
-node ID to `dev`, anonymous credentials, the embedded endpoint, and the `--listen` address, and it
-rejects `objectStore.hardDeleteStore`. With `--log-dir`, logs also go to
+node ID to `dev`, anonymous credentials, and the embedded endpoint, and it rejects
+`objectStore.hardDeleteStore`. An explicit `--listen` overrides `api.listen` from `--config`;
+without either, it listens on `127.0.0.1:8801`. With `--log-dir`, logs also go to
 `<log-dir>/dex-server-zd.log`. A `search.backend: paradedb` override uses ParadeDB as `serve` does.
 `--attribute-store-config` reads only the `attributeStore` section of a Go Server configuration
 file, which must define at least one store; the `--config` file must not also set `attributeStore`.
@@ -824,10 +825,13 @@ dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] 
 uses the same data directory layout: the object store under `<data-dir>/s3`, the local store under
 `<data-dir>/store`, and the lock file `<data-dir>/dev.lock`. Either command can serve a data
 directory that the other one wrote, and the shared lock keeps a `dev` and a `local` process from
-serving one directory at once. The fixed values of `dev` apply too: node ID `dev`, the embedded
-endpoint, anonymous credentials, the `--listen` address, `standby.mode: cold` only, and no
-`objectStore.hardDeleteStore`. The `dev` section, such as `dev.durabilityMode`, configures `local`
-as well.
+serving one directory at once. On a filesystem without file locks, the commands cannot exclude
+each other and a restart waits for the previous lease to expire, so run only one process per data
+directory there. The fixed values of `dev` apply too: node ID `dev`, the embedded endpoint,
+anonymous credentials, `standby.mode: cold` only, and no `objectStore.hardDeleteStore`. The `dev`
+section, such as `dev.durabilityMode`, configures `local` as well. The node ID, the `dex-dev`
+bucket, `dev.lock`, and the `dev` section keep their `dev` names on purpose, so a data directory
+moves between the two commands.
 
 `local` differs from `dev` only in the defaults that `dev` shortens for development:
 
@@ -838,7 +842,9 @@ as well.
 It keeps the other `dev` defaults because they follow from one node on an embedded store:
 `dev.durabilityMode: strict`, a 30-second `lease.duration` (no standby), the memory Stream Store,
 and a held-lease takeover while it holds the lock. Like `dev`, it listens on `127.0.0.1:8801` by
-default and has no authenticators unless `--config` sets them.
+default and has no authenticators unless `--config` sets them. Pass `--listen 0.0.0.0:8801`, or set
+`api.listen` in `--config`, to serve other hosts; `--listen` wins when both are set. `dev` and
+`local` log a startup warning when they listen on a non-loopback address without authenticators.
 
 Stream messages in the memory backend are lost on every restart. To back up a `local` node, stop
 it with SIGTERM and copy the whole data directory.
@@ -852,7 +858,7 @@ them without depending on the implementation of the server:
 | --- | --- | --- |
 | `serve` | `--config <file>` | Required YAML configuration file for a node using external object storage. |
 | `dev` | `--data-dir <dir>` | Required directory for embedded object storage and local state. |
-| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; defaults to `127.0.0.1:8801`. |
+| `dev` | `--listen <address>` | Plaintext gRPC listen address as `IP:port`; host names are rejected; overrides `api.listen` from `--config`; defaults to `api.listen` when `--config` sets it, otherwise `127.0.0.1:8801`. |
 | `dev` | `--config <file>` | Optional YAML configuration overrides. |
 | `dev` | `--log-dir <dir>` | Optional directory that also receives `dex-server-zd.log`. |
 | `dev` | `--attribute-store-config <file>` | Optional Go Server YAML file whose `attributeStore` section configures Attribute synchronization. |

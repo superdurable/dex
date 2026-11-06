@@ -229,7 +229,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
     let log_directory = temporary.path().join("logs");
     let options = DevCommandOptions {
         data_dir: data_directory.clone(),
-        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
         log_dir: Some(log_directory.clone()),
         config: Some(yaml_path),
         attribute_store_config: None,
@@ -251,7 +251,7 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         "--durability overrides dev.durabilityMode from --config"
     );
     assert_eq!(configuration.cluster.node_id, "dev");
-    assert_eq!(configuration.api.listen, options.listen);
+    assert_eq!(Some(configuration.api.listen), options.listen);
     assert_eq!(configuration.dev.data_directory, data_directory);
     assert_eq!(
         configuration.dev.s3_data_directory,
@@ -323,7 +323,7 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
     let temporary = tempfile::tempdir().expect("test directory");
     let dev_options = |config: Option<PathBuf>| DevCommandOptions {
         data_dir: temporary.path().join("data"),
-        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
         log_dir: None,
         config,
         attribute_store_config: None,
@@ -358,7 +358,7 @@ fn dev_defaults_to_a_two_second_attempt_drain_unless_the_overrides_set_it() {
     let temporary = tempfile::tempdir().expect("test directory");
     let dev_options = |config: Option<PathBuf>| DevCommandOptions {
         data_dir: temporary.path().join("data"),
-        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
         log_dir: None,
         config,
         attribute_store_config: None,
@@ -394,7 +394,7 @@ fn dev_defaults_to_a_two_second_attempt_drain_unless_the_overrides_set_it() {
 fn single_node_options(data_dir: PathBuf, config: Option<PathBuf>) -> DevCommandOptions {
     DevCommandOptions {
         data_dir,
-        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
         log_dir: None,
         config,
         attribute_store_config: None,
@@ -420,7 +420,7 @@ fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
     assert_eq!(local.stream_store.backend, StreamStoreBackend::Memory);
     assert_eq!(local.standby.mode, StandbyMode::Cold);
     assert_eq!(local.cluster.node_id, "dev");
-    assert_eq!(local.api.listen, options.listen);
+    assert_eq!(Some(local.api.listen), options.listen);
     assert_eq!(local.object_store.bucket, "dex-dev");
     assert_eq!(local.dev.data_directory, options.data_dir);
     assert_eq!(local.dev.s3_data_directory, options.data_dir.join("s3"));
@@ -438,6 +438,40 @@ fn local_differs_from_dev_only_in_the_serve_attempt_drain_default() {
         local, dev_with_serve_drain,
         "local shares every other dev default, so either command serves the same data directory"
     );
+}
+
+#[test]
+fn single_node_listen_prefers_the_flag_then_api_listen_then_loopback() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let yaml_path = temporary.path().join("listen.yaml");
+    fs::write(&yaml_path, "api:\n  listen: '0.0.0.0:9000'\n").expect("write test config");
+    let flag_listen = SocketAddr::from((Ipv4Addr::LOCALHOST, 9901));
+    for load in [Config::load_dev, Config::load_local] {
+        let without_either = load(&DevCommandOptions {
+            listen: None,
+            ..single_node_options(temporary.path().join("data"), None)
+        })
+        .expect("configuration without a listen address");
+        assert_eq!(
+            without_either.api.listen,
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))
+        );
+        let from_yaml = load(&DevCommandOptions {
+            listen: None,
+            ..single_node_options(temporary.path().join("data"), Some(yaml_path.clone()))
+        })
+        .expect("configuration with api.listen");
+        assert_eq!(
+            from_yaml.api.listen,
+            SocketAddr::from((Ipv4Addr::UNSPECIFIED, 9000))
+        );
+        let from_flag = load(&DevCommandOptions {
+            listen: Some(flag_listen),
+            ..single_node_options(temporary.path().join("data"), Some(yaml_path.clone()))
+        })
+        .expect("configuration with --listen and api.listen");
+        assert_eq!(from_flag.api.listen, flag_listen);
+    }
 }
 
 #[test]
@@ -516,7 +550,7 @@ fn dev_rejects_a_separate_hard_delete_store_before_resolving_credentials() {
     .expect("write test config");
     let error = Config::load_dev(&DevCommandOptions {
         data_dir: temporary.path().join("data"),
-        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
         log_dir: None,
         config: Some(yaml_path),
         attribute_store_config: None,
@@ -566,7 +600,7 @@ fn dev_rejects_hot_standby_mode() {
     fs::write(&yaml_path, "standby:\n  mode: hot\n").expect("write test config");
     let error = Config::load_dev(&DevCommandOptions {
         data_dir: temporary.path().join("data"),
-        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
         log_dir: None,
         config: Some(yaml_path),
         attribute_store_config: None,
@@ -1206,7 +1240,7 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
     fs::write(&go_config, GO_ATTRIBUTE_STORE_YAML).expect("write Go config");
     let options = DevCommandOptions {
         data_dir: temporary.path().join("data"),
-        listen: SocketAddr::from((Ipv4Addr::LOCALHOST, 8801)),
+        listen: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))),
         log_dir: None,
         config: None,
         attribute_store_config: Some(go_config.clone()),

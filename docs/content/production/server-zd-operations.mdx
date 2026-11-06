@@ -106,16 +106,20 @@ persistent disk. **--log-dir** also writes the log to
 The optional **--config** file overrides keys of the
 [example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml).
 **local** sets the object storage connection, the node ID **dev**, and the
-local store directory itself. **--listen** sets the listen address, so
-**api.listen** in the file has no effect. The first start records
-**cluster.partitionCount**, which cannot change later.
+local store directory itself. **--listen** overrides **api.listen** from the
+file. The first start records **cluster.partitionCount**, which cannot change
+later.
+
+The node ID **dev**, the bucket **dex-dev**, the lock file **dev.lock**, and the
+**dev** section of the overrides keep their **dev** names on purpose. **local**
+shares them with **dev**, so a data directory can move between the two
+commands.
 
 ### Durability {#single-node-local-durability}
 
 **dev.durabilityMode** selects how the embedded object store writes
 acknowledged data. The **--durability** flag overrides it with the same modes,
-spelled **strict**, **process-crash-safe**, and **relaxed**. The section is
-named **dev** for both **dev** and **local**.
+spelled **strict**, **process-crash-safe**, and **relaxed**.
 
 | Mode | Survives | Cost |
 | --- | --- | --- |
@@ -132,7 +136,10 @@ its whole run, so a second **local** or **dev** process on the same data
 directory fails to start. It has no standby. It rejects **standby.mode: hot**
 and **objectStore.hardDeleteStore**. While it holds the lock, no other process
 can write its object store. A restart after a crash therefore takes over the
-held lease at once. **lease.duration** defaults to 30 seconds.
+held lease at once. **lease.duration** defaults to 30 seconds. On a filesystem
+without file locks, the commands cannot exclude each other, and a restart waits
+for the previous lease to expire. Run only one process per data directory
+there.
 
 On SIGTERM, **local** drains running Step attempts for up to
 **lifecycle.attemptDrainTimeout**, 30 seconds by default, and then stops as
@@ -142,11 +149,14 @@ least 45 seconds to stop it.
 [Streams](#streams) use the **memory** backend by default, as in **serve**.
 Stream messages are lost when the process stops or restarts.
 
-**local** listens on **127.0.0.1:8801** by default and has no
-[authentication](#authentication) unless the overrides configure
-authenticators. To accept clients and Workers from other hosts, pass
-**--listen 0.0.0.0:8801** and configure authentication. Set
-**metrics.listen** in the overrides to enable [metrics](#metrics).
+**local** listens on **127.0.0.1:8801** by default, so only the same host can
+reach it. To serve clients and Workers on other hosts, pass
+**--listen 0.0.0.0:8801** or set **api.listen** in the overrides. **local** has
+no [authentication](#authentication) unless the overrides configure
+authenticators. When it listens on a non-loopback address without
+authenticators, it logs a warning at startup. Configure authentication before
+you expose it. Set **metrics.listen** in the overrides to enable
+[metrics](#metrics).
 
 ### Back up and restore {#single-node-local-backup}
 

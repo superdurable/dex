@@ -48,8 +48,11 @@ pub struct DevCommandOptions {
     #[arg(long)]
     pub data_dir: PathBuf,
     /// Plaintext gRPC address that serves FlowService and WorkerTaskService.
-    #[arg(long, default_value = "127.0.0.1:8801")]
-    pub listen: SocketAddr,
+    ///
+    /// Overrides `api.listen` from `--config`. [default: 127.0.0.1:8801, or `api.listen` when
+    /// `--config` sets it]
+    #[arg(long)]
+    pub listen: Option<SocketAddr>,
     /// Optional directory that also receives `dex-server-zd.log`.
     #[arg(long)]
     pub log_dir: Option<PathBuf>,
@@ -104,7 +107,10 @@ mod tests {
             panic!("dev parses as the dev command");
         };
         assert_eq!(dev.data_dir.to_str(), Some("/tmp/zd"));
-        assert_eq!(dev.listen.to_string(), "127.0.0.1:9901");
+        assert_eq!(
+            dev.listen.map(|listen| listen.to_string()).as_deref(),
+            Some("127.0.0.1:9901")
+        );
         assert_eq!(dev.log_dir.unwrap().to_str(), Some("/tmp/zd-logs"));
         assert_eq!(dev.config.unwrap().to_str(), Some("/tmp/zd.yaml"));
         assert_eq!(
@@ -152,14 +158,17 @@ mod tests {
     }
 
     #[test]
-    fn dev_command_defaults_the_listen_address() {
+    fn dev_command_leaves_an_absent_listen_address_to_the_configuration() {
         let options =
             CommandLineOptions::try_parse_from(["dex-server-zd", "dev", "--data-dir", "/tmp/zd"])
                 .unwrap();
         let ServerCommand::Dev(dev) = options.command else {
             panic!("dev parses as the dev command");
         };
-        assert_eq!(dev.listen.to_string(), "127.0.0.1:8801");
+        assert!(
+            dev.listen.is_none(),
+            "the configuration supplies the default listen address"
+        );
         assert!(dev.log_dir.is_none());
         assert!(dev.durability.is_none());
     }
@@ -203,7 +212,10 @@ mod tests {
             panic!("local parses as the local command");
         };
         assert_eq!(local.data_dir.to_str(), Some("/var/lib/dex"));
-        assert_eq!(local.listen.to_string(), "127.0.0.1:9901");
+        assert_eq!(
+            local.listen.map(|listen| listen.to_string()).as_deref(),
+            Some("127.0.0.1:9901")
+        );
         assert_eq!(local.log_dir.unwrap().to_str(), Some("/var/log/dex"));
         assert_eq!(local.config.unwrap().to_str(), Some("/etc/dex/local.yaml"));
         assert_eq!(
@@ -222,7 +234,10 @@ mod tests {
         let ServerCommand::Local(local) = defaults.command else {
             panic!("local parses as the local command");
         };
-        assert_eq!(local.listen.to_string(), "127.0.0.1:8801");
+        assert!(
+            local.listen.is_none(),
+            "the configuration supplies the default listen address"
+        );
         assert!(local.log_dir.is_none());
         assert!(local.config.is_none());
         assert!(local.durability.is_none());

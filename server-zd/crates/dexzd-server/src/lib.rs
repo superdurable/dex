@@ -301,6 +301,7 @@ async fn start_single_node_server_with_config(
     cancellation: &mut watch::Receiver<bool>,
     lease_expiry_response: LeaseExpiryResponse,
 ) -> Result<Option<RunningServer>, ServerError> {
+    warn_about_unauthenticated_non_loopback_listen(&configuration);
     let embedded_s3 =
         EmbeddedS3::start(&configuration.dev, &configuration.object_store.bucket).await?;
     configuration.object_store.endpoint = embedded_s3.endpoint();
@@ -311,4 +312,86 @@ async fn start_single_node_server_with_config(
         lease_expiry_response,
     )
     .await
+}
+
+/// Warns at startup when a single-node server accepts unauthenticated calls from other hosts.
+fn warn_about_unauthenticated_non_loopback_listen(configuration: &config::Config) {
+    if !configuration.api.listen.ip().is_loopback() && configuration.auth.authenticators.is_empty()
+    {
+        tracing::warn!(
+            listen = %configuration.api.listen,
+            "public API authentication is off on a non-loopback listen address; anyone who can \
+             reach it can call every API, so configure auth.authenticators"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::net::SocketAddr;
+    use std::sync::{Arc, Mutex};
+
+    use super::warn_about_unauthenticated_non_loopback_listen;
+    use crate::config::Config;
+
+    const WARNING_TEXT: &str = "public API authentication is off on a non-loopback listen address";
+
+    #[test]
+    fn only_a_non_loopback_listen_without_authenticators_logs_the_warning() {
+        for (listen, has_warning) in [
+            ("0.0.0.0:8801", true),
+            ("192.0.2.10:8801", true),
+            ("[::]:8801", true),
+            ("127.0.0.1:8801", false),
+            ("127.1.2.3:8801", false),
+            ("[::1]:8801", false),
+        ] {
+            let mut configuration = Config::default();
+            configuration.api.listen = listen.parse::<SocketAddr>().expect("test address");
+            let log = startup_warnings(&configuration);
+            assert_eq!(log.contains(WARNING_TEXT), has_warning, "{listen}: {log}");
+        }
+        let mut authenticated = Config::parse_yaml(
+            "auth:\n  authenticators:\n    - kind: staticTokens\n      file: /etc/dex/tokens.yaml\n",
+        )
+        .expect("the auth section parses");
+        authenticated.api.listen = "0.0.0.0:8801".parse().expect("test address");
+        let log = startup_warnings(&authenticated);
+        assert!(!log.contains(WARNING_TEXT), "{log}");
+    }
+
+    /// Returns what the startup warning check logs for `configuration`.
+    fn startup_warnings(configuration: &Config) -> String {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer_buffer = buffer.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || LogBuffer(writer_buffer.clone()))
+            .finish();
+        tracing::subscriber::with_default(subscriber, || {
+            warn_about_unauthenticated_non_loopback_listen(configuration);
+        });
+        let bytes = buffer
+            .lock()
+            .expect("the log buffer lock is not poisoned")
+            .clone();
+        String::from_utf8(bytes).expect("logs are UTF-8")
+    }
+
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .expect("the log buffer lock is not poisoned")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 }

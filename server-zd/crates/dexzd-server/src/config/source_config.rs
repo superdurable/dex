@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -17,6 +18,9 @@ use super::{
 use crate::DevCommandOptions;
 
 const EMBEDDED_S3_ENDPOINT_PENDING: &str = "http://127.0.0.1:0";
+/// Listen address of `dev` and `local` when neither `--listen` nor `api.listen` sets one.
+const SINGLE_NODE_DEFAULT_LISTEN: SocketAddr =
+    SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8801);
 /// A single node has no standby, so a longer lease rides out host stalls; only crash restarts wait longer.
 const SINGLE_NODE_LEASE_DURATION: Duration = Duration::from_secs(30);
 /// Keeps the drain and teardown inside the 10-second stop budget of dexcli dev.
@@ -175,6 +179,7 @@ impl Config {
             has_yaml_key(override_document.as_ref(), &["attributeStore"]);
         let has_lease_duration_override =
             has_yaml_key(override_document.as_ref(), &["lease", "duration"]);
+        let has_listen_override = has_yaml_key(override_document.as_ref(), &["api", "listen"]);
         let has_attempt_drain_timeout_override = has_yaml_key(
             override_document.as_ref(),
             &["lifecycle", "attemptDrainTimeout"],
@@ -209,7 +214,11 @@ impl Config {
         }
         // The first start records the node ID, so `local` keeps `dev` to serve dev data directories.
         configuration.cluster.node_id = "dev".to_owned();
-        configuration.api.listen = options.listen;
+        configuration.api.listen = match options.listen {
+            Some(listen) => listen,
+            None if has_listen_override => configuration.api.listen,
+            None => SINGLE_NODE_DEFAULT_LISTEN,
+        };
         configuration
             .dev
             .data_directory
