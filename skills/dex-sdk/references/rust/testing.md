@@ -8,7 +8,7 @@ Start `dexcli dev`, build the same Registry used by production, create a tempora
 
 A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
 
-[Released Worker and Client setup](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/sdk-rust/README.md#pull-mode)
+[Released Worker and Client setup](https://github.com/superdurable/dex/blob/sdk-rust/v1.37.0/sdk-rust/README.md#pull-mode)
 <!-- dex-source: sdk-rust/README.md -->
 ```rust
 let worker = Worker::try_new(
@@ -33,7 +33,7 @@ Use `tempfile::TempDir` for BlobCache isolation. Do not share a fixed Flow ID ac
 
 Poll observable Dex state until a short deadline. Do not use a fixed sleep as the assertion mechanism; scheduling and retries are asynchronous.
 
-[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.35.0/examples/rust/tests/dex_integration.rs)
+[Integration source](https://github.com/superdurable/dex/blob/sdk-rust/v1.37.0/examples/rust/tests/dex_integration.rs)
 <!-- dex-source: examples/rust/tests/dex_integration.rs -->
 ```rust
 fn await_engagement_status(&self, flow_id: &str, expected: &str) -> EngagementStatus {

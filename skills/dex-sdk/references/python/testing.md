@@ -8,7 +8,7 @@ Run `dexcli dev`; start `AsyncWorker`/`Worker`; create the matching Client with 
 
 A local `dexcli dev` server defaults to strict durability, which is several times slower on macOS. For a short-lived test server, set `dev.durabilityMode: processCrashSafe` in its `--zd-config` file; see [Core testing](../core/testing.md).
 
-[Pinned integration source](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/tests/integ/conftest.py)
+[Pinned integration source](https://github.com/superdurable/dex/blob/sdk-python/v1.37.0/examples/python/tests/integ/conftest.py)
 <!-- dex-source: examples/python/tests/integ/conftest.py -->
 ```python
 def make(prefix: str) -> str:

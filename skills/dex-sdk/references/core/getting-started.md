@@ -45,7 +45,7 @@ Every Worker is a [pull Worker](pull-workers.md): it opens outbound task streams
 Before debugging code, verify:
 
 - the application uses the server address printed by **dexcli dev**
-- a remote Go Client and Worker each select **FlowServiceTLS**, and from TypeScript SDK v1.35.0 a TypeScript Client and Worker each set **flowServiceTls**, when their FlowService endpoint terminates TLS; see [FlowService TLS](operations.md#flowservice-tls)
+- a remote Go Client and Worker each select **FlowServiceTLS**, from TypeScript SDK v1.35.0 a TypeScript Client and Worker each set **flowServiceTls**, and from SDK v1.37.0 a Python or Rust Client and Worker each set **flow_service_tls** and a Java Client and Worker each set **flowServiceTls**, when their FlowService endpoint terminates TLS; see [FlowService TLS](operations.md#flowservice-tls)
 - the Worker advertised target is reachable from Dex Server
 - the Flow type is present in the Worker and Client registries
 - the Worker and Client use compatible payload codecs and blob cache/storage
@@ -57,6 +57,6 @@ Before debugging code, verify:
 
 - Quick start: https://docs.superdurable.io/quick-start
 - Primitive overview: https://docs.superdurable.io/primitives
-- Baseline runnable examples: https://github.com/superdurable/dex/tree/sdk-go/v1.35.0/examples
+- Baseline runnable examples: https://github.com/superdurable/dex/tree/sdk-go/v1.37.0/examples
 
 When a local Dex checkout is available, copy API usage from its runnable **examples/** files rather than from prose or memory.

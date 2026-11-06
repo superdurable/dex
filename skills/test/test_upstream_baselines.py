@@ -232,12 +232,12 @@ class GoDescribeFlowTest(unittest.TestCase):
     MAPPER_PATH = "sdk-go/dex/proto_mapper.go"
     ERRORS_PATH = "sdk-go/dex/errors.go"
     README_PATH = "sdk-go/README.md"
-    DOC_PATH = "docs/content/primitives/client/advanced.mdx"
+    DOC_PATH = "docs/reference/server/runtime-client.mdx"
 
     def setUp(self):
         self.repository = FixtureRepository(self)
         self.files = tagged_sources(
-            "sdk-go/v1.24.0", self.CLIENT_PATH, self.MAPPER_PATH, self.ERRORS_PATH, self.README_PATH, self.DOC_PATH,
+            "sdk-go/v1.37.0", self.CLIENT_PATH, self.MAPPER_PATH, self.ERRORS_PATH, self.README_PATH, self.DOC_PATH,
         )
         self.repository.commit_and_tag(self.TAG, self.files)
         self.references = copy_references(
@@ -269,19 +269,19 @@ class GoDescribeFlowTest(unittest.TestCase):
 
     def test_client_validation_must_reject_nil_context(self):
         self.assert_mutation_fails(
-            self.CLIENT_PATH, "func (client *Client) validateCall(",
+            self.CLIENT_PATH, "func (client *Client) validateCallContext(",
             "if ctx == nil {", "if false {",
         )
 
     def test_client_validation_must_read_closed_state(self):
         self.assert_mutation_fails(
-            self.CLIENT_PATH, "func (client *Client) validateCall(",
+            self.CLIENT_PATH, "func (client *Client) validateCallContext(",
             "closed := client.closed", "closed := false",
         )
 
     def test_client_validation_must_return_context_error(self):
         self.assert_mutation_fails(
-            self.CLIENT_PATH, "func (client *Client) validateCall(",
+            self.CLIENT_PATH, "func (client *Client) validateCallContext(",
             "if err := ctx.Err(); err != nil {\n\t\treturn err", "if err := ctx.Err(); err != nil {\n\t\treturn nil",
         )
 
@@ -305,10 +305,10 @@ class GoDescribeFlowTest(unittest.TestCase):
             "case dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS:\n\t\treturn ErrorSubStatusUncategorized",
         )
 
-    def test_time_travel_must_return_the_new_run(self):
+    def test_time_travel_must_keep_the_run_id(self):
         self.assert_mutation_fails(
             self.CLIENT_PATH, None,
-            "The returned run ID identifies the new execution.", "The returned run ID is the original run ID.",
+            "which equals its previous run ID.", "which is a new run ID.",
         )
 
     def test_reference_must_name_released_method(self):
@@ -1460,8 +1460,8 @@ class ServerZdStreamStoreStatementsTest(unittest.TestCase):
         self.assertNotIn("cli/README.md", paths)
 
     def test_latest_release_is_the_server_baseline(self):
-        self.assertEqual(CHECKER.SERVER_ZD_LATEST_RELEASE, self.TAG)
-        self.assertEqual((CHECKER.ROOT / "DEX_SERVER_BASELINE").read_text().strip(), self.TAG)
+        self.assertEqual(CHECKER.SERVER_ZD_LATEST_RELEASE, "server-zd/v0.1.20")
+        self.assertEqual((CHECKER.ROOT / "DEX_SERVER_BASELINE").read_text().strip(), CHECKER.SERVER_ZD_LATEST_RELEASE)
 
     def test_real_tagged_sources_pass(self):
         self.check()
@@ -1542,10 +1542,10 @@ class FlowServiceTlsTest(unittest.TestCase):
     GO_TAG = "sdk-go/v1.26.0"
     SDK_TAGS = {
         "go": GO_TAG,
-        "java": "sdk-java/v1.26.0",
-        "python": "sdk-python/v1.28.0",
+        "java": "sdk-java/v1.37.0",
+        "python": "sdk-python/v1.37.0",
         "typescript": "sdk-typescript/v1.35.0",
-        "rust": "sdk-rust/v1.26.0",
+        "rust": "sdk-rust/v1.37.0",
     }
     TAGGED_PATHS = {
         GO_TAG: (
@@ -1554,23 +1554,18 @@ class FlowServiceTlsTest(unittest.TestCase):
             "sdk-go/dex/credential_api_key.go", "sdk-go/dex/credential_integration_test.go",
             "sdk-go/integ/tls_transport_test.go",
         ),
-        "sdk-java/v1.26.0": (
-            "sdk-java/src/main/java/io/superdurable/dex/Client.java",
-            "sdk-java/src/main/java/io/superdurable/dex/Worker.java",
-            "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
-            "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java",
+        "sdk-java/v1.37.0": tuple(
+            path for path, _ in CHECKER.LANGUAGE_FLOW_SERVICE_TLS_SOURCES["java"]
         ),
-        "sdk-python/v1.28.0": (
-            "sdk-python/dex/_credential_transport.py", "sdk-python/dex/_pull_worker.py",
-            "sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py",
+        "sdk-python/v1.37.0": tuple(
+            path for path, _ in CHECKER.LANGUAGE_FLOW_SERVICE_TLS_SOURCES["python"]
         ),
         "sdk-typescript/v1.35.0": (
             "sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts", "sdk-typescript/src/options.ts",
             "sdk-typescript/src/flow-service-tls.ts", "sdk-typescript/src/pull-worker.ts",
         ),
-        "sdk-rust/v1.26.0": (
-            "sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs",
-            "sdk-rust/crates/dex-sdk/src/client_options.rs", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
+        "sdk-rust/v1.37.0": tuple(
+            path for path, _ in CHECKER.LANGUAGE_FLOW_SERVICE_TLS_SOURCES["rust"]
         ),
         "server-zd/v0.1.6": (
             "server-zd/crates/dexzd-server/src/config/service_config.rs", "server-zd/README.md",
@@ -1676,17 +1671,33 @@ class FlowServiceTlsTest(unittest.TestCase):
         self.mutate_tag(self.GO_TAG, "sdk-go/dex/server_protocol.go",
                         "if status.Code(err) == codes.Unavailable {", "if status.Code(err) == codes.Unimplemented {")
 
-    def test_java_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-java/v1.26.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
-                        ".usePlaintext()", ".useTransportSecurity()")
+    def test_java_plaintext_default_must_remain_unset_only(self):
+        self.mutate_tag("sdk-java/v1.37.0", "sdk-java/src/main/java/io/superdurable/dex/FlowServiceTlsTransport.java",
+                        "return ManagedChannelBuilder.forTarget(address).usePlaintext();",
+                        "return ManagedChannelBuilder.forTarget(address).useTransportSecurity();")
 
-    def test_java_options_must_not_add_tls_without_reference_update(self):
-        self.mutate_tag("sdk-java/v1.26.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
-                        "private final Credential credential;", "private final Credential credential;\n    private final Object tlsConfig;")
+    def test_java_client_must_pass_tls_options_to_channel(self):
+        self.mutate_tag("sdk-java/v1.37.0", "sdk-java/src/main/java/io/superdurable/dex/Client.java",
+                        "options.getServerAddress(), options.getFlowServiceTls()", "options.getServerAddress(), null")
 
-    def test_python_pull_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-python/v1.28.0", "sdk-python/dex/_pull_worker.py",
-                        "return grpc.aio.insecure_channel(server_address)", "return grpc.aio.secure_channel(server_address)")
+    def test_java_options_must_keep_tls_builder(self):
+        self.mutate_tag("sdk-java/v1.37.0", "sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
+                        "public Builder flowServiceTls(final FlowServiceTlsOptions value)",
+                        "public Builder tls(final FlowServiceTlsOptions value)")
+
+    def test_python_pull_transport_must_use_tls_channel(self):
+        self.mutate_tag("sdk-python/v1.37.0", "sdk-python/dex/_pull_worker.py",
+                        "return grpc.aio.secure_channel(", "return grpc.aio.insecure_channel(")
+
+    def test_python_trust_must_start_from_grpc_roots(self):
+        self.mutate_tag("sdk-python/v1.37.0", "sdk-python/dex/_flow_service_tls.py",
+                        'files("grpc").joinpath("_cython", "_credentials", "roots.pem")',
+                        'files("certifi").joinpath("cacert.pem")')
+
+    def test_python_readme_must_keep_trust_store_boundary(self):
+        self.mutate_tag("sdk-python/v1.37.0", "sdk-python/README.md",
+                        "`SSL_CERT_FILE` and `SSL_CERT_DIR` do not affect this trust.",
+                        "`SSL_CERT_FILE` and `SSL_CERT_DIR` extend this trust.")
 
     def test_typescript_plaintext_default_must_remain_undefined_only(self):
         self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/flow-service-tls.ts",
@@ -1721,8 +1732,13 @@ class FlowServiceTlsTest(unittest.TestCase):
                         "  readonly serverName?: string;\n  readonly clientCertificatePem?: string;\n}")
 
     def test_rust_default_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-rust/v1.26.0", "sdk-rust/crates/dex-sdk/src/client.rs",
+        self.mutate_tag("sdk-rust/v1.37.0", "sdk-rust/crates/dex-sdk/src/client/flow_service_tls.rs",
                         'format!("http://{address}")', 'format!("https://{address}")')
+
+    def test_rust_options_must_keep_tls_builder(self):
+        self.mutate_tag("sdk-rust/v1.37.0", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
+                        "pub fn flow_service_tls(mut self, value: FlowServiceTlsOptions) -> Self",
+                        "pub fn tls(mut self, value: FlowServiceTlsOptions) -> Self")
 
     def test_server_zd_listener_must_remain_plaintext(self):
         self.mutate_tag("server-zd/v0.1.6", "server-zd/crates/dexzd-server/src/config/service_config.rs",
@@ -1752,9 +1768,22 @@ class FlowServiceTlsTest(unittest.TestCase):
         mutate_page(self, self.check, self.references / "core/operations.md",
                     "Node.js default trust store", "system trust store")
 
-    def test_language_reference_must_keep_absent_option_boundary(self):
+    def test_python_reference_must_keep_trust_store_difference(self):
+        mutate_page(self, self.check, self.references / "python/python.md",
+                    "It is not the operating system store", "It is the operating system store")
+
+    def test_core_must_keep_python_trust_store_difference(self):
+        mutate_page(self, self.check, self.references / "core/operations.md",
+                    "**SSL_CERT_FILE** and **SSL_CERT_DIR** do not affect it",
+                    "**SSL_CERT_FILE** and **SSL_CERT_DIR** extend it")
+
+    def test_java_reference_must_keep_exact_option_name(self):
         mutate_page(self, self.check, self.references / "java/java.md",
-                    "no FlowService TLS option", "a FlowService TLS option")
+                    "**additionalRootCAsPem(String)**", "**additionalRootCAsPEM(String)**")
+
+    def test_rust_reference_must_keep_exact_option_name(self):
+        mutate_page(self, self.check, self.references / "rust/rust.md",
+                    "**WorkerOptions::flow_service_tls**", "**WorkerOptions::tls**")
 
 
 class CliStatementsTest(unittest.TestCase):
@@ -1794,7 +1823,7 @@ class CliStatementsTest(unittest.TestCase):
 
 
 class ExampleDependencyPinsTest(unittest.TestCase):
-    SDK_TAGS = {language: f"sdk-{language}/v1.35.0" for language in ("go", "java", "python", "typescript", "rust")}
+    SDK_TAGS = {language: f"sdk-{language}/v1.37.0" for language in ("go", "java", "python", "typescript", "rust")}
 
     def setUp(self):
         self.repository = FixtureRepository(self)
@@ -1823,7 +1852,7 @@ class ExampleDependencyPinsTest(unittest.TestCase):
 
     def test_typescript_manifest_bump_requires_reference_update(self):
         self.mutate_manifest("typescript", "examples/typescript/package.json",
-                             '"@superdurable/dex": "1.30.0"', '"@superdurable/dex": "1.36.0"')
+                             '"@superdurable/dex": "1.35.0"', '"@superdurable/dex": "1.36.0"')
 
     def test_rust_manifest_bump_requires_reference_update(self):
         self.mutate_manifest("rust", "examples/rust/Cargo.toml", 'dex-sdk = "=1.31.0"', 'dex-sdk = "=1.36.0"')
@@ -1834,7 +1863,7 @@ class ExampleDependencyPinsTest(unittest.TestCase):
 
     def test_missing_manifest_pin_fails(self):
         self.mutate_manifest("python", "examples/python/pyproject.toml",
-                             '"dex-python-sdk==1.30.0",', '"dex-python-sdk>=1.30.0",')
+                             '"dex-python-sdk==1.35.0",', '"dex-python-sdk>=1.35.0",')
 
     def test_go_reference_must_match_manifest(self):
         mutate_page(self, self.check, self.references / "go/go.md",

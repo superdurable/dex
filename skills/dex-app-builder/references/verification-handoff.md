@@ -65,6 +65,9 @@ authenticate a user or grant permission.
 `--zd-config` for server-zd overrides; `--engine zd` is accepted and has no
 effect, and `--engine temporal` and the Temporal flags fail with an error.
 Follow the [server-zd flags](../../dex-sdk/references/core/operations.md#server-zd).
+After upgrading `dexcli`, an existing `--zd-data-dir` can fail to start with a
+partition count mismatch; follow the partition count rule there instead of
+deleting state the user still needs.
 server-zd dispatches only to pull Workers, so run the Worker in pull mode.
 server-zd rejects a Flow start delay and a Flow-level retry policy with
 INVALID_ARGUMENT, and its only Attribute Store is PostgreSQL. After an
@@ -91,8 +94,8 @@ schema version, or a source read failure returns a 503 and fails `/readyz`, and
 two valid definitions for one Flow type make the source invalid. After
 publishing, confirm that `/readyz` reports the expected definition count and
 `GET /api/v2/catalog` lists every Flow type. See the [Dex Web
-definition directory](https://github.com/superdurable/dex/blob/web/v1.35.0/web/README.md#run-through-dexcli)
-and [standalone Dex Web](https://github.com/superdurable/dex/blob/web/v1.35.0/web/README.md#run-standalone-dex-web)
+definition directory](https://github.com/superdurable/dex/blob/web/v1.37.0/web/README.md#run-through-dexcli)
+and [standalone Dex Web](https://github.com/superdurable/dex/blob/web/v1.37.0/web/README.md#run-standalone-dex-web)
 contracts.
 
 ## Deployment, only when requested

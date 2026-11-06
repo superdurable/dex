@@ -11,7 +11,7 @@ loopback `dexcli dev`.
 
 ## Run Dex Web
 
-`dexcli dev` starts server-zd and an embedded Dex Web. A deployment runs the standalone `dex-web` binary or the `superdurable/dex-web` image next to the Dex Server. The Dex Server does not serve Dex Web, and no `dex-server` process or image does either. `dex-web` connects to an existing FlowService and never starts a Server. [Released standalone Web](https://github.com/superdurable/dex/blob/web/v1.35.0/web/README.md#run-standalone-dex-web)
+`dexcli dev` starts server-zd and an embedded Dex Web. A deployment runs the standalone `dex-web` binary or the `superdurable/dex-web` image next to the Dex Server. The Dex Server does not serve Dex Web, and no `dex-server` process or image does either. `dex-web` connects to an existing FlowService and never starts a Server. [Released standalone Web](https://github.com/superdurable/dex/blob/web/v1.37.0/web/README.md#run-standalone-dex-web)
 
 ```bash
 dex-web --flow-service-address dex-server-zd:8801 \
@@ -36,6 +36,8 @@ Every setting is a flag or an environment variable, and a flag overrides its var
 The `superdurable/dex-web` image binds `0.0.0.0:8802` and runs as UID and GID 65532. Mount definition directories and token files read-only with permissions that UID can read. The `main` branch publishes `superdurable/dex-web:latest`, and a `web/vX.Y.Z` release publishes `superdurable/dex-web:vX.Y.Z`. Pin a release tag for a deployment.
 
 With Dex Server auth enabled, set `--flow-service-credential-file` for Web's calls to FlowService. This does not authenticate Web users: protect the Web port with network controls or an authenticating proxy. Keep this bearer-token file separate from the local Connector development credential store. Use `--tls` when Web sends the credential to a remote FlowService. See [public API authentication](../../dex-sdk/references/core/operations.md#public-api-authentication).
+
+To inspect a deployed server from a workstation, `dexcli --server ADDRESS web` serves the same Dex Web against it, often through an SSH tunnel, with `dexcli`'s own TLS and credential flags. It disables the local **Connectors** view, so configure Connectors in the `dexcli dev` stack. See [Deploy Dex Web](../../dex-sdk/references/core/operations.md#deploy-dex-web).
 
 Released connector modules may require an older Connector SDK; at connectors
 `main` `980a6f9`, modules require exact releases from `sdkgo/v0.7.0` through
@@ -68,7 +70,7 @@ Use the captured dispatch sticky ID, queue source, and failure reason before cha
 
 ## Dex Web with server-zd
 
-Dex Web reads `GetServerInfo` and reports the engine in `GET /api/v2/catalog` as `serverEngine`: `zd`, or `unspecified` when the FlowService does not answer. Locally, `dexcli dev` serves server-zd and Dex Web together. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.35.0/web/README.md#run-against-server-zd)
+Dex Web reads `GetServerInfo` and reports the engine in `GET /api/v2/catalog` as `serverEngine`: `zd`, or `unspecified` when the FlowService does not answer. Locally, `dexcli dev` serves server-zd and Dex Web together. [Released Web behavior](https://github.com/superdurable/dex/blob/web/v1.37.0/web/README.md#run-against-server-zd)
 
 - **Start Flow** always starts on pull Workers. The dialog asks only for the Flow ID and the Start input and has no Worker address or headless control.
 - Time travel keeps the run ID and creates a new run attempt. The run details page, which v1 run pages and v2 **Inspect** share, replaces **Run chain** with a **Run attempt** selector. Choosing an earlier attempt adds `?runAttempt=N` to the URL and shows that attempt's history. Live history and live state always belong to the current attempt. A **TimeTravelFork** event links to the previous attempt.
