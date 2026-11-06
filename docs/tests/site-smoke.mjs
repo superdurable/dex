@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {access, readFile, readdir} from 'node:fs/promises';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {apiEntryPaths, auditApiReferences} from './api-reference-smoke.mjs';
+import {apiEntryPaths, auditApiReferenceIndexPages, auditApiReferences} from './api-reference-smoke.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
@@ -350,6 +350,7 @@ const outputFiles = await collectOutputFiles(root);
 const outputFilePaths = new Set(outputFiles.map((filePath) => relativeOutputPath(filePath)));
 const htmlIndexFiles = outputFiles.filter((filePath) =>
   filePath.endsWith(`${sep}index.html`) && !relativeOutputPath(filePath).startsWith('api/'));
+await auditApiReferenceIndexPages();
 if (outputFiles.some((filePath) => relativeOutputPath(filePath).startsWith('api/'))) {
   await auditApiReferences(join(root, 'api'));
 }

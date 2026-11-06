@@ -29,6 +29,8 @@ concurrency:
 jobs:
   api-versions:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.versions.outputs.matrix }}
     steps:
@@ -44,6 +46,8 @@ jobs:
   api-reference:
     needs: api-versions
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.api-versions.outputs.matrix) }}
@@ -52,8 +56,6 @@ jobs:
         working-directory: docs
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -68,24 +70,37 @@ jobs:
         with:
           go-version-file: sdk-go/go.mod
           cache-dependency-path: sdk-go/go.sum
+      - name: Fetch SDK release tag
+        if: matrix.language != 'java'
+        env:
+          TAG: sdk-${{ matrix.language }}/v${{ matrix.version }}
+        run: git fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
       - id: source
         env:
           LANGUAGE: ${{ matrix.language }}
           SDK_VERSION: ${{ matrix.version }}
-        run: echo "commit=$(git rev-parse "sdk-$LANGUAGE/v$SDK_VERSION^{commit}")" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$LANGUAGE" = java ]; then
+            # Maven Central artifacts are immutable, so the version identifies the Javadoc.
+            echo "revision=maven-central" >> "$GITHUB_OUTPUT"
+          else
+            echo "revision=$(git rev-parse "sdk-$LANGUAGE/v$SDK_VERSION^{commit}")" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/cache@v4
         id: generated
         with:
-          path: docs/.cache/api-reference/${{ matrix.language }}
-          key: api-${{ runner.os }}-${{ matrix.language }}-${{ matrix.version }}-${{ steps.source.outputs.commit }}-${{ hashFiles('docs/scripts/build-api-reference.mjs', 'docs/scripts/api-reference-tools/**', 'docs/api-reference-versions.json') }}
-      - name: Generate API reference from tag
+          path: docs/.cache/api-reference/${{ matrix.language }}/${{ matrix.minor }}
+          key: api-${{ runner.os }}-${{ matrix.language }}-${{ matrix.version }}-${{ steps.source.outputs.revision }}-${{ hashFiles('docs/scripts/build-api-reference.mjs', 'docs/scripts/api-reference-tools/**') }}
+      - name: Generate API reference
         if: steps.generated.outputs.cache-hit != 'true'
         env:
           LANGUAGE: ${{ matrix.language }}
           SDK_VERSION: ${{ matrix.version }}
         run: node scripts/build-api-reference.mjs "$LANGUAGE" "sdk-$LANGUAGE/v$SDK_VERSION"
-      - name: Audit API HTML and local links
-        run: npm run test:api
+      - name: Assemble and audit API HTML
+        run: |
+          node scripts/assemble-api-reference.mjs --allow-missing-versions --destination .cache/api-assembled
+          npm run test:api -- .cache/api-assembled
       - uses: actions/upload-artifact@v4
         with:
           name: api-${{ matrix.language }}-${{ matrix.version }}
@@ -117,8 +132,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: api-*
-          path: docs/build/api
+          path: docs/.cache/api-reference
           merge-multiple: true
+      - name: Assemble API reference
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            node scripts/assemble-api-reference.mjs --allow-missing-versions
+          else
+            node scripts/assemble-api-reference.mjs
+          fi
       - name: Smoke checks
         run: npm run test:site
       - name: Audit all retained API versions

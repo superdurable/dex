@@ -76,80 +76,129 @@ robots directives, and the sitemap.
 
 ## Generated SDK API references
 
-Go, Python, and TypeScript API HTML is generated from release tags. Java and
-Rust link to exact releases on javadoc.io and docs.rs. Go is hosted here because
-pkg.go.dev does not display the SDK's documentation under its license.
+Go, Python, TypeScript, and Java API HTML is generated per release and served
+under `/api/<language>/`. Rust links to exact releases on docs.rs. Go is hosted
+here because pkg.go.dev does not display the SDK's documentation under its
+license.
+
+### Sources and tools
 
 [`api-reference-versions.json`](api-reference-versions.json) lists the newest
-patch in each of the five retained minors. Output uses the minor in its URL:
-`/api/go/1.35/` is generated from `sdk-go/v1.35.0`. When advancing the window,
-update this manifest and the SDK reference indexes together. Preserve retired
-URLs with direct redirects before removing their output.
+patch of each of the five retained minors, newest first. Output uses the minor
+in its URL: `/api/go/1.35/` comes from `sdk-go/v1.35.0`.
 
-The generator uses `git archive` into a temporary directory and removes it on
-success or failure. It never checks out or changes the working branch. It runs
-these pinned tools, all published more than two weeks before their adoption:
+- Go, Python, and TypeScript are generated from the release tag. The generator
+  extracts the SDK with `git archive` into a temporary directory and removes it
+  afterwards. It never checks out or changes the working branch.
+- Go uses gomarkdoc and renders its Markdown with marked. gomarkdoc links
+  symbols to its own named anchors. Headings get lowercase ids so its
+  Constants and Variables links resolve. Generated code, internal packages,
+  examples, tests, and contributor scripts are excluded.
+- Python uses pdoc with Google-style docstrings on the tagged source. The exact
+  published SDK wheel supplies its dependencies and native extension.
+- TypeScript uses TypeDoc on the tagged source with the tag's locked
+  dependencies. It does not compile the native extension.
+- Java uses the Javadoc JAR that Maven Central publishes for the release
+  (`io.superdurable:dex-sdk:<version>:javadoc`). The generator checks the JAR
+  against Central's SHA-512 checksum before extracting it.
 
-| Tool | Version | Published |
-| --- | --- | --- |
-| gomarkdoc | 1.1.0 | 2023-06-17 |
-| marked | 15.0.12 | 2025-05-20 |
-| github-slugger | 2.0.0 | 2022-10-27 |
-| pdoc | 15.0.4 | 2025-06-04 |
-| TypeDoc | 0.28.14 | 2025-10-11 |
-| TypeScript | 5.9.3 | 2025-09-30 |
+All tool pins live in [`scripts/api-reference-tools/`](scripts/api-reference-tools/):
 
-The Node tools and their dependencies are locked in
-[`scripts/api-reference-tools/package-lock.json`](scripts/api-reference-tools/package-lock.json).
-The Go generator renders public packages, excluding generated code, internal
-packages, examples, tests, and contributor scripts. Markdown heading IDs use
-GitHub's slug convention so gomarkdoc's table of contents works in static HTML.
-Python renders the public `dex` exports with Google-style docstrings. It installs
-the exact published SDK wheel for its dependencies and native extension, then
-documents the Python source from the tag. TypeScript reads the tagged source
-with the tag's locked dependencies; it does not compile the native extension.
+- `go-tools.json`: gomarkdoc.
+- `package.json` and `package-lock.json`: the Node tools and their dependencies.
+- `pdoc-requirements.txt`: pdoc and its dependencies, with hashes. pip installs
+  it with `--require-hashes --only-binary=:all:`. Regenerate it with the `uv`
+  command in its header. Use an `--exclude-newer` date at least two weeks old.
 
-Use Node.js 22, Go 1.24 or newer, and Python 3.12 with pip and venv. Fetch tags
-first. To build and audit locally:
+Adopt only tool versions published at least two weeks earlier.
+
+### Generate and audit locally
+
+Use Node.js 22, Go 1.24 or newer, and Python 3.12 with pip and venv. Java needs
+`unzip` and network access to Maven Central. Fetch tags first.
 
 ```bash
 cd docs
 npm run generate:api -- go sdk-go/v1.35.0
 npm run generate:api -- python sdk-python/v1.35.0
 npm run generate:api -- typescript sdk-typescript/v1.35.0
+npm run generate:api -- java sdk-java/v1.35.0
+npm run build
+node scripts/assemble-api-reference.mjs --allow-missing-versions
+npm run test:site
 npm run test:api
-# Build and require the entire retained window:
+# Generate, assemble, and require the entire retained window:
 npm run generate:api -- --all
-npm run test:api -- .cache/api-reference --all
+node scripts/assemble-api-reference.mjs
+npm run test:api -- build/api --all
 ```
 
 Set `DEX_API_PYTHON` to choose the Python interpreter. Set `DEX_API_OUTPUT` to
-change the output root. By default HTML goes under `.cache/api-reference/`,
-which is ignored by Git. Generated HTML is never committed.
+change the generator's output root. By default it writes undecorated HTML to
+`.cache/api-reference/<language>/<minor>/`, which Git and Docker ignore.
+Generated HTML is never committed.
 
-`npm run check` skips generation and accepts only the declared API entry URLs.
-This keeps routine docs checks independent of SDK toolchains and downloads.
-The deploy workflow validates the latest tag of each language on pull requests,
-and all 15 versions on pushes to main or manual runs. Each version is cached by
-language, tag, tag commit, manifest, and generator/tool lockfile hash. Even cache
-hits run the API audit. The workflow copies the artifacts into `build/api/`
-after Docusaurus builds both locales, then audits the assembled site and checks
-its complete size against the GitHub Pages 1 GB limit.
+### Assembly and indexing
 
-API HTML is English only and is not a Docusaurus route or a sitemap entry.
-The site smoke test audits it separately when present. That audit checks local
-links and anchors, unique self-referencing canonicals, version markers, output
-size, and `noindex,follow` on older versions. The latest API pages allow indexing.
-The normal docs route, redirect, canonical, hreflang, robots, and sitemap gates
-continue to apply to every Docusaurus page. Absolute API links in the reference
-indexes intentionally bypass Docusaurus's route checker; the smoke test checks
-them against the manifest instead.
+`scripts/assemble-api-reference.mjs` copies the generated trees into
+`build/api/` after the Docusaurus build. Everything that depends on the
+manifest happens there, so a manifest change does not invalidate generated
+output:
 
-External hosts can lag publication. In particular, javadoc.io may redirect a
-new version to its versions page even while Maven Central has its Javadoc JAR.
-The Java index includes a tagged-source fallback. TypeDoc can report unresolved
-links to JavaScript built-in error types or private source declarations; these
-render as text, and the generated local HTML links are audited separately.
+- `/api/<language>/<minor>/` for each manifest version. These pages are
+  `noindex,follow`. Their canonical URL points to the page itself. A canonical
+  to the latest page would contradict `noindex`, so search engines get one
+  clear signal.
+- `/api/<language>/latest/`, a copy of the newest version. It is the only
+  indexable API tree. Each page has `index,follow` and a self-referencing
+  canonical URL.
+- A banner on every page names the SDK and version and links to the Developer
+  reference. Versioned pages also link to the same page under `/latest/`, or
+  to its root when the page no longer exists.
+
+API HTML is English only. It is neither a Docusaurus route nor a sitemap entry.
+The SDK reference indexes link to it with `pathname:///api/...` links. The
+site's link wrapper keeps those links in the same tab and outside the locale
+prefix, so previews and local builds stay local. Docusaurus does not check
+`pathname://` links. Instead, `npm run check` verifies that each index links to
+`/latest/` first and then to exactly the manifest's versions, and that no index
+links to javadoc.io or an absolute docs URL. Without API output it accepts the
+declared `/api/` entry URLs. When `build/api/` exists, the site smoke test also
+runs the API audit: layout, indexing policy, canonicals, banners, local links,
+anchors, and size.
+
+### CI
+
+The deploy workflow generates the latest version of each language on pull
+requests, and all versions on pushes to main and manual runs. Each job fetches
+only its release tag. Java fetches no tag. The cache key is the language,
+version, tag commit, and a hash of the generator and the tool pins. It does not
+include the manifest. Every job assembles and audits its output, even on a
+cache hit. The build job then assembles all artifacts into the site, runs the
+smoke test, requires every retained version outside pull requests, and checks
+the site size against the GitHub Pages 1 GB limit.
+
+### Advancing the version window
+
+1. Add the new release at the front of its language's list in
+   `api-reference-versions.json`, and remove the oldest one.
+2. Update the API reference section of `reference/<language>/index.mdx` to
+   match. `npm run check` fails until the links match the manifest.
+3. Deploy. Assembly no longer publishes the retired version, so its URLs
+   return the site's 404 page. That page detects
+   `/api/<language>/<minor>/...` for a minor that is not in the manifest. It
+   sends the reader to the same page under `/api/<language>/latest/`, keeping
+   the query and fragment, or to `/reference/<language>/` when that page does
+   not exist in the latest release.
+
+Do not add `/api/` entries to `redirects.json`. Its redirects must target
+Docusaurus routes, and API pages are not routes.
+
+### Known warnings
+
+TypeDoc can report unresolved links to JavaScript built-in error types or
+private source declarations. These render as text. The API audit checks every
+emitted local link and anchor.
 
 ## Contributor design notes
 
