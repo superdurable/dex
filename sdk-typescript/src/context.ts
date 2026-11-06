@@ -17,6 +17,11 @@ import type { Stream } from "./stream.js";
  * Read it from recoveryError.attemptProgress in a recovery Step to decide whether the failed
  * handler may have caused external effects. Treat UNSPECIFIED, an omitted value, and any value
  * this SDK does not know like NOT_COMPLETED.
+ * Only sync methods can report NOT_STARTED. Async failures always report NOT_COMPLETED.
+ * A disconnect after hand-out or an input-read or decode failure can report NOT_COMPLETED
+ * even when application code did not run. Confirm effects from authoritative external state
+ * or make the repeat idempotent before repeating them.
+ * Gracefully returned unstarted tasks do not fail or consume a retry.
  * @example
  * ```ts
  * const progress = context.recoveryError?.attemptProgress ?? StepAttemptProgress.UNSPECIFIED;
@@ -26,6 +31,7 @@ import type { Stream } from "./stream.js";
  *   // Some attempt may have run; reconcile external effects before repeating them.
  * }
  * ```
+ * @since 1.35.0
  */
 export const StepAttemptProgress = Object.freeze({
   /** An older Server did not report progress; treat this like NOT_COMPLETED. */
@@ -39,7 +45,11 @@ export const StepAttemptProgress = Object.freeze({
 /** Represents a value from {@link StepAttemptProgress}. */
 export type StepAttemptProgress = (typeof StepAttemptProgress)[keyof typeof StepAttemptProgress];
 
-/** Describes the final failure that selected a recovery path. */
+/**
+ * Describes the final failure that selected a recovery path.
+ * Inspect attemptProgress using StepAttemptProgress before repeating an external effect.
+ * Do not branch on fixed server timeout errorType spellings; they can differ between versions.
+ */
 export interface RecoveryErrorInfo {
   /** Failure message supplied by the Worker or backend. */
   readonly detail: string;
@@ -49,6 +59,7 @@ export interface RecoveryErrorInfo {
    * Furthest progress across this Step method call's attempts.
    * SDK-provided contexts always include a value. Omitted values remain accepted for source compatibility.
    * Treat UNSPECIFIED or an omitted value like NOT_COMPLETED. See StepAttemptProgress for a recovery example.
+   * @since 1.35.0
    */
   readonly attemptProgress?: StepAttemptProgress;
 }
@@ -60,7 +71,11 @@ export interface RecoveryErrorInfo {
 export interface Context {
   /** Stable application Flow ID shared across runs. */
   readonly flowId: string;
-  /** Current server-assigned run ID. */
+  /**
+   * Current server-assigned run ID.
+   * A replacement run, including one created by timeTravel, has a new ID while flowId stays stable.
+   * Use flowId for application identity and runId when an operation must address this exact run.
+   */
   readonly runId: string;
   /** UTC timestamp at which the current Flow run started. */
   readonly flowStartedAt: Date;
@@ -70,7 +85,11 @@ export interface Context {
   readonly fromStepExecutionId: string;
   /** Final failure that selected this recovery path, or `undefined` when absent. */
   readonly recoveryError: RecoveryErrorInfo | undefined;
-  /** UTC timestamp when this Step method call was first handed to a Worker. */
+  /**
+   * UTC timestamp when this Step method call first became pending, shared across retries.
+   * This scheduling timestamp can precede Worker hand-out by queue or lock waiting time.
+   * It is not the retry duration clock. Use deadline for the current attempt's remaining budget.
+   */
   readonly firstAttemptAt: Date;
   /**
    * Absolute UTC deadline of the current Step method attempt, or `undefined` when absent.
@@ -79,6 +98,8 @@ export interface Context {
    * deadline. The method timeout bounds this value. RetryPolicy total duration never ends a
    * running attempt; it is checked after failure when deciding whether to retry.
    * Each retry receives its own deadline. Dates have millisecond precision.
+   * Budget external requests from this value rather than storing a deadline in a checkpoint.
+   * Changed in SDK v1.35.0: only the method timeout bounds an attempt; queue and lock waits are excluded.
    *
    * @example
    * Compute the remaining attempt budget in milliseconds inside a handler:
@@ -88,9 +109,14 @@ export interface Context {
    *   const remainingMs = deadline.getTime() - Date.now();
    * }
    * ```
+   * @since 1.28.0
    */
   readonly deadline: Date | undefined;
-  /** One-based handler retry attempt number. */
+  /**
+   * One-based handler retry attempt number, scoped to this waitFor or execute method call.
+   * Changed in SDK v1.35.0: unstarted returned tasks consume no retry, while interrupted handed-out
+   * tasks do. An unpersisted async start can run again with the same number; see StepDurability.
+   */
   readonly attempt: number;
   /**
    * Signal aborted when Dex cancels the active Worker call.
@@ -100,12 +126,12 @@ export interface Context {
    */
   readonly cancellationSignal: AbortSignal;
   /**
-   * Reports whether a previous regular-activity attempt recorded heartbeat details.
+   * Reports whether a previous Step method attempt recorded heartbeat details.
    * @returns Whether a last heartbeat Value is present.
    */
   hasLastHeartbeatValue(): boolean;
   /**
-   * Decodes heartbeat details recorded by the previous regular-activity attempt.
+   * Decodes heartbeat details recorded by the previous Step method attempt.
    *
    * The codec must match the one passed to {@link AsyncContext.recordHeartbeat}. When omitted,
    * values use JSON encoding. Call {@link Context.hasLastHeartbeatValue} to distinguish an absent
@@ -252,7 +278,10 @@ export interface AsyncContext extends Context {
    * Passing `undefined` explicitly clears persisted heartbeat details. Every other value produces
    * a present Value; omitted codecs use JSON. The Promise resolves when grpc-js accepts the frame,
    * not when Dex persists it.
+   * Always await it or attach a rejection handler; an unhandled rejection can terminate Node.js.
+   * A later retry receives the last checkpoint in either durability mode.
    *
+   * Changed in SDK v1.28.0: all failures reject the returned Promise instead of throwing synchronously.
    * @typeParam T - Heartbeat value type.
    * @param value - Value to persist, or `undefined` to clear existing details.
    * @param codec - Codec used to encode the Value; omitted for JSON.

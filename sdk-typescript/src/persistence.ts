@@ -47,7 +47,36 @@ export const IndexType = Object.freeze({
 /** Represents a value from {@link IndexType}. */
 export type IndexType = (typeof IndexType)[keyof typeof IndexType];
 
-/** Configures the search index for an Attribute or AttributeMap. */
+/**
+ * Configures the search index for an Attribute or AttributeMap.
+ *
+ * Keys share a namespace-wide typed pool across Flow types. Use explicit generic numbered keys,
+ * such as keyword1 or int1, and constrain searches by FlowType when a key has different meanings.
+ * Two logical indexed fields in one Flow need different keys. Reuse a key only with the same type.
+ * A singleton defaults to its Attribute name; an indexed AttributeMap requires an explicit key.
+ * Map writes replace that single search field; instances are not combined or individually searchable.
+ * Use a singleton KEYWORD_ARRAY Attribute to index a collection instead.
+ * Renaming a key does not backfill existing Flows. Do not index secrets or personal information.
+ *
+ * Changed in SDK v1.30.0: servers can enforce index capacity and Keyword length limits.
+ * With PostgreSQL search, the shared registry allows 10 Keyword keys and 3 of each other type.
+ * Registrations are permanent; exceeding capacity fails Worker startup with FAILED_PRECONDITION
+ * and ATTRIBUTE_INDEX_CAPACITY_EXCEEDED. Existing keys can be registered again.
+ * Keyword values and individual KEYWORD_ARRAY elements are limited to 1,024 UTF-8 bytes.
+ * An oversized Client start or RPC write fails with INVALID_ARGUMENT and INDEXED_KEYWORD_TOO_LONG;
+ * the request commits nothing. An oversized Step result, including SubFlow initial Attributes,
+ * fails the attempt without retry. Use TEXT or a short derived key for longer strings.
+ * Builtin and ParadeDB search do not impose those fixed capacity or Keyword limits.
+ *
+ * @example
+ * ```ts
+ * const status = new Attribute("order-status", stringCodec, {
+ *   type: IndexType.KEYWORD,
+ *   indexKey: "keyword1",
+ * });
+ * const persistence: PersistenceSchema = { attributes: [status] };
+ * ```
+ */
 export interface AttributeIndex {
   /** Value representation accepted by the search index. */
   readonly type: IndexType;
@@ -55,7 +84,13 @@ export interface AttributeIndex {
   readonly indexKey?: string;
 }
 
-/** Describes an Attribute lock acquired for a Step or RPC handler. */
+/**
+ * Describes an Attribute lock acquired for a Step or RPC handler.
+ * A lock coordinates only handlers that request the same Attribute or map-instance lock.
+ * For read-modify-write on an AttributeMap instance, select both its load and its lock.
+ * Step locks survive retries and backoff until the logical method ends; RPCs report conflicts immediately.
+ * A lock does not lock a Channel snapshot; every cooperating writer must use the same lock.
+ */
 export interface AttributeLock {
   /** Singleton Attribute or AttributeMap definition to lock. */
   readonly attribute: Attribute<unknown> | AttributeMap<unknown>;
@@ -65,6 +100,12 @@ export interface AttributeLock {
 
 /**
  * Defines a typed, durable singleton value owned by a Flow.
+ * Register the exact definition in getPersistenceSchema and reuse it for handler and Client operations.
+ * Handler writes are staged with the result and reads see their own staged writes.
+ * Absent handler reads use the codec's zero value: false, 0, or 0n for scalar numeric/Boolean
+ * codecs and undefined for other codecs. Client.getAttributes instead returns undefined for absent values.
+ * Other callers see committed values. A failed handler does not commit ordinary Attribute writes.
+ * Setting null or undefined deletes the value; hard-delete definitions have additional rules below.
  *
  * @example
  * ```ts
@@ -231,6 +272,9 @@ export class Attribute<T> {
 
 /**
  * Defines a typed family of durable values keyed by instance.
+ * Each nonempty, slash-free instance key has an independent value and lock.
+ * Select map instances or the whole map in Step or RPC load options before reading.
+ * Reading unselected state throws AttributeMapNotLoadedError; see StepOptions and RPCOptions.
  * Slash is prohibited in instance keys because it is a reserved character.
  * @typeParam T - Value encoded for every map instance.
  */
@@ -306,6 +350,7 @@ export class AttributeMap<T> {
    * character. The SDK escapes the key for the protocol.
    * @returns A new selection of this AttributeMap and `instance`. It does not contact Dex.
    * @throws {TypeError} When `instance` is empty, contains only whitespace, or contains `/`.
+   * @since 1.29.0
    */
   public instance(instance: string): AttributeMapInstance<T> {
     return new AttributeMapInstance(this, instance);
@@ -465,6 +510,7 @@ export class AttributeMap<T> {
  * const [note] = await client.getAttributes("order-42", firstNote);
  * ```
  * @typeParam T - Value type of the selected AttributeMap.
+ * @since 1.29.0
  */
 export class AttributeMapInstance<T> {
   /** Makes the type nominal, so a plain AttributeMapLoad is not accepted as a read. */
@@ -499,6 +545,7 @@ export class AttributeMapInstance<T> {
  * const reads: readonly AttributeRead<unknown>[] = [orderStatus, notes.instance("n1")];
  * ```
  * @typeParam T - Value type of the selected Attribute or AttributeMap.
+ * @since 1.29.0
  */
 export type AttributeRead<T> = Attribute<T> | AttributeMapInstance<T>;
 
@@ -514,6 +561,7 @@ export type AttributeRead<T> = Attribute<T> | AttributeMapInstance<T>;
  * // Values is [string | undefined, Note | undefined].
  * ```
  * @typeParam Reads - Tuple of reads passed to `getAttributes`.
+ * @since 1.29.0
  */
 export type AttributeReadValues<Reads extends readonly AttributeRead<unknown>[]> = {
   -readonly [Index in keyof Reads]: Reads[Index] extends infer Read

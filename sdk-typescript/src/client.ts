@@ -138,6 +138,9 @@ const defaultServerAddress = "localhost:8801";
  * The constructor performs no I/O. This SDK requires protocol 4.
  * After an incompatible Server answers, every later call fails with a new Error that has the same message.
  * A transport failure during negotiation rejects with the usual DexServiceError and is retried on the next call.
+ * Changed in SDK v1.35.0: protocol 4 requires server-zd v0.1.17 or later; upgrade the Server first.
+ * Service errors retain code, subStatus, detail, operation, flowId, and the original cause.
+ * Do not replace WorkerInvocationError or transport failures with a not-found result.
  * Wait methods with a request timeout bound negotiation by that timeout and reject with RequestTimeoutError.
  *
  * @example
@@ -178,6 +181,12 @@ export class Client {
 
   /**
    * Starts a Flow and returns after Dex accepts it.
+   * Acceptance does not mean the starting Step has run; use waitForFlow for terminal results.
+   * Omitted reuse policy rejects any previously used Flow ID.
+   * Omit retryPolicy and positive startDelayMs; the current Server rejects those options.
+   * Use Step retries for failures and a Timer condition in a starting Step for a durable delay.
+   * Changed in SDK v1.35.0: a Step waits durably for a compatible Worker instead of failing
+   * because none is available. That initial wait consumes no Step retry or method timeout.
    * @typeParam StartInput - Starting Step input type.
    * @param flow - Exact Flow instance registered with this Client.
    * @param flowId - Non-empty application ID stable across runs.
@@ -189,6 +198,8 @@ export class Client {
    * @throws {@link TypeError} when a hard-delete initial Attribute is not the definition registered with `flow`.
    * @throws {@link ValueMappingError} when a hard-delete initial value encodes to a number or Boolean.
    * @throws {@link Error} when the Server is incompatible with required protocol version 4.
+   * @throws {@link DexServiceError} for other transport or service failures, including INVALID_ARGUMENT
+   * when a Flow retry policy or positive start delay is supplied.
    */
   public async startFlow<StartInput>(
     flow: Flow<StartInput>,
@@ -325,9 +336,31 @@ export class Client {
 
   /**
    * Invokes an RPC with typed input and output.
-   * A non-transactional RPC without Attribute locks starts from a backend query. A retained
+   * A non-transactional RPC without Attribute locks starts from a read snapshot. A retained
    * terminal execution can serve it when the handler returns no durable effects. Locks,
    * transactional execution, returned effects, or server policy can require an active execution.
+   * The call waits for handler completion and application of its durable effects before returning output.
+   * Lock acquisition is nonblocking; retry a lock conflict only when the operation is safe to repeat.
+   * @example
+   * ```ts
+   * try {
+   *   const output = await client.invokeRPC(orders.describeOrder, "order-42");
+   *   console.log(output);
+   * } catch (error) {
+   *   if (error instanceof FlowNotActiveOrNotFoundError) {
+   *     console.log("Flow is missing or unavailable for this RPC");
+   *   } else {
+   *     throw error;
+   *   }
+   * }
+   * ```
+   * @throws {@link RpcLockConflictError} when the requested locks are held.
+   * @throws {@link WorkerInvocationError} when Worker dispatch or application execution fails.
+   * @throws {@link FlowNotActiveOrNotFoundError} when the target is missing or this RPC requires an active Flow.
+   * @throws {@link FlowClosingError} when the Flow is closing and rejects the operation.
+   * @throws {@link DexServiceError} for other transport or service failures.
+   * @throws {@link FlowDefinitionError} when the method is not registered.
+   * @throws {@link ValueMappingError} when input encoding or output decoding fails.
    * @typeParam Input - RPC input type.
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
@@ -350,6 +383,11 @@ export class Client {
    * Invokes an input-free RPC with typed output.
    * A retained terminal execution can serve a query-only RPC. Other execution paths can require
    * an active execution.
+   * See the typed-input invokeRPC overload for completion semantics and error handling.
+   * @throws {@link RpcLockConflictError} when the requested locks are held.
+   * @throws {@link WorkerInvocationError} when Worker dispatch or application execution fails.
+   * @throws {@link FlowNotActiveOrNotFoundError} when missing or unable to use a closed execution.
+   * @throws {@link DexServiceError} for other service or transport failures.
    * @typeParam Output - RPC output type.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
@@ -366,6 +404,11 @@ export class Client {
    * Invokes a typed-input RPC that returns no output.
    * A retained terminal execution can serve a query-only RPC. Other execution paths can require
    * an active execution.
+   * See the typed-input invokeRPC overload for completion semantics and error handling.
+   * @throws {@link RpcLockConflictError} when the requested locks are held.
+   * @throws {@link WorkerInvocationError} when Worker dispatch or application execution fails.
+   * @throws {@link FlowNotActiveOrNotFoundError} when missing or unable to use a closed execution.
+   * @throws {@link DexServiceError} for other service or transport failures.
    * @typeParam Input - RPC input type.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
@@ -384,6 +427,11 @@ export class Client {
    * Invokes an input-free, output-free RPC.
    * A retained terminal execution can serve a query-only RPC. Other execution paths can require
    * an active execution.
+   * See the typed-input invokeRPC overload for completion semantics and error handling.
+   * @throws {@link RpcLockConflictError} when the requested locks are held.
+   * @throws {@link WorkerInvocationError} when Worker dispatch or application execution fails.
+   * @throws {@link FlowNotActiveOrNotFoundError} when missing or unable to use a closed execution.
+   * @throws {@link DexServiceError} for other service or transport failures.
    * @param rpcMethod - Bound method of the registered Flow, declared with the `rpc` decorator or `declareRPCMethod`.
    * @param flowId - Non-empty target Flow ID.
    * @param runId - Optional exact run; the server resolves the current execution when omitted.
@@ -730,8 +778,11 @@ export class Client {
 
   /**
    * Long-polls until a Flow closes and returns every output-bearing completion.
+   * Failed, canceled, and terminated Flows return a FlowResult too; inspect its status and error fields.
+   * A long-poll timeout does not stop the Flow; call again to continue waiting.
    * @param flowId - Non-empty existing Flow ID.
    * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
+   * @throws {@link FlowNotFoundError} when no retained target exists.
    * @returns Immutable Step completions in server collection order.
    * @throws {@link LongPollTimeoutError} when the Flow remains open at timeout.
    * @throws {@link ValueMappingError} when Dex returns malformed blob-backed output.
@@ -763,6 +814,16 @@ export class Client {
   /**
    * Requests cancellation, termination, or failure of an active Flow.
    * The promise resolves after acceptance and does not await terminal status.
+   * Omitted type requests cooperative cancellation. TERMINATE closes immediately; FAIL records failure.
+   * A handler must observe cancellationSignal; stopping cannot undo an external side effect.
+   * Use waitForFlow to observe the terminal result after acceptance.
+   * @example
+   * ```ts
+   * await client.stopFlow("order-42", { type: StopType.CANCEL, reason: "Order withdrawn" });
+   * const result = await client.waitForFlow("order-42");
+   * ```
+   * @throws {@link FlowNotActiveOrNotFoundError} when the Flow is closed or missing.
+   * @throws {@link DexServiceError} for other service or transport failures.
    * @param flowId - Non-empty active Flow ID.
    * @param options - Stop mode and optional recorded reason.
    */
@@ -879,6 +940,7 @@ export class Client {
    * values are hydrated.
    * Every error message names the Flow ID. An error about one read or value also names its
    * Attribute name or physical key.
+   * @since 1.29.0
    */
   public async getAttributes<
     Reads extends readonly [AttributeRead<unknown>, ...AttributeRead<unknown>[]],
@@ -990,7 +1052,7 @@ export class Client {
    * @param query - Dex visibility query; empty uses server defaults.
    * @param pageSize - Non-negative requested maximum result count.
    * @param nextPageToken - Opaque token from the preceding page, or empty first.
-   * @param options - Whether to include earlier Continue-as-New runs; defaults to exclusion.
+   * @param options - Whether to include earlier internally replaced runs; defaults to exclusion.
    * @returns Server-ordered entries and the next-page token.
    */
   public async searchFlows(
@@ -1095,7 +1157,10 @@ export class Client {
 
   /**
    * Waits until one Step execution completes or its request budget expires.
-   * The server derives a stable Request ID from the Step execution when none is supplied.
+   * The current Server reads state without Request ID deduplication; requestId is a compatibility field.
+   * An omitted or zero request timeout waits indefinitely across transparent reattachments.
+   * @throws {@link FlowClosingError} when Flow close cleanup rejects the wait.
+   * @throws {@link FlowNotActiveOrNotFoundError} when no active target exists.
    * @param flowId - Non-empty active Flow ID.
    * @param stepExecutionId - Step type and positive execution number.
    * @param options - Optional Request ID, request timeout, and internal handler timeout.
@@ -1154,8 +1219,15 @@ export class Client {
   /**
    * Waits until a singleton Attribute in the current run satisfies a match.
    * Returns the current value observed by the successful wait operation.
-   * The server derives a stable Request ID from the condition when none is supplied.
-   * Request timeout covers transport reattachments. Internal handler timeout rolls generations.
+   * The current Server reads state without Request ID deduplication; requestId is a compatibility field.
+   * Request timeout covers transparent long-poll retries. The current Server ignores internal handler timeout.
+   * Only inline scalar values can be compared. Blob-backed or noncomparable values fail with
+   * FAILED_PRECONDITION; keep a separate small scalar Attribute for the condition.
+   * An omitted or zero request timeout waits indefinitely.
+   * @throws {@link DexServiceError} when the value cannot be compared or another service failure occurs.
+   * @throws {@link RequestTimeoutError} when the request budget expires.
+   * @throws {@link FlowClosingError} when Flow close cleanup rejects the wait.
+   * @throws {@link FlowNotActiveOrNotFoundError} when no active target exists.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered singleton Attribute to observe.

@@ -18,7 +18,10 @@ export interface ClientOptions {
   readonly serverAddress?: string;
   /** Bearer token provider for every FlowService call; omitted sends no authorization metadata. */
   readonly credential?: Credential;
-  /** TLS settings for the FlowService connection; omitted keeps plaintext gRPC. See {@link FlowServiceTlsOptions}. */
+  /**
+   * TLS settings for the FlowService connection; omitted keeps plaintext gRPC. See {@link FlowServiceTlsOptions}.
+   * @since 1.35.0
+   */
   readonly flowServiceTls?: FlowServiceTlsOptions;
 }
 
@@ -80,6 +83,7 @@ export interface ClientOptions {
  *   await worker.close();
  * }
  * ```
+ * @since 1.35.0
  */
 export interface FlowServiceTlsOptions {
   /**
@@ -110,44 +114,42 @@ export interface FlowServiceTlsOptions {
 
 /**
  * Configures one durable Step completion wait.
- * The server derives a stable Request ID from the Step execution when none is supplied.
+ * The current Server implements this as a read wait without Request ID deduplication.
  * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
- * Temporal permits 10 in-flight Updates per Workflow Execution. `internalHandlerTimeoutMs`
- * reclaims accepted waits that outlive callers and could consume those slots. Active callers
- * transparently start another generation, which adds another Update to history.
+ * The SDK transparently retries server long-poll timeouts within that budget.
+ * The current Server validates internalHandlerTimeoutMs but does not use it to limit a wait.
+ * These read waits do not append Flow history events.
  */
 export interface WaitForStepCompletionOptions {
-  /** Overrides the stable Request ID that the server derives from the Step execution. */
+  /** Optional compatibility Request ID; the current Server does not use it to deduplicate read waits. */
   readonly requestId?: string;
   /** Total SDK call budget. Omit or use zero to wait indefinitely. */
   readonly requestTimeoutMs?: number;
   /**
-   * Sets the Temporal Update handler generation lifetime.
-   * Use it only when abandoned waits can approach Temporal's in-flight Update limit. Omit or use
-   * zero to disable rollover. Prefer a value longer than normal request timeouts and reconnect
-   * gaps; each generation counts toward Temporal's 2,000-Update history limit.
+   * Optional compatibility timeout in milliseconds; the current Server accepts it but does not apply it.
+   * Omit or use zero. A supplied value must be a nonnegative whole number of seconds.
+   * Use requestTimeoutMs to bound the complete caller wait.
    */
   readonly internalHandlerTimeoutMs?: number;
 }
 
 /**
  * Configures one durable Attribute match wait.
- * The server derives a stable Request ID from the Attribute condition when none is supplied.
+ * The current Server implements this as a read wait without Request ID deduplication.
  * `requestTimeoutMs` bounds the entire SDK call across transparent transport reattachments.
- * Temporal permits 10 in-flight Updates per Workflow Execution. `internalHandlerTimeoutMs`
- * reclaims accepted waits that outlive callers and could consume those slots. Active callers
- * transparently start another generation, which adds another Update to history.
+ * The SDK transparently retries server long-poll timeouts within that budget.
+ * The current Server validates internalHandlerTimeoutMs but does not use it to limit a wait.
+ * These read waits do not append Flow history events.
  */
 export interface WaitForAttributeOptions {
-  /** Overrides the stable Request ID that the server derives from the Attribute condition. */
+  /** Optional compatibility Request ID; the current Server does not use it to deduplicate read waits. */
   readonly requestId?: string;
   /** Total SDK call budget. Omit or use zero to wait indefinitely. */
   readonly requestTimeoutMs?: number;
   /**
-   * Sets the Temporal Update handler generation lifetime.
-   * Use it only when abandoned waits can approach Temporal's in-flight Update limit. Omit or use
-   * zero to disable rollover. Prefer a value longer than normal request timeouts and reconnect
-   * gaps; each generation counts toward Temporal's 2,000-Update history limit.
+   * Optional compatibility timeout in milliseconds; the current Server accepts it but does not apply it.
+   * Omit or use zero. A supplied value must be a nonnegative whole number of seconds.
+   * Use requestTimeoutMs to bound the complete caller wait.
    */
   readonly internalHandlerTimeoutMs?: number;
 }
@@ -212,6 +214,7 @@ export interface FlowTimeoutHandlerFailure {
 export const FlowTimeoutHandlerFailure = Object.freeze({
   /**
    * Routes exhausted timeout-handler retries to an input-free Step.
+   * Changed in SDK v1.28.0: accepts registered instances and StepRef as well as Step classes.
    *
    * The Step receives `undefined` and reads the terminal handler failure from `Context.recoveryError`.
    * Select the Step by class, registered instance, or StepRef. Use an instance or StepRef when the
@@ -355,11 +358,17 @@ export interface StartFlowOptions {
   readonly timeoutPolicy?: FlowTimeoutPolicy;
   /** Execution settings for `Flow.handleTimeout`; valid only with a positive handler-policy timeout. */
   readonly timeoutHandlerOptions?: FlowTimeoutHandlerOptions;
-  /** Delay before the starting Step becomes eligible, in milliseconds. */
+  /**
+   * Delay before the starting Step becomes eligible, in milliseconds.
+   * The current Server rejects positive values. Omit it or use zero; wait on a Timer in the starting Step instead.
+   */
   readonly startDelayMs?: number;
   /** Flow ID reuse policy; uses `DEFAULT` when omitted. */
   readonly idReusePolicy?: IdReusePolicy;
-  /** Optional Flow-level retry policy. */
+  /**
+   * Optional Flow-level retry policy.
+   * The current Server rejects any supplied policy. Omit it and configure waitForRetry or executeRetry on Steps.
+   */
   readonly retryPolicy?: RetryPolicy;
   /** Initial Attribute writes applied atomically with Flow creation. */
   readonly attributes?: readonly InitialAttribute<any>[];
@@ -567,7 +576,10 @@ export interface WorkerOptions {
   readonly serverAddress?: string;
   /** Bearer token provider for startup, hydration, and pull streams; omitted sends no authorization metadata. */
   readonly credential?: Credential;
-  /** TLS settings for startup, hydration, and pull streams; omitted keeps plaintext gRPC. See {@link FlowServiceTlsOptions}. */
+  /**
+   * TLS settings for startup, hydration, and pull streams; omitted keeps plaintext gRPC. See {@link FlowServiceTlsOptions}.
+   * @since 1.35.0
+   */
   readonly flowServiceTls?: FlowServiceTlsOptions;
   /** Startup Indexed Attribute synchronization deadline in milliseconds. Defaults to 120000. */
   readonly attributeIndexSyncTimeoutMs?: number;
@@ -578,6 +590,9 @@ export interface WorkerOptions {
  *
  * Pass this as `WorkerOptions.pull` to customize task capacity and shutdown.
  * Each stream handles one task, while handlers on different streams can run concurrently.
+ * Changed in SDK v1.35.0: exactly maxConcurrentTasks long-lived streams replace per-queue idle streams.
+ * Slots are STEP_AND_RPC or RPC_ONLY, and every assigned task runs without a capacity decline.
+ * Requires Server protocol 4 (server-zd v0.1.17 or later); upgrade the Server before the SDK.
  *
  * @example
  * ```ts
@@ -594,6 +609,8 @@ export interface PullWorkerOptions {
    * Number of execution slots, each represented by one long-lived poll stream.
    * Zero or omission uses the logical CPU count. Negative values are invalid.
    * Worker.start fails if this exceeds the Server per-Worker limit, matching.maxConcurrentTasksCap.
+   * Requires a nonnegative safe integer; construction throws RangeError otherwise.
+   * Changed in SDK v1.35.0: this is also the exact stream count, and exceeding the cap fails startup.
    */
   readonly maxConcurrentTasks?: number;
   /**
@@ -603,15 +620,18 @@ export interface PullWorkerOptions {
    * With one slot and no explicit reserve, start warns once that RPCs may wait behind Steps.
    * Requires an integer at least zero and less than maxConcurrentTasks; construction throws RangeError otherwise.
    * RPCs can use shared slots and reserved slots. Reservation is capacity, not a latency guarantee.
+   * A reserved slot cannot bypass an Attribute lock held by a Step; narrow locks or shorten the method.
    * @example
    * ```ts
    * const pull: PullWorkerOptions = { maxConcurrentTasks: 8, reservedRpcTasks: 2 };
    * ```
+   * @since 1.35.0
    */
   readonly reservedRpcTasks?: number;
   /**
    * Legacy per-queue idle stream option; zero or omission formerly used one.
    * Still accepts nonnegative integers; invalid values throw RangeError.
+   * Changed in SDK v1.35.0: retained for source compatibility with no effect.
    * @deprecated Has no effect. Each maxConcurrentTasks slot has one long-lived stream.
    */
   readonly idleStreamsPerQueue?: number;
@@ -628,11 +648,13 @@ export interface PullWorkerOptions {
    * has not yet confirmed gets 5 more seconds, so close can return that much later. A Server-requested
    * reconnect uses the same timeout and grace.
    * Dex treats a task dropped on such a reset stream as possibly run.
+   * Changed in SDK v1.35.0: graceful shutdown returns unstarted tasks without spending a retry;
+   * reset or disconnected tasks can still be treated as possibly run. See Worker.close.
    */
   readonly stopDrainTimeoutMs?: number;
 }
 
-/** Selects whether a visibility search includes earlier Continue-as-New runs. */
+/** Selects whether a visibility search includes earlier internally replaced runs. */
 export interface SearchFlowsOptions {
   /** Disable default exclusion while retaining every explicit query filter. Defaults to false. */
   readonly includeContinuedAsNew?: boolean;

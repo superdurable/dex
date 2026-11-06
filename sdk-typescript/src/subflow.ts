@@ -41,9 +41,15 @@ export interface SubFlowOptions {
   readonly timeoutPolicy?: FlowTimeoutPolicy;
   /** Execution settings for the target Flow's timeout handler. */
   readonly timeoutHandlerOptions?: FlowTimeoutHandlerOptions;
-  /** Delay before the SubFlow starting Step, in milliseconds. */
+  /**
+   * Delay before the SubFlow starting Step, in milliseconds.
+   * The current Server rejects positive values; omit it or use a Timer in the child's starting Step.
+   */
   readonly startDelayMs?: number;
-  /** Whole-Flow retry behavior after abnormal completion. */
+  /**
+   * Whole-Flow retry behavior after abnormal completion.
+   * The current Server rejects any supplied policy; omit it and configure child Step retries.
+   */
   readonly retryPolicy?: RetryPolicy;
   /** Initial Attributes owned by the target SubFlow. */
   readonly attributes?: readonly InitialAttribute<any>[];
@@ -55,7 +61,27 @@ export interface SubFlowOptions {
   readonly conditionId?: string;
 }
 
-/** Creates durable SubFlow conditions and reads their Execute results. */
+/**
+ * Creates durable SubFlow conditions and reads their Execute results.
+ * Return run() in a Wait from waitFor. Dex starts or attaches to the registered child Flow
+ * without occupying a Worker while it waits. A failed child is a terminal FlowResult to inspect;
+ * it does not itself throw an application exception in execute.
+ * Results and generated Flow IDs use the zero-based declaration order across SubFlow conditions.
+ * The generated ID combines the parent Flow ID, Step execution ID, and condition index.
+ * Reusing a parent Flow ID or time traveling can therefore address an existing child.
+ * Matching generated start Request IDs always attach or return an existing terminal result,
+ * regardless of reusePolicy. Otherwise ATTACH preserves the child; ALWAYS_RESTART replaces it.
+ * The default restarts abnormal children, attaches to running children, and returns completed results.
+ * Wait.anyOf can enter execute while losing children still run; inspect each result before using output.
+ *
+ * @example
+ * ```ts
+ * const wait = Wait.until(SubFlow.run(childFlow, input));
+ * // In the matching execute handler:
+ * const result = SubFlow.getConditionResults(context);
+ * const childFlowId = SubFlow.getFlowId(context);
+ * ```
+ */
 export const SubFlow = Object.freeze({
   /**
    * Creates a condition that starts or reuses a registered Flow and awaits completion.
@@ -79,6 +105,8 @@ export const SubFlow = Object.freeze({
    * @param context - Current Dex Execute context.
    * @param index - Zero-based SubFlow order; defaults to zero.
    * @returns A terminal result or an AnyOf loser's running snapshot.
+   * @throws {TypeError} When called outside a Dex execute Context or a completion lacks output.
+   * @throws {RangeError} When no SubFlow result exists at index.
    */
   getConditionResults(context: Context, index = 0): FlowResult {
     return invocation(context).subFlowResult(index);
@@ -88,6 +116,8 @@ export const SubFlow = Object.freeze({
    * @param context - Current Dex Execute context.
    * @param index - Zero-based SubFlow order; defaults to zero.
    * @returns An addressable Flow ID suitable for `Client.stopFlow`.
+   * @throws {TypeError} When called outside a Dex execute Context.
+   * @throws {RangeError} When no SubFlow result exists at index.
    */
   getFlowId(context: Context, index = 0): string {
     return invocation(context).subFlowId(index);
