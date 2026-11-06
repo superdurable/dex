@@ -1,69 +1,184 @@
 # TypeScript error handling
 
-Before designing sequential writes and reads, use the [shared read-after-write matrix](../core/read-after-write.md). A typed read-only RPC or `client.getAttributes` call issued after a successful direct-state RPC write observes that write when it reads the written state; search indexes, Attribute Store projections and triggered business completion are separate. Follow this page for the language-specific error and timeout model.
+TypeScript rules for errors, retries, and recovery. Read
+[core error handling](../core/error-handling.md) first for the boundary
+rules. The blocks on this page form one module that type-checks;
+`Shipment`, `ShipmentFlow`, `ProviderRateLimitedError`, `sendInvoiceEmail`,
+and `invoiceEmailWasSent` are application declarations.
 
-## Worker handler failures
+## Matching errors
 
-Throw or reject when the method attempt must fail. Configure `waitForRetry` and `executeRetry` independently and route exhausted failures with `WaitForFailure` or `ExecuteFailure`. A recovery Step reads `context.recoveryError` and must be registered in the Flow's StepList. The TypeScript SDK has no time-limit predicates at its v1.20.0 baseline, so branch only on error types the application defines and never on a fixed Dex time-limit spelling; see [recovery error types](../core/error-handling.md#recovery-error-types). TypeScript SDK releases newer than v1.32.0 add the optional **RecoveryErrorInfo.attemptProgress**. Compare it with the **StepAttemptProgress** constants, not string literals. Only **StepAttemptProgress.NOT_STARTED** guarantees the handler never ran. Only SYNC Steps report it; ASYNC failures always report **NOT_COMPLETED**. Treat **NOT_COMPLETED**, **UNSPECIFIED**, and an omitted value as possibly run, and reconcile external effects before repeating them. See [attempt progress](../core/error-handling.md#attempt-progress).
+- A thrown error or rejected Promise from `waitFor`, `execute`, an RPC, or
+  `handleTimeout` fails that attempt. StepOptions decide retry and recovery.
+- In a `catch` block keep the value `unknown` and narrow with `instanceof` on
+  the exported classes. Never compare `error.message`. Keep `cause` when you
+  wrap.
 
-Do not catch and return a success decision merely to suppress retry. That commits staged mutations. External calls are outside the Dex commit, so use stable idempotency keys and compensation for ambiguous outcomes.
+## Client errors
 
-## Client failures
+| Class | Meaning | Typical handling |
+| --- | --- | --- |
+| `FlowAlreadyStartedError` | The Flow ID is taken and the start did not attach | Domain conflict, unless the contract lets the existing Flow serve the request |
+| `FlowNotFoundError` | No Flow with that ID is retained | Not-found result |
+| `FlowNotActiveOrNotFoundError` | No active target for this call; missing or closed | Mutation: reconcile. Query-only Get: not-found result |
+| `FlowClosingError` | Rejected during Flow close cleanup | Wait for or re-read the terminal state, then decide |
+| `RpcLockConflictError` | An RPC requested a held lock | Bounded retry of an idempotent call |
+| `WorkerInvocationError` | The Worker handler failed; see `workerErrorType`, `workerErrorDetail` | Surface or map; do not parse detail |
+| `LongPollTimeoutError` | A long poll such as `waitForFlow` ended while the Flow is still open | Call again |
+| `RequestTimeoutError` | A `requestTimeoutMs` budget expired | The wait ended; the Flow did not fail |
+| `DexServiceError` | Base class of every remote error; has `code`, `subStatus`, `detail`, `operation`, `flowId` | Catch only where every remote outcome is handled the same |
+| `FlowDefinitionError` | A Flow, RPC, or definition object is not registered or is invalid | Local defect |
+| `ValueMappingError` | A codec cannot encode or decode a value | Local defect or bad data |
+| `TypeError`, `RangeError` | Invalid arguments, thrown before any request | Local defect |
+| `PullRegistrationError` | A Worker slot kind was rejected permanently | Startup or supervision failure |
 
-Catch exported SDK error classes such as `FlowAlreadyStartedError`, `FlowNotFoundError`, `FlowNotActiveOrNotFoundError`, and `RequestTimeoutError`. Durable Step and Attribute waits never expose transport long-poll expiry; they reattach transparently and preserve the total `requestTimeoutMs` budget. `RequestTimeoutError` means that caller-visible budget expired, not that the Flow or the wait condition failed. For lower-level cases, `DexServiceError` exposes the gRPC code and diagnostic detail. Do not compare human-readable detail for normal control flow when a typed error exists.
+Remote errors extend `DexServiceError`; local definition, codec, and argument
+errors do not. `client.getAttributes` rejects with `FlowNotFoundError` for a
+missing Flow, never `FlowNotActiveOrNotFoundError`, and with a plain `Error`
+for an invalid response or a BlobCache failure.
 
-Concrete remote Client errors extend `DexServiceError`; local definition, value-mapping, argument, and programming errors do not. In a `catch` block, keep the value `unknown` and narrow with `instanceof`. Catch `DexServiceError` only at a boundary whose policy intentionally treats every remote Dex outcome the same; ordinary domain logic should match the concrete exported class it can decide.
+## StartFlow
 
-When the API promises a critical operation has completed, follow the shared [required business milestone rule](../core/error-handling.md#wait-for-a-required-business-milestone): after start success or matching-request deduplication, call `Client.waitForAttributeMatch` or `Client.waitForStepCompletion` for the committed condition or the specific persistence Step execution. Publish that condition only after the business effect commits. Bound the wait; timeout does not undo acceptance or prove the operation failed. An acceptance-only response needs no wait.
-
-For an idempotent start, set one stable `StartFlowOptions.requestId` and `ignoreAlreadyStarted: true` only when a retry of that same logical request may attach to the existing run. A remaining `FlowAlreadyStartedError` means a different Request ID owns the Flow ID. Treat it as a domain conflict unless the coordinator contract deliberately redirects the command to that existing Flow. Another `DexServiceError` can leave acceptance unknown; retry with the same identities or read owning domain state, never a dedicated start-deduplication table.
-
-For an explicitly best-effort external `client.writeStream`, log sanitized identity and discard only an `instanceof DexServiceError` failure. That error also carries the FAILED_PRECONDITION or RESOURCE_EXHAUSTED status of a disabled or full Stream Store, readable through `.code`; see the [Core error guidance](../core/error-handling.md) for which one to retry. Rethrow other values so codec, definition, and programming defects remain visible.
-
-[Pinned example error classification](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/service-errors.ts)
-<!-- dex-source: examples/typescript/src/service-errors.ts -->
 ```typescript
-export function isFlowAlreadyStarted(error: unknown): boolean {
-  return error instanceof FlowAlreadyStartedError;
-}
-
-export function isFlowMissingOrInactive(error: unknown): boolean {
-  return (
-    error instanceof FlowNotActiveOrNotFoundError ||
-    error instanceof FlowNotFoundError
-  );
+export async function startShipment(client: Client, flow: ShipmentFlow, request: Shipment): Promise<"accepted" | "conflict"> {
+  try {
+    await client.startFlow(flow, `shipment-${request.shipmentId}`, request, {
+      requestId: `start-shipment-${request.shipmentId}`,
+      ignoreAlreadyStarted: true,
+      idReusePolicy: IdReusePolicy.DISALLOW,
+    });
+    return "accepted";
+  } catch (error: unknown) {
+    if (error instanceof FlowAlreadyStartedError) {
+      return "conflict";
+    }
+    throw error;
+  }
 }
 ```
 
-The runnable examples classify with the exported concrete errors and treat `FlowNotActiveOrNotFoundError` and `FlowNotFoundError` as one missing-or-inactive outcome.
+- A retry that may attach to the same logical start keeps the same `flowId`,
+  `requestId`, and `ignoreAlreadyStarted: true`.
+- `requestId` alone still throws `FlowAlreadyStartedError`.
+  `ignoreAlreadyStarted` alone does not attach to a run started with another
+  request ID. An omitted `requestId` gets a fresh UUID on every call.
+- For a promised milestone, follow a successful start with
+  `waitForAttributeMatch` or `waitForStepCompletion` and a `requestTimeoutMs`.
 
-## Flow close cleanup
+## Query-only Get
 
-From TypeScript SDK v1.20.0 or later, narrow the caught value with `instanceof FlowClosingError` for a cleanup-sensitive Client call rejected with `ErrorSubStatus.FLOW_CLOSING` and FailedPrecondition. Wait for or re-read the retained terminal Flow state before deciding whether another action is needed. See the [affected calls and backend boundaries](../core/error-handling.md#flow-close-cleanup-rejection). [Released error](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/errors.ts)
+```typescript
+export async function getShipmentStatus(client: Client, flow: ShipmentFlow, flowId: string): Promise<string | undefined> {
+  try {
+    return await client.invokeRPC(flow.getShipmentStatus, flowId);
+  } catch (error: unknown) {
+    if (error instanceof FlowNotActiveOrNotFoundError || error instanceof FlowNotFoundError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+```
 
-## Indexed search limits
-
-With server-zd `search.backend: postgres`, read the shared [indexed search limits](../core/error-handling.md#indexed-search-limits) first. At TypeScript SDK v1.30.0, a StartFlow or RPC rejected for an indexed Keyword value over 1,024 bytes rejects with `DexServiceError` whose `code` is `status.INVALID_ARGUMENT` and whose `subStatus` is `ErrorSubStatus.UNCATEGORIZED`; no subclass matches it. A Worker whose Attribute index registration exceeds capacity rejects `start()` with an `Error` whose `cause` is the gRPC FailedPrecondition error. The generated `ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED` and `ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG` values exist only in the SDK's internal protocol bindings, which the package root does not export. A Flow that fails because a Step result carried such a value reports Flow error type `FlowErrorType.WORKER_API_FAILED` at TypeScript SDK v1.30.0. [Released Flow error type mapping](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/flow-result.ts) Validate indexed Keyword lengths before the write. [Released TypeScript error mapping](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/grpc-status.ts)
+Apply this translation only when the RPC registration has no
+`lockAttributes`, no `isTransactional`, and returns no `nextSteps` or
+`cancelingSteps`. A Get built on `client.getAttributes` translates
+`FlowNotFoundError` the same way.
 
 ## Closed-Flow races
 
-Follow the shared [closed-Flow race rule](../core/error-handling.md#closed-flow-races). `FlowNotActiveOrNotFoundError` from a mutation says it found no active target; it does not say the requested action succeeded. First reconcile from authoritative domain state and operation invariants. Call `await client.describeFlow(flowId)` only when an otherwise unknown terminal distinction changes the outcome. It reads the current or latest run without waiting. It resolves to `FlowInfo` with `flowId`, `runId`, `flowType`, `status`, and `startedAt`; it has no close time. Treat status `"completed"` as idempotent success only when successful completion guarantees the requested condition. For another terminal status or a `FlowNotFoundError`, return an explicit domain failure or unknown outcome. An incomplete server summary rejects with `TypeError`. If the Flow still appears running, query its domain state before a bounded, idempotent retry. [Released Client](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/client.ts) and [FlowInfo](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/src/options.ts)
+```typescript
+export async function cancelShipment(client: Client, flow: ShipmentFlow, flowId: string): Promise<"canceled" | "already-done" | "unknown"> {
+  try {
+    const isCanceled = await client.invokeRPC(flow.cancelShipment, flowId, "customer request");
+    return isCanceled ? "canceled" : "already-done";
+  } catch (error: unknown) {
+    if (!(error instanceof FlowNotActiveOrNotFoundError)) {
+      throw error;
+    }
+    const info = await client.describeFlow(flowId);
+    return info.status === "completed" ? "already-done" : "unknown";
+  }
+}
+```
 
-## Query-only Get failures
+- Call `client.describeFlow` only when the terminal status changes the
+  answer. `FlowInfo` has `flowId`, `runId`, `flowType`, `status`, and
+  `startedAt`. Error details come from `waitForFlow` (`errorType`,
+  `errorMessage`).
+- Treat `status === "completed"` as success only when completion guarantees
+  the requested condition.
 
-Follow the shared [missing query target rule](../core/error-handling.md#missing-query-targets). For a business Get confirmed to have no registration or invocation locks, no transaction, no returned durable effects, and no Server policy that runs every RPC transactionally, catch `FlowNotActiveOrNotFoundError` or `FlowNotFoundError` with `instanceof` and return the contract's not-found result directly. Retained closed executions remain readable, so do not call WaitForFlow, describe/search/history APIs, or add a timeout probe or retry to distinguish missing from closed. Preserve other errors and any explicit retention/unavailable contract. Do not apply this translation to mutations or active-only RPC paths.
+## Best-effort Stream writes
 
-A business Get that reads with `client.getAttributes` translates `FlowNotFoundError` the same way. That call never rejects with `FlowNotActiveOrNotFoundError`, because a closed run stays readable until purge. Let `FlowDefinitionError`, `ValueMappingError`, and `TypeError` stay visible as local defects. See [Client Attribute reads](primitives.md#client-attribute-reads) for the full error list.
+For an explicitly best-effort `client.writeStream`, catch only
+`DexServiceError`, log the Flow ID and `error.code`, and continue. Rethrow
+everything else so codec and definition defects stay visible.
+
+## Handler retries
+
+```typescript
+class SendInvoice implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "SendInvoice";
+  }
+
+  public async execute(context: Context, invoiceId: string): Promise<StepDecision> {
+    try {
+      await sendInvoiceEmail(invoiceId, `${context.flowId}:${invoiceId}`);
+    } catch (error: unknown) {
+      if (error instanceof ProviderRateLimitedError) {
+        throw retryAfter(error.retryAfterSeconds, error);
+      }
+      throw error;
+    }
+    return gracefulComplete(invoiceId);
+  }
+}
+```
+
+- Throw to let `executeRetry` own the retry.
+- `throw retryAfter(seconds, cause)` only for a known delay, such as a
+  provider rate-limit hint. `seconds` is a positive whole number and `cause`
+  is an `Error`.
+
+## Recovery
+
+```typescript
+class RecoverInvoice implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RecoverInvoice";
+  }
+
+  public async execute(context: Context, invoiceId: string): Promise<StepDecision> {
+    const failure = context.recoveryError;
+    const progress = failure?.attemptProgress ?? StepAttemptProgress.UNSPECIFIED;
+    if (progress === StepAttemptProgress.NOT_STARTED) {
+      await sendInvoiceEmail(invoiceId, `${context.flowId}:${invoiceId}`);
+      return gracefulComplete(invoiceId);
+    }
+    const wasSent = await invoiceEmailWasSent(`${context.flowId}:${invoiceId}`);
+    return gracefulComplete(wasSent ? invoiceId : `failed: ${failure?.detail ?? "unknown"}`);
+  }
+}
+```
+
+- A Step reached through `ExecuteFailure.proceedTo`,
+  `FlowTimeoutHandlerFailure.proceedTo`, or `waitForFailure: "proceed"` reads
+  `context.recoveryError` (`detail`, `errorType`, `attemptProgress`). Register
+  it in `getSteps()`.
+- Compare `attemptProgress` with the `StepAttemptProgress` constants. Only
+  `NOT_STARTED` proves the handler never ran. Treat `NOT_COMPLETED`,
+  `UNSPECIFIED`, and an omitted value as possibly run.
+- Never branch on a fixed Dex `errorType` spelling for time limits.
 
 ## Async discipline
 
-Await every Client call. If a fire-and-forget call is intentional, attach rejection handling and document ownership. Let Express/Koa/Fastify error middleware translate expected application errors; do not erase `cause`, Flow ID, or method context.
-
-## Recovery checklist
-
-- Bound retries so recovery can run.
-- Persist compensation facts before risky effects.
-- Make each effect and compensation retry-safe.
-- Log Flow ID, Run ID, StepExecution ID, method, attempt, and original cause.
-- Treat cancellation as a request, not proof the remote effect stopped.
-- Test failure before commit, after external success, during replacement, and after terminal Flow status.
+- Await every Client call and every `recordHeartbeat`. A deliberate
+  fire-and-forget call gets a rejection handler and a named owner.
+- Bound every Client wait: `timeoutMs` on `waitForFlow` and `readStream`,
+  `requestTimeoutMs` on the match waits.

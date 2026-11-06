@@ -1,96 +1,173 @@
 # TypeScript design patterns
 
-Select a pattern by its invariant. The TypeScript implementations below are pinned to the Dex baseline.
+Pick a pattern and its invariants in [core patterns](../core/patterns.md).
+This page maps each pattern to its runnable TypeScript example and shows the
+skeletons where the TypeScript idiom matters. Browse the examples at
+[examples/typescript/src](https://github.com/superdurable/dex/tree/main/examples/typescript/src). The blocks on this page form one
+module that type-checks; `JobService`, `JobStatus`, and `JobState` are
+application types.
 
-## Catalog
-
-| Pattern | TypeScript-native shape | Critical invariant | Runnable implementation |
-| --- | --- | --- | --- |
-| Static parallel Steps | `goToMany(StepMovement.of(...))` | Branch set is fixed | [parallel-step-flows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel/parallel-step-flows.ts) |
-| Dynamic parallel Steps | map input to `StepMovement` | Branch identity/input is deterministic | [parallel-step-flows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel/parallel-step-flows.ts) |
-| Await all Steps | completion Channel and `forN(count)` | One completion message per branch | [parallel-step-flows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel/parallel-step-flows.ts) |
-| First win | `withCancelingSiblingSteps` | Losers are cancellation-aware and idempotent | [parallel-step-flows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel/parallel-step-flows.ts) |
-| Basic parallel SubFlows | `Wait.allOf(...SubFlow.run(...))` | Parent waits for every child | [parallel-subflows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts) |
-| Wait for half | coordinator waits for quorum Channel | Loser stop behavior is explicit | [parallel-subflows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts) |
-| Long-lived parent | fixed handlers loop over request Channel | Queue is bounded and stop is explicit | [parallel-subflows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts) |
-| Short-lived parent | active-child Attribute plus conditional close | Counter/queue changes are serialized | [parallel-subflows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts) |
-| Partition and back pressure | stable hash + acceptance RPC + start-if-missing | Same key chooses same parent; rejection is handled | [parallel-subflows.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts) |
-| Polling | one long-running async `execute` loop; see [Polling](#polling) | “Not ready” is a loop branch, never an error | [Design pattern](https://docs.superdurable.io/design-patterns/polling); no pinned runnable example yet |
-| Cron | scheduler calls `startFlow` | ID/reuse policy defines overlap | [cron-schedule-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/cron/cron-schedule-flow.ts) |
-| Reminder | Timer races opt-out Channel | Opt-out does not cancel unrelated work | [reminder-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/reminders/reminder-flow.ts) |
-| Inactivity tracking | durable activity time plus Timer loop | Stale timer cannot close a newer activity window | [inactiveness-tracker-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts) |
-| Execute recovery | `ExecuteFailure.proceedTo` compensation | Persist compensation facts before risky work | [failure-recovery-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/recovery/failure-recovery-flow.ts) |
-| WaitFor recovery | `WaitForFailure` / proceed-on-failure | Execute distinguishes readiness from failed wait | [proceed-on-wait-failure-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts) |
-| Manual recovery | failed Step proceeds to Channel wait | Operator retry/skip is auditable and safe | [manual-recovery-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/intervention/manual-recovery-flow.ts) |
-| Graceful timeout | `handleTimeout` returns business decision | Deadline outcome is explicit | [flow-graceful-timeout.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts) |
-| Drain internal Channel | side Step loops until final marker | Main path cannot strand queued work | [drain-internal-channels-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/drain-channels/internal/drain-internal-channels-flow.ts) |
-| Drain external publishing | `forceCompleteIfChannelsEmpty` | Publish and close cannot race | [draining-channel-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts) |
-| Interruptible execution | cancellation selector + `AbortSignal` | Handler cooperates; remote effects compensate | [interruptible-execution-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/interruptible/interruptible-execution-flow.ts) |
-| Responsive Step update | `waitForStepCompletion` with wait options | Caller returns at the Step boundary while background work continues | [Runnable SDK test](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/test/integ/basic.integration.test.ts) |
-| Responsive Attribute update | `waitForAttributeMatch` returns a revision watermark | One wait may skip intermediate revisions | [Runnable SDK test](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/test/integ/rpc.integration.test.ts) |
-| Responsive Stream update | `readStream` with resume token | Best effort; reconstruct from durable state | [stream-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/primitives/stream/stream-flow.ts) |
-| Entity store | Flow per entity, RPC mutation, Attribute Store projection | Flow ID is entity key and writes serialize | [user-profile-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/entity-store/user-profile-flow.ts) |
-| Sequentially chunked AttributeMap | bounded `current` array plus immutable sequence-named archives | Append order remains stable and one page loads one chunk | [chunked-subscriber-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.ts) |
-| Hash-partitioned AttributeMap | canonical key, wrapping FNV-1a 32-bit, 1000 buckets | Full canonical keys distinguish bucket collisions | [customer-directory-flow.ts](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/hash-partitioned-attribute-map/customer-directory-flow.ts) |
-
-Use sequential chunks for append-only messages, events, and subscriber history. All appenders share the `current` instance lock and retry only after `RpcLockConflictError`. Use hash partitions for direct lookup and updates by a stable business key. An upsert supplies the same bucket through both `lockAttributeMapInstances` and `loadAttributeMapInstances`; a read supplies only the load. Changing the partition count requires a full rehash or a new Flow version.
+| Pattern | TypeScript shape | Example under `examples/typescript/src/` |
+| --- | --- | --- |
+| Static parallel Steps | `goToMany(StepMovement.of(A, x), StepMovement.of(B, x))` | `patterns/parallel/parallel-step-flows.ts` |
+| Dynamic parallel Steps | `goToMany(...items.map((item) => StepMovement.of(Work, item)))` | same file |
+| Await all parallel Steps | each branch publishes once and returns `deadEnd()`; a waiter uses `channel.forN(count)` | same file; [skeleton](#await-all-parallel-steps) |
+| First win | `withCancelingSiblingSteps(gracefulComplete(x), Work)` | same file |
+| Parallel SubFlows: basic, wait for half, long-lived and short-lived parent, partitioning, back pressure | `Wait.allOf(...SubFlow.run(...))`, quorum Channel, bounded request Channel | `patterns/parallel-subflows/parallel-subflows.ts` |
+| Polling | one async `execute` loop with heartbeats | `patterns/polling/polling-flow.ts`; [skeleton](#polling) |
+| Cron | Timer raced with trigger and skip Channels | `patterns/cron/cron-schedule-flow.ts` |
+| Reminder | Timer raced with an opt-out Channel | `patterns/reminders/reminder-flow.ts` |
+| Inactivity tracker | activity Channel restarts the Timer wait | `patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts` |
+| Execute failure recovery | `executeFailure: ExecuteFailure.proceedTo(Compensate)` | `patterns/recovery/failure-recovery-flow.ts` |
+| WaitFor failure recovery | `waitForFailure: "proceed"`, then `context.waitForMethodFailed()` in `execute` | `primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts` |
+| Manual recovery | failed Step proceeds to a Step waiting on operator Channels fed by verb-named RPCs | `patterns/intervention/manual-recovery-flow.ts` |
+| Graceful timeout | `StartFlowOptions.timeoutMs` plus `Flow.handleTimeout` returning a decision | `patterns/timeout/flow-graceful-timeout.ts` |
+| Drain internal Channels | side Step loops until a final marker | `patterns/drain-channels/internal/drain-internal-channels-flow.ts` |
+| Drain for external publishing | `forceCompleteIfChannelsEmpty(output, fallback, channel)` | `patterns/drain-channels/external-publishing/draining-channel-flow.ts` |
+| Interruptible execution | RPC records an interrupt; work runs in bounded slices and checks between them | `patterns/interruptible/interruptible-execution-flow.ts` |
+| Responsive update: Step completion | `client.waitForStepCompletion(flowId, StepExecutionId.of("Step"), options)` | `patterns/wait-for-step-completion` |
+| Responsive update: Attribute match | `client.waitForAttributeMatch(flowId, revision, AttributeMatch.greaterThan(seen), options)` | `products/job-post/job-post-flow.ts` |
+| Responsive update: Stream | `client.readStream` with a persisted resume token | `primitives/stream/stream-flow.ts` |
+| Entity store | one Flow per entity, RPC mutations with locks, `syncToAttributeStore()` | `patterns/entity-store/user-profile-flow.ts` |
+| Sequentially chunked AttributeMap | bounded `current` instance plus immutable archived chunks | `patterns/sequentially-chunked-attribute-map/chunked-subscriber-flow.ts` |
+| Hash-partitioned AttributeMap | stable hash of a canonical key selects a bucket instance | `patterns/hash-partitioned-attribute-map/customer-directory-flow.ts`, `patterns/hash-partitioned-attribute-map/controller.ts` |
 
 ## Polling
 
-Apply the Core [Polling pattern](../core/patterns.md#polling) to every wait on an external system. One `execute(context: AsyncContext, ...)` loops: call the provider with its own timeout, such as `AbortSignal.timeout(10_000)`; throw transient errors to Step retry; keep “not ready” in the loop; return the next decision on a terminal status, including a business-failure decision when the provider reports a definite failure. Write a Stream frame on status change, otherwise `await context.recordHeartbeat(checkpoint, codec)`, then `await setTimeout(intervalMs)` from `node:timers/promises`. Resume with `context.getLastHeartbeatValue(codec)`; the checkpoint holds resume state such as the last reported status, never a deadline. Bound the wait only with StepOptions: `executeMethodTimeoutMs` is the maximum wait, `executeRetry` allows a few attempts with `totalDurationMs` equal to the maximum wait (all attempts, measured from the first hand-out to a Worker), and `heartbeatTimeoutMs` keeps one minute with `interval + call timeout <= heartbeat timeout - 10s`. On expiry the engine fails the Step; `executeFailure: ExecuteFailure.proceedTo(RecordFailureStep)` routes it to a Step that reads `context.recoveryError` (`detail`, `errorType`) and records the business failure, and without that route the Flow fails. On server-zd newer than v0.1.16, `totalDurationMs` starts at the first hand-out to a Worker, only decides whether to retry after a failure, and never ends a running attempt, so the wait can last about `totalDurationMs` plus one `executeMethodTimeoutMs`; see the Core [Polling pattern](../core/patterns.md#polling). Never loop with a WaitFor Timer and `goTo`, `retryAfter` or retry policy, a hand-written deadline that duplicates `executeMethodTimeoutMs` or `totalDurationMs`, or a page token passed to the next execution.
-
-## Responsive Attribute revision
-
-Initialize the integer revision Attribute to zero. Every state-changing Step or RPC must declare the same Attribute lock and increment the revision inside the locked invocation. The [Job Posting Flow](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/products/job-post/job-post-flow.ts) demonstrates the `lockAttributes` boundary.
-
-Use `AttributeMatch.equalTo`, `notEqualTo`, `greaterThan`, `greaterThanOrEqual`, `lessThan`, or `lessThanOrEqual`. `waitForAttributeMatch` is overloaded for singleton Attributes and AttributeMap instances and returns the actual decoded matched value, including for non-equal operators. The map form also takes the instance. `requestId` is optional; server-zd does not use it. `requestTimeoutMs` bounds the complete SDK call across transparent reattachments. Omit it or use zero to wait indefinitely; a positive expiry throws `RequestTimeoutError`. `internalHandlerTimeoutMs` is deprecated and ignored; leave it unset. Each waiting call holds one of the Flow's concurrent wait slots until it returns or the caller disconnects. See the core responsive-update guidance for the full tradeoff. After the wait, read canonical state with [`client.getAttributes`](primitives.md#client-attribute-reads) or the application's read RPC. A revision is a coalescing watermark, not an event stream.
-
-[Runnable inequality wait](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/test/integ/rpc.integration.test.ts)
-<!-- dex-source: sdk-typescript/test/integ/rpc.integration.test.ts -->
 ```typescript
-assert.equal(
-  await client.waitForAttributeMatch(
-    id,
-    flow.counter,
-    AttributeMatch.greaterThan(0),
-    { requestId: `${id}-wait-counter`, requestTimeoutMs: 30_000 },
-  ),
-  succeeded,
-);
-```
+import { setTimeout as sleep } from "node:timers/promises";
 
-## Representative shapes
+const POLL_INTERVAL_MS = 2_000;
+const JOB_CALL_TIMEOUT_MS = 10_000;
+const MAX_JOB_WAIT_MS = 10 * 60_000;
 
-[Pinned parallel source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel/parallel-step-flows.ts)
-<!-- dex-source: examples/typescript/src/patterns/parallel/parallel-step-flows.ts -->
-```typescript
-public execute(_context: Context, input: string): StepDecision {
-  return goToMany(
-    StepMovement.of(WorkA, input),
-    StepMovement.of(WorkB, input),
-  );
+const jobProgress = new Stream("JobProgress", jsonCodec<JobStatus>(), 1 << 20);
+
+class AwaitJob implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public constructor(private readonly jobs: JobService) {}
+
+  public getStepType(): string {
+    return "AwaitJob";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeMethodTimeoutMs: MAX_JOB_WAIT_MS,
+      heartbeatTimeoutMs: 60_000,
+      executeRetry: { maximumAttempts: 3, totalDurationMs: MAX_JOB_WAIT_MS },
+      executeFailure: ExecuteFailure.proceedTo(RecordJobWaitFailure),
+    };
+  }
+
+  public async execute(context: AsyncContext, jobId: string): Promise<StepDecision> {
+    let reportedState = context.getLastHeartbeatValue<JobState>();
+    while (true) {
+      const status = await this.jobs.getJobStatus(jobId, AbortSignal.timeout(JOB_CALL_TIMEOUT_MS));
+      if (status.state === "SUCCEEDED") {
+        return gracefulComplete(status.result);
+      }
+      if (status.state === "FAILED") {
+        return forceFail(`job ${jobId} failed`);
+      }
+      if (status.state !== reportedState) {
+        jobProgress.write(context, status);
+        reportedState = status.state;
+      } else {
+        await context.recordHeartbeat(reportedState);
+      }
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+}
+
+class RecordJobWaitFailure implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RecordJobWaitFailure";
+  }
+
+  public execute(context: Context, jobId: string): StepDecision {
+    return forceFail(`waiting for job ${jobId} failed: ${context.recoveryError?.detail ?? "unknown"}`);
+  }
 }
 ```
 
-[Pinned quorum source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts)
-<!-- dex-source: examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts -->
+- Use `AbortSignal.timeout(ms)` for each provider call and
+  `setTimeout` from `node:timers/promises` between rounds.
+- Write `jobProgress.write(context, status)` when the status changes;
+  otherwise `await context.recordHeartbeat(state)`. Resume from
+  `context.getLastHeartbeatValue()`.
+- `executeMethodTimeoutMs`, `executeRetry.totalDurationMs`, and
+  `heartbeatTimeoutMs` bound the wait. `ExecuteFailure.proceedTo` routes
+  expiry to the recording Step.
+
+## Await all parallel Steps
+
 ```typescript
-public waitFor(_context: Context, total: number): Wait {
-  return Wait.until(subFlowCompletedCh.forN(Math.ceil(total / 2)));
+const branchDone = new Channel("branch-done", voidCodec);
+
+class ProcessShard implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "ProcessShard";
+  }
+
+  public async execute(context: Context, _shard: number): Promise<StepDecision> {
+    branchDone.publish(context, undefined);
+    return deadEnd();
+  }
+}
+
+class AwaitShards implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "AwaitShards";
+  }
+
+  public waitFor(_context: Context, count: number): Wait {
+    return Wait.until(branchDone.forN(count));
+  }
+
+  public execute(_context: Context, count: number): StepDecision {
+    return gracefulComplete(count);
+  }
+}
+
+class SplitShards implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "SplitShards";
+  }
+
+  public execute(_context: Context, count: number): StepDecision {
+    return goToMany(
+      StepMovement.of(AwaitShards, count),
+      ...Array.from({ length: count }, (_, shard) => StepMovement.of(ProcessShard, shard)),
+    );
+  }
 }
 ```
 
-[Pinned recovery source](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/src/patterns/recovery/failure-recovery-flow.ts)
-<!-- dex-source: examples/typescript/src/patterns/recovery/failure-recovery-flow.ts -->
-```typescript
-public getStepOptions(): StepOptions {
-  return {
-    executeFailure: ExecuteFailure.proceedTo(UpdateQuantityRecovery, {
-      executeRetry: { maximumAttempts: 5 },
-    }),
-    executeRetry: { maximumAttempts: 5 },
-  };
-}
-```
+- Register the completion Channel in `getPersistenceSchema().channels` and
+  register all three Steps in `getSteps()`.
 
-Before coding, write down terminal states, queue bounds, cancellation target, idempotency key, and recovery behavior. Combine patterns only when each invariant is required.
+## TypeScript notes for other patterns
+
+- First win: the winner returns `withCancelingSiblingSteps(decision, Work)`.
+  Losers watch `context.cancellationSignal`.
+- Partitioned AttributeMaps: an upsert passes the same bucket to both
+  `lockAttributeMapInstances` and `loadAttributeMapInstances` in
+  `client.invokeRPCWithOptions`. A read passes only the load.
+- Revision match: every writer of the revision Attribute declares the same
+  `revision.lock()`, then callers use `client.waitForAttributeMatch` with
+  `AttributeMatch.greaterThan(seen)`.
+- Graceful timeout: `handleTimeout(context)` may take `AsyncContext`. Load
+  state through `StartFlowOptions.timeoutHandlerOptions`. Route exhausted
+  handler retries with `FlowTimeoutHandlerFailure.proceedTo(step)`; that Step
+  uses `inputCodec = voidCodec`.
