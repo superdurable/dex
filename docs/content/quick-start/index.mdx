@@ -783,7 +783,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 Point a Registry, Worker, and Client at **dexcli** (**127.0.0.1:8801**). Construct the Flow with the service, then register it.
 
 The Worker opens outbound task streams to **dexcli** and needs no inbound port.
-See [Pull Workers](/primitives/components/application) for capacity, readiness, and
+See [Workers and the task queue](/reference/server/workers) for capacity, readiness, and
 production setup.
 
 <SdkTabs

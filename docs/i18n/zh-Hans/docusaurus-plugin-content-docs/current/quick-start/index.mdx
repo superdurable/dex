@@ -779,7 +779,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 把 Registry、Worker、Client 指到 **dexcli**（**127.0.0.1:8801**）。用 service 构造 Flow，再注册。
 
 Worker 主动向 **dexcli** 建立任务 stream，无需开放入站端口。容量、就绪状态和生产环境配置见
-[拉取模式 Worker](/primitives/components/application)。
+英文的 [Workers and the task queue](/reference/server/workers)。
 
 <SdkTabs
   examples={{

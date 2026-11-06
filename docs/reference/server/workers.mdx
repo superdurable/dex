@@ -104,7 +104,9 @@ This reassignment does not consume a Step attempt. The attempt keeps its
 attempt number, input snapshot, and Attribute locks. If no
 capable Worker is connected, the Step waits in the queue. An RPC caller gets
 the named error directly after Dex tries other Workers within the caller's
-deadline, up to the dispatch wait of 10 seconds.
+deadline, up to the dispatch wait of 10 seconds. This reassignment requires a
+Dex Server release that supports pull unknown-name reassignment. Older Servers
+keep the previous not-registered Worker error behavior.
 
 Once Dex hands a Step attempt to a Worker, Dex never hands the same attempt
 number to another Worker. When the Worker disconnects or crashes, the attempt
