@@ -131,18 +131,7 @@ pub(crate) fn flow_service_endpoint(
         .expect("validated TLS endpoint has a port");
     let host = host.trim_start_matches('[').trim_end_matches(']');
     let mut tls = ClientTlsConfig::new().domain_name(host);
-    let native = rustls_native_certs::load_native_certs();
-    if !native.errors.is_empty() {
-        tracing::warn!(
-            error_count = native.errors.len(),
-            "failed to load some native root CAs"
-        );
-    }
     let mut roots = RootCertStore::empty();
-    let (_, skipped_count) = roots.add_parsable_certificates(native.certs);
-    if skipped_count > 0 {
-        tracing::warn!(skipped_count, "skipped invalid native root CAs");
-    }
     if let Some(server_name) = &options.server_name {
         if !is_valid_tls_name(server_name)
             || rustls::pki_types::ServerName::try_from(server_name.as_str()).is_err()
@@ -153,8 +142,10 @@ pub(crate) fn flow_service_endpoint(
         }
         tls = tls.domain_name(server_name);
     }
+    let mut skipped_added_count = 0;
     if let Some(bundle) = &options.additional_root_cas_pem {
-        let added_count = add_additional_certificates(&mut roots, bundle);
+        let (added_count, skipped_count) = add_additional_certificates(&mut roots, bundle);
+        skipped_added_count = skipped_count;
         if !bundle.is_empty() && added_count == 0 {
             return Err(invalid_tls(
                 "flow_service_tls.additional_root_cas_pem contains no PEM certificate",
@@ -172,6 +163,26 @@ pub(crate) fn flow_service_endpoint(
         endpoint = endpoint.origin(format!("https://{authority}").parse().map_err(|_| {
             invalid_tls("flow_service_tls.server_name is not a valid HTTP/2 authority")
         })?);
+    }
+    let native = rustls_native_certs::load_native_certs();
+    if !native.errors.is_empty() {
+        tracing::warn!(
+            error_count = native.errors.len(),
+            "failed to load some native root CAs"
+        );
+    }
+    let (_, skipped_count) = roots.add_parsable_certificates(native.certs);
+    if skipped_count > 0 {
+        tracing::debug!(skipped_count, "skipped invalid native root CAs");
+    }
+    if skipped_added_count > 0 {
+        tracing::warn!(
+            skipped_count = skipped_added_count,
+            "skipped invalid additional root CA PEM blocks"
+        );
+    }
+    if roots.is_empty() {
+        tracing::warn!("FlowService TLS trust store is empty; server verification will fail");
     }
     endpoint
         .tls_config(tls.trust_anchors(roots.roots))
@@ -245,7 +256,7 @@ fn is_valid_tls_name(name: &str) -> bool {
         && (!name.contains(':') || name.parse::<IpAddr>().is_ok())
 }
 
-fn add_additional_certificates(roots: &mut RootCertStore, bundle: &[u8]) -> usize {
+fn add_additional_certificates(roots: &mut RootCertStore, bundle: &[u8]) -> (usize, usize) {
     let bundle = String::from_utf8_lossy(bundle);
     let mut added_count = 0;
     let mut skipped_count = 0;
@@ -263,13 +274,7 @@ fn add_additional_certificates(roots: &mut RootCertStore, bundle: &[u8]) -> usiz
             Err(_) => skipped_count += 1,
         }
     }
-    if skipped_count > 0 {
-        tracing::warn!(
-            skipped_count,
-            "skipped invalid additional root CA PEM blocks"
-        );
-    }
-    added_count
+    (added_count, skipped_count)
 }
 
 fn invalid_tls(message: &str) -> SdkError {

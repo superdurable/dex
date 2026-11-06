@@ -67,11 +67,12 @@ worker.start()?;
 replaces the system roots. Omit it for a certificate signed by a system-trusted
 CA. Empty bytes also use system roots alone. A nonempty bundle must contain at
 least one parsable certificate; unrelated or malformed blocks are skipped when
-another certificate parses. Skipped malformed certificate blocks produce a warning
-with their count. Roots are read at construction, without file watching. Additional roots work even when
-the native trust store is empty or fails to load. Native load errors produce a
-warning with their count; successfully loaded roots remain usable. An empty
-combined trust store constructs successfully, but connections fail verification.
+another certificate parses. Skipped malformed certificate blocks produce a
+warning with their count. Roots are read at construction, without file watching.
+Additional roots work even when the native trust store is empty or fails to load.
+Native load errors produce a warning with their count; successfully loaded roots
+remain usable. An empty combined trust store constructs successfully, but
+connections fail verification.
 
 `server_name` optionally overrides the address host for certificate verification,
 SNI, and HTTP/2 `:authority`. It must be a nonempty DNS name or unbracketed IP
