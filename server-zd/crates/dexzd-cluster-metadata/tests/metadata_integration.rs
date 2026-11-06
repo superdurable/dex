@@ -421,11 +421,16 @@ async fn first_bootstrap_and_second_node_validate_immutable_cluster() {
     .unwrap_err();
     assert!(matches!(
         error,
-        MetadataError::ClusterMismatch {
-            field: "partition count",
-            ..
+        MetadataError::PartitionCountMismatch {
+            configured: 512,
+            stored: 1024,
         }
     ));
+    let message = error.to_string();
+    assert!(
+        message.contains("configured 512") && message.contains("records 1024"),
+        "{message}"
+    );
     let mut stored =
         ClusterObject::decode(store.get("cluster").await.unwrap().unwrap().bytes).unwrap();
     stored.partition_hash_algorithm = 0;

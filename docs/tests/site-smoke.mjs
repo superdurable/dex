@@ -1,7 +1,23 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
 import assert from 'node:assert/strict';
 import {access, readFile, readdir} from 'node:fs/promises';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {unified} from 'unified';
+import remarkParse from 'remark-parse';
+import remarkMdx from 'remark-mdx';
+import remarkFrontmatter from 'remark-frontmatter';
+import remarkGfm from 'remark-gfm';
+import {prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
+import {markdownPath} from '../src/markdownPath.mjs';
+import './markdown-export.mjs';
 import {apiEntryPaths, auditApiReferenceIndexPages, auditApiReferences} from './api-reference-smoke.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
@@ -59,6 +75,7 @@ const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'connecto
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 const dexSkillHostTabsSource = await readFile(join(docsRoot, 'src', 'components', 'DexSkillHostTabs.tsx'), 'utf8');
+const dexSkillHostData = JSON.parse(await readFile(join(docsRoot, 'src', 'data', 'dex-skill-hosts.json'), 'utf8'));
 const dexSkillSourcePaths = [
   join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill.mdx'),
   join(docsRoot, 'content', 'build-with-ai', 'dex-developer-skill', 'dex-app-builder.mdx'),
@@ -248,10 +265,13 @@ for (const page of chineseDexSkillPages) {
   assertDexSkillHostTabs(page, '其他客户端', true);
 }
 
-assert.match(dexSkillHostTabsSource, /defaultValue="codex-desktop"/);
+assert.match(dexSkillHostTabsSource, /defaultValue=\{hosts\[0\]\.id\}/);
 assert.match(dexSkillHostTabsSource, /groupId="dex-skill-host"/);
 assert.match(dexSkillHostTabsSource, /queryString="host"/);
-assert.equal((dexSkillHostTabsSource.match(/<TabItem\b/g) ?? []).length, 6);
+assert.match(dexSkillHostTabsSource, /<TabItem key=\{host\.id\} label=\{host\.label\} value=\{host\.id\}>/);
+for (const {hosts} of Object.values(dexSkillHostData.locales)) {
+  assert.deepEqual(hosts.map((host) => host.id), ['codex-desktop', 'codex-cli', 'claude-desktop', 'claude-cli', 'cursor', 'others']);
+}
 assert.doesNotMatch(dexSkillHostTabsSource, /\blazy(?:=|\s)/);
 for (const source of dexSkillSources) {
   assert.match(source, /<DexSkillHostTabs skill="(?:all|dex-app-builder|dex-sdk|dex-connector-contributor)" \/>/);
@@ -424,6 +444,81 @@ assert.deepEqual(
   'sitemap must contain every indexable canonical URL and no redirects or duplicate variants',
 );
 
+const markdownParser = unified().use(remarkParse).use(remarkFrontmatter).use(remarkGfm);
+const sourceParser = unified().use(remarkParse).use(remarkMdx).use(remarkFrontmatter).use(remarkGfm);
+let markdownPages = 0;
+for (const [canonical, {html, route}] of indexablePages) {
+  if (!html.includes('theme-doc-markdown')) continue;
+  const locale = route.startsWith('/zh-Hans/') ? 'zh-Hans' : 'en';
+  const pathname = markdownPath(route, locale === 'zh-Hans' ? '/zh-Hans/' : '/');
+  const markdown = await readFile(join(root, pathname.slice(1)), 'utf8');
+  const metadata = Object.fromEntries([...markdown.matchAll(/^(title|description|canonical_url|source|locale): (.+)$/gm)]
+    .map(([, key, value]) => [key, JSON.parse(value)]));
+  assert.equal(metadata.canonical_url, canonical, `${pathname} has incorrect HTML canonical`);
+  assert.equal(metadata.locale, locale);
+  assert.ok(metadata.title && metadata.source, `${pathname} is missing source metadata`);
+  const descriptionTag = htmlTags(html, 'meta').find((tag) => attributeValue(tag, 'name') === 'description');
+  const metaDescription = htmlText(attributeValue(descriptionTag ?? '', 'content') ?? '').replace(/\s+/g, ' ').trim();
+  assert.equal(metadata.description ?? '', metaDescription, `${pathname} description must match the HTML meta description`);
+  const markdownLinkLabel = locale === 'zh-Hans' ? '查看 Markdown（在新标签页中打开）' : 'View as Markdown (opens in a new tab)';
+  const markdownLinks = [...html.matchAll(/<a [^>]*target="_blank" rel="noopener" aria-label="([^"]+)"[^>]*>/g)]
+    .filter(([tag]) => tag.includes(`href="${pathname}"`));
+  assert.deepEqual(markdownLinks.map(([, label]) => label), [markdownLinkLabel], `${pathname} needs one localized robot link`);
+  assert.doesNotMatch(markdownLinks[0][0], /\stitle=/, `${pathname} robot link must not repeat its label in title`);
+  assert.ok(html.indexOf('<h1') >= 0 && html.indexOf('<h1') < markdownLinks[0].index, `${pathname} robot link must follow the h1`);
+  const tree = markdownParser.parse(markdown);
+  const codeBlocks = [];
+  visitMarkdown(tree, node => {
+    if (node.type === 'code') codeBlocks.push(node);
+    if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${pathname} contains leftover JSX/HTML`);
+    if (node.type === 'text') assert.doesNotMatch(node.value, /^\s*:::/m, `${pathname} contains a leftover admonition fence`);
+    if (['link', 'definition', 'image'].includes(node.type)) {
+      assert.match(node.url, /^https?:\/\//, `${pathname} contains non-absolute URL ${node.url}`);
+      const target = new URL(node.url);
+      if (target.origin === siteOrigin) {
+        assert.ok(indexablePages.has(new URL(target.pathname, siteOrigin).href) ||
+          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) ||
+          apiEntryPaths.has(target.pathname), `${pathname} links to missing ${target.pathname}`);
+      }
+    }
+  });
+  const source = await readFile(join(docsRoot, '..', metadata.source), 'utf8');
+  const sourceTree = sourceParser.parse(prepareSource(source, {headingIds: new Map(), locale, sourcePath: metadata.source}));
+  const expectedBlocks = [];
+  visitMarkdown(sourceTree, node => {
+    if (node.name !== 'SdkTabs' && !(node.name === 'SdkSnippet' && !node.isInsideSdkTabs)) return;
+    const snippets = node.name === 'SdkSnippet' ? [node] : node.children.filter(child => child.name === 'SdkSnippet');
+    snippets.forEach(snippet => { snippet.isInsideSdkTabs = node.name === 'SdkTabs'; });
+    const blocksByLanguage = new Map(snippets.map(snippet => {
+      const language = snippet.attributes.find(attribute => attribute.name === 'lang')?.value;
+      return [language, snippet.children.filter(child => child.type === 'code')
+        .map(block => ({lang: block.lang || language, value: block.value}))];
+    }));
+    for (const language of sdkOrder) expectedBlocks.push(...(blocksByLanguage.get(language) ?? []));
+  });
+  let codeCursor = 0;
+  for (const expected of expectedBlocks) {
+    while (codeCursor < codeBlocks.length && !(codeBlocks[codeCursor].lang === expected.lang && codeBlocks[codeCursor].value === expected.value)) codeCursor++;
+    assert.ok(codeCursor < codeBlocks.length, `${pathname} lost or reordered the ${expected.lang} SDK snippet`);
+    codeCursor++;
+  }
+  markdownPages++;
+}
+const indexedMarkdown = new Set();
+for (const localeRoot of ['', 'zh-Hans/']) {
+  const index = await readFile(join(root, localeRoot, 'llms.txt'), 'utf8');
+  for (const [, href] of index.matchAll(/\]\((https?:[^)]+\.md)\)/g)) {
+    const target = new URL(href);
+    assert.equal(target.origin, siteOrigin);
+    assert.ok(outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `llms.txt links to missing ${href}`);
+    assert.equal(indexedMarkdown.has(href), false, `llms.txt duplicates ${href}`);
+    indexedMarkdown.add(href);
+  }
+}
+assert.equal(indexedMarkdown.size, markdownPages, 'llms.txt indexes must cover every docs page exactly once');
+assert.ok(sitemapUrls.every(href => !new URL(href).pathname.endsWith('.md')), 'Markdown twins must stay outside sitemaps');
+console.log(`Markdown audit passed for ${markdownPages} docs pages in both locales, SDK snippets, and llms.txt indexes.`);
+
 const robots = await readFile(join(root, 'robots.txt'), 'utf8');
 assert.match(robots, /^User-agent: \*$/m);
 assert.match(robots, /^Allow: \/$/m);
@@ -447,6 +542,10 @@ function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
   ]);
   assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>Codex Desktop<\/li>/);
   assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 6);
+  const codeBlocks = (html.match(/class="codeBlockContent/g) ?? []).length;
+  // Only string CodeBlock children render codeBlockContent, which holds the browser-only copy button.
+  assert.ok(codeBlocks >= 8, 'skill host code blocks must render as highlighted CodeBlocks');
+  assert.equal((html.match(/<pre\b/g) ?? []).length, codeBlocks, 'every skill host code block needs CodeBlock highlighting and a copy button');
 
   const text = htmlText(html);
   assert.match(text, /@Dex /);
@@ -591,4 +690,9 @@ function hasNoIndexOrNoFollow(html) {
     }
     return /(?:^|[,\s])(noindex|nofollow)(?:$|[,\s])/i.test(attributeValue(tag, 'content') ?? '');
   });
+}
+
+function visitMarkdown(node, visitor) {
+  visitor(node);
+  node.children?.forEach(child => visitMarkdown(child, visitor));
 }

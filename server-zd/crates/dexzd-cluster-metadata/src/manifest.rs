@@ -136,7 +136,12 @@ pub async fn create_initial_manifest(
     {
         return Err(MetadataError::InvalidMetadata {
             key: MANIFEST_KEY,
-            detail: format!("partition count differs from configured {partition_count}"),
+            detail: format!(
+                "manifest records partition count {} and lists {} partitions, not the \
+                 expected {partition_count}",
+                manifest.partition_count,
+                manifest.partitions.len()
+            ),
         });
     }
     Ok(manifest)

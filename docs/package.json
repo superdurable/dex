@@ -39,7 +39,13 @@
     "@docusaurus/tsconfig": "3.8.1",
     "@docusaurus/types": "3.8.1",
     "@types/dagre": "^0.7.52",
+    "remark-frontmatter": "5.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-mdx": "3.1.1",
+    "remark-parse": "11.0.0",
+    "remark-stringify": "11.0.0",
     "typescript": "~5.6.2",
+    "unified": "11.0.5",
     "webpack": "5.97.1"
   },
   "browserslist": {
