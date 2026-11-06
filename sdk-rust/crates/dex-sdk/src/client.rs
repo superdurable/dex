@@ -673,9 +673,14 @@ impl Client {
         )
     }
 
-    /// Creates a new run by replaying an existing Flow from the selected historical point.
+    /// Re-runs an existing Flow from the selected historical point.
     ///
-    /// Returns the new server-assigned run ID.
+    /// Time travel keeps the Flow's run ID and starts the next run attempt of that run. Re-run Steps
+    /// reuse the Flow ID, run ID, and Step execution IDs of the original execution. An external
+    /// idempotency key built only from those IDs therefore matches the effect from before time
+    /// travel. Reconcile such effects, or build keys that the application changes for each re-run.
+    ///
+    /// Returns the run ID, which is the same run ID the Flow had before time travel.
     ///
     /// # Errors
     ///

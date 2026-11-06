@@ -11,7 +11,9 @@ use std::time::SystemTime;
 use crate::{Step, StepExecutionId};
 
 #[derive(Clone, Debug)]
-/// Selects a historical point from which [`crate::Client::time_travel`] creates a new run.
+/// Selects a historical point from which [`crate::Client::time_travel`] re-runs a Flow.
+///
+/// Time travel keeps the run ID and starts the next run attempt of that run.
 ///
 /// Constructors identify exactly one time travel point. Builder methods add an audit reason and control
 /// whether writes are reapplied. Write reapplication defaults to enabled.
