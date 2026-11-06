@@ -957,7 +957,7 @@ describe("agent UI streams with the Stream Store disabled", () => {
   before(async () => {
     const configDirectory = mkdtempSync(join(tmpdir(), "dex-agents-disabled-streams-"));
     const configPath = join(configDirectory, "server-zd.yaml");
-    writeFileSync(configPath, "streamStore:\n  backend: disabled\n");
+    writeFileSync(configPath, "streamStore:\n  backend: disabled\ndev:\n  durabilityMode: processCrashSafe\n");
     engine = await PrivateDexEngine.start({ serverZdConfigPath: configPath });
     const markerDirectory = mkdtempSync(join(engine.stateDirectory, "markers-"));
     const flow = createScriptedAgentFlow(markerDirectory, { flowType: "UIStreamDisabledAgent" });

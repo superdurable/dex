@@ -34,7 +34,7 @@ The application installs exactly one copy of each, because the Dex Registry
 matches Flow classes and RPC registrations by identity, and the session
 recognizes `ToolExecutionError` only from its own copy of the core. `zod` 4 is a peer
 dependency, the same one `tool()` schemas use. Requirements: Node
-`^22.0.0 || ^24.0.0` and `@superdurable/dex` 1.30.0. The Worker needs Claude
+`^22.0.0 || ^24.0.0` and `@superdurable/dex` 1.35.0. The Worker needs Claude
 Code credentials, such as `ANTHROPIC_API_KEY`, exactly as a plain Claude Agent
 SDK program does.
 

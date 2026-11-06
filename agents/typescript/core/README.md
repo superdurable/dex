@@ -27,10 +27,10 @@ Applications usually install an adapter next to this package. To build a
 runner of your own, install the core with the Dex SDK it supports:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.30.0
+npm i @superdurable/dex-agents @superdurable/dex@1.35.0
 ```
 
-`@superdurable/dex` 1.30.0 is a peer dependency, so the application, the core,
+`@superdurable/dex` 1.35.0 is a peer dependency, so the application, the core,
 and every adapter share one copy. The Dex Registry matches Flow classes and
 RPC registrations by identity, so a second copy makes it reject the Flow
 (`steps must be a StepList`). Adapters list this package as a peer dependency
@@ -1157,7 +1157,7 @@ It needs `@modelcontextprotocol/sdk` 1.x, an optional peer dependency; the main
 entry point never imports it:
 
 ```bash
-npm i @superdurable/dex-agents @superdurable/dex@1.30.0 @modelcontextprotocol/sdk zod
+npm i @superdurable/dex-agents @superdurable/dex@1.35.0 @modelcontextprotocol/sdk zod
 ```
 
 Configure the servers on the Worker, never from Flow input, a user message, or
@@ -1742,7 +1742,7 @@ real Dex Server with no model key:
 
 | Export | Purpose |
 | --- | --- |
-| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli`. `serverZdConfigPath` passes `dex-server-zd` overrides, such as a disabled Stream Store |
+| `PrivateDexEngine.start()` | Private `dexcli dev --engine zd` on free ports with its own state directory. Reads `DEXCLI`; `dex-server-zd` comes from `DEX_SERVER_ZD_BINARY` or sits next to `dexcli`. The engine runs with `dev.durabilityMode: processCrashSafe`, which skips fsync and survives a process kill, through a `-zd-config` file that works with any `dexcli`. `serverZdConfigPath` passes `dex-server-zd` overrides instead, such as a disabled Stream Store; set `dev.durabilityMode` there too |
 | `KillableWorkerProcess.start({ entryModulePath, serverAddress, logPath, environment })` | Worker child in its own process group; `kill()` sends SIGKILL to the group, `stop()` drains |
 | `runAgentWorkerProcess(flows)` | Body of the Worker child module; 8 concurrent tasks; prints `dex-agents test Worker ready` once registered |
 | `AgentTestEnvironment.start({ serverAddress, flows, isWorkerInProcess })` | Registry, BlobCache, Client, and optional in-process Worker with 8 concurrent tasks |

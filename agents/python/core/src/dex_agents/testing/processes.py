@@ -120,6 +120,8 @@ def resolve_server_zd_path(dexcli: Path) -> Path:
 
 # How many times PrivateDexEngine.start tries, each on new free ports, as the TypeScript core does.
 _ENGINE_START_ATTEMPTS = 3
+# A config file, unlike dexcli's --durability flag, also works with an older dexcli.
+_PROCESS_CRASH_SAFE_SERVER_ZD_CONFIG = "dev:\n  durabilityMode: processCrashSafe\n"
 
 
 class KillableProcess:
@@ -295,7 +297,12 @@ class PrivateDexEngine:
                 ``resolve_server_zd_path``.
             server_zd_config: ``dex-server-zd`` YAML file with configuration
                 overrides, passed as ``dexcli dev -zd-config``, such as
-                ``streamStore: {backend: disabled}``. ``None`` uses none.
+                ``streamStore: {backend: disabled}``. ``None`` passes a file
+                that sets only ``dev.durabilityMode: processCrashSafe``, which
+                skips fsync and survives a process kill, but not a host crash.
+                A file of your own replaces it, so set
+                ``dev.durabilityMode`` there too, or the engine uses the
+                slower ``strict`` default of ``dex-server-zd`` 0.1.18 and later.
 
         Raises:
             FileNotFoundError: If an executable cannot be found.
@@ -336,9 +343,11 @@ class PrivateDexEngine:
                 three attempts, each on new free ports.
         """
         self._state_dir.mkdir(parents=True, exist_ok=True)
-        config_arguments = (
-            [] if self._server_zd_config is None else ["-zd-config", str(self._server_zd_config)]
-        )
+        config_path = self._server_zd_config
+        if config_path is None:
+            config_path = self._state_dir / "zd-overrides.yaml"
+            config_path.write_text(_PROCESS_CRASH_SAFE_SERVER_ZD_CONFIG)
+        config_arguments = ["-zd-config", str(config_path)]
         for attempt in range(1, _ENGINE_START_ATTEMPTS + 1):
             # A failed attempt may leave state behind, so each retry gets its own data directory.
             data_dir = self._state_dir / ("zd" if attempt == 1 else f"zd-{attempt}")

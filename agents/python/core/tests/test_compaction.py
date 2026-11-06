@@ -789,7 +789,8 @@ async def _run_padded_session(
     message bytes are measured.
     """
     config_path = tmp_path / "server-zd.yaml"
-    config_path.write_text(server_config)
+    # A config of its own replaces the test engine's process-crash-safe durability.
+    config_path.write_text(f"{server_config}dev:\n  durabilityMode: processCrashSafe\n")
     state_dir = tmp_path / "agent-state"
     state_dir.mkdir()
     flow = build_compaction_agent_flow(state_dir)

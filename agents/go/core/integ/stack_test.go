@@ -90,7 +90,9 @@ func newAgentTestStackWithServerZDConfig(t *testing.T, serverZDConfig string) *a
 	configPath := ""
 	if serverZDConfig != "" {
 		configPath = filepath.Join(stateDir, "server-zd.yaml")
-		require.NoError(t, os.WriteFile(configPath, []byte(serverZDConfig), 0o600))
+		// A config of its own replaces the test engine's process-crash-safe durability.
+		configText := serverZDConfig + "dev:\n  durabilityMode: processCrashSafe\n"
+		require.NoError(t, os.WriteFile(configPath, []byte(configText), 0o600))
 	}
 	engine, err := agentstest.NewPrivateDexEngineWithServerZDConfig(filepath.Join(stateDir, "engine"), configPath)
 	require.NoError(t, err)

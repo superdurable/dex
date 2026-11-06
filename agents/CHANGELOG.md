@@ -23,6 +23,18 @@ for the Dex SDK and framework versions each release supports.
 - This needs the Dex SDK release that adds `RecoveryErrorInfo.attempt_progress`
   (`attemptProgress`, `AttemptProgress`).
 
+### Dex SDK 1.35.0
+
+- Every package requires Dex SDK 1.35.0 (`dex-python-sdk==1.35.0`,
+  `@superdurable/dex` `1.35.0`, Go `sdk-go` `v1.35.0`) and a Dex Server with
+  protocol 4: server-zd v0.1.17 or later.
+- The testing exports' private engines (`dex_agents.testing`,
+  `@superdurable/dex-agents/testing`, Go `agentstest`) run `dexcli dev` with
+  a `-zd-config` file that sets `dev.durabilityMode: processCrashSafe`, so
+  tests stay fast now that `dex-server-zd` 0.1.18 defaults to `strict`. A
+  configuration file you pass replaces it; set `dev.durabilityMode` there
+  too.
+
 ### MCP tool source
 
 - `dex_agents.mcp` (extra `dex-agents[mcp]`, `mcp>=2.3,<3`) and

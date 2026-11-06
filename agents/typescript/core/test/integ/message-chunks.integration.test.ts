@@ -481,7 +481,7 @@ describe("chunked AgentMessages", () => {
   test("a message too large for the Server's value limit fails the turn that stores it, and the next turn runs", async () => {
     const maxValueBytes = 8_192;
     const configPath = join(newMarkerDirectory(engine), "server-zd.yaml");
-    writeFileSync(configPath, `values:\n  maxValueBytes: ${maxValueBytes}\n  blobDbMinValueBytes: 4096\nlimits:\n  maxFlowStateBytes: 67108864\n`);
+    writeFileSync(configPath, `values:\n  maxValueBytes: ${maxValueBytes}\n  blobDbMinValueBytes: 4096\nlimits:\n  maxFlowStateBytes: 67108864\ndev:\n  durabilityMode: processCrashSafe\n`);
     const limitedEngine = await PrivateDexEngine.start({ serverZdConfigPath: configPath });
     const limitedEnvironment = await AgentTestEnvironment.start({
       serverAddress: limitedEngine.serverAddress,

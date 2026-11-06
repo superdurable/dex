@@ -214,6 +214,9 @@ func (process *KillableProcess) ReadLog() (string, error) {
 	return string(content[process.logOffset:]), nil
 }
 
+// processCrashSafeServerZDConfig skips fsync; a config file, unlike --durability, works with an older dexcli.
+const processCrashSafeServerZDConfig = "dev:\n  durabilityMode: processCrashSafe\n"
+
 // PrivateDexEngine runs one dexcli dev engine on free ports with its state in a directory.
 //
 // Every test that needs a clean server, or kills the server, gets its own
@@ -240,8 +243,11 @@ func NewPrivateDexEngine(stateDir string) (*PrivateDexEngine, error) {
 // NewPrivateDexEngineWithServerZDConfig describes an engine whose dex-server-zd reads a YAML
 // configuration file, such as one that lowers values.maxValueBytes, without starting it.
 //
-// An empty serverZDConfigPath uses the defaults, as NewPrivateDexEngine does. It returns an
-// error when dexcli or dex-server-zd cannot be found, or no free ports are available.
+// An empty serverZDConfigPath passes a file that sets only dev.durabilityMode: processCrashSafe,
+// as NewPrivateDexEngine does. That mode skips fsync and survives a process kill, but not a host
+// crash. A file of your own replaces it, so set dev.durabilityMode there too, or the engine uses
+// the slower strict default of dex-server-zd 0.1.18 and later. It returns an error when dexcli or
+// dex-server-zd cannot be found, or no free ports are available.
 func NewPrivateDexEngineWithServerZDConfig(stateDir string, serverZDConfigPath string) (*PrivateDexEngine, error) {
 	dexcli, err := ResolveDexcliPath()
 	if err != nil {
@@ -288,9 +294,17 @@ func (engine *PrivateDexEngine) Start(ctx context.Context) error {
 		"-web-port", fmt.Sprint(engine.webPort),
 		"-open=false",
 	}
-	if engine.serverZDConfig != "" {
-		arguments = append(arguments, "-zd-config", engine.serverZDConfig)
+	configPath := engine.serverZDConfig
+	if configPath == "" {
+		configPath = filepath.Join(engine.stateDir, "zd-overrides.yaml")
+		if err := os.MkdirAll(engine.stateDir, 0o755); err != nil {
+			return fmt.Errorf("create engine state directory: %w", err)
+		}
+		if err := os.WriteFile(configPath, []byte(processCrashSafeServerZDConfig), 0o600); err != nil {
+			return fmt.Errorf("write the dex-server-zd durability config: %w", err)
+		}
 	}
+	arguments = append(arguments, "-zd-config", configPath)
 	return engine.process.Start(ctx, arguments, nil, EngineReadyLine, time.Minute)
 }
 

@@ -18,7 +18,7 @@ at most the one call that was running.
 
 Applications usually install an adapter, which brings in this package. To
 build a runner of your own, install the core directly. It needs Python 3.11 or
-later and requires the released `dex-python-sdk==1.30.0`:
+later and requires the released `dex-python-sdk==1.35.0`:
 
 ```bash
 pip install dex-agents
@@ -1656,8 +1656,12 @@ carry content, because 1.36.0 recorded content as events.
 
 `dex_agents.testing` runs integration tests against a private `dexcli dev
 --engine zd` engine. It reads `DEXCLI` and expects `dex-server-zd` next to it
-(or `DEX_SERVER_ZD_BINARY`). The Worker runs in a child process in its own
-process group, so a test can SIGKILL it at an exact moment.
+(or `DEX_SERVER_ZD_BINARY`). The engine runs with
+`dev.durabilityMode: processCrashSafe`, which skips fsync and survives a
+process kill, through a `-zd-config` file that works with any `dexcli`. A
+`server_zd_config` file of your own replaces it, so set `dev.durabilityMode`
+there too. The Worker runs in a child process in its own process group, so a
+test can SIGKILL it at an exact moment.
 
 ```python
 # tests/my_worker.py: the Worker child.

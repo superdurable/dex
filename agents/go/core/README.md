@@ -378,7 +378,10 @@ being chosen per agent at construction.
 `agentstest` has what the Python core's `dex_agents.testing` has:
 `ScriptedModelClient`, `PrivateDexEngine` (a `dexcli dev` engine on free
 ports, with an optional dex-server-zd configuration file), `KillableProcess` (a child process in its own process group, for
-SIGKILL tests), `ServeAgentWorker`, and `ReadStepHistory`.
+SIGKILL tests), `ServeAgentWorker`, and `ReadStepHistory`. `PrivateDexEngine`
+runs with `dev.durabilityMode: processCrashSafe`, which skips fsync and
+survives a process kill. A configuration file of your own replaces that
+setting, so set `dev.durabilityMode` there too.
 
 `./ci.sh` with `DEXCLI` set to the `dexcli` binary runs vet, gofmt, the public
 API documentation check, and every test with the race detector. The

@@ -128,7 +128,8 @@ export async function runPaddedSession(
   const configDirectory = mkdtempSync(join(tmpdir(), "dex-agents-storage-session-"));
   const configPath = join(configDirectory, "server-zd.yaml");
   if (serverZdConfig !== undefined) {
-    writeFileSync(configPath, serverZdConfig);
+    // A config of its own replaces the test engine's process-crash-safe durability.
+    writeFileSync(configPath, `${serverZdConfig}dev:\n  durabilityMode: processCrashSafe\n`);
   }
   const engine = await PrivateDexEngine.start(
     serverZdConfig === undefined ? {} : { serverZdConfigPath: configPath },
