@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import {access, readFile, readdir} from 'node:fs/promises';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {unified} from 'unified';
+import remarkParse from 'remark-parse';
+import remarkMdx from 'remark-mdx';
+import remarkFrontmatter from 'remark-frontmatter';
+import remarkGfm from 'remark-gfm';
+import {prepareSource} from '../plugins/markdown-export/export.mjs';
+import './markdown-export.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
@@ -384,6 +391,68 @@ assert.deepEqual(
   'sitemap must contain every indexable canonical URL and no redirects or duplicate variants',
 );
 
+const markdownParser = unified().use(remarkParse).use(remarkFrontmatter).use(remarkGfm);
+const sourceParser = unified().use(remarkParse).use(remarkMdx).use(remarkFrontmatter).use(remarkGfm);
+let markdownPages = 0;
+for (const [canonical, {html, route}] of indexablePages) {
+  if (!html.includes('theme-doc-markdown')) continue;
+  const locale = route.startsWith('/zh-Hans/') ? 'zh-Hans' : 'en';
+  const pathname = route === '/' ? '/index.md' : route === '/zh-Hans/' ? '/zh-Hans/index.md' : `${route.slice(0, -1)}.md`;
+  const markdown = await readFile(join(root, pathname.slice(1)), 'utf8');
+  const metadata = Object.fromEntries([...markdown.matchAll(/^(title|description|canonical_url|source|locale): (.+)$/gm)]
+    .map(([, key, value]) => [key, JSON.parse(value)]));
+  assert.equal(metadata.canonical_url, canonical, `${pathname} has incorrect HTML canonical`);
+  assert.equal(metadata.locale, locale);
+  assert.ok(metadata.title && metadata.source, `${pathname} is missing source metadata`);
+  assert.match(html, new RegExp(`href="${pathname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`));
+  assert.match(html, /target="_blank" rel="noopener" aria-label="(?:View as Markdown|查看 Markdown)"/);
+  const tree = markdownParser.parse(markdown);
+  const codeBlocks = [];
+  visitMarkdown(tree, node => {
+    if (node.type === 'code') codeBlocks.push(node);
+    if (node.type === 'html') assert.match(node.value, /^(?:<a id="[^"<>]+">(?:<\/a>)?|<\/a>)$/, `${pathname} contains leftover JSX/HTML`);
+    if (['link', 'definition', 'image'].includes(node.type)) {
+      assert.match(node.url, /^https?:\/\//, `${pathname} contains non-absolute URL ${node.url}`);
+      const target = new URL(node.url);
+      if (target.origin === siteOrigin) {
+        assert.ok(indexablePages.has(new URL(target.pathname, siteOrigin).href) ||
+          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `${pathname} links to missing ${target.pathname}`);
+      }
+    }
+  });
+  const source = await readFile(join(docsRoot, '..', metadata.source), 'utf8');
+  const sourceTree = sourceParser.parse(prepareSource(source, new Map()));
+  const expectedBlocks = [];
+  visitMarkdown(sourceTree, node => {
+    if (node.name !== 'SdkSnippet') return;
+    const language = node.attributes.find(attribute => attribute.name === 'lang')?.value;
+    for (const block of node.children.filter(child => child.type === 'code')) {
+      expectedBlocks.push({lang: language, value: block.value});
+    }
+  });
+  let codeCursor = 0;
+  for (const expected of expectedBlocks) {
+    while (codeCursor < codeBlocks.length && !(codeBlocks[codeCursor].lang === expected.lang && codeBlocks[codeCursor].value === expected.value)) codeCursor++;
+    assert.ok(codeCursor < codeBlocks.length, `${pathname} lost or reordered the ${expected.lang} SDK snippet`);
+    codeCursor++;
+  }
+  markdownPages++;
+}
+const indexedMarkdown = new Set();
+for (const localeRoot of ['', 'zh-Hans/']) {
+  const index = await readFile(join(root, localeRoot, 'llms.txt'), 'utf8');
+  for (const [, href] of index.matchAll(/\]\((https?:[^)]+\.md)\)/g)) {
+    const target = new URL(href);
+    assert.equal(target.origin, siteOrigin);
+    assert.ok(outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)), `llms.txt links to missing ${href}`);
+    assert.equal(indexedMarkdown.has(href), false, `llms.txt duplicates ${href}`);
+    indexedMarkdown.add(href);
+  }
+}
+assert.equal(indexedMarkdown.size, markdownPages, 'llms.txt indexes must cover every docs page exactly once');
+assert.ok(sitemapUrls.every(href => !new URL(href).pathname.endsWith('.md')), 'Markdown twins must stay outside sitemaps');
+console.log(`Markdown audit passed for ${markdownPages} docs pages in both locales, SDK snippets, and llms.txt indexes.`);
+
 const robots = await readFile(join(root, 'robots.txt'), 'utf8');
 assert.match(robots, /^User-agent: \*$/m);
 assert.match(robots, /^Allow: \/$/m);
@@ -551,4 +620,9 @@ function hasNoIndexOrNoFollow(html) {
     }
     return /(?:^|[,\s])(noindex|nofollow)(?:$|[,\s])/i.test(attributeValue(tag, 'content') ?? '');
   });
+}
+
+function visitMarkdown(node, visitor) {
+  visitor(node);
+  node.children?.forEach(child => visitMarkdown(child, visitor));
 }

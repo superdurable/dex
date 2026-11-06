@@ -129,11 +129,11 @@ function Arrow({
   );
 }
 
-export default function RpcRequestDiagram(): ReactNode {
+export default function RpcRequestDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = i18n.currentLocale === 'zh-Hans' ? ZH : EN;
   return (
-    <div className="exec-diagram" role="img" aria-label={copy.label}>
+    <div className="exec-diagram" role="img" aria-label={markdownDescription}>
       <svg
         viewBox="0 0 880 310"
         preserveAspectRatio="xMidYMid meet"

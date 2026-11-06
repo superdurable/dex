@@ -240,11 +240,11 @@ function Queue({copy}: {copy: Copy}): ReactNode {
   );
 }
 
-export default function ChannelScopeDiagram(): ReactNode {
+export default function ChannelScopeDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = i18n.currentLocale === 'zh-Hans' ? ZH : EN;
   return (
-    <div className="exec-diagram" role="img" aria-label={copy.label}>
+    <div className="exec-diagram" role="img" aria-label={markdownDescription}>
       <style>{css}</style>
       <section className="channel-execution-frame">
         <b className="channel-execution-heading">{copy.execution}</b>

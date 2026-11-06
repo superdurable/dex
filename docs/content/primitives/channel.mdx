@@ -13,7 +13,7 @@ A Channel keeps messages in arrival order. A message can be consumed by one matc
 
 A Channel is scoped to one Flow execution. Messages never cross between Flow executions.
 
-<ChannelScopeDiagram />
+<ChannelScopeDiagram markdownDescription="A Flow execution owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and a waiting consumer Step consumes each message once." />
 
 ## Persistence schema {#persistence-schema}
 

@@ -1,0 +1,75 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+.content {
+  position: relative;
+}
+
+.content :global(h1) {
+  padding-inline-end: 12rem;
+  min-height: 2.75rem;
+}
+
+.link {
+  position: absolute;
+  inset-block-start: 0.25rem;
+  inset-inline-end: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0.5rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 0.5rem;
+  background: var(--ifm-background-color);
+  color: var(--ifm-font-color-base);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.link:hover {
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.link:focus-visible {
+  outline: 3px solid var(--ifm-color-primary);
+  outline-offset: 3px;
+}
+
+.tooltip {
+  position: absolute;
+  inset-block-start: calc(100% + 0.5rem);
+  inset-inline-end: 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.25rem;
+  background: var(--ifm-font-color-base);
+  color: var(--ifm-background-color);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.link:hover .tooltip,
+.link:focus-visible .tooltip {
+  opacity: 1;
+}
+
+@media (max-width: 600px) {
+  .label {
+    display: none;
+  }
+
+  .content :global(h1) {
+    padding-inline-end: 3.5rem;
+  }
+}

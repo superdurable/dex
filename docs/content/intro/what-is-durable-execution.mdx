@@ -56,13 +56,13 @@ That works until any failure happens.
 Process or machine crashes after charge succeeds, or network times out at the API call.
 The order ends up with charging the buyer but never ship the item.
 
-<ExecutionApproachDiagram approach="naive" />
+<ExecutionApproachDiagram approach="naive" markdownDescription="A direct request runs several operations in sequence without a durable progress record. A crash can leave earlier operations complete while later operations never run." />
 
 ### Fix 1 — database row + polling workers
 
 Then a smart engineer thinks of inserting a row (**status = pending**), return to the client, and let background workers pick up work.
 
-<ExecutionApproachDiagram approach="table-poll" />
+<ExecutionApproachDiagram approach="table-poll" markdownDescription="A polling worker reads pending work from a database table and updates its progress after each operation. The application must coordinate retries and track which operations have finished." />
 
 We get minimal durability, but here are more problems:
 * How do multiple workers claim work without conflicting each other?
@@ -73,7 +73,7 @@ We get minimal durability, but here are more problems:
 More experienced backend engineers usually evolve to use message queues: "charge-request" and "ship-requests" queue.
 So the order start with publishing to **charge-requests**, consume, then publish to **ship-requests**.
 
-<ExecutionApproachDiagram approach="message-queue" />
+<ExecutionApproachDiagram approach="message-queue" markdownDescription="A message queue passes work between consumers that perform successive operations. Each consumer must coordinate its operation with message acknowledgement to handle failures." />
 
 That solves the hard problems in Fix 1, but still, harder problems come:
 

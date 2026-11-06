@@ -82,3 +82,55 @@ Legacy iWF-era wiki and case studies (source material only):
 ## Hosting
 
 GitHub Pages via [`.github/workflows/deploy-docs.yml`](../.github/workflows/deploy-docs.yml).
+
+## Markdown exports
+
+The local [`markdown-export`](plugins/markdown-export/) plugin captures all loaded
+content-docs instances in `allContentLoaded` and writes Markdown in `postBuild`.
+It reads MDX source and loaded document metadata, including each version's routes
+and each locale's effective source file. Missing translations use the same
+English fallback as the HTML page. Instance IDs and route prefixes are unrestricted.
+
+Every document has a sibling `.md` file: `/primitives/attribute/` becomes
+`/primitives/attribute.md`, section indexes become `/primitives.md`, and the locale
+home pages become `/index.md` and `/zh-Hans/index.md`. The robot link beside each
+title opens that file in a new tab. Each locale's `llms.txt` lists document titles,
+front matter descriptions, and absolute Markdown URLs. React-only custom pages,
+such as `/cloud/`, are outside the content-docs export.
+
+Exports start with YAML containing `title`, optional `description`, `canonical_url`
+for the HTML page, repository-relative `source`, and `locale`. Internal document
+links point to absolute Markdown URLs, preserve fragments, and resolve relative
+MDX source links using the loaded version. Custom heading IDs become explicit
+anchor elements. Image URLs are absolute.
+
+Component expansion rules:
+
+- `SdkTabs` and `SdkSnippet` emit a labelled fenced block for each language in
+  source order, retaining example links and captions.
+- `DocsFlowDefinitionGraph` reads its imported JSON and lists Steps and edges,
+  with the source example link.
+- The six diagram components require a `markdownDescription` at each use. Write
+  one to three plain sentences describing the diagram, in both locales. The
+  component also uses this description as its accessible image label.
+- `DexSkillHostTabs` and the exporter read
+  [`dex-skill-hosts.json`](src/data/dex-skill-hosts.json). Update this shared data
+  when changing host installation instructions or invocation examples.
+- Admonitions become labelled blockquotes. Image elements, links, explicit
+  anchors, line breaks, and supported formatting wrappers become Markdown.
+
+Unknown JSX and unevaluated MDX expressions fail the build with the source file
+and line. To support a new component, add an explicit expansion in
+[`export.mjs`](plugins/markdown-export/export.mjs), preserve its meaningful text
+and links, and add an integration scenario in
+[`markdown-export.mjs`](tests/markdown-export.mjs). Do not evaluate arbitrary MDX
+JavaScript or silently omit a component. Run `npm run check`; its site audit
+verifies every generated docs twin, source SDK snippets, absolute links, both
+`llms.txt` indexes, and the existing search-index gates.
+
+Markdown files are static output, not Docusaurus routes. They stay out of the
+sitemap, remain crawlable in `robots.txt`, and do not add HTML alternate links.
+GitHub Pages cannot supply per-file canonical or noindex headers; the export
+records the HTML canonical in front matter. Pages may serve `.md` as
+`text/markdown`, which some browsers download. Keep the `.md` extension and
+verify the deployed response when reviewing hosting behavior.

@@ -55,13 +55,13 @@ function processOrder(order){
 扣款成功后进程或机器崩溃，或者 API 调用网络超时。
 订单会变成：钱扣了，货没发。
 
-<ExecutionApproachDiagram approach="naive" />
+<ExecutionApproachDiagram approach="naive" markdownDescription="直接请求按顺序运行多个操作，但不持久化进度。进程崩溃可能导致前面的操作已完成，而后续操作没有运行。" />
 
 ### Fix 1 —— 数据库行 + 轮询 Worker
 
 于是一个聪明的工程师想到：插入一行（**status = pending**），先返回给客户端，让后台 Worker 来领任务。
 
-<ExecutionApproachDiagram approach="table-poll" />
+<ExecutionApproachDiagram approach="table-poll" markdownDescription="轮询 Worker 从数据库表读取待处理任务，并在每个操作后更新进度。应用必须协调重试，并跟踪已完成的操作。" />
 
 最低限度的可靠性有了，但还有这些问题：
 * 多个 Worker 怎么领任务才不互相冲突？
@@ -72,7 +72,7 @@ function processOrder(order){
 更有经验的后端工程师通常会演进到使用消息队列：**charge-request** 和 **ship-requests**。
 订单从发布到 **charge-requests** 开始，消费完再发布到 **ship-requests**。
 
-<ExecutionApproachDiagram approach="message-queue" />
+<ExecutionApproachDiagram approach="message-queue" markdownDescription="消息队列在执行连续操作的消费者之间传递任务。每个消费者必须协调操作与消息确认，以处理失败。" />
 
 这解决了 Fix 1 里的硬问题，但更难的问题跟着来：
 

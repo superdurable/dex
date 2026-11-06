@@ -30,5 +30,8 @@
   "shell.docsSidebar.toggleLabel": {
     "message": "文档目录",
     "description": "The label of the button that opens the docs sidebar on narrow screens"
+  },
+  "docs.markdown.view": {
+    "message": "查看 Markdown"
   }
 }
