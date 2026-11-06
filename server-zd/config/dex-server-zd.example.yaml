@@ -2,6 +2,7 @@
 # Set cluster.nodeId, objectStore.bucket, and localStorage.directory for production; dev and local flags supply local values.
 cluster:
   nodeId: ""
+  # Fixed at the first start. dev and local default to 32 when this key is absent.
   partitionCount: 1024
 objectStore:
   endpoint: ""

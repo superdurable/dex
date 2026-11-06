@@ -91,6 +91,10 @@ flag, zd uses `dev.durabilityMode` from that file, or `strict`.
 A state directory that a zd release before v0.1.4 left after a crash or kill is
 refused in every mode, because those releases defaulted to relaxed. Delete the
 state directory to start empty.
+zd creates a new state directory with 32 partitions. A state directory that
+dexcli before 1.37.0 created has 1024 partitions, and zd refuses to start on it
+with the default. To keep it, pass a `--zd-config` file that sets
+`cluster.partitionCount: 1024`. Otherwise delete the state directory.
 With `--attribute-store-config`, the CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its
 `attributeStore` section. zd supports only `type: postgres`, and each database

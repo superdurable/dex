@@ -36,6 +36,7 @@ pub use service_config::{
     ApiConfig, LifecycleConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig,
     StreamStoreBackend, StreamStoreConfig,
 };
+pub(crate) use source_config::SINGLE_NODE_PARTITION_COUNT;
 pub use source_config::{ConfigError, SingleNodeProfile};
 pub use standby_config::{StandbyConfig, StandbyMode};
 pub use storage_config::{
@@ -49,7 +50,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct Config {
-    /// Cluster identity and partition layout. Defaults to an unset node ID and 1024 partitions.
+    /// Cluster identity and partition layout. Defaults to an unset node ID and 1024 partitions, or 32 partitions for `dev` and `local`.
     pub cluster: ClusterConfig,
     /// Durable S3 storage and optional hard-delete destination. Defaults to the AWS chain and an unset bucket.
     pub object_store: ObjectStoreConfig,

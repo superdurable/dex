@@ -85,7 +85,8 @@ hyphens, and it starts with a letter or a digit.
 One object storage prefix holds one Dex cluster, and a cluster runs one node.
 The first start records **cluster.nodeId** and **cluster.partitionCount**.
 Neither can change later. A start with a different node ID fails and names the
-recorded one. Never point two deployments at the same prefix.
+recorded one. A start with a different partition count fails and reports both
+counts. Never point two deployments at the same prefix.
 
 ## Single node on local disk {#single-node-local}
 
@@ -111,8 +112,7 @@ to **0.0.0.0:8801**, which has no authentication unless the file also
 configures authenticators. It also sets **lease.duration** to 10 seconds.
 **local** sets the object storage connection, the node ID **dev**, and the
 local store directory itself. **--listen** overrides **api.listen** from the
-file. The first start records **cluster.partitionCount**, which cannot change
-later.
+file.
 
 The optional **--attribute-store-config** flag reads only the
 **attributeStore** section of a YAML file. That section must define at least
@@ -122,6 +122,42 @@ The node ID **dev**, the bucket **dex-dev**, the lock file **dev.lock**, and the
 **dev** section of the overrides keep their **dev** names on purpose. **local**
 shares them with **dev**, so a data directory can move between the two
 commands.
+
+### Partition count {#single-node-partition-count}
+
+Since server-zd v0.1.20, **dev** and **local** default
+**cluster.partitionCount** to 32. **serve** defaults it to 1024. One node owns
+every partition. The default number of applier lanes is the larger of 8 and the
+CPU count, at most the partition count, so 32 partitions lower it only on hosts
+with more than 32 CPUs. With the builtin search backend, fewer partitions also
+make each SearchFlows call scan less. Set **cluster.partitionCount** in the
+overrides to choose another power of two.
+
+The first start records the partition count, and it cannot change later. A
+later start with a different count fails. The error names the data directory
+and both counts, and asks for the recorded count.
+
+server-zd before v0.1.20 and dexcli before 1.37.0 created data directories with
+1024 partitions. To keep using such a directory, add this to the overrides.
+With **dexcli dev**, pass the file with **--zd-config**.
+
+~~~yaml
+cluster:
+  partitionCount: 1024
+~~~
+
+If you do not need its data, delete the data directory instead. The next start
+creates it with 32 partitions.
+
+An explicit **commit.applierLanes** must not exceed the partition count. If the
+overrides set it above 32 without **cluster.partitionCount**, **dev** and
+**local** fail to start. The error asks you either to set
+**cluster.partitionCount** or to lower **commit.applierLanes** to at most 32.
+Use 1024 for a data directory created before v0.1.20.
+
+To open a data directory created with 32 partitions using server-zd before
+v0.1.20 or dexcli before 1.37.0, set **cluster.partitionCount** to 32 in the
+overrides. Those releases default to 1024.
 
 ### Durability {#single-node-local-durability}
 
@@ -187,6 +223,7 @@ explains.
 | Nodes | One. | One. | One active process, with optional hot standbys. |
 | Step attempt drain on stop | 2 seconds. | 30 seconds. | 30 seconds. |
 | Lease duration | 30 seconds. | 30 seconds. | 10 seconds. |
+| Default partition count | 32 | 32 | 1024 |
 | Default listen address | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
 | Configuration | Flags and an optional overrides file. | Flags and an optional overrides file. | One YAML file. |
 
