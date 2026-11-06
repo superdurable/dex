@@ -335,7 +335,7 @@ func (e *FlowNotFoundError) Unwrap() error {
 
 // FlowNotActiveOrNotFoundError reports a missing Flow or an operation that cannot use a closed Flow.
 // InvokeRPC also returns this error when a query-only RPC finds no readable execution.
-// A query-only RPC without locks, transactionality, durable effects, or forced Update routing can
+// A query-only RPC without locks, transactionality, durable effects, or server-required transactional routing can
 // read a retained terminal execution. At that confirmed read boundary, treat this error as not found.
 // For mutations and active-only RPCs, this error does not distinguish missing from closed Flows
 // or prove that the requested work succeeded. Other service and Worker failures remain distinct.

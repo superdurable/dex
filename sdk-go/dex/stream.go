@@ -18,6 +18,9 @@ import (
 // Register the Stream in exactly one Flow's PersistenceSchema. All Flow instances sharing that
 // Flow type and Stream name share streamCapacityBytes. Stream writes are immediately visible and do
 // not roll back when a Step later fails.
+// Messages can be lost when capacity trimming runs or the in-memory store restarts.
+// Use Attributes, Channels, or Flow results for authoritative durable state.
+// Retries can repeat messages; consumers must tolerate duplicates and resume from retained state.
 //
 //	var Thinking = dex.DefineStream[string]("thinking", 10<<20)
 //
@@ -97,6 +100,8 @@ type StreamMessagesPage[T any] struct {
 // the current Worker response stream. The returned error covers local validation, encoding, and
 // gRPC transport only; Stream Store failures are observable through server logs and metrics.
 // RPC contexts are rejected. Write and Context.RecordHeartbeat may run concurrently.
+// Each write is an implicit heartbeat and preserves the last explicit heartbeat checkpoint, including a cleared one.
+// It does not extend the method timeout or prove that either the message or checkpoint was persisted.
 func (s Stream[T]) Write(ctx Context, value T) error {
 	invocation, ok := ctx.(streamInvocation)
 	if !ok {

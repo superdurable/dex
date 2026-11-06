@@ -19,6 +19,8 @@ import (
 //
 // Register a direct bound Flow method with DefineRPC. Dex uses the Go method name as the durable
 // RPC name. Return a non-nil RPCResult on success or an error to report a Worker invocation failure.
+// Changed in SDK v1.35.0: RPCOptions.Name can override that method name, and an omitted None input
+// is decoded as None instead of failing validation.
 //
 // Example:
 //
