@@ -248,11 +248,12 @@ as movement-scoped options: `StepMovement.of` accepts options in Python and
 TypeScript. An earlier Go agent implementation used one tool Step with movement-scoped
 options and per-tool policy successfully.
 
-**Write ordering.** Tool calls of a turn run in parallel today. An agent that posts
-and then refunds in one turn has an order the model intended. Proposed: writes run
-one at a time in the model's order, and reads stay parallel. `RunModel` schedules
-the waves. Locks are not the way: "Locks do not queue", and a parked Step has a
-per-second cost ([#1185](https://github.com/superdurable/dex/issues/1185)).
+**Write ordering.** Tool calls of a turn run in parallel today. A model that refunds and
+then notifies has an order in mind. For connector tools, writes run one at a time in the
+model's order, and reads stay parallel. If a write fails or ends `outcome_unknown`, later
+writes of that turn do not run and record that they were skipped. `RunModel` schedules the
+waves. Other tools keep today's behavior. Locks are not the way: "Locks do not queue", and
+a parked Step has a per-second cost ([#1185](https://github.com/superdurable/dex/issues/1185)).
 
 **Connections.** The application binds a logical connection at Worker start, as
 Connector Steps do. A per-session choice is a connection name in `session_settings`.
@@ -341,11 +342,13 @@ needs a stated compatibility rule.
 The inbox answers one question across sessions: what needs a person? Nothing does
 this today, for three reasons.
 
-1. **Nothing to query.** Search runs one Flow type at a time over declared indexed
-   Attributes, and agent persistence declares none. Add one small indexed Attribute,
-   such as `AgentAttention`, with the current need: `none`, `approval`, `question`,
-   or `outcome_unknown`. Scanning `AgentToolCalls` is not an option, because reading
-   the size or keys of an AttributeMap loads the whole map.
+1. **Discovery is off by default.** `ActiveStepTypes` is a built-in search field, so a
+   query such as `ActiveStepTypes = "AwaitToolApproval"` finds every session waiting for
+   approval, across agents. It needs no indexed Attribute and uses no tenant index key. It
+   works only when a Flow sets `ActiveStepSearchMode`, which is off by default. Session
+   Flows should set `WITH_WAIT_FOR`. A local test on the builtin backend (dexcli 1.30.0)
+   showed a Flow appear while waiting and leave when it moved on. A Flow without the mode
+   did not appear. SQL backends and write cost are not tested.
 2. **Actions exist only in Go.** Python and TypeScript must gain them. The protocol,
    server, and Dex Web are language neutral and need no change: `ActionPermissionMappings`
    is already in `dex.proto`. Three layers are missing in both SDKs:
@@ -366,10 +369,10 @@ fit. The agent view therefore draws one card per pending call and invokes
 permission. The alternative, one Action that handles a "current" interrupt at a time, is
 rejected: it hides the other pending calls.
 
-**Rules for `AgentAttention`.** It is a new persisted, indexed Attribute, so it needs
-the rollout rules. Each Step that raises or clears an interrupt writes it in the same
-commit. Index keys come from a tenant-wide budget: the PostgreSQL backend allows 10
-KEYWORD keys per tenant, so one key must serve all agents.
+**What this does not cover.** `outcome_unknown` is a record on a finished call, so no Step
+waits on it and the search cannot find it. The first inbox covers approvals and questions.
+Unknown outcomes show in the session view. Sessions started before the mode was set can be
+updated with **UpdateFlowConfig**.
 
 **Races.** Two operators approve the same call. `resolve_interrupt` locks
 `PendingInterrupts`, and locks do not queue, so one can fail. The UI treats that as
@@ -515,16 +518,15 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 
 **Still to settle before review.**
 
-6. **Write ordering in one turn.** See O1, "Write ordering".
-7. **`AgentAttention`.** See O2, "Rules for `AgentAttention`".
+6. **Inbox discovery.** Use `ActiveStepTypes` instead of a new indexed Attribute. See O2.
 
 **For the owner.**
 
-8. **Action permission from the agent view.** Approvals are per tool call and an Action is
+7. **Action permission from the agent view.** Approvals are per tool call and an Action is
    per run, so the agent view invokes `resolve_interrupt` directly and takes its permission
    from the Action declaration. The Dex Web reference says an Action gateway authorizes the
    selected RPC. Does this direct call fit that model, or should it pass through the gateway?
-9. **Retention without a summary, after O3 is measured.** The current rule deletes a chunk
+8. **Retention without a summary, after O3 is measured.** The current rule deletes a chunk
    only behind a summary, so adapters never run retention. If the measurement confirms a hard
    session lifetime, the options are compaction per adapter, or retention without a summary
    for adapters. The second changes a rule set in the M2 review.
