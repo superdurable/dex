@@ -89,6 +89,7 @@ class AsyncWorker:
             self.options.server_address,
             self._credential_runner,
             transport=transport,
+            grpc_max_message_bytes=self.options.grpc_max_message_bytes,
         )
         self._flow_service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._flow_channel
@@ -112,6 +113,7 @@ class AsyncWorker:
             app_worker_id,
             self._credential_runner,
             transport=transport,
+            grpc_max_message_bytes=self.options.grpc_max_message_bytes,
         )
         self._stopped = asyncio.Event()
 

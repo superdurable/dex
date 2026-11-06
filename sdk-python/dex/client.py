@@ -67,6 +67,7 @@ from dex.flow_options import (
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
 from dex.runtime_errors import (
+    BlobMessageTooLargeError,
     DexServiceError,
     ErrorSubStatus,
     FlowErrorType,
@@ -145,6 +146,7 @@ class Client:
             self.options.server_address,
             self.options.credential,
             self.options.flow_service_tls,
+            grpc_max_message_bytes=self.options.grpc_max_message_bytes,
         )
         self._service = dex_pb2_grpc.FlowServiceStub(  # type: ignore[no-untyped-call]
             self._channel
@@ -822,6 +824,8 @@ class Client:
             )
         except grpc.RpcError as error:
             raise plan.service_error(error, "LoadBlobs") from error
+        except BlobMessageTooLargeError:
+            raise
         except (ValueError, RuntimeError) as error:
             raise plan.hydration_error(error) from error
         return plan.decode(self._values, entries, hydrated)
