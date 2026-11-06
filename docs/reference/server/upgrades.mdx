@@ -10,18 +10,21 @@ can start when those intervals overlap. It negotiates the highest common
 protocol, then synchronizes Attribute indexes, then binds WorkerTaskService. The
 server and SDK artifact versions are diagnostic and do not decide compatibility.
 
-server-zd protocol version 4 does not raise the minimum protocol. Older SDK
-Workers and Clients keep working on the new server. Their capacity rejections
+server-zd 0.1.17 and later provide protocol version 4. Protocol version 4 does
+not raise the minimum protocol. Workers and Clients on SDKs before 1.35 keep
+working on server-zd 0.1.17 and later. Their capacity rejections
 return the attempt without consuming a retry.
 **dexzd_step_attempts_returned_total** with **reason="legacy_no_capacity"**
 counts them. This compatibility lasts until server-zd 1.0.
 
-New SDKs require the new server. On an older server, a new SDK Worker fails to
-start and a new SDK Client fails its first call, each with a clear error.
+SDK 1.35 and later require server-zd 0.1.17 or later. On an older server, an
+SDK 1.35 Worker fails to start and an SDK 1.35 Client fails its first call, each
+with a clear error.
 Upgrade the server first, then the SDKs, one at a time. You do not need to stop
 Workers.
 
-This server upgrade does not support mixed versions. Stop every old server
+Upgrading to server-zd 0.1.17 or later (protocol version 4) does not support
+mixed versions. Stop every old server
 process, including active, hot standby, and cold standby, before you start the
 new version. After the new version wrote to a storage prefix, an older server
 must not run on it again. Roll forward, or restore a backup taken before the

@@ -221,9 +221,15 @@ assert.match(
 );
 assert.match(zhServerReference, /id="step-task-queue"/);
 assert.match(zhServerReference, /Workers and the task queue/);
-// Transition pages keep the old section ids so inbound anchors still resolve.
-for (const id of ['history-window', 'pull-worker-dispatch', 'attribute-store-fencing-table', 'step-down']) {
-  assert.match(serverTransition, new RegExp(`id="${id}"`));
+// Transition pages keep every old section id so inbound anchors still resolve.
+// The inventory lists the ids of the pages before they moved.
+const transitionAnchors = JSON.parse(await readFile(join(docsRoot, 'tests', 'transition-anchors.json'), 'utf8'));
+for (const [route, ids] of Object.entries(transitionAnchors)) {
+  const html = await readFile(join(root, ...route.split('/').filter(Boolean), 'index.html'), 'utf8');
+  assert.equal(metaRefreshTarget(html), undefined, `${route} must stay a transition page, not a redirect`);
+  for (const id of ids) {
+    assert.ok(html.includes(`id="${id}"`), `${route} lost the old anchor #${id}`);
+  }
 }
 assert.match(serverTransition, /href="\/reference\/server\/configuration\/#history-window"/);
 assert.match(zhPullWorkersTransition, /id="readiness"/);

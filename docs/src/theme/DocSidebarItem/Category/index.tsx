@@ -133,7 +133,8 @@ export default function DocSidebarItemCategory({
   const isActive = isActiveSidebarItem(item, activePath);
   const isCurrentPage = isSamePath(href, activePath);
   const {collapsed, setCollapsed} = useCollapsible({
-    initialState: () => (collapsible ? item.collapsed ?? true : false),
+    initialState: () =>
+      collapsible ? !isActive && (item.collapsed ?? true) : false,
   });
 
   useEffect(() => {
@@ -142,6 +143,13 @@ export default function DocSidebarItemCategory({
       setCollapsed(savedCollapsedState);
     }
   }, [categoryKey, setCollapsed]);
+
+  // The category of the current page stays open, even when the reader collapsed it before.
+  useEffect(() => {
+    if (isActive) {
+      setCollapsed(false);
+    }
+  }, [isActive, activePath, setCollapsed]);
 
   const updateCollapsed = (toCollapsed: boolean = !collapsed) => {
     persistSidebarCategoryState(categoryKey, toCollapsed);

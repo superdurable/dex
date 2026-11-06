@@ -76,14 +76,6 @@
     "to": "/zh-Hans/primitives/components"
   },
   {
-    "from": "/production/application-operations",
-    "to": "/primitives/components/application"
-  },
-  {
-    "from": "/zh-Hans/production/application-operations",
-    "to": "/zh-Hans/primitives/components/application"
-  },
-  {
     "from": "/production/agents",
     "to": "/agent-frameworks/deploy-agents"
   },
@@ -92,51 +84,11 @@
     "to": "/zh-Hans/agent-frameworks/deploy-agents"
   },
   {
-    "from": "/production/dex-web",
-    "to": "/reference/web/dex-web"
-  },
-  {
-    "from": "/zh-Hans/production/dex-web",
-    "to": "/zh-Hans/reference/web/dex-web"
-  },
-  {
-    "from": "/production/local-connector-setup",
-    "to": "/primitives/components/connector"
-  },
-  {
-    "from": "/zh-Hans/production/local-connector-setup",
-    "to": "/zh-Hans/primitives/components/connector"
-  },
-  {
-    "from": "/production/attribute-store",
-    "to": "/primitives/components/external-attribute-sync"
-  },
-  {
-    "from": "/zh-Hans/production/attribute-store",
-    "to": "/zh-Hans/primitives/components/external-attribute-sync"
-  },
-  {
     "from": "/references",
     "to": "/reference"
   },
   {
     "from": "/zh-Hans/references",
     "to": "/zh-Hans/reference"
-  },
-  {
-    "from": "/references/cli",
-    "to": "/reference/cli"
-  },
-  {
-    "from": "/zh-Hans/references/cli",
-    "to": "/zh-Hans/reference/cli"
-  },
-  {
-    "from": "/references/flow-visualization",
-    "to": "/reference/web/flow-visualization"
-  },
-  {
-    "from": "/zh-Hans/references/flow-visualization",
-    "to": "/zh-Hans/reference/web/flow-visualization"
   }
 ]

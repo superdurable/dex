@@ -6,6 +6,7 @@ const sidebars: SidebarsConfig = {
     'index',
     'dex-web',
     'flow-visualization',
+    'local-connector-setup',
     'debugging',
   ],
 };

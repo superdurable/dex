@@ -1,179 +1,35 @@
 ---
-title: Connector
-sidebar_label: Connector
+title: Connector 配置
+sidebar_label: Connector setup
 ---
 
-# Connector
+# Connector 配置
 
-[Connector](/primitives/connector) 把 Flow 和外部 provider 集成起来。它打包了带类型的
-operation、Trigger、授权和可选的配置 UI。官方 Connector 独立于 Dex 发布。
+[Connector](/primitives/connector) 把 Flow 和外部服务集成起来。本页说明 Connector 在
+Dex 部署中的位置，以及怎样配置它。
 
 ## 与其他组件的关系
 
-你的 [应用](/primitives/components/application) 引入 Connector 包，把它的 operation 作为
-Connector Step 运行。Trigger 把 provider 事件变成 Flow 启动或 RPC 调用。凭证保存在持久
-Flow 状态之外。本地开发时，[Dex Web](/primitives/components/web) 配置账号和 Trigger
-binding，**dexcli dev** 把它们保存在你的机器上。
+官方 Connector 独立于 Dex 发布。你的[应用](/primitives/components/application)引入
+Connector 包，把它的操作作为 Connector Step 运行。Trigger 把外部服务的事件变成 Flow 启动
+或 RPC 调用。凭证保存在持久的 Flow 状态之外。
 
 ## 查找 Connector
 
-在 [Connector 目录](https://connectors.superdurable.io/) 查看已发布的 Connector、它们的
-operation 和语言支持。[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
-包含它们的源码、参考文档和可运行示例。每个 Connector 的参考以目录为准。
+在 [Connector 目录](https://connectors.superdurable.io/)查看已发布的 Connector、它们
+提供的操作和支持的语言。每个 Connector 的参考以目录为准。
+[Dex Connectors Library](https://github.com/superdurable/dex-connectors-library)
+包含它们的源码和可运行示例。
 
-## 用 Dex Web 在本地配置
+## 在本地配置 Connector
 
-Dex Web 可以为本地 Go 应用配置官方 Connector release。此功能只在使用本地
-Flow Definition Graph、并绑定 loopback 地址的 **dexcli dev** 中启用。生产环境
-Dex Web、非 loopback listener 和 blobstore definition source 不会开放这些配置
-API。
+本地开发时，[Dex Web](/primitives/components/web) 为 Go 应用配置 Connector 账号和
+Trigger 绑定。这个功能只在 **dexcli dev** 中提供。
 
-### 启动 Dex Web
+1. 用你的 Flow Definition Graph 目录启动 **dexcli dev**。
+2. 在 Dex Web 中打开 **Connectors** 页面，配置每个账号。
+3. 用 Dex Web 显示的连接文件启动你的应用。
 
-先生成 Flow Definition Graph 2.0 文件，再启动本地 stack：
+连接文件以明文保存密钥，只能在本地使用。不要提交它，也不要在生产环境中使用。
 
-```bash
-dexcli dev --flow-rendering-dir ./build
-```
-
-打开 **/v2/connectors** 的 **Connectors** 页面。Dex Web 按 Connector ID 和
-connection name 对 Step 与 Trigger binding 分组。侧栏用 Connector release 的
-display name（例如 **LLM**）列出每个分组，并在下方显示 connection name。每个
-分组显示 Flow、Step、operation、binding、精确 module version，以及
-**Missing**、**Ready**、**Expired**、**Conflict** 或 **Unsupported** 状态。
-
-自动配置要求使用 operation-specific 的 Connector 生成工厂或 Trigger-binding
-definition、编译期可确定的 connection name 和 binding name，以及精确的已发布
-module version：正式版本或 release candidate。Generic factory、本地 module replacement、未发布 module、缺少
-name 或版本冲突仍会显示，但不能自动配置。
-
-### 选择存储目录
-
-默认目录是 **$HOME/.dex/connectors**，文件名固定为 **connections.json**。需要
-隔离某个 stack 时可以覆盖目录：
-
-```bash
-dexcli dev \
-  --flow-rendering-dir ./build \
-  --connector-config-dir ./local-dex-secrets
-```
-
-Dex 会把目录解析为绝对路径。Connectors 页面的 **Local store** 区域会显示目录和
-其中的 JSON 文件，**Copy** 会复制文件的绝对路径。多个本地 stack 默认共享同一个文件；如果不能共享账号，应为每个 stack 指定
-不同目录。
-
-Dex 以 **0700** 创建目录，以 **0600** 创建文件。Symlink 文件、非普通文件和
-权限过宽的已有 credential 文件会被拒绝。更新过程使用同目录临时文件、sync
-和原子 rename，因此应用不会读到只写了一部分的文档。
-
-重启 Dex Web 会重新加载已有 connection 和缓存的 UI artifact，不会清空 JSON
-文件。进行中的 OAuth flow 与 Connector UI session 只存在内存中；重启后需要
-重新发起。
-
-### 配置账号
-
-选择命名 connection。Dex Web 会校验官方 release metadata 和 checksum。有兼容
-Studio UI 时，它会在 opaque-origin sandbox 中加载；否则根据 manifest 渲染通用
-表单。
-
-授权面板会链接到 provider 的起始页面，并显示 Connector release 提供的精确设置
-路径。必须由用户填写的字段会排在最前面；可以省略或使用 manifest 默认值的字段仍会
-显示在 **Optional settings** 下。每个非 secret 的 manifest 默认值都会在字段下方以
-括号显示。输入留空即使用该默认值；只有字段说明明确指出需要覆盖时才填写。字段说明
-中的 URL 可以直接点击。
-
-有些 Connector 在一个 connection 中保存多个 provider，例如同时保存 OpenAI、
-Claude 和 Gemini key 的 LLM Connector。它的表单为每个已添加的 provider 显示一张
-卡片，包含该 provider 的指南、key 和设置。使用 **Add provider** 添加 provider，
-使用 **Remove** 移除 provider。移除后保存会删除该 provider 的 key 和设置。一个
-connection 至少需要一个 provider。
-
-要修改 **Ready** 的 connection，请选择 **Edit connection**。已保存的非 secret
-设置会预先填入。已保存的 key 不会再次显示；每个已保存的 key 字段显示
-**Stored - leave blank to keep**，留空即保留已保存的 key。OAuth connection 请改为
-选择 **Reauthorize**。
-
-Connector 可以用自己的选择器渲染某个 connection 设置，例如默认模型。保存
-connection 后才会显示该选择器。
-
-OAuth 始终使用 state 和十分钟一次性 session。Provider 支持对应授权流程时，
-Connector 还会使用 PKCE。除非 release 把 OAuth client ID 与 client secret
-映射为 credential，否则它们只存在内存中，不会写入磁盘。Dex 检查 granted scope
-后保存 access token。Dex Web 自己不刷新 access token；只有 release 映射了
-refresh token 时才会保存它。Connection 变为 **Expired** 后需要重新授权。
-
-OAuth 开始前，Dex 会显示可复制的精确 Redirect URI，供填写到 provider 应用。
-当 Connector 声明只读身份派生时，Dex 会使用新 access token 调用该 endpoint，
-并且只在声明的验证标志为 true 后保存 claim。已派生字段（例如已验证的主邮箱）不会
-再显示为自由文本输入框。
-
-有些 Connector 无法预先知道授权服务器，例如连接你自己身份提供方的 OAuth 2.0 HTTP
-Connector。它们的 release 要求把 authorization endpoint、token endpoint 和 scope
-作为 connection 设置填写，还可以要求设置 client 在 token endpoint 的认证方式。Dex
-支持 **client_secret_post** 和 **client_secret_basic**，留空则使用该设置的默认值。
-请先填写这些设置，再选择 **Authorize**。Dex 会先检查：设置缺失或为空、scope 列表含
-空项或含空格的项、URL 不是绝对地址，或认证方式不受支持，都会返回指出该设置名称的
-错误，并且不会向 provider 发送任何请求。Dex 把这些设置与 connection 一起保存，因此
-Connector 续期 credential 时读取的是同一个 token endpoint。
-
-release 中直接写出的 endpoint 必须使用 HTTPS。你在设置中填写的 endpoint 可以使用
-**http://** 或 **https://**，但必须带 host，且不能包含用户名、密码或 fragment。Dex
-向这样的 endpoint 发送授权码、client secret 或 token 之前，会先解析 host、检查每个
-地址，并且只连接它检查过的地址。只有所有地址都是 loopback 或私有地址时（例如你本机
-或私有网络中的身份提供方），才允许使用 **http://**，其他情况都需要 **https://**。
-link-local 地址（包含云元数据服务）以及 unspecified 和 multicast 地址，即使使用
-**https://** 也会被拒绝。只要 host 的任一地址被拒绝，整个 host 都会被拒绝，因此只要有
-一个公网地址就不能使用 **http://**。这些请求不使用代理，也不跟随重定向。被拒绝的地址会停止配置，并返回指出该设置名称的错误，不会发送
-任何请求。即使 **http://** 地址被允许，授权码、client secret 和 token 仍会在你的
-网络中以明文传输；不信任该网络时请使用 **https://**。
-
-删除本地 credential 只删除本地记录，不会远程 revoke provider grant。
-
-### 配置 Slack Trigger binding
-
-Slack connection 与每个 Trigger binding 分开配置。因此，一个
-**slack-workspace** connection 可以被多个 Flow 复用，而每个 Flow 分别保存自己的
-频道、发起人、批准短语和 approver 列表。
-
-Slack OAuth 会同时保存 bot token 和 user token。App-level token 无法通过 OAuth
-签发。请创建具有 **connections:write** scope 的 **xapp-** token，并把它填入
-secret 字段。Token 只留在 Dex Web host 中，不会发送给 sandboxed Studio UI。
-
-Slack Studio 会显示：
-
-- 单选频道、公开或私有状态，以及稳定的 **C…** ID；
-- 可选的 Flow 发起成员，或选择 **任意真人**；
-- 至少一名允许批准的成员；
-- 可选且不区分大小写的消息 substring filter。
-
-Picker 虽然显示名称和头像，但保存的是稳定 Slack ID；每个原始 ID 都可以查看和
-复制。如果 Slack API 不可用，可以手工输入 ID。在 Slack 中打开 channel details
-并选择 **Copy channel ID**；打开成员 profile 菜单并选择 **Copy member ID**。
-Private channel 只有先邀请 bot 加入后才会出现在 picker 中。
-
-Slack thread approval 示例的默认 approval substring 是 **approve**。Substring
-匹配也会接受 **disapprove** 等文本；如果必须使用明确的批准措辞，请改成更独特
-的短语。
-
-Trigger binding 不保存 RPC name。应用负责把 Slack thread identity 映射为 Flow
-ID，并注册 Trigger runner 调用的 typed RPC definition。
-
-### 启动 Go 应用
-
-配置完成后复制 Dex Web 显示的启动命令。默认路径为：
-
-```bash
-DEX_CONNECTOR_CONFIG_FILE="$HOME/.dex/connectors/connections.json" <your-app-command>
-```
-
-Connector Go SDK 在应用构造命名 Connection 时读取 configuration，因此
-configuration 变化后需要重启应用。每次 provider call 前都会重新读取
-credential，所以重新授权会在下一次调用生效，不需要重启应用。
-
-该 JSON 文件以明文保存 secret，只适用于本地开发。不要提交或上传，也不要把它
-当作生产 secret broker。Connector secret 在应用边界变为 **SecretString**，不得
-进入 Flow state 或日志。
-
-同一个文件还会在 workspace connection 之外保存 **triggerBindings**。每个
-binding 由 Connector ID、connection name、Trigger name 和 binding name 唯一
-标识。修改一个 Flow 的 binding 不会影响共享该账号的其他 Flow。
+每一步的细节和设置见英文的 [Local Connector setup](/reference/web/local-connector-setup)。
