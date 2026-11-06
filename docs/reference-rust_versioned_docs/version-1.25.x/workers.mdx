@@ -38,9 +38,7 @@ pub fn start_pull_greeting(
     let client = Client::try_new(
         registry,
         cache,
-        ClientOptions::new()
-            .server_address(server_address)
-            .worker_target(worker.worker_target().clone()),
+        ClientOptions::new().server_address(server_address),
     )?;
     let startup_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -77,7 +75,9 @@ pub fn stop_pull_greeting(
 }
 ```
 
-Example: [examples/rust/src/production/pull_workers.rs](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/examples/rust/src/production/pull_workers.rs)
+Adapted from [examples/rust/src/production/pull_workers.rs](https://github.com/superdurable/dex/blob/sdk-rust/v1.25.0/examples/rust/src/production/pull_workers.rs).
+That example still calls **worker_target**, which SDK 1.25.0 removed, so this
+code omits it.
 
 ## Readiness
 
