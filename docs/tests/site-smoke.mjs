@@ -18,7 +18,8 @@ import remarkGfm from 'remark-gfm';
 import {prepareSource, sdkOrder} from '../plugins/markdown-export/export.mjs';
 import {markdownPath} from '../src/markdownPath.mjs';
 import './markdown-export.mjs';
-import {apiEntryPaths, auditApiReferenceIndexPages, auditApiReferences} from './api-reference-smoke.mjs';
+import {apiEntryPaths, auditApiReferenceIndexPages, auditApiReferences, auditPythonGenerationLocks} from './api-reference-smoke.mjs';
+import './api-reference-redirect.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
@@ -371,6 +372,7 @@ const outputFilePaths = new Set(outputFiles.map((filePath) => relativeOutputPath
 const htmlIndexFiles = outputFiles.filter((filePath) =>
   filePath.endsWith(`${sep}index.html`) && !relativeOutputPath(filePath).startsWith('api/'));
 await auditApiReferenceIndexPages();
+await auditPythonGenerationLocks();
 if (outputFiles.some((filePath) => relativeOutputPath(filePath).startsWith('api/'))) {
   await auditApiReferences(join(root, 'api'));
 }

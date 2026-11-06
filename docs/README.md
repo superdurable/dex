@@ -95,7 +95,8 @@ in its URL: `/api/go/1.35/` comes from `sdk-go/v1.35.0`.
   Constants and Variables links resolve. Generated code, internal packages,
   examples, tests, and contributor scripts are excluded.
 - Python uses pdoc with Google-style docstrings on the tagged source. The exact
-  published SDK wheel supplies its dependencies and native extension.
+  published SDK wheel supplies its native extension. The wheel and its runtime
+  dependencies come from the hashed lock for that version.
 - TypeScript uses TypeDoc on the tagged source with the tag's locked
   dependencies. It does not compile the native extension.
 - Java uses the Javadoc JAR that Maven Central publishes for the release
@@ -106,9 +107,14 @@ All tool pins live in [`scripts/api-reference-tools/`](scripts/api-reference-too
 
 - `go-tools.json`: gomarkdoc.
 - `package.json` and `package-lock.json`: the Node tools and their dependencies.
-- `pdoc-requirements.txt`: pdoc and its dependencies, with hashes. pip installs
-  it with `--require-hashes --only-binary=:all:`. Regenerate it with the `uv`
-  command in its header. Use an `--exclude-newer` date at least two weeks old.
+- `pdoc-requirements.in`: the pdoc pin.
+- `python/<version>.txt`: one hashed lock per Python SDK version. Each lock
+  covers pdoc, the SDK wheel, and all their dependencies. pip installs it in
+  one step with `--require-hashes --only-binary=:all:`. Regenerate every lock
+  with `lock-python-dependencies.sh <cutoff date>`, using a cutoff at least two
+  weeks old. The cutoff applies to every package except the SDK release, which
+  is pinned exactly. `npm run check` fails when the locks do not match the
+  manifest or a requirement has no hash.
 
 Adopt only tool versions published at least two weeks earlier.
 
@@ -184,12 +190,15 @@ the site size against the GitHub Pages 1 GB limit.
    `api-reference-versions.json`, and remove the oldest one.
 2. Update the API reference section of `reference/<language>/index.mdx` to
    match. `npm run check` fails until the links match the manifest.
-3. Deploy. Assembly no longer publishes the retired version, so its URLs
+3. For Python, run `scripts/api-reference-tools/lock-python-dependencies.sh`
+   to regenerate the per-version locks.
+4. Deploy. Assembly no longer publishes the retired version, so its URLs
    return the site's 404 page. That page detects
    `/api/<language>/<minor>/...` for a minor that is not in the manifest. It
-   sends the reader to the same page under `/api/<language>/latest/`, keeping
-   the query and fragment, or to `/reference/<language>/` when that page does
-   not exist in the latest release.
+   sends the reader to the same page under `/api/<language>/latest/`, or to
+   `/reference/<language>/` when that page does not exist in the latest
+   release. Both keep the query and fragment. `tests/api-reference-redirect.mjs`
+   covers this logic in `src/apiReferenceRedirect.mjs`.
 
 Do not add `/api/` entries to `redirects.json`. Its redirects must target
 Docusaurus routes, and API pages are not routes.

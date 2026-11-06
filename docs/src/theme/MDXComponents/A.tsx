@@ -14,7 +14,7 @@ import MDXA from '@theme-original/MDXComponents/A';
 
 const apiReferenceLinkPrefix = 'pathname:///api/';
 
-// API HTML sits at the site root outside Docusaurus routes: skip the locale base URL and stay in the same tab.
+// API HTML lives at the site root: skip the locale base URL and stay in the same tab.
 export default function MDXAWrapper(props: ComponentProps<'a'>): ReactNode {
   if (props.href?.startsWith(apiReferenceLinkPrefix)) {
     return <Link {...props} autoAddBaseUrl={false} target="_self" />;

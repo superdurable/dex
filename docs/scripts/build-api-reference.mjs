@@ -25,7 +25,7 @@ const versions = JSON.parse(await readFile(join(docsRoot, 'api-reference-version
 const toolVersions = {
   ...JSON.parse(await readFile(join(toolsSourceRoot, 'go-tools.json'), 'utf8')),
   ...JSON.parse(await readFile(join(toolsSourceRoot, 'package.json'), 'utf8')).dependencies,
-  pdoc: (await readFile(join(toolsSourceRoot, 'pdoc-requirements.txt'), 'utf8')).match(/^pdoc==(\S+)/m)[1],
+  pdoc: (await readFile(join(toolsSourceRoot, 'pdoc-requirements.in'), 'utf8')).match(/^pdoc==(\S+)/m)[1],
 };
 const argumentsList = process.argv.slice(2);
 const outputRoot = resolve(process.env.DEX_API_OUTPUT ?? join(docsRoot, '.cache', 'api-reference'));
@@ -137,10 +137,9 @@ async function buildPython(sourceRoot, generatedRoot, version, temporaryRoot) {
   const environmentRoot = join(temporaryRoot, 'venv');
   await run(process.env.DEX_API_PYTHON ?? 'python3', ['-m', 'venv', environmentRoot]);
   const pythonPath = join(environmentRoot, 'bin', 'python');
+  // The lock pins pdoc, the SDK wheel with its native extension, and every dependency by hash.
   await run(pythonPath, ['-m', 'pip', 'install', '--disable-pip-version-check', '--require-hashes', '--only-binary=:all:',
-    '-r', join(toolsSourceRoot, 'pdoc-requirements.txt')]);
-  // The SDK release pins its own dependencies; the wheel provides the native extension.
-  await run(pythonPath, ['-m', 'pip', 'install', '--disable-pip-version-check', '--only-binary=:all:', `dex-python-sdk==${version}`]);
+    '-r', join(toolsSourceRoot, 'python', `${version}.txt`)]);
   const sitePackages = (await run(pythonPath, ['-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'])).trim();
   const installedPackage = join(sitePackages, 'dex');
   for (const filename of await readdir(installedPackage)) {

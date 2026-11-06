@@ -24,6 +24,7 @@ const pagesLimitBytes = 1_000_000_000;
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   await auditApiReferenceIndexPages();
+  await auditPythonGenerationLocks();
   await auditApiReferences(resolve(process.argv[2] ?? join(docsRoot, 'build', 'api')), process.argv.includes('--all'));
 }
 
@@ -80,6 +81,26 @@ export async function auditApiReferenceIndexPages() {
       `reference/${language}/index.mdx versioned links must match api-reference-versions.json`);
   }
   console.log('API reference index pages match api-reference-versions.json.');
+}
+
+/**
+ * Checks that every manifest Python SDK version, and nothing else, has a hashed generation lock.
+ */
+export async function auditPythonGenerationLocks() {
+  const lockDirectory = join(docsRoot, 'scripts', 'api-reference-tools', 'python');
+  assert.deepEqual((await readdir(lockDirectory)).sort(), apiVersions.python.map((version) => `${version}.txt`).sort(),
+    'Python locks must match api-reference-versions.json; run scripts/api-reference-tools/lock-python-dependencies.sh');
+  for (const version of apiVersions.python) {
+    const lock = await readFile(join(lockDirectory, `${version}.txt`), 'utf8');
+    const lines = lock.split('\n');
+    const requirementIndexes = lines.flatMap((line, index) => /^[A-Za-z0-9]/.test(line) ? [index] : []);
+    assert.ok(requirementIndexes.some((index) => lines[index] === `dex-python-sdk==${version} \\`),
+      `python/${version}.txt must pin dex-python-sdk ${version}`);
+    for (const index of requirementIndexes) {
+      assert.match(lines[index], /^[A-Za-z0-9._-]+==\S+ \\$/, `python/${version}.txt: unpinned requirement ${lines[index]}`);
+      assert.match(lines[index + 1] ?? '', /^ {4}--hash=sha256:[0-9a-f]{64}/, `python/${version}.txt: unhashed requirement ${lines[index]}`);
+    }
+  }
 }
 
 async function auditLayout(apiRoot, outputPaths, isAllRequired) {
