@@ -8,22 +8,19 @@
 # is relative to the repository root and lives under docs/content/primitives/
 # or docs/content/design-patterns/, the folders that trigger Skills CI. Only the
 # English docs pages are listed. Skills files with no docs counterpart are left
-# out: dex-app-builder/SKILL.md, product-discovery.md, workflow-import.md,
-# n8n-semantics.md, and dex-connector-contributor/SKILL.md.
+# out: dex-sdk/SKILL.md, the language references under dex-sdk/references/<language>/,
+# the skill-only core files (testing.md, self-check.md, plugin-version-check.md,
+# data-handling.md, error-handling.md), dex-app-builder/SKILL.md,
+# product-discovery.md, workflow-import.md, n8n-semantics.md, and
+# dex-connector-contributor/SKILL.md.
 
 - skill: dex-sdk/references/core/flow.md
   docs:
     - docs/content/primitives/flow/index.mdx
-    - docs/content/primitives/flow/basic.mdx
-    - docs/content/primitives/flow/flow-options.mdx
 
 - skill: dex-sdk/references/core/step.md
   docs:
     - docs/content/primitives/step/index.mdx
-    - docs/content/primitives/step/basic.mdx
-    - docs/content/primitives/step/step-decision.mdx
-    - docs/content/primitives/step/step-options.mdx
-    - docs/content/primitives/step/waiting-condition.mdx
 
 - skill: dex-sdk/references/core/attribute.md
   docs:
@@ -56,9 +53,7 @@
 
 - skill: dex-sdk/references/core/client.md
   docs:
-    - docs/content/primitives/client/index.mdx
-    - docs/content/primitives/client/basic.mdx
-    - docs/content/primitives/client/advanced.mdx
+    - docs/content/primitives/client.mdx
 
 - skill: dex-sdk/references/core/application.md
   docs:
@@ -118,21 +113,6 @@
     - docs/content/design-patterns/responsive-update/step-completion.mdx
     - docs/content/design-patterns/responsive-update/stream.mdx
     - docs/content/design-patterns/sequentially-chunked-attribute-map.mdx
-
-- skill: dex-sdk/references/core/error-handling.md
-  docs:
-    - docs/content/design-patterns/failure-handling.mdx
-    - docs/content/design-patterns/failure-handling/execute-failure-recovery.mdx
-    - docs/content/design-patterns/failure-handling/graceful-timeout.mdx
-    - docs/content/design-patterns/failure-handling/manual-recovery.mdx
-    - docs/content/design-patterns/failure-handling/wait-for-failure-recovery.mdx
-
-- skill: dex-sdk/references/core/data-handling.md
-  docs:
-    - docs/content/design-patterns/attribute-map-partitioning.mdx
-    - docs/content/design-patterns/hash-partitioned-attribute-map.mdx
-    - docs/content/design-patterns/sequentially-chunked-attribute-map.mdx
-    - docs/content/design-patterns/entity-store.mdx
 
 - skill: dex-app-builder/references/backend-implementation.md
   docs:

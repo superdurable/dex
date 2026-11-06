@@ -39,6 +39,8 @@ RELEASE_OPT_OUT = re.compile(r"^\s*(?:[-*]\s+)?skills-release:\s*no bump needed:
 
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCED_BLOCK = re.compile(r"^(```|~~~).*?^\1", re.DOTALL | re.MULTILINE)
+# Inline code such as `DefineChannel[T](name)` looks like a link but is not one.
+INLINE_CODE = re.compile(r"`[^`\n]+`")
 HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.MULTILINE)
 EXPLICIT_ANCHOR = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
 URL = re.compile(r"https?://[^\s<>()`\"'\]\\|]+")
@@ -239,8 +241,7 @@ def check_skill_links(skills: list[Path]) -> None:
         markdown_files = sorted(skill.rglob("*.md"))
         graph: dict[Path, set[Path]] = {path.resolve(): set() for path in markdown_files}
         for markdown in markdown_files:
-            prose = FENCED_BLOCK.sub("", markdown.read_text())
-            for target in MARKDOWN_LINK.findall(prose):
+            for target in find_markdown_links(markdown.read_text()):
                 if "://" in target or target.startswith("mailto:"):
                     continue
                 path_part, _, anchor = target.strip("<>").partition("#")
@@ -386,6 +387,11 @@ def find_dex_versions(content: str, is_n8n_document: bool = False) -> list[tuple
             matches.extend(match.group(0) for match in BARE_DEX_VERSION.finditer(text))
         found.extend((line_number, match) for match in dict.fromkeys(matches))
     return found
+
+
+def find_markdown_links(content: str) -> list[str]:
+    """Returns the Markdown link targets outside fenced blocks and inline code."""
+    return MARKDOWN_LINK.findall(INLINE_CODE.sub("", FENCED_BLOCK.sub("", content)))
 
 
 def markdown_anchors(content: str) -> set[str]:

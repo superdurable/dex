@@ -200,6 +200,8 @@ jobs:
               - 'CONTRIBUTING.md'
             skills:
               - 'skills/**'
+              - 'docs/content/primitives/**'
+              - 'docs/content/design-patterns/**'
               - '.github/workflows/skills-ci.yml'
             copyright:
               - 'agents/**'

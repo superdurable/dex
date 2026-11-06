@@ -117,6 +117,12 @@ class MarkdownAnchorTest(unittest.TestCase):
         )
 
 
+class MarkdownLinkTest(unittest.TestCase):
+    def test_skips_code(self):
+        content = "See [Step](step.md#time-bounds) and `DefineChannel[T](name)`.\n```go\nx := [T](other.md)\n```\n"
+        self.assertEqual(CHECKER.find_markdown_links(content), ["step.md#time-bounds"])
+
+
 class FrontMatterTest(unittest.TestCase):
     def test_joins_block_scalar_descriptions(self):
         with tempfile.TemporaryDirectory() as directory:
