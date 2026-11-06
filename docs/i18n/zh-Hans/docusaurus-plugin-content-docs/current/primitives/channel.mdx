@@ -14,7 +14,7 @@ Channel 会按到达顺序保留消息。一条消息只能被一个匹配的 wa
 
 Channel 只属于一个 Flow execution。消息不会跨 Flow execution。
 
-<ChannelScopeDiagram />
+<ChannelScopeDiagram markdownDescription="Flow execution 拥有一个由其 Step 和 RPC 共享的 FIFO Channel。发布者添加消息，等待中的消费 Step 将每条消息消费一次。" />
 
 ## Persistence schema {#persistence-schema}
 
