@@ -1,0 +1,58 @@
+---
+title: TypeScript SDK reference
+sidebar_label: Overview
+slug: /
+---
+
+# TypeScript SDK reference
+
+This reference covers the Dex TypeScript SDK. Check the SDK version your
+application uses before you rely on a detail:
+
+```bash
+npm ls @superdurable/dex
+```
+
+## Install
+
+The TypeScript SDK is the npm package **@superdurable/dex**. Pin an exact
+release:
+
+```bash
+npm install @superdurable/dex@1.32.0
+```
+
+The package supports Node.js 22 and 24. Releases use the tag
+**sdk-typescript/vX.Y.Z**.
+
+## Supported versions
+
+| SDK minor | Server requirement |
+| --- | --- |
+| 1.32 | server-zd 0.1.0 or newer (protocol versions 1 to 3) |
+| 1.30, 1.29, 1.28 | See the [compatibility matrix](/reference/#compatibility-matrix) |
+
+Minor numbers follow the shared Dex release train. A missing minor means the
+TypeScript SDK did not change in that release.
+
+## API reference
+
+Read the [TypeScript SDK 1.32.0 API reference](pathname:///api/typescript/1.32/) for this release.
+
+Versioned snapshots: [1.35.0](pathname:///api/typescript/1.35/), [1.32.0](pathname:///api/typescript/1.32/), [1.30.0](pathname:///api/typescript/1.30/), [1.29.0](pathname:///api/typescript/1.29/), [1.28.1](pathname:///api/typescript/1.28/).
+
+## RPC codecs {#rpc-codecs}
+
+TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide
+a codec when the input or output is not JSON, including scalar values such as
+strings, numbers, booleans, and bigints.
+
+## Pages
+
+- [Workers](/reference/typescript/1.32.x/workers): TypeScript names for Worker
+  readiness, capacity, and shutdown settings.
+
+## Release notes
+
+See the [sdk-typescript releases](https://github.com/superdurable/dex/releases?q=sdk-typescript&expanded=true)
+on GitHub.

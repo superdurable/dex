@@ -1,0 +1,23 @@
+---
+title: Upgrades and compatibility
+sidebar_label: Upgrades and compatibility
+---
+
+# Upgrades and compatibility
+
+server-zd and each SDK release declare inclusive protocol intervals. A Worker
+can start when those intervals overlap. It negotiates the highest common
+protocol, then synchronizes Attribute indexes, then binds WorkerTaskService. The
+server and SDK artifact versions are diagnostic and do not decide compatibility.
+
+A new SDK can use an older server when it retains the older protocol, and a new
+server can use an older SDK while their intervals still overlap. A breaking
+server release raises its minimum protocol. Stop old Workers and their traffic
+before that server upgrade, then restart traffic. Alternatively, use isolated
+blue and green environments so deployments with disjoint intervals never
+communicate. Running Workers do not renegotiate after a server upgrade, so stop
+them explicitly before a breaking change.
+
+Protocol compatibility covers the Worker-to-server API only. It does not
+replace the compatibility rules for open Flows, including Flow type names, Step
+graphs, and persisted payloads.

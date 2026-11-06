@@ -1,0 +1,181 @@
+---
+title: Install and configure server-zd
+sidebar_label: Install and configure
+---
+
+# Install and configure server-zd
+
+## Install and start
+
+Each **server-zd/vX.Y.Z** GitHub Release publishes **dex-server-zd** archives
+for Linux amd64, Linux arm64, macOS amd64, and macOS arm64. The release also includes a
+**checksums.txt** file. Verify each archive against it before you extract it.
+Linux archives require glibc 2.28 or newer.
+
+The **dex-server-zd** container image is published for linux/amd64 and
+linux/arm64. It runs **serve** with the configuration file
+**/etc/dex-server-zd/config.yaml**. The process runs as UID 10001 and GID 10001.
+
+~~~bash
+dex-server-zd serve --config /etc/dex-server-zd/config.yaml
+~~~
+
+**serve** reads every setting from one YAML file. The
+[example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
+lists every key with its default. An unknown key fails startup. An invalid
+value also fails startup, and the error names the YAML path of the rejected
+field. The image includes the example at
+**/etc/dex-server-zd/dex-server-zd.example.yaml** for reference only.
+
+## Minimal production configuration
+
+~~~yaml
+cluster:
+  nodeId: dex-zd
+objectStore:
+  region: us-east-1
+  bucket: BUCKET
+  prefix: PREFIX
+localStorage:
+  directory: /var/lib/dex-server-zd/store
+lease:
+  duration: 60s
+retention:
+  closedFlowDuration: 7days
+metrics:
+  listen: 0.0.0.0:9090
+~~~
+
+**cluster.nodeId**, **objectStore.bucket**, and **localStorage.directory** are
+required. Replace **BUCKET** and **PREFIX** with your bucket and key prefix.
+Leave **objectStore.endpoint** empty to use AWS endpoint resolution. For an
+S3-compatible store, set it to an HTTP or HTTPS URL. Set
+**objectStore.forcePathStyle** when that store needs path-style addressing.
+
+A node ID has 1 to 63 characters. It uses lowercase letters, digits, and
+hyphens, and it starts with a letter or a digit.
+
+One object storage prefix holds one Dex cluster, and a cluster runs one node.
+The first start records **cluster.nodeId** and **cluster.partitionCount**.
+Neither can change later. A start with a different node ID fails and names the
+recorded one. Never point two deployments at the same prefix.
+
+## Retention
+
+**retention.closedFlowDuration** sets how long a closed Flow run stays
+available. It defaults to 7 days. After that time, the run and its retained data
+become eligible for deletion. Write the value as a duration, such as **72h** or
+**30days**.
+
+Each run records the value when it starts. A new value applies only to runs that
+start after the node restarts with it. Runs that already started keep their
+recorded duration.
+
+From server-zd v0.1.8, a transactional or locking RPC on a closed run returns
+NOT_FOUND with FLOW_NOT_EXISTS before a Worker runs its handler. A retry with an
+already recorded request ID returns its earlier reply. Other RPCs still run
+their handlers on a closed run that is not yet purged, so they can read it.
+server-zd rejects any write that such a handler returns.
+
+## History window {#history-window}
+
+server-zd keeps a recent window of each run's history. The window holds the
+**FlowStart** event and about the newest 10,000 semantic events. Older events
+are pruned in chunks of 1,000. The window also shrinks when the superseded
+values kept for time travel exceed 256 MiB.
+
+History reads, such as **dexcli flow history --all**, return only the retained
+events. [Time travel](/reference/server/0.1.18/runtime-client#time-travel) can target only
+a point inside the window. Time travel to the beginning is always available.
+
+Each history page also reports the range of event IDs that the window removed.
+Step method events record the event ID of the event that started their Step
+execution. Execute events also record the event ID of the Step's WaitFor
+completion. A client can use these IDs to tell a removed related event from one
+on another page.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **history.windowSemanticEvents** | 10000 | Approximate number of the newest semantic events kept in the window. Pruning starts when the window exceeds this value plus one prune chunk. A semantic event can appear as several CLI history rows. |
+| **history.pruneChunkSize** | 1000 | Old semantic events pruned at a time. Must not exceed **windowSemanticEvents**. |
+| **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. |
+
+Each run records these values when it starts. A new value applies only to runs
+that start after the node restarts with it.
+
+## Limits {#limits}
+
+server-zd enforces these limits. A request that a limit rejects fails at once;
+it does not wait for capacity. The request ID limit never rejects a request; it
+evicts the oldest request IDs instead.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |
+| **api.grpcMaxMessageBytes** | 33554432 (32 MiB) | Largest incoming or outgoing gRPC message. Must exceed **values.maxValueBytes**. |
+| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Storage budget of one Flow run. It counts current state, Attribute and Channel values, and the superseded values kept for time travel. server-zd checks it when a command increases the run's current storage while its total storage exceeds the budget. The checked commands are a Flow start, a Client Attribute write, a Client Channel publish, an RPC that changes Flow state, a Step heartbeat, and a Step completion. An RPC changes Flow state when it writes or deletes Attributes, publishes or deletes Channel messages, or starts or cancels Steps. The increase leaves out what a Step attempt holds only until its method ends, such as the Attributes and Channel messages it loaded and its locks. Such a Flow start, Client write, or RPC fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Client deletions, reads, and RPCs that change no Flow state still run. On a run over its budget, an RPC that changes no Flow state keeps no reply value or request ID for deduplication. A retry with the same request ID is then handled as a new RPC: it runs again while the Flow is running, and fails with NOT_FOUND once the Flow has closed, even if that RPC's own commit closed it. The history of a transactional RPC still records its output. A child Flow result that reaches its parent is not checked; **limits.maxChildFlowResultBytes** bounds it instead. |
+| **limits.maxChildFlowResultBytes** | 16777216 (16 MiB) | Largest total size of the result outputs that a child Flow delivers to its parent. A Step completion that would make a child Flow's collected outputs larger fails the attempt without retry. Unless the Step's failure policy recovers, the child Flow fails, and the parent receives that failure. A Flow without a parent has no such limit. |
+| **limits.maxFlowIdBytes** | 1000 | Longest Flow ID, in UTF-8 bytes. |
+| **limits.maxRequestIdsPerRun** | 1000 | Newest request IDs that one run keeps for deduplication. A retry with an older request ID runs as a new request. |
+| **limits.maxLongPollWaitersPerFlow** | 1000 | Most concurrent waits on one Flow, such as WaitForStepCompletion and WaitForAttributeMatch calls. A wait beyond it fails with RESOURCE_EXHAUSTED. |
+| **limits.maxLongPollWaitersPerNode** | 100000 | Most concurrent waits on the node. A wait beyond it fails with RESOURCE_EXHAUSTED. |
+| **limits.maxInFlightRpcsPerNode** | 1000 | Most shared transactional or locking RPC tasks in flight on the node. A new request ID beyond it fails with RESOURCE_EXHAUSTED. |
+
+Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
+**limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node
+restarts with it.
+
+## Performance tuning {#performance-tuning}
+
+The defaults suit most nodes. Change these keys only when a load test shows a
+bottleneck. They change throughput and memory use, not Flow results. One
+exception: **commit.maxUnappliedBytes** bounds the backlog of accepted commands,
+so a smaller value makes more requests fail with UNAVAILABLE under load. Each
+key applies when the node starts.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **commit.applierLanes** | The larger of 8 and the CPUs available to the process, at most **cluster.partitionCount** and 1024 | Lanes that apply committed commands to the local store in parallel. One partition always uses the same lane, so its commands apply in order. Applying a command reads and writes the local store, so even a small host uses at least 8 lanes. An explicit value must be from 1 to the smaller of **cluster.partitionCount** and 1024. If the CPU count cannot be read, the default is 8. |
+| **commit.applierQueueFrames** | 64 | Committed partition batches queued for each lane. When a lane's queue is full, the commit path waits for it. |
+| **commit.batchWindow** | 20ms | How long an ASYNC command waits for more commands before its batch is sealed. A SYNC command seals its batch at once while the write pipeline has room. Both write the same data. The speculation limits apply to both, so Step proposals retry without failing the Step, while Client calls can get UNAVAILABLE. |
+| **commit.maxBatchRecords** | 10000 | Most commands in one log batch. A batch is sealed when it reaches this count, **commit.sealAtBytes**, or **commit.batchWindow**. |
+| **commit.maxUnappliedBytes** | 67108864 (64 MiB) | Encoded bytes of accepted commands that the node has not applied locally yet. A command that does not fit fails with UNAVAILABLE. Must be at least the smaller of **api.grpcMaxMessageBytes** and 32 MiB, so that the largest command can fit. |
+| **localStorage.writeBufferBytes** | 67108864 (64 MiB) | Size of one RocksDB memtable for each column family. RocksDB keeps up to two memtables for each of the six column families, so memtables can use 12 times this value (768 MiB at the default) in addition to **localStorage.blockCacheBytes**. **localStorage.maxWalBytes** forces flushes when the write-ahead log reaches it, so raise it together with this value. Must be from 64 KiB to **localStorage.maxWalBytes**. |
+| **localStorage.maxBackgroundJobs** | Half the CPUs available to the process, from 2 to 1024 | Most RocksDB flushes and compactions that run at once. RocksDB starts one thread for each job. An explicit value must be from 1 to 1024. |
+| **localStorage.maxSubcompactions** | 1 | Threads that one RocksDB compaction may split into. A larger value can reduce write stalls under sustained writes. |
+
+The node logs the resolved **applierLanes** and **maxBackgroundJobs** values at
+startup.
+
+## Streams {#streams}
+
+Set **streamStore.backend** to **disabled** (default) or **memory** to control
+best-effort [Streams](/primitives/stream). **dex-server-zd dev**, which
+**dexcli dev** starts, uses **memory** unless its overrides set the backend.
+Memory Streams live only in the active server process. They start empty after a
+restart, a standby takeover, or a step down, and trimming can remove older
+messages. While the backend is disabled, Client Stream writes and reads fail
+with **FAILED_PRECONDITION**. A Step Stream write is dropped without failing the
+Step.
+
+The memory backend limits each Stream separately:
+
+- A Client write that does not fit in its Stream's remaining capacity
+  (**streamCapacityBytes**) fails with **RESOURCE_EXHAUSTED**. The rejection
+  also schedules background trimming of that Stream down to
+  **trimTargetPercent** of its capacity. The client retries the write.
+- Each message counts its Value, Flow ID, source, and a fixed overhead of 512
+  bytes.
+- **streamStore.maxMessageBytes** (default 100 KiB) caps the size of one
+  Stream message.
+- Background trimming starts when a Stream reaches **trimTriggerPercent**
+  (default 90) of its capacity. It trims down to **trimTargetPercent** (default
+  80).
+- **streamStore.maxReadMessages** (default 1000, at most 1000) is the largest
+  **ListStreamMessages** page size. A larger page size fails with
+  **INVALID_ARGUMENT**.
+- **estimatedMessageOverheadBytes**, **backgroundTrimBatchSize**,
+  **trimBatchYieldTime**, and **trimWorkers** are validated, but this release
+  ignores them and uses its built-in values.
+
+A Step Stream write that the server drops never fails the Step.

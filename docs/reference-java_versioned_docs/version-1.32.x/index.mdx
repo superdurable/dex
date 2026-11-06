@@ -1,0 +1,59 @@
+---
+title: Java SDK reference
+sidebar_label: Overview
+slug: /
+---
+
+# Java SDK reference
+
+This reference covers the Dex Java SDK. Check the resolved version of
+**io.superdurable:dex-sdk** in your Gradle or Maven build before you rely on a
+detail:
+
+```bash
+./gradlew dependencyInsight --dependency io.superdurable:dex-sdk
+```
+
+## Install
+
+The Java SDK is the Maven Central artifact **io.superdurable:dex-sdk**. Pin an
+exact release:
+
+```text
+io.superdurable:dex-sdk:1.32.0
+```
+
+The published classes target Java 8 bytecode. Releases use the tag
+**sdk-java/vX.Y.Z**.
+
+## Supported versions
+
+| SDK minor | Server requirement |
+| --- | --- |
+| 1.32 | server-zd 0.1.0 or newer (protocol versions 1 to 3) |
+| 1.31, 1.30, 1.29 | See the [compatibility matrix](/reference/#compatibility-matrix) |
+
+Minor numbers follow the shared Dex release train. A missing minor means the
+Java SDK did not change in that release.
+
+## API reference
+
+Read the [Java SDK 1.32.0 API reference](pathname:///api/java/1.32/) for this release.
+
+Versioned snapshots: [1.35.0](pathname:///api/java/1.35/), [1.32.0](pathname:///api/java/1.32/), [1.31.0](pathname:///api/java/1.31/), [1.30.0](pathname:///api/java/1.30/), [1.29.0](pathname:///api/java/1.29/).
+
+## RPC stubs and Kotlin {#rpc-stubs-and-kotlin}
+
+**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its
+RPC methods must not be final. Kotlin makes both final by default, so declare
+the Flow class and its RPC methods with **open**.
+
+## Pages
+
+- [Workers](/reference/java/1.32.x/workers): Java names for Worker readiness,
+  capacity, and shutdown settings.
+
+## Release notes
+
+See the [sdk-java releases](https://github.com/superdurable/dex/releases?q=sdk-java&expanded=true)
+on GitHub.

@@ -18,6 +18,9 @@ import {DefaultNumberPrefixParser, stripPathNumberPrefixes} from '@docusaurus/pl
 const getSlug = slugModule.default;
 const docsDirectory = fileURLToPath(new URL('../', import.meta.url));
 const retainedVersionCount = 5;
+// Markdown destinations may be wrapped in angle brackets: [a](</path>) or [ref]: </path>.
+const linkDestinationStart = '(?<=^|[\\s("\'\\[=]|\\(<|\\]:[ \\t]*<)';
+const linkDestinationEndCharacter = '[\\s)"\'\\]#?>]';
 
 export function referenceVersion(component, releaseVersion) {
   const release = releaseVersion.replace(/^v/, '');
@@ -74,6 +77,7 @@ export async function snapshotReference(component, releaseVersion, {
     await writeJSON(versionsPath, previousVersions);
   }
   await createSnapshot(siteDirectory, component, version);
+  await localizeSnapshotLinks(component, version, {siteDirectory});
   const allVersions = [...new Set([version, ...previousVersions])]
     .sort((first, second) => compareVersions(second, first));
   const retainedVersions = allVersions.slice(0, retainedVersionCount);
@@ -114,9 +118,8 @@ export async function rewriteSnapshotLinks(fromPath, toPath, {siteDirectory = do
     throw new Error('Cannot rewrite links to the site root');
   }
   const toRoute = toPath.replace(/\/+$/, '');
-  // Markdown destinations may be wrapped in angle brackets: [a](</path>) or [ref]: </path>.
   const linkPattern = new RegExp(
-    `(?<=^|[\\s("'\\[=]|\\(<|\\]:[ \\t]*<)${escapeRegExp(fromRoute)}(/?)(?=$|[\\s)"'\\]#?>])`, 'gm');
+    `${linkDestinationStart}${escapeRegExp(fromRoute)}(/?)(?=$|${linkDestinationEndCharacter})`, 'gm');
   const changedFiles = [];
   for (const entry of await readdir(siteDirectory, {withFileTypes: true})) {
     if (!entry.isDirectory() || !/^reference-[a-z]+_versioned_(?:docs|sidebars)$/.test(entry.name)) {
@@ -133,6 +136,54 @@ export async function rewriteSnapshotLinks(fromPath, toPath, {siteDirectory = do
     }
   }
   return changedFiles.sort();
+}
+
+/**
+ * Points a snapshot's links to its own component at the snapshot's version, such as
+ * /reference/server/workers to /reference/server/0.1.16/workers.
+ *
+ * @returns {Promise<number>} The number of rewritten links in the snapshot's docs and sidebar.
+ */
+export async function localizeSnapshotLinks(component, version, {siteDirectory = docsDirectory} = {}) {
+  const componentRoute = `/reference/${component}`;
+  const destinationEnd = `(?:$|/|${linkDestinationEndCharacter})`;
+  // Links that already name a version stay unchanged, so reruns are idempotent.
+  const linkPattern = new RegExp(`${linkDestinationStart}${escapeRegExp(componentRoute)}`
+    + `(?!/\\d+\\.\\d+\\.(?:\\d+|x)${destinationEnd})(?=${destinationEnd})`, 'gm');
+  const versionDirectory = snapshotDirectory(siteDirectory, component, version);
+  const paths = [
+    ...(await Globby(['**/*.{md,mdx}'], {cwd: versionDirectory})).map((source) => join(versionDirectory, source)),
+    snapshotSidebarPath(siteDirectory, component, version),
+  ];
+  let rewrittenLinkCount = 0;
+  for (const path of paths) {
+    const content = await readFile(path, 'utf8');
+    const rewritten = content.replace(linkPattern, () => {
+      rewrittenLinkCount += 1;
+      return `${componentRoute}/${version}`;
+    });
+    if (rewritten !== content) {
+      await writeFile(path, rewritten);
+    }
+  }
+  return rewrittenLinkCount;
+}
+
+/**
+ * Applies localizeSnapshotLinks to every stored snapshot, including each hidden latest snapshot.
+ *
+ * @returns {Promise<Record<string, number>>} The number of rewritten links per component.
+ */
+export async function localizeAllSnapshotLinks({siteDirectory = docsDirectory} = {}) {
+  const latestVersions = JSON.parse(await readFile(join(siteDirectory, 'reference/versions.json'), 'utf8'));
+  const rewrittenLinkCounts = {};
+  for (const component of Object.keys(latestVersions)) {
+    rewrittenLinkCounts[component] = 0;
+    for (const version of await readOptionalVersions(join(siteDirectory, `reference-${component}_versions.json`))) {
+      rewrittenLinkCounts[component] += await localizeSnapshotLinks(component, version, {siteDirectory});
+    }
+  }
+  return rewrittenLinkCounts;
 }
 
 function escapeRegExp(value) {
@@ -213,7 +264,11 @@ function snapshotDirectory(siteDirectory, component, version) {
 
 async function removeSnapshot(siteDirectory, component, version) {
   await rm(snapshotDirectory(siteDirectory, component, version), {recursive: true});
-  await rm(join(siteDirectory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`));
+  await rm(snapshotSidebarPath(siteDirectory, component, version));
+}
+
+function snapshotSidebarPath(siteDirectory, component, version) {
+  return join(siteDirectory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`);
 }
 
 function runDocusaurusVersion(siteDirectory, component, version) {
@@ -237,10 +292,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(new URL(
     console.log(referenceVersion(commandArguments[1], commandArguments[2]));
   } else if (commandArguments[0] === '--rewrite-links' && commandArguments.length === 3) {
     console.log(JSON.stringify(await rewriteSnapshotLinks(commandArguments[1], commandArguments[2])));
+  } else if (commandArguments[0] === '--localize-links' && commandArguments.length === 1) {
+    console.log(JSON.stringify(await localizeAllSnapshotLinks()));
   } else if (commandArguments.length === 2 && !commandArguments[0].startsWith('-')) {
     console.log(JSON.stringify(await snapshotReference(commandArguments[0], commandArguments[1])));
   } else {
     throw new Error('Usage: node scripts/snapshot-reference.mjs <component> <version>'
-      + ' | --rewrite-links <from> <to> | --reference-version <component> <version>');
+      + ' | --rewrite-links <from> <to> | --localize-links | --reference-version <component> <version>');
   }
 }

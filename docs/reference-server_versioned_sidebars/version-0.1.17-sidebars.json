@@ -1,0 +1,23 @@
+{
+  "reference": [
+    {
+      "type": "link",
+      "label": "← Developer Reference",
+      "href": "/reference/"
+    },
+    "index",
+    "runtime-steps",
+    "runtime-data",
+    "runtime-client",
+    "configuration",
+    "kubernetes",
+    "high-availability",
+    "object-storage",
+    "authentication",
+    "workers",
+    "search",
+    "attribute-store-sync",
+    "metrics",
+    "upgrades"
+  ]
+}

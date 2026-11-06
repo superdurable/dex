@@ -1,0 +1,55 @@
+---
+title: Go SDK reference
+sidebar_label: Overview
+slug: /
+---
+
+# Go SDK reference
+
+This reference covers the Dex Go SDK. Check the SDK version your application
+uses before you rely on a detail:
+
+```bash
+go list -m github.com/superdurable/dex/sdk-go
+```
+
+## Install
+
+The Go SDK is the module **github.com/superdurable/dex/sdk-go**. Pin an exact
+release in **go.mod**:
+
+```bash
+go get github.com/superdurable/dex/sdk-go@v1.32.0
+```
+
+The module requires Go 1.24 or newer. Releases use the tag
+**sdk-go/vX.Y.Z**.
+
+## Supported versions
+
+| SDK minor | Server requirement |
+| --- | --- |
+| 1.32 | server-zd 0.1.0 or newer (protocol versions 2 to 3) |
+| 1.30, 1.29, 1.26 | See the [compatibility matrix](/reference/#compatibility-matrix) |
+
+Minor numbers follow the shared Dex release train. A missing minor means the Go
+SDK did not change in that release.
+
+## API reference
+
+Read the [Go SDK 1.32.0 API reference](pathname:///api/go/1.32/) for this release.
+
+Versioned snapshots: [1.35.0](pathname:///api/go/1.35/), [1.32.0](pathname:///api/go/1.32/), [1.30.0](pathname:///api/go/1.30/), [1.29.0](pathname:///api/go/1.29/), [1.26.0](pathname:///api/go/1.26/).
+
+pkg.go.dev does not display this module under its license, so the reference
+is hosted here.
+
+## Pages
+
+- [Workers](/reference/go/1.32.x/workers): Go names for Worker readiness, capacity,
+  and shutdown settings.
+
+## Release notes
+
+See the [sdk-go releases](https://github.com/superdurable/dex/releases?q=sdk-go&expanded=true)
+on GitHub.

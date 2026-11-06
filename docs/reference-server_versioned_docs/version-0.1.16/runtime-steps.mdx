@@ -1,0 +1,2597 @@
+---
+title: Flow and Step runtime
+sidebar_label: Flows and Steps
+---
+
+# Flow and Step runtime
+
+This page holds the detailed runtime rules for Flows and Steps: start options,
+Flow configuration, waits, Step decisions, Step options, and what happens when
+an attempt fails or is interrupted. For the concepts, read
+[Flow](/primitives/flow) and [Step](/primitives/step) first. For the exact
+signature of one API in your language, read its SDK doc comment.
+
+## Flow definition {#flow-definition}
+
+A Flow registers its Steps, its persistence schema, and its RPC handlers.
+
+- **GetSteps** / **get_steps** / **steps** registers one start Step and every
+  other Step type the Flow may reach through Step decision movements. The
+  start Step input type is also the Flow start input type. An empty Step list,
+  or a list with no start Step, is valid when the Flow is driven entirely by
+  RPCs that later move into Steps.
+- The persistence schema lists every Attribute and Channel used from Steps or
+  RPCs. Dex rejects reads and writes to names that are not declared.
+- Each Flow explicitly declares its RPC handlers and their execution options.
+  Go returns direct bound methods from **GetRPCs** with **DefineRPC**. Dex uses
+  the method name as the durable RPC name, except Rust may provide an explicit
+  name.
+
+Most SDKs derive the **FlowType** and the **StepType** from the native type
+name unless you override it.
+
+## StartFlowOptions {#start-flow-options}
+
+**StartFlowOptions** apply when a client starts a Flow or a SubFlow. They are
+immutable after start.
+
+| Field | Purpose |
+|-------|---------|
+| **Timeout** | Flow timeout. Omit it or set zero to disable it. |
+| **TimeoutPolicy** | What happens when the Flow timeout fires. |
+| **TimeoutHandlerOptions** | Execution, retry, recovery, durability, locking, and state loading for a timeout handler. |
+| **IDReusePolicy** | How to reuse an existing Flow ID to start. |
+| **RequestID** | Idempotency key for retrying one start request. |
+| **AlreadyStartedOptions** | How to handle an already-started Flow. |
+| **RetryPolicy** | Not supported. server-zd rejects it with **INVALID_ARGUMENT**. See [RetryPolicy](#retry-policy). |
+| **StartDelay** | Not supported. server-zd rejects a positive value with **INVALID_ARGUMENT**. See [StartDelay](#start-delay). |
+| **Attributes** | Initial Attribute values. |
+| **FlowConfig** | Per-execution Flow configuration, sent as **ConfigOverride**. |
+
+For an application-defined outcome at the Flow deadline, see
+[Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
+    go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+def example_start_flow_options() -> StartFlowOptions:
+    return StartFlowOptions(
+        timeout=timedelta(minutes=30),
+        timeout_policy=FlowTimeoutPolicy.HANDLER,
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        config_override=FlowConfig(step_durability=StepDurability.SYNC),
+        ignore_already_started=True,
+        request_id="start-order-123",
+    ).with_attribute(status, "queued")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return sdk.StartFlowOptions{}, err
+	}
+	timeout := 30 * time.Minute
+	requestID := "start-order-123"
+	stepDurability := sdk.StepDurabilitySync
+	return sdk.StartFlowOptions{
+		Timeout:       &timeout,
+		TimeoutPolicy: sdk.TimeoutHandler,
+		IDReusePolicy: sdk.IDReuseDisallow,
+		Attributes: []sdk.InitialAttributeDef{initialStatus},
+		ConfigOverride: &sdk.FlowConfig{
+			StepDurability: &stepDurability,
+		},
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		RequestID:      &requestID,
+	}, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+private static StartFlowOptions exampleStartFlowOptions() {
+    return StartFlowOptions.newBuilder()
+            .timeout(Duration.ofMinutes(30))
+            .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+            .idReusePolicy(IdReusePolicy.DISALLOW)
+            .addAttribute(ExampleFlow.status, "queued")
+            .configOverride(
+                    FlowConfig.newBuilder()
+                            .stepDurability(StepDurability.SYNC)
+                            .build())
+            .ignoreAlreadyStarted(true)
+            .requestId("start-order-123")
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export function exampleStartFlowOptions(): StartFlowOptions {
+  return {
+    timeoutMs: 30 * 60_000,
+    timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    attributes: [InitialAttribute.of(status, "queued")],
+    configOverride: {
+      stepDurability: "sync",
+    },
+    ignoreAlreadyStarted: true,
+    requestId: "start-order-123",
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+pub fn example_start_flow_options() -> StartFlowOptions {
+    StartFlowOptions::new()
+        .timeout(Duration::from_secs(30 * 60))
+        .timeout_policy(FlowTimeoutPolicy::Handler)
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .initial_attribute(&STATUS, "queued".to_owned())
+        .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
+        .ignore_already_started(true)
+        .request_id("start-order-123")
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Timeout and TimeoutPolicy {#timeout-and-timeout-policy}
+
+**Timeout** is one durable timer for the whole Flow. Set **TimeoutPolicy** only
+when **Timeout** is positive.
+
+- **FAIL**: fail the Flow with a timeout error.
+- **CANCEL**: cancel the Flow. It does not retry.
+- **HANDLER**: run one logical Flow timeout-handler execution.
+
+With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has
+a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the
+Flow has no handler.
+
+**TimeoutHandlerOptions** is valid only with a positive **Timeout** and a final
+**HANDLER** policy. It uses Execute semantics: a method timeout limits each
+attempt, **Retry** can run multiple attempts, **HeartbeatTimeout** detects
+stalled attempts, and **Failure** can route exhausted retries to a registered
+no-input Step. The recovery Step receives null or unit input and reads the
+final error from the handler **Context**.
+
+The handler's attempt and retry clocks begin when the soft Flow timeout fires.
+They may extend past the original Flow deadline. If no failure target is
+configured, an exhausted handler fails the Flow.
+
+Ordinary Attributes and all Channel size metadata load automatically.
+AttributeMap values and pending Channel messages require explicit selections in
+**TimeoutHandlerOptions**. The handler may stage Attribute writes, Channel
+deletions, and Channel publications before returning its decision. Flow-level
+retry does not exist, so the timeout handler runs once per Flow run.
+
+Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires.
+This handler records why the Flow ended, then fails it with an application
+reason.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+    go: 'examples/go/primitives/flow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+    rust: 'examples/rust/src/primitives/flow/flow.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+def handle_timeout(self, context: Context) -> StepDecision:
+    status.set(context, "timed out")
+    return force_fail("processing deadline reached")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (*ExampleFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "timed out"); err != nil {
+		return nil, err
+	}
+	return dex.ForceFail("processing deadline reached"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepDecision handleTimeout(final Context context) {
+    status.set(context, "timed out");
+    return StepDecision.forceFail("processing deadline reached");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public handleTimeout(context: Context): StepDecision {
+  status.set(context, "timed out");
+  return forceFail("processing deadline reached");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl ExampleFlow {
+    fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
+        STATUS.set(context, "timed out".to_string())?;
+        Ok(StepDecision::force_fail("processing deadline reached"))
+    }
+}
+
+impl Flow for ExampleFlow {
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+        Some(Self::handle_timeout)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
+
+**IDReusePolicy** says what to do when this Flow ID already exists.
+**RequestID** says whether this call retries the same start request.
+
+<a id="how-these-options-work-together"></a>
+<a id="这些选项如何一起工作"></a>
+
+These options answer different questions, in this order:
+
+1. **RequestID** identifies one start request. When omitted, the SDK generates
+   a new UUID, so another StartFlow call is a new request. Reuse it only for a
+   retry of the exact same start. Dex compares the RequestID, not the start
+   input or options.
+2. **IDReusePolicy** decides whether that request may start another run with
+   this Flow ID.
+3. **AlreadyStartedOptions.IgnoreError** matters only when the ID reuse policy
+   rejects the start as already started. It returns the existing Run ID only
+   when the RequestID matches.
+
+| Retry request | **AlreadyStartedOptions.IgnoreError** | When the ID reuse policy rejects the start |
+|---------------|---------------------------------------|---------------------------------------------|
+| No **RequestID** | Off or on | The SDK sends a new UUID. Dex returns an already-started error. |
+| A different **RequestID** | Off or on | Dex returns an already-started error. |
+| Same **RequestID** | Off | Dex returns an already-started error. |
+| Same **RequestID** | On | Dex returns the existing Run ID. |
+
+The ID reuse policy determines whether Dex rejects the start in the first place:
+
+| **IDReusePolicy** | Existing active Flow | Existing closed Flow |
+|-------------------|----------------------|----------------------|
+| **IDReuseDefault** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
+| **IDReuseAllowIfPreviousFailed** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run only after a failed run; otherwise rejects it. |
+| **IDReuseAllowIfNotRunning** | Rejects the start. A matching RequestID with **IgnoreError** returns the active Run ID. | Starts a new run. |
+| **IDReuseDisallow** | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. | Rejects the start. A matching RequestID with **IgnoreError** returns the existing Run ID. |
+| **IDReuseTerminateIfRunning** | Terminates the active run and starts a replacement. It does not produce an already-started error. | Starts a new run. |
+
+<a id="what-dex-server-does"></a>
+<a id="dex-server-的逻辑"></a>
+
+#### What Dex Server does {#start-request-server-behavior}
+
+Dex Server requires a non-empty **RequestID**. An SDK generates one before
+sending the request when you omit it. The server records it with the Flow
+execution, then starts the Flow using the requested ID reuse policy.
+**IDReuseDefault** uses the server default: reject every previously used Flow
+ID. Choose **IDReuseAllowIfNotRunning** explicitly when a closed Flow ID should
+start a new execution.
+
+If the Flow is already started, Dex checks
+**AlreadyStartedOptions.IgnoreError**. When it is on, Dex reads the existing
+run's recorded RequestID. It returns that Run ID only when the two RequestIDs
+match. Otherwise it returns the already-started error.
+
+### StartFlow best practices {#start-flow-best-practices}
+
+Call **StartFlow** directly with a stable business **Flow ID**. Do not read a
+snapshot, search for the Flow, or check its status first just to avoid a
+possible retry conflict. A successful start also needs no read to recheck the
+identity, owner, or initial Attributes you supplied.
+
+For retries of one logical start, combine a stable **RequestID**,
+**IDReuseDisallow**, and the ignore-already-started option. Keep the same input
+and options on every retry. **IDReuseDisallow** prevents another execution
+after closure; a policy that permits another run can bypass the
+matching-RequestID path.
+
+The following helpers accept a validated integer input and a stable Flow ID.
+Those are the complete business inputs in this example, so together they
+determine the RequestID. All other start values are fixed. In a real
+application, include every logical input that changes the operation, such as
+tenant, owner, mode, revision, or initial business Attributes. Dex compares
+RequestIDs; it does not compare payload equality. Do not reuse a RequestID for
+a changed logical request.
+
+Each helper returns the known business Flow ID after acceptance and propagates
+errors. It performs no read before or after the start. The returned ID is an
+acknowledgement, not a current business snapshot or proof that the Flow has
+completed.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
+    go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+async def start_example_flow_request(
+    client: AsyncClient, example_flow: ExampleFlow, flow_id: str, input_num: int
+) -> str:
+    options = StartFlowOptions(
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        request_id=f"start-example-flow:{input_num}:{flow_id}",
+        ignore_already_started=True,
+    ).with_attribute(status, "queued")
+    await client.start_flow(example_flow, flow_id, input_num, options)
+    return flow_id
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func startExampleFlowRequest(
+	ctx context.Context, client *sdk.Client, exampleFlow *ExampleFlow, flowID string, inputNum int,
+) (string, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return "", err
+	}
+	_, err = client.StartFlow(ctx, exampleFlow, flowID, inputNum, sdk.StartFlowOptions{
+		IDReusePolicy:  sdk.IDReuseDisallow,
+		RequestID:      ptr.Any("start-example-flow:" + strconv.Itoa(inputNum) + ":" + flowID),
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		Attributes:     []sdk.InitialAttributeDef{initialStatus},
+	})
+	if err != nil {
+		return "", err
+	}
+	return flowID, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+    private static String startExampleFlowRequest(
+            final Client client, final ExampleFlow exampleFlow,
+            final String flowId, final int inputNum) {
+        final StartFlowOptions options = StartFlowOptions.newBuilder()
+                .idReusePolicy(IdReusePolicy.DISALLOW)
+                .requestId("start-example-flow:" + inputNum + ":" + flowId)
+                .ignoreAlreadyStarted(true)
+                .addAttribute(ExampleFlow.status, "queued")
+                .build();
+        client.startFlow(exampleFlow, flowId, inputNum, options);
+        return flowId;
+    }
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export async function startExampleFlowRequest(
+  client: Client, flowId: string, inputNum: number,
+): Promise<string> {
+  await client.startFlow(exampleFlow, flowId, inputNum, {
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    requestId: `start-example-flow:${inputNum}:${flowId}`,
+    ignoreAlreadyStarted: true,
+    attributes: [InitialAttribute.of(status, "queued")],
+  });
+  return flowId;
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+pub fn start_example_flow_request(
+    client: &Client,
+    example_flow: &ExampleFlow,
+    flow_id: &str,
+    input_num: i32,
+) -> SdkResult<String> {
+    let options = StartFlowOptions::new()
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .request_id(format!("start-example-flow:{input_num}:{flow_id}"))
+        .ignore_already_started(true)
+        .initial_attribute(&STATUS, "queued".to_owned());
+    client.start_flow_with_options(example_flow, flow_id, input_num, options)?;
+    Ok(flow_id.to_owned())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+For example, starting **invoice-42** with input **7** sends RequestID
+**start-example-flow:7:invoice-42**. Retrying that call returns the same
+execution, even after it closes, while Dex retains it. Starting the same Flow
+ID with input **8** sends a different RequestID and returns an already-started
+error. No snapshot comparison is needed on the successful path.
+
+#### Wait when the response promises a business milestone {#wait-for-required-milestone}
+
+If the API must confirm an important operation, call **WaitForAttributeMatch**
+or **WaitForStepCompletion** immediately after **StartFlow** succeeds,
+including matching-request deduplication. Deduplication confirms the same start
+was accepted; it does not prove the operation has finished. No identity-check
+read is needed between the start and the wait.
+
+For example, an API may promise that a row has been committed to a database
+table used as the business source of truth. The owning Flow writes that row in
+**Execute**, then records a committed Attribute or completes the persistence
+Step. The API waits for that committed Attribute value or the specific
+**StepExecutionID** before returning confirmed persistence. Publish the marker
+only after the database commit succeeds. **WaitForStepCompletion** confirms
+that Step completed; it does not return its output or wait for the whole Flow
+to finish.
+
+```text
+API → StartFlow succeeds or deduplicates → wait for the required commit milestone
+Flow Execute → commit business row to database → record committed Attribute / complete Step
+API → milestone wait succeeds → return confirmed persistence
+```
+
+Wait only for the condition that establishes the response's promised outcome.
+If the response only acknowledges accepted background work, return immediately
+after the start without a wait. Bound required waits with a caller deadline or
+request timeout. A wait timeout does not undo the start or prove the database
+write failed; report completion as pending or unknown according to the API
+contract and preserve the same start identity for retries.
+
+See [Wait for a Step](/reference/server/0.1.16/runtime-client#wait-for-a-step) and
+[Wait for an Attribute match](/reference/server/0.1.16/runtime-client#wait-for-an-attribute-match)
+for these waits. Attribute waits target an active run. If a Flow
+closes before the wait attaches, reconcile the actual wait error through the
+authoritative business record or a supported terminal read; do not assume the
+Attribute wait can query a closed run.
+
+#### Read only when the error outcome needs it {#start-error-reconciliation}
+
+Error handling follows the business contract. If an already-started error can
+simply become **ALREADY_EXISTS**, return that conflict directly. Do not add a
+read-only RPC just because the error occurred. The helpers above preserve the
+typed error for that boundary translation.
+
+Read existing state only when it changes the response or next business
+decision. For example, an API that explicitly permits continuing an existing
+operation may call its typed read-only RPC after the conflict to decide whether
+that operation satisfies the request. An API that promises a current snapshot
+must read current state; it cannot label the submitted initial Attributes as
+that snapshot. An accepted start does not prove business completion.
+
+| Situation | Action |
+| --- | --- |
+| Start accepted; response only acknowledges acceptance | Return the Flow ID and the agreed acceptance fields. No snapshot read. |
+| Start accepted or deduplicated; response promises a critical operation | Wait for the committed Attribute condition or selected Step completion, then return that milestone outcome. |
+| Already started; business accepts **ALREADY_EXISTS** | Return the conflict. No snapshot read. |
+| Already started; business permits resuming an existing operation | Read its typed snapshot only to decide whether that contract permits resuming it. |
+| Response lost; start acceptance is unknown | Retry within a bounded policy with the same identity and options, or read authoritative state if it can establish the outcome. |
+
+Do not retry a proven conflict indefinitely. If no stable RequestID was
+supplied, separate SDK calls use fresh IDs; enabling the ignore option alone
+does not deduplicate them.
+
+#### Put dependent starts inside the owning Flow {#durable-dependent-starts}
+
+For one business operation, the API starts one owning Flow. Its durable Steps
+perform the follow-on work. Do not start the first Flow, read its status, and
+start a dependent Flow in the HTTP handler. If that process exits between the
+starts, no durable Step owns the missing launch.
+
+Use Steps when the work shares one identity and lifecycle. When it needs a
+separate top-level Flow with its own owner and lifecycle, launch it from an
+**Execute** Step with stable downstream Flow ID, RequestID, and start options.
+Persist the launch input in the owning Flow. If the Worker dies after the
+downstream start is accepted but before the Step commits, the Step can retry
+the same start without creating another execution. Keep **WaitFor** for
+durable conditions. A separately owned top-level Flow does not need to become a
+SubFlow merely because another Flow starts it.
+
+```text
+API → StartFlow for the owning operation → accepted response
+Owning Flow Execute → StartFlow for separately owned work → durable progress
+Worker replacement → retry the same downstream start identity → no duplicate launch
+```
+
+### RetryPolicy {#retry-policy}
+
+server-zd does not support a Flow-level **RetryPolicy**. A start request that
+sets one fails with **INVALID_ARGUMENT**. Tracked in
+[issue 996](https://github.com/superdurable/dex/issues/996). To retry work, use
+[Step retry](#retry-and-failure-policies), which is supported.
+
+### StartDelay {#start-delay}
+
+server-zd does not support **StartDelay**. A start request with a positive
+delay fails with **INVALID_ARGUMENT**. Tracked in
+[issue 995](https://github.com/superdurable/dex/issues/995). To delay the first
+work, start the Flow without a delay and begin the start Step with a durable
+**Timer** wait.
+
+### Attributes {#attributes}
+
+**Attributes** write initial values. Each value must match an Attribute or
+AttributeMap in the Flow persistence schema.
+
+## FlowConfig {#flow-config}
+
+**FlowConfig** holds runtime behavior. Unlike **StartFlowOptions**, it is
+mutable after start.
+
+Use **ConfigOverride** in **StartFlowOptions** to change the initial
+configuration for one Flow. It changes only the fields you provide. It does not
+replace the whole **FlowConfig**. At start, Dex applies the supplied fields
+over the Dex Server defaults. Omitted fields keep their default values.
+
+| Field | Behavior |
+|-------|----------|
+| **ActiveStepSearchMode** | Index every active Step, only Steps that ran **WaitFor**, or no active Steps. The built-in server default does not index active Steps. Set an explicit mode to opt in. |
+| **ContinueAsNewThreshold** | Deprecated. Dex does not continue Flows as new. Dex rejects a negative value, stores the value in the **FlowConfig**, and otherwise ignores it. **ContinueAsNewPageSizeBytes** behaves the same way. |
+| **StepDurability** | Default durability for methods without a Step override. Dex resolves a method override first, then this value, then **SYNC**. |
+| **AttributeStoreNames** | Dex Server Attribute Stores for Attributes that opt in to Attribute sync. |
+
+### Update FlowConfig with a Client {#update-flow-config-with-a-client}
+
+Call **UpdateFlowConfig** while the Flow is active. Send only the fields you
+want to change. Dex merges them with the existing configuration. The SDK
+**UpdateFlowConfig** call does not change the Flow's Worker routing.
+
+## Step methods and commits {#commit-boundary}
+
+Each **WaitFor** or **Execute** invocation is a separate commit boundary. Dex
+Server stages the Attribute writes and Channel publications from that method,
+then commits them with its **Wait** or **StepDecision** only after the method
+returns successfully. If the method fails, none of those durable changes are
+committed. **WaitFor** and **Execute** do not share a commit. External API
+calls are outside this atomic boundary.
+
+Before its final **Wait** or **StepDecision**, a handler can send
+[heartbeat checkpoints](#heartbeat) and any number of best-effort
+[Stream messages](/primitives/stream). The response stream must end with
+exactly one final result. These progress frames are not part of the method's
+commit, and a Stream Store failure does not fail the Step.
+
+## Waits {#waits}
+
+**WaitFor** returns a **Wait** with a wait type and the conditions to wait for.
+Dex persists the waiting state and evaluates the conditions when related state
+changes. [Timer](/primitives/timer), [Channel](/primitives/channel), and
+[SubFlow](/primitives/subflow) are the condition kinds.
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** accept Conditions without condition IDs. Do
+not add IDs merely because a Condition is nested in one of these waits. Read
+Channel results from the Channel definition and inspect Timer outcomes through
+the **Context**. Add IDs only when another API requires them, such as
+**AnyCombinationOf** or a Timer selected by ID.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.any_of(
+    channel_a.for_one(),
+    Timer.by_duration(timeout),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AnyOf(
+	SignalA.ForOne(),
+	dex.Timer(timeout),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.anyOf(
+        channelA.forOne(),
+        Timer.byDuration(timeout));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.anyOf(
+  channelA.forOne(),
+  Timer.byDuration(timeoutMs),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::any_of([
+    signal_a_channel().for_one(),
+    Timer::by_duration(timeout),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.all_of(
+    channel_a.for_one(),
+    channel_b.for_one(),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AllOf(
+	SignalA.ForOne(),
+	SignalB.ForOne(),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.allOf(
+        channelA.forOne(),
+        channelB.forOne());
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.allOf(
+  channelA.forOne(),
+  channelB.forOne(),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::all_of([
+    signal_a_channel().for_one(),
+    signal_b_channel().for_one(),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/primitives/channel), use **GetConditionResults** / **results** /
+**condition_results** to read published messages. For a
+[SubFlow](/primitives/subflow), use **SubFlowResult** / **getConditionResults**
+/ **condition_result** to decode the child Flow output.
+
+Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes
+messages only from the Channel condition selected to satisfy the Wait. Other
+Channel conditions consume nothing even if they are also ready, so their
+messages remain queued.
+
+When several **AnyOf** alternatives are ready in one evaluation, Dex selects
+the first feasible candidate in canonical order: Timer conditions in
+declaration order, then Channel conditions in declaration order, then SubFlow
+conditions in declaration order. An earlier condition that is not ready does
+not block a later ready condition. Mixed condition kinds therefore do not share
+one global call argument order.
+
+Use **AnyOf** for a race among the current alternatives. For strict priority
+that must keep waiting for a higher-priority input, return only that condition
+until it is resolved.
+
+<a id="channel-结果"></a>
+
+#### Channel results {#channel-results}
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+go: 'examples/go/primitives/channel/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+rust: 'examples/rust/src/primitives/channel/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+class ChannelWaitStep(Step[int]):
+    def __init__(self, approval: Channel[str]) -> None:
+        self.approval = approval
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        return Wait.any_of(
+            self.approval.for_one(),
+            Timer.by_duration(timedelta(seconds=input)),
+        )
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        if context.has_timer_fired():
+            return graceful_complete("approval timed out")
+        approvals = self.approval.results(context)
+        return graceful_complete(approvals[0])
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+var Approval = dex.DefineChannel[string]("Approval")
+
+type channelWait struct {
+	dex.StepDefaults
+}
+
+func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+	return dex.AnyOf(
+		Approval.ForOne(),
+		dex.Timer(time.Duration(input)*time.Second),
+	), nil
+}
+
+func (channelWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GracefulComplete("approval timed out"), nil
+	}
+	results, err := Approval.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(results[0]), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final class ChannelWaitStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.anyOf(
+                approval.forOne(),
+                Timer.byDuration(Duration.ofSeconds(input)));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        if (context.hasTimerFired()) {
+            return StepDecision.gracefulComplete("approval timed out");
+        }
+        final List<String> approvals = approval.getConditionResults(context);
+        return StepDecision.gracefulComplete(approvals.get(0));
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const approval = new Channel("Approval", stringCodec);
+
+class ChannelWait implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "ChannelWait";
+  }
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.anyOf(
+      approval.forOne(),
+      Timer.byDuration(input * 1000),
+    );
+  }
+
+  public execute(context: Context, _input: number): StepDecision {
+    if (context.hasTimerFired()) {
+      return gracefulComplete("approval timed out");
+    }
+    const approvals = approval.results(context);
+    return gracefulComplete(approvals[0]!);
+  }
+}
+
+const channelWait = new ChannelWait();
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
+
+#[derive(Default)]
+struct ChannelWait;
+
+impl Step for ChannelWait {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            APPROVAL.for_one(),
+            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete(
+                "approval timed out".to_owned(),
+            ));
+        }
+        let approvals = APPROVAL.condition_results(context)?;
+        Ok(StepDecision::graceful_complete(approvals[0].clone()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<a id="subflow-结果"></a>
+
+#### SubFlow results {#subflow-results}
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/subflow/parent_flow.py',
+go: 'examples/go/primitives/subflow/parent_flow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
+typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
+rust: 'examples/rust/src/primitives/subflow/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    result = SubFlow.get_condition_results(context)
+    output = result.single_output(int)
+    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (subFlowParent) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var output int
+	if err := result.DecodeSingleOutput(&output); err != nil {
+		return nil, err
+	}
+	flowID, err := dex.SubFlowID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final Integer output =
+            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
+    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, _input: number): StepDecision {
+  const result = SubFlow.getConditionResults(context);
+  const output = result.singleOutput(doubleCodec);
+  const flowId = SubFlow.getFlowId(context);
+  return gracefulComplete(`${flowId}|${output}`);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let result = SubFlow::condition_result(context)?;
+    let output: i32 = result
+        .single_output()
+        .map_err(HandlerError::from_error)?;
+    let flow_id = SubFlow::flow_id_at(context, 0)?;
+    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** expresses an OR of AND groups. Build each inner group as
+an all-of combination.
+
+Channel consumption is not greedy across combinations. Dex consumes messages
+only from Channel conditions in the selected combination. Conditions belonging
+only to other ready combinations consume nothing, so their messages remain
+queued.
+
+Every Condition in its combinations requires a unique **condition ID**.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.any_combination_of(
+    ConditionCombination.of(
+        channel_a.for_one(condition_id="signal-a"),
+        Timer.by_duration(timeout, condition_id="timeout"),
+    ),
+    ConditionCombination.of(
+        channel_b.for_one(condition_id="signal-b"),
+    ),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AnyComboOf(
+	dex.Combo(
+		SignalA.ForOne(dex.WithConditionID("signal-a")),
+		dex.Timer(timeout, dex.WithConditionID("timeout")),
+	),
+	dex.Combo(
+		SignalB.ForOne(dex.WithConditionID("signal-b")),
+	),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.anyCombinationOf(
+        ConditionCombination.of(
+                channelA.forOne("signal-a"),
+                Timer.byDuration(timeout, "timeout")),
+        ConditionCombination.of(channelB.forOne("signal-b")));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.anyCombinationOf(
+  ConditionCombination.of(
+    channelA.forOne("signal-a"),
+    Timer.byDuration(timeoutMs, "timeout"),
+  ),
+  ConditionCombination.of(channelB.forOne("signal-b")),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::any_combination_of([
+    ConditionCombination::all_of([
+        signal_a_channel().for_one().with_id("signal-a"),
+        Timer::by_duration(timeout).with_id("timeout"),
+    ]),
+    ConditionCombination::all_of([signal_b_channel().for_one().with_id("signal-b")]),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Step execution local {#step-execution-local}
+
+**SetStepExecutionLocal** stores a value on this **StepExecution** so
+**Execute** can read it with **GetStepExecutionLocal**. Use it when **WaitFor**
+computes something **Execute** needs but a Flow-level **Attribute** is
+overkill. Step input is already passed to both methods. Do not copy input into
+a local.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step_execution_local/step_execution_local_flow.py',
+    go: 'examples/go/primitives/step-execution-local/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepexecutionlocal/StepExecutionLocalFlow.java',
+    typescript: 'examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts',
+    rust: 'examples/rust/src/primitives/step_execution_local/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def wait_for(self, context: Context, input: int) -> Wait:
+    context.set_step_execution_local("note", f"approval:{input}")
+    return Wait.until(approval.for_one())
+
+def execute(self, context: Context, input: int) -> StepDecision:
+    note = context.get_step_execution_local("note", str)
+    return graceful_complete(note or "")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (noteWait) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
+	if err := ctx.SetStepExecutionLocal("note", fmt.Sprintf("approval:%d", input)); err != nil {
+		return nil, err
+	}
+	return dex.Until(Approval.ForOne()), nil
+}
+
+func (noteWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	var note string
+	found, err := ctx.GetStepExecutionLocal("note", &note)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("note was not set")
+	}
+	return dex.GracefulComplete(note), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public Wait waitFor(final Context context, final Integer input) {
+    context.setStepExecutionLocal("note", "approval:" + input, String.class);
+    return Wait.until(approval.forOne());
+}
+
+public StepDecision execute(final Context context, final Integer input) {
+    final String note = context.getStepExecutionLocal("note", String.class);
+    return StepDecision.gracefulComplete(note == null ? "" : note);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public waitFor(context: Context, input: number): Wait {
+  context.setStepExecutionLocal("note", `approval:${input}`, stringCodec);
+  return Wait.until(approval.forOne());
+}
+
+public execute(context: Context, _input: number): StepDecision {
+  const note = context.getStepExecutionLocal("note", stringCodec) ?? "";
+  return gracefulComplete(note);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+    context.set_step_execution_local("note", format!("approval:{input}"))?;
+    Ok(Wait::until(APPROVAL.for_one()))
+}
+
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let note: String = context.step_execution_local("note")?;
+    Ok(StepDecision::graceful_complete(note))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it in a dynamic **WaitFor**
+method when one branch must not wait for anything.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+    go: 'examples/go/primitives/flow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+    rust: 'examples/rust/src/primitives/flow/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.skip_immediately()
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.SkipWaitImmediately(), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.skipImmediately();
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.skipImmediately();
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::skip_immediately())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Step decisions {#step-decisions}
+
+**Execute** returns a **StepDecision**. It moves to next Steps, closes the
+Flow, or both stops this branch and cancels other Steps.
+
+### Multiple next Steps {#gotomulti}
+
+**GoTo** starts one next Step. **GoToMany** starts multiple next Steps. Each
+Step movement has its own input and can also have its own
+[Step options](#stepoptions-override-per-stepexecution).
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/step-decision/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
+    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
+    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
+    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+return dex.GoToMany(
+	dex.MovementOf(carrierAStep{}, Quote{Carrier: "A", Price: 10}),
+	dex.MovementOf(carrierBStep{}, Quote{Carrier: "B", Price: 12}),
+	dex.MovementOf(winnerStep{}, quote),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return StepDecision.goToMany(
+        StepMovement.of(CarrierA.class, quoteA),
+        StepMovement.of(CarrierB.class, quoteB),
+        StepMovement.of(Winner.class, winnerQuote));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+return go_to_many(
+    StepMovement.of(CarrierA, Quote(carrier="A", price=10)),
+    StepMovement.of(CarrierB, Quote(carrier="B", price=12)),
+    StepMovement.of(Winner, quote),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return goToMany(
+  StepMovement.of(CarrierA, { carrier: "A", price: 10 }),
+  StepMovement.of(CarrierB, { carrier: "B", price: 12 }),
+  StepMovement.of(Winner, quote),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(StepDecision::go_to_many([
+    StepMovement::to(&CarrierA, quote_a),
+    StepMovement::to(&CarrierB, quote_b),
+    StepMovement::to(&Winner, winner_quote),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Close decisions {#close-decisions}
+
+| Decision | What it does |
+| --- | --- |
+| **GracefulComplete** | Stops this branch and triggers the Flow to prepare for completion. When all branches and Steps are stopped, the Flow completes. |
+| **DeadEnd** | Stops this branch only. |
+| **ForceComplete** | Completes the Flow immediately. |
+| **ForceFail** | Fails the Flow immediately. |
+
+**GracefulComplete** and **ForceComplete** can return an output. **ForceFail**
+returns a failure reason. The Flow result returns each output with the Step
+type and Step execution ID. When multiple Steps complete gracefully, all their
+outputs return together.
+
+A Flow can have no active Steps and still keep running. **DeadEnd** stops this
+branch without making a decision that triggers the Flow to complete.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/step-decision/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
+    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
+    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
+    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+case "graceful":
+	return dex.GracefulComplete("done"), nil
+case "dead-end":
+	return dex.GoToMany(
+		dex.MovementOf(branchWorker{}, "left"),
+		dex.MovementOf(branchWorker{}, "right"),
+	), nil
+
+func (branchWorker) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
+	return dex.DeadEnd(), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+case "graceful" -> {
+    return StepDecision.gracefulComplete("done");
+}
+case "dead-end" -> {
+    return StepDecision.goToMany(
+            StepMovement.of(BranchWorker.class, "left"),
+            StepMovement.of(BranchWorker.class, "right"));
+}
+
+return StepDecision.deadEnd();
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+if mode == "graceful":
+    return graceful_complete("done")
+if mode == "dead-end":
+    return go_to_many(
+        StepMovement.of(BranchWorker, "left"),
+        StepMovement.of(BranchWorker, "right"),
+    )
+
+return dead_end()
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+if (mode === "graceful") {
+  return gracefulComplete("done");
+}
+if (mode === "dead-end") {
+  return goToMany(
+    StepMovement.of(BranchWorker, "left"),
+    StepMovement.of(BranchWorker, "right"),
+  );
+}
+
+return deadEnd();
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+"graceful" => Ok(StepDecision::graceful_complete(String::from("done"))),
+"dead-end" => Ok(StepDecision::go_to_many([
+    StepMovement::to(&BranchWorker, "left".to_string()),
+    StepMovement::to(&BranchWorker, "right".to_string()),
+])),
+
+Ok(StepDecision::dead_end())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/patterns/timeout/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/timeout/FlowGracefulTimeout.java',
+    python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
+    typescript: 'examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts',
+    rust: 'examples/rust/src/patterns/timeout/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (timeoutStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	return dex.ForceFail("Workflow did not finish the task in time"), nil
+}
+
+func (taskStep) Execute(
+	ctx dex.Context,
+	_ bool,
+) (*dex.StepDecision, error) {
+	return dex.ForceComplete("Workflow completed successfully"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Void input) {
+    return StepDecision.forceFail("Workflow did not finish the task in time");
+}
+
+public StepDecision execute(final Context context, final Boolean workflowSuccessful) {
+    return StepDecision.forceComplete("Workflow completed successfully");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: None) -> StepDecision:
+    return force_fail("Workflow did not finish the task in time")
+
+def execute(self, context: Context, input: bool) -> StepDecision:
+    return force_complete("Workflow completed successfully")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(_context: Context, _input: void): StepDecision {
+  return forceFail("Workflow did not finish the task in time");
+}
+
+public execute(_context: Context, _workflowSuccessful: boolean): StepDecision {
+  return forceComplete("Workflow completed successfully");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::force_fail("task exceeded graceful timeout"))
+}
+
+fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::force_complete("task-completed".to_string()))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Cancel other Steps {#cancellation-on-stepdecision}
+
+A **StepDecision** can cancel other active Steps.
+
+- **CancelSteps** selects active Steps by Step type.
+- **CancelSiblingSteps** selects active Steps that were triggered by the same
+  parent Step execution.
+
+An RPC can also cancel Steps by type. See
+[Cancel running Steps](/reference/server/0.1.16/runtime-data#cancel-running-steps). For how a
+running attempt observes cancellation, see [Cancellation](#cancellation).
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/step-decision/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
+    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
+    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
+    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (winnerStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
+	return dex.GoTo(recordQuote{}, quote).
+		CancelSteps(carrierAStep{}, carrierBStep{}), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return StepDecision.goTo(RecordQuote.class, quote)
+        .withCancelingSteps(carrierA, carrierB);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+return (
+    go_to(RecordQuote, quote)
+    .with_canceling_steps(self.flow.carrier_a, self.flow.carrier_b)
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return withCancelingSteps(
+  goTo(RecordQuote, quote),
+  this.flow.carrierAStep,
+  this.flow.carrierBStep,
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(StepDecision::go_to(&RecordQuote, quote)
+    .cancel_step(&CarrierA)
+    .cancel_step(&CarrierB))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+
+**ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels
+are empty. A Channel with queued messages is non-empty. After a message is
+consumed and committed to a Step, that Channel remains non-empty until the Step
+finishes processing **Execute**. If every named Channel is empty, it completes
+the Flow. Otherwise, it goes to other Steps.
+
+Use it to drain Channels and complete the Flow, so the Flow can stay short. See
+[Drain External Channel](/design-patterns/draining-channel-for-external-publishing)
+for the full example.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/patterns/drain-channels/external-publishing/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/externalpublishing/DrainingExternalChannelFlow.java',
+    python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py',
+    typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts',
+    rust: 'examples/rust/src/patterns/drain_channels/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+return dex.ForceCompleteIfChannelsEmpty(
+	nil,
+	[]dex.ChannelDef{QueueChannel},
+	dex.MovementOf(processMessage{}, ""),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return StepDecision.forceCompleteIfChannelsEmpty(
+        null,
+        StepMovement.of(ProcessMessage.class, null),
+        queueChannel);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+return force_complete_if_channels_empty(
+    None,
+    StepMovement.of(ProcessMessage, None),
+    self.queue_channel,
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return forceCompleteIfChannelsEmpty(
+  null,
+  StepMovement.of(ProcessMessage, undefined),
+  queueChannel,
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(StepDecision::force_complete_if_channels_empty(
+    (),
+    StepMovement::to(&DrainChannel, ()),
+    [channel_queue().when_empty()],
+))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## StepOptions {#step-options}
+
+A Step type returns **StepOptions** to customize its methods. **WaitFor** and
+**Execute** have separate retry policies, timeouts, failure policies, state
+selections, and lock sets.
+
+### Override StepOptions per Step execution {#stepoptions-override-per-stepexecution}
+
+The **StepOptions** returned by a Step implementation apply to every Step
+execution by default. To override them for one Step execution, provide the
+**StepOptions** override when a **StepDecision** goes to the next Steps.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/options-override/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java',
+    python: 'examples/python/dex_examples/primitives/options_override/options_override_flow.py',
+    typescript: 'examples/typescript/src/primitives/options-override/options-override-flow.ts',
+    rust: 'examples/rust/src/primitives/options_override/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+override := &dex.StepOptions{
+	WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
+	WaitForFailure: dex.ProceedOnWaitForFailure,
+}
+return dex.GoTo(overrideSecond{}, payload, dex.WithStepOptions(override)), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final StepOptions options = StepOptions.newBuilder()
+        .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+        .waitForFailure(WaitForFailurePolicy.PROCEED)
+        .build();
+return StepDecision.goToMany(StepMovement.of(OverrideSecond.class, output, options));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+options = StepOptions(
+    wait_for_retry=RetryPolicy(maximum_attempts=2),
+    wait_for_failure=WaitForFailurePolicy.PROCEED,
+)
+return go_to_many(StepMovement.of(OverrideSecond, output, options))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const override: StepOptions = {
+  waitForRetry: { maximumAttempts: 2 },
+  waitForFailure: "proceed",
+};
+return goToMany(StepMovement.of(OverrideSecond, payload, override));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+let override_options = StepOptions::new()
+    .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+    .wait_for_failure(WaitForFailurePolicy::Proceed);
+Ok(StepDecision::go_to_many([StepMovement::to_with_options(
+    &OverrideSecond,
+    payload,
+    override_options,
+)]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Retry and failure policies {#retry-and-failure-policies}
+
+- **Timeout** limits a single attempt of the method invocation. See
+  [Timeouts and total duration](#timeouts-and-total-duration).
+- **Retry policy** re-invokes the **same** method on the **same** Step
+  execution until attempts are exhausted.
+- **Failure policy** decides what happens **after** retries end. The default
+  fails the Flow. **WaitFor** can run **Execute** anyway, and **Execute** can
+  go to a recovery Step.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step/retry_flow.py',
+    go: 'examples/go/primitives/step/retry_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/RetryFlow.java',
+    typescript: 'examples/typescript/src/primitives/step/retry-flow.ts',
+    rust: 'examples/rust/src/primitives/step/retry_flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(
+            initial_interval=timedelta(seconds=1),
+            backoff_coefficient=2,
+            maximum_attempts=5,
+        ),
+    )
+
+def execute(self, context, ready_after_attempt: int) -> StepDecision:
+    if context.attempt < ready_after_attempt:
+        raise RuntimeError(f"not ready on attempt {context.attempt}")
+    return graceful_complete("ready")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (retryStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    5,
+		},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    .initialInterval(Duration.ofSeconds(1))
+                    .backoffCoefficient(2)
+                    .maximumAttempts(5)
+                    .build())
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeRetry: {
+      initialIntervalMs: 1000,
+      backoffCoefficient: 2,
+      maximumAttempts: 5,
+    },
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_retry(
+        RetryPolicy::new()
+            .initial_interval(Duration::from_secs(1))
+            .backoff_coefficient(2.0)
+            .maximum_attempts(5),
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+#### WaitFor failure policy {#waitfor-failure-policy}
+
+When **WaitFor** retries are exhausted:
+
+- **FailFlow** fails the Flow. This is the default.
+- **PROCEED** continues to invoke **Execute**.
+
+With **PROCEED**, the same Step's **Execute** receives the durable input
+unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has
+the error type and detail from the final failed **WaitFor** attempt.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/proceedonwaitfailure/ProceedOnWaitFailureFlow.java',
+    python: 'examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py',
+    typescript: 'examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts',
+    rust: 'examples/rust/src/primitives/proceed_on_wait_failure/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (failingWait) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
+		WaitForFailure: dex.ProceedOnWaitForFailure,
+	}
+}
+
+func (failingWait) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+	return nil, fmt.Errorf("planned WaitFor failure")
+}
+
+func (failingWait) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if !ctx.WaitForMethodFailed() {
+		return nil, fmt.Errorf("waitFor failure was not reported")
+	}
+	return dex.GoTo(finishStep{}, input+"_recovered"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+            .waitForFailure(WaitForFailurePolicy.PROCEED)
+            .build();
+}
+
+@Override
+public Wait waitFor(final Context context, final String input) {
+    throw new IllegalStateException("planned WaitFor failure");
+}
+
+@Override
+public StepDecision execute(final Context context, final String input) {
+    if (!context.waitForMethodFailed()) {
+        throw new IllegalStateException("waitFor failure was not reported");
+    }
+    return StepDecision.goTo(Finish.class, input + "_recovered");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        wait_for_retry=RetryPolicy(maximum_attempts=2),
+        wait_for_failure=WaitForFailurePolicy.PROCEED,
+    )
+
+def wait_for(self, context: Context, input: str) -> Wait:
+    raise RuntimeError("planned WaitFor failure")
+
+def execute(self, context: Context, input: str) -> StepDecision:
+    if not context.wait_for_method_failed():
+        raise RuntimeError("waitFor failure was not reported")
+    return go_to(Finish, f"{input}_recovered")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    waitForRetry: { maximumAttempts: 2 },
+    waitForFailure: "proceed",
+  };
+}
+
+public waitFor(_context: Context, _input: string): Wait {
+  throw new Error("planned WaitFor failure");
+}
+
+public execute(context: Context, input: string): StepDecision {
+  if (!context.waitForMethodFailed()) {
+    throw new Error("waitFor failure was not reported");
+  }
+  return goTo(Finish, `${input}_recovered`);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .wait_for_failure(WaitForFailurePolicy::Proceed)
+        .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+}
+
+fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    Err(HandlerError::new("ProceedOnWaitFailure", "planned WaitFor failure"))
+}
+
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    if !context.wait_for_method_failed() {
+        return Err(HandlerError::new(
+            "ProceedOnWaitFailure",
+            "waitFor failure was not reported",
+        ));
+    }
+    Ok(StepDecision::go_to(&Finish, format!("{input}_recovered")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+#### Execute failure policy {#execute-failure-policy}
+
+When **Execute** retries are exhausted, **onExecuteFailureProceedTo** /
+**ExecuteFailure.proceedTo(...)** proceeds to a **recovery Step** with the same
+input.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/patterns/recovery/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/recovery/FailureRecoveryFlow.java',
+    python: 'examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py',
+    typescript: 'examples/typescript/src/patterns/recovery/failure-recovery-flow.ts',
+    rust: 'examples/rust/src/patterns/recovery/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (updateItemQuantity) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecovery{}, nil),
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 5},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .onExecuteFailureProceedTo(UpdateQuantityRecovery.class)
+            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(5).build())
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(maximum_attempts=5)
+    ).on_execute_failure_proceed_to(UpdateQuantityRecovery)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeFailure: ExecuteFailure.proceedTo(UpdateQuantityRecovery, {
+      executeRetry: { maximumAttempts: 5 },
+    }),
+    executeRetry: { maximumAttempts: 5 },
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_retry(RetryPolicy::new().maximum_attempts(3))
+        .on_execute_failure_proceed_to(&Compensate)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The recovery Step receives the failed Step's durable input unchanged.
+**getRecoveryError()** has the error type and detail from the final failed
+**Execute** attempt. See the
+[Failure Handling](/design-patterns/failure-handling) pattern and the
+[money-transfer](/use-cases/money-transfer) use case.
+
+#### Last failure info {#last-failure-info}
+
+- Terminal events **StepExecuteFailed** / **StepWaitForFailed** carry failure
+  output when the Step ultimately fails.
+- **During retries**, before the failure policy runs, Step events and live Flow
+  state expose **lastFailureInfo**: the most recent attempt's error type,
+  detail, and Worker metadata.
+- In Dex Web, open event details to see **Last failure** while retries are in
+  flight. Active Steps in the Flow overview also show **lastFailureInfo**.
+
+### RetryAfter {#retry-after}
+
+Use **RetryAfter** to choose the delay before the next attempt. It overrides
+the retry schedule of the **RetryPolicy**.
+
+Retries recover from failed attempts. Do not use **RetryAfter** to wait for an
+external system; use the [Polling](/design-patterns/polling) pattern.
+
+A retry of one **Execute** call reuses the
+[state snapshot](#selective-state-loading) loaded for its first attempt, so it
+does not see Attribute writes made after that load.
+To wait for an external write, have the writer also publish a
+[Channel](/primitives/channel) message, directly or from an RPC handler, and
+wait on that message in the **WaitFor** of the next Step. Alternatively, the
+next Step can wait on a [Timer](/primitives/timer) and read fresh state when it
+runs.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/custom-retry/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/customretry/CustomRetryFlow.java',
+    python: 'examples/python/dex_examples/primitives/custom_retry/custom_retry_flow.py',
+    typescript: 'examples/typescript/src/primitives/custom-retry/custom-retry-flow.ts',
+    rust: 'examples/rust/src/primitives/custom_retry/flow.rs',
+  }}>
+<SdkSnippet lang="java">
+
+```java
+throw RetryAfterException.after(
+        Duration.ofSeconds(7),
+        new IllegalStateException("not ready on attempt " + context.getAttempt()));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+if ctx.Attempt() < int32(readyAfterAttempt) {
+	cause := fmt.Errorf("not ready on attempt %d", ctx.Attempt())
+	return nil, dex.RetryAfter(7*time.Second, dex.ErrorWithStack(cause))
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+from dex._grpc_errors import retry_after
+
+if context.attempt < ready_after_attempt:
+    raise retry_after(7, RuntimeError(f"not ready on attempt {context.attempt}"))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+if (context.attempt < readyAfterAttempt) {
+  const cause = new Error(`not ready on attempt ${context.attempt}`);
+  throw retryAfter(7, cause);
+}
+return gracefulComplete("ready");
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
+    return Err(HandlerError::retry_after(
+        7,
+        "CustomRetry",
+        format!("not ready on attempt {}", context.attempt()),
+    ));
+}
+Ok(StepDecision::graceful_complete(String::from("ready")))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Durability {#durability}
+
+**SYNC** durability records the Step completion in Dex Server and persists it
+to storage synchronously.
+
+**ASYNC** durability does this asynchronously. Dex Server starts the next work
+before the Step completion is persisted, and it batches these commits within
+about 20 milliseconds. It provides much higher throughput because it removes a
+lot of overhead from storage and the server.
+
+If a Dex Server node fails before the commit, a recent **ASYNC** result is
+lost. The method runs again, and so does any later work that started from that
+result. Make **ASYNC** methods and the work they start idempotent.
+
+**SYNC** is the default. Dex resolves durability in this order: a method
+override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
+
+Durability changes only when Dex Server persists a result. Retry policy, method
+timeout, and heartbeat settings apply to every attempt in both modes.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/durability/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/durability/DurabilityFlow.java',
+    python: 'examples/python/dex_examples/primitives/durability/durability_flow.py',
+    typescript: 'examples/typescript/src/primitives/durability/durability-flow.ts',
+    rust: 'examples/rust/src/primitives/durability/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (syncWork) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
+func (asyncWork) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilityAsync}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeDurability(StepDurability.SYNC)
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_durability=StepDurability.SYNC)
+
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_durability=StepDurability.ASYNC)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return { executeDurability: "sync" };
+}
+
+public getStepOptions(): StepOptions {
+  return { executeDurability: "async" };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_durability(StepDurability::Sync)
+}
+
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_durability(StepDurability::Async)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Timeouts and total duration {#timeouts-and-total-duration}
+
+Three options bound the time a Step method can take.
+
+| Limit | Option | Default | Enforcement |
+| --- | --- | --- | --- |
+| Longest single attempt | **WaitForMethodTimeout** or **ExecuteMethodTimeout** | Two hours. The server has no hard cap. | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
+| Longest total time, including every retry | **TotalDuration** in the retry policy | Four hours, for both durability modes. | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Stalled Worker | **HeartbeatTimeout** | One minute. The default allowed minimum is 10 seconds. | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. See [Heartbeat](#heartbeat). |
+
+An attempt's deadline is the method timeout, shortened to the time left in
+**TotalDuration**. An attempt that **TotalDuration** stops fails with the
+RETRY_DEADLINE failure kind.
+
+To bound a long wait, set the method timeout and **TotalDuration** to the same
+maximum. Dex enforces both, so the Step does not need its own deadline. Give
+the retry policy a few attempts with backoff for transient errors and Worker
+crashes.
+
+When a timeout expires, Dex fails the attempt with a timeout error. After
+retries end, the failure policy decides what happens next. If no failure route
+is configured, the Flow fails. See
+[Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+For a long wait on an external system, see
+[Polling](/design-patterns/polling).
+
+### Heartbeat {#heartbeat}
+
+During an attempt, the Worker must send a heartbeat or a
+[Stream message](/primitives/stream) before the **HeartbeatTimeout** expires.
+Sending a Stream message is an implicit heartbeat.
+
+For example, an **Execute** method timeout of 60 seconds and a
+**HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds
+instead of waiting for the full 60 seconds. To wait for an external system in
+one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
+
+A heartbeat can persist a checkpoint value. The next attempt receives the
+latest stored value and can resume from it. An explicit heartbeat without a
+value clears the previous checkpoint. An implicit heartbeat from a Stream
+message preserves the latest explicit state, including an explicitly cleared
+state. Checkpoints are lossy; see
+[Heartbeats are not acknowledged](#heartbeats-not-acknowledged).
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/heartbeat/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java',
+    python: 'examples/python/dex_examples/primitives/heartbeat/heartbeat_flow.py',
+    typescript: 'examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts',
+    rust: 'examples/rust/src/primitives/heartbeat/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (heartbeatStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteMethodTimeout: 60 * time.Second,
+		HeartbeatTimeout:     10 * time.Second,
+		ExecuteRetry:         &dex.RetryPolicy{MaximumAttempts: 3},
+	}
+}
+
+func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecision, error) {
+	completedBatches := 0
+	if _, err := ctx.GetLastHeartbeatValue(&completedBatches); err != nil {
+		return nil, err
+	}
+	for batch := completedBatches; batch < batches; batch++ {
+		select {
+		case <-ctx.Done():
+			return dex.DeadEnd(), nil
+		default:
+		}
+		time.Sleep(2 * time.Second)
+		if err := ctx.RecordHeartbeat(batch + 1); err != nil {
+			return nil, err
+		}
+	}
+	return dex.GracefulComplete("processed"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepDecision execute(final Context context, final Integer batches) {
+    final int completedBatches = context.hasLastHeartbeatValue()
+            ? context.getLastHeartbeatValue(Integer.class)
+            : 0;
+    for (int batch = completedBatches; batch < batches; batch++) {
+        if (context.isCancellationRequested()) {
+            return StepDecision.deadEnd();
+        }
+        try {
+            Thread.sleep(Duration.ofSeconds(2).toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return StepDecision.deadEnd();
+        }
+        context.recordHeartbeat(batch + 1);
+    }
+    return StepDecision.gracefulComplete("processed");
+}
+
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeMethodTimeout(Duration.ofSeconds(60))
+            .heartbeatTimeout(Duration.ofSeconds(10))
+            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_method_timeout=timedelta(seconds=60),
+        heartbeat_timeout=timedelta(seconds=10),
+        execute_retry=RetryPolicy(maximum_attempts=3),
+    )
+
+async def execute(
+    self, context: AsyncContext, batches: int
+) -> StepDecision:
+    completed_batches = context.get_last_heartbeat_value(int) or 0
+    for batch in range(completed_batches, batches):
+        if context.is_cancellation_requested():
+            return dead_end()
+        await asyncio.sleep(2)
+        await context.heartbeat(batch + 1)
+    return graceful_complete("processed")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeMethodTimeoutMs: 60_000,
+    heartbeatTimeoutMs: 10_000,
+    executeRetry: {
+      maximumAttempts: 3,
+    },
+  };
+}
+
+public async execute(context: AsyncContext, batches: number): Promise<StepDecision> {
+  const completedBatches = context.getLastHeartbeatValue(doubleCodec) ?? 0;
+  for (let batch = completedBatches; batch < batches; batch++) {
+    if (context.cancellationSignal.aborted) {
+      return deadEnd();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await context.recordHeartbeat(batch + 1, doubleCodec);
+  }
+  return gracefulComplete("processed");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_method_timeout(Duration::from_secs(60))
+        .heartbeat_timeout(Duration::from_secs(10))
+        .execute_retry(RetryPolicy::new().maximum_attempts(3))
+}
+
+fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<StepDecision> {
+    let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();
+    for batch in completed_batches..batches {
+        if context.is_cancelled() {
+            return Ok(StepDecision::dead_end());
+        }
+        thread::sleep(Duration::from_secs(2));
+        context.record_heartbeat_value(batch + 1)?;
+    }
+    Ok(StepDecision::graceful_complete(String::from("processed")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Cancellation {#cancellation}
+
+Dex cancels a running attempt directly. It sends a cancel request to the
+Worker when the Step is canceled, for example by a **StepDecision** or an RPC,
+and when the attempt times out. The SDK also cancels the handler when the
+attempt deadline in the task passes. The handler does not need to complete,
+fail, or record a heartbeat to receive cancellation.
+
+Cancellation is cooperative. The SDK cannot stop running code. A long handler
+must check for cancellation and return, as the heartbeat example above does.
+See [Make the Step stop](/reference/server/0.1.16/runtime-data#cancel-honour) for the
+check in each language, and
+[Cancel running Steps](/reference/server/0.1.16/runtime-data#cancel-running-steps) for
+how Dex ends a canceled attempt.
+
+Because cancellation is cooperative, an interrupted execution may still run
+while the next attempt or the failure route starts.
+
+### Selective state loading {#selective-state-loading}
+
+Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary
+Attributes and size metadata for every Channel and ChannelMap instance.
+AttributeMap values and pending Channel messages are not loaded unless that
+method selects them.
+
+**StepOptions** has separate selections for **WaitFor** and **Execute**. Select
+an entire AttributeMap or ChannelMap when the method must enumerate current
+instances. Select an exact map instance when its key is already known. An
+Attribute lock controls concurrency but does not load the AttributeMap value.
+
+The two methods receive independent snapshots. **Execute** reads its snapshot
+after the winning Wait conditions consume their messages, so it does not see
+those consumed messages again. Retries of one logical method call reuse its
+first snapshot.
+
+This Step loads pending **Queued** messages only for **Execute**. It deletes the
+first pending message in the same successful handler response.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+    go: 'examples/go/primitives/channel/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+    rust: 'examples/rust/src/primitives/channel/flow.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_load_channels=(self.queued,))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (channelWait) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLoadChannels: []dex.ChannelDef{Queued},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .addExecuteLoadChannel(queued)
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return { executeLoadChannels: [queued] };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_load_channel(&QUEUED)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Reading an unselected AttributeMap value or pending Channel message returns the
+SDK's not-loaded error. A selected empty Channel returns an empty message list.
+Size and map-key introspection remains available without loading message
+bodies. For Go, **dexcli visualize** reports a Step method that reads
+unselected state. See
+[State loads](/reference/web/flow-visualization#state-loads).
+
+### Attribute locks {#attribute-locks}
+
+Concurrent Steps and RPC invocations can read and write the same Attribute. To
+avoid races, use Attribute locks. Dex Server ensures only one Step execution or
+RPC handling can acquire the lock at a time. **WaitFor** and **Execute** have
+separate lock sets. Set them by returning **StepOptions**.
+
+See [Attribute locks](/reference/server/0.1.16/runtime-data#attribute-locks) for when
+a Step attempt takes and holds its locks, with **WaitFor** and **Execute**
+examples. See [Locks](/primitives/attribute#locking) for the lock model.
+
+## Failure and redelivery {#failure-and-redelivery}
+
+Retries and failure routes handle attempts that fail. Some failures leave Dex
+without knowing whether the work ran. A Step with an external effect that must
+not repeat, such as a payment or an email, has to plan for these cases. This
+section states what an application can rely on.
+
+### Heartbeats are not acknowledged {#heartbeats-not-acknowledged}
+
+A heartbeat call returns once the Worker has queued or sent it. It does not
+wait for Dex to store anything. Python's **heartbeat**, Go's
+**RecordHeartbeat**, Java's and TypeScript's **recordHeartbeat**, and Rust's
+**record_heartbeat** all behave this way. A returned heartbeat call does not
+prove that Dex knows the attempt started its work.
+
+Heartbeat checkpoints are lossy. Dex batches them and keeps only the latest
+value of each batch. A checkpoint can also be lost when the attempt ends, such
+as on a timeout or a cancellation, or when a Dex Server node fails. After an
+interruption, the next attempt receives the last checkpoint that Dex stored.
+That checkpoint can be older than the last one the Step sent. Do not use a
+checkpoint as the only record that an external effect happened.
+
+### An attempt can run again at the same attempt number {#same-attempt-redelivery}
+
+Dex delivers an attempt again, with the same attempt number and without using a
+retry, in two cases:
+
+- The Worker dies or disconnects before the attempt sends any output, such as a
+  heartbeat or a Stream message, and before the dispatch wait ends. The
+  dispatch wait is 10 seconds by default, counted from when Dex starts to look
+  for a Worker.
+- A Dex Server node restarts, or another node takes over its Flows. Dex
+  dispatches every running attempt again, whether or not it has sent output.
+
+In both cases the earlier run may already have made its external call. The new
+run sees the same attempt number, so the attempt number cannot tell the two
+runs apart.
+
+When a Worker disconnects after the attempt has sent output, or after the
+dispatch wait, the attempt fails and uses a retry. When a Worker stops
+responding without disconnecting, the attempt fails when its heartbeat timeout
+expires.
+
+### A failure route cannot tell whether the work ran {#unknown-outcome}
+
+When no Worker accepts an attempt within the dispatch wait, the attempt fails
+without running and uses a retry. This happens when every Worker of the Flow
+type is at its task limit, or when none is running. The failure has the same
+recovery error type as a Worker that disconnected in the middle of an attempt:
+**FLOW_ERROR_TYPE_WORKER_API_FAIL**. Only the error detail differs. A failure
+route that reads the recovery error therefore cannot tell whether the work ran.
+The Flow's history records which of the two happened, and Dex Web shows it.
+
+### Design for these limits {#design-for-redelivery}
+
+- Make each external effect idempotent. Key it by an ID that stays the same
+  across attempts and redeliveries, such as the Flow ID and the Step execution
+  ID, or your own business key. Send the key to the service that applies the
+  effect, so that it applies the effect once.
+- Treat a Step with a single attempt as at most once only within these limits.
+  A redelivery at the same attempt number can still run it twice. Its failure
+  route can run although the work happened, or although it never ran.
+- Reconcile an unknown outcome. When a failure route cannot know whether the
+  effect happened, check the target system by the idempotency key or your
+  business key before you repeat or report the effect. Record the outcome you
+  find in the Flow.
+
+For the agent packages' single-attempt tool Steps, see
+[Tool call limits](/agent-frameworks/deploy-agents#tool-call-limits).
