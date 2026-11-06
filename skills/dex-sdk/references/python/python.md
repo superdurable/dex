@@ -1,8 +1,8 @@
 # Python handbook
 
-The SDK API reference uses the [released v1.32.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current API.
+The SDK API reference uses the [released v1.35.0 baseline](../core/bundle-baselines.md); the source examples' older dependency pins below remain factual and do not define the current API.
 
-Use this page first for Python. The [baseline project](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/pyproject.toml) selects `dex-python-sdk==1.29.0`; check `pyproject.toml`/lockfile and installed metadata before relying on baseline syntax.
+Use this page first for Python. The [baseline project](https://github.com/superdurable/dex/blob/sdk-python/v1.35.0/examples/python/pyproject.toml) selects `dex-python-sdk==1.30.0`; check `pyproject.toml`/lockfile and installed metadata before relying on baseline syntax.
 
 ## Runtime choice
 

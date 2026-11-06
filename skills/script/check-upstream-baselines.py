@@ -263,14 +263,12 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "A server that does not serve `AdminService` answers UNIMPLEMENTED.",
     )),
     ("server-zd/v0.1.16", "docs/content/production/server-zd-operations.mdx", (
-        "Calls still open at the release",
-        "keep their answers.",
-        "process takes over in that time, it takes the lease back.",
-        "the process then exits 1 without taking the lease.",
+        "If no other\nprocess takes over in that time, it takes the lease back.",
+        "Either way,\nthe process then exits 1 without taking the lease.",
     )),
     ("server-zd/v0.1.16", "server-zd/README.md", (
         'UNAVAILABLE ("the server process stopped serving during the call")',
-        "calls that finish before it keep their answers.",
+        "open public calls never delay the release; calls that finish before it keep their answers.",
         "up to 60 s for the old store to close.",
         "unless\nanother process has already taken over, the process answers the step down with `Internal`. Either\nway it then exits 1 without competing for the lease",
         "The old instance\nstops accepting connections, so new ones reach the new standby gRPC instance",
@@ -291,9 +289,44 @@ SERVER_ZD_LATEST_STATEMENTS = (
         "The default **dev.durabilityMode**, **strict**,",
         "**processCrashSafe** skips fsync, so it is faster, but a host crash or power",
     )),
-    ("server-zd/v0.1.18", "cli/README.md", (
+    ("server-zd/v0.1.18", "docs/content/production/server-zd-operations.mdx", (
+        "Calls that\nfinish before the release keep their answers. Calls still open at the release\n"
+        "answer **UNAVAILABLE**, so clients retry on the new active process.",
+    )),
+)
+# Statements read from the Dex CLI checkout at DEX_CLI_BASELINE.
+CLI_STATEMENTS = (
+    ("cli/README.md", (
         "`--durability` selects how zd stores acknowledged writes. The default, `strict`,",
         "flag, zd uses `dev.durabilityMode` from that file, or `strict`.",
+    )),
+    ("cli/internal/flowviz/v2_directives.go", (
+        "registeredRPCNames[rpc.protocolName] = true",
+        "func (analyzer *goAnalyzer) v2RPCProtocolName(methodName string, optionsExpression ast.Expr) string {",
+        '"RPC %s Name must be a non-empty compile-time string"',
+        '"%s must be registered in GetRPCs"',
+    )),
+)
+# Per language: (example manifest, pattern capturing the SDK version, reference pages and statements with {version}).
+EXAMPLE_DEPENDENCY_PINS = (
+    ("go", "examples/go/go.mod", r"^\tgithub\.com/superdurable/dex/sdk-go (v[0-9]+\.[0-9]+\.[0-9]+)$", (
+        ("go/go.md", "`github.com/superdurable/dex/sdk-go {version}`"),
+        ("go/primitives.md", "The pinned example module selects SDK {version}"),
+    )),
+    ("java", "examples/java/build.gradle", r'^    implementation "io\.superdurable:dex-sdk:([0-9]+\.[0-9]+\.[0-9]+)"$', (
+        ("java/java.md", "`io.superdurable:dex-sdk:{version}`"),
+        ("java/java.md", "PullGreetingExample.java) selects SDK v{version}."),
+    )),
+    ("python", "examples/python/pyproject.toml", r'^    "dex-python-sdk==([0-9]+\.[0-9]+\.[0-9]+)",$', (
+        ("python/python.md", "`dex-python-sdk=={version}`"),
+    )),
+    ("typescript", "examples/typescript/package.json", r'^    "@superdurable/dex": "([0-9]+\.[0-9]+\.[0-9]+)",$', (
+        ("typescript/typescript.md", "`@superdurable/dex@{version}`"),
+    )),
+    ("rust", "examples/rust/Cargo.toml", r'^dex-sdk = "=([0-9]+\.[0-9]+\.[0-9]+)"$', (
+        ("rust/rust.md", '`dex-sdk = "={version}"`'),
+        ("rust/rust.md", "pull_workers.rs) selects SDK v{version}."),
+        ("rust/versioning.md", 'dex-sdk = "={version}"'),
     )),
 )
 # Core operations statements for the server-zd v0.1.14 search projection.
@@ -1177,6 +1210,86 @@ def check_typescript_flow_service_tls(checkout: Path, typescript_tag: str) -> No
                         "this.client = createWorkerTaskClient(channel, credential);")
 
 
+def check_cli_statements(cli_root: Path) -> None:
+    for path, needles in CLI_STATEMENTS:
+        require_text(cli_root / path, *needles)
+
+
+def check_example_dependency_pins(checkout: Path, sdk_baselines: dict[str, str], references: Path) -> None:
+    for language, manifest_path, pattern, statements in EXAMPLE_DEPENDENCY_PINS:
+        location = f"{sdk_baselines[language]}:{manifest_path}"
+        versions = re.findall(pattern, git(checkout, "show", f"refs/tags/{location}"), re.MULTILINE)
+        if len(versions) != 1:
+            fail(f"{location} must select the Dex SDK exactly once; found {versions}")
+        for page, statement in statements:
+            require_text(references / page, statement.format(version=versions[0]))
+
+
+def check_release_1_35_sources(checkout: Path, sdk_baselines: dict[str, str], references: Path) -> None:
+    go_tag = sdk_baselines["go"]
+    typescript_tag = sdk_baselines["typescript"]
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/rpc_registration.go", "func rpcDurableName(",
+        "(character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||\n"
+        "\t\t\t(character >= '0' && character <= '9') || character == '_' || character == '-'",
+        "\"RPC %q name %q may contain only ASCII letters, digits, '_', and '-'\"",
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/registration.go", "func (flow *registeredFlow) registerRPCs(",
+        '"RPC name %q is the Go method name of another RPC"',
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/registration.go", "func (flow *registeredFlow) registerRPC(",
+        '"duplicate RPC %q"', '"duplicate RPC method %q"',
+    )
+    require_tagged_go_function_text(
+        checkout, go_tag, "sdk-go/dex/worker_service.go", "func (service *workerService) invokeWorkerRPC(",
+        "if request.Input == nil {", "if rpc.input != noneType {", "codes.InvalidArgument,",
+        "request.Input = newNullValue()",
+    )
+    require_tagged_go_function_text(checkout, go_tag, "sdk-go/dex/options.go", "type RPCOptions struct {",
+                                    "\tName string\n")
+    require_tagged_text(
+        checkout, typescript_tag, "sdk-typescript/src/options.ts",
+        " * A server that negotiates no ALPN protocol is accepted, unlike the Go SDK.",
+        " * Node.js 26 rejects IP SNI, so prefer a DNS name.",
+        " * An IPv6 value is sent as an unbracketed :authority, which strict HTTP/2 servers reject.",
+    )
+    require_tagged_text(
+        checkout, typescript_tag, "sdk-typescript/src/flow-service-tls.ts",
+        "// Unlike Go's Atoi, a signed port is rejected because grpc-js cannot dial it.",
+        "// grpc-js cannot dial a bracketed DNS name, which Go's SplitHostPort accepts.",
+    )
+    require_tagged_text(
+        checkout, typescript_tag, "sdk-typescript/README.md",
+        "decorator with `SyntaxError: Invalid or unexpected token`.",
+        "Declaring it again, or declaring a method that\n  already has `@rpc`, throws `TypeError`.",
+        "A declaration made after a\n  Registry is built has no effect on that Registry.",
+    )
+    require_tagged_text(checkout, typescript_tag, "sdk-typescript/src/index.ts",
+                        'export { declareRPCMethod, rpc } from "./rpc.js";')
+    require_section_text(
+        references / "go" / "primitives.md", "## RPC",
+        "From Go SDK v1.35.0, `RPCOptions.Name` sets the RPC's protocol name",
+        "Go code still refers to the RPC by its bound method",
+        "characters other than ASCII letters, digits, `_`, and `-`",
+        "another RPC's protocol name or Go method name", "one method registered twice",
+        "reads a request without input for an RPC whose input is `dex.None` as JSON null",
+        "still fails with `INVALID_ARGUMENT`",
+    )
+    require_section_text(
+        references / "typescript" / "primitives.md", "## Decorator-free RPC declaration",
+        "From TypeScript SDK v1.35.0, `declareRPCMethod(FlowClass, \"methodName\", options)`",
+        "rejects `@rpc` with a SyntaxError", "before constructing the Registry",
+        "already has `@rpc`", "throws `TypeError`",
+    )
+    require_text(references / "go" / "go.md", "**Name** must be a non-empty compile-time string",
+                 '"must be registered in GetRPCs"')
+    require_text(references / "core" / "operations.md",
+                 "a signed port such as **+443**", "a bracketed DNS name",
+                 "an IPv6 **serverName** is sent as an unbracketed **:authority**")
+
+
 def check_flow_summary_rpc(checkout: Path, server_zd_tag: str) -> None:
     require_tagged_rust_function_text(
         checkout, server_zd_tag, "server-zd/crates/dexzd-api/src/flow_service.rs",
@@ -1918,12 +2031,15 @@ def main() -> None:
     check_release_1_24_references(SDK_REFERENCES)
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_STATEMENTS)
     check_server_zd_statements(arguments.dex_root, SERVER_ZD_LATEST_RELEASE, SERVER_ZD_LATEST_STATEMENTS)
+    check_cli_statements(arguments.dex_root)
     check_server_zd_search_tls(arguments.dex_root, SERVER_ZD_RELEASE, SDK_REFERENCES)
     check_flow_summary_rpc(arguments.dex_root, SERVER_ZD_RELEASE)
     check_sdk_flow_closing_errors(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_go_describe_flow(arguments.dex_root, go_sdk_baseline, SDK_REFERENCES)
     check_sdk_describe_flow(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_flow_service_tls(arguments.dex_root, go_sdk_baseline, sdk_baselines, SDK_REFERENCES)
+    check_release_1_35_sources(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
+    check_example_dependency_pins(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_pull_only_workers(arguments.dex_root, sdk_baselines, SDK_REFERENCES)
     check_release_1_28_statements(arguments.dex_root, sdk_baselines)
     check_client_attribute_reads(arguments.dex_root, sdk_baselines, SDK_REFERENCES)

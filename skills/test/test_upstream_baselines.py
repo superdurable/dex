@@ -1422,11 +1422,7 @@ class ServerZdDevStrictDurabilityStatementsTest(unittest.TestCase):
         paths = {path for _, path, _ in self.statements}
         self.assertIn("server-zd/README.md", paths)
         self.assertIn("docs/content/production/server-zd-operations.mdx", paths)
-        self.assertIn("cli/README.md", paths)
-
-    def test_retired_process_crash_safe_default_is_not_checked(self):
-        for _, _, needles in CHECKER.SERVER_ZD_STATEMENTS:
-            self.assertNotIn("`processCrashSafe` (default)", needles)
+        self.assertNotIn("cli/README.md", paths)
 
     def test_latest_release_is_the_server_baseline(self):
         self.assertEqual(CHECKER.SERVER_ZD_LATEST_RELEASE, self.TAG)
@@ -1703,6 +1699,180 @@ class FlowServiceTlsTest(unittest.TestCase):
     def test_language_reference_must_keep_absent_option_boundary(self):
         mutate_page(self, self.check, self.references / "java/java.md",
                     "no FlowService TLS option", "a FlowService TLS option")
+
+
+class CliStatementsTest(unittest.TestCase):
+    TAG = "cli-v1.35.0"
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.sources = tagged_sources(self.TAG, *(path for path, _ in CHECKER.CLI_STATEMENTS))
+        for path, content in self.sources.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(content)
+
+    def check(self):
+        CHECKER.check_cli_statements(self.root)
+
+    def test_statements_cover_dev_durability_and_rpc_names(self):
+        self.assertEqual({path for path, _ in CHECKER.CLI_STATEMENTS},
+                         {"cli/README.md", "cli/internal/flowviz/v2_directives.go"})
+
+    def test_cli_baseline_sources_pass(self):
+        self.check()
+
+    def test_each_cli_statement_must_be_enforced(self):
+        for path, needles in CHECKER.CLI_STATEMENTS:
+            for needle in needles:
+                with self.subTest(path=path, needle=needle):
+                    target = self.root / path
+                    target.write_text(replace_once(self.sources[path], needle, needle[:-1] + "?"))
+                    try:
+                        with self.assertRaises(SystemExit) as raised:
+                            self.check()
+                        self.assertIn(f"{target} is missing required text", str(raised.exception))
+                    finally:
+                        target.write_text(self.sources[path])
+
+
+class ExampleDependencyPinsTest(unittest.TestCase):
+    SDK_TAGS = {language: f"sdk-{language}/v1.35.0" for language in ("go", "java", "python", "typescript", "rust")}
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.sources = {}
+        for language, manifest_path, _, _ in CHECKER.EXAMPLE_DEPENDENCY_PINS:
+            tag = self.SDK_TAGS[language]
+            self.sources[tag] = tagged_sources(tag, manifest_path)
+            self.repository.commit_and_tag(tag, self.sources[tag])
+        pages = {page for *_, statements in CHECKER.EXAMPLE_DEPENDENCY_PINS for page, _ in statements}
+        self.references = copy_references(self.repository.root, *sorted(pages))
+
+    def check(self):
+        CHECKER.check_example_dependency_pins(self.repository.root, self.SDK_TAGS, self.references)
+
+    def mutate_manifest(self, language: str, path: str, old: str, new: str):
+        tag = self.SDK_TAGS[language]
+        self.repository.commit_and_tag(tag, {path: replace_once(self.sources[tag][path], old, new)})
+        with self.assertRaises(SystemExit):
+            self.check()
+
+    def test_real_manifests_and_references_pass(self):
+        self.check()
+
+    def test_every_sdk_language_is_pinned(self):
+        self.assertEqual({language for language, *_ in CHECKER.EXAMPLE_DEPENDENCY_PINS}, set(self.SDK_TAGS))
+
+    def test_typescript_manifest_bump_requires_reference_update(self):
+        self.mutate_manifest("typescript", "examples/typescript/package.json",
+                             '"@superdurable/dex": "1.30.0"', '"@superdurable/dex": "1.36.0"')
+
+    def test_rust_manifest_bump_requires_reference_update(self):
+        self.mutate_manifest("rust", "examples/rust/Cargo.toml", 'dex-sdk = "=1.31.0"', 'dex-sdk = "=1.36.0"')
+
+    def test_java_manifest_bump_requires_reference_update(self):
+        self.mutate_manifest("java", "examples/java/build.gradle",
+                             '"io.superdurable:dex-sdk:1.31.0"', '"io.superdurable:dex-sdk:1.36.0"')
+
+    def test_missing_manifest_pin_fails(self):
+        self.mutate_manifest("python", "examples/python/pyproject.toml",
+                             '"dex-python-sdk==1.30.0",', '"dex-python-sdk>=1.30.0",')
+
+    def test_go_reference_must_match_manifest(self):
+        mutate_page(self, self.check, self.references / "go/go.md",
+                    "`github.com/superdurable/dex/sdk-go v1.29.0`", "`github.com/superdurable/dex/sdk-go v1.28.0`")
+
+    def test_java_pull_example_statement_must_match_manifest(self):
+        mutate_page(self, self.check, self.references / "java/java.md",
+                    "PullGreetingExample.java) selects SDK v1.31.0.", "PullGreetingExample.java) selects SDK v1.26.0.")
+
+    def test_rust_versioning_excerpt_must_match_manifest(self):
+        mutate_page(self, self.check, self.references / "rust/versioning.md",
+                    'dex-sdk = "=1.31.0"', 'dex-sdk = "=1.26.0"')
+
+
+class Release135SourcesTest(unittest.TestCase):
+    SDK_TAGS = {language: f"sdk-{language}/v1.35.0" for language in ("go", "java", "python", "typescript", "rust")}
+    TAGGED_PATHS = {
+        "sdk-go/v1.35.0": (
+            "sdk-go/dex/rpc_registration.go", "sdk-go/dex/registration.go", "sdk-go/dex/worker_service.go",
+            "sdk-go/dex/options.go",
+        ),
+        "sdk-typescript/v1.35.0": (
+            "sdk-typescript/src/options.ts", "sdk-typescript/src/flow-service-tls.ts", "sdk-typescript/README.md",
+            "sdk-typescript/src/index.ts",
+        ),
+    }
+
+    def setUp(self):
+        self.repository = FixtureRepository(self)
+        self.sources = {}
+        for tag, paths in self.TAGGED_PATHS.items():
+            self.sources[tag] = tagged_sources(tag, *paths)
+            self.repository.commit_and_tag(tag, self.sources[tag])
+        self.references = copy_references(
+            self.repository.root, "go/primitives.md", "go/go.md", "typescript/primitives.md", "core/operations.md",
+        )
+
+    def check(self):
+        CHECKER.check_release_1_35_sources(self.repository.root, self.SDK_TAGS, self.references)
+
+    def mutate_tag(self, tag: str, path: str, old: str, new: str):
+        self.repository.commit_and_tag(tag, {path: replace_once(self.sources[tag][path], old, new)})
+        with self.assertRaises(SystemExit) as raised:
+            self.check()
+        self.assertIn(path, str(raised.exception))
+
+    def test_real_tagged_sources_and_references_pass(self):
+        self.check()
+
+    def test_rpc_name_character_rule_must_match_reference(self):
+        self.mutate_tag("sdk-go/v1.35.0", "sdk-go/dex/rpc_registration.go",
+                        "|| character == '_' || character == '-'", "|| character == '_' || character == '.'")
+
+    def test_rpc_name_swap_must_be_rejected(self):
+        self.mutate_tag("sdk-go/v1.35.0", "sdk-go/dex/registration.go",
+                        '"RPC name %q is the Go method name of another RPC"', '"RPC name %q is reused"')
+
+    def test_missing_none_input_must_read_as_null(self):
+        self.mutate_tag("sdk-go/v1.35.0", "sdk-go/dex/worker_service.go",
+                        "request.Input = newNullValue()", "request.Input = nil")
+
+    def test_missing_input_must_stay_rejected_for_typed_rpcs(self):
+        self.mutate_tag("sdk-go/v1.35.0", "sdk-go/dex/worker_service.go",
+                        "if rpc.input != noneType {", "if false {")
+
+    def test_typescript_alpn_difference_must_match_reference(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/options.ts",
+                        " * A server that negotiates no ALPN protocol is accepted, unlike the Go SDK.",
+                        " * A server that negotiates no ALPN protocol is rejected, like the Go SDK.")
+
+    def test_typescript_ip_sni_note_must_match_reference(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/options.ts",
+                        " * Node.js 26 rejects IP SNI, so prefer a DNS name.", " * Node.js 26 accepts IP SNI.")
+
+    def test_typescript_signed_port_rule_must_match_reference(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/flow-service-tls.ts",
+                        "// Unlike Go's Atoi, a signed port is rejected because grpc-js cannot dial it.",
+                        "// A signed port is accepted.")
+
+    def test_declare_rpc_method_syntax_error_reason_must_match_reference(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/README.md",
+                        "decorator with `SyntaxError: Invalid or unexpected token`.", "decorator.")
+
+    def test_go_reference_must_keep_missing_input_rule(self):
+        mutate_page(self, self.check, self.references / "go/primitives.md",
+                    "still fails with `INVALID_ARGUMENT`", "now runs with zero values")
+
+    def test_typescript_reference_must_keep_declaration_version(self):
+        mutate_page(self, self.check, self.references / "typescript/primitives.md",
+                    "From TypeScript SDK v1.35.0, `declareRPCMethod", "From TypeScript SDK v1.32.0, `declareRPCMethod")
+
+    def test_core_must_keep_typescript_address_differences(self):
+        mutate_page(self, self.check, self.references / "core/operations.md",
+                    "a signed port such as **+443**", "a port")
 
 
 class PullOnlyWorkersTest(unittest.TestCase):
