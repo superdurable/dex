@@ -17,7 +17,6 @@ package io.superdurable.dex;
 import com.google.protobuf.Empty;
 import com.google.protobuf.Timestamp;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
 import io.superdurable.dex.GrpcExceptionTranslator.FlowTargetRequirement;
 import io.superdurable.dex.exceptions.DexServiceException;
@@ -158,7 +157,7 @@ public final class Client implements AutoCloseable {
      * @param registry the nonnull registry of Flow definitions used for typed mapping
      * @param blobCache the nonnull cache used to hydrate blob-backed values
      * @param options the nonnull client options
-     * @throws IllegalArgumentException if any argument is {@code null}
+     * @throws IllegalArgumentException if any argument is {@code null}, or TLS settings or the TLS address are invalid
      */
     public Client(
             final Registry registry,
@@ -171,8 +170,7 @@ public final class Client implements AutoCloseable {
         this.blobCache = blobCache;
         this.options = options;
         this.values = new ValueMapper(options.getObjectMapper());
-        this.channel = ManagedChannelBuilder.forTarget(options.getServerAddress())
-                .usePlaintext()
+        this.channel = FlowServiceTlsTransport.channelBuilder(options.getServerAddress(), options.getFlowServiceTls())
                 .build();
         final FlowServiceGrpc.FlowServiceBlockingStub serviceStub = FlowServiceGrpc.newBlockingStub(channel);
         this.service = options.getCredential() == null ? serviceStub

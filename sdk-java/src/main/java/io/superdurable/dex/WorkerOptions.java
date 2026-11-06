@@ -43,6 +43,7 @@ public final class WorkerOptions {
     private final Duration attributeIndexSyncTimeout;
     private final PullWorkerOptions pull;
     private final Credential credential;
+    private final FlowServiceTlsOptions flowServiceTls;
 
     private WorkerOptions(final Builder builder) {
         this.serverAddress = builder.serverAddress;
@@ -51,6 +52,7 @@ public final class WorkerOptions {
         this.attributeIndexSyncTimeout = builder.attributeIndexSyncTimeout;
         this.pull = builder.pull;
         this.credential = builder.credential;
+        this.flowServiceTls = builder.flowServiceTls;
     }
 
     /**
@@ -86,6 +88,10 @@ public final class WorkerOptions {
         return credential;
     }
 
+    FlowServiceTlsOptions getFlowServiceTls() {
+        return flowServiceTls;
+    }
+
     /** Builds immutable {@link WorkerOptions} values. */
     public static final class Builder {
         private String serverAddress = "localhost:8801";
@@ -95,6 +101,7 @@ public final class WorkerOptions {
         private Duration attributeIndexSyncTimeout = Duration.ofMinutes(2);
         private PullWorkerOptions pull = PullWorkerOptions.newBuilder().build();
         private Credential credential;
+        private FlowServiceTlsOptions flowServiceTls;
 
         private Builder() {
         }
@@ -155,6 +162,21 @@ public final class WorkerOptions {
          */
         public Builder credential(final Credential value) {
             this.credential = value;
+            return this;
+        }
+
+        /**
+         * Enables verified TLS for the outbound FlowService connection.
+         *
+         * <p>The default null keeps plaintext. An empty TLS builder uses JDK default trust roots.
+         * See {@link FlowServiceTlsOptions} for supported addresses, additional roots, server name
+         * overrides, connection errors, and a complete Client and Worker example.
+         *
+         * @param value the immutable TLS settings, or null for plaintext
+         * @return this builder
+         */
+        public Builder flowServiceTls(final FlowServiceTlsOptions value) {
+            this.flowServiceTls = value;
             return this;
         }
 

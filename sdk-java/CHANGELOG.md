@@ -39,6 +39,12 @@ when preserving application capacity during migration.
 
 ### Added
 
+Added `FlowServiceTlsOptions` and the Client and Worker `flowServiceTls` builders.
+They enable TLS 1.2 or newer, require HTTP/2 ALPN, and verify server certificates
+with the JDK default trust roots plus optional PEM roots. An optional server name
+override controls certificate verification, SNI, and HTTP/2 authority. Omitting the
+option preserves plaintext gRPC. Bearer credentials compose with TLS unchanged.
+
 Added `Client.getAttributes(flowId, reads...)` and a
 `getAttributes(flowId, List<? extends AttributeRead<?>>)` overload. They read
 committed Attribute and AttributeMap instance values from the current or latest
