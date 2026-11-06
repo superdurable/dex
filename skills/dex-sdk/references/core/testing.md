@@ -10,6 +10,7 @@ Use a real Dex Server integration test whenever behavior crosses a Worker, Clien
 - Start the Worker and wait for its registration. Drive the Flow only through public Client APIs or the application boundary.
 - Give every test a unique Flow ID.
 - Every integration test must be able to run in parallel with the others. A test never stops, kills, or reconfigures a Worker that other tests share. A Worker replacement test starts the replacement Worker before it stops the old one, or starts its own Worker for the test. A crash or kill test always uses its own Worker process.
+- Workers that register the same Flow type share its tasks, so Dex can hand a Step to any of them. A test that must control which Worker runs its Flow, such as a crash or kill test, gives that Flow a Flow type only its own Worker registers, or uses its own dev server. A fake decides its behavior from the input, never from which Worker runs it.
 - Wait for asynchronous state with bounded polling or a Dex wait API. Never use a fixed sleep to guess convergence.
 - To test behavior while a Step is running, such as drain, cancellation, or Worker replacement, have the Step or its fake signal that it started. Wait on that signal with a deadline, then act. Never sleep to guess that the Step started.
 - Fakes for external effects record every call and never deduplicate. A test can then see a duplicate effect and assert how many times it happened.
