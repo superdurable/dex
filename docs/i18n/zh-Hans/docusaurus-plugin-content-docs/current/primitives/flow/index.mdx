@@ -10,6 +10,19 @@ slug: /primitives/flow
 
 Dex 负责 Flow 的生命周期和状态。你的代码不需要数据库或任务队列，就能让流程在崩溃和重启之后继续运行。
 
+## 什么时候用 Flow {#when-to-use}
+
+每个需要由 Dex 管理流程的业务身份，用一个 Flow。共享这个身份和生命周期的工作，放进同一个 Flow 的 [Step](/primitives/step)。一个 Flow 里的 Step 可以并行运行。
+
+工作有自己的 owner 和生命周期时，启动另一个 Flow。两个 Flow 之间通过 RPC 和 Channel 协作。只有父 Step 必须等待子 Flow 的结果时，才用 [SubFlow](/primitives/subflow)。
+
+## 保证 {#guarantees}
+
+- 一个 Flow ID 同一时间最多只有一个 active run。
+- 每个 Step 方法的状态修改和它的结果一起提交，要么全部提交，要么都不提交。
+- 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经 durable 存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
+- 没有 Worker 接的 Step 在 durable 队列里等待，有 Worker 可用时再运行。
+
 ## Flow 包含什么 {#implement-a-flow}
 
 在你的语言里实现 **Flow** interface，就定义了一个 Flow。它声明三样东西：
@@ -186,20 +199,7 @@ impl Flow for ExampleFlow {
 
 用稳定的业务 Flow ID 直接启动 Flow。不要为了避免冲突先读取或搜索。要安全地重试同一次启动，每次都发送同一个 request ID。这样 Dex 会返回同一个 execution，而不是报错。
 
-## 什么时候用 Flow {#when-to-use}
-
-每个需要由 Dex 管理流程的业务身份，用一个 Flow。共享这个身份和生命周期的工作，放进同一个 Flow 的 Step。一个 Flow 里的 Step 可以并行运行。
-
-工作有自己的 owner 和生命周期时，启动另一个 Flow。两个 Flow 之间通过 RPC 和 Channel 协作。只有父 Step 必须等待子 Flow 的结果时，才用 [SubFlow](/primitives/subflow)。
-
-## 保证 {#guarantees}
-
-- 一个 Flow ID 同一时间最多只有一个 active run。
-- 每个 Step 方法的状态修改和它的结果一起提交，要么全部提交，要么都不提交。
-- 使用默认的 SYNC durability 时，一个 Step 的结果在下一个 Step 开始前已经 durable 存储。Worker 崩溃和 Dex Server 重启都不会丢失它。
-- 没有 Worker 接的 Step 在 durable 队列里等待，有 Worker 可用时再运行。
-
-## 细节
+## 参考
 
 英文的 [Flow and Step runtime](/reference/server/runtime-steps) 参考包含：
 

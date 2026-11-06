@@ -13,6 +13,27 @@ execution is one instance of it, such as order 42.
 Dex owns the Flow's lifecycle and state. Your code does not need a database
 or a job queue to keep the process going across crashes and restarts.
 
+## When to use a Flow {#when-to-use}
+
+Use one Flow for each business identity whose process Dex should own. Put work
+that shares that identity and lifecycle into [Steps](/primitives/step) of the
+same Flow. Steps can
+run in parallel inside one Flow.
+
+Start a separate Flow when the work has its own owner and lifecycle. Two Flows
+coordinate through RPCs and Channels. Use a [SubFlow](/primitives/subflow) only
+when a parent Step must wait for a child Flow's result.
+
+## Guarantees {#guarantees}
+
+- A Flow ID has at most one active run at a time.
+- Each Step method commits its state changes together with its result, or not
+  at all.
+- With the default SYNC durability, a Step's result is stored durably before
+  the next Step starts. It survives Worker crashes and Dex Server restarts.
+- A Step that no Worker takes waits in a durable queue. It runs when a Worker
+  becomes available.
+
 ## What a Flow contains {#implement-a-flow}
 
 You define a Flow by implementing the **Flow** interface in your language. It
@@ -207,27 +228,7 @@ Start a Flow directly with a stable business Flow ID. Do not read or search
 first to avoid a conflict. To retry one start safely, send the same request ID
 each time. Dex then returns the same execution instead of an error.
 
-## When to use a Flow {#when-to-use}
-
-Use one Flow for each business identity whose process Dex should own. Put work
-that shares that identity and lifecycle into Steps of the same Flow. Steps can
-run in parallel inside one Flow.
-
-Start a separate Flow when the work has its own owner and lifecycle. Two Flows
-coordinate through RPCs and Channels. Use a [SubFlow](/primitives/subflow) only
-when a parent Step must wait for a child Flow's result.
-
-## Guarantees {#guarantees}
-
-- A Flow ID has at most one active run at a time.
-- Each Step method commits its state changes together with its result, or not
-  at all.
-- With the default SYNC durability, a Step's result is stored durably before
-  the next Step starts. It survives Worker crashes and Dex Server restarts.
-- A Step that no Worker takes waits in a durable queue. It runs when a Worker
-  becomes available.
-
-## Details
+## Reference
 
 The [Flow and Step runtime](/reference/server/runtime-steps) reference covers:
 

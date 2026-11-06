@@ -145,7 +145,7 @@
   },
   {
     "from": "/primitives/client/advanced",
-    "to": "/primitives/client"
+    "to": "/reference/server/runtime-client"
   },
   {
     "from": "/zh-Hans/primitives/client/basic",
@@ -153,6 +153,6 @@
   },
   {
     "from": "/zh-Hans/primitives/client/advanced",
-    "to": "/zh-Hans/primitives/client"
+    "to": "/zh-Hans/reference/server/runtime-client"
   }
 ]

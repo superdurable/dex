@@ -240,12 +240,12 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 重试用完时，recovery Step 能知道工作是肯定没有运行，还是可能运行过。取消是协作式的：被取消的方法应检查取消状态并返回。
 
-## 细节
+## 参考
 
 英文的 [Flow and Step runtime](/reference/server/runtime-steps) 参考包含：
 
 - [等待](/reference/server/runtime-steps#waits)、条件结果和 [AnyCombinationOf](/reference/server/runtime-steps#anycombinationof)；
 - [Step decision](/reference/server/runtime-steps#step-decisions)，包括 [ForceCompleteIfChannelsEmpty](/reference/server/runtime-steps#forcecompleteifchannelsempty)；
 - [重试和失败策略](/reference/server/runtime-steps#retry-and-failure-policies)、[durability](/reference/server/runtime-steps#durability)、[超时](/reference/server/runtime-steps#timeouts-and-total-duration)、[heartbeat](/reference/server/runtime-steps#heartbeat) 和[取消](/reference/server/runtime-steps#cancellation)；
-- [状态加载](/reference/server/runtime-steps#selective-state-loading)和 [Attribute locks](/reference/server/runtime-steps#attribute-locks)；
+- [状态加载](/reference/server/runtime-steps#selective-state-loading)和 [Attribute locks](/reference/server/runtime-data#attribute-locks)；
 - [失败与重新投递](/reference/server/runtime-steps#failure-and-redelivery)。
