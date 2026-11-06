@@ -16,10 +16,10 @@ Add <XYZ> to Dex official connector library
 
 ## Session start
 
-Before the first substantive Dex-related response, follow the shared
-[Dex Skills version check](../dex-sdk/references/core/plugin-version-check.md).
-Prefer the lifecycle hook status; run the Skill fallback only when that status
-is `unavailable` or absent. Run it only once and never delay or block the task.
+Before the first substantive Dex-related response, run the shared Dex Skills
+version check that the [Dex SDK skill](../dex-sdk/SKILL.md) describes. Prefer
+the lifecycle hook status; run the Skill fallback only when that status is
+`unavailable` or absent. Run it only once and never delay or block the task.
 
 ## Scope
 
@@ -54,12 +54,11 @@ After entering the checkout:
 2. Read the relevant files under `docs/` and the owning connector or SDK module
    README selected by those instructions.
 3. When the change touches Dex application semantics, read the sibling
-   [Dex SDK skill](../dex-sdk/SKILL.md) completely and follow its progressive
-   disclosure routing for the required Core references and the
-   [Go handbook](../dex-sdk/references/go/go.md), plus the Python or TypeScript
-handbook when the change touches a package in that language.
-   For Dex writes followed by reads or completion checks, include the shared
-   [read-after-write matrix](../dex-sdk/references/core/read-after-write.md).
+   [Dex SDK skill](../dex-sdk/SKILL.md) completely and follow its routing for
+   the required Core references and the Go reference, plus the Python or
+   TypeScript reference when the change touches a package in that language.
+   For Dex writes followed by reads or completion checks, include its
+   read-after-write rules.
 4. Treat the checkout's current rules, commands, examples, acceptance criteria,
    and pull-request template as the sole connector-authoring authority.
 

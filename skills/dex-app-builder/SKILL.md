@@ -7,107 +7,133 @@ description: Primary entry point for designing and building Dex applications and
 
 Build the smallest coherent Dex product that satisfies the user's request. A
 clear implementation request authorizes its stated UI and routine engineering
-choices. Ask only for missing business facts, access or consequential choices;
-do not turn discovery, design, wireframes or source checks into repeated gates.
+choices. Ask only for missing business facts, access, or consequential
+choices. Do not turn discovery, design, wireframes, or source checks into
+repeated approval gates.
 
 The toolchain is source-available Dex: the Dex Go SDK, `dexcli` (including
 `dexcli dev` and the FDG analyzer behind `dexcli visualize`), Dex Server
-(server-zd), Dex Web, and released official connectors.
+(server-zd), Dex Web, and released official Connectors.
 
 ## Session start and routing
 
-Follow the shared [version check](../dex-sdk/references/core/plugin-version-check.md)
-once. Prefer the lifecycle hook; its unavailable fallback must not block work.
-Confirm a writable workspace and file/command tools before claiming implementation.
-Without them, provide discovery and a handoff for a repository-backed host.
+Run the Dex Skills version check that the [Dex SDK skill](../dex-sdk/SKILL.md)
+describes, once per session. It must never block the task.
 
-- Standalone official Connector work belongs to [Connector Contributor](../dex-connector-contributor/SKILL.md).
-- Standalone SDK implementation, debugging or operations belongs to [Dex SDK](../dex-sdk/SKILL.md).
-- Product work stays here; read Dex SDK when implementing its backend. A missing
-  released capability routes that contribution to Connector Contributor while
-  preserving application ownership here.
-- Honor an explicitly invoked specialist. Missing sibling entrypoints mean an
-  incomplete installation; update the three-skill bundle instead of searching
-  arbitrary caches or falling back to superseded skills.
+Confirm a writable workspace and file and command tools before you claim
+implementation. Without them, provide discovery and a handoff for a
+repository-backed host.
 
-## Source authority and efficient discovery
+- Standalone official Connector work belongs to
+  [Connector Contributor](../dex-connector-contributor/SKILL.md).
+- Standalone SDK implementation, debugging, or operations belongs to
+  [Dex SDK](../dex-sdk/SKILL.md).
+- Product work stays here. Load Dex SDK when you implement the backend.
+- A missing released Connector capability routes that contribution to
+  Connector Contributor. The application itself stays here.
+- Honor a specialist the user invokes explicitly.
+- A missing sibling skill means an incomplete installation. Update the
+  three-skill bundle. Do not search arbitrary caches or fall back to
+  superseded skills.
 
-Inspect the existing manifests and source before selecting tools. Existing
-projects keep their pinned Go, Dex SDK, `dexcli`, Server and frontend versions.
-Read [workspace bootstrap](references/workspace-bootstrap.md) for an empty
-repository, dependency changes or setup failures.
+## The workflow
 
-Read only references relevant to the next implementation decision, using their
-headings to select a bounded span. Retain verified version/API facts and do not
-reread whole guides after every tool call. Batch independent read-only requests
-when the host supports it; discover filenames before reading module source.
-Implement once the required types and lifecycle are understood. Let concrete
-compiler, strict FDG or provider diagnostics drive further investigation.
+Each stage has one reference. Read only the sections the next decision needs.
+Record decisions in the application's own documentation and do not reread a
+reference once its facts are recorded.
 
-For external products, search the [official catalog](https://connectors.superdurable.io/catalog.yaml)
-using a bounded catalog tool when available. Select a released operation and
-kind, then require `go` in its `languages` map and in the operation's or
-Trigger's `languages` list. Then inspect that exact module's `connector.yaml`, generated operation factory and
-input/output types. Return only matching catalog entries to model context.
-The catalog identifies capabilities and current releases; it is not provider
-business data or a historical release feed. Do not guess APIs or substitute
-low-level Connector SDK wire types for the released operation factory.
-Read the relevant [Connector architecture](references/connector-architecture.md)
-section for external integration, text generation, Trigger ingress or deployed
-configuration. A missing module is resolved at its exact released version.
+| Stage | Goal | Reference |
+| --- | --- | --- |
+| 0. Workspace | Classify the repository, choose or keep the stack, install tools | [Workspace bootstrap](references/workspace-bootstrap.md) |
+| 0'. Import | Convert an exported workflow, such as n8n JSON, before the normal stages | [Workflow import](references/workflow-import.md) and [n8n semantics](references/n8n-semantics.md) |
+| 1. Discovery | Actors, roles, permissions, lifecycle, Flow boundaries, storage, Connectors, management mapping | [Product discovery](references/product-discovery.md) |
+| 2. UI decision | No custom UI (Dex Web only) or Custom UI for a recorded gap | [UI workflow](references/ui-workflow.md) and [Dex Web v2](references/dex-web-v2.md) |
+| 3. Backend | Flow design, Dex-first storage, Actions, Workers, API contract | [Backend implementation](references/backend-implementation.md) |
+| 3a. FDG | Summary, Display, Actions, Start input, Step groups, diagnostics | [Go FDG authoring](references/fdg-authoring.md) |
+| 3b. Connectors | Catalog discovery, Connector Steps, Triggers, `llm`, credentials | [Connector architecture](references/connector-architecture.md) |
+| 4. Verify and hand off | Source gate, local `dexcli dev` stack, real journeys, packaging, handoff | [Verification and handoff](references/verification-handoff.md) |
+
+Keep source readiness separate from configured real execution at every stage.
+Never report compilation as provider or end-to-end success.
 
 ## Essential product constraints
 
-- Go backend only, by product decision; strict FDG 2.0 only, whose Dex Web v2
-  metadata comes only from the Go analyzer. Connectors also ship for Python and
-  TypeScript, but App Builder uses the Go packages.
-- Dex Web owns Runs, Work Queue, Actions, edits, history and diagnostics:
-  `dexcli dev` locally, the standalone `dex-web` binary or image when deployed. Do not
-  recreate management APIs or UI. A separate participant interaction is a valid
-  custom UI; a backend requirement alone is not.
-- Use typed Flow Attributes and exact-loaded AttributeMaps as the default
-  authoritative store. Justify an external store with a concrete access/scale
-  gap and one owner per fact. No speculative database, projection or cache.
-- Use parallel Steps for one lifecycle, independent top-level Flows for separate
-  owners, and no SubFlows unless the Core gate and explicit confirmation apply.
-  Never split when the parts would exchange RPCs or messages on frequent events
-  (every operation, callback or poll): each call between Flows adds to both
-  histories and costs an engine operation, even when it only reads.
-- Put provider effects in Execute, with identity, bounded timeout and recovery.
-  WaitFor declares durable conditions and performs no provider or Dex mutation.
-- Stable FlowID, complete RequestID, explicit reuse policy and typed error
-  recovery govern starts. An accepted start returns known identity without a
-  preflight or success-path state read. Streams are best-effort observations.
-- Define each Flow's identity, lifecycle, Steps, typed RPCs, all primitives,
-  selective loads, locks/CAS, retention, retries and uncertain-effect handling
-  in the application before coding. Preserve open execution compatibility.
-- Keep credentials outside code, Flow state, logs and definitions. Local
-  development configures connections in Dex Web, and a Go application reads
-  them through the Connector SDK's `sdkgo/projectconfig`, whose configuration a
-  hosting platform or operator provides (Dex hosts none).
-- For Dex Server authentication and Worker deployment, follow the SDK
-  [operations](../dex-sdk/references/core/operations.md#public-api-authentication)
-  and [pull Worker](../dex-sdk/references/core/pull-workers.md) references.
-- Browser permission selection grants no authority. Enforce actor permissions
-  at the trusted server boundary; use stable granular Action permissions.
-- Do not mutate another repository or publish/deploy without authorization.
+These App Builder rules are stricter than the Dex SDK rules. They take
+precedence.
 
-## Read the matching implementation reference
+- **Go backend only.** This is a product decision. Strict FDG 2.0 only, and
+  Dex Web v2 metadata comes only from the Go analyzer. Connectors also ship
+  for Python and TypeScript, but App Builder uses the Go packages.
+- **Dex Web owns management.** It owns Runs, Work Queue, Actions, edits,
+  history, and diagnostics: `dexcli dev` locally, the standalone `dex-web`
+  binary or image when deployed. Do not recreate management APIs or UI. A
+  separate participant interaction is a valid custom UI. A backend
+  requirement alone is not.
+- **Dex is the default store.** Use typed Flow Attributes and exactly loaded
+  AttributeMaps. Justify an external store with a concrete access or scale
+  gap and one owner per fact. No speculative database, projection, or cache.
+- **Flow boundaries.** Use parallel Steps for one lifecycle. Use independent
+  top-level Flows for separate owners. Use no SubFlows unless the Dex SDK
+  SubFlow gate passes and the user confirms. Never split work whose parts
+  would exchange RPCs or messages on frequent events, such as every
+  operation, callback, or poll. Each call between Flows adds to both
+  histories and costs an engine operation, even a read.
+- **Effects only in Execute.** Put provider effects in `Execute`, with an
+  idempotency identity, a bounded timeout, and recovery. `WaitFor` declares
+  durable conditions. It performs no provider or Dex mutation.
+- **Start identity.** A stable Flow ID, a complete request ID, an explicit
+  ID reuse policy, and typed error recovery govern starts. An accepted start
+  returns its known identity without a preflight or success-path state read.
+  Streams are best-effort observations.
+- **Design before code.** Define each Flow's identity, lifecycle, Steps,
+  typed RPCs, every primitive, selective loads, locks, retention, retries,
+  and uncertain-effect handling in the application before coding. Keep open
+  executions compatible across deploys.
+- **Credentials stay outside.** Keep them out of code, Flow state, logs, and
+  definitions. Locally, Dex Web configures Connector connections. A Go
+  application reads them through the Connector SDK's `sdkgo/projectconfig`.
+  An operator or hosting platform supplies the deployed configuration. Dex
+  hosts none.
+- **Authorization at the trusted boundary.** A browser permission selection
+  grants nothing. Enforce actor permissions at the trusted server boundary.
+  Use stable, granular Action permissions.
+- Do not mutate another repository or publish or deploy without
+  authorization.
 
-| Decision | Reference and scope |
-| --- | --- |
-| Empty repository, stack, dependencies or local tooling | [Workspace bootstrap](references/workspace-bootstrap.md) |
-| Exported workflow from another tool, such as n8n JSON | [Workflow import](references/workflow-import.md): fidelity ledger, secrets first, Dex redesign proposals with one optimize-or-exact question, golden parity, then the normal stages |
-| Missing business requirements, actors or ownership | [Business contract](references/business-contract.md); record concise decisions instead of requesting already supplied facts |
-| Participant/custom UI or management coverage | [Application surface](references/application-surface.md) and [UI workflow](references/ui-workflow.md); clear requests need no extra static-wireframe approval |
-| Go Flow rendering, Summary/Display or Work Queue Actions | [FDG authoring](references/fdg-authoring.md): exact syntax and focused diagnostics |
-| Flow, persistence, RPC, Connector or HTTP API changes | [Backend implementation](references/backend-implementation.md), selecting the relevant headings; use the Dex SDK Core/Go routing rather than loading all references |
-| Local verification, FDG packaging or deployment | [Verification and handoff](references/verification-handoff.md); distinguish source readiness from configured real execution |
+## Source authority
 
-Keep the design proportional and in the application's owning documentation.
-Do not add application-specific tests, mocks or framework dependencies merely
-to satisfy a generic scaffold. Existing/requested real acceptance remains
-required. Generate API packages before resolving their imports.
-The host commit tool may own the final complete source gate; use focused checks
-while editing, then consume its actual diagnostics rather than running the same
-full gate immediately twice. Never report compilation as provider/E2E success.
+Inspect the existing manifests and source before you select tools. An
+existing project keeps its pinned Go toolchain, Dex SDK, `dexcli`, Server,
+Connector, and frontend versions unless the user asks for an upgrade.
+
+Use the current SDK and Connector sources as the truth for API names. Copy API
+shapes from runnable examples, not from memory. Discover filenames before you
+read module source. Batch independent read-only requests when the host
+supports it. Implement once the required types and lifecycle are understood.
+Let concrete compiler, FDG, or provider diagnostics drive further
+investigation.
+
+Volatile details live in the versioned Dex Developer reference: flags,
+defaults, limits, configuration keys, error codes, and version differences.
+Find the version the project pins (the Go SDK in `go.mod`, `dexcli version`,
+the Server release), then open that version with the version selector in the
+reference sidebar.
+
+- [Developer reference overview and compatibility matrix](https://docs.superdurable.io/reference/)
+- [Go SDK](https://docs.superdurable.io/reference/go/)
+- [Dex Web](https://docs.superdurable.io/reference/web/), including the
+  [Flow source analyzer](https://docs.superdurable.io/reference/web/flow-visualization)
+- [CLI](https://docs.superdurable.io/reference/cli/)
+- [Server](https://docs.superdurable.io/reference/server/)
+- [Go examples](https://github.com/superdurable/dex/tree/main/examples/go)
+- [Connector catalog](https://connectors.superdurable.io/catalog.yaml) and
+  [Connector library](https://github.com/superdurable/dex-connectors-library)
+
+## Proportionality
+
+Keep the design proportional to the request. Do not add application-specific
+tests, mocks, or framework dependencies only to satisfy a generic scaffold.
+Existing or requested real acceptance remains required. Generate API packages
+before resolving their imports. The host commit tool may own the final source
+gate. Use focused checks while editing, then act on its actual diagnostics
+instead of running the same full gate twice in a row.
