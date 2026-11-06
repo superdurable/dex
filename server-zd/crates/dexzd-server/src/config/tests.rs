@@ -445,6 +445,8 @@ fn single_node_listen_prefers_the_flag_then_api_listen_then_loopback() {
     let temporary = tempfile::tempdir().expect("test directory");
     let yaml_path = temporary.path().join("listen.yaml");
     fs::write(&yaml_path, "api:\n  listen: '0.0.0.0:9000'\n").expect("write test config");
+    let without_api_path = temporary.path().join("without-api.yaml");
+    fs::write(&without_api_path, "cluster:\n  nodeId: x\n").expect("write test config");
     let flag_listen = SocketAddr::from((Ipv4Addr::LOCALHOST, 9901));
     for load in [Config::load_dev, Config::load_local] {
         let without_either = load(&DevCommandOptions {
@@ -454,6 +456,18 @@ fn single_node_listen_prefers_the_flag_then_api_listen_then_loopback() {
         .expect("configuration without a listen address");
         assert_eq!(
             without_either.api.listen,
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))
+        );
+        let yaml_without_api = load(&DevCommandOptions {
+            listen: None,
+            ..single_node_options(
+                temporary.path().join("data"),
+                Some(without_api_path.clone()),
+            )
+        })
+        .expect("configuration with YAML but no api section");
+        assert_eq!(
+            yaml_without_api.api.listen,
             SocketAddr::from((Ipv4Addr::LOCALHOST, 8801))
         );
         let from_yaml = load(&DevCommandOptions {

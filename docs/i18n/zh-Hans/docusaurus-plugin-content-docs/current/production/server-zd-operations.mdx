@@ -82,17 +82,24 @@ metrics:
 s3local 对象存储，并把全部数据放在本地磁盘的一个目录中：
 
 ~~~bash
-dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--durability strict|process-crash-safe|relaxed]
+dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>] [--durability strict|process-crash-safe|relaxed]
 ~~~
 
 数据目录中，**s3** 存放内嵌对象存储，**store** 存放本地存储，**dev.lock** 是锁文件。内嵌对象
 存储是唯一的事实来源，作用和 **serve** 的 bucket 相同。请把数据目录放在持久磁盘上。设置
 **--log-dir** 后，日志还会写入该目录下的 **dex-server-zd.log**。
 
-可选的 **--config** 文件可以覆盖
+可选的 **--config** 文件存放覆盖配置，使用
 [示例配置](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml)
-中的键。对象存储连接、节点 ID **dev** 和本地存储目录由 **local** 自己设置。**--listen**
-会覆盖文件中的 **api.listen**。第一次启动会记录 **cluster.partitionCount**，之后不能修改。
+中的键。文件中只写你要修改的键。文件中出现的每个键都会替换单节点的默认值。不要复制整个示例
+配置：复制后 **api.listen** 会变成 **0.0.0.0:8801**，除非文件同时配置了 authenticator，否则
+没有身份验证；**lease.duration** 也会变成 10 秒。对象存储连接、节点 ID **dev** 和本地存储目录
+由 **local** 自己设置。**--listen** 会覆盖文件中的 **api.listen**。第一次启动会记录
+**cluster.partitionCount**，之后不能修改。
+
+可选的 **--attribute-store-config** 文件是 Go Server 的配置文件。**local** 只读取其中的
+**attributeStore** 段，该段至少要定义一个 store。**--config** 文件不能再设置
+**attributeStore**。
 
 节点 ID **dev**、bucket **dex-dev**、锁文件 **dev.lock** 和覆盖配置中的 **dev** 段特意保留了
 **dev** 的名字。**local** 和 **dev** 共用它们，所以数据目录可以在两个命令之间迁移。
@@ -137,6 +144,9 @@ authenticator 时，它会在启动时记录一条警告。对外开放之前，
 备份时，先用 SIGTERM 停止 **local**，等它退出，再复制整个数据目录。运行中复制的数据目录
 可能不一致。恢复时，停止 **local**，用副本替换数据目录，再启动 **local**。备份之后确认的
 写入会丢失。
+
+[备份和恢复](#备份和恢复)中的通用规则同样适用。使用 PostgreSQL 或 ParadeDB 搜索后端时，
+恢复后的数据目录需要新的 **search.postgresSchema** 或 **search.paradeDbSchema**，原因见该节。
 
 ### 与 dev 和 serve 的区别 {#single-node-local-commands}
 

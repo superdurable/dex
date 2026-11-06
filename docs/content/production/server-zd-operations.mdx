@@ -94,7 +94,7 @@ storage. It starts an embedded s3local object store in the same process and
 keeps all data in one directory on local disk:
 
 ~~~bash
-dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--durability strict|process-crash-safe|relaxed]
+dex-server-zd local --data-dir /var/lib/dex-server-zd [--listen 127.0.0.1:8801] [--log-dir <dir>] [--config <overrides.yaml>] [--attribute-store-config <dex.yaml>] [--durability strict|process-crash-safe|relaxed]
 ~~~
 
 The data directory holds the embedded object store in **s3**, the local store in
@@ -103,12 +103,20 @@ source of truth, as the bucket is for **serve**. Put the data directory on a
 persistent disk. **--log-dir** also writes the log to
 **dex-server-zd.log** in that directory.
 
-The optional **--config** file overrides keys of the
+The optional **--config** file holds overrides. It uses the keys of the
 [example configuration](https://github.com/superdurable/dex/blob/server-zd/v0.1.3/server-zd/config/dex-server-zd.example.yaml).
+Put only the keys you want to change in it. Every key in the file replaces the
+single-node default. Do not copy the whole example. A copy sets **api.listen**
+to **0.0.0.0:8801**, which has no authentication unless the file also
+configures authenticators. It also sets **lease.duration** to 10 seconds.
 **local** sets the object storage connection, the node ID **dev**, and the
 local store directory itself. **--listen** overrides **api.listen** from the
 file. The first start records **cluster.partitionCount**, which cannot change
 later.
+
+The optional **--attribute-store-config** file is a Go Server configuration
+file. **local** reads only its **attributeStore** section, which must define at
+least one store. The **--config** file must not also set **attributeStore**.
 
 The node ID **dev**, the bucket **dex-dev**, the lock file **dev.lock**, and the
 **dev** section of the overrides keep their **dev** names on purpose. **local**
@@ -164,6 +172,11 @@ To back up, stop **local** with SIGTERM, wait for it to exit, and copy the
 whole data directory. A copy of a running data directory can be inconsistent.
 To restore, stop **local**, replace the data directory with the copy, and
 start **local** again. Writes acknowledged after the backup are lost.
+
+The general rules in [Backup and restore](#backup-and-restore) apply too. With a
+PostgreSQL or ParadeDB search backend, the restored data directory needs a new
+**search.postgresSchema** or **search.paradeDbSchema**, as that section
+explains.
 
 ### Compared with dev and serve {#single-node-local-commands}
 

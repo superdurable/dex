@@ -35,7 +35,7 @@ impl Default for LifecycleConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApiConfig {
-    /// Defaults to 0.0.0.0:8801; bind address for the plaintext public gRPC services.
+    /// Defaults to 0.0.0.0:8801, or 127.0.0.1:8801 for dev and local; bind address for the plaintext public gRPC services.
     /// Flow clients and Workers connect here. The node also writes it to the manifest as
     /// its internal address for other nodes, so bind a routable address in multi-node setups.
     pub listen: SocketAddr,

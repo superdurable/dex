@@ -148,7 +148,8 @@ impl Config {
 
     /// Loads optional YAML, applies the fixed `local` flags, then resolves credentials and
     /// validates the result. Unlike `dev`, it keeps the `serve` Step attempt drain default.
-    pub fn load_local(options: &DevCommandOptions) -> Result<Self, ConfigError> {
+    #[cfg(test)]
+    pub(crate) fn load_local(options: &DevCommandOptions) -> Result<Self, ConfigError> {
         Self::load_single_node(options, SingleNodeProfile::Local)
     }
 
