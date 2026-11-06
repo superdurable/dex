@@ -1492,7 +1492,7 @@ class FlowServiceTlsTest(unittest.TestCase):
         "go": GO_TAG,
         "java": "sdk-java/v1.26.0",
         "python": "sdk-python/v1.28.0",
-        "typescript": "sdk-typescript/v1.28.0",
+        "typescript": "sdk-typescript/v1.35.0",
         "rust": "sdk-rust/v1.26.0",
     }
     TAGGED_PATHS = {
@@ -1512,8 +1512,10 @@ class FlowServiceTlsTest(unittest.TestCase):
             "sdk-python/dex/_credential_transport.py", "sdk-python/dex/_pull_worker.py",
             "sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py",
         ),
-        "sdk-typescript/v1.28.0": ("sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts",
-                                      "sdk-typescript/src/options.ts"),
+        "sdk-typescript/v1.35.0": (
+            "sdk-typescript/src/client.ts", "sdk-typescript/src/worker.ts", "sdk-typescript/src/options.ts",
+            "sdk-typescript/src/flow-service-tls.ts", "sdk-typescript/src/pull-worker.ts",
+        ),
         "sdk-rust/v1.26.0": (
             "sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs",
             "sdk-rust/crates/dex-sdk/src/client_options.rs", "sdk-rust/crates/dex-sdk/src/worker_options.rs",
@@ -1634,9 +1636,37 @@ class FlowServiceTlsTest(unittest.TestCase):
         self.mutate_tag("sdk-python/v1.28.0", "sdk-python/dex/_pull_worker.py",
                         "return grpc.aio.insecure_channel(server_address)", "return grpc.aio.secure_channel(server_address)")
 
-    def test_typescript_transport_must_match_baseline(self):
-        self.mutate_tag("sdk-typescript/v1.28.0", "sdk-typescript/src/client.ts",
-                        "credentials.createInsecure()", "credentials.createSsl()")
+    def test_typescript_plaintext_default_must_remain_undefined_only(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/flow-service-tls.ts",
+                        "if (tlsOptions === undefined) {", "if (tlsOptions !== undefined) {")
+
+    def test_typescript_client_must_pass_tls_options_to_channel(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/client.ts",
+                        "options.serverAddress ?? defaultServerAddress, options.flowServiceTls",
+                        "options.serverAddress ?? defaultServerAddress, undefined")
+
+    def test_typescript_worker_must_pass_tls_options_to_channel(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/worker.ts",
+                        '"localhost:8801", options.flowServiceTls', '"localhost:8801", undefined')
+
+    def test_typescript_pull_streams_must_use_tls_channel(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/pull-worker.ts",
+                        "new ResettableWorkerTaskServiceClient(channel.target, channel.channelCredentials, {",
+                        "new ResettableWorkerTaskServiceClient(channel.target, credentials.createInsecure(), {")
+
+    def test_typescript_tls_must_keep_minimum_version(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/flow-service-tls.ts",
+                        'tls.createSecureContext({ minVersion: "TLSv1.2" })', "tls.createSecureContext()")
+
+    def test_typescript_tls_must_keep_certificate_verification(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/flow-service-tls.ts",
+                        "credentials.createFromSecureContext(secureContext)",
+                        "credentials.createFromSecureContext(secureContext, { rejectUnauthorized: false })")
+
+    def test_typescript_tls_options_must_not_gain_client_certificate_field(self):
+        self.mutate_tag("sdk-typescript/v1.35.0", "sdk-typescript/src/options.ts",
+                        "  readonly serverName?: string;\n}",
+                        "  readonly serverName?: string;\n  readonly clientCertificatePem?: string;\n}")
 
     def test_rust_default_transport_must_match_baseline(self):
         self.mutate_tag("sdk-rust/v1.26.0", "sdk-rust/crates/dex-sdk/src/client.rs",
@@ -1661,6 +1691,14 @@ class FlowServiceTlsTest(unittest.TestCase):
     def test_go_reference_must_keep_exact_option_type(self):
         mutate_page(self, self.check, self.references / "go/go.md",
                     "AdditionalRootCAsPEM []byte", "AdditionalRootCAsPEM string")
+
+    def test_typescript_reference_must_keep_exact_option_name(self):
+        mutate_page(self, self.check, self.references / "typescript/typescript.md",
+                    "additionalRootCAsPem?: string | Uint8Array", "additionalRootCAsPEM?: string | Uint8Array")
+
+    def test_core_must_keep_typescript_trust_store(self):
+        mutate_page(self, self.check, self.references / "core/operations.md",
+                    "Node.js default trust store", "system trust store")
 
     def test_language_reference_must_keep_absent_option_boundary(self):
         mutate_page(self, self.check, self.references / "java/java.md",

@@ -45,7 +45,7 @@ Every Worker is a [pull Worker](pull-workers.md): it opens outbound task streams
 Before debugging code, verify:
 
 - the application uses the server address printed by **dexcli dev**
-- a remote Go Client and Worker each select **FlowServiceTLS** when their FlowService endpoint terminates TLS; see [FlowService TLS](operations.md#flowservice-tls)
+- a remote Go Client and Worker each select **FlowServiceTLS**, and from TypeScript SDK v1.35.0 a TypeScript Client and Worker each set **flowServiceTls**, when their FlowService endpoint terminates TLS; see [FlowService TLS](operations.md#flowservice-tls)
 - the Worker advertised target is reachable from Dex Server
 - the Flow type is present in the Worker and Client registries
 - the Worker and Client use compatible payload codecs and blob cache/storage

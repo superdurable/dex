@@ -9,7 +9,7 @@ Choose primitives from the business behavior first, then encode them with the SD
 | Wait | `Wait.until`, `anyOf`, `allOf`, `anyCombinationOf` | Durable readiness | Wait is returned, never awaited as a Promise |
 | Attribute / AttributeMap | `new Attribute`, `new AttributeMap` | Durable latest state | Durable name and codec are compatibility surface |
 | Channel / ChannelMap | `new Channel`, `new ChannelMap` | Durable FIFO messages | Selected waits consume messages |
-| RPC | `@rpc({...})` and `RPCResult<T>` | Synchronous command or query | Query-only handlers can read retained terminal runs; locks, transactions, and returned effects require active execution |
+| RPC | `@rpc({...})` or `declareRPCMethod`, and `RPCResult<T>` | Synchronous command or query | Query-only handlers can read retained terminal runs; locks, transactions, and returned effects require active execution |
 | Stream | `new Stream` | Best-effort progress | Not a source of truth |
 | Timer | `Timer.byDuration`, `Timer.byTimestamp` | Durable deadlines | Milliseconds are numbers; no event-loop timer survives Worker loss |
 | SubFlow | `SubFlow.run` | Durable child work | Parent/child lifetime is an application decision |
@@ -99,6 +99,30 @@ Pending-message reads inside a Step or RPC are invocation snapshots. Other handl
 Read committed Attributes from outside the Flow with [`client.getAttributes`](#client-attribute-reads). Use typed RPCs for application writes of Flow-owned Attribute and Channel state, and for reads that need Flow code or pending Channel messages. The Client has no direct write method. Attribute match remains the blocking observation surface.
 
 An RPC without Attribute locks or `isTransactional` can query a retained terminal run when it returns no durable effects. Locks, transactions, returned effects, or Server policy require an active execution. RPC success alone does not prove the Flow is active.
+
+## Decorator-free RPC declaration
+
+From TypeScript SDK v1.35.0, `declareRPCMethod(FlowClass, "methodName", options)` declares a Flow method as an RPC handler without the `@rpc` decorator. Use it when the runtime that loads the Flow module cannot transform decorators, such as Node.js type stripping with `node --experimental-transform-types` or plain `node main.ts` on Node.js 22.18 and later. Such a runtime rejects `@rpc` with a SyntaxError. Keep `@rpc` when the build transforms decorators, for example with `tsc`.
+
+[Pinned decorator-free RPC example](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/examples/typescript/decorator-free-rpc/order-status-flow.ts)
+<!-- dex-source: examples/typescript/decorator-free-rpc/order-status-flow.ts -->
+```typescript
+declareRPCMethod(OrderStatusFlow, "getOrderStatus", { outputCodec: stringCodec });
+declareRPCMethod(OrderStatusFlow, "updateOrderStatus", {
+  inputCodec: stringCodec,
+  outputCodec: stringCodec,
+  lockAttributes: [orderStatus.lock()],
+});
+```
+
+- It takes the same `RPCOptions` as `@rpc`, and Registry construction reports the same errors for both forms.
+- Call it at module top level, right after the class and before constructing the Registry. A later declaration does not affect a Registry that already exists.
+- Pass the class and the method name as a string literal. The `RPCMethodName` type accepts only public methods whose first parameter is `Context`. An instance field, such as an arrow function, is not a class method and throws `TypeError`.
+- Declare a method through the class that defines it. A method declared on a base class is an RPC of every subclass that inherits it. Naming a subclass for a method it only inherits throws `TypeError`; override the method in the subclass and declare the override instead.
+- Declare each method once. Declaring it again, declaring a method that already has `@rpc`, or declaring `handleTimeout` throws `TypeError`. One Flow may use both forms on different methods.
+- Client calls are unchanged, such as `client.invokeRPC(flow.getOrderStatus, flowId)`.
+
+[Released declaration rules](https://github.com/superdurable/dex/blob/sdk-typescript/v1.35.0/sdk-typescript/README.md#declaring-rpc-methods)
 
 ## Client Attribute reads
 

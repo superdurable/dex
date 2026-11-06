@@ -1039,8 +1039,11 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
         "NewClient", "NewWorker", "gRPC **Unavailable**", "APIKeyCredential",
         "**api.listen** serves plaintext FlowService gRPC",
         "dexcli", "Dex Web connects with plaintext gRPC unless **--tls** is set",
-        "Java", "Python", "TypeScript", "Rust", "no FlowService TLS option",
+        "Java", "Python", "Rust", "no FlowService TLS option",
         "default FlowService connections use plaintext",
+        "TypeScript SDK v1.35.0", "**ClientOptions.flowServiceTls**", "**WorkerOptions.flowServiceTls**",
+        "**FlowServiceTlsOptions**", "Node.js default trust store", "negotiates no ALPN protocol",
+        "throws **TypeError**", "rejection from **worker.start()**",
     )
     require_section_text(references / "go" / "go.md", "## FlowService TLS",
                          "ClientOptions.FlowServiceTLS", "WorkerOptions.FlowServiceTLS",
@@ -1052,7 +1055,15 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
                  "WorkerOptions.FlowServiceTLS", "ClientOptions.FlowServiceTLS",
                  "pull task streams use the Worker's FlowService connection")
     require_text(ROOT / "dex-sdk" / "SKILL.md", "Go FlowService TLS", "references/core/operations.md#public-api-authentication")
-    for language in ("java", "python", "typescript", "rust"):
+    require_section_text(references / "typescript" / "typescript.md", "## FlowService TLS",
+                         "TypeScript SDK v1.35.0", "ClientOptions.flowServiceTls", "WorkerOptions.flowServiceTls",
+                         "FlowServiceTlsOptions", "additionalRootCAsPem?: string | Uint8Array",
+                         "serverName?: string", "Omitting it keeps plaintext", "even **{}**",
+                         "Node.js default trust store", "no client-certificate field", "pull task streams",
+                         "TypeError", "UNAVAILABLE", "operations.md#flowservice-tls")
+    require_text(references / "core" / "getting-started.md", "TypeScript Client and Worker each set **flowServiceTls**")
+    require_text(references / "core" / "pull-workers.md", "TypeScript pull Worker", "WorkerOptions.flowServiceTls")
+    for language in ("java", "python", "rust"):
         require_section_text(references / language / f"{language}.md", "## FlowService transport",
                              "v1.20.0", "ClientOptions", "WorkerOptions", "no FlowService TLS option", "plaintext")
     require_tagged_go_function_text(
@@ -1063,7 +1074,6 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
         ("java", ("sdk-java/src/main/java/io/superdurable/dex/ClientOptions.java",
                   "sdk-java/src/main/java/io/superdurable/dex/WorkerOptions.java")),
         ("python", ("sdk-python/dex/client_options.py", "sdk-python/dex/worker_options.py")),
-        ("typescript", ("sdk-typescript/src/options.ts",)),
         ("rust", ("sdk-rust/crates/dex-sdk/src/client_options.rs",
                   "sdk-rust/crates/dex-sdk/src/worker_options.rs")),
     ):
@@ -1099,14 +1109,7 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
                                        f"{sdk_baselines['python']}:{python_pull_path}")
     require_block_text(pull_channel, f"{sdk_baselines['python']}:{python_pull_path}",
                        "outbound_worker_task_channel", ("return grpc.aio.insecure_channel(",))
-    for path, class_name in (("sdk-typescript/src/client.ts", "Client"),
-                             ("sdk-typescript/src/worker.ts", "Worker")):
-        source = git(checkout, "show", f"refs/tags/{sdk_baselines['typescript']}:{path}")
-        class_source = source.split(f"export class {class_name} {{", 1)[1].split("\n}\n", 1)[0]
-        constructor = rust_function_source(class_source, "  public constructor(",
-                                           f"{sdk_baselines['typescript']}:{path}")
-        require_block_text(constructor, f"{sdk_baselines['typescript']}:{path}",
-                           f"{class_name} constructor", ("new FlowServiceClient(", "credentials.createInsecure()"))
+    check_typescript_flow_service_tls(checkout, sdk_baselines["typescript"])
     for path in ("sdk-rust/crates/dex-sdk/src/client.rs", "sdk-rust/crates/dex-sdk/src/worker.rs"):
         require_tagged_rust_function_text(checkout, sdk_baselines["rust"], path,
                                           "fn endpoint_address(", 'format!("http://{address}")')
@@ -1121,6 +1124,57 @@ def check_flow_service_tls(checkout: Path, go_tag: str, sdk_baselines: dict[str,
     require_block_text(zd_source, f"{SERVER_ZD_RELEASE}:{zd_path}", "GrpcServer::start",
                        ("listener: TcpListener", "tonic::transport::Server::builder()", ".serve_with_incoming_shutdown("),
                        (".tls_config(",))
+
+
+def check_typescript_flow_service_tls(checkout: Path, typescript_tag: str) -> None:
+    for path, class_name, needles in (
+        ("sdk-typescript/src/client.ts", "Client", (
+            "createFlowServiceChannel(options.serverAddress ?? defaultServerAddress, options.flowServiceTls)",
+            "new FlowServiceClient(\n      channel.target,\n      channel.channelCredentials,",
+        )),
+        ("sdk-typescript/src/worker.ts", "Worker", (
+            'createFlowServiceChannel(options.serverAddress ?? "localhost:8801", options.flowServiceTls)',
+            "new FlowServiceClient(\n      channel.target,\n      channel.channelCredentials,",
+            "registry, dispatcher, channel, options.pull ?? {},",
+        )),
+    ):
+        source = git(checkout, "show", f"refs/tags/{typescript_tag}:{path}")
+        class_source = source.split(f"export class {class_name} {{", 1)[1].split("\n}\n", 1)[0]
+        constructor = rust_function_source(class_source, "  public constructor(", f"{typescript_tag}:{path}")
+        require_block_text(constructor, f"{typescript_tag}:{path}", f"{class_name} constructor", needles)
+    options_path = "sdk-typescript/src/options.ts"
+    options_source = git(checkout, "show", f"refs/tags/{typescript_tag}:{options_path}")
+    if options_source.count("  readonly flowServiceTls?: FlowServiceTlsOptions;\n") != 2:
+        fail(f"{typescript_tag}:{options_path} must declare flowServiceTls on ClientOptions and WorkerOptions")
+    tls_options = options_source.split("export interface FlowServiceTlsOptions {", 1)
+    if len(tls_options) != 2:
+        fail(f"{typescript_tag}:{options_path} is missing FlowServiceTlsOptions")
+    fields = re.findall(r"^  readonly ([A-Za-z0-9]+\?: [^;\n]+);$", tls_options[1].split("\n}\n", 1)[0], re.MULTILINE)
+    if fields != ["additionalRootCAsPem?: string | Uint8Array", "serverName?: string"]:
+        fail(f"{typescript_tag}:{options_path} has unexpected FlowServiceTlsOptions fields: {fields}")
+    tls_path = "sdk-typescript/src/flow-service-tls.ts"
+    tls_source = git(checkout, "show", f"refs/tags/{typescript_tag}:{tls_path}")
+    channel_function = rust_function_source(tls_source, "export function createFlowServiceChannel(",
+                                            f"{typescript_tag}:{tls_path}")
+    require_block_text(channel_function, f"{typescript_tag}:{tls_path}", "createFlowServiceChannel", (
+        "if (tlsOptions === undefined) {\n    return { target: serverAddress, "
+        "channelCredentials: credentials.createInsecure(), channelOptions: {} };",
+        "const target = flowServiceTlsTarget(serverAddress);",
+        "createFlowServiceSecureContext(tlsOptions.additionalRootCAsPem)",
+        '{ "grpc.ssl_target_name_override": serverName, "grpc.default_authority": serverName }',
+        "credentials.createFromSecureContext(secureContext)",
+    ))
+    require_block_text(tls_source, f"{typescript_tag}:{tls_path}", "flow-service-tls.ts", (
+        'tls.createSecureContext({ minVersion: "TLSv1.2" })', "!(port >= 1 && port <= 65_535)",
+        'throw new TypeError("dex: flowServiceTls.additionalRootCAsPem contains no PEM certificate")',
+    ), ("rejectunauthorized", "checkserveridentity"))
+    require_tagged_rust_function_text(
+        checkout, typescript_tag, "sdk-typescript/src/pull-worker.ts", "function createWorkerTaskClient(",
+        "new ResettableWorkerTaskServiceClient(channel.target, channel.channelCredentials, {",
+        "...channel.channelOptions,",
+    )
+    require_tagged_text(checkout, typescript_tag, "sdk-typescript/src/pull-worker.ts",
+                        "this.client = createWorkerTaskClient(channel, credential);")
 
 
 def check_flow_summary_rpc(checkout: Path, server_zd_tag: str) -> None:

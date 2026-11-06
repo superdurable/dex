@@ -84,6 +84,8 @@ explanations, and user-string `capture:qr-code` hints. Validate that metadata
 with the v2 analyzer. This source-analysis capability is not currently available
 for Java, Python, TypeScript, or Rust Flow definitions.
 
+From `dexcli` v1.35.0, the analyzer names an Action and the **GetDexSummary** and **GetDexDisplay** view RPCs by **RPCOptions.Name**, so Dex Web invokes the registered name. **Name** must be a non-empty compile-time string, a literal or a constant; otherwise the analyzer reports an error. Do not rename a view RPC: Dex Web invokes **GetDexSummary** and **GetDexDisplay** by those names, and a renamed one fails with the analyzer's "must be registered in GetRPCs" error. [Released analyzer](https://github.com/superdurable/dex/blob/cli-v1.35.0/cli/internal/flowviz/v2_directives.go)
+
 ## Minimal Flow
 
 Declare schema at package scope, embed defaults, register Step types, and return a decision from every Execute method. Keep SDK-derived Flow and Step type names; do not implement `GetFlowType` or `GetStepType` except for the [required production-rename case](versioning.md#default-flow-and-step-type-names).

@@ -64,6 +64,19 @@ func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 
 Only methods returned from `GetRPCs` are Worker RPCs. Register direct bound Flow methods with `dex.DefineRPC`. Put timeout, locks, transactions, and selective loads in its `dex.RPCOptions`; `Client.InvokeRPC` takes no options argument. A definition without locks or transactional execution can query a retained terminal run when the handler returns no durable effects. Locks, transactions, returned effects, or Server policy require an active execution. Keep handlers short and lock conflicting Attributes. RPC results may request supported movements, publishing, or cancellation; never emulate transactions with process-local locks.
 
+From Go SDK v1.35.0, `RPCOptions.Name` sets the RPC's protocol name: the RPC name that Workers serve, that Clients in every language invoke, and that `dexcli` and Dex Web use. Empty keeps the Go method name, such as `GetStatus`. Set it when a Flow type that another language defines names the RPC, such as `send_user_message`, so a Go Worker serves it and a Go Client invokes it. Go code still refers to the RPC by its bound method in `dex.DefineRPC` and `Client.InvokeRPC`.
+
+[Released Go RPC names](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/README.md#rpc-names)
+<!-- dex-source: sdk-go/README.md -->
+```go
+dex.DefineRPC(flow.SendUserMessage, &dex.RPCOptions{Name: "send_user_message"})
+
+var queued bool
+err := client.InvokeRPC(ctx, flowID, flow.SendUserMessage, message, &queued)
+```
+
+Registry construction rejects a name with characters other than ASCII letters, digits, `_`, and `-`; a name equal to another RPC's protocol name or Go method name in the same Flow, so two RPCs cannot swap names; and one method registered twice. Keep the name stable: running Flows and their callers use it. From the same release, a Go Worker reads a request without input for an RPC whose input is `dex.None` as JSON null, so a TypeScript Client can call it; earlier Go Workers reject that request. A request without input for an RPC that takes an input still fails with `INVALID_ARGUMENT`. [Released RPCOptions](https://github.com/superdurable/dex/blob/sdk-go/v1.35.0/sdk-go/dex/options.go)
+
 ## Stream
 
 Define a Stream with a byte limit and register it. A Step writes ordered progress; consumers resume from the Client token. A Stream is a feed, not authoritative state.
