@@ -192,11 +192,12 @@ try {
     i18n: {currentLocale: 'en', defaultLocale: 'en', locales: ['en', 'zh-Hans']},
     allContent: {'docusaurus-plugin-content-docs': {primary: {loadedVersions: [{contentPath, contentPathLocalized, sidebars,
       docs: [{...fallback, permalink: '/'}, {...translated, source: '@site/reference/translated.mdx', permalink: '/translated/'}]}]}}}};
-  await writeFile(join(contentPath, 'index.mdx'), '# Home\n\n:::caution\n\nCareful.\n\n:::\n\n:::tip Short title\n\nTip.\n\n:::\n\n[Chinese](/zh-Hans/translated/)\n');
+  await writeFile(join(contentPath, 'index.mdx'), '# Home\n\n:::caution\n\nCareful.\n\n:::\n\n:::tip Short title\n\nTip.\n\n:::\n\n[Chinese](/zh-Hans/translated/)\n\n[Go API](/api/go/1.33/)\n');
   await exportMarkdown(english);
   const englishHome = await readFile(join(siteDir, 'build/index.md'), 'utf8');
   assert.match(englishHome, /> \*\*Caution\*\*/);
   assert.match(englishHome, /> \*\*Tip: Short title\*\*/);
+  assert.match(englishHome, /\[Go API\]\(https:\/\/docs.example.test\/api\/go\/1.33\/\)/, 'API reference links skip the disk check');
   assert.match(await readFile(join(siteDir, 'build/llms.txt'), 'utf8'), /^# Fixture\n\n> Dex is a Durable Execution platform./);
 
   const failures = [
@@ -207,6 +208,7 @@ try {
     ['# Heading\n\nexport const value = 1;\n', /index.mdx:3: Only imports are supported in MDX modules/],
     ['# Heading\n\n[Missing](./missing.mdx)\n', /index.mdx:3: Cannot resolve source link .\/missing.mdx/],
     ['# Heading\n\n[Missing](/no-such-page/)\n', /index.mdx:3: Link target \/no-such-page\/ is not a route or static file/],
+    ['# Heading\n\n[Missing](/apis/go/)\n', /index.mdx:3: Link target \/apis\/go\/ is not a route or static file/],
     ['# Heading\n\n<DexSkillHostTabs skill={skillName} />\n', /index.mdx:3: Only literal MDX attributes are supported/],
     ['# Heading\n\n<SdkTabs go={<code>x</code>} />\n', /index.mdx:3: Only literal MDX attributes are supported/],
     ['# Heading\n\n<SdkTabs>\n<SdkSnippet lang="cobol">\n\n```cobol\nDISPLAY 1\n```\n\n</SdkSnippet>\n</SdkTabs>\n',

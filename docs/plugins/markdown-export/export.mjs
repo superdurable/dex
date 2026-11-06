@@ -54,6 +54,8 @@ const localeCopies = {
 };
 // Must match the content types rendered by DexSkillHostTabs.tsx.
 const hostContainerTypes = new Set(['p', 'ol', 'ul', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+// Output written outside this build's postBuild, such as generated API reference, may not exist yet.
+export const unverifiedLinkPrefixes = ['/api/'];
 const phrasingTypes = new Set(['text', 'emphasis', 'strong', 'delete', 'inlineCode', 'break', 'image', 'link', 'html']);
 const parser = unified().use(remarkParse).use(remarkMdx).use(remarkFrontmatter).use(remarkGfm);
 const writer = unified().use(remarkStringify, {bullet: '-', fences: true, handlers: {text: writeText}}).use(remarkGfm);
@@ -481,6 +483,8 @@ function isKnownTarget(pathname, context) {
   if (context.knownRoutes.has(routeKey(pathname))) return true;
   if (context.otherLocaleBases.some(base => pathname.startsWith(base))) return true;
   if (!pathname.startsWith(context.baseUrl)) return false;
+  const localePath = `/${pathname.slice(context.baseUrl.length)}`;
+  if (unverifiedLinkPrefixes.some(prefix => localePath.startsWith(prefix))) return true;
   return existsSync(join(context.outDir, decodeURIComponent(pathname.slice(context.baseUrl.length))));
 }
 

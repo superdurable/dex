@@ -30,7 +30,7 @@ export default function DocMarkdownLink(): ReactNode {
     description: 'The accessible name of the link that opens the Markdown export of a docs page in a new tab',
   });
   return (
-    <a className={styles.link} href={markdownPath(pathname, baseUrl)} target="_blank" rel="noopener" aria-label={accessibleLabel}>
+    <a className={`${styles.link} doc-markdown-link`} href={markdownPath(pathname, baseUrl)} target="_blank" rel="noopener" aria-label={accessibleLabel}>
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
         <path d="M12 3v3M9 3h6M5 11H3v6h2m14-6h2v6h-2" />
         <rect x="5" y="6" width="14" height="15" rx="3" />

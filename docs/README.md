@@ -141,7 +141,12 @@ attributes listed above. Unknown JSX, unevaluated MDX expressions (including
 `{/* */}` comments), ESM other than imports, and non-literal attribute values
 fail the build with the source file and line. Relative `.mdx` links must resolve
 to a loaded document, and root-relative links must resolve to a route or a
-static file. To support a new component, add an explicit expansion in
+static file. Plugins run `postBuild` concurrently, and other output, such as
+generated API reference, may be written by another plugin or a CI step. Links
+under the prefixes in `unverifiedLinkPrefixes` in
+[`export.mjs`](plugins/markdown-export/export.mjs), currently `/api/`, are
+accepted without that check. Add a prefix there only for output that the docs
+build does not produce itself. To support a new component, add an explicit expansion in
 [`export.mjs`](plugins/markdown-export/export.mjs), preserve its meaningful text
 and links, and add an integration scenario in
 [`markdown-export.mjs`](tests/markdown-export.mjs). Do not evaluate arbitrary MDX
