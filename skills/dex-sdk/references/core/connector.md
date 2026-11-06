@@ -3,7 +3,7 @@
 A Connector integrates a Flow with an external provider. It packages typed operations, event ingress, authorization, and optional configuration UI, without putting provider credentials in durable Flow state. Official Connectors are released separately from Dex.
 
 - Connectors support Go, Python, and TypeScript. Java and Rust have none; do not invent a Connector API or loader for them.
-- Support is per Connector and per capability. Check the [Connector catalog](https://connectors.superdurable.io/) for what each language package offers.
+- Support is per Connector and per capability. Check the [Connector catalog](https://connectors.superdurable.io/catalog.yaml) for what each language package offers.
 - Use only released official Connector modules. Never invent a Connector, an operation, or a generated type.
 - To add or change an official Connector, use the dex-connector-contributor skill.
 

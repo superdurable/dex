@@ -52,7 +52,19 @@ CONCEPT_BOUNDARY_TERMS = (
     (re.compile(r"\bTemporal\b"), "the Temporal backend"),
     (re.compile(r"\bCadence\b"), "the Cadence backend"),
     (re.compile(r"\b(?:schedule|start)[\s_-]*to[\s_-]*(?:close|start)\b", re.IGNORECASE), "a backend activity timeout name"),
-    (re.compile(r"\bSignalWithStart\b", re.IGNORECASE), "a backend Signal API"),
+    (re.compile(r"\b(?:signal|update)[\s_-]*with[\s_-]*start\b", re.IGNORECASE), "a backend Signal or Update API"),
+    # Lowercase temporal and cadence are English words; flag them only as backend names.
+    (
+        re.compile(
+            r"\b(?:temporal|cadence)[\s_-]+(?:server|cluster|service|backend|sdk|cli|namespaces?|workflows?|"
+            r"activit(?:y|ies)|signals?|quer(?:y|ies)|updates?|history|task[\s_-]*queues?|workers?)\b",
+            re.IGNORECASE,
+        ),
+        "a Temporal or Cadence backend name",
+    ),
+    (re.compile(r"\bsignals?\s*,\s*quer(?:y|ies)\s*,?\s*(?:and|or)\s*updates?\b", re.IGNORECASE), "backend Signals, Queries, and Updates"),
+    (re.compile(r"\b(?:workflow|decision)[\s_-]+(?:history|tasks?)\b", re.IGNORECASE), "backend workflow history or task mechanics"),
+    (re.compile(r"\bactivit(?:y|ies)[\s_-]+(?:tasks?|timeouts?|workers?|heartbeats?)\b", re.IGNORECASE), "backend activity mechanics"),
 )
 
 VERSION_NUMBER = r"v?\d+\.\d+(?:\.\d+)?(?!\.?\d)"
@@ -68,6 +80,11 @@ GENERIC_VERSION_PATTERNS = (
     re.compile(r"\b(?:Dex|SDK|server-zd|Server|dexcli|CLI|Web)\s+" + VERSION_NUMBER, re.IGNORECASE),
     re.compile(
         r"\b(?:since|newer than|older than|before|after|until|through)\s+" + RELEASE_VERSION_NUMBER,
+        re.IGNORECASE,
+    ),
+    # Developer reference version notes, such as "Since 1.35" and "Changed in 1.35".
+    re.compile(
+        r"\b(?:since|changed in|added in|deprecated in|removed in|introduced in)\s+" + VERSION_NUMBER,
         re.IGNORECASE,
     ),
     re.compile(RELEASE_VERSION_NUMBER + r"\s+(?:or|and)\s+(?:later|newer|earlier|older)\b", re.IGNORECASE),
@@ -89,7 +106,35 @@ ALLOWED_VERSION_TEXT = re.compile(
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
 PLACEHOLDER_HOST_SUFFIXES = (".example.com", ".example", ".invalid", ".test")
-GITHUB_REPOSITORIES = {"dex", "dex-connectors-library", "dex-skills"}
+# Patterns match host plus path, without the scheme, query, fragment, or a trailing slash.
+DEX_EXAMPLES_URL = re.compile(r"github\.com/superdurable/dex/(?:blob|tree)/main/examples(?:/[^?#]*)?")
+# Each exception is a destination the Developer reference cannot replace.
+ALLOWED_EXTERNAL_URL_EXCEPTIONS = (
+    (
+        re.compile(r"connectors\.superdurable\.io/catalog\.yaml"),
+        "the released Connector catalog, which lists each Connector and its language support",
+    ),
+    (
+        re.compile(r"github\.com/superdurable/dex-connectors-library"),
+        "the Connector library, which Connectors are released from",
+    ),
+    (
+        re.compile(r"github\.com/superdurable/dex-connectors-library/(?:blob|tree)/main/(?:[^?#]+/)?examples(?:/[^?#]*)?"),
+        "runnable Connector examples",
+    ),
+    (
+        re.compile(r"github\.com/superdurable/dex-connectors-library/blob/main/(?:[^?#]+/)?README\.md"),
+        "Connector and Connector SDK READMEs, the reference for released Connectors",
+    ),
+    (
+        re.compile(r"github\.com/superdurable/dex-skills"),
+        "the Skills repository named in the plugin update notice",
+    ),
+    (
+        re.compile(r"api\.github\.com/repos/superdurable/dex-skills/releases/latest"),
+        "the release lookup of the plugin version check",
+    ),
+)
 
 
 def fail(message: str) -> None:
@@ -335,7 +380,11 @@ def check_release_change(base_ref: str, version: str, pr_body: str) -> None:
 
 
 def external_url_problem(url: str) -> str | None:
-    """Returns why an external URL is not allowed in skill content, or None when it is allowed."""
+    """Returns why an external URL is not allowed in skill content, or None when it is allowed.
+
+    Skills link to the latest Developer reference, to runnable Dex examples on main, and to
+    the narrow exceptions in ALLOWED_EXTERNAL_URL_EXCEPTIONS.
+    """
     parts = urlsplit(url)
     host = parts.netloc.lower()
     segments = [segment for segment in parts.path.split("/") if segment]
@@ -349,24 +398,16 @@ def external_url_problem(url: str) -> str | None:
         if len(segments) > 2 and re.fullmatch(r"v?\d+(?:\.\d+)*", segments[2]):
             return "link the latest Developer reference, not a version"
         return None
-    if host == "connectors.superdurable.io":
+    if ".." in segments:
+        return "links must not contain '..' path segments"
+    location = f"{host}{parts.path.rstrip('/')}"
+    if DEX_EXAMPLES_URL.fullmatch(location):
         return None
-    if host == "api.github.com":
-        if parts.path.rstrip("/") == "/repos/superdurable/dex-skills/releases/latest":
-            return None
-        return "not on the external URL allow-list"
-    if host == "github.com" and len(segments) >= 2 and segments[0] == "superdurable" and segments[1] in GITHUB_REPOSITORIES:
-        kind = segments[2] if len(segments) > 2 else ""
-        if kind in ("blob", "tree"):
-            return None if len(segments) > 3 and segments[3] == "main" else "GitHub links must use the main branch, not a tag or commit"
-        if kind == "releases":
-            return None if len(segments) == 3 or segments[3] == "latest" else "GitHub release links must not pin a tag"
-        if kind in ("commit", "commits", "compare", "raw"):
-            return "GitHub links must not pin a commit"
-        if segments[1] == "dex" and kind not in ("", "issues"):
-            return "Dex repository links must point at main"
+    if any(pattern.fullmatch(location) for pattern, _reason in ALLOWED_EXTERNAL_URL_EXCEPTIONS):
         return None
-    return "not on the external URL allow-list"
+    if host == "github.com" and len(segments) > 3 and segments[2] in ("blob", "tree") and segments[3] != "main":
+        return "GitHub links must use the main branch, not a tag or commit"
+    return "skills link only to the Developer reference and to examples on main"
 
 
 def find_boundary_terms(content: str) -> list[str]:

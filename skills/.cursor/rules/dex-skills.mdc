@@ -114,4 +114,5 @@ the bump. A Dex release never requires a skills change.
 stable knowledge. Skills CI fails a pull request that changes a mapped file on
 one side but none of its counterparts, unless its description contains a line
 `doc-map: no change needed: <reason>`. Keep the map current when you add, move,
-or delete a mapped file.
+or delete a mapped file. A new skills file or doc-map docs page needs a mapping
+or an `unmapped` line.

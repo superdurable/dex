@@ -21,10 +21,12 @@ class ExternalUrlTest(unittest.TestCase):
             "https://docs.superdurable.io/reference/server/configuration#limits",
             "https://github.com/superdurable/dex/tree/main/examples/go",
             "https://github.com/superdurable/dex/blob/main/examples/python/polling/flow.py",
-            "https://github.com/superdurable/dex/releases",
             "https://github.com/superdurable/dex-connectors-library",
             "https://github.com/superdurable/dex-connectors-library/blob/main/README.md",
+            "https://github.com/superdurable/dex-connectors-library/blob/main/sdkgo/projectconfig/README.md",
+            "https://github.com/superdurable/dex-connectors-library/tree/main/connectors/slack/go/examples/thread-approval",
             "https://connectors.superdurable.io/catalog.yaml",
+            "https://github.com/superdurable/dex-skills",
             "https://api.github.com/repos/superdurable/dex-skills/releases/latest",
             "http://127.0.0.1:8802",
             "http://localhost:8080/api",
@@ -46,6 +48,17 @@ class ExternalUrlTest(unittest.TestCase):
             "https://github.com/superdurable/dex/commit/abc1234",
             "https://raw.githubusercontent.com/superdurable/dex/main/README.md",
             "https://pkg.go.dev/github.com/superdurable/dex/sdk-go",
+            "https://github.com/superdurable/dex/blob/main/sdk-go/dex/client.go",
+            "https://github.com/superdurable/dex/releases",
+            "https://github.com/superdurable/dex/releases/latest",
+            "https://github.com/superdurable/dex",
+            "https://github.com/superdurable/dex/issues/1",
+            "https://github.com/superdurable/dex/blob/main/examples/../sdk-go/dex/client.go",
+            "https://github.com/superdurable/dex-connectors-library/blob/main/sdkgo/projectconfig/config.go",
+            "https://github.com/superdurable/dex-skills/releases",
+            "https://api.github.com/repos/superdurable/dex/releases/latest",
+            "https://connectors.superdurable.io/",
+            "https://connectors.superdurable.io/connectors/slack",
         ):
             with self.subTest(url=url):
                 self.assertIsNotNone(CHECKER.external_url_problem(url))
@@ -64,6 +77,10 @@ class DexVersionTest(unittest.TestCase):
             "pip install dex-python-sdk==1.30.0",
             "go get github.com/superdurable/dex/sdk-go@v1.35.0",
             "Use the Dex SDK release 1.30.0.",
+            "Since 1.35, this works.",
+            "Changed in 1.35: the default is 30 seconds.",
+            "Added in v1.36.",
+            "Deprecated in 1.20.",
         ):
             with self.subTest(line=line):
                 self.assertTrue(CHECKER.find_dex_versions(line))
@@ -100,12 +117,29 @@ class BoundaryTest(unittest.TestCase):
             "Temporal stores the history.",
             "Set the StartToClose timeout.",
             "Cadence is not supported.",
+            "Use temporal signals, queries and updates.",
+            "Deploy a temporal cluster.",
+            "The cadence server stores it.",
+            "Send signals, queries, or updates to the Flow.",
+            "Replay the workflow history.",
+            "The decision task timed out.",
+            "Set the activity timeout.",
+            "Use UpdateWithStart.",
         ):
             with self.subTest(text=text):
                 self.assertTrue(CHECKER.find_boundary_terms(text))
 
     def test_accepts_dex_terms(self):
-        self.assertEqual(CHECKER.find_boundary_terms("A Step method timeout bounds one attempt; temporal order is not guaranteed."), [])
+        for text in (
+            "A Step method timeout bounds one attempt; temporal order is not guaranteed.",
+            "Test the heartbeat cadence with a fake clock.",
+            "Read the Flow history for diagnosis.",
+            "Have the fake signal that the Step started.",
+            "A query-only RPC reads a retained run.",
+            "The n8n workflow imports into one Flow.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(CHECKER.find_boundary_terms(text), [])
 
 
 class MarkdownAnchorTest(unittest.TestCase):

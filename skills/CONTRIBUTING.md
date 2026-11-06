@@ -42,9 +42,12 @@ never requires a skills change.
 ## Keep skills and docs in step
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
-stable knowledge. Each entry names one skills file, relative to this
-directory, and the English docs pages under `docs/content/primitives/` or
-`docs/content/design-patterns/` that it mirrors.
+stable knowledge. Each `mappings` entry names one skills file, relative to
+this directory, and the English docs pages under `docs/content/primitives/` or
+`docs/content/design-patterns/` that it mirrors. The `unmapped` list
+classifies files that have no counterpart. Every Markdown file in the three
+skills and every page in those two docs folders must be mapped or unmapped, so
+a new file needs an explicit decision. An empty map fails.
 Skills CI fails a pull request that changes a mapped file on one side but none
 of its counterparts. When the other side really needs no change, add this line
 to the pull request description. Editing the description re-runs Skills CI and
@@ -54,7 +57,9 @@ Check Gate CI. A manual re-run replays the old description, so edit instead:
 doc-map: no change needed: <reason>
 ```
 
-Keep the map current when you add, move, or delete a mapped file.
+Keep the map current when you add, move, or delete a mapped file. The check
+also pairs changes through the base branch's mappings, so removing an entry
+does not skip its check in the same pull request.
 
 ## Links and boundaries
 
@@ -64,13 +69,21 @@ otherwise miss:
 - Local links and heading anchors resolve inside the three skill
   directories, and every file is reachable from its `SKILL.md`.
 - External links go only to the docs Developer reference
-  (`https://docs.superdurable.io/reference/...`, latest version only),
-  `main` branch files in `superdurable/dex`, `connectors.superdurable.io`,
-  `superdurable/dex-connectors-library`, and the `superdurable/dex-skills`
-  release metadata. No link pins a release tag or commit.
+  (`https://docs.superdurable.io/reference/...`, latest version only) and to
+  `examples/` on the `main` branch of `superdurable/dex`. No link pins a
+  release tag or commit.
+- A few narrow exceptions cover destinations the Developer reference cannot
+  replace. Each one is listed with its reason in
+  `ALLOWED_EXTERNAL_URL_EXCEPTIONS` in `script/check-package.py`: the
+  Connector catalog file, the Connector library root, its examples and
+  READMEs on `main`, the `superdurable/dex-skills` repository named in the
+  update notice, and its latest-release API used by the version check. Add an
+  exception only when no Developer reference page or example can serve.
 - Skill content names no product built on Dex, no Continue-As-New, and no
-  Temporal or Cadence backend term.
-- Skill content has no Dex version numbers, release tags, or dependency pins.
+  Temporal or Cadence backend term or mechanism, such as Signals, Queries, and
+  Updates or workflow history.
+- Skill content has no Dex version numbers, release tags, or dependency pins,
+  including Developer reference notes such as "Since 1.35".
   Standards and toolchain versions, such as FDG 2.0 or Node 22, are allowed.
   The two App Builder n8n references may cite n8n releases and node versions.
 

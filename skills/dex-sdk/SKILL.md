@@ -134,4 +134,4 @@ Before handoff, run the [code check](references/core/self-check.md#code-check).
 
 - Developer reference: https://docs.superdurable.io/reference/
 - Runnable examples: https://github.com/superdurable/dex/tree/main/examples
-- Connector catalog: https://connectors.superdurable.io/
+- Connector catalog: https://connectors.superdurable.io/catalog.yaml
