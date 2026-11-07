@@ -755,6 +755,10 @@ func (h *v2Handler) invokeView(
 	flowID string,
 	view V2RPCView,
 ) (map[string]interface{}, error) {
+	// The view RPC may only return its declared fields, so a view without fields needs no Worker.
+	if len(view.Fields) == 0 {
+		return map[string]interface{}{}, nil
+	}
 	result, err := h.client.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
 		FlowId: flowID, RpcName: view.RPCName,
 		Input:          &dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}},

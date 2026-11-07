@@ -130,6 +130,7 @@ from dex_agents.session_flow import (
     AgentSessionOptions,
     RunModelLimit,
 )
+from dex_agents.session_graph import render_session_flow_graph
 from dex_agents.session_settings import (
     MAX_SESSION_SETTINGS_BYTES,
     SESSION_SETTINGS_SIZE_TOLERANCE_BYTES,
@@ -349,6 +350,7 @@ __all__ = [
     "plan_execution_key",
     "plan_status_after_write",
     "read_agent_snapshot",
+    "render_session_flow_graph",
     "resolve_tool_policy",
     "session_settings_size",
     "validate_session_settings",

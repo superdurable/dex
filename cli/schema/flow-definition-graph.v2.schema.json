@@ -23,7 +23,7 @@
       "additionalProperties": false,
       "required": ["language", "path"],
       "properties": {
-        "language": {"const": "go"},
+        "language": {"enum": ["go", "python", "typescript"]},
         "path": {"type": "string"}
       }
     },

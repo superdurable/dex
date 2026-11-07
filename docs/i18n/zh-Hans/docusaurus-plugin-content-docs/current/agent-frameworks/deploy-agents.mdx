@@ -321,6 +321,45 @@ FlowType = "SupportAgent" AND ExecutionStatus = "Running"
 有两种需要人处理的情况不会出现，因为没有 Step 在等待它们：记录了 **outcome_unknown** 的
 tool call，以及等待 **execute_plan** 的草稿计划。
 
+## 在 Dex Web 中查看 session {#dex-web}
+
+[Dex Web](/reference/web/dex-web) 根据 Flow Definition Graph 绘制 Flow，并提供它的 Action。
+**dexcli visualize** 读不了 session Flow，因为这个 Flow 定义在 agents 包里，而 Flow 类型由每个应用
+自己选择。所以 Python 和 TypeScript 包直接附带 session 图。为每个 agent 生成一次，填入这个 agent 的
+Flow 类型和它的 Action 需要的权限：
+
+```bash
+dex-agents-session-graph --flow-type SupportAgent --permission support-agent.operate \
+  --out definitions/support-agent.json
+```
+
+两个包都会安装 **dex-agents-session-graph** 命令，生成的字节完全相同。在代码中，Python 调用
+**render_session_flow_graph**，TypeScript 调用 **renderSessionFlowGraph**。然后让 Dex Web 读取这个
+目录：
+
+```bash
+dex-web --flow-rendering-dir ./definitions
+```
+
+在开发机上，**dexcli dev --flow-rendering-dir ./definitions** 的作用相同。在发布 Worker 的构建或部署步骤中生成这些文件，再把目录挂载给 Dex Web。Worker 不需要发布任何东西。
+Dex Web 在启动时读取目录，所以文件变化后要重启它。升级 agents 包之后，重新生成这些文件。
+
+这张图显示每个 session Step、它的等待条件、RPC，以及它们之间的 Channel。图中不包含 Attribute 的读写。
+Dex Web 提供四个 Action：**resolve_interrupt**、**answer_question**、**steer_user_message** 和
+**cancel_turn**。每个 Action 以对应请求的字段作为输入，比如 interrupt ID 和审批结果，并要求你选择的
+权限。这些 Action 没有条件，因为每个 RPC 自己检查 session 的状态。session 运行期间，Dex Web 一直提供
+这四个 Action；不适用的 RPC 返回 false。interrupt ID 可以从 run 状态中的 **PendingInterrupts** 读取，
+也可以从 session snapshot 读取。
+
+session 没有声明 Summary 或 Display 字段，所以 Dex Web 显示 session 时不调用 Worker。Action 仍然需要
+Worker。
+
+只有 **Working as** 选了某个权限的用户，Dex Web 才显示需要这个权限的 Action 表单。这个筛选同时把 run
+列表限制为 Worker 记录过这个权限的 run，而 session 的 Worker 不记录任何权限。先把 **Working as** 设为
+**Anyone** 找到 session 并打开它，再选择权限。在这个权限下搜索不会列出任何 session。
+
+Go 核心只注册了 session Flow 的一部分，所以这张图不能描述由 Go Worker 运行的 session。
+
 ## 花费限制 {#spend-limits}
 
 花费限制通常按账户或 API key 计算，跨越许多 session。Dex 没有内置限制。应用实现

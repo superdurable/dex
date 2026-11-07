@@ -365,3 +365,29 @@ func withV2ActionInput(definition string, field string) string {
 		`"input":{"kind":"object","fields":[` + field + `]}}`
 	return strings.Replace(definition, `"actions":[]`, `"actions":[`+action+`]`, 1)
 }
+
+// The agents conformance suite ships this graph; each agents core fills in the two placeholders.
+func TestLoadFlowDefinitionsAcceptsTheAgentSessionGraph(t *testing.T) {
+	template, err := os.ReadFile(filepath.Join("..", "agents", "conformance", "session_graph.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := strings.NewReplacer(`"<flow-type>"`, `"SupportAgent"`, `"<action-permission>"`, `"agent.operate"`).
+		Replace(string(template))
+	directory := t.TempDir()
+	writeFlowDefinitionTestFile(t, directory, "support-agent.json", graph)
+
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, found := handler.V2Definitions()["SupportAgent"]
+	if !found || len(definition.Actions) != 4 {
+		t.Fatalf("v2 definitions = %+v", handler.V2Definitions())
+	}
+	for _, action := range definition.Actions {
+		if action.Condition != nil || action.RequiredPermission != "agent.operate" {
+			t.Fatalf("Action = %+v", action)
+		}
+	}
+}

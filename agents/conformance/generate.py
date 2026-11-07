@@ -11,7 +11,7 @@
 Run it from the Python core, so it imports that core's ``dex_agents``:
 
     cd agents/python/core
-    uv run --frozen python ../../conformance/generate.py            # values, names, texts
+    uv run --frozen python ../../conformance/generate.py            # values, names, texts, graph
     uv run --frozen python ../../conformance/generate.py --check    # fail if any file is stale
     DEXCLI=... uv run --frozen python ../../conformance/generate.py --transcripts
 
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -178,6 +179,13 @@ SUITE_DIR = Path(__file__).resolve().parent
 VALUES_DIR = SUITE_DIR / "values"
 NAMES_FILE = SUITE_DIR / "names.json"
 TEXTS_FILE = SUITE_DIR / "texts.json"
+SESSION_GRAPH_FILE = SUITE_DIR / "session_graph.json"
+#: Each core ships the graph, so an application can render it without this suite.
+SESSION_GRAPH_CORE_COPIES = (
+    SUITE_DIR.parent / "python/core/src/dex_agents/session_flow_graph.json",
+    SUITE_DIR.parent / "typescript/core/src/agent-session-flow-graph.json",
+)
+SESSION_GRAPH_RENDERINGS_FILE = SUITE_DIR / "session_graph_renderings.json"
 TRANSCRIPTS_DIR = SUITE_DIR / "transcripts"
 
 #: Flow type of the session Flow the manifest describes; applications choose their own.
@@ -1185,6 +1193,41 @@ def build_manifest_flow() -> Any:
     return stepwise_agent_session_flow(definition, flow_type=MANIFEST_FLOW_TYPE)
 
 
+def build_session_flow_graph() -> dict[str, Any]:
+    # This file runs as a script, so its sibling is not importable until now.
+    sys.path.insert(0, str(SUITE_DIR))
+    from session_graph import build_session_graph
+
+    flow = build_manifest_flow()
+    registry = Registry([flow], allow_async_handlers=True)
+    return build_session_graph(
+        flow, registry._registered_flows[MANIFEST_FLOW_TYPE], build_names()["persistence"]
+    )
+
+
+def build_session_graph_renderings(graph: Mapping[str, Any]) -> dict[str, Any]:
+    cases = []
+    for flow_type, action_permission in (
+        ("SupportAgent", "support-agent.operate"),
+        (TRICKY_TEXT + "\u2028\x7f\x01", "a.b-c1"),
+    ):
+        rendered = json.loads(json.dumps(graph))
+        rendered["flow"]["name"] = flow_type
+        for action in rendered["v2"]["actions"]:
+            action["requiredPermission"] = action_permission
+        cases.append(
+            {
+                "flow_type": flow_type,
+                "action_permission": action_permission,
+                "sha256": hashlib.sha256(render_json(rendered).encode()).hexdigest(),
+            }
+        )
+    return {
+        "description": "The SHA-256 of the UTF-8 graph text that every core must render.",
+        "cases": cases,
+    }
+
+
 def persistence_kind(definition: object) -> str:
     # AttributeMap and ChannelMap are checked first; neither subclasses the other kinds.
     for kind, definition_class in (
@@ -1762,17 +1805,22 @@ def build_files() -> dict[Path, str]:
     }
     files[NAMES_FILE] = render_json(build_names())
     files[TEXTS_FILE] = render_json(build_texts())
+    session_graph = build_session_flow_graph()
+    for path in (SESSION_GRAPH_FILE, *SESSION_GRAPH_CORE_COPIES):
+        files[path] = render_json(session_graph)
+    renderings = build_session_graph_renderings(session_graph)
+    files[SESSION_GRAPH_RENDERINGS_FILE] = render_json(renderings)
     return files
 
 
 def stale_files(files: Mapping[Path, str]) -> list[str]:
     stale = [
-        str(path.relative_to(SUITE_DIR))
+        str(path.relative_to(SUITE_DIR.parent))
         for path, text in files.items()
         if not path.exists() or path.read_text(encoding="utf-8") != text
     ]
     stale.extend(
-        str(path.relative_to(SUITE_DIR))
+        str(path.relative_to(SUITE_DIR.parent))
         for path in sorted(VALUES_DIR.glob("*.json"))
         if path not in files
     )
