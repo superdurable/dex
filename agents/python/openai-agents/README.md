@@ -257,8 +257,13 @@ so the next turn's model sees which calls already ran.
   `openai-agents` 0.24: `evaluate_function_tool_approval`, `get_public_agent`,
   the handoff target reference, the handled-failure flag on `ToolContext`, and
   the nested agent tool result store.
-- The core's limits apply: history is never compacted, every call adds a Step
-  round trip, and a running turn cannot be cancelled.
+- The core's limits apply: history is never compacted, and every call adds a
+  Step round trip.
+- `steer_user_message` and `cancel_turn` work as the
+  [core describes](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#steering-and-turn-cancellation).
+  The runner has no `build_unfinished_turn_messages`, so after either one the
+  next model call sees the core's note about the tool calls that ran, not
+  their exact items.
 
 ## Testing
 
