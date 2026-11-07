@@ -92,7 +92,8 @@ pub fn get_history_events(
     })
 }
 
-fn lineage_cutoffs(
+/// Returns each attempt of `selected_attempt`'s lineage with the last seq it contributes.
+pub(super) fn lineage_cutoffs(
     view: &RunView<'_>,
     selected_attempt: u32,
 ) -> Result<BTreeMap<u32, u64>, ReadModelError> {

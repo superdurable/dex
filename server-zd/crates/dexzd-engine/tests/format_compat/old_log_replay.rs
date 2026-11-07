@@ -111,7 +111,8 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
 }
 
 /// Returns whether the replayed row equals the recorded one after clearing the fields that only
-/// the new binary writes: the attempt progress on Step executions and in attempt checkpoints.
+/// the new binary writes: the attempt progress and the flow close marker on Step executions
+/// and in attempt checkpoints.
 /// Run records are compared without their byte counters, which count the bytes of those
 /// fields. History row metadata, which records checkpoint sizes, is not compared.
 fn matches_without_new_fields(
@@ -130,14 +131,14 @@ fn matches_without_new_fields(
     };
     let cleared = match (column_family, parsed.table) {
         (name, RunTable::StepExecution) if name == ColumnFamily::Flow.name() => {
-            step_execution_without_progress(value)
+            step_execution_without_new_fields(value)
         }
         (name, RunTable::Checkpoint) if name == ColumnFamily::History.name() => {
             let mut checkpoint =
                 CheckpointRecord::decode(value.as_slice()).expect("checkpoint rows decode");
             for row in &mut checkpoint.rows {
                 if row.table == RunTable::StepExecution as u32 {
-                    row.value = step_execution_without_progress(&row.value);
+                    row.value = step_execution_without_new_fields(&row.value);
                 }
             }
             checkpoint.encode_to_vec()
@@ -209,7 +210,7 @@ fn read_run_records(directory: &std::path::Path) -> BTreeMap<String, Vec<u8>> {
         .collect()
 }
 
-fn step_execution_without_progress(value: &[u8]) -> Vec<u8> {
+fn step_execution_without_new_fields(value: &[u8]) -> Vec<u8> {
     let mut step = StepExecutionRecord::decode(value).expect("Step execution rows decode");
     if let Some(invocation) = step.invocation.as_mut() {
         invocation.furthest_attempt_progress = 0;
@@ -218,6 +219,7 @@ fn step_execution_without_progress(value: &[u8]) -> Vec<u8> {
     if let Some(recovery_error) = step.recovery_error.as_mut() {
         recovery_error.attempt_progress = 0;
     }
+    step.is_canceled_by_flow_close = None;
     step.encode_to_vec()
 }
 

@@ -1119,6 +1119,7 @@ dependencies = [
 name = "dexzd-apply"
 version = "0.1.0"
 dependencies = [
+ "dexzd-apply",
  "dexzd-keyspace",
  "dexzd-protocol",
  "prost",

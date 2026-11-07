@@ -296,7 +296,10 @@ pub(crate) fn prune_window_history(
     Ok(count)
 }
 
-fn metadata_identity(key: &[u8], prefix: &[u8]) -> Result<(u64, RunTable, u32), ApplyError> {
+pub(crate) fn metadata_identity(
+    key: &[u8],
+    prefix: &[u8],
+) -> Result<(u64, RunTable, u32), ApplyError> {
     let suffix = key
         .strip_prefix(prefix)
         .ok_or_else(|| ApplyError::InvariantViolation {

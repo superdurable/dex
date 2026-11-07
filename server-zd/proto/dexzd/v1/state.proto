@@ -199,6 +199,12 @@ message HistoryRowMetadata {
   int64 timestamp_micros = 5;
   // Run's newest event ID when this record was written; zero for checkpoints and older rows.
   int64 last_assigned_event_id = 6;
+  // The record's pending_step_methods; empty for checkpoints and older rows.
+  repeated HistoryStepMethodPending pending_step_methods = 7;
+  // Largest event ID in the record; zero when it has no events, for checkpoints, and older rows.
+  int64 max_event_id = 8;
+  // Error message of the record's FlowClosed event; unset without one and in older rows.
+  optional string flow_closed_message = 9;
 }
 
 // Row of RunTable::AttemptRecord, keyed by attempt (4 bytes big-endian).
@@ -300,6 +306,9 @@ message StepExecutionRecord {
   int64 wait_for_completed_event_id = 20;
   // Event time of the StepWaitForCompleted event in microseconds; zero whenever field 20 is zero.
   int64 wait_for_completed_at_micros = 21;
+  // Set on cancel: true when the canceling command recorded FlowClosed.
+  // Unset for other phases and in older rows.
+  optional bool is_canceled_by_flow_close = 22;
 }
 
 // Phase of one logical method call.

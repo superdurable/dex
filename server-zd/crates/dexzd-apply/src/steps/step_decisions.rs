@@ -309,6 +309,8 @@ pub(crate) fn finish_step(
     step.wait_for_pull_routing = None;
     step.phase = phase as i32;
     step.completed_seq = cursor.seq;
+    // A Flow close in the same command sets it to true later.
+    step.is_canceled_by_flow_close = (phase == StepExecutionPhase::Canceled).then_some(false);
     cursor.rows.put_step_execution(transaction, step);
     let run_id = cursor.run_id();
     cursor.add_effect(crate::ApplyEffect::WakeWaiters {

@@ -426,7 +426,7 @@ fn corrupt_row(table: &'static str, key: &[u8], error: &prost::DecodeError) -> A
 mod tests {
     use dexzd_keyspace::row_keys::{history_record_key, history_row_metadata_key};
     use dexzd_keyspace::{ColumnFamily, FlowHash, PartitionId, RunId, RunTable};
-    use dexzd_protocol::dexzd::v1::{HistoryRecord, HistoryRowMetadata};
+    use dexzd_protocol::dexzd::v1::{HistoryRecord, HistoryRowMetadata, HistoryStepMethodPending};
     use prost::Message;
 
     use super::FlowTransaction;
@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn absorbing_history_after_metadata_preserves_semantic_flags() {
+    fn absorbing_history_after_metadata_preserves_every_metadata_field() {
         let flow_hash = FlowHash(7);
         let run_id = RunId([3; 16]);
         let mut transaction = FlowTransaction::new(
@@ -468,10 +468,20 @@ mod tests {
         let history_key = history_record_key(flow_hash, run_id, 9);
         let metadata_key =
             history_row_metadata_key(flow_hash, run_id, 9, RunTable::HistoryRecord, 0);
+        let pending_step_methods = vec![HistoryStepMethodPending {
+            step_execution_id: "ChargeStep-1".to_owned(),
+            step_type: "ChargeStep".to_owned(),
+            method: 1,
+            is_step_created: true,
+        }];
         let metadata = HistoryRowMetadata {
             is_semantic: true,
             is_external_input: true,
             attempt: 3,
+            last_assigned_event_id: 12,
+            pending_step_methods: pending_step_methods.clone(),
+            max_event_id: 12,
+            flow_closed_message: Some("stopped".to_owned()),
             ..HistoryRowMetadata::default()
         };
         let record = HistoryRecord {
@@ -499,6 +509,10 @@ mod tests {
         assert!(buffered.is_semantic);
         assert!(buffered.is_external_input);
         assert_eq!(buffered.attempt, 3);
+        assert_eq!(buffered.last_assigned_event_id, 12);
+        assert_eq!(buffered.pending_step_methods, pending_step_methods);
+        assert_eq!(buffered.max_event_id, 12);
+        assert_eq!(buffered.flow_closed_message.as_deref(), Some("stopped"));
         assert_eq!(
             buffered.row_size_bytes,
             (history_key.len() + encoded_record.len()) as u64

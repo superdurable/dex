@@ -6,17 +6,20 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use dexzd_keyspace::row_keys::history_record_key;
-use dexzd_keyspace::{ColumnFamily, FlowHash, RunId};
+use dexzd_keyspace::row_keys::{history_record_key, prefix_range};
+use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{
     AttributeMatch, AttributeMatchOperator, FlowStatus, Value, WaitForHistoryEventResponse,
     flow_history_event, value,
 };
-use dexzd_protocol::dexzd::v1::{HistoryRecord, StepExecutionPhase, stored_value};
+use dexzd_protocol::dexzd::v1::{
+    HistoryRecord, HistoryRowMetadata, StepExecutionPhase, stored_value,
+};
 use prost::Message;
 
 use crate::FlowStateReader;
-use crate::read_model::history::get_history_events;
+use crate::history::metadata_identity;
+use crate::read_model::history::lineage_cutoffs;
 use crate::read_model::{ReadModelError, RunView};
 
 /// Result of waiting for one Step execution in the current Flow run.
@@ -75,23 +78,15 @@ pub fn step_completion_state(
             if view.record.status != FlowStatus::Terminated as i32 {
                 return Ok(StepCompletionState::Completed);
             }
-            // Bookkeeping commands can advance next_run_seq after the close.
-            let key = history_record_key(flow_hash, run_id, step.completed_seq);
-            let record: Option<HistoryRecord> =
-                view.transaction
-                    .get_message(ColumnFamily::History, &key, "history record")?;
-            if record.is_some_and(|record| {
-                record.events.iter().any(|event| {
-                    matches!(
-                        event.payload,
-                        Some(flow_history_event::Payload::FlowClosed(_))
-                    )
-                })
-            }) {
-                Ok(StepCompletionState::EndedWithoutCompletion)
+            let is_canceled_by_flow_close = match step.is_canceled_by_flow_close {
+                Some(is_canceled_by_flow_close) => is_canceled_by_flow_close,
+                None => was_legacy_cancel_recorded_with_flow_close(&view, step.completed_seq)?,
+            };
+            Ok(if is_canceled_by_flow_close {
+                StepCompletionState::EndedWithoutCompletion
             } else {
-                Ok(StepCompletionState::Completed)
-            }
+                StepCompletionState::Completed
+            })
         }
         Ok(StepExecutionPhase::Failed) => Ok(StepCompletionState::EndedWithoutCompletion),
         Ok(
@@ -102,6 +97,29 @@ pub fn step_completion_state(
         )
         | Err(_) => Ok(StepCompletionState::NotCompleted),
     }
+}
+
+/// Reads whether the command at `completed_seq` recorded FlowClosed, for Step rows written
+/// before `is_canceled_by_flow_close` existed.
+///
+/// Returns true when that record is gone: a terminated Flow most likely canceled the Step.
+fn was_legacy_cancel_recorded_with_flow_close(
+    view: &RunView<'_>,
+    completed_seq: u64,
+) -> Result<bool, ReadModelError> {
+    // Bookkeeping commands can advance next_run_seq after the close.
+    let key = history_record_key(view.rows.flow_hash, view.rows.run_id, completed_seq);
+    let record: Option<HistoryRecord> =
+        view.transaction
+            .get_message(ColumnFamily::History, &key, "history record")?;
+    Ok(record.is_none_or(|record| {
+        record.events.iter().any(|event| {
+            matches!(
+                event.payload,
+                Some(flow_history_event::Payload::FlowClosed(_))
+            )
+        })
+    }))
 }
 
 /// Returns the matching Attribute value, or None while the wait predicate is false.
@@ -182,7 +200,12 @@ pub fn match_attribute(
     Ok(is_match.then(|| current.clone()))
 }
 
+/// Most history metadata rows read by one scan call.
+const HISTORY_METADATA_SCAN_ROWS: usize = 256;
+
 /// Returns whether an event in the current lineage reaches the requested event ID.
+///
+/// Reads no History rows. Metadata from before the event ID fields makes the ID a lower bound.
 pub fn is_history_event_available(
     reader: &dyn FlowStateReader,
     flow_hash: FlowHash,
@@ -195,7 +218,97 @@ pub fn is_history_event_available(
         });
     }
     let view = RunView::open(reader, flow_hash, run_id)?;
-    let page = get_history_events(reader, flow_hash, run_id, next_event_id, 1, &[], 0)?;
+    let available_id = first_lineage_event_id_from(&view, next_event_id)?;
+    Ok(WaitForHistoryEventResponse {
+        event_available: available_id > 0,
+        available_internal_event_id: available_id,
+        flow_status: view.record.status,
+    })
+}
+
+/// Returns the first event ID at or after `next_event_id` in the current attempt's lineage, or
+/// zero when the lineage has none.
+fn first_lineage_event_id_from(
+    view: &RunView<'_>,
+    next_event_id: i64,
+) -> Result<i64, ReadModelError> {
+    if next_event_id >= view.record.next_event_id {
+        return Ok(0);
+    }
+    let lineage = lineage_cutoffs(view, view.record.current_attempt)?;
+    let prefix = run_table_prefix(
+        view.rows.flow_hash,
+        view.rows.run_id,
+        RunTable::HistoryRowMetadata,
+    );
+    let (mut scan_start, scan_end) = prefix_range(&prefix);
+    let mut previous_last_event_id = 0_i64;
+    let mut has_seen_record = false;
+    loop {
+        let page: Vec<(Vec<u8>, HistoryRowMetadata)> = view.transaction.scan_messages(
+            ColumnFamily::Flow,
+            &scan_start,
+            &scan_end,
+            HISTORY_METADATA_SCAN_ROWS,
+            "history metadata",
+        )?;
+        let is_last_page = page.len() < HISTORY_METADATA_SCAN_ROWS;
+        for (key, metadata) in page {
+            let (seq, history_table, _) = metadata_identity(&key, &prefix)?;
+            scan_start = key;
+            scan_start.push(0);
+            if history_table != RunTable::HistoryRecord {
+                continue;
+            }
+            // Pruning keeps the FlowStart record, so pruned records only follow the first one.
+            let events_after = if has_seen_record {
+                previous_last_event_id.max(view.record.max_pruned_event_id)
+            } else {
+                previous_last_event_id
+            };
+            has_seen_record = true;
+            let is_in_lineage = lineage
+                .get(&metadata.attempt)
+                .is_some_and(|cutoff| seq <= *cutoff);
+            let last_event_id = metadata.last_assigned_event_id;
+            let is_unknown_range = last_event_id == 0;
+            if is_in_lineage
+                && (is_unknown_range
+                    || (last_event_id >= next_event_id && last_event_id > events_after))
+            {
+                return Ok(next_event_id.max(events_after.saturating_add(1)));
+            }
+            previous_last_event_id = previous_last_event_id.max(last_event_id);
+        }
+        if is_last_page {
+            return Ok(0);
+        }
+    }
+}
+
+/// Test oracle: answers like [`is_history_event_available`] from the lineage's History rows.
+#[cfg(feature = "test-util")]
+pub fn is_history_event_available_from_records_for_test(
+    reader: &dyn FlowStateReader,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    next_event_id: i64,
+) -> Result<WaitForHistoryEventResponse, ReadModelError> {
+    if next_event_id <= 0 {
+        return Err(ReadModelError::InvalidRequest {
+            detail: "next event ID must be positive".to_owned(),
+        });
+    }
+    let view = RunView::open(reader, flow_hash, run_id)?;
+    let page = crate::read_model::history::get_history_events(
+        reader,
+        flow_hash,
+        run_id,
+        next_event_id,
+        1,
+        &[],
+        0,
+    )?;
     let available_id = page.events.first().map_or(0, |event| event.event_id);
     Ok(WaitForHistoryEventResponse {
         event_available: available_id > 0,

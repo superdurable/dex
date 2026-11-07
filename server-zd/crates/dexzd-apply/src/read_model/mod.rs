@@ -19,6 +19,8 @@ pub use attributes::{AttributesRead, HardDeleteAttribute, get_attributes};
 pub use blobs::load_blobs;
 pub use flow::{get_channel_messages, get_flow_state, get_flow_summary, resolve_run_id};
 pub use history::get_history_events;
+#[cfg(feature = "test-util")]
+pub use predicates::is_history_event_available_from_records_for_test;
 pub use predicates::{
     StepCompletionState, is_flow_closed, is_history_event_available, match_attribute,
     step_completion_state,

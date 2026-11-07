@@ -22,8 +22,9 @@ use dexzd_keyspace::{
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributeSyncOutboxRecord, ChannelMessageRecord,
     ChannelMetaRecord, DispatchQueueRecord, FlowDirectoryRecord, HardDeleteObjectRecord,
-    HistoryRecord, LockRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord,
-    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    HistoryRecord, HistoryRowMetadata, LockRecord, RequestDedupRecord, RunRecord,
+    SearchDocumentRecord, StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord,
+    ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -102,6 +103,8 @@ pub struct RunView {
     pub value_rows: BTreeSet<ValueId>,
     /// History records: key seq and record.
     pub history: Vec<(u64, HistoryRecord)>,
+    /// Metadata of the History records by seq.
+    pub history_record_metadata: BTreeMap<u64, HistoryRowMetadata>,
     /// Current hard-delete objects by Attribute key.
     pub hard_delete_current: BTreeMap<String, HardDeleteObjectRecord>,
     /// Attribute Sync outbox entries by store name and Attribute key.
@@ -333,6 +336,14 @@ impl FlowView {
             RunTable::SearchDocument => {
                 run.search_document = Some(decode(key, value, "search document")?);
             }
+            RunTable::HistoryRowMetadata => {
+                // The suffix is the seq, the History table byte, and the checkpoint attempt.
+                if suffix.get(8) == Some(&(RunTable::HistoryRecord as u8)) {
+                    let seq = u64_from_suffix(key, suffix.get(..8).unwrap_or_default())?;
+                    run.history_record_metadata
+                        .insert(seq, decode(key, value, "history metadata")?);
+                }
+            }
             RunTable::AttributeSyncOutbox => {
                 let record: AttributeSyncOutboxRecord =
                     decode(key, value, "Attribute Sync outbox")?;
@@ -348,7 +359,6 @@ impl FlowView {
             | RunTable::PermissionSet
             | RunTable::Value
             | RunTable::HistoryRecord
-            | RunTable::HistoryRowMetadata
             | RunTable::Checkpoint
             | RunTable::RequestDedupOrder => {}
         }

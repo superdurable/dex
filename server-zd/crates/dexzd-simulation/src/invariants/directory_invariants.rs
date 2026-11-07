@@ -11,8 +11,8 @@
 use std::collections::BTreeSet;
 
 use dexzd_keyspace::RunId;
-use dexzd_protocol::dex::FlowStatus;
-use dexzd_protocol::dexzd::v1::StepExecutionPhase;
+use dexzd_protocol::dex::{FlowStatus, flow_history_event};
+use dexzd_protocol::dexzd::v1::{HistoryRecord, StepExecutionPhase};
 use prost::Message;
 
 use crate::invariants::{InvariantViolation, RunContext};
@@ -196,6 +196,7 @@ pub(crate) fn check_history(
                 ),
             ));
         }
+        check_history_metadata(context, run, *key_seq, history)?;
         for event in &history.events {
             if event.event_id <= last_event_id || event.event_id >= record.next_event_id {
                 return Err(InvariantViolation::new(
@@ -209,6 +210,53 @@ pub(crate) fn check_history(
             }
             last_event_id = event.event_id;
         }
+    }
+    Ok(())
+}
+
+/// Requires the record's metadata to carry the fields Step waits and time travel read.
+fn check_history_metadata(
+    context: &RunContext<'_>,
+    run: &RunView,
+    key_seq: u64,
+    history: &HistoryRecord,
+) -> Result<(), InvariantViolation> {
+    let Some(metadata) = run.history_record_metadata.get(&key_seq) else {
+        return Err(InvariantViolation::new(
+            HISTORY,
+            format!("{context} history seq {key_seq} has no metadata row"),
+        ));
+    };
+    let max_event_id = history
+        .events
+        .iter()
+        .map(|event| event.event_id)
+        .max()
+        .unwrap_or(0);
+    let flow_closed_message = history
+        .events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            Some(flow_history_event::Payload::FlowClosed(closed)) => {
+                Some(closed.error_message.as_str())
+            }
+            _ => None,
+        })
+        .next_back();
+    if metadata.pending_step_methods != history.pending_step_methods
+        || metadata.max_event_id != max_event_id
+        || metadata.flow_closed_message.as_deref() != flow_closed_message
+        || metadata.last_assigned_event_id < max_event_id
+    {
+        return Err(InvariantViolation::new(
+            HISTORY,
+            format!(
+                "{context} history seq {key_seq} metadata {metadata:?} disagrees with its \
+                 record (max event ID {max_event_id}, FlowClosed message \
+                 {flow_closed_message:?}, pending methods {:?})",
+                history.pending_step_methods
+            ),
+        ));
     }
     Ok(())
 }
