@@ -28,6 +28,7 @@ Every response reports ``model_call_usage()``, and every call is recorded as
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -159,7 +160,11 @@ class CommandScriptedModel(Model):
     async def _wait_at_gate(self, gate_name: str) -> None:
         gate = FileGate(self._state_dir, gate_name)
         gate.mark_reached()
-        await gate.wait_for_release()
+        try:
+            await gate.wait_for_release()
+        except asyncio.CancelledError:
+            self._invocations.record(f"model cancelled at {gate_name}")
+            raise
 
 
 class _Turn:

@@ -236,8 +236,9 @@ among other writes, and only when the write adds active state. Once a session is
 over the budget, such a Step fails without retry. A model call or tool call
 then fails its turn. A Step without a failure route fails the whole session
 instead, when its own write crosses the budget. **AwaitUserMessage**, which
-stores the next user message, is such a Step. Transactional RPC writes, such
-as **send_user_message**, are not checked. Plan sessions to stay well below
+stores the next user message, is such a Step. An RPC that changes Flow state,
+such as **send_user_message**, is checked too. Over the budget it fails with
+RESOURCE_EXHAUSTED and changes nothing. Plan sessions to stay well below
 64 MiB.
 
 The Flow history keeps about the newest 10,000 events of a session. Read the

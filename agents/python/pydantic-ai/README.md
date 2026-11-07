@@ -348,8 +348,13 @@ adds to each run.
   Steps. Each streamed chunk becomes one `text_delta` event.
 - `UsageLimits` and tool retry budgets apply per model Step and per tool
   Step, not per turn.
-- The core's limits apply too: each call adds a Step round trip, a running
-  turn cannot be steered, and history is never compacted.
+- The core's limits apply too: each call adds a Step round trip, and history
+  is never compacted.
+- `steer_user_message` and `cancel_turn` work as the
+  [core describes](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#steering-and-turn-cancellation).
+  The runner has no `build_unfinished_turn_messages`, so after either one the
+  next model call sees the core's note about the tool calls that ran, not
+  their exact items.
 
 ## Tests
 
