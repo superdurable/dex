@@ -214,6 +214,7 @@ pub fn run_from_command_line() -> Result<(), ServerError> {
         ServerCommand::Serve(options) => {
             let configuration = config::Config::load_file(&options.config)?;
             serve_until_terminated(None, move |mut cancellation| async move {
+                configuration.warn_about_deprecated_keys();
                 server_node::start_server(
                     &configuration,
                     None,
@@ -326,6 +327,7 @@ async fn start_single_node_server_with_config(
     lease_expiry_response: LeaseExpiryResponse,
 ) -> Result<Option<RunningServer>, ServerError> {
     warn_about_unauthenticated_non_loopback_listen(&configuration);
+    configuration.warn_about_deprecated_keys();
     let embedded_s3 =
         EmbeddedS3::start(&configuration.dev, &configuration.object_store.bucket).await?;
     configuration.object_store.endpoint = embedded_s3.endpoint();

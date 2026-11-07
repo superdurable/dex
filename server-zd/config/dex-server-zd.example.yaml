@@ -72,8 +72,10 @@ recovery:
 history:
   windowSemanticEvents: 10000
   pruneChunkSize: 1000
-  checkpointMinWrittenBytes: 1048576
-  checkpointCommandInterval: 10000
+  # Attempt-scoped row bytes written since the last checkpoint that trigger a new one.
+  checkpointRowWriteBytesThreshold: 1048576
+  # Commands of any kind since the last checkpoint that trigger a new one.
+  checkpointCommandThreshold: 1000
   maxRetainedSupersededBytes: 268435456
 values:
   wireInlineThresholdBytes: 100

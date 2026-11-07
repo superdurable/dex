@@ -142,7 +142,7 @@ impl Workload<'_> {
                         request_id: format!("start-{flow_id}"),
                         ..StartFlowRequest::default()
                     },
-                    default_run_settings(),
+                    workload_run_settings(),
                 )
                 .await;
             self.queue_pending_attempt(&run, "PackStep-1", StepMethod::Execute)
@@ -228,7 +228,7 @@ impl Workload<'_> {
                     request_id: "start-handout-sync".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         for reason in [
@@ -365,7 +365,7 @@ impl Workload<'_> {
                     request_id: "start-handout-travel".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         let task_id = self
@@ -446,7 +446,7 @@ impl Workload<'_> {
                     request_id: "start-search-flow".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.set_attributes(
@@ -533,7 +533,7 @@ impl Workload<'_> {
                     }),
                     request_id: "start-order-sync".to_owned(),
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.start_attempt(&order, "ChargeStep-1", StepMethod::WaitFor, 1)
@@ -672,7 +672,7 @@ impl Workload<'_> {
                     request_id: "start-profile-review".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.start_attempt(&profile, "ReviewStep-1", StepMethod::WaitFor, 1)
@@ -748,7 +748,7 @@ impl Workload<'_> {
                     request_id: "start-account-sync".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.set_attributes(
@@ -808,7 +808,7 @@ impl Workload<'_> {
                     request_id: "start-parent-flow".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.start_attempt(&parent, "SpawnStep-1", StepMethod::WaitFor, 1)
@@ -899,7 +899,7 @@ impl Workload<'_> {
             source,
             payload: Some(inbox_message_command::Payload::ChildStart(child_start)),
             new_run_id: child_run_id.as_bytes().to_vec(),
-            settings: Some(default_run_settings()),
+            settings: Some(workload_run_settings()),
         });
         self.commit_to(&child_flow_id, &[], child_start_command)
             .await;
@@ -1030,7 +1030,7 @@ impl Workload<'_> {
                     request_id: "start-order-async".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         assert_ne!(
@@ -1138,7 +1138,7 @@ impl Workload<'_> {
                     request_id: "start-travel-flow".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.start_attempt(&travel, "FirstStep-1", StepMethod::Execute, 1)
@@ -1223,7 +1223,7 @@ impl Workload<'_> {
                     request_id: "start-idle-flow".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.start_attempt(&idle, "IdleStep-1", StepMethod::WaitFor, 1)
@@ -1300,7 +1300,7 @@ impl Workload<'_> {
                 },
                 RunSettings {
                     retention_after_close_micros: 60 * SECOND_MICROS,
-                    ..default_run_settings()
+                    ..workload_run_settings()
                 },
             )
             .await;
@@ -1382,7 +1382,7 @@ impl Workload<'_> {
                     request_id: "start-held-close".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         self.start_attempt(&run, "OnlyStep-1", StepMethod::Execute, 1)
@@ -1853,6 +1853,14 @@ fn skip_wait_for() -> StepOptions {
     }
 }
 
+/// The default run settings with the checkpoint command threshold that `testdata/v1` recorded.
+fn workload_run_settings() -> RunSettings {
+    RunSettings {
+        checkpoint_command_threshold: 10_000,
+        ..default_run_settings()
+    }
+}
+
 fn attribute(key: &str, value: Value) -> AttributeWrite {
     AttributeWrite {
         key: key.to_owned(),
@@ -2035,7 +2043,7 @@ mod load_blobs_purge_tests {
                 },
                 RunSettings {
                     retention_after_close_micros: 60 * SECOND_MICROS,
-                    ..default_run_settings()
+                    ..workload_run_settings()
                 },
             )
             .await;
@@ -2116,7 +2124,7 @@ mod load_blobs_purge_tests {
                 },
                 RunSettings {
                     retention_after_close_micros: 60 * SECOND_MICROS,
-                    ..default_run_settings()
+                    ..workload_run_settings()
                 },
             )
             .await;
@@ -2166,7 +2174,7 @@ mod load_blobs_purge_tests {
                     request_id: "retain-newer-load-blobs-run".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                workload_run_settings(),
             )
             .await;
         let retained_request = LoadBlobsRequest {

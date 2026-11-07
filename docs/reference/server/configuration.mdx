@@ -248,6 +248,38 @@ on another page.
 Each run records these values when it starts. A new value applies only to runs
 that start after the node restarts with it.
 
+### Checkpoints {#history-checkpoints}
+
+server-zd writes checkpoints of each run's current attempt state. Time travel
+restores the nearest checkpoint before its target and replays the commands
+after it. A command is one change that server-zd commits for a run, such as a
+Client write, a Step completion, or an internal acknowledgment. Each new attempt
+starts with a checkpoint. After that, server-zd writes a checkpoint when either
+threshold below is reached, whichever comes first. Both counts restart at each
+checkpoint.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **history.checkpointCommandThreshold** | 1000 | Commands since the last checkpoint that trigger a new one. Every command counts, including bookkeeping commands such as acknowledgments, not only commands that record history events. Time travel replays at most this many commands. |
+| **history.checkpointRowWriteBytesThreshold** | 1048576 (1 MiB) | Bytes of attempt-scoped rows written since the last checkpoint that trigger a new one. Attempt-scoped rows are the current attempt's Attribute, Channel message, Channel metadata, Step execution, Step counter, lock, waiter, and timer rows. Every write of such a row adds its size, so rewriting one row counts each time. A large value stored apart from its row counts only as its reference. The effective threshold is the larger of this value and the smaller of two sizes: the run's current state rows and the rows of the last checkpoint. A larger state therefore makes checkpoints sparser. |
+
+Lower values write checkpoints more often. Time travel then replays fewer
+commands, but each checkpoint copies the attempt's rows, so the run stores more
+checkpoint bytes and spends more work per command. Higher values store fewer
+checkpoints, and time travel replays more commands. Both values must be
+positive.
+
+Each run records these values when it starts. A new value applies only to runs
+that start after the node restarts with it. Runs that already started keep
+their recorded values.
+
+Changed in 0.1.21: **history.checkpointCommandThreshold** was renamed from
+**history.checkpointCommandInterval**, and its default changed from 10000 to
+1000. **history.checkpointRowWriteBytesThreshold** was renamed from
+**history.checkpointMinWrittenBytes**. The old keys still work and log a
+warning at startup. Setting one key under both names fails startup with a
+configuration error.
+
 ## Limits {#limits}
 
 server-zd enforces these limits. A request that a limit rejects fails at once;

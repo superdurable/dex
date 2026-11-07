@@ -200,21 +200,52 @@ impl Default for RecoveryConfig {
 }
 
 /// Bounds reconstructable semantic history and checkpoint frequency for one run.
+///
+/// A checkpoint is written when either checkpoint threshold is reached, whichever comes first.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+#[serde(try_from = "HistoryConfigSource", rename_all = "camelCase")]
 pub struct HistoryConfig {
     /// Defaults to 10000; maximum semantic events in the recent reconstruction window before chunk pruning.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub window_semantic_events: u32,
     /// Defaults to 1000; number of old semantic events pruned per chunk, no greater than the window.
     pub prune_chunk_size: u32,
-    /// Defaults to 1 MiB; lower bound on state bytes written before a checkpoint is considered.
-    pub checkpoint_min_written_bytes: u64,
-    /// Defaults to 10000; checkpoint after this many commands even when the byte threshold is not met.
-    pub checkpoint_command_interval: u32,
+    /// Defaults to 1 MiB; a checkpoint is written once the run has written this many bytes of
+    /// attempt-scoped rows since the last checkpoint.
+    ///
+    /// Attempt-scoped rows are the Attribute, ChannelMessage, ChannelMeta, StepExecution,
+    /// StepCounter, Lock, Waiter, and Timer rows of the current attempt. Every write of such a row
+    /// adds its encoded size, so rewriting one row counts each time. A large value stored apart
+    /// from its row counts only as its reference. The effective threshold is the larger of this
+    /// value and the smaller of the run's current state row bytes and the row bytes of the last
+    /// checkpoint, so a larger state makes checkpoints sparser. Must be positive.
+    /// Recorded in RunRecord at FlowStart; changes affect only later runs.
+    /// Set by `history.checkpointRowWriteBytesThreshold`; the deprecated key
+    /// `history.checkpointMinWrittenBytes` is still accepted with a startup warning.
+    pub checkpoint_row_write_bytes_threshold: u64,
+    /// Defaults to 1000; a checkpoint is written once this many commands have been applied to
+    /// the run since the last checkpoint, even when the byte threshold is not reached.
+    ///
+    /// Every command counts, including bookkeeping commands such as acknowledgments, not only
+    /// commands that record history events. Time Travel replays at most this many commands from
+    /// the nearest checkpoint. Must be positive.
+    /// Recorded in RunRecord at FlowStart; changes affect only later runs.
+    /// Set by `history.checkpointCommandThreshold`; the deprecated key
+    /// `history.checkpointCommandInterval` is still accepted with a startup warning.
+    pub checkpoint_command_threshold: u32,
     /// Defaults to 256 MiB per run; cap on superseded values retained for reconstruction within the window.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub max_retained_superseded_bytes: u64,
+    /// Deprecated keys that the parsed YAML used; never serialized.
+    #[serde(skip)]
+    deprecated_keys: Vec<DeprecatedConfigKey>,
+}
+
+impl HistoryConfig {
+    /// Returns the deprecated keys the parsed YAML used; startup logs a warning for each.
+    pub fn deprecated_keys(&self) -> &[DeprecatedConfigKey] {
+        &self.deprecated_keys
+    }
 }
 
 impl Default for HistoryConfig {
@@ -222,11 +253,134 @@ impl Default for HistoryConfig {
         Self {
             window_semantic_events: 10_000,
             prune_chunk_size: 1_000,
-            checkpoint_min_written_bytes: 1024 * 1024,
-            checkpoint_command_interval: 10_000,
+            checkpoint_row_write_bytes_threshold: 1024 * 1024,
+            checkpoint_command_threshold: 1_000,
             max_retained_superseded_bytes: 256 * 1024 * 1024,
+            deprecated_keys: Vec::new(),
         }
     }
+}
+
+/// A renamed configuration key that is still accepted under its old name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeprecatedConfigKey {
+    /// Full YAML path of the old key, such as `history.checkpointCommandInterval`.
+    pub deprecated_key: &'static str,
+    /// Full YAML path of the key that replaces it.
+    pub replacement_key: &'static str,
+}
+
+const CHECKPOINT_ROW_WRITE_BYTES_THRESHOLD_RENAME: DeprecatedConfigKey = DeprecatedConfigKey {
+    deprecated_key: "history.checkpointMinWrittenBytes",
+    replacement_key: "history.checkpointRowWriteBytesThreshold",
+};
+const CHECKPOINT_COMMAND_THRESHOLD_RENAME: DeprecatedConfigKey = DeprecatedConfigKey {
+    deprecated_key: "history.checkpointCommandInterval",
+    replacement_key: "history.checkpointCommandThreshold",
+};
+
+/// The YAML shape of [`HistoryConfig`], including deprecated keys.
+#[derive(Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+struct HistoryConfigSource {
+    window_semantic_events: u32,
+    prune_chunk_size: u32,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_row_write_bytes_threshold: PresentKey<u64>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_min_written_bytes: PresentKey<u64>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_command_threshold: PresentKey<u32>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_command_interval: PresentKey<u32>,
+    max_retained_superseded_bytes: u64,
+}
+
+/// A key's YAML value: `None` when the key is absent, `Some(None)` when it is an explicit null.
+type PresentKey<T> = Option<Option<T>>;
+
+/// Marks a key that appears in the YAML as present, even when its value is null.
+fn deserialize_present_key<'de, D, T>(deserializer: D) -> Result<PresentKey<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+impl Default for HistoryConfigSource {
+    fn default() -> Self {
+        let defaults = HistoryConfig::default();
+        Self {
+            window_semantic_events: defaults.window_semantic_events,
+            prune_chunk_size: defaults.prune_chunk_size,
+            checkpoint_row_write_bytes_threshold: None,
+            checkpoint_min_written_bytes: None,
+            checkpoint_command_threshold: None,
+            checkpoint_command_interval: None,
+            max_retained_superseded_bytes: defaults.max_retained_superseded_bytes,
+        }
+    }
+}
+
+impl TryFrom<HistoryConfigSource> for HistoryConfig {
+    type Error = String;
+
+    fn try_from(source: HistoryConfigSource) -> Result<Self, Self::Error> {
+        let defaults = Self::default();
+        let mut deprecated_keys = Vec::new();
+        let checkpoint_row_write_bytes_threshold = read_renamed_key(
+            source.checkpoint_row_write_bytes_threshold,
+            source.checkpoint_min_written_bytes,
+            CHECKPOINT_ROW_WRITE_BYTES_THRESHOLD_RENAME,
+            &mut deprecated_keys,
+        )?
+        .unwrap_or(defaults.checkpoint_row_write_bytes_threshold);
+        let checkpoint_command_threshold = read_renamed_key(
+            source.checkpoint_command_threshold,
+            source.checkpoint_command_interval,
+            CHECKPOINT_COMMAND_THRESHOLD_RENAME,
+            &mut deprecated_keys,
+        )?
+        .unwrap_or(defaults.checkpoint_command_threshold);
+        Ok(Self {
+            window_semantic_events: source.window_semantic_events,
+            prune_chunk_size: source.prune_chunk_size,
+            checkpoint_row_write_bytes_threshold,
+            checkpoint_command_threshold,
+            max_retained_superseded_bytes: source.max_retained_superseded_bytes,
+            deprecated_keys,
+        })
+    }
+}
+
+/// Returns the value of a renamed key, read from its new or deprecated name but not both.
+/// A present key with a null value is an error, as for every other numeric key.
+fn read_renamed_key<T>(
+    replacement_value: PresentKey<T>,
+    deprecated_value: PresentKey<T>,
+    rename: DeprecatedConfigKey,
+    deprecated_keys: &mut Vec<DeprecatedConfigKey>,
+) -> Result<Option<T>, String> {
+    match (replacement_value, deprecated_value) {
+        (Some(_), Some(_)) => Err(format!(
+            "{} and its deprecated name {} are both set; keep only {}",
+            rename.replacement_key, rename.deprecated_key, rename.replacement_key
+        )),
+        (None, Some(deprecated_value)) => {
+            let value = deprecated_value.ok_or_else(|| null_key_error(rename.deprecated_key))?;
+            deprecated_keys.push(rename);
+            Ok(Some(value))
+        }
+        (Some(replacement_value), None) => replacement_value
+            .map(Some)
+            .ok_or_else(|| null_key_error(rename.replacement_key)),
+        (None, None) => Ok(None),
+    }
+}
+
+fn null_key_error(key: &str) -> String {
+    format!("{key} is null; set a positive number or remove the key")
 }
 
 /// Controls value size limits, wire references, and local BlobDB placement.

@@ -98,8 +98,9 @@ impl ComponentConfigs {
                 }
             })?;
         run_settings.max_value_bytes = max_value_bytes;
-        run_settings.checkpoint_min_written_bytes = config.history.checkpoint_min_written_bytes;
-        run_settings.checkpoint_max_commands = config.history.checkpoint_command_interval;
+        run_settings.checkpoint_row_write_bytes_threshold =
+            config.history.checkpoint_row_write_bytes_threshold;
+        run_settings.checkpoint_command_threshold = config.history.checkpoint_command_threshold;
         run_settings.request_dedup_capacity = config.limits.max_request_ids_per_run;
         run_settings.max_run_state_bytes = config.limits.max_flow_state_bytes;
         run_settings.max_active_step_executions = config.limits.max_concurrent_steps_per_flow;

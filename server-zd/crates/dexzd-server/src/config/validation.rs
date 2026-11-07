@@ -244,13 +244,13 @@ impl Config {
             "must be positive and no larger than history.windowSemanticEvents",
         )?;
         ensure(
-            self.history.checkpoint_min_written_bytes > 0,
-            "history.checkpointMinWrittenBytes",
+            self.history.checkpoint_row_write_bytes_threshold > 0,
+            "history.checkpointRowWriteBytesThreshold",
             "must be positive",
         )?;
         ensure(
-            self.history.checkpoint_command_interval > 0,
-            "history.checkpointCommandInterval",
+            self.history.checkpoint_command_threshold > 0,
+            "history.checkpointCommandThreshold",
             "must be positive",
         )?;
         ensure(
