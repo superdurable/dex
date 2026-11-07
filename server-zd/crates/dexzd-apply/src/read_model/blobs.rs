@@ -122,13 +122,31 @@ pub fn locate_offloaded_value(
     value_id: ValueId,
 ) -> Result<OffloadedValueLocation, ReadModelError> {
     let view = RunView::open(reader, flow_hash, run_id)?;
+    Ok(match uploaded_value_birth(&view, value_id)? {
+        Some((_, segment)) => OffloadedValueLocation::Uploaded(segment),
+        None => OffloadedValueLocation::Absent,
+    })
+}
+
+/// Returns the birth record of value `value_id` of the run of `view` and the UPLOADED segment
+/// that holds it, or `None` when the value is not offloaded inside the window or no UPLOADED
+/// segment covers its superseded seq.
+fn uploaded_value_birth(
+    view: &RunView<'_>,
+    value_id: ValueId,
+) -> Result<Option<(ValueBirthRecord, HistorySegmentRecord)>, ReadModelError> {
     let birth: Option<ValueBirthRecord> = view.transaction.get_message(
         ColumnFamily::Flow,
-        &value_row_key(flow_hash, run_id, RunTable::ValueBirth, value_id),
+        &value_row_key(
+            view.rows.flow_hash,
+            view.rows.run_id,
+            RunTable::ValueBirth,
+            value_id,
+        ),
         "value birth",
     )?;
     let Some(birth) = birth.filter(|birth| is_offloaded_in_window(birth, &view.record)) else {
-        return Ok(OffloadedValueLocation::Absent);
+        return Ok(None);
     };
     let catalog = SegmentCatalog::new(
         &view.transaction,
@@ -136,10 +154,8 @@ pub fn locate_offloaded_value(
         view.record.history_uploaded_through_seq,
     );
     Ok(match catalog.position(birth.garbage_seq)? {
-        CatalogPosition::Covered(segment) if is_uploaded(&segment) => {
-            OffloadedValueLocation::Uploaded(segment)
-        }
-        CatalogPosition::Covered(_) | CatalogPosition::Gap { .. } => OffloadedValueLocation::Absent,
+        CatalogPosition::Covered(segment) if is_uploaded(&segment) => Some((birth, segment)),
+        CatalogPosition::Covered(_) | CatalogPosition::Gap { .. } => None,
     })
 }
 
@@ -149,6 +165,8 @@ pub fn locate_offloaded_value(
 pub struct OffloadedReference {
     /// ID of the referenced value in the command's run.
     pub value_id: ValueId,
+    /// Encoded size of the value, as its birth record holds it.
+    pub size_bytes: u64,
     /// The UPLOADED segment whose object holds the value.
     pub segment: HistorySegmentRecord,
 }
@@ -173,15 +191,22 @@ pub fn offloaded_command_references(
         .into_iter()
         .filter_map(|value| own_referenced_value_id(value, rows))
         .collect();
+    if value_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let view = match RunView::open(reader, flow_hash, run_id) {
+        Ok(view) => view,
+        Err(ReadModelError::RunNotFound { .. }) => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
     let mut offloaded = Vec::new();
     for value_id in value_ids {
-        match locate_offloaded_value(reader, flow_hash, run_id, value_id) {
-            Ok(OffloadedValueLocation::Uploaded(segment)) => {
-                offloaded.push(OffloadedReference { value_id, segment });
-            }
-            Ok(OffloadedValueLocation::Absent) => {}
-            Err(ReadModelError::RunNotFound { .. }) => return Ok(Vec::new()),
-            Err(error) => return Err(error),
+        if let Some((birth, segment)) = uploaded_value_birth(&view, value_id)? {
+            offloaded.push(OffloadedReference {
+                value_id,
+                size_bytes: birth.size_bytes,
+                segment,
+            });
         }
     }
     Ok(offloaded)

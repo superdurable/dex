@@ -12,6 +12,7 @@
 //! exactly the state the command applies on, so no command can offload a value in between.
 //! Values are read from object storage outside it, holding no view.
 
+use dexzd_apply::ApplyOutcome;
 use dexzd_apply::read_model::{OffloadedReference, ReadModelError, offloaded_command_references};
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dexzd::v1::{FlowCommand, ValueReviveCommand, command_reply, flow_command};
@@ -80,7 +81,9 @@ impl FlowCoordinatorRegistry {
         }
     }
 
-    /// Reads the request's values and proposes one ValueRevive command for each.
+    /// Reads the request's values and proposes one ValueRevive command for each, in batches
+    /// whose recorded sizes fit the node's speculation budget. Each batch commits, and its
+    /// values are dropped, before the next one is read.
     ///
     /// Returns false when apply rejects a revive, so the caller stops reviving.
     async fn revive_offloaded_values(
@@ -91,46 +94,85 @@ impl FlowCoordinatorRegistry {
     ) -> Result<bool, FlowCoordinationError> {
         let run_id = RunId::from_slice(&request.command.run_id)
             .expect("only a command with a run ID references offloaded values");
-        let values = self
-            .read_offloaded_values(flow, run_id, &request.offloaded)
-            .await?;
-        for (value_id, value) in values {
-            let revive = FlowCommand {
-                flow_id: request.command.flow_id.clone(),
-                run_id: request.command.run_id.clone(),
-                tenant_id: request.command.tenant_id,
-                command: Some(flow_command::Command::ValueRevive(ValueReviveCommand {
-                    value_run_seq: value_id.run_seq,
-                    value_index_in_command: value_id.index_in_command,
-                    value: Some(value),
-                })),
-                ..FlowCommand::default()
-            };
-            let proposal = self
-                .propose_once_with_admission(flow, urgency, true, |_| {
-                    Ok(Some((revive.clone(), ())))
-                })
-                .await?;
-            let (result, ()) = proposal.expect("the revive builder always proposes");
-            if let Some(command_reply::Reply::Error(error)) = &result.speculative.reply.reply {
-                tracing::warn!(
-                    flow_id = %flow.flow_id,
-                    %run_id,
-                    value_run_seq = value_id.run_seq,
-                    value_index_in_command = value_id.index_in_command,
-                    grpc_code = error.grpc_code,
-                    detail = %error.message,
-                    "an offloaded value revive was rejected"
-                );
+        let budget_bytes =
+            u64::try_from(self.inner.config.max_speculative_bytes_per_node).unwrap_or(u64::MAX);
+        let mut remaining = request.offloaded.as_slice();
+        while !remaining.is_empty() {
+            let (batch, rest) = remaining.split_at(revive_batch_len(remaining, budget_bytes));
+            remaining = rest;
+            let values = self.read_offloaded_values(flow, run_id, batch).await?;
+            let mut tickets = Vec::with_capacity(values.len());
+            let mut is_rejected = false;
+            for (value_id, value) in values {
+                let revive = FlowCommand {
+                    flow_id: request.command.flow_id.clone(),
+                    run_id: request.command.run_id.clone(),
+                    tenant_id: request.command.tenant_id,
+                    command: Some(flow_command::Command::ValueRevive(ValueReviveCommand {
+                        value_run_seq: value_id.run_seq,
+                        value_index_in_command: value_id.index_in_command,
+                        value: Some(value),
+                    })),
+                    ..FlowCommand::default()
+                };
+                let proposal = self
+                    .propose_once_with_admission(flow, urgency, true, |_| {
+                        Ok(Some((revive.clone(), ())))
+                    })
+                    .await?;
+                let (result, ()) = proposal.expect("the revive builder always proposes");
+                if let Some(command_reply::Reply::Error(error)) = &result.speculative.reply.reply {
+                    tracing::warn!(
+                        flow_id = %flow.flow_id,
+                        %run_id,
+                        value_run_seq = value_id.run_seq,
+                        value_index_in_command = value_id.index_in_command,
+                        grpc_code = error.grpc_code,
+                        detail = %error.message,
+                        "an offloaded value revive was rejected"
+                    );
+                    is_rejected = true;
+                }
+                tickets.push(result.ticket);
+                if is_rejected {
+                    break;
+                }
+            }
+            for ticket in tickets {
+                let committed = self.wait_for_commit(flow, ticket).await?;
+                if is_restoration(&committed.outcome) {
+                    self.inner
+                        .dependencies
+                        .history_segment_reader
+                        .record_value_revival();
+                }
+            }
+            if is_rejected {
                 return Ok(false);
             }
-            self.inner
-                .dependencies
-                .history_segment_reader
-                .record_value_revival();
         }
         Ok(true)
     }
+}
+
+/// Returns how many leading values of `offloaded` one batch revives: as many as fit
+/// `budget_bytes` by their recorded sizes, and at least one.
+fn revive_batch_len(offloaded: &[OffloadedReference], budget_bytes: u64) -> usize {
+    let mut batch_bytes = 0_u64;
+    let fitting = offloaded
+        .iter()
+        .take_while(|reference| {
+            batch_bytes = batch_bytes.saturating_add(reference.size_bytes);
+            batch_bytes <= budget_bytes
+        })
+        .count();
+    fitting.max(1)
+}
+
+/// Whether a committed revive restored its value; a revive of a value that is already local,
+/// such as one a concurrent request revived first, writes nothing.
+fn is_restoration(outcome: &ApplyOutcome) -> bool {
+    matches!(outcome.reply.reply, Some(command_reply::Reply::Ok(_))) && !outcome.writes.is_empty()
 }
 
 fn offloaded_reference_error(flow: &FlowAddress, error: ReadModelError) -> FlowCoordinationError {
