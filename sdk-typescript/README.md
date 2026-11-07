@@ -375,7 +375,8 @@ stream with an HTTP/2 RST_STREAM instead of half-closing it. grpc-js and Node en
 stream cleanly before resetting it, so the SDK replaces that close on every registered poll stream.
 This relies on @grpc/grpc-js internals, so the SDK depends on ~1.14.4. If it cannot reach a
 stream's HTTP/2 stream at registration, it refuses the slot before any handler runs, and startup
-fails with an error naming the installed grpc-js version. A task frame may be at most 4 MiB.
+fails with an error naming the installed grpc-js version. A task frame may be at most
+`DEFAULT_GRPC_MAX_MESSAGE_BYTES` (32 MiB), or `WorkerOptions.grpcMaxMessageBytes` when it is set.
 grpc-js always advertises gzip and deflate support, and the Worker accepts a compressed task
 frame whose decompressed size is within that limit. Dex does not compress task streams. A
 compressed frame that is malformed or decompresses past the limit resets the stream without

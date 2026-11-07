@@ -38,6 +38,7 @@ result and records ``audit:publish``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
@@ -158,7 +159,11 @@ def build_scripted_agent(
         if gate_name is not None:
             gate = FileGate(state_dir, gate_name)
             gate.mark_reached()
-            await gate.wait_for_release()
+            try:
+                await gate.wait_for_release()
+            except asyncio.CancelledError:
+                invocations.record(f"cancelled at {gate_name}")
+                raise
 
     def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         response = plan_scripted_response(messages, info)

@@ -1107,7 +1107,7 @@ for (const [failure, isBusy] of [["oversized", false], ["oversized", true], ["ma
         await until(() => handlerSignal !== undefined);
       }
       if (failure === "oversized") {
-        stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "x".repeat(5 * 1024 * 1024) } } });
+        stream.call.write({ frame: { $case: "cancelTask", value: { taskId: "x".repeat(33 * 1024 * 1024) } } });
       } else {
         // Field 1 with the invalid wire type 7.
         stream.call.write(Buffer.from([0x0f]) as unknown as PollWorkerTaskResponse);

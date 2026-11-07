@@ -14,7 +14,7 @@ import net from "node:net";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
 
-import { InvokeWorkerRPCRequest, InvokeWorkerRPCResponse, PollWorkerTaskResponse } from "../src/gen/dex.js";
+import { FlowServiceClient, InvokeWorkerRPCRequest, InvokeWorkerRPCResponse, PollWorkerTaskResponse, Value } from "../src/gen/dex.js";
 import { createFlowServiceChannel } from "../src/flow-service-tls.js";
 import { Registry } from "../src/index.js";
 import { PullWorker } from "../src/pull-worker.js";
@@ -127,12 +127,12 @@ test("a Server that ends a busy stream gets a clean END_STREAM back, and the han
   } finally { handler.release(); await worker.close(); await wire.close(); }
 });
 
-test("a compressed task frame that decompresses past 4 MiB sends RST_STREAM without running a handler", async (context) => {
+test("a compressed task frame that decompresses past the limit sends RST_STREAM without running a handler", async (context) => {
   context.mock.method(console, "warn", () => {});
   context.mock.method(console, "error", () => {});
   const wire = await startWireHarness("gzip");
   const handler = new GatedHandler();
-  const worker = wire.worker(handler, 300);
+  const worker = wire.worker(handler, 300, 4 * 1024 * 1024);
   try {
     worker.start();
     const stream = await wire.nextStream();
@@ -146,7 +146,7 @@ test("a compressed task frame that decompresses past 4 MiB sends RST_STREAM with
   } finally { handler.release(); await worker.close(); await wire.close(); }
 });
 
-test("a compressed task frame within 4 MiB is accepted and runs its handler", async () => {
+test("a compressed task frame within the limit is accepted and runs its handler", async () => {
   const wire = await startWireHarness("gzip");
   const handler = new GatedHandler();
   const worker = wire.worker(handler, 300);
@@ -160,6 +160,96 @@ test("a compressed task frame within 4 MiB is accepted and runs its handler", as
     wire.endWithStatus(stream, 0);
     await handler.aborted;
   } finally { handler.release(); await worker.close(); await wire.close(); }
+});
+
+for (const [encoding, description] of [[undefined, "plain"], ["gzip", "compressed"]] as const) {
+  test(`a ${description} task frame past 4 MiB runs its handler with default limits`, async () => {
+    const wire = await startWireHarness(encoding);
+    const handler = new GatedHandler();
+    const worker = wire.worker(handler, 300);
+    try {
+      worker.start();
+      const stream = await wire.nextStream();
+      wire.write(stream, registeredFrame());
+      const frame = rpcTaskFrame("x".repeat(5 * 1024 * 1024));
+      if (encoding === undefined) wire.write(stream, frame);
+      else wire.writeCompressed(stream, frame);
+      await handler.started;
+      assert.equal(handler.calls, 1);
+      wire.endWithStatus(stream, 0);
+    } finally { handler.release(); await worker.close(); await wire.close(); }
+  });
+}
+
+test("a configured limit above the default accepts a task frame past 32 MiB", async () => {
+  const wire = await startWireHarness();
+  const handler = new GatedHandler();
+  const worker = wire.worker(handler, 300, 40 * 1024 * 1024);
+  try {
+    worker.start();
+    const stream = await wire.nextStream();
+    wire.write(stream, registeredFrame());
+    wire.write(stream, rpcTaskFrame("x".repeat(33 * 1024 * 1024)));
+    await handler.started;
+    assert.equal(handler.calls, 1);
+    wire.endWithStatus(stream, 0);
+  } finally { handler.release(); await worker.close(); await wire.close(); }
+});
+
+test("a configured limit below 4 MiB resets a busy slot for a larger task frame", async (context) => {
+  context.mock.method(console, "warn", () => {});
+  const wire = await startWireHarness();
+  const handler = new GatedHandler();
+  const worker = wire.worker(handler, 300, 64 * 1024);
+  try {
+    worker.start();
+    const stream = await wire.nextStream();
+    wire.write(stream, registeredFrame());
+    wire.write(stream, rpcTaskFrame("busy"));
+    await handler.started;
+    wire.write(stream, rpcTaskFrame("x".repeat(128 * 1024)));
+    await wire.untilStreamEnds(1);
+    assert.equal(wire.streamEnding(1).at(-1)?.type, RST_STREAM_FRAME);
+    assert.equal(wire.streamEnding(1).some((frame) => frame.isEndStream), false);
+    await handler.aborted;
+    assert.equal(handler.calls, 1);
+  } finally { handler.release(); await worker.close(); await wire.close(); }
+});
+
+test("a final output past a configured limit sends RST_STREAM without END_STREAM", async (context) => {
+  context.mock.method(console, "warn", () => {});
+  const wire = await startWireHarness();
+  const output = Value.create({ kind: { $case: "stringValue", value: "x".repeat(128 * 1024) } });
+  const handler = new GatedHandler(InvokeWorkerRPCResponse.create({ output }));
+  const worker = wire.worker(handler, 300, 64 * 1024);
+  try {
+    worker.start();
+    const stream = await wire.nextStream();
+    wire.write(stream, registeredFrame());
+    wire.write(stream, rpcTaskFrame("busy"));
+    await handler.started;
+    handler.release();
+    await wire.untilStreamEnds(1);
+    assert.equal(wire.streamEnding(1).at(-1)?.type, RST_STREAM_FRAME);
+    assert.equal(wire.streamEnding(1).some((frame) => frame.isEndStream), false);
+  } finally { handler.release(); await worker.close(); await wire.close(); }
+});
+
+test("task streams and the FlowService client with equal limits use separate connections", async () => {
+  const wire = await startWireHarness();
+  const worker = wire.worker(new GatedHandler(), 300);
+  const channel = createFlowServiceChannel(wire.address, undefined);
+  const flowService = new FlowServiceClient(channel.target, channel.channelCredentials, channel.channelOptions);
+  try {
+    worker.start();
+    wire.write(await wire.nextStream(), registeredFrame());
+    await worker.waitStarted();
+    await new Promise<void>((resolve, reject) => flowService.waitForReady(Date.now() + 5_000, (failure) => {
+      if (failure === undefined) resolve();
+      else reject(failure);
+    }));
+    assert.equal(wire.connectionCount(), 2);
+  } finally { flowService.close(); await worker.close(); await wire.close(); }
 });
 
 test("start fails before any handler runs when the reset hook cannot find the HTTP/2 stream", async (context) => {
@@ -259,8 +349,10 @@ async function startWireHarness(responseEncoding?: "gzip") {
   await once(proxy, "listening");
   const address = `127.0.0.1:${(proxy.address() as net.AddressInfo).port}`;
   return {
-    worker(handler: GatedHandler, stopDrainTimeoutMs: number): PullWorker {
-      const worker = new PullWorker(new Registry([]), handler as unknown as WorkerDispatcher, createFlowServiceChannel(address, undefined), {
+    address,
+    connectionCount: (): number => sessions.size,
+    worker(handler: GatedHandler, stopDrainTimeoutMs: number, grpcMaxMessageBytes = 0): PullWorker {
+      const worker = new PullWorker(new Registry([]), handler as unknown as WorkerDispatcher, createFlowServiceChannel(address, undefined, grpcMaxMessageBytes), {
         maxConcurrentTasks: 1, reservedRpcTasks: 0, stopDrainTimeoutMs,
       });
       Reflect.set(worker, "registeredFlows", new Map([["TestFlow", { steps: [], rpcs: [{ name: "getWorker" }] }]]));

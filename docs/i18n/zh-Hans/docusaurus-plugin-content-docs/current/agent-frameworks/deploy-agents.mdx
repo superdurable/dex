@@ -191,8 +191,8 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 服务器会对 Step heartbeat 和 Step 完成等写入检查 run 预算，并且只在写入增加活动状态时检查。
 session 超出预算后，这样的 Step 会失败且不重试。模型调用或 tool call 失败时，它所在的轮次
 随之失败。没有失败路由的 Step 在它自己的写入越过预算时，会让整个 session 失败。保存下一条
-用户消息的 **AwaitUserMessage** 就是这样的 Step。事务型 RPC 的写入，比如
-**send_user_message**，不做检查。规划时让 session 远低于 64 MiB。
+用户消息的 **AwaitUserMessage** 就是这样的 Step。改变 Flow 状态的 RPC，比如
+**send_user_message**，同样要检查。超出预算时它会以 RESOURCE_EXHAUSTED 失败，不做任何改动。规划时让 session 远低于 64 MiB。
 
 Flow history 大约保留一个 session 最新的 10,000 个事件。读取对话用
 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。

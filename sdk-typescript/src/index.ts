@@ -17,6 +17,7 @@ export * from "./errors.js";
 export { Registry } from "./flow.js";
 export type { Flow } from "./flow.js";
 export type { FlowResult, StepCompletion } from "./flow-result.js";
+export { DEFAULT_GRPC_MAX_MESSAGE_BYTES } from "./message-size.js";
 export * from "./options.js";
 export * from "./persistence.js";
 export * from "./retry-after.js";

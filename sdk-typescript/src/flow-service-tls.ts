@@ -14,6 +14,7 @@ import * as tls from "node:tls";
 
 import { credentials, type ChannelCredentials, type ChannelOptions } from "@grpc/grpc-js";
 
+import { resolveGrpcMessageLimits } from "./message-size.js";
 import type { FlowServiceTlsOptions } from "./options.js";
 
 /** Target, transport credentials, and channel options for one FlowService gRPC client. */
@@ -21,6 +22,7 @@ export interface FlowServiceChannel {
   readonly target: string;
   readonly channelCredentials: ChannelCredentials;
   readonly channelOptions: ChannelOptions;
+  readonly maxReceiveMessageBytes: number;
 }
 
 // Go and grpc-js resolver schemes; grpc-js lacks passthrough and would treat it as a DNS host.
@@ -31,17 +33,26 @@ const pemCertificatePattern = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTI
  * Builds the FlowService channel for a Client or Worker connection.
  * @param serverAddress - Dex FlowService target from the Client or Worker options.
  * @param tlsOptions - TLS settings; undefined keeps the plaintext channel unchanged.
+ * @param grpcMaxMessageBytes - The `grpcMaxMessageBytes` option; zero keeps the default limits.
  * @returns The plaintext target and insecure credentials when tlsOptions is undefined;
  * otherwise the TLS target with a lowercased dns scheme, TLS credentials, and the
- * server name override channel options.
+ * server name override channel options. Both include the gRPC message size limits.
  * @throws {TypeError} When TLS is set and the address, server name, or root CA bundle is invalid.
+ * @throws {RangeError} When `grpcMaxMessageBytes` is negative or not an integer.
  */
 export function createFlowServiceChannel(
   serverAddress: string,
   tlsOptions: FlowServiceTlsOptions | undefined,
+  grpcMaxMessageBytes = 0,
 ): FlowServiceChannel {
+  const messageLimits = resolveGrpcMessageLimits(grpcMaxMessageBytes);
   if (tlsOptions === undefined) {
-    return { target: serverAddress, channelCredentials: credentials.createInsecure(), channelOptions: {} };
+    return {
+      target: serverAddress,
+      channelCredentials: credentials.createInsecure(),
+      channelOptions: messageLimits.channelOptions,
+      maxReceiveMessageBytes: messageLimits.receiveBytes,
+    };
   }
   const target = flowServiceTlsTarget(serverAddress);
   const serverName = tlsOptions.serverName ?? "";
@@ -51,9 +62,14 @@ export function createFlowServiceChannel(
   const secureContext = createFlowServiceSecureContext(tlsOptions.additionalRootCAsPem);
   // ssl_target_name_override covers SNI and verification; default_authority sets :authority.
   const channelOptions: ChannelOptions = serverName === ""
-    ? {}
-    : { "grpc.ssl_target_name_override": serverName, "grpc.default_authority": serverName };
-  return { target, channelCredentials: credentials.createFromSecureContext(secureContext), channelOptions };
+    ? messageLimits.channelOptions
+    : { ...messageLimits.channelOptions, "grpc.ssl_target_name_override": serverName, "grpc.default_authority": serverName };
+  return {
+    target,
+    channelCredentials: credentials.createFromSecureContext(secureContext),
+    channelOptions,
+    maxReceiveMessageBytes: messageLimits.receiveBytes,
+  };
 }
 
 function flowServiceTlsTarget(serverAddress: string): string {

@@ -58,18 +58,25 @@ export class Worker {
 
   /**
    * Constructs a Worker without starting its task streams. Workers need only an outbound connection to the Dex Server.
+   * Changed in 1.38.0: the default gRPC receive limit rose from 4 MiB to
+   * `DEFAULT_GRPC_MAX_MESSAGE_BYTES` on FlowService calls and task streams, and a LoadBlobs
+   * batch over the SDK's gRPC limit is split instead of failing.
    * @param registry - Flow definitions served by this Worker.
    * @param blobCache - Open cache used to hydrate large handler values.
-   * @param options - Server connectivity, task capacity, bearer credential, and startup settings; uses local defaults when omitted.
+   * @param options - Server connectivity, task capacity, bearer credential, startup settings, and gRPC message size limit; uses local defaults when omitted.
    * @throws {TypeError} When the Worker ID is invalid, or `flowServiceTls` is set and the address or TLS settings are invalid.
-   * @throws {RangeError} When a pull capacity or drain timeout is invalid.
+   * @throws {RangeError} When a pull capacity or drain timeout is invalid, or `grpcMaxMessageBytes` is negative or not an integer.
    */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: WorkerOptions = {},
   ) {
-    const channel = createFlowServiceChannel(options.serverAddress ?? "localhost:8801", options.flowServiceTls);
+    const channel = createFlowServiceChannel(
+      options.serverAddress ?? "localhost:8801",
+      options.flowServiceTls,
+      options.grpcMaxMessageBytes,
+    );
     this.flowService = new FlowServiceClient(
       channel.target,
       channel.channelCredentials,

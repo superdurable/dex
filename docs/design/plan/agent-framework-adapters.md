@@ -1036,9 +1036,10 @@ its type checks and lint, and runs its integration tests. Tests start private
 
 ## UI/UX
 
-N/A: the packages add no Dex Web UI. The Dex Web agent view in the parent
-design reads the contract above, and Step mode gives every framework the same
-Step shapes.
+N/A: the packages add no Dex Web UI. Dex Web shows an agent session as an
+ordinary Flow, as parent design
+[C9](../long-running-agents.md#c9-observability-and-usage) records, and Step
+mode gives every framework the same Step shapes.
 
 ### UI stream adapters
 

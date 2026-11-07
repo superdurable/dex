@@ -357,8 +357,8 @@ Steps and locks, and what adapters must do.
 | A7 | Compaction | `CompactContext` | `ContextSummary` | none | Optional capability |
 | A8 | Tool tasks | `PollToolTask`, `CancelToolTask` | none | none | Optional |
 
-A1 and A2 are not in the parent design. They came out of reasoning about the
-state machine: today a turn stores its messages only when it completes, so a
+A1 and A2 were not in the first revision of the parent design. They came out
+of reasoning about the state machine: today a turn stores its messages only when it completes, so a
 long turn cannot be compacted or steered with its transcript intact (A1); and
 the built-in tools must work under adapters, so the core routes them, not the
 runner (A2). A8 is the core hook that the MCP tasks extension needs.
@@ -393,8 +393,9 @@ runner (A2). A8 is the core hook that the MCP tasks extension needs.
 Today `TurnCompleted.new_messages` carries every item of the turn, and the
 turn's items in between live in `FrameworkRunState`. That rewrites one growing
 Attribute after every model call, which counts superseded values toward
-`limits.maxFlowStateBytes` (parent open question 2). It also means a long turn
-cannot be compacted or steered with its transcript.
+`limits.maxFlowStateBytes`
+(parent [C7](../long-running-agents.md#c7-long-horizon-state)). It also means a
+long turn cannot be compacted or steered with its transcript.
 
 Contract:
 
@@ -575,7 +576,8 @@ RPCs:
 
 `send_user_message` is unchanged and queues. `AgentUserMessage` gains
 `plan_mode` (A6). `steer_user_message` replaces the placeholder name
-`steer_message` in the parent design, to pair with `send_user_message`.
+`steer_message` in the first revision of the parent design, to pair with
+`send_user_message`.
 
 Boundaries:
 
@@ -1438,8 +1440,8 @@ application owns the tracer provider and exporter.
   activation parent their spans to it as a remote parent. Each new root links
   to the previous activation's root.
 - The root span ends with the Step that starts the activation, not when the
-  session parks as parent C9 says. A span must end in the process that
-  started it, and the Steps of one activation run on different Workers. Open
+  session parks as the first revision of parent C9 said. A span must end in
+  the process that started it, and the Steps of one activation run on different Workers. Open
   question 4 covers the alternative.
 - **Conversation ID**: every span carries the Flow ID as
   `gen_ai.conversation.id` and `session.id`, plus `dex.flow.id`,
@@ -1588,8 +1590,8 @@ flowchart LR
   rel --> skill["16 skill"]
 ```
 
-Exit, from the parent design: the crash matrix below passes for Stepwise mode
-in both languages, and the rebuilt Python example is under 500 lines of
+Exit, from the first revision of the parent design: the crash matrix below
+passes for Stepwise mode in both languages, and the rebuilt Python example is under 500 lines of
 application code.
 
 ## Tests
