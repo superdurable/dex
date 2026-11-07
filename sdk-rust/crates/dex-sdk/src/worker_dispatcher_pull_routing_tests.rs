@@ -8,7 +8,7 @@
 
 use super::map_sub_flow_options;
 use crate::server_protocol::NegotiatedServerProtocolVersion;
-use crate::{Flow, Registry, SubFlowOptions};
+use crate::{Flow, FlowConfig, Registry, SubFlowOptions};
 
 struct PullRoutingFlow;
 
@@ -35,5 +35,26 @@ fn sub_flow_without_config_overrides_only_worker_target() {
             worker_target: Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true }),
             ..Default::default()
         })
+    );
+}
+
+#[test]
+fn sub_flow_config_override_maps_history_window_events() {
+    let registry = Registry::new()
+        .register(PullRoutingFlow)
+        .expect("register SubFlow");
+    let target = registry.flow("PullRoutingFlow").expect("lookup SubFlow");
+    let options = map_sub_flow_options(
+        target,
+        &SubFlowOptions::new().config_override(FlowConfig::new().history_window_events(2_500)),
+        &NegotiatedServerProtocolVersion::default(),
+    )
+    .expect("map SubFlow options");
+
+    let config = options.flow_config_override.expect("SubFlow config");
+    assert_eq!(config.history_window_events, Some(2_500));
+    assert_eq!(
+        config.worker_target,
+        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
     );
 }

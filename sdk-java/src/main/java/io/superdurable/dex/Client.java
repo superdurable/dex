@@ -1833,6 +1833,9 @@ public final class Client implements AutoCloseable {
                 mapped.setAttributeStoreNames(io.superdurable.gen.AttributeStoreNames.newBuilder()
                         .addAllNames(config.getAttributeStoreNames()));
             }
+            if (config.getHistoryWindowEvents() != null) {
+                mapped.setHistoryWindowEvents(config.getHistoryWindowEvents());
+            }
         }
         return mapped.build();
     }

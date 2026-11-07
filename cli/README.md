@@ -673,7 +673,7 @@ dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
 
 `--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
 `wait-for`, or `disabled`), state-transfer thresholds, `stepDurability`
-(`sync` or `async`), and `attributeStoreNames`. It rejects a non-null
+(`sync` or `async`), `attributeStoreNames`, and `historyWindowEvents`. It rejects a non-null
 `workerTarget` because Dex routes Flow work to pull Workers. `--retry-policy` uses
 `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
 `maximumAttempts`; intervals are Go duration strings. `--step-options` accepts
@@ -682,6 +682,18 @@ Flow timeout is set without `--flow-timeout-policy`, the server's `fail` default
 applies because dexcli cannot inspect the application's Flow registry.
 Only one option in a `start` command may use `-`, because stdin can be consumed
 once.
+
+`historyWindowEvents` sets about how many of the newest history events the run
+keeps for history reads and Time Travel. At `flow start`, omitting it uses the
+server's `history.windowEvents` setting. At `update-config`, omitting it keeps
+the run's current value; an update cannot reset an override back to the server
+default. The server rejects a value that is not positive
+or exceeds its `history.maxWindowEvents` setting. For example, keep more history
+on an active Flow:
+
+```bash
+dexcli flow update-config order-123 --config '{"historyWindowEvents":50000}' --yes
+```
 
 ## Call any FlowService API
 

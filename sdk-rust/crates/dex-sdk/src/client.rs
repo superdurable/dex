@@ -1405,8 +1405,12 @@ pub(crate) fn map_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlo
                     names: names.clone(),
                 })
         }),
-        // The SDK exposes no history window option yet; the server default applies.
-        history_window_events: None,
+        // FlowConfig::history_window_events sets this; when unset, the server default applies.
+        history_window_events: config
+            .and_then(|config| config.history_window_events)
+            .map(i32::try_from)
+            .transpose()
+            .map_err(|_| invalid("history window events exceed int32"))?,
     })
 }
 

@@ -344,7 +344,11 @@ test("SubFlows always send the exact pull Worker target with and without config 
     getFlowType: () => "PullChildFlow",
     getSteps: () => StepList.startStep(childStep),
   };
-  for (const configOverride of [undefined, { continueAsNewThreshold: 123 }] as const) {
+  for (const configOverride of [
+    undefined,
+    { continueAsNewThreshold: 123 },
+    { historyWindowEvents: 2500 },
+  ] as const) {
     class StartPullChildStep implements Step<void> {
       public readonly inputCodec = voidCodec;
       public getStepType(): string { return "StartPullChildStep"; }
@@ -368,7 +372,18 @@ test("SubFlows always send the exact pull Worker target with and without config 
     }));
     const mappedConfig = response.waitingCondition?.subFlowConditions[0]?.options?.flowConfigOverride;
     assert.deepEqual(mappedConfig?.workerTarget, { isPullMode: true });
-    assert.equal(mappedConfig?.continueAsNewThreshold, configOverride?.continueAsNewThreshold);
+    assert.equal(
+      mappedConfig?.continueAsNewThreshold,
+      configOverride !== undefined && "continueAsNewThreshold" in configOverride
+        ? configOverride.continueAsNewThreshold
+        : undefined,
+    );
+    assert.equal(
+      mappedConfig?.historyWindowEvents,
+      configOverride !== undefined && "historyWindowEvents" in configOverride
+        ? configOverride.historyWindowEvents
+        : undefined,
+    );
   }
 });
 

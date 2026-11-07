@@ -47,3 +47,22 @@ fn update_flow_config_leaves_worker_target_unset() {
         );
     }
 }
+
+#[test]
+fn flow_config_maps_history_window_events() {
+    for (config, expected_window_events) in [
+        (FlowConfig::new(), None),
+        (FlowConfig::new().history_window_events(2_500), Some(2_500)),
+    ] {
+        assert_eq!(
+            map_flow_config(Some(&config))
+                .expect("map Flow config update")
+                .history_window_events,
+            expected_window_events
+        );
+    }
+    assert!(
+        map_flow_config(Some(&FlowConfig::new().history_window_events(u32::MAX))).is_err(),
+        "a window above int32 must fail locally"
+    );
+}

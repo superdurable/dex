@@ -290,6 +290,7 @@ func TestPublicContractsCompile(t *testing.T) {
 		ContinueAsNewThreshold: ptr.Any(int32(100)),
 		StepDurability:         &durability,
 		AttributeStoreNames:    []string{"profiles"},
+		HistoryWindowEvents:    ptr.Any(int32(50000)),
 	}
 	options := dex.StartFlowOptions{
 		Timeout:        ptr.Any(time.Minute),
@@ -301,6 +302,9 @@ func TestPublicContractsCompile(t *testing.T) {
 		options.StartDelay == nil ||
 		len(options.Attributes) != 2 {
 		t.Fatal("start flow options are missing")
+	}
+	if config.HistoryWindowEvents == nil || *config.HistoryWindowEvents != 50000 {
+		t.Fatal("history window events are missing")
 	}
 	if config.AttributeStoreNames == nil || len(config.AttributeStoreNames) != 1 {
 		t.Fatal("attribute store names are missing")

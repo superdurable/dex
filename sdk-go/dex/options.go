@@ -257,6 +257,44 @@ type FlowConfig struct {
 	// AttributeStoreNames selects Server-configured Attribute Stores for opted-in writes.
 	// A nil slice preserves the current targets; an empty non-nil slice disables future projections.
 	AttributeStoreNames []string
+	// HistoryWindowEvents sets about how many of the newest history events the run keeps for
+	// history reads and Time Travel. Nil uses the server's history.windowEvents setting, which
+	// defaults to 10000.
+	//
+	// Raise it for a run that you inspect or travel back in often. Lower it for a run that
+	// writes many events and needs less disk. Dex prunes the oldest events in chunks, and only
+	// between commands, so a run keeps slightly more or fewer events than the value. A command
+	// that changes the Flow but records no event counts as one event. The first event of the run
+	// is always kept, so ResetFlow to the beginning of the run always works. GetHistoryEvents no
+	// longer returns pruned events, and Time Travel targets only commands inside the window.
+	//
+	// Set it at start through StartFlowOptions.ConfigOverride, or change it on an active Flow
+	// with Client.UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A
+	// larger value keeps more of the events recorded afterwards; pruned events never come back.
+	// Once set, the value can be changed but not cleared back to the server default: nil in an
+	// update keeps the current value. A SubFlow inherits the value from its parent unless
+	// SubFlowOptions.ConfigOverride sets its own.
+	//
+	// The value must be positive and at most the server's history.maxWindowEvents setting, which
+	// defaults to 100000. StartFlow and UpdateFlowConfig return a *ServiceError whose Code is
+	// codes.InvalidArgument for any other value. A Step that starts a SubFlow with such an
+	// override is an invalid Worker response: the Step attempt fails and Dex retries it under the
+	// Step's retry policy. Servers older than server-zd 0.1.21 ignore the field.
+	//
+	// Keep more history for a Flow that operators debug often:
+	//
+	//	_, err := client.StartFlow(ctx, orderFlow, flowID, input, dex.StartFlowOptions{
+	//		ConfigOverride: &dex.FlowConfig{HistoryWindowEvents: ptr.Any(int32(50000))},
+	//	})
+	//
+	// Shrink the window of an active Flow:
+	//
+	//	err := client.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
+	//		HistoryWindowEvents: ptr.Any(int32(2000)),
+	//	})
+	//
+	// Since 1.38.0.
+	HistoryWindowEvents *int32
 }
 
 // StartFlowOptions configures a new Flow execution.

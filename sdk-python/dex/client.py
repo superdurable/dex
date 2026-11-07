@@ -1487,6 +1487,8 @@ class Client:
                 mapped.attribute_store_names.CopyFrom(
                     pb.AttributeStoreNames(names=config.attribute_store_names)
                 )
+            if config.history_window_events is not None:
+                mapped.history_window_events = config.history_window_events
         return mapped
 
     @staticmethod

@@ -83,6 +83,14 @@ fn attribute_store_sync_builders_compile() {
 }
 
 #[test]
+fn history_window_events_builder_compiles() {
+    let _start_options = dex_sdk::StartFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().history_window_events(50_000));
+    let _sub_flow_options = dex_sdk::SubFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().history_window_events(2_000));
+}
+
+#[test]
 fn stream_definitions_and_client_calls_compile() {
     let stream = dex_sdk::Stream::<String>::new("thinking", 1_048_576);
     let _schema = dex_sdk::PersistenceSchema::new().stream(&stream);

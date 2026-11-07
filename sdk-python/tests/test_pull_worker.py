@@ -101,6 +101,14 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
         WorkerDispatcher._map_sub_flow_config(FlowConfig()).worker_target
         == expected_target
     )
+    windowed_sub_flow = WorkerDispatcher._map_sub_flow_config(
+        FlowConfig(history_window_events=2500)
+    )
+    assert windowed_sub_flow.HasField("history_window_events")
+    assert windowed_sub_flow.history_window_events == 2500
+    assert not WorkerDispatcher._map_sub_flow_config(FlowConfig()).HasField(
+        "history_window_events"
+    )
     assert WorkerOptions().pull == PullWorkerOptions()
     if isinstance(client, AsyncClient):
         await client.close()
@@ -110,7 +118,12 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
 
 @pytest.mark.parametrize("client_type", [Client, AsyncClient])
 @pytest.mark.parametrize(
-    "config", [FlowConfig(), FlowConfig(continue_as_new_threshold=500)]
+    "config",
+    [
+        FlowConfig(),
+        FlowConfig(continue_as_new_threshold=500),
+        FlowConfig(history_window_events=2500),
+    ],
 )
 def test_update_flow_config_leaves_worker_target_unset(
     client_type: type[Client] | type[AsyncClient],
@@ -136,6 +149,11 @@ async def _update_flow_config_leaves_worker_target_unset(
             if config.continue_as_new_threshold is not None:
                 assert request.flow_config.HasField("continue_as_new_threshold")
                 assert request.flow_config.continue_as_new_threshold == 500
+            assert request.flow_config.HasField("history_window_events") == (
+                config.history_window_events is not None
+            )
+            if config.history_window_events is not None:
+                assert request.flow_config.history_window_events == 2500
     finally:
         if isinstance(client, AsyncClient):
             await client.close()
