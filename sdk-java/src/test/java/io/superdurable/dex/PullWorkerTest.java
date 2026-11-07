@@ -1467,8 +1467,11 @@ final class PullWorkerTest {
                                 public void emitStreamWrite(final io.superdurable.gen.StepStreamWrite streamWrite) {
                                 }
                             });
-            assertTrue(response.getWaitingCondition().getSubFlowConditions(0)
-                    .getOptions().getFlowConfigOverride().getWorkerTarget().getIsPullMode());
+            final io.superdurable.gen.FlowConfig subFlowConfig = response.getWaitingCondition()
+                    .getSubFlowConditions(0).getOptions().getFlowConfigOverride();
+            assertTrue(subFlowConfig.getWorkerTarget().getIsPullMode());
+            assertTrue(subFlowConfig.hasHistoryWindowEvents());
+            assertEquals(2500, subFlowConfig.getHistoryWindowEvents());
         } finally {
             channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
         }
@@ -1490,7 +1493,9 @@ final class PullWorkerTest {
         @Override
         public Wait waitFor(final Context context, final String input) {
             return Wait.until(SubFlow.run(ChildFlow.class, input,
-                    SubFlowOptions.newBuilder().build()));
+                    SubFlowOptions.newBuilder()
+                            .configOverride(FlowConfig.newBuilder().historyWindowEvents(2500).build())
+                            .build()));
         }
 
         @Override

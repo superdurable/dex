@@ -629,3 +629,29 @@ func TestFlowConfigRejectsUnknownEnums(t *testing.T) {
 	})
 	require.NoError(t, err)
 }
+
+func TestFlowConfigMappingCarriesHistoryWindowEvents(t *testing.T) {
+	windowEvents := int32(2500)
+	config := &FlowConfig{HistoryWindowEvents: &windowEvents}
+
+	updated, err := mapFlowConfig(config)
+	require.NoError(t, err)
+	require.NotNil(t, updated.HistoryWindowEvents)
+	require.Equal(t, windowEvents, updated.GetHistoryWindowEvents())
+
+	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{ConfigOverride: config})
+	require.NoError(t, err)
+	require.Equal(t, windowEvents, startOptions.FlowConfigOverride.GetHistoryWindowEvents())
+
+	registry, err := NewRegistry([]Flow{workerFlow})
+	require.NoError(t, err)
+	registered, found := registry.lookupFlow(GetFinalFlowType(workerFlow))
+	require.True(t, found)
+	subFlowOptions, err := mapSubFlowOptions(registered, SubFlowOptions{ConfigOverride: config})
+	require.NoError(t, err)
+	require.Equal(t, windowEvents, subFlowOptions.FlowConfigOverride.GetHistoryWindowEvents())
+
+	unset, err := mapFlowConfig(&FlowConfig{})
+	require.NoError(t, err)
+	require.Nil(t, unset.HistoryWindowEvents)
+}

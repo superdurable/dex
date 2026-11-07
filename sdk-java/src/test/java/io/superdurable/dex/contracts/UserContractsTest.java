@@ -157,6 +157,11 @@ public class UserContractsTest {
                         .stopDrainTimeout(java.time.Duration.ofSeconds(30))
                         .build())
                 .build());
+        Assertions.assertNotNull(io.superdurable.dex.StartFlowOptions.newBuilder()
+                .configOverride(io.superdurable.dex.FlowConfig.newBuilder()
+                        .historyWindowEvents(50_000)
+                        .build())
+                .build());
     }
 
     @Test

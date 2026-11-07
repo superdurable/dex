@@ -161,7 +161,9 @@ is_hard_delete_on_null: bool = api_key.hard_delete_on_null
 persistence: PersistenceSchema = PersistenceSchema.of(status, items)
 start_options: StartFlowOptions = (
     StartFlowOptions(
-        config_override=FlowConfig(attribute_store_names=["reporting", "audit"])
+        config_override=FlowConfig(
+            attribute_store_names=["reporting", "audit"], history_window_events=50_000
+        )
     )
     .with_attribute(status, "ready")
     .with_attribute(items, "order-1", 1)

@@ -47,6 +47,42 @@ class FlowConfig:
         step_durability: Optional default durability for Step handlers.
         attribute_store_names: Optional Server-configured Attribute Store names.
             ``None`` leaves the field absent; an empty list disables future projections.
+        history_window_events: About how many of the newest history events the
+            run keeps for history reads and Time Travel. ``None``, the default,
+            uses the server's ``history.windowEvents`` setting, which defaults to
+            10000.
+
+            Raise it for a run that you inspect or travel back in often. Lower it
+            for a run that writes many events and needs less disk. Dex prunes the
+            oldest events in chunks, and only between commands, so a run keeps
+            slightly more or fewer events than the value. A command that changes
+            the Flow but records no event counts as one event. The first event of
+            the run is always kept, so resetting to the beginning of the run always
+            works. History reads no longer return pruned events, and Time Travel
+            targets only commands inside the window.
+
+            Set it at start through ``StartFlowOptions.config_override``, or change
+            it on an active Flow with ``update_flow_config``. A smaller value takes
+            effect at the run's next pruning. A larger value keeps more of the
+            events recorded afterwards; pruned events never come back. Once set,
+            the value can be changed but not cleared back to the server default:
+            ``None`` in an update keeps the current value. A SubFlow inherits the
+            value from its parent unless its own ``config_override`` sets it.
+
+            The value must be positive and at most the server's
+            ``history.maxWindowEvents`` setting, which defaults to 100000.
+            ``start_flow`` and ``update_flow_config`` raise ``DexServiceError``
+            with code ``grpc.StatusCode.INVALID_ARGUMENT`` for any other value. A
+            Step that starts a SubFlow with such an override is an invalid Worker
+            response: the Step attempt fails and Dex retries it under the Step's
+            retry policy. Servers older than server-zd 0.1.21 ignore the field.
+
+            Example:
+                >>> client.update_flow_config(
+                ...     "order-42", FlowConfig(history_window_events=50_000)
+                ... )
+
+            .. versionadded:: 1.38.0
     """
 
     active_step_search_mode: ActiveStepSearchMode | None = None
@@ -54,3 +90,4 @@ class FlowConfig:
     continue_as_new_page_size_bytes: int | None = None
     step_durability: StepDurability | None = None
     attribute_store_names: list[str] | None = None
+    history_window_events: int | None = None

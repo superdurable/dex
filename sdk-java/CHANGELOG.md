@@ -39,6 +39,15 @@ when preserving application capacity during migration.
 
 ### Added
 
+Added `FlowConfig.Builder.historyWindowEvents(int)`, which sets about how many of the
+newest history events a run keeps for history reads and Time Travel. Set it at start
+through `StartFlowOptions.Builder.configOverride`, change it with
+`Client.updateFlowConfig`, or override it for a SubFlow; a SubFlow otherwise inherits
+its parent's value. Omitting it uses the server's `history.windowEvents` setting
+(10000 by default). Dex rejects a value that is not positive or exceeds the server's
+`history.maxWindowEvents` setting (100000 by default) with `INVALID_ARGUMENT`.
+Requires server-zd 0.1.21 or later; older servers ignore the value.
+
 Added `FlowServiceTlsOptions` and the Client and Worker `flowServiceTls` builders.
 They enable TLS 1.2 or newer, require HTTP/2 ALPN, and verify server certificates
 with the JDK default trust roots plus optional PEM roots. An optional server name

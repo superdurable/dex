@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `FlowConfig::history_window_events`, which sets about how many of the newest history events a run keeps for history reads and Time Travel. Set it at start through `StartFlowOptions::config_override`, change it with `Client::update_flow_config`, or override it for a SubFlow; a SubFlow otherwise inherits its parent's value. Omitting it uses the server's `history.windowEvents` setting (10000 by default). Dex rejects zero or a value above the server's `history.maxWindowEvents` setting (100000 by default) with `INVALID_ARGUMENT`; a value above `i32::MAX` fails locally with `SdkError::InvalidArgument`. Requires server-zd 0.1.21 or later; older servers ignore the value.
+
 - Added `FlowServiceTlsOptions` for verified TLS 1.2+ Client and pull Worker connections, with native system roots, additional PEM roots, a server name override, and required ALPN h2. Configure it with `FlowServiceTlsOptions::new().additional_root_cas_pem(bytes).server_name(name)`. Additional roots work without native system CAs; partial native-load failures and skipped malformed certificate blocks emit count-only warnings. Empty trust stores construct successfully and fail certificate verification at connection time. Plaintext remains the default.
 
 - **Breaking change:** Removed push Workers and Worker target/listener APIs. StartFlow and SubFlow now always select pull Workers, overriding server defaults or parent routing. UpdateFlowConfig leaves the Worker target unset and preserves the existing Flow target. See the [release notes](RELEASE_NOTES.md#unreleased) for removed APIs and migration instructions.

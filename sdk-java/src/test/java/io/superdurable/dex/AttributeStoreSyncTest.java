@@ -56,6 +56,17 @@ final class AttributeStoreSyncTest {
                     FlowConfig.newBuilder().attributeStoreNames().build());
             assertTrue(disabled.hasAttributeStoreNames());
             assertEquals(Collections.emptyList(), disabled.getAttributeStoreNames().getNamesList());
+            assertFalse(absent.hasHistoryWindowEvents());
+
+            final io.superdurable.gen.FlowConfig windowed = client.mapFlowConfig(
+                    FlowConfig.newBuilder().historyWindowEvents(2500).build());
+            assertTrue(windowed.hasHistoryWindowEvents());
+            assertEquals(2500, windowed.getHistoryWindowEvents());
+            final FlowStartOptions windowedStart = client.mapStartOptions(
+                    StartFlowOptions.newBuilder()
+                            .configOverride(FlowConfig.newBuilder().historyWindowEvents(2500).build())
+                            .build());
+            assertEquals(2500, windowedStart.getFlowConfigOverride().getHistoryWindowEvents());
 
             final FlowStartOptions start = client.mapStartOptions(
                     StartFlowOptions.newBuilder()

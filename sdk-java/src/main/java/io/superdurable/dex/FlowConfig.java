@@ -28,6 +28,7 @@ import java.util.List;
  * FlowConfig config = FlowConfig.newBuilder()
  *         .activeStepSearchMode(ActiveStepSearchMode.WITH_WAIT_FOR)
  *         .stepDurability(StepDurability.SYNC)
+ *         .historyWindowEvents(50_000)
  *         .build();
  * }</pre>
  */
@@ -37,6 +38,7 @@ public final class FlowConfig {
     private final Integer continueAsNewPageSizeBytes;
     private final StepDurability stepDurability;
     private final List<String> attributeStoreNames;
+    private final Integer historyWindowEvents;
 
     private FlowConfig(final Builder builder) {
         this.activeStepSearchMode = builder.activeStepSearchMode;
@@ -44,6 +46,7 @@ public final class FlowConfig {
         this.continueAsNewPageSizeBytes = builder.continueAsNewPageSizeBytes;
         this.stepDurability = builder.stepDurability;
         this.attributeStoreNames = builder.attributeStoreNames;
+        this.historyWindowEvents = builder.historyWindowEvents;
     }
 
     /**
@@ -75,6 +78,10 @@ public final class FlowConfig {
         return attributeStoreNames;
     }
 
+    Integer getHistoryWindowEvents() {
+        return historyWindowEvents;
+    }
+
     /** Builds immutable {@link FlowConfig} values. */
     public static final class Builder {
         private ActiveStepSearchMode activeStepSearchMode;
@@ -82,6 +89,7 @@ public final class FlowConfig {
         private Integer continueAsNewPageSizeBytes;
         private StepDurability stepDurability;
         private List<String> attributeStoreNames;
+        private Integer historyWindowEvents;
 
         private Builder() {
         }
@@ -174,6 +182,50 @@ public final class FlowConfig {
          */
         public Builder attributeStoreNames(final String... values) {
             return attributeStoreNames(values == null ? null : Arrays.asList(values));
+        }
+
+        /**
+         * Sets about how many of the newest history events the run keeps for history reads and
+         * Time Travel.
+         *
+         * <p>Omitting this call uses the server's {@code history.windowEvents} setting, which
+         * defaults to 10000. Raise it for a run that you inspect or travel back in often. Lower it
+         * for a run that writes many events and needs less disk.
+         *
+         * <p>Dex prunes the oldest events in chunks, and only between commands, so a run keeps
+         * slightly more or fewer events than the value. A command that changes the Flow but records
+         * no event counts as one event. The first event of the run is always kept, so a reset to the
+         * beginning of the run always works. History reads no longer return pruned events, and Time
+         * Travel targets only commands inside the window.
+         *
+         * <p>Set it at start through {@link StartFlowOptions.Builder#configOverride(FlowConfig)}, or
+         * change it on an active Flow with {@link Client#updateFlowConfig(String, FlowConfig)}. A
+         * smaller value takes effect at the run's next pruning. A larger value keeps more of the
+         * events recorded afterwards; pruned events never come back. Once set, the value can be
+         * changed but not cleared back to the server default: an update that omits this call keeps
+         * the current value. A SubFlow inherits the value from its parent unless its own
+         * {@link SubFlowOptions} override sets it.
+         *
+         * <p>The value must be positive and at most the server's {@code history.maxWindowEvents}
+         * setting, which defaults to 100000. Starting or updating a Flow with any other value
+         * throws {@link io.superdurable.dex.exceptions.DexServiceException} whose
+         * {@code getCode()} is {@code INVALID_ARGUMENT}. A Step that starts a SubFlow with such an
+         * override is an invalid Worker response: the Step attempt fails and Dex retries it under
+         * the Step's retry policy. Servers older than server-zd 0.1.21 ignore the value.
+         *
+         * <pre>{@code
+         * client.updateFlowConfig("order-42", FlowConfig.newBuilder()
+         *         .historyWindowEvents(50_000)
+         *         .build());
+         * }</pre>
+         *
+         * @param value the number of newest history events to keep; must be positive
+         * @return this builder
+         * @since 1.38.0
+         */
+        public Builder historyWindowEvents(final int value) {
+            historyWindowEvents = value;
+            return this;
         }
 
         /**

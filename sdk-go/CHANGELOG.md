@@ -4,6 +4,15 @@
 
 ### Added
 
+- `FlowConfig.HistoryWindowEvents` sets about how many of the newest history
+  events a run keeps for history reads and Time Travel. Set it at start through
+  `StartFlowOptions.ConfigOverride`, change it with `Client.UpdateFlowConfig`,
+  or override it for a SubFlow; a SubFlow otherwise inherits its parent's
+  value. Nil uses the server's `history.windowEvents` setting (10000 by
+  default). Dex rejects a value that is not positive or exceeds the server's
+  `history.maxWindowEvents` setting (100000 by default) with
+  `INVALID_ARGUMENT`. Requires server-zd 0.1.21 or later; older servers ignore
+  the field.
 - `RPCOptions.Name` sets an RPC's protocol name. Empty keeps the Go method
   name. A Go Worker can now serve, and a Go Client invoke, an RPC that a Flow
   in another language names, such as `send_user_message`. A name may contain

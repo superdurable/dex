@@ -2685,6 +2685,7 @@ type FlowConfig struct {
 	ContinueAsNewThreshold     *int32
 	ContinueAsNewPageSizeBytes *int32
 	StepDurability             *StepDurability
+	HistoryWindowEvents        *int32
 }
 
 type StartFlowOptions struct {

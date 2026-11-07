@@ -32,6 +32,7 @@ type flowConfigInput struct {
 	StepDurability               *string         `json:"stepDurability"`
 	WorkerTarget                 json.RawMessage `json:"workerTarget"`
 	AttributeStoreNames          *[]string       `json:"attributeStoreNames"`
+	HistoryWindowEvents          *int32          `json:"historyWindowEvents"`
 }
 
 type flowRetryPolicyInput struct {
@@ -468,7 +469,11 @@ func parseFlowConfig(reader io.Reader, source string) (*dexpb.FlowConfig, error)
 	if err := json.Unmarshal(data, &input); err != nil {
 		return nil, fmt.Errorf("invalid config JSON: %w", err)
 	}
-	config := &dexpb.FlowConfig{ContinueAsNewThreshold: input.ContinueAsNewThreshold, ContinueAsNewPageSizeInBytes: input.ContinueAsNewPageSizeInBytes}
+	config := &dexpb.FlowConfig{
+		ContinueAsNewThreshold:       input.ContinueAsNewThreshold,
+		ContinueAsNewPageSizeInBytes: input.ContinueAsNewPageSizeInBytes,
+		HistoryWindowEvents:          input.HistoryWindowEvents,
+	}
 	if input.AttributeStoreNames != nil {
 		config.AttributeStoreNames = &dexpb.AttributeStoreNames{Names: *input.AttributeStoreNames}
 	}

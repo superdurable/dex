@@ -4,6 +4,14 @@
 
 ### Added and fixed
 
+- Add `FlowConfig.history_window_events`, which sets about how many of the newest
+  history events a run keeps for history reads and Time Travel. Set it at start
+  through `StartFlowOptions.config_override`, change it with `update_flow_config`,
+  or override it for a SubFlow; a SubFlow otherwise inherits its parent's value.
+  `None` uses the server's `history.windowEvents` setting (10000 by default). Dex
+  rejects a value that is not positive or exceeds the server's
+  `history.maxWindowEvents` setting (100000 by default) with `INVALID_ARGUMENT`.
+  Requires server-zd 0.1.21 or later; older servers ignore the field.
 - Raise the gRPC receive limit from 4 MiB to `DEFAULT_GRPC_MAX_MESSAGE_BYTES` (32 MiB)
   on every FlowService and pull stream channel, matching the Go SDK. Set
   `grpc_max_message_bytes` on `ClientOptions` or `WorkerOptions` to change it. A

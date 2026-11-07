@@ -499,6 +499,7 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 		ContinueAsNewPageSizeInBytes: config.ContinueAsNewPageSizeBytes,
 		StepDurability:               durability,
 		AttributeStoreNames:          attributeStoreNames,
+		HistoryWindowEvents:          config.HistoryWindowEvents,
 	}, nil
 }
 

@@ -924,6 +924,15 @@ def test_attribute_store_sync_mapping_preserves_presence() -> None:
     disabled = client._map_flow_config(FlowConfig(attribute_store_names=[]))
     assert list(disabled.attribute_store_names.names) == []
     assert disabled.HasField("attribute_store_names")
+    assert not absent.HasField("history_window_events")
+    windowed = client._map_flow_config(FlowConfig(history_window_events=2500))
+    assert windowed.HasField("history_window_events")
+    assert windowed.history_window_events == 2500
+    windowed_start = client._map_start_options(
+        client.registry._flow_for_instance(ORDERS),
+        StartFlowOptions(config_override=FlowConfig(history_window_events=2500)),
+    )
+    assert windowed_start.flow_config_override.history_window_events == 2500
     client.close()
 
 
