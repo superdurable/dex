@@ -317,6 +317,7 @@ def test_a_real_aio_error_is_classified_by_code_message_and_details() -> None:
         grpc.aio.Metadata(),
         grpc.aio.Metadata(),
         details=SERVER_SEND_LIMIT_MESSAGE,
+        debug_error_string=None,
     )
     assert is_grpc_message_size_error(size_error)
     dex_error = grpc.aio.AioRpcError(
@@ -328,6 +329,7 @@ def test_a_real_aio_error_is_classified_by_code_message_and_details() -> None:
             )
         ),
         details=SERVER_SEND_LIMIT_MESSAGE,
+        debug_error_string=None,
     )
     assert not is_grpc_message_size_error(dex_error)
 
