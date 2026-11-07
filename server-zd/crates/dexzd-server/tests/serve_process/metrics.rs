@@ -324,7 +324,8 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .lines()
         .filter(|line| !line.starts_with('#') && !line.is_empty())
         .count();
-    assert!(series_count <= 202, "scrape has {series_count} series");
+    // dexzd_history_reads_total adds six series: two kinds by three sources.
+    assert!(series_count <= 208, "scrape has {series_count} series");
     eprintln!("metrics scenario series count: {series_count}");
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());

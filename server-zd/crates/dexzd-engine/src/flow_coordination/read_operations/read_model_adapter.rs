@@ -8,11 +8,13 @@
 
 //! Adapters to apply's read model for GetFlowState and GetHistoryEvents.
 
-use dexzd_apply::read_model::{ReadModelError, get_flow_state, get_history_events};
-use dexzd_apply::{ApplyContext, FlowStateReader};
+use dexzd_apply::read_model::{
+    ReadModelError, SegmentedHistoryPage, get_flow_state, get_history_events_from_segments,
+};
+use dexzd_apply::{ApplyContext, FlowStateReader, LoadedHistorySegments};
 use dexzd_protocol::dex::{
-    ErrorSubStatus, GetFlowStateRequest, GetFlowStateResponse, GetHistoryEventsRequest,
-    GetHistoryEventsResponse, Kv, StepCompletionOutput, StepMethodPendingReason, Value,
+    ErrorSubStatus, GetFlowStateRequest, GetFlowStateResponse, GetHistoryEventsRequest, Kv,
+    StepCompletionOutput, StepMethodPendingReason, Value,
 };
 
 use dexzd_keyspace::row_keys::run_named_key;
@@ -106,20 +108,31 @@ fn invocation_lock_keys(
         .unwrap_or_default())
 }
 
-/// Returns history events projected by apply's read model.
+/// Returns the history page that apply's read model projects from `state` and the loaded
+/// segments, or the uploaded segments it still needs, with the run it read. With
+/// `should_end_before_unloaded_segment`, a shorter page that stops at the first unloaded
+/// segment replaces the list when it makes progress.
 ///
-/// Returns `NOT_FOUND` + `FLOW_NOT_EXISTS` when the run does not exist, `INVALID_ARGUMENT`
-/// for a negative position or a malformed page token, and `RESOURCE_EXHAUSTED` when the first
-/// event alone exceeds `max_response_bytes`.
-pub(crate) fn read_history_events(
+/// `run_id` names the run as a request does; empty selects the Flow's current run. Returns
+/// `NOT_FOUND` + `FLOW_NOT_EXISTS` when the run does not exist, `INVALID_ARGUMENT` for a
+/// negative position or a malformed page token, and `RESOURCE_EXHAUSTED` when the first event
+/// alone exceeds `max_response_bytes`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors get_history_events_from_segments plus the Flow address"
+)]
+pub(crate) fn read_history_page(
     state: &dyn FlowStateReader,
     context: ApplyContext,
     flow: &FlowAddress,
+    run_id: &str,
     request: &GetHistoryEventsRequest,
     max_response_bytes: usize,
-) -> Result<GetHistoryEventsResponse, FlowCoordinationError> {
-    let run = read_run(state, context, flow, &request.run_id)?;
-    get_history_events(
+    segments: &LoadedHistorySegments,
+    should_end_before_unloaded_segment: bool,
+) -> Result<(RunId, SegmentedHistoryPage), FlowCoordinationError> {
+    let run = read_run(state, context, flow, run_id)?;
+    get_history_events_from_segments(
         state,
         context.flow_hash,
         run.run_id,
@@ -128,7 +141,10 @@ pub(crate) fn read_history_events(
         &request.next_page_token,
         request.run_attempt,
         max_response_bytes,
+        segments,
+        should_end_before_unloaded_segment,
     )
+    .map(|page| (run.run_id, page))
     .map_err(|error| read_model_error(flow, error))
 }
 

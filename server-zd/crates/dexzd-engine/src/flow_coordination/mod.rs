@@ -15,6 +15,7 @@ mod flow_coordination_config;
 mod flow_coordination_error;
 mod flow_coordination_ports;
 mod flow_coordinator;
+mod history_reads;
 pub(crate) mod read_operations;
 mod registry;
 mod rpc_locks;
@@ -37,6 +38,7 @@ pub use flow_coordination_ports::{
     TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation,
     WorkerRpcResult,
 };
+pub use history_reads::{HistoryReadsConfig, HistorySegmentReader};
 pub use registry::{
     FlowCoordinatorDependencies, FlowCoordinatorRegistry, PendingInvocation, ProposalResult,
 };

@@ -200,6 +200,12 @@ store. It never sets aside or deletes the active store while another process
 holds its lock. The node never opens a set-aside copy again. Cleanup does not
 check whether another tool has a set-aside copy open.
 
+The history read cache, **history.readCacheMaxBytes** (1 GiB by default), sits
+next to the store directory on the same volume by default. If you mount the
+volume at **localStorage.directory** itself, point **history.readCacheDirectory**
+into a writable volume, or the cache is lost on every restart. See
+[History offload](/reference/server/configuration#history-offload).
+
 Size the volume for the live state, plus **localStorage.maxWalBytes** of
 write-ahead log (256 MiB by default), plus room for uncompacted files after a
 bulk replay. The node compacts the store after such a replay, which returns the

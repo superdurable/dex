@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -286,6 +287,24 @@ pub struct HistoryConfig {
     /// faster and hold more segments in memory; each in-flight segment holds about its encoded
     /// size, usually up to `segmentTargetBytes` plus one command's history.
     pub upload_concurrency: u32,
+    /// Defaults to 1 GiB; most bytes of uploaded history the node keeps in its disk read cache,
+    /// the sibling directory `<localStorage.directory>-history-read-cache`, such as
+    /// `/var/lib/dex-server-zd/store-history-read-cache`. History pages read
+    /// from the cache instead of object storage. Zero disables the cache. The cache is never
+    /// authoritative, so deleting the directory while the server is stopped is safe.
+    pub read_cache_max_bytes: u64,
+    /// Defaults to `<localStorage.directory>-history-read-cache`, such as
+    /// `/var/lib/dex-server-zd/store-history-read-cache`; directory of the disk read cache of
+    /// uploaded history, which the cache owns. Must be outside `localStorage.directory`, which a
+    /// local store rebuild sets aside, and must not contain `..` components; startup fails
+    /// otherwise. A
+    /// directory that cannot be created disables the cache with one warning; reads then go to
+    /// object storage.
+    pub read_cache_directory: Option<PathBuf>,
+    /// Defaults to 32; from 1 to 1024. Most object storage reads of uploaded history segments
+    /// that the node runs at once. History pages wait for a free read beyond it, so slow object
+    /// storage cannot take every connection.
+    pub object_read_concurrency: u32,
     /// Deprecated keys that the parsed YAML used; never serialized.
     #[serde(skip)]
     deprecated_keys: Vec<DeprecatedConfigKey>,
@@ -311,6 +330,9 @@ impl Default for HistoryConfig {
             is_offload_enabled: false,
             segment_target_bytes: 4 * 1024 * 1024,
             upload_concurrency: 16,
+            read_cache_max_bytes: 1 << 30,
+            read_cache_directory: None,
+            object_read_concurrency: 32,
             deprecated_keys: Vec::new(),
         }
     }
@@ -362,6 +384,9 @@ struct HistoryConfigSource {
     is_offload_enabled: bool,
     segment_target_bytes: u64,
     upload_concurrency: u32,
+    read_cache_max_bytes: u64,
+    read_cache_directory: Option<PathBuf>,
+    object_read_concurrency: u32,
 }
 
 /// A key's YAML value: `None` when the key is absent, `Some(None)` when it is an explicit null.
@@ -393,6 +418,9 @@ impl Default for HistoryConfigSource {
             is_offload_enabled: defaults.is_offload_enabled,
             segment_target_bytes: defaults.segment_target_bytes,
             upload_concurrency: defaults.upload_concurrency,
+            read_cache_max_bytes: defaults.read_cache_max_bytes,
+            read_cache_directory: defaults.read_cache_directory,
+            object_read_concurrency: defaults.object_read_concurrency,
         }
     }
 }
@@ -435,6 +463,9 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             is_offload_enabled: source.is_offload_enabled,
             segment_target_bytes: source.segment_target_bytes,
             upload_concurrency: source.upload_concurrency,
+            read_cache_max_bytes: source.read_cache_max_bytes,
+            read_cache_directory: source.read_cache_directory,
+            object_read_concurrency: source.object_read_concurrency,
             deprecated_keys,
         })
     }

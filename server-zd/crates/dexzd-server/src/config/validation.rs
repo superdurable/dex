@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use dexzd_keyspace::validate_node_identifier;
@@ -20,6 +21,7 @@ const MAX_LOG_RECORD_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_HISTORY_SEGMENT_TARGET_BYTES: u64 = 256 * 1024 * 1024;
 /// Bounds the memory that in-flight history segment uploads hold.
 const MAX_HISTORY_UPLOAD_CONCURRENCY: u32 = 1024;
+const MAX_HISTORY_OBJECT_READ_CONCURRENCY: u32 = 1024;
 
 impl Config {
     /// Checks cross-section limits and reports the first failing camelCase YAML field path.
@@ -281,6 +283,35 @@ impl Config {
             (1..=MAX_HISTORY_UPLOAD_CONCURRENCY).contains(&self.history.upload_concurrency),
             "history.uploadConcurrency",
             "must be from 1 to 1024",
+        )?;
+        ensure(
+            (1..=MAX_HISTORY_OBJECT_READ_CONCURRENCY)
+                .contains(&self.history.object_read_concurrency),
+            "history.objectReadConcurrency",
+            "must be from 1 to 1024",
+        )?;
+        ensure(
+            self.history
+                .read_cache_directory
+                .as_ref()
+                .is_none_or(|directory| {
+                    !directory
+                        .components()
+                        .any(|component| component == Component::ParentDir)
+                }),
+            "history.readCacheDirectory",
+            "must not contain .. components",
+        )?;
+        ensure(
+            self.history
+                .read_cache_directory
+                .as_ref()
+                .is_none_or(|directory| {
+                    !resolved_path(directory)
+                        .starts_with(resolved_path(&self.local_storage.directory))
+                }),
+            "history.readCacheDirectory",
+            "must be outside localStorage.directory, which a local store rebuild moves aside",
         )?;
         ensure(
             self.retention.closed_flow_duration > Duration::ZERO,
@@ -570,6 +601,36 @@ impl Config {
         )?;
         Ok(())
     }
+}
+
+/// Returns `path` absolute, with its deepest existing ancestor resolved through symlinks and
+/// the remaining components applied lexically, so aliases of one directory compare equal.
+fn resolved_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        // Without a current directory, relative paths still compare among themselves.
+        std::env::current_dir()
+            .map_or_else(|_| path.to_path_buf(), |directory| directory.join(path))
+    };
+    for ancestor in absolute.ancestors() {
+        let (Ok(mut resolved), Ok(rest)) =
+            (ancestor.canonicalize(), absolute.strip_prefix(ancestor))
+        else {
+            continue;
+        };
+        for component in rest.components() {
+            match component {
+                Component::ParentDir => {
+                    resolved.pop();
+                }
+                Component::CurDir => {}
+                other => resolved.push(other),
+            }
+        }
+        return resolved;
+    }
+    absolute
 }
 
 fn ensure(

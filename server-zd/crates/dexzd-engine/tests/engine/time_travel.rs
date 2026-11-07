@@ -94,6 +94,7 @@ impl TravelNode {
         let recording = Arc::new(RecordingCommandAndEffectHooks::default());
         let recording_for_factory = Arc::clone(&recording);
         let clock = cluster.clock.clone();
+        let history_object_store = cluster.object_store.clone();
         let node = EngineNode::start(
             &config,
             EngineNodeDependencies {
@@ -122,6 +123,14 @@ impl TravelNode {
                                 hard_delete_uploader: ports.clone(),
                                 time_travel_history: opener,
                                 clock: clock.clone(),
+                                history_segment_reader: Arc::new(
+                                    dexzd_engine::HistorySegmentReader::new(
+                                        &dexzd_engine::HistoryReadsConfig::default(),
+                                        history_object_store.clone(),
+                                        Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+                                        dexzd_engine::BlockingWorkPlacement::BlockingThreadPool,
+                                    ),
+                                ),
                                 id_source: services.id_source.clone(),
                             },
                         )

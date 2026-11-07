@@ -6,14 +6,15 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use dexzd_api::{CredentialAuthenticatorConfig, FlowServiceConfig};
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
-    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HotStandbyConfig, LocalStoreConfig,
-    RecoveryConfig, SnapshotConfig, default_run_settings,
+    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HistoryReadsConfig, HotStandbyConfig,
+    LocalStoreConfig, RecoveryConfig, SnapshotConfig, default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
 use dexzd_protocol::dexzd::v1::RunSettings;
@@ -28,11 +29,15 @@ use crate::config::{Config, StandbyConfig, StandbyMode, StreamStoreBackend, avai
 /// The incarnation of this node's log stream; one node writes one stream until multi-node support.
 const LOG_STREAM_INCARNATION: u32 = 1;
 
+/// Suffix of the history read cache directory, a sibling of `localStorage.directory`.
+const HISTORY_READ_CACHE_DIRECTORY_SUFFIX: &str = "-history-read-cache";
+
 /// Typed configurations of every component, derived from one validated [`Config`].
 pub(crate) struct ComponentConfigs {
     pub(crate) engine_node: EngineNodeConfig,
     pub(crate) flow_coordination: FlowCoordinationConfig,
     pub(crate) effects: EffectsConfig,
+    pub(crate) history_reads: HistoryReadsConfig,
     pub(crate) matching: MatchingConfig,
     pub(crate) stream_store: StreamStoreConfig,
     pub(crate) flow_service: FlowServiceConfig,
@@ -317,10 +322,24 @@ impl ComponentConfigs {
             max_wait,
             ..FlowServiceConfig::default()
         };
+        let history_reads = HistoryReadsConfig {
+            read_cache_directory: config
+                .history
+                .read_cache_directory
+                .clone()
+                .or_else(|| history_read_cache_directory(&config.local_storage.directory)),
+            read_cache_max_bytes: config.history.read_cache_max_bytes,
+            object_read_concurrency: to_usize(
+                "history.objectReadConcurrency",
+                u64::from(config.history.object_read_concurrency),
+            )?,
+            ..HistoryReadsConfig::default()
+        };
         Ok(Self {
             engine_node,
             flow_coordination,
             effects,
+            history_reads,
             matching,
             stream_store,
             flow_service,
@@ -373,4 +392,12 @@ fn to_usize(field: &'static str, value: u64) -> Result<usize, ServerError> {
 
 fn duration_micros(field: &'static str, duration: Duration) -> Result<i64, ServerError> {
     i64::try_from(duration.as_micros()).map_err(|_| ServerError::ConfigValueOutOfRange { field })
+}
+
+/// Returns `<localStorage.directory>-history-read-cache`, a sibling that a set-aside never moves,
+/// or `None` when the directory has no name.
+fn history_read_cache_directory(local_store_directory: &Path) -> Option<PathBuf> {
+    let mut name = local_store_directory.file_name()?.to_owned();
+    name.push(HISTORY_READ_CACHE_DIRECTORY_SUFFIX);
+    Some(local_store_directory.with_file_name(name))
 }

@@ -44,8 +44,8 @@ use crate::flow_coordination::speculative_overlay::{
 use crate::flow_coordination::{
     CommitTicket, CommitUrgency, CommittedFlowCommand, FlowAddress, FlowCommandCommitter,
     FlowCoordinationConfig, FlowCoordinationEffectSink, FlowCoordinationError,
-    HardDeleteValueReader, HardDeleteValueUploader, RpcWorkerInvoker, StepQueueStatus,
-    TimeTravelHistoryOpener, grpc_code,
+    HardDeleteValueReader, HardDeleteValueUploader, HistorySegmentReader, RpcWorkerInvoker,
+    StepQueueStatus, TimeTravelHistoryOpener, grpc_code,
 };
 use crate::long_poll::WaiterRegistry;
 
@@ -71,6 +71,8 @@ pub struct FlowCoordinatorDependencies {
     pub time_travel_history: Arc<dyn TimeTravelHistoryOpener>,
     /// The owner's clock; a time travel resolves relative target times against it.
     pub clock: Arc<dyn WallClock>,
+    /// Reads uploaded history segments; one per process, since it owns the disk read cache.
+    pub history_segment_reader: Arc<HistorySegmentReader>,
     /// Creates run IDs and Channel message IDs.
     pub id_source: Arc<dyn EngineIdSource>,
 }

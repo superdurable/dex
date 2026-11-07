@@ -99,6 +99,15 @@ pub trait HistorySource {
     ///
     /// Returns an error when the checkpoint cannot be read or decoded.
     fn checkpoint(&self, attempt: u32, seq: u64) -> Result<Option<CheckpointRecord>, ApplyError>;
+
+    /// Returns a seq before which no record holds an event at or after `first_event_id`, so a
+    /// history page search can start there instead of at the first record. Returns `None`, the
+    /// default, when the source cannot tell without reading records.
+    ///
+    /// Returns an error when the source cannot read what answers it.
+    fn event_search_start_seq(&self, _first_event_id: i64) -> Result<Option<u64>, ApplyError> {
+        Ok(None)
+    }
 }
 
 /// History records of a [`HistorySource`] in ascending seq order.

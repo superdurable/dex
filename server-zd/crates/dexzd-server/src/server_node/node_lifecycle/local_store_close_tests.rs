@@ -18,7 +18,9 @@ use dexzd_api::{
 };
 use dexzd_clock::SystemWallClock;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
-use dexzd_engine::{DeterministicCommandApplier, LocalStoreCloseWaiter};
+use dexzd_engine::{
+    BlockingWorkPlacement, DeterministicCommandApplier, HistorySegmentReader, LocalStoreCloseWaiter,
+};
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore};
 use dexzd_storage::{RocksDbLocalStore, RocksDbStoreOptions};
@@ -173,15 +175,23 @@ fn process_parts(directory: &Path) -> ProcessParts {
         ComponentConfigs::from_config(&config, false).expect("the test configuration resolves");
     let (_registry, metrics) = NodeMetrics::registered(directory.to_path_buf(), 1);
     let object_store: Arc<dyn ObjectStore> = Arc::new(InMemoryObjectStore::new());
+    let metrics = Arc::new(metrics);
+    let history_segment_reader = Arc::new(HistorySegmentReader::new(
+        &components.history_reads,
+        object_store.clone(),
+        metrics.clone(),
+        BlockingWorkPlacement::BlockingThreadPool,
+    ));
     ProcessParts {
         config,
         components,
-        metrics: Arc::new(metrics),
+        metrics,
         lease_validity_deadline: LeaseValidityDeadline::disarmed(),
         object_stores: ObjectStores {
             primary: object_store.clone(),
             hard_delete: object_store,
         },
+        history_segment_reader,
         clock: Arc::new(SystemWallClock),
         applier: Arc::new(DeterministicCommandApplier),
         id_source: Arc::new(LeaseHolderRecordingIdSource::default()),

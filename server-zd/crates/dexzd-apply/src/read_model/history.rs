@@ -11,15 +11,22 @@ use std::ops::Range;
 
 use dexzd_keyspace::{FlowHash, RunId};
 use dexzd_protocol::dex::{FlowHistoryEvent, GetHistoryEventsResponse, HistoryEventIdRange};
-use dexzd_protocol::dexzd::v1::HistoryRecord;
+use dexzd_protocol::dexzd::v1::{HistoryRecord, HistorySegmentRecord};
 use prost::Message;
 
 use crate::history::{HistorySource, LocalHistorySource, genesis_seq};
+use crate::history_offload::segmented_history::{
+    LoadedHistorySegments, MAX_EXAMINED_CATALOG_ROWS, PageEnd, SegmentedHistorySource,
+    UnloadedSegmentAction,
+};
 use crate::read_model::{ReadModelError, RunView};
 use crate::{ApplyError, FlowStateReader};
 
 /// Most History rows read by one scan call.
 const MAX_HISTORY_SCAN_ROWS: usize = 256;
+
+/// Most events of one page; a page read from object storage stays bounded in cost.
+pub const MAX_HISTORY_PAGE_EVENTS: usize = 1000;
 
 /// FlowStart records the first event of every run, so window pruning removes IDs from 2.
 const FIRST_PRUNABLE_EVENT_ID: i64 = 2;
@@ -56,7 +63,7 @@ pub fn get_history_events(
     )?;
     let view = RunView::open(reader, flow_hash, run_id)?;
     let history = LocalHistorySource::new(&view.transaction, view.rows);
-    read_history_page(&view, &history, &request)
+    read_history_page(&view, &history, &request, None)
 }
 
 /// Like [`get_history_events`], but reads History records from `history`, which holds every
@@ -84,7 +91,211 @@ pub fn get_history_events_from_source(
         max_response_bytes,
     )?;
     let view = RunView::open(reader, flow_hash, run_id)?;
-    read_history_page(&view, history, &request)
+    read_history_page(&view, history, &request, None)
+}
+
+/// A history page read over uploaded history segments and local rows.
+#[derive(Debug)]
+pub enum SegmentedHistoryPage {
+    /// The page, read entirely from loaded segments and the committed view.
+    Page(GetHistoryEventsResponse),
+    /// Uploaded segments the read needs, in seq order; fetch them and read again.
+    NeedsSegments(Vec<HistorySegmentRecord>),
+}
+
+/// Like [`get_history_events`], but takes covered records from `segments` and the rest locally.
+///
+/// When the read reaches an uploaded segment that `segments` lacks, it returns
+/// [`SegmentedHistoryPage::NeedsSegments`], naming it and later segments the page likely needs.
+/// With `should_end_before_unloaded_segment`, it instead returns the shorter page of the events
+/// before that segment, with a next page token that continues at it, when that page makes
+/// progress. It never returns a page that skips a segment.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors get_history_events plus the loaded segments and the round's policy"
+)]
+pub fn get_history_events_from_segments(
+    reader: &dyn FlowStateReader,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    start_event_id: i64,
+    page_size: i32,
+    next_page_token: &[u8],
+    run_attempt: i32,
+    max_response_bytes: usize,
+    segments: &LoadedHistorySegments,
+    should_end_before_unloaded_segment: bool,
+) -> Result<SegmentedHistoryPage, ReadModelError> {
+    let request = HistoryPageRequest::parse(
+        start_event_id,
+        page_size,
+        next_page_token,
+        run_attempt,
+        max_response_bytes,
+    )?;
+    read_segmented_history_page(
+        reader,
+        flow_hash,
+        run_id,
+        &request,
+        segments,
+        should_end_before_unloaded_segment,
+        MAX_EXAMINED_CATALOG_ROWS,
+    )
+}
+
+/// Like [`get_history_events_from_segments`] without ending early at unloaded segments, but
+/// with a test's catalog row budget per read.
+#[cfg(feature = "test-util")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors get_history_events_from_segments plus the budget"
+)]
+pub fn get_history_events_from_segments_with_catalog_budget_for_test(
+    reader: &dyn FlowStateReader,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    start_event_id: i64,
+    page_size: i32,
+    next_page_token: &[u8],
+    max_response_bytes: usize,
+    segments: &LoadedHistorySegments,
+    max_examined_catalog_rows: usize,
+) -> Result<SegmentedHistoryPage, ReadModelError> {
+    let request = HistoryPageRequest::parse(
+        start_event_id,
+        page_size,
+        next_page_token,
+        0,
+        max_response_bytes,
+    )?;
+    read_segmented_history_page(
+        reader,
+        flow_hash,
+        run_id,
+        &request,
+        segments,
+        false,
+        max_examined_catalog_rows,
+    )
+}
+
+fn read_segmented_history_page(
+    reader: &dyn FlowStateReader,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    request: &HistoryPageRequest,
+    segments: &LoadedHistorySegments,
+    should_end_before_unloaded_segment: bool,
+    max_examined_catalog_rows: usize,
+) -> Result<SegmentedHistoryPage, ReadModelError> {
+    let view = RunView::open(reader, flow_hash, run_id)?;
+    // A separate source and budget, so an early page end never cuts the legacy pruned range scan.
+    let pruned_source = SegmentedHistorySource::open(
+        &view.transaction,
+        view.rows,
+        &view.record,
+        segments,
+        UnloadedSegmentAction::Report,
+        max_examined_catalog_rows,
+    )?;
+    let pruned_range = pruned_event_id_range(&view, &pruned_source);
+    let pruned_missing = pruned_source.take_missing_segments(1)?;
+    if !pruned_missing.is_empty() {
+        return Ok(SegmentedHistoryPage::NeedsSegments(pruned_missing));
+    }
+    let pruned_range = match pruned_source.page_end() {
+        // The scan saw only eventless records before its budget stop, so events below the
+        // stop's bound were all pruned; reporting less never hides a retained event.
+        Some(page_end) => page_end
+            .next_event_id
+            .map(|next_event_id| next_event_id.saturating_sub(1))
+            .filter(|end_event_id| *end_event_id >= FIRST_PRUNABLE_EVENT_ID)
+            .map(|end_event_id| HistoryEventIdRange {
+                start_event_id: FIRST_PRUNABLE_EVENT_ID,
+                end_event_id,
+            }),
+        None => pruned_range?,
+    };
+    let unloaded_action = if should_end_before_unloaded_segment {
+        UnloadedSegmentAction::EndBefore
+    } else {
+        UnloadedSegmentAction::Report
+    };
+    let history = SegmentedHistorySource::open(
+        &view.transaction,
+        view.rows,
+        &view.record,
+        segments,
+        unloaded_action,
+        max_examined_catalog_rows,
+    )?;
+    let page = read_history_page(&view, &history, request, Some(pruned_range));
+    // A missing segment ends the stream with an error, so check for one before the result.
+    let page_end = history.page_end();
+    let missing = history.take_missing_segments(request.page_events().saturating_add(1))?;
+    match page_end {
+        // More rounds cannot remove a catalog budget stop, so it ends the page in any round.
+        Some(page_end) if should_end_before_unloaded_segment || missing.is_empty() => {
+            if let Some(page) = continue_before(page?, page_end, request)? {
+                return Ok(SegmentedHistoryPage::Page(page));
+            }
+        }
+        None if missing.is_empty() => return page.map(SegmentedHistoryPage::Page),
+        _ => {}
+    }
+    Ok(SegmentedHistoryPage::NeedsSegments(missing))
+}
+
+/// Adds a token continuing at `page_end`, dropping last events while the response is too big.
+///
+/// Returns `None` when the page would hold no event and the token would not move past the
+/// request's first event, so the caller cannot make progress with it. Returns
+/// `HistoryEventTooLarge` when its single event fits only without the token.
+fn continue_before(
+    mut page: GetHistoryEventsResponse,
+    page_end: PageEnd,
+    request: &HistoryPageRequest,
+) -> Result<Option<GetHistoryEventsResponse>, ReadModelError> {
+    if !page.next_page_token.is_empty() {
+        return Ok(Some(page));
+    }
+    // Event IDs grow with seq, so every event before the end was read.
+    let last_read_event_id = match page.events.last() {
+        Some(event) => event.event_id,
+        None => match page_end.next_event_id {
+            Some(next_event_id) => next_event_id.saturating_sub(1),
+            None => return Ok(None),
+        },
+    };
+    if last_read_event_id < request.first_event_id.max(1) {
+        return Ok(None);
+    }
+    set_continuation(&mut page, last_read_event_id);
+    while page.encoded_len() > request.max_response_bytes {
+        if page.events.len() <= 1 {
+            let Some(event) = page.events.first() else {
+                return Ok(None);
+            };
+            return Err(ReadModelError::HistoryEventTooLarge {
+                event_id: event.event_id,
+                size_bytes: page.encoded_len(),
+                max_response_bytes: request.max_response_bytes,
+            });
+        }
+        page.events.pop();
+        let last_event_id = page
+            .events
+            .last()
+            .map_or(last_read_event_id, |event| event.event_id);
+        set_continuation(&mut page, last_event_id);
+    }
+    Ok(Some(page))
+}
+
+fn set_continuation(page: &mut GetHistoryEventsResponse, last_event_id: i64) {
+    page.next_page_token = last_event_id.to_be_bytes().to_vec();
+    page.next_internal_event_id = last_event_id.saturating_add(1);
 }
 
 /// A validated history page request.
@@ -96,6 +307,17 @@ struct HistoryPageRequest {
 }
 
 impl HistoryPageRequest {
+    /// Returns the events the page holds at most: 100 for size 0, never more than 1000.
+    fn page_events(&self) -> usize {
+        if self.page_size == 0 {
+            100
+        } else {
+            usize::try_from(self.page_size)
+                .unwrap_or(usize::MAX)
+                .min(MAX_HISTORY_PAGE_EVENTS)
+        }
+    }
+
     fn parse(
         start_event_id: i64,
         page_size: i32,
@@ -134,10 +356,13 @@ impl HistoryPageRequest {
 }
 
 /// Reads the page `request` names from the run `view` opened.
+///
+/// A given `known_pruned_range` replaces the pruned range computed from `history`.
 fn read_history_page(
     view: &RunView<'_>,
     history: &dyn HistorySource,
     request: &HistoryPageRequest,
+    known_pruned_range: Option<Option<HistoryEventIdRange>>,
 ) -> Result<GetHistoryEventsResponse, ReadModelError> {
     let first_event_id = request.first_event_id;
     let selected_attempt = if request.run_attempt == 0 {
@@ -146,11 +371,7 @@ fn read_history_page(
         u32::try_from(request.run_attempt).unwrap_or(u32::MAX)
     };
     let lineage = lineage_cutoffs(view, selected_attempt)?;
-    let size = if request.page_size == 0 {
-        100_usize
-    } else {
-        usize::try_from(request.page_size).unwrap_or(usize::MAX)
-    };
+    let size = request.page_events();
     let max_response_bytes = request.max_response_bytes;
     let history_rows = HistoryRecordRows::new(view, history);
     let mut events = history_rows.collect_lineage_events(
@@ -160,7 +381,10 @@ fn read_history_page(
         max_response_bytes,
     )?;
     events.sort_by_key(|event| event.event_id);
-    let pruned_event_id_range = pruned_event_id_range(view, history)?;
+    let pruned_event_id_range = match known_pruned_range {
+        Some(range) => range,
+        None => pruned_event_id_range(view, history)?,
+    };
     let page_len = events_within_limit(
         &events,
         size,
@@ -433,8 +657,12 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
     ) -> Result<Option<HistorySeek>, ReadModelError> {
         let mut eventless_ranges = EventlessRanges::default();
         let mut chunk_rows = 1;
-        let mut low = 0;
         let mut high = self.view.record.next_run_seq;
+        let mut low = self
+            .history
+            .event_search_start_seq(first_event_id)?
+            .unwrap_or(0)
+            .min(high);
         let mut first_record_seq = None;
         // Probing the oldest record first answers a read from the start without a search.
         let mut probe = low;

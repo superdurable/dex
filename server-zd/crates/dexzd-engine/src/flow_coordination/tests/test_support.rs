@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dexzd_apply::{
@@ -32,8 +32,8 @@ use crate::flow_coordination::{
     CommittedFlowCommand, FlowAddress, FlowCommandCommitter, FlowCoordinationConfig,
     FlowCoordinationEffectSink, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
     HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome, HardDeleteUploads,
-    HardDeleteValueReader, HardDeleteValueUploader, ReplayMismatch, RpcInvokeError,
-    RpcWorkerInvoker, StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
+    HardDeleteValueReader, HardDeleteValueUploader, HistorySegmentReader, ReplayMismatch,
+    RpcInvokeError, RpcWorkerInvoker, StepQueueStatus, WorkerRpcInvocation, WorkerRpcResult,
 };
 
 type Rows = BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>;
@@ -145,6 +145,40 @@ pub(crate) struct FakeCommitter {
     pub(crate) replay_mismatch: Mutex<Option<ReplayMismatch>>,
     /// Runs once, right after the next committed view captured its snapshot.
     pub(crate) view_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Committed views handed out and not yet dropped.
+    pub(crate) live_views: Arc<AtomicUsize>,
+}
+
+/// A committed view that counts itself in [`FakeCommitter::live_views`] while it lives.
+struct CountedView {
+    view: MemoryView,
+    live_views: Arc<AtomicUsize>,
+}
+
+impl Drop for CountedView {
+    fn drop(&mut self) {
+        self.live_views.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+impl FlowStateReader for CountedView {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        self.view.get(column_family, key)
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        self.view.scan(column_family, start, end, limit)
+    }
 }
 
 impl FakeCommitter {
@@ -158,6 +192,7 @@ impl FakeCommitter {
             submitted_commands: Mutex::new(Vec::new()),
             replay_mismatch: Mutex::new(None),
             view_hook: Mutex::new(None),
+            live_views: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -207,7 +242,11 @@ impl FlowCommandCommitter for FakeCommitter {
         if let Some(hook) = hook {
             hook();
         }
-        Ok(Box::new(view))
+        self.live_views.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(CountedView {
+            view,
+            live_views: Arc::clone(&self.live_views),
+        }))
     }
 
     fn check_speculative_outcome(
@@ -415,6 +454,22 @@ impl FlowCoordinationHarness {
 
     /// Builds a registry over existing committed state, as a restarted owner would.
     pub(crate) fn with_store(config: &FlowCoordinationConfig, store: MemoryStore) -> Self {
+        let history_segment_reader = Arc::new(HistorySegmentReader::new(
+            &crate::flow_coordination::HistoryReadsConfig::default(),
+            Arc::new(dexzd_object_store::InMemoryObjectStore::new()),
+            Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+            crate::BlockingWorkPlacement::BlockingThreadPool,
+        ));
+        Self::with_history_reader(config, store, history_segment_reader)
+    }
+
+    /// Builds a registry over existing committed state that reads uploaded history through
+    /// `history_segment_reader`.
+    pub(crate) fn with_history_reader(
+        config: &FlowCoordinationConfig,
+        store: MemoryStore,
+        history_segment_reader: Arc<HistorySegmentReader>,
+    ) -> Self {
         let committer = Arc::new(FakeCommitter::new(store.clone()));
         let applier = Arc::new(ModelApplier::default());
         let effects = Arc::new(RecordingEffectSink::default());
@@ -434,6 +489,7 @@ impl FlowCoordinationHarness {
                 hard_delete_uploader: hard_delete_uploader.clone(),
                 time_travel_history: Arc::new(crate::flow_coordination::LocalTimeTravelHistory),
                 clock: Arc::new(dexzd_clock::SystemWallClock),
+                history_segment_reader,
                 id_source: Arc::new(SystemEngineIdSource),
             },
         );

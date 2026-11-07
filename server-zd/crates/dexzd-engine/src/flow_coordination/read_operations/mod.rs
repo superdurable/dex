@@ -8,6 +8,7 @@
 
 //! Client reads. They see only committed state, never the speculative overlay (plan 6.4).
 
+mod history_pages;
 mod permission_json;
 mod read_model_adapter;
 pub(crate) mod state_rows;
@@ -19,8 +20,8 @@ use dexzd_keyspace::{ColumnFamily, RunId, RunTable, TenantId, ValueReference, ru
 use dexzd_protocol::dex::{
     ChannelMessage, EncodedObject, FlowExecutionId, GetAttributesRequest, GetAttributesResponse,
     GetChannelMessagesRequest, GetChannelMessagesResponse, GetFlowStateRequest,
-    GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse, GetHistoryEventsRequest,
-    GetHistoryEventsResponse, Kv, LoadBlobsRequest, LoadBlobsResponse, Value, value,
+    GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse, Kv, LoadBlobsRequest,
+    LoadBlobsResponse, Value, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, ChannelMessageRecord, HardDeleteObjectReference, PermissionSetRecord,
@@ -272,24 +273,6 @@ impl FlowCoordinatorRegistry {
             self.inner.config.hydrate_value_references,
             self.inner.dependencies.step_queue_status.as_ref(),
             &is_rpc_lock_held,
-        )
-    }
-
-    /// Returns a page of history events of a run through apply's read model.
-    pub async fn get_history_events(
-        &self,
-        tenant_id: TenantId,
-        request: GetHistoryEventsRequest,
-    ) -> Result<GetHistoryEventsResponse, FlowCoordinationError> {
-        self.check_running()?;
-        let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
-        let committed = self.inner.dependencies.committer.committed_view()?;
-        read_model_adapter::read_history_events(
-            committed.as_ref(),
-            self.flow_context(&flow),
-            &flow,
-            &request,
-            self.inner.config.max_history_events_response_bytes,
         )
     }
 

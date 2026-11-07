@@ -14,6 +14,9 @@ RUN apt-get update \
 COPY LICENSE ./LICENSE
 COPY protos/ ./protos/
 COPY s3local/ ./s3local/
+# server-zd depends on dex-blob-cache, which inherits its package fields from this workspace.
+COPY sdk-rust/Cargo.toml sdk-rust/LICENSE ./sdk-rust/
+COPY sdk-rust/crates/dex-blob-cache/ ./sdk-rust/crates/dex-blob-cache/
 COPY server-zd/ ./server-zd/
 
 WORKDIR /src/server-zd

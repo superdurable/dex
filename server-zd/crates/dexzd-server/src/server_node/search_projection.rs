@@ -15,20 +15,22 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dexzd_engine::{CommandCommitter, NodeStopReason};
+use dexzd_apply::FlowStateReader;
+use dexzd_engine::{CommandCommitter, EngineNode, NodeStopReason};
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
 use dexzd_postgres_connection::ConnectionSettings;
-use dexzd_search::SearchBackend;
+use dexzd_search::builtin::{BuiltinSearchBackend, CommittedSearchViewProvider};
 use dexzd_search::sql_visibility::{
     AttributeIndexRegistryReader, ProjectionVisibilityWait, SqlVisibilityProjector,
     SqlVisibilitySearchBackend, VisibilityDialect,
 };
+use dexzd_search::{SearchBackend, SearchError};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::ServerError;
-use crate::config::{ConfigError, SearchBackend as SearchBackendKind, SearchConfig};
+use crate::config::{Config, ConfigError, SearchBackend as SearchBackendKind, SearchConfig};
 
 pub(crate) use outbox_watermarks::SearchOutboxWatermarks;
 pub(crate) use projection_mode::SearchProjectionModeRebuilder;
@@ -280,6 +282,44 @@ fn postgres_configuration(search: &SearchConfig) -> Result<ConnectionSettings, S
         configuration.configuration_mut().options(options);
     }
     Ok(configuration)
+}
+
+/// Returns builtin SearchFlows over committed views of the engine.
+pub(super) fn builtin_search_backend(
+    config: &Config,
+    engine: &EngineNode,
+    partition_count: u32,
+) -> Result<Arc<dyn SearchBackend>, ServerError> {
+    let scan_budget =
+        usize::try_from(config.search.builtin_scan_budget_documents).map_err(|_| {
+            ServerError::ConfigValueOutOfRange {
+                field: "search.builtinScanBudgetDocuments",
+            }
+        })?;
+    let backend = BuiltinSearchBackend::with_scan_budget(
+        Arc::new(CommittedSearchViews {
+            committer: engine.committer().clone(),
+        }),
+        partition_count,
+        scan_budget,
+    )
+    .map_err(|source| ServerError::SearchBackend { source })?;
+    Ok(Arc::new(backend))
+}
+
+/// Opens committed state views of the engine for builtin SearchFlows.
+struct CommittedSearchViews {
+    committer: CommandCommitter,
+}
+
+impl CommittedSearchViewProvider for CommittedSearchViews {
+    fn committed_view(&self) -> Result<Arc<dyn FlowStateReader + Send + Sync>, SearchError> {
+        let view = self
+            .committer
+            .committed_view()
+            .map_err(|error| SearchError::Unavailable(error.to_string()))?;
+        Ok(Arc::new(view))
+    }
 }
 
 #[cfg(test)]

@@ -64,6 +64,11 @@
     "print_crates": [
       "dexzd-protocol",
       "dexzd-server"
-    ]
+    ],
+    "external_path_crates": {
+      "dex-blob-cache": "sdk-rust",
+      "s3local": "s3local",
+      "s3local-server": "s3local"
+    }
   }
 }

@@ -150,6 +150,8 @@ jobs:
             server_zd:
               - 'server-zd/**'
               - 's3local/**'
+              - 'sdk-rust/Cargo.toml'
+              - 'sdk-rust/crates/dex-blob-cache/**'
               - 'protos/**'
               - '.github/workflows/server-zd-ci.yml'
             server_zd_integ:

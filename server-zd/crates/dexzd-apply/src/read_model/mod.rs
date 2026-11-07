@@ -19,7 +19,12 @@ mod search;
 pub use attributes::{AttributesRead, HardDeleteAttribute, get_attributes};
 pub use blobs::load_blobs;
 pub use flow::{get_channel_messages, get_flow_state, get_flow_summary, resolve_run_id};
-pub use history::{get_history_events, get_history_events_from_source};
+#[cfg(feature = "test-util")]
+pub use history::get_history_events_from_segments_with_catalog_budget_for_test;
+pub use history::{
+    MAX_HISTORY_PAGE_EVENTS, SegmentedHistoryPage, get_history_events,
+    get_history_events_from_segments, get_history_events_from_source,
+};
 pub use history_segments::{oldest_sealed_history_segment, read_history_segment_content};
 #[cfg(feature = "test-util")]
 pub use predicates::is_history_event_available_from_records_for_test;

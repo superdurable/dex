@@ -28,10 +28,9 @@ use std::time::Duration;
 use dexzd_api::{
     AttributeIndexes, DexFlowService, FlowServiceDependencies, HealthStatus, StreamOperations,
 };
-use dexzd_apply::FlowStateReader;
 use dexzd_cluster_metadata::LeaseValidityDeadline;
 use dexzd_engine::{
-    AttributeSyncWaker, CommandCommitter, EffectDependencies, EffectRunner, EffectTasksHandle,
+    AttributeSyncWaker, EffectDependencies, EffectRunner, EffectTasksHandle,
     EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
     EngineServices, EngineStartError, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
     HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreCloseWaiter,
@@ -40,8 +39,6 @@ use dexzd_engine::{
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
 use dexzd_protocol::dex::worker_task_service_server::WorkerTaskServiceServer;
-use dexzd_search::builtin::{BuiltinSearchBackend, CommittedSearchViewProvider};
-use dexzd_search::{SearchBackend, SearchError};
 use dexzd_stream_store::StreamStore;
 use dexzd_worker_dispatch::WorkerDispatch;
 use tokio::net::TcpListener;
@@ -528,6 +525,7 @@ impl ServerNode {
                     hard_delete_uploader: Arc::new(hard_delete_objects),
                     time_travel_history: Arc::new(LocalTimeTravelHistory),
                     clock: clock.clone(),
+                    history_segment_reader: process.history_segment_reader.clone(),
                     id_source: services.id_source,
                 },
             );
@@ -646,22 +644,24 @@ impl ServerNode {
                     engine.wait_for_stop(),
                 )),
             ),
-            None => match builtin_search_backend(config, &engine, partition_count) {
-                Ok(search_backend) => (Some(search_backend), None),
-                Err(error) => {
-                    registry.close_long_polls();
-                    stop_rpc_tasks(&registry).await;
-                    effect_tasks.shutdown().await;
-                    if let Err(release_error) = engine.shutdown().await {
-                        tracing::error!(
-                            error = %release_error,
-                            "the node lease stays held after a failed start"
-                        );
+            None => {
+                match search_projection::builtin_search_backend(config, &engine, partition_count) {
+                    Ok(search_backend) => (Some(search_backend), None),
+                    Err(error) => {
+                        registry.close_long_polls();
+                        stop_rpc_tasks(&registry).await;
+                        effect_tasks.shutdown().await;
+                        if let Err(release_error) = engine.shutdown().await {
+                            tracing::error!(
+                                error = %release_error,
+                                "the node lease stays held after a failed start"
+                            );
+                        }
+                        close_stream_store(&stream_store).await;
+                        return Err(error);
                     }
-                    close_stream_store(&stream_store).await;
-                    return Err(error);
                 }
-            },
+            }
         };
         let attribute_sync = attribute_stores.start(AttributeSyncStart {
             engine: &engine,
@@ -921,29 +921,6 @@ fn embedded_s3_stop_budget(teardown: &BoundedTeardown) -> Duration {
     teardown.remaining_budget(SHUTDOWN_BUDGET, EMBEDDED_S3_MINIMUM_STOP_BUDGET)
 }
 
-/// Returns builtin SearchFlows over committed views of the engine.
-fn builtin_search_backend(
-    config: &Config,
-    engine: &EngineNode,
-    partition_count: u32,
-) -> Result<Arc<dyn SearchBackend>, ServerError> {
-    let scan_budget =
-        usize::try_from(config.search.builtin_scan_budget_documents).map_err(|_| {
-            ServerError::ConfigValueOutOfRange {
-                field: "search.builtinScanBudgetDocuments",
-            }
-        })?;
-    let backend = BuiltinSearchBackend::with_scan_budget(
-        Arc::new(CommittedSearchViews {
-            committer: engine.committer().clone(),
-        }),
-        partition_count,
-        scan_budget,
-    )
-    .map_err(|source| ServerError::SearchBackend { source })?;
-    Ok(Arc::new(backend))
-}
-
 /// Stops what the hooks factory started when the engine start ended without serving.
 async fn stop_startup_parts(parts: Option<ServerNodeStartupParts>) {
     if let Some(parts) = parts {
@@ -989,20 +966,5 @@ async fn wait_for_cancellation(cancellation: &mut watch::Receiver<bool>) {
         if cancellation.changed().await.is_err() {
             std::future::pending::<()>().await;
         }
-    }
-}
-
-/// Opens committed state views of the engine for builtin SearchFlows.
-struct CommittedSearchViews {
-    committer: CommandCommitter,
-}
-
-impl CommittedSearchViewProvider for CommittedSearchViews {
-    fn committed_view(&self) -> Result<Arc<dyn FlowStateReader + Send + Sync>, SearchError> {
-        let view = self
-            .committer
-            .committed_view()
-            .map_err(|error| SearchError::Unavailable(error.to_string()))?;
-        Ok(Arc::new(view))
     }
 }

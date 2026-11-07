@@ -24,8 +24,9 @@ use dexzd_engine::{
     EffectsConfig, EngineCommandAndEffectHooks, EngineIdSource, EngineLocalStore, EngineNode,
     EngineNodeConfig, EngineNodeDependencies, EngineServices, EngineStartError,
     FlowCoordinationConfig, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
-    HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreConfig, NodeMetaUploadLedger,
-    NodeStopReason, RecoveryConfig, SnapshotConfig, default_run_settings,
+    HardDeleteObjects, HistoryReadsConfig, HistorySegmentReader, HotStandby, HotStandbyTakeover,
+    LocalStoreConfig, NodeMetaUploadLedger, NodeStopReason, RecoveryConfig, SnapshotConfig,
+    default_run_settings,
 };
 use dexzd_keyspace::{ColumnFamily, KEY_LAYOUT_VERSION};
 use dexzd_object_store::{ObjectStore, WriteCondition};
@@ -317,7 +318,7 @@ impl NodeProcess {
                     metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                     dispatcher: worker_port.clone(),
                     hard_delete_objects: hard_delete_objects.clone(),
-                    history_object_store: factory_history_store,
+                    history_object_store: Arc::clone(&factory_history_store),
                     partition_hasher: partition_hasher.clone(),
                     clock: factory_clock.clone(),
                     validation_config: ValidationConfig::default(),
@@ -339,6 +340,12 @@ impl NodeProcess {
                     hard_delete_uploader: Arc::new(hard_delete_objects),
                     time_travel_history: Arc::new(dexzd_engine::LocalTimeTravelHistory),
                     clock: factory_clock,
+                    history_segment_reader: Arc::new(HistorySegmentReader::new(
+                        &HistoryReadsConfig::default(),
+                        factory_history_store,
+                        Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+                        BlockingWorkPlacement::CallingTaskForTest,
+                    )),
                     id_source: services.id_source,
                 },
             );

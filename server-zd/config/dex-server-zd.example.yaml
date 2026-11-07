@@ -87,6 +87,11 @@ history:
   offloadEnabled: false
   segmentTargetBytes: 4194304
   uploadConcurrency: 16
+  # Disk read cache of uploaded history in <localStorage.directory>-history-read-cache; 0 disables it.
+  readCacheMaxBytes: 1073741824
+  # null uses <localStorage.directory>-history-read-cache.
+  readCacheDirectory: null
+  objectReadConcurrency: 32
 values:
   wireInlineThresholdBytes: 100
   maxValueBytes: 16777216

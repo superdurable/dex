@@ -346,6 +346,9 @@ disk or fail Steps.
 | **history.offloadEnabled** | false | Experimental. Whether partitions offload run history to object storage. |
 | **history.segmentTargetBytes** | 4194304 (4 MiB) | Experimental. Since 0.1.21. Bytes of history records, checkpoints, and superseded values after which a run seals its open history segment for upload. From 1 byte to 268435456 (256 MiB). |
 | **history.uploadConcurrency** | 16 | Experimental. Since 0.1.21. Most sealed history segments the lease holder reads, encodes, and uploads at once. From 1 to 1024. Each upload in flight holds about one encoded segment in memory. |
+| **history.readCacheMaxBytes** | 1073741824 (1 GiB) | Experimental. Since 0.1.21. Most bytes of uploaded history that the node keeps in its disk read cache. 0 disables the cache. |
+| **history.readCacheDirectory** | **localStorage.directory** with the suffix **-history-read-cache**, such as **/var/lib/dex-server-zd/store-history-read-cache** | Experimental. Since 0.1.21. Directory of the disk read cache, which the cache owns. It must be outside **localStorage.directory**, which a local store rebuild sets aside, and must not contain **..** components; startup fails otherwise. If the node cannot create it, the node logs one warning and reads from object storage without a cache. |
+| **history.objectReadConcurrency** | 32 | Experimental. Since 0.1.21. Most object storage reads of uploaded history segments that the node runs at once. From 1 to 1024. A history read beyond it waits for a free read. |
 
 The setting applies to every partition, not to each run. When a node takes the
 lease, it records the value in every partition whose recorded value differs,
@@ -399,6 +402,23 @@ storage accepted just before can still leave an object of the deleted run; no
 read returns it. Do not configure a bucket lifecycle rule that expires objects
 under **history/**.
 
+GetHistoryEvents reads the events of uploaded segments from object storage and
+every other event from local disk. Each event comes from one place, so paging
+returns every event once, also while uploads continue. Events of commands that
+belong to no segment, such as those applied while offload was off, stay on local
+disk and follow the window rule. A read never returns events that the window
+pruned, even when their segment object still exists. A read that object storage
+fails, or whose uploaded segment object is missing, fails with UNAVAILABLE; the
+client may retry it. A page that needs many segments can hold fewer events than
+requested; its next page token continues the read.
+
+The node keeps uploaded segment headers in memory and keeps segment headers and
+records in its disk read cache, up to **history.readCacheMaxBytes**. Uploaded
+segments never change, so cached entries are never stale. The cache survives a
+restart and is never authoritative: deleting its directory while the node is
+stopped only costs object storage reads. The node never sets the cache aside
+with a local store it rebuilds.
+
 ## Limits {#limits}
 
 server-zd enforces these limits. A request that a limit rejects fails at once;
@@ -416,6 +436,10 @@ evicts the oldest request IDs instead.
 | **limits.maxLongPollWaitersPerFlow** | 1000 | Most concurrent waits on one Flow, such as WaitForStepCompletion and WaitForAttributeMatch calls. A wait beyond it fails with RESOURCE_EXHAUSTED. |
 | **limits.maxLongPollWaitersPerNode** | 100000 | Most concurrent waits on the node. A wait beyond it fails with RESOURCE_EXHAUSTED. |
 | **limits.maxInFlightRpcsPerNode** | 1000 | Most shared transactional or locking RPC tasks in flight on the node. A new request ID beyond it fails with RESOURCE_EXHAUSTED. |
+
+Changed in 0.1.21: a GetHistoryEvents page holds at most 1000 events. A
+request whose **estimate_page_size** is larger returns 1000 events and a next
+page token. Earlier versions had no such limit.
 
 Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
 **limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node
