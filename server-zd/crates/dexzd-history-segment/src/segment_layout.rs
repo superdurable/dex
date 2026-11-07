@@ -77,12 +77,12 @@ impl HistorySegmentLayout {
             header.checkpoint_count > 0,
             "checkpoints",
         )?;
-        let body_length = validate_block(
-            values,
-            checkpoints_end,
-            !header.value_entries.is_empty(),
-            "values",
-        )?;
+        // Empty value rows store no frame, so only non-empty values give the block content.
+        let has_stored_values = header
+            .value_entries
+            .iter()
+            .any(|entry| entry.uncompressed_length > 0);
+        let body_length = validate_block(values, checkpoints_end, has_stored_values, "values")?;
         validate_value_entries(values, &header.value_entries)?;
         let described_object_size = u64::try_from(HISTORY_SEGMENT_PREFIX_BYTES)
             .ok()

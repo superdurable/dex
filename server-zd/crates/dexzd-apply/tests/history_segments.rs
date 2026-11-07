@@ -1179,6 +1179,59 @@ fn window_pruning_deletes_only_uploaded_rows() {
     assert_segment_chain(&harness);
 }
 
+#[test]
+fn time_travel_while_offload_is_off_keeps_sealed_content_and_joins_the_gap() {
+    let mut harness = Harness::offloading(settings(4_000));
+    harness.set_attribute("profile", large_text("first", 1500));
+    let first_seq = harness.last_seq();
+    let first_value = harness.attribute_value_id("profile");
+    for round in 0..3 {
+        harness.set_attribute("profile", large_text(&format!("later{round}"), 1500));
+    }
+    let segments = harness.segments();
+    assert!(
+        segments.iter().any(|segment| harness
+            .segment_values(segment.first_seq)
+            .contains_key(&first_value)),
+        "a sealed segment lists the first value: {segments:?}"
+    );
+    let encodings: Vec<Vec<u8>> = segments
+        .iter()
+        .map(|segment| harness.encode_segment(segment.first_seq))
+        .collect();
+
+    harness.set_offload_mode(false);
+    let travel = harness.travel_to_seq(first_seq);
+    let travel_seq = harness.last_seq();
+    assert_eq!(sealed_effect_count(&travel), 0);
+    assert_eq!(harness.attribute_value_id("profile"), first_value);
+    let record = harness.run_record();
+    assert_eq!(record.current_attempt, 2);
+    assert_eq!(record.history_open_segment_first_seq, travel_seq + 1);
+    assert_eq!(
+        record.history_open_segment_first_event_id,
+        record.next_event_id
+    );
+    assert_eq!(harness.segments(), segments);
+    for (segment, encoding) in segments.iter().zip(&encodings) {
+        assert_eq!(
+            &harness.encode_segment(segment.first_seq),
+            encoding,
+            "reviving a listed value while offload is off keeps the segment's content"
+        );
+    }
+
+    harness.set_offload_mode(true);
+    while harness.segments().len() == segments.len() {
+        let round = harness.last_seq();
+        harness.set_attribute("profile", large_text(&format!("again{round}"), 1500));
+    }
+    let reopened = harness.segments().last().cloned().expect("a new segment");
+    assert_eq!(reopened.first_seq, travel_seq + 1);
+    assert_eq!(reopened.first_event_id, record.next_event_id);
+    harness.encode_segment(reopened.first_seq);
+}
+
 impl Harness {
     fn history_record_seqs(&self) -> Vec<u64> {
         let prefix = run_table_prefix(self.context.flow_hash, self.run(), RunTable::HistoryRecord);

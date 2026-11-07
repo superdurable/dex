@@ -434,6 +434,23 @@ fn empty_value_rows_round_trip() {
 }
 
 #[test]
+fn a_value_list_of_only_empty_rows_round_trips() {
+    let mut content = sample_content();
+    for value in &mut content.values {
+        value.row.clear();
+    }
+    let encoded = encode_history_segment(&content).unwrap();
+    assert_eq!(decode_history_segment(&encoded.bytes).unwrap(), content);
+    let layout = decode_history_segment_header(&encoded.bytes, encoded.bytes.len() as u64).unwrap();
+    assert_eq!(layout.header().value_entries.len(), 3);
+    for value in &content.values {
+        let entry = layout.find_value(value.value_id).unwrap();
+        assert!(layout.value_range(value.value_id).unwrap().is_empty());
+        assert_eq!(&decode_value(entry, &[]).unwrap(), value);
+    }
+}
+
+#[test]
 fn overflowing_offsets_and_lengths_are_rejected_without_panicking() {
     let object = encode_history_segment(&sample_content()).unwrap().bytes;
     let changes: [fn(&mut HistorySegmentHeader); 4] = [

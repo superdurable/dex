@@ -145,6 +145,10 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "the seed set never sealed a history segment: {total:#?}"
     );
     assert!(
+        total.history_offload_off_time_travels > 0,
+        "the seed set never time traveled a run while its partition did not offload: {total:#?}"
+    );
+    assert!(
         total
             .rejected_by_kind
             .get("HistorySegmentUploaded")

@@ -16,7 +16,9 @@ use dexzd_apply::StateWrite;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_history_segment::encode_history_segment;
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId, parse_run_key};
-use dexzd_protocol::dexzd::v1::HistorySegmentState;
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, HistorySegmentState, RunRecord, flow_command::Command,
+};
 
 use crate::invariants::{InvariantViolation, RunContext};
 use crate::memory_state::MemoryFlowState;
@@ -30,22 +32,129 @@ const FIRST_VALUE_ID: ValueId = ValueId {
     index_in_command: 0,
 };
 
+/// The seqs and event IDs that left one run's segment chain: the open segment each command
+/// applied while offload was off abandoned, through that command.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct OffloadGaps {
+    seqs: BTreeSet<u64>,
+    event_ids: BTreeSet<i64>,
+}
+
+/// Offload gaps by run.
+pub(crate) type OffloadGapsByRun = BTreeMap<RunId, OffloadGaps>;
+
+/// Checks how the command moved each touched run's open segment (H9), and records the gap that
+/// a command applied while offload was off leaves.
+///
+/// While offload is off, a command that takes a run seq moves the open segment right after
+/// itself and seals nothing. While it is on, the open segment stays, or moves after the command
+/// that sealed it. A command without a run seq never moves it.
+///
+/// Returns how many TimeTravel commands applied to a run with segment state while offload was off.
+pub(crate) fn check_open_segment_transitions(
+    command: &FlowCommand,
+    previous_records: &BTreeMap<RunId, RunRecord>,
+    view: &FlowView,
+    gaps: &mut OffloadGapsByRun,
+) -> Result<usize, InvariantViolation> {
+    let mut time_travels_while_off = 0;
+    for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
+        let (Some(previous), Some(current)) = (previous_records.get(run_id), run.record.as_ref())
+        else {
+            continue;
+        };
+        let context = RunContext {
+            flow_id: &command.flow_id,
+            run_id,
+        };
+        let open = |record: &RunRecord| {
+            (
+                record.history_open_segment_first_seq,
+                record.history_open_segment_first_event_id,
+                record.history_open_segment_bytes,
+                record.history_open_segment_superseded_value_count,
+            )
+        };
+        if previous.history_open_segment_first_seq == 0 {
+            if current.history_open_segment_first_seq != 0 {
+                return Err(violation(
+                    "H9-open-segment-transition",
+                    &context,
+                    "an existing run without segment state gained it",
+                ));
+            }
+            continue;
+        }
+        let seq = previous.next_run_seq.max(1);
+        if current.next_run_seq != seq + 1 {
+            if open(current) != open(previous) {
+                return Err(violation(
+                    "H9-open-segment-transition",
+                    &context,
+                    "a command without a run seq moved the open segment",
+                ));
+            }
+            continue;
+        }
+        let first_seq = previous.history_open_segment_first_seq;
+        let sealed_now = run
+            .history_segments
+            .get(&first_seq)
+            .is_some_and(|segment| segment.last_seq == seq);
+        let moved_after_command = current.history_open_segment_first_seq == seq + 1
+            && current.history_open_segment_first_event_id == current.next_event_id.max(1)
+            && current.history_open_segment_bytes == 0
+            && current.history_open_segment_superseded_value_count == 0;
+        if !view.is_history_offload_enabled {
+            if !moved_after_command || sealed_now {
+                return Err(violation(
+                    "H9-open-segment-transition",
+                    &context,
+                    format!(
+                        "seq {seq} applied while offload was off did not leave the open segment"
+                    ),
+                ));
+            }
+            let gap = gaps.entry(*run_id).or_default();
+            gap.seqs.extend(first_seq..=seq);
+            gap.event_ids
+                .extend(previous.history_open_segment_first_event_id..current.next_event_id.max(1));
+            if matches!(command.command, Some(Command::TimeTravel(_))) {
+                time_travels_while_off += 1;
+            }
+        } else {
+            let is_kept = current.history_open_segment_first_seq == first_seq
+                && current.history_open_segment_first_event_id
+                    == previous.history_open_segment_first_event_id;
+            if !(is_kept || (moved_after_command && sealed_now)) {
+                return Err(violation(
+                    "H9-open-segment-transition",
+                    &context,
+                    format!("seq {seq} moved the open segment without sealing it"),
+                ));
+            }
+        }
+    }
+    Ok(time_travels_while_off)
+}
+
 /// Checks the run's segment chain, uploaded seq, pending index row, and value lists.
 ///
-/// Segments are contiguous in seqs and events, except that commands applied while offload was
-/// off form gaps; `has_offload_gap` tells whether the run applied any.
+/// Segments are contiguous in seqs and events, except across exactly the seqs and events that
+/// `gaps` recorded for commands applied while offload was off.
 pub(crate) fn check_segment_chain(
     context: &RunContext<'_>,
     run: &RunView,
     view: &FlowView,
-    has_offload_gap: bool,
+    gaps: Option<&OffloadGaps>,
 ) -> Result<(), InvariantViolation> {
+    let no_gaps = OffloadGaps::default();
+    let gaps = gaps.unwrap_or(&no_gaps);
     let continues = |actual: u64, expected: u64| {
-        if has_offload_gap {
-            actual >= expected
-        } else {
-            actual == expected
-        }
+        actual >= expected && (expected..actual).all(|seq| gaps.seqs.contains(&seq))
+    };
+    let continues_events = |actual: i64, expected: i64| {
+        actual >= expected && (expected..actual).all(|event_id| gaps.event_ids.contains(&event_id))
     };
     let Some(record) = run.record.as_ref() else {
         return Ok(());
@@ -71,11 +180,12 @@ pub(crate) fn check_segment_chain(
         if *first_seq != segment.first_seq
             || !continues(segment.first_seq, next_seq)
             || segment.first_seq > segment.last_seq
-            || segment.first_event_id < 1
-            || !continues(
-                segment.first_event_id.unsigned_abs(),
-                next_event_id.unsigned_abs(),
-            )
+            || !continues_events(segment.first_event_id, next_event_id)
+            || gaps
+                .seqs
+                .range(segment.first_seq..=segment.last_seq)
+                .next()
+                .is_some()
         {
             return Err(violation(
                 "H1-segment-chain",
@@ -141,11 +251,7 @@ pub(crate) fn check_segment_chain(
         next_event_id = segment.last_event_id + 1;
     }
     if !continues(record.history_open_segment_first_seq, next_seq)
-        || record.history_open_segment_first_event_id < 1
-        || !continues(
-            record.history_open_segment_first_event_id.unsigned_abs(),
-            next_event_id.unsigned_abs(),
-        )
+        || !continues_events(record.history_open_segment_first_event_id, next_event_id)
         || !names_uploaded_seq
     {
         return Err(violation(

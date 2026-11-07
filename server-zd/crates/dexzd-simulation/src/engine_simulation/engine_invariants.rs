@@ -256,7 +256,7 @@ fn recovered_memory(
         // Recovered-store checks never compare encodings across commands.
         sealed_segment_encodings: Default::default(),
         // A recovered store keeps the segment gaps of every command the shadow applied.
-        history_offload_gap_runs: shadow.history_offload_gap_runs().clone(),
+        history_offload_gaps: shadow.history_offload_gaps().clone(),
     }
 }
 

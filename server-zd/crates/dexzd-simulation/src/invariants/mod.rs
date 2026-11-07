@@ -29,7 +29,8 @@ pub(crate) use attribute_sync_invariants::{
     AttributeSyncAcks, check_close_barrier, check_outbox_writes, remember_ack,
 };
 pub(crate) use history_segment_invariants::{
-    check_deletions_were_uploaded, check_sealed_segment_encodings,
+    OffloadGapsByRun, check_deletions_were_uploaded, check_open_segment_transitions,
+    check_sealed_segment_encodings,
 };
 pub use lock_invariants::check_fresh_snapshot;
 pub(crate) use value_invariants::remember_window_points;
@@ -92,8 +93,9 @@ pub struct CheckerMemory {
     pub(crate) rpc_held_runs: BTreeSet<RunId>,
     /// Encoding of each SEALED history segment when the checker first saw it.
     pub(crate) sealed_segment_encodings: history_segment_invariants::SealedSegmentEncodings,
-    /// Runs with segment state that applied a command while their partition did not offload.
-    pub(crate) history_offload_gap_runs: BTreeSet<RunId>,
+    /// The seqs and events that commands applied while offload was off took out of each run's
+    /// segment chain.
+    pub(crate) history_offload_gaps: history_segment_invariants::OffloadGapsByRun,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,7 +152,7 @@ pub fn check_flow(
             &context,
             run,
             view,
-            memory.history_offload_gap_runs.contains(run_id),
+            memory.history_offload_gaps.get(run_id),
         )?;
     }
     Ok(())

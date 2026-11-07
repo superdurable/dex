@@ -47,6 +47,8 @@ pub struct SimulationSummary {
     pub close_barrier: CloseBarrierCounts,
     /// History segments sealed by applied commands.
     pub history_segments_sealed: usize,
+    /// TimeTravel commands applied to a run with segment state while offload was off.
+    pub history_offload_off_time_travels: usize,
 }
 
 impl SimulationSummary {
@@ -63,6 +65,7 @@ impl SimulationSummary {
         self.closed_run_erase_replays += other.closed_run_erase_replays;
         self.permission_mapping_commands += other.permission_mapping_commands;
         self.history_segments_sealed += other.history_segments_sealed;
+        self.history_offload_off_time_travels += other.history_offload_off_time_travels;
         for (kind, count) in &other.applied_by_kind {
             *self.applied_by_kind.entry(kind).or_default() += count;
         }
@@ -229,6 +232,7 @@ pub fn run_seed(
     }
     summary.size_rejections = checker.size_rejections().clone();
     summary.close_barrier = checker.close_barrier_counts();
+    summary.history_offload_off_time_travels = checker.history_offload_off_time_travels();
     summary.final_row_count = checker.state().row_count();
     Ok(summary)
 }
