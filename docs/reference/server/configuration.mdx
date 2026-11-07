@@ -280,6 +280,24 @@ Changed in 0.1.21: **history.checkpointCommandThreshold** was renamed from
 warning at startup. Setting one key under both names fails startup with a
 configuration error.
 
+### History offload {#history-offload}
+
+Since 0.1.21, **history.offloadEnabled** is an experimental switch
+for moving run history to object storage. Leave it at **false** until the
+release notes announce history offload. Enabling it before then can grow local
+disk or fail Steps.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **history.offloadEnabled** | false | Experimental. Whether partitions offload run history to object storage. |
+
+The setting applies to every partition, not to each run. When a node takes the
+lease, it records the value in every partition whose recorded value differs,
+before the partitions resume work. Turning the switch off takes effect at the
+next start in the same way. A partition that has stopped applying commands keeps
+its previous value. The node then logs an error and increments
+**dexzd_history_offload_mode_skipped_partitions_total**.
+
 ## Limits {#limits}
 
 server-zd enforces these limits. A request that a limit rejects fails at once;

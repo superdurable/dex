@@ -31,6 +31,15 @@ with INVALID_ARGUMENT and writes nothing.
 Replayed commands append nothing; the outer command appends with its own seq.
 An append at or below the acknowledged seq is an invariant violation.
 
+## History offload mode
+
+`SetHistoryOffloadModeCommand` sets whether a partition offloads run history to
+object storage. Enabling writes the partition's `HistoryOffloadModeRecord`, and
+disabling deletes it, so an absent record means disabled. A command that names
+another partition than the one it was routed to is rejected with
+INVALID_ARGUMENT and writes nothing. A command that keeps the mode writes
+nothing.
+
 ## Value and storage accounting
 
 Each run tracks encoded Flow and History row bytes, including keys. Live and superseded value bytes use the encoded value sizes in birth records; garbage rows identify the superseded portion. Apply updates these totals from each command's writes and deletes.

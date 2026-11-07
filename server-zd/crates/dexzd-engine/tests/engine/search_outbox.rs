@@ -168,7 +168,7 @@ async fn ack_first_entry_of_each_partition(node: &EngineNode, hasher: &Partition
     }
 }
 
-async fn submit_partition_command(
+pub(crate) async fn submit_partition_command(
     node: &EngineNode,
     hasher: &PartitionHasher,
     partition: PartitionId,

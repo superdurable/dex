@@ -16,7 +16,8 @@ use dexzd_engine::{
 };
 use dexzd_keyspace::row_keys::{decode_search_outbox_key, partition_index_range, prefix_range};
 use dexzd_keyspace::{
-    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix,
+    ColumnFamily, IndexKind, PartitionHasher, PartitionId, RunId, RunTable, TenantId,
+    run_table_prefix,
 };
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore, WriteCondition, WriteOutcome};
 use dexzd_protocol::dex::{
@@ -35,13 +36,13 @@ use dexzd_protocol::dexzd::v1::{
     ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
     HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, InboxMessageCommand,
     OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
-    RunSettings, SearchOutboxAckCommand, SetSearchProjectionModeCommand, StepAttemptFailedCommand,
-    StepAttemptFailureKind, StepAttemptHeartbeatCommand, StepAttemptQueuedCommand,
-    StepAttemptReturnReason, StepAttemptReturnedCommand, StepAttemptStartedCommand,
-    StepExecutionRecord, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
-    TimeTravelCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
-    flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
-    step_method_completed_command, timer_id,
+    RunSettings, SearchOutboxAckCommand, SetHistoryOffloadModeCommand,
+    SetSearchProjectionModeCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
+    StepAttemptHeartbeatCommand, StepAttemptQueuedCommand, StepAttemptReturnReason,
+    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey,
+    StepMethod, StepMethodCompletedCommand, TimeTravelCommand, TimerRecord, TimerSkipCommand,
+    TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
+    step_attempt_heartbeat_command, step_method_completed_command, timer_id,
 };
 use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
 use prost::Message;
@@ -95,6 +96,8 @@ impl Workload<'_> {
         let (profile, profile_secret_object) = self.profile_rewrites_hard_delete_values().await;
         let (parent, child) = self.parent_starts_sub_flow().await;
         let account = self.account_marks_synced_attributes().await;
+        self.set_history_offload_modes(&[PartitionId(0), PartitionId(1)], true)
+            .await;
         OpenRuns {
             order,
             profile,
@@ -125,6 +128,24 @@ impl Workload<'_> {
         self.queued_attempts_wait_in_the_dispatch_queue().await;
         self.travel_restores_a_running_attempt_as_pending().await;
         self.search_projection_acknowledges_its_outbox().await;
+        self.set_history_offload_modes(&[PartitionId(0)], false)
+            .await;
+    }
+
+    /// Sets the history offload mode of each partition in `partitions`.
+    async fn set_history_offload_modes(&self, partitions: &[PartitionId], is_enabled: bool) {
+        let flow_ids = self.hasher.partition_command_flow_ids();
+        for partition in partitions {
+            self.commit_to(
+                &flow_ids[usize::from(partition.0)],
+                &[],
+                Command::SetHistoryOffloadMode(SetHistoryOffloadModeCommand {
+                    enabled: is_enabled,
+                    partition: u32::from(partition.0),
+                }),
+            )
+            .await;
+        }
     }
 
     /// Queued attempts: one row starts and leaves the index, one returned attempt queues again

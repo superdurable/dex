@@ -39,6 +39,7 @@ Before the snapshot:
   Attributes and one unsynced Attribute, then a SetAttributes changes a synced one. Its
   Attribute Sync entries and pending index are pending in the snapshot. The entries carry the
   last synced `plans/basic="trial"` and `status="active"` values.
+- Partitions 0 and 1 enable history offload, so the snapshot holds their mode records.
 
 Then the node took a snapshot. After the snapshot:
 
@@ -70,6 +71,7 @@ Then the node took a snapshot. After the snapshot:
   restores running attempts as pending reopens it; it starts again and completes.
 - `search-flow`: the search projection of its partition is enabled, an Attribute write queues
   a search outbox entry, and a SearchOutboxAck deletes it.
+- Partition 0 disables history offload, which deletes its mode record.
 
 Every `FlowCommand` kind of behavior version 1 appears in the log. Hand-out commands outside
 `handout-sync` and `handout-travel` carry no task ID, as an older log does. Log cleanup did not run,
