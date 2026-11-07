@@ -3624,6 +3624,7 @@ fn history_page(harness: &Harness, run_attempt: i32) -> GetHistoryEventsResponse
         0,
         &[],
         run_attempt,
+        usize::MAX,
     )
     .expect("history reads")
 }
@@ -3879,6 +3880,7 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
         2,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap();
     let second_page = get_history_events(
@@ -3889,6 +3891,7 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
         2,
         &first_page.next_page_token,
         0,
+        usize::MAX,
     )
     .unwrap();
     assert_eq!(event_ids(&second_page.events), [7, 8]);

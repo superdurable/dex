@@ -509,5 +509,10 @@ fn read_model_error(flow: &FlowAddress, error: ReadModelError) -> FlowCoordinati
                 detail: error.to_string(),
             }
         }
+        error @ ReadModelError::HistoryEventTooLarge { .. } => FlowCoordinationError::rejected(
+            grpc_code::RESOURCE_EXHAUSTED,
+            ErrorSubStatus::Uncategorized,
+            error.to_string(),
+        ),
     }
 }

@@ -51,6 +51,10 @@ pub struct FlowCoordinationConfig {
     /// Largest encoded RPC request sent to a Worker. Default 32 MiB, from
     /// `api.grpcMaxMessageBytes`. Larger requests fail with `ResourceExhausted` before dispatch.
     pub max_worker_rpc_request_bytes: usize,
+    /// Largest encoded GetHistoryEvents response. Default 32 MiB, from `api.grpcMaxMessageBytes`.
+    /// A page ends before an event that would exceed it and returns a next page token. A single
+    /// event larger than it fails the read with `RESOURCE_EXHAUSTED`.
+    pub max_history_events_response_bytes: usize,
     /// Default false, `values.hydrateBeforeDispatch`. When true, client reads and RPC Worker
     /// requests carry complete values instead of value references: GetAttributes,
     /// GetChannelMessages, GetFlowState, WaitForFlow results, the RPC Worker request, and the RPC
@@ -78,6 +82,7 @@ impl Default for FlowCoordinationConfig {
             rpc_default_timeout: Duration::from_secs(60),
             max_in_flight_rpcs_per_node: 1_000,
             max_worker_rpc_request_bytes: 32 * 1024 * 1024,
+            max_history_events_response_bytes: 32 * 1024 * 1024,
             hydrate_value_references: false,
             run_settings: default_run_settings(),
             validation: ValidationConfig::default(),

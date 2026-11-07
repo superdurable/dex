@@ -121,6 +121,7 @@ async fn sync_wait_for_and_execute_dispatch_with_go_server_context_and_complete_
         0,
         &[],
         0,
+        usize::MAX,
     )
     .expect("history reads");
     let start_step = history
@@ -176,6 +177,7 @@ async fn flow_timeout_handler_dispatch_and_history_use_start_source() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .expect("history reads");
     let timeout_handler = history

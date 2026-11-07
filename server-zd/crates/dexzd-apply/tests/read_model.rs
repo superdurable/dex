@@ -1304,6 +1304,7 @@ fn version_one_start_writes_search_document_and_index_rows() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap();
     assert_eq!(history.events.len(), 3);
@@ -1951,6 +1952,7 @@ fn a_result_rejected_by_apply_keeps_its_routing_on_the_attempt_failure() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -2621,6 +2623,7 @@ fn close_after_final_execute_failure(step_options: StepOptions) -> FlowClosedHis
         0,
         &[],
         0,
+        usize::MAX,
     )
     .expect("the history reads")
     .events;
@@ -2957,6 +2960,7 @@ fn flow_state_orders_active_steps_by_type_then_execution_number() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -3087,6 +3091,7 @@ fn history_pages_a_full_flow_and_allocates_pending_ids_at_close() {
         2,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap();
     assert_eq!(
@@ -3107,6 +3112,7 @@ fn history_pages_a_full_flow_and_allocates_pending_ids_at_close() {
         2,
         &first.next_page_token,
         0,
+        usize::MAX,
     )
     .unwrap();
     assert_eq!(
@@ -3126,6 +3132,7 @@ fn history_pages_a_full_flow_and_allocates_pending_ids_at_close() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap();
     assert!(matches!(
@@ -3172,6 +3179,7 @@ fn history_pages_a_full_flow_and_allocates_pending_ids_at_close() {
             0,
             &[],
             0,
+            usize::MAX,
         )
         .unwrap()
         .events;
@@ -3309,6 +3317,7 @@ fn completed_method_contexts_include_effective_options_and_timing() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -3421,6 +3430,7 @@ fn method_context_keeps_durability_from_the_method_schedule() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -3534,6 +3544,7 @@ fn retried_method_contexts_keep_the_previous_failure_and_final_start() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -3659,6 +3670,7 @@ fn exhausted_first_attempt_has_no_previous_failure_in_history_context() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -3746,6 +3758,7 @@ fn pending_retry_context_reports_the_last_started_attempt() {
             0,
             &[],
             0,
+            usize::MAX,
         )
         .unwrap()
         .events;
@@ -3843,6 +3856,7 @@ fn failed_close_drops_pending_step_method_events() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -3875,6 +3889,7 @@ fn fail_policy_flow_timeout_drops_pending_step_method_events() {
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;
@@ -3934,6 +3949,7 @@ fn pending_execute_includes_condition_results_and_state_only_lists_completed_con
         0,
         &[],
         0,
+        usize::MAX,
     )
     .unwrap()
     .events;

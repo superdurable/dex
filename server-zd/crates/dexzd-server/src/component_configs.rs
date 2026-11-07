@@ -224,6 +224,7 @@ impl ComponentConfigs {
                 u64::from(config.limits.max_in_flight_rpcs_per_node),
             )?,
             max_worker_rpc_request_bytes: grpc_max_message_bytes,
+            max_history_events_response_bytes: grpc_max_message_bytes,
             hydrate_value_references: config.values.hydrate_before_dispatch,
             run_settings,
             validation: validation.clone(),
