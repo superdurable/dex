@@ -154,8 +154,10 @@ See [Tool call limits](#never-run-outcome-unknown).
 
 ### Long model calls and timeouts {#timeouts}
 
-The packages set these Step options. **AgentSessionOptions** does not change
-them.
+The packages set these Step options. **run_model_limit** in the Python
+**AgentSessionOptions**, or **runModelLimit** in TypeScript, changes the method
+timeout and attempts of **RunModel**. **AgentSessionOptions** does not change
+the others.
 
 | Step | Method timeout | Heartbeat timeout | Attempts | Failure route |
 | --- | --- | --- | --- | --- |
@@ -172,10 +174,26 @@ loop also stops the background heartbeat.
 
 One model call must finish within 15 minutes. Set the provider or framework
 request timeout below that, so a slow call fails with the provider's error and
-later attempts still fit in the 30-minute retry window. A Claude Agent SDK
-session runs a whole turn segment in one **RunModel**, so that segment must
-finish within 15 minutes. See [Heartbeat](/reference/server/runtime-steps#heartbeat) for how Dex
-detects a lost attempt.
+later attempts still fit in the 30-minute retry window. See
+[Heartbeat](/reference/server/runtime-steps#heartbeat) for how Dex detects a lost attempt.
+
+A Claude Agent SDK session runs a whole turn segment in one **RunModel**: several
+model calls and inline tool calls, until the CLI answers or defers a tool call.
+By default that segment must finish within 15 minutes. Raise the limit for a
+longer one. Any runner can use the option, but a runner that makes one model call
+per **RunModel** rarely needs it.
+
+- Heartbeats continue through the segment, so the method timeout is the only cap.
+  A hung segment holds its Worker slot until then, so do not set it higher than
+  needed.
+- The retry budget moves with the limit. It is the method timeout times one less
+  than the attempts, and at least twice the method timeout, so a timed-out attempt
+  can still retry. Dex checks it only after an attempt fails.
+- A failed segment reruns whole and pays for its model calls again. Set the
+  attempts to 1 if that costs more than a failed turn.
+- **CompactContext** keeps its own limits. It makes one model call.
+- A changed limit applies to each **RunModel** scheduled after the Worker restarts.
+  An attempt in flight, and its retries, keep their limit.
 
 ### Separate Worker pools {#worker-pools}
 

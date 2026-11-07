@@ -6,6 +6,22 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### A configurable RunModel limit
+
+- Python and TypeScript cores: `AgentSessionOptions.run_model_limit`
+  (`runModelLimit`) sets the method timeout and attempts of `RunModel`, with the
+  new `RunModelLimit`. The retry budget moves with them: the method timeout times
+  one less than the attempts, and at least twice the method timeout. The default
+  stays 15 minutes and 3 attempts in 30 minutes. `CompactContext` and the heartbeat
+  timeout do not change.
+- Python Claude Agent SDK adapter: `claude_agent_session_flow` takes
+  `run_model_limit`. The TypeScript adapter takes it through its session options.
+  A turn segment that needs more than 15 minutes can now finish. A failed segment
+  reruns whole.
+- No stored value changes. A running session gets the limit on its next `RunModel`
+  after the Worker restarts.
+- Go core: unchanged.
+
 ### Sessions are searchable by the Step they wait in
 
 - Python core: `AgentSessionClient.start_session` sets

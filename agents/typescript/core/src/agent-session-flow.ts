@@ -50,6 +50,7 @@ import {
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import { checkStoredSessionSettings } from "./agent-session-settings.js";
+import { resolveRunModelLimit, type ResolvedRunModelLimit, type RunModelLimit } from "./agent-session-step-options.js";
 import {
   ApplyTurnControlStep,
   AwaitToolApprovalStep,
@@ -207,6 +208,13 @@ export interface AgentSessionOptions {
    * `list_agent_messages` before more than `retainedMessageLimit` messages follow them.
    */
   readonly retainedMessageLimit?: number | null;
+  /**
+   * Method timeout and attempts of `RunModel`, for a runner whose `RunModel` takes longer than one model call, such as
+   * a harness. Defaults to 15 minutes and 3 attempts in 30 minutes. See {@link RunModelLimit}.
+   *
+   * @since 0.3.0
+   */
+  readonly runModelLimit?: RunModelLimit;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -243,6 +251,8 @@ export interface ResolvedAgentSessionOptions {
   readonly messageChunkMaxBytes?: number;
   /** The retention limit, or `null` to keep every message. A Flow always sets it; optional for 0.1.0 code. */
   readonly retainedMessageLimit?: number | null;
+  /** The `RunModel` limit and its retry budget. A Flow always sets it; optional for 0.2.0 code. */
+  readonly runModelLimit?: ResolvedRunModelLimit;
 }
 
 /**
@@ -543,6 +553,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     messageChunkSize: config.messageChunkSize,
     messageChunkMaxBytes: config.messageChunkMaxBytes,
     retainedMessageLimit: config.retainedMessageLimit,
+    runModelLimit: config.runModelLimit,
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -1043,6 +1054,7 @@ function resolveAgentSessionConfig(
     messageChunkSize,
     messageChunkMaxBytes,
     retainedMessageLimit,
+    runModelLimit: resolveRunModelLimit(options.runModelLimit),
   };
 }
 

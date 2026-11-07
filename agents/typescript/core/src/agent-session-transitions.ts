@@ -33,7 +33,7 @@ import {
   type ToolPolicy,
 } from "./agent-framework-runner.js";
 import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
-import { messageStepOptions, type MessageChunkLoads } from "./agent-session-step-options.js";
+import { messageStepOptions, type MessageChunkLoads, type ResolvedRunModelLimit } from "./agent-session-step-options.js";
 import type { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
   addAgentUsage,
@@ -119,6 +119,7 @@ export interface AgentSessionConfig {
   readonly messageChunkSize: number;
   readonly messageChunkMaxBytes: number;
   readonly retainedMessageLimit: number | null;
+  readonly runModelLimit: ResolvedRunModelLimit;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
@@ -342,7 +343,12 @@ export class AgentSessionTransitions {
   }
 
   private goToModelInputStep(context: Context, stepType: string, summary: ContextSummary | null): StepDecision {
-    const options = messageStepOptions(this.persistence, stepType, this.modelInputChunkLoads(context, summary));
+    const options = messageStepOptions(
+      this.persistence,
+      stepType,
+      this.modelInputChunkLoads(context, summary),
+      this.config.runModelLimit,
+    );
     return goToMany(StepMovement.of(new StepRef(stepType), undefined, options));
   }
 

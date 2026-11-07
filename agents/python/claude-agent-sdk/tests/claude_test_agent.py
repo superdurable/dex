@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,7 +41,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from dex_agents import AgentSessionFlow, ToolEffect, ToolPolicy
+from dex_agents import AgentSessionFlow, RunModelLimit, ToolEffect, ToolPolicy
 from dex_agents.testing import FileGate, InvocationLog
 from dex_agents_claude_agent_sdk import (
     ClaudeAgentOptionsContext,
@@ -53,6 +54,7 @@ CLAUDE_TEST_AGENT_FLOW_TYPE = "ScriptedClaudeAgent"
 FAKE_CLI_PATH_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_CLI_PATH"
 REAL_CLI_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_REAL_CLI_ENV"
 PERMISSION_MODE_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_PERMISSION_MODE"
+RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_RUN_MODEL_LIMIT"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
 SLOW_WRITE_GATE = "slow_write"
 TOOL_POLICIES = {
@@ -91,6 +93,18 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         build_custom_tools(state_dir),
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
         tool_policies=TOOL_POLICIES,
+        run_model_limit=_run_model_limit_from_environment(),
+    )
+
+
+def _run_model_limit_from_environment() -> RunModelLimit | None:
+    limit = os.environ.get(RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE)
+    if limit is None:
+        return None
+    method_timeout_seconds, maximum_attempts = limit.split(",")
+    return RunModelLimit(
+        method_timeout=timedelta(seconds=int(method_timeout_seconds)),
+        maximum_attempts=int(maximum_attempts),
     )
 
 
