@@ -394,5 +394,133 @@
   {
     "from": "/zh-Hans/reference/cli/1.32.x/",
     "to": "/zh-Hans/reference/cli/"
+  },
+  {
+    "from": "/reference/go/1.29.x/",
+    "to": "/reference/go/"
+  },
+  {
+    "from": "/reference/go/1.29.x/workers/",
+    "to": "/reference/go/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/",
+    "to": "/zh-Hans/reference/go/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/workers/",
+    "to": "/zh-Hans/reference/go/workers/"
+  },
+  {
+    "from": "/reference/python/1.29.x/",
+    "to": "/reference/python/"
+  },
+  {
+    "from": "/reference/python/1.29.x/workers/",
+    "to": "/reference/python/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/",
+    "to": "/zh-Hans/reference/python/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/workers/",
+    "to": "/zh-Hans/reference/python/workers/"
+  },
+  {
+    "from": "/reference/java/1.30.x/",
+    "to": "/reference/java/"
+  },
+  {
+    "from": "/reference/java/1.30.x/workers/",
+    "to": "/reference/java/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/",
+    "to": "/zh-Hans/reference/java/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/workers/",
+    "to": "/zh-Hans/reference/java/workers/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/",
+    "to": "/reference/typescript/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/workers/",
+    "to": "/reference/typescript/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/",
+    "to": "/zh-Hans/reference/typescript/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/workers/",
+    "to": "/zh-Hans/reference/typescript/workers/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/",
+    "to": "/reference/rust/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/workers/",
+    "to": "/reference/rust/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/",
+    "to": "/zh-Hans/reference/rust/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/workers/",
+    "to": "/zh-Hans/reference/rust/workers/"
+  },
+  {
+    "from": "/reference/web/1.29.x/debugging/",
+    "to": "/reference/web/debugging/"
+  },
+  {
+    "from": "/reference/web/1.29.x/dex-web/",
+    "to": "/reference/web/dex-web/"
+  },
+  {
+    "from": "/reference/web/1.29.x/flow-visualization/",
+    "to": "/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/reference/web/1.29.x/",
+    "to": "/reference/web/"
+  },
+  {
+    "from": "/reference/web/1.29.x/local-connector-setup/",
+    "to": "/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/debugging/",
+    "to": "/zh-Hans/reference/web/debugging/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/dex-web/",
+    "to": "/zh-Hans/reference/web/dex-web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/flow-visualization/",
+    "to": "/zh-Hans/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/",
+    "to": "/zh-Hans/reference/web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/local-connector-setup/",
+    "to": "/zh-Hans/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/reference/cli/1.33.x/",
+    "to": "/reference/cli/"
+  },
+  {
+    "from": "/zh-Hans/reference/cli/1.33.x/",
+    "to": "/zh-Hans/reference/cli/"
   }
 ]
