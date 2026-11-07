@@ -238,6 +238,7 @@ var testTransportMessageSizeFailures = []struct {
 	{name: "tonic encode", code: codes.OutOfRange, message: "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"},
 	{name: "tonic decode", code: codes.OutOfRange, message: "Error, decoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"},
 	{name: "tonic decompress", code: codes.ResourceExhausted, message: "Error decompressing: size limit, of 33554432 bytes, exceeded while decompressing message"},
+	{name: "tonic body over 4 GiB", code: codes.ResourceExhausted, message: "Cannot return body with more than 4GB of data but got 4294967296 bytes"},
 }
 
 // limitedHydrationFlowServiceClient fails LoadBlobs calls above maxBlobs entries, or with oversizedBlobID.

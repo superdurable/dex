@@ -42,6 +42,7 @@ const transportMessageSizeFailures: readonly (readonly [string, status, string])
   ["tonic encode", status.OUT_OF_RANGE, "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"],
   ["tonic decode", status.OUT_OF_RANGE, "Error, decoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"],
   ["tonic decompress", status.RESOURCE_EXHAUSTED, "Error decompressing: size limit, of 33554432 bytes, exceeded while decompressing message"],
+  ["tonic body over 4 GiB", status.RESOURCE_EXHAUSTED, "Cannot return body with more than 4GB of data but got 4294967296 bytes"],
 ];
 
 test("the default receive limit matches Go and Python and keeps sends unlimited", () => {

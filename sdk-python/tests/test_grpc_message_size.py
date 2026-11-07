@@ -136,6 +136,11 @@ TRANSPORT_SIZE_FAILURES = [
         "Error decompressing: size limit, of 33554432 bytes, exceeded while decompressing message",
         id="tonic-decompress",
     ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "Cannot return body with more than 4GB of data but got 4294967296 bytes",
+        id="tonic-body-over-4-gib",
+    ),
 ]
 
 

@@ -345,6 +345,7 @@ var grpcMessageSizeDiagnostics = []string{
 	"decompresses to a size larger than",
 	"message length too large",
 	"exceeded while decompressing message",
+	"cannot return body with more than 4gb of data",
 }
 
 func flowBlobCacheKey(flowID string, blobID string) string {

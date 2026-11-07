@@ -64,6 +64,7 @@ _GRPC_SIZE_DIAGNOSTICS = (
     "decompresses to a size larger than",
     "message length too large",
     "exceeded while decompressing message",
+    "cannot return body with more than 4gb of data",
 )
 
 
