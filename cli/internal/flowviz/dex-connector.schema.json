@@ -219,6 +219,24 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "query"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "agent": {
+                "properties": {
+                  "retry": false
+                }
+              }
+            }
+          }
         }
       ],
       "dependentRequired": {
@@ -261,6 +279,12 @@
           "enum": [
             "recommended"
           ]
+        },
+        "retry": {
+          "enum": [
+            "safe"
+          ],
+          "description": "Repeating the call with the same Call ID, inside the operation's own Execute retry policy, cannot make a second effect. Absence means a repeat may not be safe."
         }
       },
       "if": {
@@ -272,7 +296,8 @@
       },
       "then": {
         "properties": {
-          "approval": false
+          "approval": false,
+          "retry": false
         }
       }
     },

@@ -185,14 +185,32 @@ func TestScriptManifestInvalidToolMetadataIsBlocking(t *testing.T) {
 		"approval without exposed": {0, func(factory map[string]any) {
 			factory["agent"] = map[string]any{"exposed": false, "approval": "recommended"}
 		}, "agent.approval requires agent.exposed"},
-		"unknown agent field": {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "owner": "team"} }, `unknown field "owner"`},
-		"Trigger factory":     {1, func(map[string]any) {}, "Trigger factory must not declare"},
+		"Trigger factory":        {1, func(map[string]any) {}, "Trigger factory must not declare"},
+		"blank type":             {0, func(factory map[string]any) { factory["inputType"] = "" }, "inputType must be a non-empty string"},
+		"null type":              {0, func(factory map[string]any) { factory["inputType"] = nil }, "inputType must be a non-empty string"},
+		"blank description":      {0, func(factory map[string]any) { factory["description"] = "" }, "description must be a non-empty string"},
+		"null description":       {0, func(factory map[string]any) { factory["description"] = nil }, "description must be a non-empty string"},
+		"null agent":             {0, func(factory map[string]any) { factory["agent"] = nil }, "agent must be an object"},
+		"blank approval":         {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "approval": ""} }, `agent.approval "" must be recommended`},
+		"null approval":          {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "approval": nil} }, "agent.approval null must be recommended"},
+		"unknown retry":          {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": "always"} }, `agent.retry "always" must be safe`},
+		"blank retry":            {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": ""} }, `agent.retry "" must be safe`},
+		"null retry":             {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": nil} }, "agent.retry null must be safe"},
+		"retry without exposed":  {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": false, "retry": "safe"} }, "agent.retry requires agent.exposed"},
+		"retry on a query":       {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": "safe"} }, "agent.retry is only for mutations"},
+		"blank field on Trigger": {1, func(factory map[string]any) { clearToolMetadata(factory); factory["description"] = "" }, "Trigger factory must not declare"},
+		"null agent on Trigger":  {1, func(factory map[string]any) { clearToolMetadata(factory); factory["agent"] = nil }, "Trigger factory must not declare"},
 	} {
 		for _, language := range []string{"python", "typescript"} {
 			t.Run(language+"/"+name, func(t *testing.T) {
 				sourcePath := scriptFixture(t, language)
 				manifest := readScriptManifest(t, sourcePath, language)
-				factory := manifest["factories"].([]any)[testCase.factoryIndex].(map[string]any)
+				factories := manifest["factories"].([]any)
+				if testCase.factoryIndex == 2 {
+					factories = append(factories, scriptMutationFactory(factories[0].(map[string]any)))
+					manifest["factories"] = factories
+				}
+				factory := factories[testCase.factoryIndex].(map[string]any)
 				for metadataName, value := range validScriptToolMetadata() {
 					factory[metadataName] = value
 				}
@@ -212,13 +230,79 @@ func TestScriptManifestInvalidToolMetadataIsBlocking(t *testing.T) {
 	}
 }
 
+func TestScriptManifestAcceptsRetrySafeOnMutation(t *testing.T) {
+	for _, language := range []string{"python", "typescript"} {
+		t.Run(language, func(t *testing.T) {
+			sourcePath := scriptFixture(t, language)
+			manifest := readScriptManifest(t, sourcePath, language)
+			factories := manifest["factories"].([]any)
+			mutation := scriptMutationFactory(factories[0].(map[string]any))
+			for name, value := range validScriptToolMetadata() {
+				mutation[name] = value
+			}
+			mutation["agent"] = map[string]any{"exposed": true, "retry": "safe"}
+			manifest["factories"] = append(factories, mutation)
+			writeScriptManifest(t, sourcePath, language, manifest)
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+	}
+}
+
+func TestScriptManifestIgnoresUnknownFieldOnlyInsideAgent(t *testing.T) {
+	for _, language := range []string{"python", "typescript"} {
+		t.Run(language+"/inside agent", func(t *testing.T) {
+			sourcePath := scriptFixture(t, language)
+			manifest := readScriptManifest(t, sourcePath, language)
+			factory := manifest["factories"].([]any)[0].(map[string]any)
+			for name, value := range validScriptToolMetadata() {
+				factory[name] = value
+			}
+			factory["agent"].(map[string]any)["futureField"] = map[string]any{"nested": true}
+			writeScriptManifest(t, sourcePath, language, manifest)
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+		for name, change := range map[string]func(manifest map[string]any){
+			"manifest": func(manifest map[string]any) { manifest["futureField"] = true },
+			"package":  func(manifest map[string]any) { manifest["package"].(map[string]any)["futureField"] = true },
+			"factory": func(manifest map[string]any) {
+				manifest["factories"].([]any)[0].(map[string]any)["futureField"] = true
+			},
+			"branch": func(manifest map[string]any) {
+				factory := manifest["factories"].([]any)[0].(map[string]any)
+				factory["branches"].([]any)[0].(map[string]any)["futureField"] = true
+			},
+		} {
+			t.Run(language+"/"+name, func(t *testing.T) {
+				sourcePath := scriptFixture(t, language)
+				manifest := readScriptManifest(t, sourcePath, language)
+				change(manifest)
+				writeScriptManifest(t, sourcePath, language, manifest)
+				graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+				require.NoError(t, err)
+				require.False(t, graph.Valid)
+				require.Contains(t, diagnosticCodes(graph), "connector_manifest")
+				for _, diagnostic := range graph.Diagnostics {
+					if diagnostic.Code == "connector_manifest" {
+						require.Contains(t, diagnostic.Message, `unknown field "futureField"`)
+					}
+				}
+			})
+		}
+	}
+}
+
 // The schema file is the published contract; the decoder alone would accept a field it omits.
 func TestConnectorManifestSchemaDeclaresToolMetadata(t *testing.T) {
 	contents, err := os.ReadFile("dex-connector.schema.json")
 	require.NoError(t, err)
 	var document struct {
 		Definitions map[string]struct {
-			Properties map[string]any `json:"properties"`
+			Properties           map[string]any `json:"properties"`
+			AdditionalProperties any            `json:"additionalProperties"`
 		} `json:"$defs"`
 	}
 	require.NoError(t, json.Unmarshal(contents, &document))
@@ -227,6 +311,24 @@ func TestConnectorManifestSchemaDeclaresToolMetadata(t *testing.T) {
 	}
 	require.Contains(t, document.Definitions["agent"].Properties, "exposed")
 	require.Contains(t, document.Definitions["agent"].Properties, "approval")
+	require.Equal(t, false, document.Definitions["agent"].AdditionalProperties, "authors still get an error for a typo")
+	require.Equal(t, map[string]any{"enum": []any{"safe"}, "description": document.Definitions["agent"].Properties["retry"].(map[string]any)["description"]}, document.Definitions["agent"].Properties["retry"])
+}
+
+func scriptMutationFactory(query map[string]any) map[string]any {
+	mutation := make(map[string]any, len(query))
+	for name, value := range query {
+		mutation[name] = value
+	}
+	mutation["name"] = "create_write_for_tool_metadata"
+	mutation["kind"] = "mutation"
+	return mutation
+}
+
+func clearToolMetadata(factory map[string]any) {
+	for name := range validScriptToolMetadata() {
+		delete(factory, name)
+	}
 }
 
 func validScriptToolMetadata() map[string]any {

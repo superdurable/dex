@@ -81,6 +81,14 @@ type connectorManifestFactory struct {
 type connectorManifestAgent struct {
 	Exposed  *bool  `json:"exposed"`
 	Approval string `json:"approval,omitempty"`
+	Retry    string `json:"retry,omitempty"`
+}
+
+// UnmarshalJSON ignores unknown fields, so a package with a newer agent field still analyzes.
+// The published schema stays closed, so an author's typo fails in the Connector library.
+func (agent *connectorManifestAgent) UnmarshalJSON(contents []byte) error {
+	type agentFields connectorManifestAgent
+	return json.Unmarshal(contents, (*agentFields)(agent))
 }
 
 type connectorManifestBranch struct {
@@ -348,6 +356,9 @@ func readConnectorPackageManifest(path string, language string) (connectorPackag
 	if err := validateConnectorManifestConfigurationUIPresence(contents); err != nil {
 		return manifest, err
 	}
+	if err := validateConnectorManifestToolMetadataPresence(contents); err != nil {
+		return manifest, err
+	}
 	expectedEcosystem := "pypi"
 	if language == "typescript" {
 		expectedEcosystem = "npm"
@@ -404,9 +415,6 @@ func validateConnectorManifestFactory(factory connectorManifestFactory) error {
 		if factory.TriggerName == "" || factory.Fields["bindingName"] == "" {
 			return fmt.Errorf("Trigger factory requires triggerName and fields.bindingName")
 		}
-		if factory.InputType != "" || len(factory.InputSchema) != 0 || factory.Description != "" || factory.Agent != nil {
-			return fmt.Errorf("Trigger factory must not declare inputType, inputSchema, description, or agent")
-		}
 		return nil
 	}
 	if factory.Kind != "query" && factory.Kind != "mutation" {
@@ -427,9 +435,6 @@ func validateConnectorManifestFactory(factory connectorManifestFactory) error {
 
 // Manifests from before agent tools carry none of these fields, so every field stays optional.
 func validateConnectorManifestToolMetadata(factory connectorManifestFactory) error {
-	if (factory.InputType == "") != (len(factory.InputSchema) == 0) {
-		return fmt.Errorf("inputType and inputSchema must appear together")
-	}
 	if len(factory.InputSchema) != 0 {
 		var inputSchema map[string]json.RawMessage
 		if err := json.Unmarshal(factory.InputSchema, &inputSchema); err != nil || inputSchema == nil || string(inputSchema["type"]) != `"object"` {
@@ -442,19 +447,76 @@ func validateConnectorManifestToolMetadata(factory connectorManifestFactory) err
 	if factory.Agent.Exposed == nil {
 		return fmt.Errorf("agent requires exposed")
 	}
-	if factory.InputType == "" {
-		return fmt.Errorf("agent requires inputType and inputSchema")
+	if !*factory.Agent.Exposed && factory.Agent.Approval != "" {
+		return fmt.Errorf("agent.approval requires agent.exposed to be true")
 	}
-	switch factory.Agent.Approval {
-	case "":
-	case "recommended":
-		if !*factory.Agent.Exposed {
-			return fmt.Errorf("agent.approval requires agent.exposed to be true")
-		}
-	default:
-		return fmt.Errorf("agent.approval %q must be recommended", factory.Agent.Approval)
+	if !*factory.Agent.Exposed && factory.Agent.Retry != "" {
+		return fmt.Errorf("agent.retry requires agent.exposed to be true")
+	}
+	if factory.Kind == "query" && factory.Agent.Retry != "" {
+		return fmt.Errorf("agent.retry is only for mutations")
 	}
 	return nil
+}
+
+// Go zero values hide a present blank or null field that the schema rejects, so check the raw manifest.
+func validateConnectorManifestToolMetadataPresence(contents []byte) error {
+	var manifest struct {
+		Factories []map[string]json.RawMessage `json:"factories"`
+	}
+	if err := json.Unmarshal(contents, &manifest); err != nil {
+		return fmt.Errorf("decode Connector manifest: %w", err)
+	}
+	for _, factory := range manifest.Factories {
+		if err := validateConnectorFactoryToolMetadataPresence(factory); err != nil {
+			return fmt.Errorf("Connector manifest factory %s: %w", factory["name"], err)
+		}
+	}
+	return nil
+}
+
+func validateConnectorFactoryToolMetadataPresence(factory map[string]json.RawMessage) error {
+	inputType, hasInputType := factory["inputType"]
+	_, hasInputSchema := factory["inputSchema"]
+	description, hasDescription := factory["description"]
+	agent, hasAgent := factory["agent"]
+	if string(factory["kind"]) == `"trigger"` {
+		if hasInputType || hasInputSchema || hasDescription || hasAgent {
+			return fmt.Errorf("Trigger factory must not declare inputType, inputSchema, description, or agent")
+		}
+		return nil
+	}
+	if hasInputType != hasInputSchema {
+		return fmt.Errorf("inputType and inputSchema must appear together")
+	}
+	if hasAgent && !hasInputType {
+		return fmt.Errorf("agent requires inputType and inputSchema")
+	}
+	if hasInputType && !isNonEmptyJSONString(inputType) {
+		return fmt.Errorf("inputType must be a non-empty string")
+	}
+	if hasDescription && !isNonEmptyJSONString(description) {
+		return fmt.Errorf("description must be a non-empty string")
+	}
+	if !hasAgent {
+		return nil
+	}
+	var agentFields map[string]json.RawMessage
+	if err := json.Unmarshal(agent, &agentFields); err != nil || agentFields == nil {
+		return fmt.Errorf("agent must be an object")
+	}
+	if approval, hasApproval := agentFields["approval"]; hasApproval && string(approval) != `"recommended"` {
+		return fmt.Errorf("agent.approval %s must be recommended", approval)
+	}
+	if retry, hasRetry := agentFields["retry"]; hasRetry && string(retry) != `"safe"` {
+		return fmt.Errorf("agent.retry %s must be safe", retry)
+	}
+	return nil
+}
+
+func isNonEmptyJSONString(value json.RawMessage) bool {
+	var text string
+	return json.Unmarshal(value, &text) == nil && text != "" && string(value) != "null"
 }
 
 // Go zero values hide omitted schema-required ConfigurationUI members, so check them in the raw manifest.
