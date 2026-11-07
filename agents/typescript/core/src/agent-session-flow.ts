@@ -268,7 +268,7 @@ export interface ResolvedAgentSessionOptions {
  * const flow = createAgentSessionFlow(runner, "SupportAgent");
  * const registry = new Registry([flow]);
  * // ... start a Worker and a Client with this registry ...
- * await client.startFlow(flow, sessionId, { initialMessage: null });
+ * await startAgentSession(client, flow, sessionId);
  * await client.invokeRPC(flow.sendUserMessage, sessionId, { text: "Where is order 42?" });
  * const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
  * for (const interrupt of snapshot.pendingInterrupts) {

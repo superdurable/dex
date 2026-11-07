@@ -4,6 +4,10 @@
 
 ### Added and fixed
 
+- Add `ActiveStepSearchMode.WITH_WAIT_FOR` and `ActiveStepSearchMode.DISABLED`, which
+  the Python and Go SDKs already have. `startFlow`, `updateFlowConfig`, and SubFlow
+  `configOverride` send them. Any value other than `ALL` used to be sent as the
+  unspecified mode.
 - Add `FlowConfig.historyWindowEvents`, which sets about how many of the newest
   history events a run keeps for history reads and Time Travel. Set it at start
   through `StartFlowOptions.configOverride`, change it with `updateFlowConfig`, or

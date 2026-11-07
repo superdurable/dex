@@ -365,6 +365,49 @@ wins.
 the same lock. A retry is safe. The Python **AgentSessionClient** retries for up
 to 5 seconds.
 
+## Find sessions that need a person {#find-sessions}
+
+**ActiveStepTypes** is a built-in search field. It lists the Steps a Flow waits
+in, so one query finds every session waiting for a person, across agents:
+
+```text
+ActiveStepTypes = "AwaitToolApproval"
+ActiveStepTypes = "AwaitQuestionAnswer"
+```
+
+A session appears when it enters the wait and leaves when it moves on. The
+search needs no indexed Attribute. Read **PendingInterrupts** or the session
+snapshot for what the session asks.
+
+The Python **AgentSessionClient.start_session** and the TypeScript
+**startAgentSession** turn this on for a new session. They set
+**activeStepSearchMode** to the mode that indexes only Steps with a wait, and an
+application can set another mode in the start options. A plain **start_flow** or
+**startFlow** does not set it, and the server default keeps the session out of
+the search. A session started as a SubFlow inherits its parent's mode.
+
+To turn it on for a session that is already running, such as one started on
+0.2.0, call **UpdateFlowConfig** for that session. In Python, call
+**update_flow_config** with **active_step_search_mode** set to
+**AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE**. In TypeScript, call **updateFlowConfig**
+with **activeStepSearchMode** set to **agentSessionActiveStepSearchMode**. An
+operator can run **dexcli flow update-config**. The session appears within seconds,
+even if it is already waiting. To update every running session, page through
+**SearchFlows** and update each one:
+
+```text
+FlowType = "SupportAgent" AND ExecutionStatus = "Running"
+```
+
+A Step that runs straight away, such as **RunModel**, is not indexed. So a
+session's search entry changes only when it enters or leaves a wait, which is
+twice for a turn with no tool calls. Each change writes the search entry in the
+same commit as the Step.
+
+Two things that need a person do not appear, because no Step waits on them: a
+tool call that recorded **outcome_unknown**, and a draft plan waiting for
+**execute_plan**.
+
 ## Crashes and redeploys {#worker-failures}
 
 A crash repeats at most the one call that was running.

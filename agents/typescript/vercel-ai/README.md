@@ -50,6 +50,7 @@ import {
   createVercelAiAgentSessionFlow,
   getAgentToolExecutionScope,
 } from "@superdurable/dex-agents-vercel-ai";
+import { startAgentSession } from "@superdurable/dex-agents";
 
 const orderInput = jsonSchema<{ orderId: string }>({
   type: "object",
@@ -100,7 +101,7 @@ await worker.waitPullRegistered({ timeoutMs: 10_000 });
 const client = new Client(registry, blobCache, { serverAddress: "127.0.0.1:8801" });
 
 const sessionId = "session-42";
-await client.startFlow(supportAgentFlow, sessionId, { initialMessage: "Please refund order 42" });
+await startAgentSession(client, supportAgentFlow, sessionId, { initialMessage: "Please refund order 42" });
 
 // Later, for example from an approval endpoint:
 const snapshot = await client.invokeRPC(supportAgentFlow.getAgentSnapshot, sessionId);

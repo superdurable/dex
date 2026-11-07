@@ -20,6 +20,7 @@ import {
 } from "@grpc/grpc-js";
 
 import {
+  ActiveStepSearchMode,
   Attribute,
   AttributeMatch,
   AttributeMap,
@@ -50,6 +51,7 @@ import {
   type StepDecision,
 } from "../src/index.js";
 import {
+  ActiveStepSearchMode as ProtoActiveStepSearchMode,
   FlowServiceService,
   FlowErrorType as ProtoFlowErrorType,
   type FlowResult as ProtoFlowResult,
@@ -460,6 +462,15 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     await client.updateFlowConfig("flow-1", {});
     assert.ok(requests.updateFlowConfig?.flowConfig);
     assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);
+    for (const [mode, wireMode] of [
+      [ActiveStepSearchMode.DEFAULT, ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED],
+      [ActiveStepSearchMode.ALL, ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL],
+      [ActiveStepSearchMode.WITH_WAIT_FOR, ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR],
+      [ActiveStepSearchMode.DISABLED, ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_DISABLED],
+    ] as const) {
+      await client.updateFlowConfig("flow-1", { activeStepSearchMode: mode });
+      assert.equal(requests.updateFlowConfig.flowConfig.activeStepSearchMode, wireMode);
+    }
     await client.updateFlowConfig("flow-1", { continueAsNewThreshold: 123 });
     assert.equal(requests.updateFlowConfig.flowConfig.workerTarget, undefined);
     assert.equal(requests.updateFlowConfig.flowConfig.continueAsNewThreshold, 123);

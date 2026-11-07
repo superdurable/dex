@@ -46,7 +46,7 @@ import { Agent } from "@mastra/core/agent";
 import { RequestContext } from "@mastra/core/request-context";
 import { createTool } from "@mastra/core/tools";
 import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
-import { ToolExecutionError } from "@superdurable/dex-agents";
+import { startAgentSession, ToolExecutionError } from "@superdurable/dex-agents";
 import {
   createMastraAgentSessionFlow,
   idempotencyKeyRequestContextKey,
@@ -97,7 +97,7 @@ await worker.start();
 await worker.waitPullRegistered({ timeoutMs: 10_000 });
 const client = new Client(registry, blobCache, { serverAddress: "127.0.0.1:8801" });
 
-await client.startFlow(flow, "session-42", { initialMessage: "Please refund order 42" });
+await startAgentSession(client, flow, "session-42", { initialMessage: "Please refund order 42" });
 // Later, for example from a UI that polls the snapshot or reads flow.agentEvents:
 const snapshot = await client.invokeRPC(flow.getAgentSnapshot, "session-42");
 for (const interrupt of snapshot.pendingInterrupts) {

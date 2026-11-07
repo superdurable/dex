@@ -270,6 +270,41 @@ session 在模型请求调用时，用 Worker 的时钟计算截止时间。保�
 Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictError** 失败。重试是
 安全的。Python 的 **AgentSessionClient** 最多重试 5 秒。
 
+## 查找需要人处理的 session {#find-sessions}
+
+**ActiveStepTypes** 是内置的搜索字段。它列出 Flow 正在等待的 Step，所以一条查询就能跨 agent
+找到所有等待人处理的 session：
+
+```text
+ActiveStepTypes = "AwaitToolApproval"
+ActiveStepTypes = "AwaitQuestionAnswer"
+```
+
+session 进入等待时出现在结果中，继续往下走时离开。这个搜索不需要带索引的 Attribute。session
+具体在问什么，读 **PendingInterrupts** 或 session snapshot。
+
+Python 的 **AgentSessionClient.start_session** 和 TypeScript 的 **startAgentSession** 会为
+新 session 打开这个搜索。它们把 **activeStepSearchMode** 设为只索引带等待的 Step 的模式，应用
+可以在启动选项中改用别的模式。直接调用 **start_flow** 或 **startFlow** 不会设置它，服务器默认值
+会让这个 session 留在搜索之外。作为 SubFlow 启动的 session 继承父 Flow 的模式。
+
+要为已经在运行的 session 打开搜索，比如在 0.2.0 上启动的 session，对这个 session 调用
+**UpdateFlowConfig**。在 Python 中，调用 **update_flow_config**，把 **active_step_search_mode**
+设为 **AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE**。在 TypeScript 中，调用 **updateFlowConfig**，把
+**activeStepSearchMode** 设为 **agentSessionActiveStepSearchMode**。运维人员也可以运行
+**dexcli flow update-config**。即使 session 已经在等待，它也会在几秒内出现。要更新所有
+运行中的 session，分页调用 **SearchFlows**，再逐个更新：
+
+```text
+FlowType = "SupportAgent" AND ExecutionStatus = "Running"
+```
+
+**RunModel** 这类直接运行的 Step 不会被索引。所以 session 的搜索记录只在进入或离开等待时变化，
+没有 tool call 的一轮变化两次。每次变化都和 Step 在同一次提交中写入搜索记录。
+
+有两种需要人处理的情况不会出现，因为没有 Step 在等待它们：记录了 **outcome_unknown** 的
+tool call，以及等待 **execute_plan** 的草稿计划。
+
 ## 崩溃和重新部署 {#worker-failures}
 
 崩溃最多重跑当时正在运行的那一次调用。

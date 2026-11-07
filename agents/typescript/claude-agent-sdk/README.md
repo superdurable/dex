@@ -58,6 +58,7 @@ import {
   createClaudeAgentSessionFlow,
   currentDeferredToolExecution,
 } from "@superdurable/dex-agents-claude-agent-sdk";
+import { startAgentSession } from "@superdurable/dex-agents";
 import { z } from "zod";
 
 const lookupOrder = tool(
@@ -101,7 +102,7 @@ await worker.start();
 await worker.waitPullRegistered({ timeoutMs: 30_000 });
 const client = new Client(registry, blobCache, { serverAddress: "127.0.0.1:8801" });
 
-await client.startFlow(flow, "session-42", { initialMessage: "Refund order 7 if it arrived broken" });
+await startAgentSession(client, flow, "session-42", { initialMessage: "Refund order 7 if it arrived broken" });
 const snapshot = await client.invokeRPC(flow.getAgentSnapshot, "session-42");
 for (const interrupt of snapshot.pendingInterrupts) {
   await client.invokeRPC(flow.resolveInterrupt, "session-42", {

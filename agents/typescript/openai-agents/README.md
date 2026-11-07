@@ -52,6 +52,7 @@ import {
   createOpenAIAgentsSessionFlow,
   getDeferredToolExecution,
 } from "@superdurable/dex-agents-openai-agents";
+import { startAgentSession } from "@superdurable/dex-agents";
 
 const lookupOrder = tool({
   name: "lookup_order",
@@ -106,7 +107,7 @@ await worker.waitPullRegistered({ timeoutMs: 10_000 });
 const client = new Client(registry, blobCache, { serverAddress: "127.0.0.1:8801" });
 
 const sessionId = "session-42";
-await client.startFlow(supportFlow, sessionId, { initialMessage: "Please refund order 42" });
+await startAgentSession(client, supportFlow, sessionId, { initialMessage: "Please refund order 42" });
 
 // Later, for example from an approval screen:
 const snapshot = await client.invokeRPC(supportFlow.getAgentSnapshot, sessionId);
