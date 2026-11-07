@@ -365,6 +365,62 @@ wins.
 the same lock. A retry is safe. The Python **AgentSessionClient** retries for up
 to 5 seconds.
 
+## Spend limits {#spend-limits}
+
+A spend limit is usually per account or per API key, across many sessions. Dex
+has no built-in limit. An application implements **ModelSpendLimit** and passes it
+as **spend_limit** in the Python **AgentSessionOptions** or **spendLimit** in
+TypeScript. Without one, the session makes no checks.
+
+The session calls the interface around each model call of **RunModel** and
+**CompactContext**:
+
+| Call | When | What it gets |
+| --- | --- | --- |
+| **check_model_call** | Before each attempt, after turn control and the compaction decision | The session, turn, Step type, attempt, session settings, and committed usage |
+| **report_model_usage** | When the attempt's model call returns, before the Step commits | The same, with the call's usage and a stable report ID |
+
+Counters and limits belong to the application. Put the account or API key
+reference in the session settings, and read it from the check. It stays a
+reference: session settings are stored.
+
+**A refused call ends the turn.** The session writes **MODEL_CALL_REFUSED_ERROR_PREFIX**
+and the application's reason to **AgentState.last_turn_error**, keeps the finished
+tool results of the turn with the usual failure note, and waits for the next user
+message. That message starts a new turn, which is checked again. A refused
+**CompactContext** ends the turn the same way. The session stays alive, and no new
+status or interrupt is involved.
+
+**A check that fails is a refusal without a reason.** A check that raises, or takes
+longer than 30 seconds, fails the attempt. Dex retries it under the Step's retry
+policy, and no model call runs without a check that passed. When the retries run
+out, the turn fails with the error. To fail open instead, catch your own errors in
+the check and allow the call.
+
+**A failed report changes nothing.** A report that raises or times out is logged and
+dropped. Failing the attempt would pay for the call a second time.
+
+**Each attempt reports once.** The report ID is
+**flow/turn/step execution/attempt**, so count each ID once. A retry is a new paid
+call and has a new ID. A Step that reported and then did not commit, such as when
+its Worker died, reports again on its retry. Both calls were paid for, so the
+reports exceed **AgentUsage**, which keeps only the committed attempt. A report also
+carries the session's usage including the call, so an application that counts per
+session recovers from a lost report on the next one.
+
+Three limits to design for:
+
+- The check bounds the next call, not its cost. Sessions that pass together can
+  overshoot.
+- A harness, such as a Claude Agent SDK session, is checked once per turn segment,
+  and its usage arrives when the segment ends. One segment can overshoot by all its
+  model calls. Set the harness's own budget option too, such as **max_budget_usd** in
+  Python or **maxBudgetUsd** in TypeScript.
+- A call that fails, is cancelled, or is lost with its Worker reports nothing, though
+  the provider may bill it. Some frameworks do not expose token counts, so a report
+  can show **model_calls** above zero with zero tokens. That means unknown, not free.
+  Count such calls by your own rule.
+
 ## Crashes and redeploys {#worker-failures}
 
 A crash repeats at most the one call that was running.

@@ -50,6 +50,7 @@ import {
   type AgentSessionPersistence,
 } from "./agent-session-persistence.js";
 import { checkStoredSessionSettings } from "./agent-session-settings.js";
+import type { ModelSpendLimit } from "./agent-session-spend-limit.js";
 import {
   ApplyTurnControlStep,
   AwaitToolApprovalStep,
@@ -207,6 +208,13 @@ export interface AgentSessionOptions {
    * `list_agent_messages` before more than `retainedMessageLimit` messages follow them.
    */
   readonly retainedMessageLimit?: number | null;
+  /**
+   * The application's spend limit, called before and after each model call of `RunModel` and `CompactContext`.
+   * Omit it to make no checks. See {@link ModelSpendLimit}.
+   *
+   * @since 0.3.0
+   */
+  readonly spendLimit?: ModelSpendLimit;
 }
 
 /** Options applied by an {@link AgentSessionFlow}, with every default filled in. */
@@ -243,6 +251,8 @@ export interface ResolvedAgentSessionOptions {
   readonly messageChunkMaxBytes?: number;
   /** The retention limit, or `null` to keep every message. A Flow always sets it; optional for 0.1.0 code. */
   readonly retainedMessageLimit?: number | null;
+  /** The application's spend limit, or `undefined` for none. */
+  readonly spendLimit?: ModelSpendLimit;
 }
 
 /**
@@ -543,6 +553,7 @@ export function createAgentSessionFlow<Runner extends AgentFrameworkRunner<Defer
     messageChunkSize: config.messageChunkSize,
     messageChunkMaxBytes: config.messageChunkMaxBytes,
     retainedMessageLimit: config.retainedMessageLimit,
+    ...(config.spendLimit === undefined ? {} : { spendLimit: config.spendLimit }),
   });
 
   // A class per Flow gives each Flow its own RPC methods, which the Dex Client identifies by function.
@@ -1043,6 +1054,7 @@ function resolveAgentSessionConfig(
     messageChunkSize,
     messageChunkMaxBytes,
     retainedMessageLimit,
+    spendLimit: options.spendLimit,
   };
 }
 

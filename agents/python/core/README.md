@@ -900,6 +900,14 @@ optional `interrupt_deadline`, `built_in_tools`, `max_durable_wait`, and
 `plan_mode_enabled`. A tool
 whose policy requires approval runs only after `AwaitToolApproval` approves it.
 
+## Spend limits
+
+`ModelSpendLimit` is an application's spend limit, usually per account or API key
+across many sessions. The session asks it before each model call and reports what
+the call used. Counters and limits belong to the application. Without one, the
+session makes no checks. See the interface's documentation and
+[Spend limits](https://docs.superdurable.io/agent-frameworks/deploy-agents#spend-limits).
+
 ## Flow shape
 
 ```text
