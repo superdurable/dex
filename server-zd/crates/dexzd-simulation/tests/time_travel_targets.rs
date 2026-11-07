@@ -19,7 +19,10 @@ use dexzd_apply::diagnostics::{
     TargetResolutionForTest, TimeTravelTargetForTest, resolve_time_travel_target_for_test,
 };
 use dexzd_apply::read_model::{get_history_events, get_history_events_from_source};
-use dexzd_apply::{ApplyContext, ApplyError, HistoryRecords, HistorySource, StateWrite};
+use dexzd_apply::{
+    ApplyContext, ApplyError, BoundedRowSeek, FlowStateReader, HistoryRecords, HistorySource,
+    StateReadError, StateRow, StateWrite,
+};
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{FlowResetStepMethod, FlowResetType, ResetFlowRequest};
 use dexzd_protocol::dexzd::v1::{
@@ -39,6 +42,8 @@ const FIRST_SEED: u64 = 0xb4_7a29_0000;
 const MAX_VALUES_PER_KIND: usize = 6;
 /// Page sizes compared between local and non-local history reads; zero is the default size.
 const COMPARED_PAGE_SIZES: [i32; 2] = [3, 0];
+/// Response byte limits compared: none, and one small enough to end pages early or reject.
+const COMPARED_RESPONSE_BYTE_LIMITS: [usize; 2] = [usize::MAX, 4096];
 const ONE_DAY_NANOS: i128 = 86_400 * 1_000_000_000;
 
 type TargetResult = Result<TimeTravelTargetForTest, CommandReply>;
@@ -172,6 +177,15 @@ fn changed_runs(
     changed
 }
 
+/// One paged GetHistoryEvents read.
+#[derive(Debug)]
+struct PageQuery {
+    run_id: RunId,
+    run_attempt: i32,
+    page_size: i32,
+    max_response_bytes: usize,
+}
+
 /// The runs of one Flow to check after a command.
 struct CheckedFlow<'check> {
     checker: &'check ApplyChecker,
@@ -233,6 +247,22 @@ impl CheckedFlow<'_> {
                 continue;
             }
             let history = MemoryHistorySource::of_run(state, &context, run_id, run);
+            // The sourced read must take every History row from `history`, never from the store.
+            let state_without_history = WithoutHistoryColumn { state };
+            let local_without_history = get_history_events(
+                &state_without_history,
+                context.flow_hash,
+                run_id,
+                0,
+                0,
+                &[],
+                0,
+                usize::MAX,
+            );
+            assert!(
+                local_without_history.is_err(),
+                "{site}: a local read of run {run_id} passed without History rows"
+            );
             let attempts = [
                 0,
                 1,
@@ -240,46 +270,87 @@ impl CheckedFlow<'_> {
             ];
             for run_attempt in attempts {
                 for page_size in COMPARED_PAGE_SIZES {
-                    let mut token = Vec::new();
-                    loop {
-                        let local = get_history_events(
-                            state,
-                            context.flow_hash,
+                    for max_response_bytes in COMPARED_RESPONSE_BYTE_LIMITS {
+                        let page = PageQuery {
                             run_id,
-                            0,
-                            page_size,
-                            &token,
                             run_attempt,
-                        )
-                        .unwrap_or_else(|error| {
-                            panic!("{site}: local history page failed: {error}")
-                        });
-                        let from_source = get_history_events_from_source(
-                            state,
-                            &history,
-                            context.flow_hash,
-                            run_id,
-                            0,
                             page_size,
-                            &token,
-                            run_attempt,
-                        )
-                        .unwrap_or_else(|error| {
-                            panic!("{site}: sourced history page failed: {error}")
-                        });
-                        assert_eq!(
-                            from_source, local,
-                            "{site}: run {run_id} attempt {run_attempt} page size {page_size} \
-                             differs when read through a history source"
-                        );
-                        coverage.compared_history_pages += 1;
-                        if local.next_page_token.is_empty() {
-                            break;
-                        }
-                        token = local.next_page_token;
+                            max_response_bytes,
+                        };
+                        self.compare_pages(&page, &history, &state_without_history, coverage);
                     }
                 }
             }
+        }
+    }
+
+    /// Pages through `page` locally and through `history`, requiring identical pages or errors.
+    fn compare_pages(
+        &self,
+        page: &PageQuery,
+        history: &MemoryHistorySource,
+        state_without_history: &WithoutHistoryColumn<'_>,
+        coverage: &mut Coverage,
+    ) {
+        let site = self.site;
+        let context = self.checker.context(self.flow_id);
+        let mut token = Vec::new();
+        loop {
+            let local = get_history_events(
+                self.checker.state(),
+                context.flow_hash,
+                page.run_id,
+                0,
+                page.page_size,
+                &token,
+                page.run_attempt,
+                page.max_response_bytes,
+            );
+            let from_source = get_history_events_from_source(
+                state_without_history,
+                history,
+                context.flow_hash,
+                page.run_id,
+                0,
+                page.page_size,
+                &token,
+                page.run_attempt,
+                page.max_response_bytes,
+            );
+            coverage.compared_history_pages += 1;
+            let local = match (local, from_source) {
+                (Ok(local), Ok(from_source)) => {
+                    assert_eq!(
+                        from_source, local,
+                        "{site}: {page:?} differs when read through a history source"
+                    );
+                    let requested_events = if page.page_size == 0 {
+                        100
+                    } else {
+                        usize::try_from(page.page_size).unwrap_or(usize::MAX)
+                    };
+                    if !local.next_page_token.is_empty() && local.events.len() < requested_events {
+                        coverage.pages_ended_by_response_bytes += 1;
+                    }
+                    local
+                }
+                (Err(local), Err(from_source)) => {
+                    assert_eq!(
+                        format!("{from_source:?}"),
+                        format!("{local:?}"),
+                        "{site}: {page:?} fails differently through a history source"
+                    );
+                    coverage.compared_history_page_errors += 1;
+                    return;
+                }
+                (local, from_source) => {
+                    panic!("{site}: {page:?} read {local:?} locally but {from_source:?} sourced")
+                }
+            };
+            if local.next_page_token.is_empty() {
+                return;
+            }
+            token = local.next_page_token;
         }
     }
 
@@ -515,6 +586,57 @@ fn strip_target_fields(
     stripped
 }
 
+/// A reader of `state` that fails every read of the History column family.
+struct WithoutHistoryColumn<'state> {
+    state: &'state MemoryFlowState,
+}
+
+impl WithoutHistoryColumn<'_> {
+    fn reject_history(column_family: ColumnFamily) -> Result<(), StateReadError> {
+        if column_family == ColumnFamily::History {
+            return Err(StateReadError {
+                column_family,
+                detail: "the sourced read accessed local History rows".to_owned(),
+            });
+        }
+        Ok(())
+    }
+}
+
+impl FlowStateReader for WithoutHistoryColumn<'_> {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        Self::reject_history(column_family)?;
+        self.state.get(column_family, key)
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        Self::reject_history(column_family)?;
+        self.state.scan(column_family, start, end, limit)
+    }
+
+    fn seek_first_bounded(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        max_skipped_deletions: u64,
+    ) -> Result<BoundedRowSeek, StateReadError> {
+        Self::reject_history(column_family)?;
+        self.state
+            .seek_first_bounded(column_family, start, end, max_skipped_deletions)
+    }
+}
+
 /// A history source holding a run's records and checkpoints in memory, as a source built from
 /// downloaded history would.
 struct MemoryHistorySource {
@@ -582,6 +704,8 @@ struct Coverage {
     stripped_metadata_differences: usize,
     fallback_record_reads: usize,
     compared_history_pages: usize,
+    compared_history_page_errors: usize,
+    pages_ended_by_response_bytes: usize,
 }
 
 impl Coverage {
@@ -679,6 +803,10 @@ impl Coverage {
             (
                 self.compared_history_pages,
                 "history page read through a source",
+            ),
+            (
+                self.pages_ended_by_response_bytes,
+                "history page ended by the response byte limit",
             ),
         ] {
             assert!(count > 0, "no {what} was exercised: {self:#?}");
