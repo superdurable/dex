@@ -492,6 +492,15 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
                 ),
             });
         }
+        // Reviving an offloaded value never records history.
+        Command::ValueRevive(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a ValueRevive command",
+                    history_record.seq
+                ),
+            });
+        }
         // Staging a time travel result never records history.
         Command::TimeTravelStage(_) => {
             return Err(ApplyError::InvariantViolation {

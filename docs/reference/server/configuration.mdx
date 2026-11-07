@@ -371,7 +371,12 @@ stored value that the run no longer holds, such as the earlier value of a
 rewritten Attribute. A superseded value of an uploaded segment is deleted from
 local disk 10 minutes after the command that superseded it, measured in command
 time. A value reference that a Worker or client just read therefore still loads
-from local disk. Each command deletes a bounded amount, and later commands of
+from local disk. A Worker result, client write, or RPC result that hands back a
+reference to such a value also succeeds after the 10 minutes. Before it records
+the result, the lease holder reads the value from its uploaded segment and
+restores it on local disk. A restored value that no state holds again can stay on
+local disk until the window passes it. A reference to a value that the window
+passed is rejected, as without offload. Each command deletes a bounded amount, and later commands of
 the run continue. A run that receives no more commands, such as a closed run,
 keeps the rest until it is deleted. While offload is on,
 **history.maxRetainedSupersededBytes** does not apply: superseded values leave

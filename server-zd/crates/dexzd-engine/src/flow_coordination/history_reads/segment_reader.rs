@@ -371,6 +371,11 @@ impl HistorySegmentReader {
         self.record(HistoryReadKind::Blob, HistoryReadSource::Local);
     }
 
+    /// Counts an offloaded value restored locally before a command that references it.
+    pub(crate) fn record_value_revival(&self) {
+        self.metrics.history_value_revivals.inc();
+    }
+
     /// Returns the decoded header of the object, from memory, the disk cache, or object
     /// storage, or `None` when the object does not exist. Reads count as `kind`.
     async fn header(

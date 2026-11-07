@@ -8,7 +8,8 @@
 
 //! Deleting uploaded history locally (plan section 5.5): records, checkpoints, and metadata after
 //! the acknowledgment, superseded values after their grace period, the storage totals, and where
-//! LoadBlobs finds an offloaded value.
+//! LoadBlobs finds an offloaded value. Also reviving an offloaded value before a command that
+//! references it (plan section 5.11).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,21 +29,23 @@ use dexzd_keyspace::row_keys::{
     attempt_record_key, prefix_range, run_named_key, run_singleton_key, value_row_key,
 };
 use dexzd_keyspace::{
-    ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, ValueId, parse_run_key, run_prefix,
-    run_table_prefix,
+    ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, ValueId, ValueReference,
+    parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowConfig, FlowResetType, FlowTimeoutPolicy, ResetFlowRequest,
-    SetAttributesRequest, StartFlowRequest, StepOptions, UpdateFlowConfigRequest, Value,
-    WorkerTarget, value,
+    AttributeWrite, FlowConfig, FlowResetType, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
+    ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepDecision, StepMovement,
+    StepOptions, UpdateFlowConfigRequest, Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand,
     FlowConfigUpdateCommand, FlowStartCommand, HistoryRecord, HistoryRowMetadata,
     HistorySegmentRecord, HistorySegmentUploadedCommand, RunRecord, RunSettings, RunStorageUsage,
     SetHistoryOffloadModeCommand, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepInvocationKey, StepMethod, TimeTravelStagedChunk, ValueBirthRecord, ValueGarbageRecord,
-    command_reply, flow_command::Command, step_attempt_heartbeat_command, stored_value,
+    StepExecutionRecord, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
+    TimeTravelStagedChunk, ValueBirthRecord, ValueGarbageRecord, ValueRecord, ValueReviveCommand,
+    command_reply, flow_command::Command, step_attempt_heartbeat_command,
+    step_method_completed_command, stored_value,
 };
 use prost::Message;
 
@@ -123,6 +126,8 @@ struct Harness {
     request_count: u32,
     /// Content of each acknowledged segment by first seq, as its uploaded object holds it.
     uploaded: BTreeMap<u64, (HistorySegmentRecord, HistorySegmentContent)>,
+    /// Every command applied, in log order.
+    log: Vec<FlowCommand>,
 }
 
 impl Harness {
@@ -157,6 +162,7 @@ impl Harness {
             run_id: Vec::new(),
             request_count: 0,
             uploaded: BTreeMap::new(),
+            log: Vec::new(),
         }
     }
 
@@ -183,6 +189,7 @@ impl Harness {
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         self.state.commit(&outcome);
+        self.log.push(command);
         outcome
     }
 
@@ -462,6 +469,77 @@ impl Harness {
             .collect()
     }
 
+    /// Writes a large `profile` twice and lets offload delete the first value locally. Returns
+    /// that value and its deleted row.
+    fn offload_first_profile(&mut self) -> (ValueId, Vec<u8>) {
+        self.set_attribute("profile", large_text("first", 300));
+        let first = self.attribute_value_id("profile");
+        let first_row = self.value_row(first).expect("the first value is stored");
+        self.set_attribute("profile", large_text("second", 300));
+        self.ack_all();
+        self.advance(GRACE + SECOND);
+        self.bookkeep();
+        assert!(
+            matches!(self.locate(first), OffloadedValueLocation::Uploaded(_)),
+            "the first profile is offloaded"
+        );
+        (first, first_row)
+    }
+
+    /// Returns the value an uploaded object holds for `value_id`.
+    fn uploaded_value(&self, value_id: ValueId) -> Value {
+        let row = self
+            .uploaded
+            .values()
+            .flat_map(|(_, content)| &content.values)
+            .find(|row| row.value_id == value_id)
+            .expect("an uploaded object holds the value");
+        ValueRecord::decode(row.row.as_slice())
+            .expect("the value row decodes")
+            .value
+            .expect("the value row holds a value")
+    }
+
+    fn revive(&mut self, value_id: ValueId, value: Option<Value>) -> ApplyOutcome {
+        self.apply(Command::ValueRevive(ValueReviveCommand {
+            value_run_seq: value_id.run_seq,
+            value_index_in_command: value_id.index_in_command,
+            value,
+        }))
+    }
+
+    fn reference(&self, value_id: ValueId) -> Value {
+        Value {
+            kind: Some(value::Kind::InternalBlobIdForStringValue(
+                ValueReference {
+                    run_id: self.run(),
+                    value_id,
+                }
+                .to_string(),
+            )),
+        }
+    }
+
+    /// Writes Attribute `key` as a reference to `value_id`, as a Worker that echoes it would.
+    fn set_reference(&mut self, key: &str, value_id: ValueId) -> ApplyOutcome {
+        self.request_count += 1;
+        let request_id = format!("reference-{}", self.request_count);
+        let reference = self.reference(value_id);
+        self.apply(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![AttributeWrite {
+                    key: key.to_owned(),
+                    value: Some(reference),
+                    ..AttributeWrite::default()
+                }],
+                request_id: request_id.clone(),
+                ..SetAttributesRequest::default()
+            }),
+            hard_delete_objects: Vec::new(),
+            request_fingerprint: request_id.into_bytes(),
+        }))
+    }
+
     fn locate(&self, value_id: ValueId) -> OffloadedValueLocation {
         locate_offloaded_value(&self.state, self.context.flow_hash, self.run(), value_id)
             .expect("the location reads")
@@ -667,6 +745,13 @@ fn large_text(tag: &str, length: usize) -> String {
         text.push('x');
     }
     text
+}
+
+fn error_message(reply: &CommandReply) -> Option<(i32, &str)> {
+    match &reply.reply {
+        Some(command_reply::Reply::Error(error)) => Some((error.grpc_code, error.message.as_str())),
+        _ => None,
+    }
 }
 
 fn sealed_effect_count(outcome: &ApplyOutcome) -> usize {
@@ -1209,4 +1294,257 @@ fn a_replay_from_the_kept_checkpoint_reads_records_whose_metadata_offload_delete
     }
     let event_ids: BTreeSet<i64> = harness.history_event_ids().into_iter().collect();
     assert_eq!(event_ids, expected_event_ids);
+}
+
+#[test]
+fn a_revive_restores_an_offloaded_value_so_a_reference_to_it_commits() {
+    let mut harness = Harness::offloading(settings(1));
+    let (first, first_row) = harness.offload_first_profile();
+    let superseded_seq = harness.birth(first).expect("birth").garbage_seq;
+
+    // Without a revive, the reference names no value the run stores, as outside the window.
+    let saved = harness.state.clone();
+    let rejected = harness.set_reference("copy", first);
+    let (code, message) = error_message(&rejected.reply).expect("the reference is rejected");
+    assert_eq!(code, 3, "{message}");
+    assert!(message.contains("does not name a value"), "{message}");
+    harness.state = saved;
+
+    let before = harness.storage();
+    let record_before = harness.run_record();
+    let records_before = harness.stored_record_seqs();
+    let value = harness.uploaded_value(first);
+    let revive = harness.revive(first, Some(value));
+    assert!(is_ok(&revive.reply), "{:?}", revive.reply);
+    assert_eq!(
+        harness.value_row(first),
+        Some(first_row),
+        "the row is restored"
+    );
+    let birth = harness.birth(first).expect("birth");
+    assert!(!birth.is_offloaded);
+    assert_eq!(
+        birth.garbage_seq, superseded_seq,
+        "it stays superseded where it was"
+    );
+    let (garbage_seq, garbage) = harness.garbage()[&first];
+    assert_eq!(garbage_seq, superseded_seq);
+    assert_eq!(
+        garbage.superseded_at_micros, harness.now_micros,
+        "a new grace period starts"
+    );
+    assert_eq!(harness.locate(first), OffloadedValueLocation::Absent);
+    // The revive records no history and takes no run seq.
+    let record_after = harness.run_record();
+    assert_eq!(record_after.next_run_seq, record_before.next_run_seq);
+    assert_eq!(record_after.next_event_id, record_before.next_event_id);
+    assert_eq!(harness.stored_record_seqs(), records_before);
+    // The revived value is superseded again, so live bytes stay the same.
+    let after_revive = harness.storage();
+    assert_eq!(after_revive.live_value_bytes, before.live_value_bytes);
+    assert_eq!(
+        after_revive.superseded_value_bytes,
+        before.superseded_value_bytes + garbage.size_bytes
+    );
+    harness.assert_storage_recounts();
+
+    let copied = harness.set_reference("copy", first);
+    assert!(is_ok(&copied.reply), "{:?}", copied.reply);
+    assert_eq!(harness.attribute_value_id("copy"), first);
+    assert_eq!(
+        harness.birth(first).expect("birth").garbage_seq,
+        0,
+        "held again"
+    );
+    assert!(!harness.garbage().contains_key(&first));
+    let after_copy = harness.storage();
+    assert_eq!(
+        after_copy.live_value_bytes,
+        before.live_value_bytes + garbage.size_bytes
+    );
+    assert_eq!(
+        after_copy.superseded_value_bytes,
+        before.superseded_value_bytes
+    );
+    harness.assert_storage_recounts();
+
+    // A second revive of the now local value changes nothing.
+    let value = harness.uploaded_value(first);
+    let repeated = harness.revive(first, Some(value));
+    assert!(is_ok(&repeated.reply), "{:?}", repeated.reply);
+    assert!(repeated.writes.is_empty());
+}
+
+#[test]
+fn a_step_result_that_passes_an_offloaded_value_to_its_next_step_commits_after_a_revive() {
+    let mut harness = Harness::new();
+    harness.set_offload_mode(true);
+    harness.start_with_step(settings(1));
+    let invocation = StepInvocationKey {
+        step_execution_id: START_STEP_EXECUTION.to_owned(),
+        method: StepMethod::Execute as i32,
+    };
+    let started = harness.apply(Command::StepAttemptStarted(StepAttemptStartedCommand {
+        invocation: Some(invocation.clone()),
+        attempt: 1,
+        task_id: vec![7; 16],
+        pull_routing: None,
+    }));
+    assert!(is_ok(&started.reply), "{:?}", started.reply);
+    let (first, first_row) = harness.offload_first_profile();
+    let result = Command::StepMethodCompleted(StepMethodCompletedCommand {
+        invocation: Some(invocation),
+        attempt: 1,
+        response: Some(step_method_completed_command::Response::Execute(
+            InvokeExecuteMethodResponse {
+                step_decision: Some(StepDecision {
+                    next_steps: vec![StepMovement {
+                        step_type: "ReportStep".to_owned(),
+                        step_input: Some(harness.reference(first)),
+                        ..StepMovement::default()
+                    }],
+                    ..StepDecision::default()
+                }),
+                ..InvokeExecuteMethodResponse::default()
+            },
+        )),
+        task_id: vec![7; 16],
+        ..StepMethodCompletedCommand::default()
+    });
+    let has_next_step = |harness: &Harness| {
+        harness
+            .table_rows::<StepExecutionRecord>(ColumnFamily::Flow, RunTable::StepExecution)
+            .iter()
+            .any(|(_, step)| step.step_execution_id == "ReportStep-1")
+    };
+
+    // Without a revive, the result fails the attempt, which is not retried.
+    let saved = harness.state.clone();
+    harness.apply(result.clone());
+    assert!(!has_next_step(&harness));
+    assert!(harness.birth(first).expect("birth").is_offloaded);
+    harness.state = saved;
+
+    let value = harness.uploaded_value(first);
+    let revive = harness.revive(first, Some(value));
+    assert!(is_ok(&revive.reply), "{:?}", revive.reply);
+    let completed = harness.apply(result);
+    assert!(is_ok(&completed.reply), "{:?}", completed.reply);
+    assert!(has_next_step(&harness), "the next Step holds the value");
+    assert_eq!(harness.value_row(first), Some(first_row));
+    assert_eq!(harness.birth(first).expect("birth").garbage_seq, 0);
+    harness.assert_storage_recounts();
+}
+
+#[test]
+fn a_revive_of_a_local_value_or_of_one_the_window_passed_changes_nothing() {
+    let mut harness = Harness::offloading(RunSettings {
+        history_window_events: 4,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 2,
+        ..settings(1)
+    });
+    let live_text = large_text("live", 300);
+    harness.set_attribute("live", live_text.clone());
+    let live = harness.attribute_value_id("live");
+    let local = harness.revive(
+        live,
+        Some(Value {
+            kind: Some(value::Kind::StringValue(live_text)),
+        }),
+    );
+    assert!(is_ok(&local.reply), "{:?}", local.reply);
+    assert!(local.writes.is_empty(), "a local value needs no revive");
+
+    let unknown = ValueId {
+        run_seq: 9_999,
+        index_in_command: 0,
+    };
+    let missing = harness.revive(
+        unknown,
+        Some(Value {
+            kind: Some(value::Kind::StringValue("x".repeat(200))),
+        }),
+    );
+    assert!(is_ok(&missing.reply), "{:?}", missing.reply);
+    assert!(
+        missing.writes.is_empty(),
+        "a value without a birth record stays unknown"
+    );
+
+    let (first, _) = harness.offload_first_profile();
+    let value = harness.uploaded_value(first);
+    let superseded_seq = harness.birth(first).expect("birth").garbage_seq;
+    for round in 0..12 {
+        harness.set_attribute("other", format!("small-{round}"));
+        harness.ack_all();
+    }
+    assert!(harness.run_record().window_start_seq > superseded_seq);
+    assert!(harness.birth(first).is_some_and(|birth| birth.is_offloaded));
+    let outside = harness.revive(first, Some(value));
+    assert!(is_ok(&outside.reply), "{:?}", outside.reply);
+    assert!(outside.writes.is_empty(), "the window passed the value");
+    let rejected = harness.set_reference("copy", first);
+    let (code, message) = error_message(&rejected.reply).expect("the reference is rejected");
+    assert_eq!(code, 3, "{message}");
+}
+
+#[test]
+fn a_revive_with_a_wrong_value_is_rejected_and_one_for_a_purging_run_is_not_found() {
+    let mut harness = Harness::offloading(settings(1));
+    let (first, _) = harness.offload_first_profile();
+    let value = harness.uploaded_value(first);
+
+    let wrong_size = harness.revive(
+        first,
+        Some(Value {
+            kind: Some(value::Kind::StringValue("short".to_owned())),
+        }),
+    );
+    let (code, message) = error_message(&wrong_size.reply).expect("a wrong size is rejected");
+    assert_eq!(code, 3, "{message}");
+    assert!(wrong_size.writes.is_empty());
+    let without_value = harness.revive(first, None);
+    let (code, message) = error_message(&without_value.reply).expect("no value is rejected");
+    assert_eq!(code, 3, "{message}");
+    assert!(harness.birth(first).expect("birth").is_offloaded);
+
+    let mut record = harness.run_record();
+    record.is_purging = true;
+    harness.state.rows.insert(
+        (
+            ColumnFamily::Flow,
+            run_singleton_key(
+                harness.context.flow_hash,
+                harness.run(),
+                RunTable::RunRecord,
+            ),
+        ),
+        record.encode_to_vec(),
+    );
+    let purging = harness.revive(first, Some(value));
+    let (code, message) = error_message(&purging.reply).expect("a purging run is not found");
+    assert_eq!(code, 5, "{message}");
+    assert!(purging.writes.is_empty());
+}
+
+#[test]
+fn replaying_the_log_with_its_revives_reaches_the_same_state() {
+    let mut harness = Harness::offloading(settings(1));
+    let (first, _) = harness.offload_first_profile();
+    let value = harness.uploaded_value(first);
+    let revive = harness.revive(first, Some(value));
+    assert!(is_ok(&revive.reply), "{:?}", revive.reply);
+    let copied = harness.set_reference("copy", first);
+    assert!(is_ok(&copied.reply), "{:?}", copied.reply);
+    harness.set_attribute("copy", large_text("third", 300));
+
+    // A hot standby applies the same log to its own store.
+    let mut standby = MemoryState::default();
+    for command in &harness.log {
+        let outcome =
+            apply_flow_command(&harness.context, &standby, command).expect("replay applies");
+        standby.commit(&outcome);
+    }
+    assert_eq!(standby.rows, harness.state.rows);
 }

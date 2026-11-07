@@ -14,6 +14,7 @@
 
 mod garbage;
 mod offloaded_values;
+mod referenced_values;
 mod storage_accounting;
 mod time_travel;
 mod value_holder;
@@ -22,6 +23,7 @@ pub(crate) use garbage::enforce_superseded_byte_cap;
 #[expect(unused_imports, reason = "Available to window maintenance handlers.")]
 pub(crate) use garbage::{prune_garbage, superseded_bytes_over_cap};
 pub use offloaded_values::{NoOffloadedValues, OffloadedValues};
+pub(crate) use referenced_values::{RpcOutputValue, command_values};
 pub(crate) use storage_accounting::{
     active_run_storage_bytes, active_run_storage_bytes_without_attempts, is_run_over_state_budget,
     projected_superseded_value_bytes, reconcile_run_storage,
@@ -509,7 +511,7 @@ pub(crate) fn is_stored_value(
 }
 
 /// Stores `value` again over its birth record `birth`, unheld and superseded at `seq`, until a
-/// holder revives it.
+/// holder revives it. Its garbage row records `superseded_at_micros`.
 ///
 /// The caller checks that `value` has the size `birth` records.
 pub(crate) fn restore_unheld_value(
@@ -519,6 +521,7 @@ pub(crate) fn restore_unheld_value(
     birth: &ValueBirthRecord,
     value: Value,
     seq: u64,
+    superseded_at_micros: i64,
 ) {
     if birth.garbage_seq != 0 && !birth.is_offloaded {
         // The value moves to the garbage row at `seq`, so its earlier one goes.
@@ -547,7 +550,7 @@ pub(crate) fn restore_unheld_value(
         value_garbage_key(rows.flow_hash, rows.run_id, seq, value_id),
         &ValueGarbageRecord {
             size_bytes: birth.size_bytes,
-            superseded_at_micros: 0,
+            superseded_at_micros,
         },
     );
 }

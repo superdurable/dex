@@ -73,6 +73,7 @@ message FlowCommand {
     HardDeleteObjectsDeletedCommand hard_delete_objects_deleted = 80;
     RunPurgeCommand run_purge = 81;
     HistorySegmentUploadedCommand history_segment_uploaded = 82;
+    ValueReviveCommand value_revive = 84;
   }
 }
 
@@ -483,6 +484,18 @@ message HistorySegmentUploadedCommand {
   // xxh3-128 of the object's uncompressed content, 16 bytes big-endian.
   bytes content_checksum = 3;
   uint64 object_size_bytes = 4;
+}
+
+// The owner read an offloaded value of the run from its uploaded history segment, so a command
+// that references it can commit. Apply restores the value locally, unheld, when the run's birth
+// record still marks it offloaded inside the window; otherwise it changes nothing. The command
+// records no history, takes no run seq, and is not bound to an attempt.
+message ValueReviveCommand {
+  // ID of the value: the run seq of the command that stored it and its index in that command.
+  uint64 value_run_seq = 1;
+  uint32 value_index_in_command = 2;
+  // The complete value, as the segment stores it.
+  dex.Value value = 3;
 }
 
 // Sets whether this partition offloads run history to object storage.

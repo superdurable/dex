@@ -444,6 +444,8 @@ pub struct LocalOffloadCounts {
     pub rows_deleted: usize,
     /// Superseded values offloaded after their grace period.
     pub values_offloaded: usize,
+    /// Offloaded values revived before a command that references them.
+    pub values_revived: usize,
     /// Applied TimeTravel commands whose computation read uploaded history or values.
     pub time_travels_from_uploaded_history: usize,
 }
@@ -453,6 +455,7 @@ impl LocalOffloadCounts {
     pub fn merge(&mut self, other: &Self) {
         self.rows_deleted += other.rows_deleted;
         self.values_offloaded += other.values_offloaded;
+        self.values_revived += other.values_revived;
         self.time_travels_from_uploaded_history += other.time_travels_from_uploaded_history;
     }
 }

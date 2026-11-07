@@ -197,6 +197,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_history_upload_checksum_mismatches_total` | counter | — | Existing history segment objects whose content differed from committed state and were replaced |
 | `dexzd_history_upload_rescan_errors_total` | counter | — | Runs or index rows that the history upload rescan could not read; the log names each and the rescan continues |
 | `dexzd_history_reads_total` | counter | `kind`: page, blob; `source`: local, cache, object_store | History reads: a page that only local rows served, or each uploaded segment part read from the disk read cache or object storage |
+| `dexzd_history_value_revivals_total` | counter | — | Offloaded values restored on local disk before a Worker result, client write, or RPC result that references them |
 | `dexzd_search_initial_load_documents_total` | counter | — | Documents written by initial SQL visibility loads |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.

@@ -24,7 +24,7 @@ use dexzd_history_segment::{HistorySegmentContent, encode_history_segment};
 use dexzd_keyspace::row_keys::{decode_search_outbox_key, partition_index_range, prefix_range};
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionHasher, PartitionId, RunId, RunTable, TenantId,
-    run_table_prefix,
+    ValueReference, run_table_prefix,
 };
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore, WriteCondition, WriteOutcome};
 use dexzd_protocol::dex::{
@@ -42,14 +42,15 @@ use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
     HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, HistorySegmentRecord,
-    HistorySegmentUploadedCommand, InboxMessageCommand, OutboxAckCommand, OutboxRecord,
-    PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand, RunSettings,
+    HistorySegmentState, HistorySegmentUploadedCommand, InboxMessageCommand, OutboxAckCommand,
+    OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand, RunSettings,
     SearchOutboxAckCommand, SetHistoryOffloadModeCommand, SetSearchProjectionModeCommand,
     StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
     StepAttemptQueuedCommand, StepAttemptReturnReason, StepAttemptReturnedCommand,
     StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
-    flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
+    StepMethodCompletedCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand,
+    ValueBirthRecord, ValueRecord, ValueReviveCommand, command_reply, flow_command::Command,
+    inbox_message_command, outbox_record, step_attempt_heartbeat_command,
     step_method_completed_command, timer_id,
 };
 use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
@@ -64,6 +65,8 @@ pub(crate) const WORKLOAD_SEED: u64 = 0x5eed_2026_1024;
 /// Scripted time between two commands.
 const COMMAND_SPACING_MICROS: i64 = 250_000;
 const SECOND_MICROS: i64 = 1_000_000;
+/// How long a superseded value stays local after the command that superseded it.
+const SUPERSEDED_VALUE_GRACE_MICROS: i64 = 10 * 60 * SECOND_MICROS;
 const WORKER_ID: &str = "worker-a";
 const ATTRIBUTE_STORE_NAME: &str = "accounts";
 const SUB_FLOW_PARENT: &str = "fulfillment-parent";
@@ -138,6 +141,7 @@ impl Workload<'_> {
         self.search_projection_acknowledges_its_outbox().await;
         self.history_segment_is_sealed_at_close_and_acknowledged()
             .await;
+        self.offloaded_value_is_revived_before_a_reference().await;
         self.set_history_offload_modes(&[PartitionId(0)], false)
             .await;
         self.legacy_runs_record_history_without_offload().await;
@@ -193,13 +197,131 @@ impl Workload<'_> {
         assert_eq!(content.values.len(), 1, "the replaced value is listed");
     }
 
+    /// `revive-flow`, in partition 1, which offloads history: a replaced Attribute's value is
+    /// uploaded and, after its grace period, deleted locally. A ValueRevive restores it, then a
+    /// write that references it holds it again.
+    async fn offloaded_value_is_revived_before_a_reference(&self) {
+        let flow_id = (0..)
+            .map(|index| format!("revive-flow-{index}"))
+            .find(|flow_id| self.context(flow_id).partition == PartitionId(1))
+            .expect("some Flow ID hashes to partition 1");
+        let run = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: flow_id.clone(),
+                    flow_type: "ReviveFlow".to_owned(),
+                    request_id: "start-revive-flow".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                RunSettings {
+                    history_segment_target_bytes: 1,
+                    ..default_run_settings()
+                },
+            )
+            .await;
+        self.set_attributes(
+            &run,
+            vec![attribute("notes", string_value(LONG_PROFILE_TEXT))],
+            "set-revive-notes-1",
+        )
+        .await;
+        self.set_attributes(
+            &run,
+            vec![attribute(
+                "notes",
+                string_value(&format!("{LONG_PROFILE_TEXT} Ring twice.")),
+            )],
+            "set-revive-notes-2",
+        )
+        .await;
+        let superseded = self
+            .acknowledge_history_segments(&run)
+            .await
+            .into_iter()
+            .flat_map(|content| content.values)
+            .next()
+            .expect("an uploaded segment lists the replaced value");
+        self.clock
+            .advance(SUPERSEDED_VALUE_GRACE_MICROS + SECOND_MICROS);
+        self.set_attributes(
+            &run,
+            vec![attribute("note", string_value("after the grace period"))],
+            "set-revive-note",
+        )
+        .await;
+        self.acknowledge_history_segments(&run).await;
+        let is_offloaded =
+            |births: &[ValueBirthRecord]| births.iter().any(|birth| birth.is_offloaded);
+        assert!(
+            is_offloaded(&self.run_rows(&run, RunTable::ValueBirth).await),
+            "the replaced value is deleted locally"
+        );
+        let value = ValueRecord::decode(superseded.row.as_slice())
+            .expect("the uploaded value row decodes")
+            .value;
+        let revived = self
+            .commit(
+                &run,
+                Command::ValueRevive(ValueReviveCommand {
+                    value_run_seq: superseded.value_id.run_seq,
+                    value_index_in_command: superseded.value_id.index_in_command,
+                    value,
+                }),
+            )
+            .await;
+        assert!(!revived.writes.is_empty(), "the revive restores the value");
+        let reference = ValueReference {
+            run_id: run.run_id,
+            value_id: superseded.value_id,
+        }
+        .to_string();
+        self.set_attributes(
+            &run,
+            vec![attribute(
+                "notes-copy",
+                Value {
+                    kind: Some(value::Kind::InternalBlobIdForStringValue(reference)),
+                },
+            )],
+            "copy-revived-notes",
+        )
+        .await;
+        assert!(!is_offloaded(
+            &self.run_rows(&run, RunTable::ValueBirth).await
+        ));
+    }
+
+    /// Acknowledges every SEALED history segment of the run, oldest first, as uploads would,
+    /// and returns their contents.
+    async fn acknowledge_history_segments(&self, run: &FlowRun) -> Vec<HistorySegmentContent> {
+        let mut contents = Vec::new();
+        let segments = self
+            .run_rows::<HistorySegmentRecord>(run, RunTable::HistorySegment)
+            .await;
+        for segment in segments {
+            if segment.state != HistorySegmentState::Sealed as i32 {
+                continue;
+            }
+            contents.push(self.acknowledge_history_segment(run, &segment).await);
+        }
+        contents
+    }
+
     /// Acknowledges the run's only history segment as an upload would, and returns its content.
     async fn acknowledge_only_history_segment(&self, run: &FlowRun) -> HistorySegmentContent {
         let segments = self
             .run_rows::<HistorySegmentRecord>(run, RunTable::HistorySegment)
             .await;
         assert_eq!(segments.len(), 1, "the close sealed one segment");
-        let segment = segments[0].clone();
+        self.acknowledge_history_segment(run, &segments[0]).await
+    }
+
+    /// Acknowledges `segment` of the run as an upload would, and returns its content.
+    async fn acknowledge_history_segment(
+        &self,
+        run: &FlowRun,
+        segment: &HistorySegmentRecord,
+    ) -> HistorySegmentContent {
         let view = self
             .node
             .committer()

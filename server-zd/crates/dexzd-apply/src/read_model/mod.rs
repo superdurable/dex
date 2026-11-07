@@ -17,7 +17,10 @@ mod predicates;
 mod search;
 
 pub use attributes::{AttributesRead, HardDeleteAttribute, get_attributes};
-pub use blobs::{OffloadedValueLocation, load_blobs, locate_offloaded_value};
+pub use blobs::{
+    OffloadedReference, OffloadedValueLocation, load_blobs, locate_offloaded_value,
+    offloaded_command_references,
+};
 pub use flow::{get_channel_messages, get_flow_state, get_flow_summary, resolve_run_id};
 #[cfg(feature = "test-util")]
 pub use history::get_history_events_from_segments_with_catalog_budget_for_test;

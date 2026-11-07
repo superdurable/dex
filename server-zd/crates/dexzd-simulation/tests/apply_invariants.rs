@@ -158,6 +158,11 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
          uploaded history: {total:#?}"
     );
     assert!(
+        local_offload.values_revived > 0,
+        "the seed set never revived an offloaded value that a Worker result references: \
+         {total:#?}"
+    );
+    assert!(
         total.history_offload_off_time_travels > 0,
         "the seed set never time traveled a run while its partition did not offload: {total:#?}"
     );

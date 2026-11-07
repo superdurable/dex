@@ -38,7 +38,7 @@ pub(crate) use history_segment_invariants::{
     collect_value_offloads,
 };
 pub use lock_invariants::check_fresh_snapshot;
-pub(crate) use value_invariants::remember_window_points;
+pub(crate) use value_invariants::{offloaded_value_row, remember_window_points};
 
 pub(crate) fn check_window_value_content(
     flow_id: &str,
