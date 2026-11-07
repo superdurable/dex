@@ -1787,9 +1787,9 @@ The plan records each of these decisions too.
   Worker.
 - A tool the framework cannot defer runs inside `RunModel` and repeats on a
   `RunModel` retry.
-- Whether turn records cleared at turn end still count against the Server's
-  `limits.maxFlowStateBytes` run budget is an open question in the parent
-  design.
+- From server-zd 0.1.21, turn records cleared at turn end no longer count
+  against the Server's `limits.maxFlowStateBytes` run budget. Older servers
+  count them as superseded values until the history window prunes them.
 - `dex_agents.mcp` polls a stdio server's MCP task inside its tool Step for at
   most `task_wait_timeout`, holding a Worker slot, because the task ends with
   the server process.

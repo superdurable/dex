@@ -34,7 +34,7 @@ use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::step_commands::{StepHandlerResult, apply_step_command};
 use crate::state_access::{FlowTransaction, RunRows};
-use crate::values::{active_run_storage_bytes_without_attempts, total_run_storage_bytes};
+use crate::values::{active_run_storage_bytes, active_run_storage_bytes_without_attempts};
 use crate::{ApplyContext, ApplyError, ApplyOutcome, BehaviorVersion, FlowStateReader};
 
 /// Result of a command handler.
@@ -212,7 +212,7 @@ fn apply_in_scope(
                         .ok_or_else(|| ApplyError::InvariantViolation {
                             detail: "applied command did not account for run storage".to_owned(),
                         })?;
-                let total_bytes = total_run_storage_bytes(usage);
+                let active_bytes = active_run_storage_bytes(usage);
                 let max_bytes = record.settings.unwrap_or_default().max_run_state_bytes;
                 let previous_transaction = FlowTransaction::new(state, *context);
                 let previous_active = rows
@@ -220,11 +220,12 @@ fn apply_in_scope(
                     .and_then(|previous| previous.storage)
                     .as_ref()
                     .map_or(0, active_run_storage_bytes_without_attempts);
-                if total_bytes > max_bytes
+                if active_bytes > max_bytes
                     && active_run_storage_bytes_without_attempts(usage) > previous_active
                 {
                     let detail = format!(
-                        "run state of {total_bytes} bytes exceeds the maximum of {max_bytes} bytes"
+                        "active run state of {active_bytes} bytes exceeds the maximum of \
+                         {max_bytes} bytes"
                     );
                     if let Some(failure) = storage_limit_attempt_failure(body, &detail) {
                         let mut failure_command = command.clone();

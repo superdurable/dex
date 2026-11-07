@@ -198,7 +198,7 @@ A session can stay open for months. These server-zd
 
 | Key | Default | What it bounds |
 | --- | --- | --- |
-| **limits.maxFlowStateBytes** | 64 MiB | All storage of one session: current state, Attribute and Channel values, and the superseded values kept for time travel |
+| **limits.maxFlowStateBytes** | 64 MiB | The active state of one session: its current state, including the Attribute and Channel values it holds. History and the superseded values that history keeps for time travel do not count. |
 | **values.maxValueBytes** | 16 MiB | The largest single value, such as one message, one tool call record, or one framework run state |
 | **history.windowSemanticEvents** | About 10,000 events | The Flow history kept for each run. Older events are pruned. |
 | **retention.closedFlowDuration** | 7 days | How long a stopped session stays readable |
@@ -217,22 +217,22 @@ The packages store state this way:
   large for **values.maxValueBytes** fails its turn right away, as it did
   before. **AgentMessageIndex** records where the messages are, and changes
   only when chunks are written or deleted. Each message is written twice, once in the window
-  and once in its chunk, and the window copy counts as a superseded value
-  while history keeps it. With [compaction](#compaction), **RunModel** loads only the
+  and once in its chunk. Once the window copy is removed, it no longer counts
+  toward the run budget. With [compaction](#compaction), **RunModel** loads only the
   messages after the summary. Without compaction, every model call loads and
   sends the whole history, and nothing is deleted.
 - **FrameworkRunState** holds the framework's state while a turn waits for
   tool results. **RunModel** rewrites it after every model call that asks for
   tools. It holds the turn's work so far, tool outputs included. The OpenAI
   Agents SDK state also holds the turn's input, and the Vercel AI SDK state
-  holds each tool output twice. Each earlier value stays as a superseded value
-  and counts toward the run budget while history keeps it.
-- **AgentToolCalls** records are deleted when the turn ends. A deleted value
-  also becomes a superseded value, so it still counts toward the run budget
-  until the history window prunes it.
+  holds each tool output twice. Only the current value counts toward the run
+  budget. Each earlier value becomes a superseded value, which history keeps
+  for time travel but the run budget does not count.
+- **AgentToolCalls** records are deleted when the turn ends. They then no
+  longer count toward the run budget.
 
 The server checks the run budget for Step heartbeats and Step completions,
-among other writes, and only when the write adds storage. Once a session is
+among other writes, and only when the write adds active state. Once a session is
 over the budget, such a Step fails without retry. A model call or tool call
 then fails its turn. A Step without a failure route fails the whole session
 instead, when its own write crosses the budget. **AwaitUserMessage**, which
@@ -244,7 +244,11 @@ The Flow history keeps about the newest 10,000 events of a session. Read the
 conversation with **get_agent_snapshot** or **list_agent_messages**, not from
 Flow history. [Time travel](/reference/server/runtime-client#time-travel) can target
 only a point inside the [history window](/reference/server/configuration#history-window).
-Time travel to the beginning is always available.
+Time travel to the beginning is always available. A session that rewrites large
+values, such as **FrameworkRunState**, can have a shorter window: the window
+also removes old events once the superseded values exceed
+**history.maxRetainedSupersededBytes**, 256 MiB by default. This never fails
+the session.
 
 A session never completes by itself. Stop it with **StopFlow** when it is done.
 A stopped session, and its **get_agent_snapshot** RPC, stays available for the
@@ -299,9 +303,9 @@ each turn stored a 100-character question and a 600-character answer, about
 state of the session between 167 KB and 191 KB, at turns 200, 400, 600, and
 800, while the session stored 2.3 MB of messages over its life. With the
 default limit of 1,000, plan for about the limit times the size of a message,
-plus the messages after the summary, plus the superseded values that the
-history window keeps. A deleted chunk counts as a superseded value until the
-history window prunes it.
+plus the messages after the summary, plus the largest framework run state and
+tool call records that one turn holds. Deleted chunks and earlier values of
+rewritten Attributes do not count.
 
 To keep long sessions within the budget:
 

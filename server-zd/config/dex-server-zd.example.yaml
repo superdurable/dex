@@ -148,6 +148,7 @@ search:
   outboxAckInterval: 1s
   outboxMaxAckEntries: 10000
 limits:
+  # Active state of one run; history and superseded values do not count.
   maxFlowStateBytes: 67108864
   maxChannelMessages: 10000
   maxConcurrentStepsPerFlow: 1000

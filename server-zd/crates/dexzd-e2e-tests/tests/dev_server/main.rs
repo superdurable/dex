@@ -8,6 +8,7 @@
 
 //! End-to-end tests of `dex-server-zd dev` through the public gRPC protocol.
 
+mod active_state_limit;
 mod attribute_sync;
 mod channel_message_delete;
 mod close_barrier;
