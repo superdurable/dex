@@ -16,7 +16,10 @@ import {
   filterableAttributes,
   hasAdvancedQuery,
   operatorsFor,
+  searchedFlowTypes,
   statusOptions,
+  toggleFlowType,
+  toggleStepType,
   valueInputKind,
   type RunOperator,
   type RunQuery,
@@ -32,6 +35,9 @@ import {
  */
 export function RunSearch({
   definition,
+  flowType,
+  flowTypes,
+  stepTypes,
   query,
   busy,
   onChange,
@@ -39,6 +45,12 @@ export function RunSearch({
   onClear,
 }: {
   definition: FlowV2Definition;
+  /** The page's own Flow type, always part of the search. */
+  flowType: string;
+  /** Every Flow type the search can widen to. */
+  flowTypes: readonly string[];
+  /** The Step types the current selection can be waiting at. */
+  stepTypes: readonly string[];
   query: RunQuery;
   busy: boolean;
   onChange: (query: RunQuery) => void;
@@ -57,6 +69,7 @@ export function RunSearch({
   const operators = chosen === null ? [] : operatorsFor(chosen.indexType);
   const kind = valueInputKind(chosen?.valueType);
   const set = (patch: Partial<RunQuery>) => onChange({ ...query, ...patch });
+  const searched = searchedFlowTypes(query.flowTypes, flowType);
   return (
     <form
       className="rsq"
@@ -103,7 +116,30 @@ export function RunSearch({
           />
         </label>
 
-        {attributes.length > 0 && (
+        {flowTypes.length > 1 && (
+          <CheckList
+            label={SEARCH_COPY.flowTypesLabel}
+            lockedOption={flowType}
+            options={flowTypes}
+            selected={searched}
+            onToggle={(candidate) => set({ flowTypes: toggleFlowType(query.flowTypes, flowType, candidate) })}
+          />
+        )}
+
+        {stepTypes.length > 0 && (
+          <CheckList
+            label={SEARCH_COPY.activeStepLabel}
+            note={SEARCH_COPY.activeStepNote}
+            options={stepTypes}
+            selected={query.activeStepTypes}
+            onToggle={(candidate) => set({ activeStepTypes: toggleStepType(query.activeStepTypes, candidate) })}
+          />
+        )}
+
+        {attributes.length > 0 && searched.length > 1 && (
+          <small className="rsw-permission-note">{SEARCH_COPY.attributeNeedsOneFlowType}</small>
+        )}
+        {attributes.length > 0 && searched.length <= 1 && (
           <div className="rsq-field">
             <span className="rsq-label">{SEARCH_COPY.attributeLabel}</span>
             <select
@@ -154,6 +190,37 @@ export function RunSearch({
         <button className="v2-ghost" onClick={onClear} type="button">{SEARCH_COPY.clear}</button>
       </div>
     </form>
+  );
+}
+
+/** Several exact names to choose from, because a Step or Flow type is not something to retype. */
+function CheckList({ label, note, options, selected, lockedOption, onToggle }: {
+  label: string;
+  note?: string;
+  options: readonly string[];
+  selected: readonly string[];
+  /** Stays ticked and cannot be changed. */
+  lockedOption?: string;
+  onToggle: (option: string) => void;
+}) {
+  return (
+    <fieldset className="rsq-field rsq-checks">
+      <legend className="rsq-label">{label}</legend>
+      <div className="rsq-checklist">
+        {options.map((option) => (
+          <label key={option} title={option}>
+            <input
+              checked={selected.includes(option)}
+              disabled={option === lockedOption}
+              type="checkbox"
+              onChange={() => onToggle(option)}
+            />
+            <span>{option}</span>
+          </label>
+        ))}
+      </div>
+      {note !== undefined && <small className="rsw-permission-note">{note}</small>}
+    </fieldset>
   );
 }
 

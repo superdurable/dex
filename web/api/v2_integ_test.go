@@ -34,6 +34,7 @@ import (
 type v2TestClient struct {
 	dexpb.FlowServiceClient
 	mutex              sync.Mutex
+	searchEntries      []*dexpb.SearchFlowsResponseEntry
 	searchRequests     []*dexpb.SearchFlowsRequest
 	summaryRequests    []*dexpb.GetFlowSummaryRequest
 	attributeRequests  []*dexpb.GetAttributesRequest
@@ -89,6 +90,9 @@ func (client *v2TestClient) SearchFlows(
 	client.mutex.Lock()
 	client.searchRequests = append(client.searchRequests, request)
 	client.mutex.Unlock()
+	if client.searchEntries != nil {
+		return &dexpb.SearchFlowsResponse{FlowRuns: client.searchEntries}, nil
+	}
 	return &dexpb.SearchFlowsResponse{FlowRuns: []*dexpb.SearchFlowsResponseEntry{
 		{
 			FlowId: "refund-1", RunId: "current-run", FlowType: "RefundFlow",
@@ -285,6 +289,220 @@ func TestV2FacadeUsesCurrentRunAndStructuredContract(t *testing.T) {
 	}
 }
 
+func TestV2SearchFiltersByActiveStepTypes(t *testing.T) {
+	cases := []struct {
+		name      string
+		filter    string
+		wantQuery string
+	}{{
+		name:      "one Step type",
+		filter:    `{"field":"activeStepTypes","operator":"eq","values":["AwaitApproval"]}`,
+		wantQuery: "FlowType = 'RefundFlow' AND ActiveStepTypes = 'AwaitApproval'",
+	}, {
+		name:   "any of several Step types",
+		filter: `{"field":"activeStepTypes","operator":"in","values":["AwaitApproval","Await'Manager"]}`,
+		wantQuery: "FlowType = 'RefundFlow' AND " +
+			"(ActiveStepTypes = 'AwaitApproval' OR ActiveStepTypes = 'Await''Manager')",
+	}, {
+		name:      "a backslash is escaped before the quote",
+		filter:    `{"field":"activeStepTypes","operator":"eq","values":["Await\\'Manager\\"]}`,
+		wantQuery: `FlowType = 'RefundFlow' AND ActiveStepTypes = 'Await\\''Manager\\'`,
+	}}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &v2TestClient{}
+			mux := http.NewServeMux()
+			RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2Definition()})
+
+			response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search",
+				`{"flowType":"RefundFlow","filters":[`+testCase.filter+`]}`)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+			}
+			if query := client.searchRequests[0].GetQuery(); query != testCase.wantQuery {
+				t.Fatalf("query = %q, want %q", query, testCase.wantQuery)
+			}
+		})
+	}
+}
+
+func TestV2SearchRejectsActiveStepTypesOperatorsAKeywordCannotAnswer(t *testing.T) {
+	for _, operator := range []string{"gte", "contains"} {
+		t.Run(operator, func(t *testing.T) {
+			client := &v2TestClient{}
+			mux := http.NewServeMux()
+			RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2Definition()})
+
+			response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
+				"flowType":"RefundFlow",
+				"filters":[{"field":"activeStepTypes","operator":"`+operator+`","values":["AwaitApproval"]}]
+			}`)
+
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+			}
+			if len(client.searchRequests) != 0 {
+				t.Fatalf("SearchFlows requests = %+v", client.searchRequests)
+			}
+		})
+	}
+}
+
+func TestV2SearchAcrossFlowTypesCompilesOneSortedQuery(t *testing.T) {
+	client := &v2TestClient{}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{
+		"OrderFlow": testV2Definition(), "RefundFlow": testV2Definition(),
+	})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
+		"flowTypes":["RefundFlow","OrderFlow","RefundFlow"],
+		"filters":[
+			{"field":"activeStepTypes","operator":"in","values":["AwaitApproval"]},
+			{"field":"executionStatus","operator":"eq","values":["Running"]}
+		]
+	}`)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+	}
+	if len(client.searchRequests) != 1 {
+		t.Fatalf("SearchFlows requests = %d, want 1", len(client.searchRequests))
+	}
+	want := "(FlowType = 'OrderFlow' OR FlowType = 'RefundFlow') AND " +
+		"(ActiveStepTypes = 'AwaitApproval') AND ExecutionStatus = 'Running'"
+	if query := client.searchRequests[0].GetQuery(); query != want {
+		t.Fatalf("query = %q, want %q", query, want)
+	}
+}
+
+func TestV2SearchWithOneOfFlowTypesKeepsThePinnedQuery(t *testing.T) {
+	client := &v2TestClient{}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2Definition()})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
+		"flowTypes":["RefundFlow"],
+		"filters":[{"field":"case-status","operator":"eq","values":["review"]}]
+	}`)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+	}
+	want := "FlowType = 'RefundFlow' AND `case-status-index` = 'review'"
+	if query := client.searchRequests[0].GetQuery(); query != want {
+		t.Fatalf("query = %q, want %q", query, want)
+	}
+}
+
+func TestV2SearchAcrossFlowTypesReadsEachRowWithItsOwnDefinition(t *testing.T) {
+	client := &v2TestClient{
+		searchEntries: []*dexpb.SearchFlowsResponseEntry{{
+			FlowId: "refund-1", FlowType: "RefundFlow",
+			IndexedAttributes: []*dexpb.KV{{Key: "keyword1", Value: stringDexValue("review")}},
+		}, {
+			FlowId: "order-1", FlowType: "OrderFlow",
+			IndexedAttributes: []*dexpb.KV{{Key: "keyword1", Value: stringDexValue("west")}},
+		}},
+		invokeRPCHandler: func(_ context.Context, request *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+			return &dexpb.InvokeRPCResponse{Output: jsonDexValue(
+				`{"summary-owner":"` + request.GetRpcName() + `"}`,
+			)}, nil
+		},
+	}
+	definitionFor := func(attributeKey string, summaryRPC string) V2Definition {
+		return V2Definition{
+			IndexedAttributes: []V2IndexedAttribute{{
+				AttributeKey: attributeKey, IndexKey: "keyword1",
+				IndexType: "keyword", ValueType: "string", Description: attributeKey,
+			}},
+			Summary: V2RPCView{RPCName: summaryRPC, Fields: []V2ViewField{{
+				AttributeKey: "summary-owner", ValueType: "string", Description: "Summary owner",
+			}}},
+		}
+	}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{
+		"RefundFlow": definitionFor("case-status", "GetRefundSummary"),
+		"OrderFlow":  definitionFor("warehouse", "GetOrderSummary"),
+	})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{"flowTypes":["RefundFlow","OrderFlow"]}`)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+	}
+	var result v2SearchResponse
+	decodeV2Response(t, response, &result)
+	rows := make(map[string]v2Flow, len(result.Flows))
+	for _, flow := range result.Flows {
+		rows[flow.FlowID] = flow
+	}
+	refund, order := rows["refund-1"], rows["order-1"]
+	if refund.FlowType != "RefundFlow" || refund.IndexedAttributes["case-status"] != "review" ||
+		refund.Summary["summary-owner"] != "GetRefundSummary" {
+		t.Fatalf("refund row = %+v", refund)
+	}
+	if order.FlowType != "OrderFlow" || order.IndexedAttributes["warehouse"] != "west" ||
+		order.Summary["summary-owner"] != "GetOrderSummary" {
+		t.Fatalf("order row = %+v", order)
+	}
+	if _, leaked := order.IndexedAttributes["case-status"]; leaked {
+		t.Fatalf("order row carries the other Flow type's Attribute: %+v", order)
+	}
+}
+
+func TestV2SearchRejectsAnUnanswerableFlowTypeScope(t *testing.T) {
+	cases := []struct {
+		name      string
+		body      string
+		wantError string
+	}{{
+		name:      "flowType and flowTypes together",
+		body:      `{"flowType":"RefundFlow","flowTypes":["OrderFlow"]}`,
+		wantError: "send flowType or flowTypes, not both",
+	}, {
+		name:      "no Flow type",
+		body:      `{"flowTypes":[]}`,
+		wantError: `flowType "" has no valid`,
+	}, {
+		name:      "one Flow type without a contract",
+		body:      `{"flowTypes":["RefundFlow","UnknownFlow"]}`,
+		wantError: `flowType "UnknownFlow" has no valid`,
+	}, {
+		name: "an indexed Attribute filter across Flow types",
+		body: `{
+			"flowTypes":["RefundFlow","OrderFlow"],
+			"filters":[{"field":"case-status","operator":"eq","values":["review"]}]
+		}`,
+		wantError: "accepts only built-in fields",
+	}}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &v2TestClient{}
+			mux := http.NewServeMux()
+			RegisterV2Handlers(mux, client, map[string]V2Definition{
+				"OrderFlow": testV2Definition(), "RefundFlow": testV2Definition(),
+			})
+
+			response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", testCase.body)
+
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body=%q", response.Code, response.Body.String())
+			}
+			var failure errorResponse
+			decodeV2Response(t, response, &failure)
+			if !strings.Contains(failure.Error, testCase.wantError) {
+				t.Fatalf("error = %q, want %q", failure.Error, testCase.wantError)
+			}
+			if len(client.searchRequests) != 0 {
+				t.Fatalf("SearchFlows requests = %+v", client.searchRequests)
+			}
+		})
+	}
+}
+
 func TestV2SearchRejectsInvalidWorkQueuePermission(t *testing.T) {
 	client := &v2TestClient{}
 	mux := http.NewServeMux()
@@ -478,11 +696,12 @@ func TestV2SummaryLoadingBoundsConcurrencyAndIsolatesFailures(t *testing.T) {
 	flows := make([]v2Flow, 10)
 	for index := range flows {
 		flows[index].FlowID = "refund-" + string(rune('a'+index))
+		flows[index].FlowType = "RefundFlow"
 	}
 	flows[9].FlowID = "failure"
 	done := make(chan struct{})
 	go func() {
-		handler.loadSummaries(context.Background(), testV2Definition().Summary, flows)
+		handler.loadSummaries(context.Background(), map[string]V2Definition{"RefundFlow": testV2Definition()}, flows)
 		close(done)
 	}()
 	for index := 0; index < v2RPCConcurrency; index++ {
@@ -582,8 +801,8 @@ func TestV2MissingViewBlobSurfacesRowError(t *testing.T) {
 		return &dexpb.InvokeRPCResponse{Output: blobObjDexValue("missing-blob")}, nil
 	}
 	handler := &v2Handler{client: client}
-	flows := []v2Flow{{FlowID: "refund-1"}}
-	handler.loadSummaries(context.Background(), testV2Definition().Summary, flows)
+	flows := []v2Flow{{FlowID: "refund-1", FlowType: "RefundFlow"}}
+	handler.loadSummaries(context.Background(), map[string]V2Definition{"RefundFlow": testV2Definition()}, flows)
 	if flows[0].SummaryError == "" {
 		t.Fatalf("missing blob did not surface a row error: %+v", flows[0])
 	}
@@ -973,9 +1192,9 @@ func TestV2SummaryCallsUseFiveSecondTimeout(t *testing.T) {
 		}
 		return &dexpb.InvokeRPCResponse{Output: jsonDexValue(`{"charge-reference":"ok"}`)}, nil
 	}
-	flows := []v2Flow{{FlowID: "refund-1"}}
+	flows := []v2Flow{{FlowID: "refund-1", FlowType: "RefundFlow"}}
 	handler := &v2Handler{client: client}
-	handler.loadSummaries(context.Background(), testV2Definition().Summary, flows)
+	handler.loadSummaries(context.Background(), map[string]V2Definition{"RefundFlow": testV2Definition()}, flows)
 	if flows[0].Summary["charge-reference"] != "ok" {
 		t.Fatalf("summary = %+v", flows[0])
 	}

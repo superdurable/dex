@@ -14,7 +14,12 @@ export interface FilterRow {
   field: string;
   operator: string;
   value: string;
+  /** Exact values, for a field whose values are chosen rather than typed. Wins over `value`. */
+  values?: readonly string[];
 }
+
+/** The built-in filter on the Step types a run is at, which the search endpoint understands. */
+export const ACTIVE_STEP_TYPES_FIELD = 'activeStepTypes';
 
 export function filterFields(definition: FlowV2Definition) {
   return [
@@ -31,7 +36,7 @@ export function filterFields(definition: FlowV2Definition) {
 
 export function filterValueType(field: string, definition: FlowV2Definition): V2ValueType {
   if (field === 'startTime' || field === 'closeTime') return 'datetime';
-  if (field === 'flowId' || field === 'executionStatus') return 'string';
+  if (field === 'flowId' || field === 'executionStatus' || field === ACTIVE_STEP_TYPES_FIELD) return 'string';
   return definition.indexedAttributes
     .find((attribute) => attribute.attributeKey === field)?.valueType ?? 'string';
 }

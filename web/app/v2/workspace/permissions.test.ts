@@ -8,7 +8,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
-import { permissionActionLabels, permissionsOf } from './permissions';
+import {
+  permissionActionLabels,
+  permissionActionLabelsAcross,
+  permissionsAcross,
+  permissionsOf,
+} from './permissions';
 
 const action = (rpcName: string, requiredPermission: string) => ({
   rpcName,
@@ -47,5 +52,18 @@ describe('permissionActionLabels', () => {
     expect(permissionActionLabels(refund, 'refund.manage'))
       .toEqual(['ApproveRefund', 'RejectRefund']);
     expect(permissionActionLabels(refund, 'refund.audit')).toEqual([]);
+  });
+});
+
+describe('permissions across Flow types', () => {
+  const refund = definition([action('Approve', 'refund.manage'), action('Notify', 'shared.notify')]);
+  const order = definition([action('Ship', 'order.manage'), action('Notify', 'shared.notify')]);
+
+  it('offers each permission of the searched Flows once, sorted', () => {
+    expect(permissionsAcross([refund, order])).toEqual(['order.manage', 'refund.manage', 'shared.notify']);
+  });
+
+  it('names each Action label once', () => {
+    expect(permissionActionLabelsAcross([refund, order], 'shared.notify')).toEqual(['Notify']);
   });
 });

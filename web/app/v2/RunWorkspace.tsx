@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { FlowRoutingData } from '@/app/flows/details/PullRouting';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
 import { v2HomePath, v2RunPath } from './contract';
@@ -28,10 +28,12 @@ import {
 } from './V2SplitHandle';
 import { useWebCatalog } from './WebCatalogProvider';
 import { RunSearch } from './workspace/RunSearch';
+import { emptyRunsText, searchedFlowTypes, stepTypeOptions } from './workspace/runQuery';
 import { useFlowSearch } from './workspace/useFlowSearch';
 import { useRunQuery } from './workspace/useRunQuery';
 import { useStrandedRuns } from './workspace/useStrandedRuns';
-import { permissionActionLabels, permissionsOf } from './workspace/permissions';
+import { useWorkingAs } from './workspace/useWorkingAs';
+import { permissionActionLabelsAcross } from './workspace/permissions';
 import { WORK_QUEUE_COPY } from './work-queue/copy';
 import { StartFlowDialog } from './start/StartFlowDialog';
 
@@ -52,18 +54,18 @@ export function RunWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
   const {
-    ready, canUseV2, catalog, error, definitionUpdateKey, handleDefinitionError,
+    ready, canUseV2, catalog, definitions, error, definitionUpdateKey, handleDefinitionError,
   } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
-  const runQuery = useRunQuery(entry?.definition);
-  const [permission, setPermission] = useState('');
+  const runQuery = useRunQuery(entry?.definition, flowType);
   const [refocusKey, setRefocusKey] = useState(0);
-  const workQueuePermissions = useMemo(
-    () => permission === '' ? [] : [permission],
-    [permission],
-  );
+  const searchFlowTypes = searchedFlowTypes(runQuery.appliedFlowTypes, flowType);
+  const searchedDefinitions = (catalog?.flows ?? [])
+    .filter((candidate) => searchFlowTypes.includes(candidate.flowType))
+    .map((candidate) => candidate.definition);
+  const { permission, permissionOptions, setPermission, workQueuePermissions } = useWorkingAs(searchedDefinitions);
   const search = useFlowSearch(
-    flowType || undefined,
+    searchFlowTypes,
     entry?.definition,
     runQuery.appliedFilters,
     workQueuePermissions,
@@ -126,7 +128,7 @@ export function RunWorkspace() {
       <div className="v2-run-body" data-has-drawer={showDrawer ? 'true' : undefined} ref={bodyRef}>
         <RunList
           collapsed={listPane.isCollapsed}
-          emptyText={RUN_COPY.noRuns}
+          emptyText={emptyRunsText(runQuery.appliedFilters, searchFlowTypes, RUN_COPY.noRuns)}
           entry={entry}
           flowTypes={catalog.flows}
           heading={RUN_COPY.runsHeading}
@@ -136,7 +138,7 @@ export function RunWorkspace() {
             </button>
           ) : undefined}
           onExpand={listPane.expand}
-          permissionControl={permissionsOf(entry.definition).length > 0 ? (
+          permissionControl={permissionOptions.length > 0 ? (
             <label className="rsw-permission">
               <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
               <select
@@ -145,14 +147,14 @@ export function RunWorkspace() {
                 onChange={(event) => setPermission(event.target.value)}
               >
                 <option value="">{WORK_QUEUE_COPY.anyPermission}</option>
-                {permissionsOf(entry.definition).map((candidate) => (
+                {permissionOptions.map((candidate) => (
                   <option key={candidate} value={candidate}>{candidate}</option>
                 ))}
               </select>
               {permission !== '' && (
                 <small className="rsw-permission-note">
                   {WORK_QUEUE_COPY.permissionActions(
-                    permissionActionLabels(entry.definition, permission),
+                    permissionActionLabelsAcross(searchedDefinitions, permission),
                   )}
                 </small>
               )}
@@ -162,6 +164,13 @@ export function RunWorkspace() {
             <RunSearch
               busy={search.loading}
               definition={entry.definition}
+              flowType={entry.flowType}
+              flowTypes={catalog.flows.map((candidate) => candidate.flowType)}
+              stepTypes={stepTypeOptions(
+                definitions?.definitions ?? [],
+                searchedFlowTypes(runQuery.query.flowTypes, entry.flowType),
+                runQuery.query.activeStepTypes,
+              )}
               query={runQuery.query}
               onChange={runQuery.setQuery}
               onClear={runQuery.clear}
@@ -170,12 +179,16 @@ export function RunWorkspace() {
           )}
           search={search}
           selectedFlowID={flowId}
+          showFlowType={searchFlowTypes.length > 1}
           strandedFlowIDs={strandedFlowIDs}
-          onSelectFlowType={(next) => navigate(v2RunPath(next))}
-          onSelectRun={(nextFlowID) => {
+          onSelectFlowType={(next) => {
+            runQuery.narrowToPageFlowType();
+            navigate(v2RunPath(next));
+          }}
+          onSelectRun={(flow) => {
             // Picking the open run again takes the canvas back to where the run is.
-            if (nextFlowID === flowId) setRefocusKey((key) => key + 1);
-            navigate(v2RunPath(entry.flowType, nextFlowID));
+            if (flow.flowId === flowId) setRefocusKey((key) => key + 1);
+            navigate(v2RunPath(flow.flowType, flow.flowId));
           }}
         />
         <V2SplitHandle

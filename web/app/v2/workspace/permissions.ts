@@ -28,3 +28,16 @@ export function permissionActionLabels(
     .filter((action) => action.requiredPermission === permission)
     .map((action) => action.label);
 }
+
+/** Permissions declared by several Flows, for a search that spans them. */
+export function permissionsAcross(definitions: readonly FlowV2Definition[]): string[] {
+  return [...new Set(definitions.flatMap(permissionsOf))].sort();
+}
+
+/** Action labels associated with one permission across several Flows, each named once. */
+export function permissionActionLabelsAcross(
+  definitions: readonly FlowV2Definition[],
+  permission: string,
+): string[] {
+  return [...new Set(definitions.flatMap((definition) => permissionActionLabels(definition, permission)))];
+}

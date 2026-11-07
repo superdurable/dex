@@ -35,6 +35,7 @@ const (
 	v2RPCConcurrency            = 8
 	v2RPCTimeout                = 5 * time.Second
 	v2WorkQueuePermissionsIndex = "DexWorkQueuePermissions"
+	v2ActiveStepTypesIndex      = "ActiveStepTypes"
 	V2DefinitionRevisionHeader  = "X-Dex-Flow-Definition-Revision"
 )
 
@@ -222,6 +223,7 @@ type v2Filter struct {
 
 type v2SearchRequest struct {
 	FlowType             string     `json:"flowType"`
+	FlowTypes            []string   `json:"flowTypes"`
 	WorkQueuePermissions []string   `json:"workQueuePermissions"`
 	Filters              []v2Filter `json:"filters"`
 	PageSize             int32      `json:"pageSize"`
@@ -356,9 +358,9 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 	if !permitted {
 		return
 	}
-	definition, ok := snapshot.Definitions[body.FlowType]
-	if !ok {
-		WriteError(response, http.StatusBadRequest, "flowType has no valid Flow Definition Graph 2.0 contract", nil)
+	flowTypes, err := resolveV2SearchFlowTypes(body, snapshot.Definitions)
+	if err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 	if body.PageSize < 0 {
@@ -368,7 +370,7 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 	if body.PageSize == 0 || body.PageSize > v2DefaultPageSize {
 		body.PageSize = v2DefaultPageSize
 	}
-	query, err := compileV2Query(body.FlowType, permissions, body.Filters, definition)
+	query, err := compileV2Query(flowTypes, permissions, body.Filters, snapshot.Definitions)
 	if err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -393,6 +395,8 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 			continue
 		}
 		seenFlowIDs[entry.GetFlowId()] = struct{}{}
+		// A physical index key means what this row's own Flow type declares.
+		definition := snapshot.Definitions[entry.GetFlowType()]
 		indexedValues := make(map[string]interface{}, len(definition.IndexedAttributes))
 		physicalValues := keyValueMap(entry.GetIndexedAttributes())
 		for _, attribute := range definition.IndexedAttributes {
@@ -408,7 +412,7 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 			IndexedAttributes: indexedValues,
 		})
 	}
-	h.loadSummaries(request.Context(), definition.Summary, flows)
+	h.loadSummaries(request.Context(), snapshot.Definitions, flows)
 	writeJSON(response, http.StatusOK, v2SearchResponse{
 		Flows: flows, NextPageToken: result.GetNextPageToken(),
 	})
@@ -416,7 +420,7 @@ func (h *v2Handler) search(response http.ResponseWriter, request *http.Request) 
 
 func (h *v2Handler) loadSummaries(
 	ctx context.Context,
-	view V2RPCView,
+	definitions map[string]V2Definition,
 	flows []v2Flow,
 ) {
 	semaphore := make(chan struct{}, v2RPCConcurrency)
@@ -429,6 +433,7 @@ func (h *v2Handler) loadSummaries(
 			defer func() { <-semaphore }()
 			callContext, cancelCall := context.WithTimeout(ctx, v2RPCTimeout)
 			defer cancelCall()
+			view := definitions[flows[index].FlowType].Summary
 			values, err := h.invokeView(callContext, flows[index].FlowID, view)
 			if err != nil {
 				flows[index].SummaryError = publicGRPCErrorMessage(err, "Summary")
@@ -830,13 +835,48 @@ func (h *v2Handler) requireActiveFlow(ctx context.Context, flowID string, flowTy
 	return nil
 }
 
+// resolveV2SearchFlowTypes returns the sorted, distinct Flow types of one search.
+//
+// Sorted so the same selection compiles to the same query: a page token is bound to its query text.
+func resolveV2SearchFlowTypes(
+	body v2SearchRequest,
+	definitions map[string]V2Definition,
+) ([]string, error) {
+	if body.FlowType != "" && len(body.FlowTypes) > 0 {
+		return nil, errors.New("send flowType or flowTypes, not both")
+	}
+	requested := body.FlowTypes
+	if len(requested) == 0 {
+		requested = []string{body.FlowType}
+	}
+	flowTypeSet := make(map[string]struct{}, len(requested))
+	for _, flowType := range requested {
+		if _, ok := definitions[flowType]; !ok {
+			return nil, fmt.Errorf("flowType %q has no valid Flow Definition Graph 2.0 contract", flowType)
+		}
+		flowTypeSet[flowType] = struct{}{}
+	}
+	flowTypes := make([]string, 0, len(flowTypeSet))
+	for flowType := range flowTypeSet {
+		flowTypes = append(flowTypes, flowType)
+	}
+	sort.Strings(flowTypes)
+	return flowTypes, nil
+}
+
 func compileV2Query(
-	flowType string,
+	flowTypes []string,
 	workQueuePermissions []string,
 	filters []v2Filter,
-	definition V2Definition,
+	definitions map[string]V2Definition,
 ) (string, error) {
-	conditions := []string{"FlowType = " + quoteVisibilityString(flowType)}
+	conditions := []string{compileV2FlowTypes(flowTypes)}
+	// The same physical index key can mean different things in different Flow types, so an indexed
+	// Attribute filter has a meaning only within one. Built-in fields mean the same everywhere.
+	var definition V2Definition
+	if len(flowTypes) == 1 {
+		definition = definitions[flowTypes[0]]
+	}
 	permissionCondition, err := compileWorkQueuePermissions(workQueuePermissions)
 	if err != nil {
 		return "", err
@@ -849,6 +889,9 @@ func compileV2Query(
 			return "", fmt.Errorf("filter %q must contain at least one value", filter.Field)
 		}
 		physicalKey, valueType, indexType, ok := v2FilterField(filter.Field, definition)
+		if !ok && len(flowTypes) > 1 {
+			return "", fmt.Errorf("filter %q is not a built-in field, and a search of several Flow types accepts only built-in fields", filter.Field)
+		}
 		if !ok {
 			return "", fmt.Errorf("unknown v2 filter field %q", filter.Field)
 		}
@@ -862,6 +905,19 @@ func compileV2Query(
 		conditions = append(conditions, condition)
 	}
 	return strings.Join(conditions, " AND "), nil
+}
+
+// compileV2FlowTypes keeps the single-type query an equality: the builtin search backend reads
+// one pinned Flow type from its per-type index and scans every document for anything else.
+func compileV2FlowTypes(flowTypes []string) string {
+	parts := make([]string, 0, len(flowTypes))
+	for _, flowType := range flowTypes {
+		parts = append(parts, "FlowType = "+quoteVisibilityString(flowType))
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
 }
 
 func compileWorkQueuePermissions(permissions []string) (string, error) {
@@ -904,6 +960,8 @@ func v2FilterField(
 		return "StartTime", "datetime", "datetime", true
 	case "closeTime":
 		return "CloseTime", "datetime", "datetime", true
+	case "activeStepTypes":
+		return v2ActiveStepTypesIndex, "string", "keyword", true
 	default:
 		for _, attribute := range definition.IndexedAttributes {
 			if attribute.AttributeKey == field {
@@ -1008,8 +1066,11 @@ func visibilityLiteral(value interface{}, valueType string) (string, error) {
 	}
 }
 
+// quoteVisibilityString escapes the backslash first: the query lexer reads it as an escape, so
+// a value ending in one would otherwise swallow the closing quote.
 func quoteVisibilityString(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	return "'" + strings.ReplaceAll(escaped, "'", "''") + "'"
 }
 
 func quoteVisibilityField(value string) string {
