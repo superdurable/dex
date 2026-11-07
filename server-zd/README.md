@@ -151,7 +151,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_commit_records_total` | counter | — | Committed commands |
 | `dexzd_commit_bytes_total` | counter | — | Committed batch bytes |
 | `dexzd_commit_latency_seconds` | histogram, buckets 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5 | — | Batch seal to durable acknowledgement |
-| `dexzd_object_store_requests_total` | counter | `operation`: put, get, list, delete; `object_kind`: log, snapshot, manifest, lease, other | Object storage requests; multipart upload counts once as put |
+| `dexzd_object_store_requests_total` | counter | `operation`: put, get, list, delete; `object_kind`: log, snapshot, manifest, lease, history, other | Object storage requests; multipart upload counts once as put |
 | `dexzd_object_store_request_errors_total` | counter | `operation`: put, get, list, delete | Failed requests after SDK retries |
 | `dexzd_object_store_put_bytes_total` | counter | — | Uploaded bytes |
 | `dexzd_snapshots_total` | counter | `outcome`: ok, error | Snapshot attempts |
@@ -189,6 +189,13 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_search_initial_loads_total` | counter | — | Partition loads started, including loads of progress that cannot continue; the log gives the reason |
 | `dexzd_search_projection_mode_skipped_partitions_total` | counter | — | Stopped partitions that kept their previous search projection mode at startup |
 | `dexzd_history_offload_mode_skipped_partitions_total` | counter | — | Stopped partitions that kept their previous history offload mode at startup |
+| `dexzd_history_upload_backlog_segments` | gauge | — | Sealed history segments not yet uploaded, summed over each partition's last rescan |
+| `dexzd_history_upload_backlog_bytes` | gauge | — | Uncompressed bytes of the history rows and superseded values of `dexzd_history_upload_backlog_segments` |
+| `dexzd_history_upload_oldest_sealed_age_seconds` | gauge | — | Age at scrape time of the oldest sealed history segment not yet uploaded, 0 when none |
+| `dexzd_history_uploads_total` | counter | `outcome`: created, already_present, replaced, failed | History segment uploads, counted once acknowledged; failed attempts retry with backoff when transient, otherwise at the next rescan |
+| `dexzd_history_upload_bytes_total` | counter | — | Bytes of the history segment objects this node created or replaced |
+| `dexzd_history_upload_checksum_mismatches_total` | counter | — | Existing history segment objects whose content differed from committed state and were replaced |
+| `dexzd_history_upload_rescan_errors_total` | counter | — | Runs or index rows that the history upload rescan could not read; the log names each and the rescan continues |
 | `dexzd_search_initial_load_documents_total` | counter | — | Documents written by initial SQL visibility loads |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.

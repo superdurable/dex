@@ -173,6 +173,131 @@ impl EncodeMetric for SearchOutboxOldestEntryAge {
     }
 }
 
+/// Sealed history segments waiting for upload in each partition, as of the uploader's last scan.
+#[derive(Clone, Debug)]
+pub struct HistoryUploadBacklog {
+    partitions: Arc<Vec<PartitionHistoryUploadBacklog>>,
+}
+
+#[derive(Debug, Default)]
+struct PartitionHistoryUploadBacklog {
+    segments: AtomicU64,
+    /// Uncompressed bytes of the waiting segments' history rows and superseded values.
+    bytes: AtomicU64,
+    /// Seal time of the oldest waiting segment, the sealing command's proposed_at_micros; 0 when none.
+    oldest_sealed_at_micros: AtomicI64,
+}
+
+impl HistoryUploadBacklog {
+    pub(crate) fn new(partition_count: usize) -> Self {
+        Self {
+            partitions: Arc::new(
+                (0..partition_count)
+                    .map(|_| PartitionHistoryUploadBacklog::default())
+                    .collect(),
+            ),
+        }
+    }
+
+    /// Records what the uploader's last scan of `partition` found waiting: the segment count,
+    /// their uncompressed bytes, and the seal time of the oldest one, or `None` when none waits.
+    /// Ignores a partition outside the configured count.
+    pub fn set_partition(
+        &self,
+        partition: usize,
+        segments: u64,
+        bytes: u64,
+        oldest_sealed_at_micros: Option<i64>,
+    ) {
+        if let Some(backlog) = self.partitions.get(partition) {
+            backlog.segments.store(segments, Ordering::Relaxed);
+            backlog.bytes.store(bytes, Ordering::Relaxed);
+            backlog
+                .oldest_sealed_at_micros
+                .store(oldest_sealed_at_micros.unwrap_or(0), Ordering::Relaxed);
+        }
+    }
+
+    /// Clears every partition, for a node that stopped uploading.
+    pub fn clear(&self) {
+        for partition in 0..self.partitions.len() {
+            self.set_partition(partition, 0, 0, None);
+        }
+    }
+
+    /// Returns the segments waiting in every partition.
+    pub fn segments(&self) -> u64 {
+        self.partitions
+            .iter()
+            .map(|backlog| backlog.segments.load(Ordering::Relaxed))
+            .fold(0, u64::saturating_add)
+    }
+
+    /// Returns the uncompressed bytes waiting in every partition.
+    pub fn bytes(&self) -> u64 {
+        self.partitions
+            .iter()
+            .map(|backlog| backlog.bytes.load(Ordering::Relaxed))
+            .fold(0, u64::saturating_add)
+    }
+
+    /// Returns the seal time of the oldest segment waiting in any partition, or `None` when none
+    /// waits.
+    pub fn oldest_sealed_at_micros(&self) -> Option<i64> {
+        self.partitions
+            .iter()
+            .map(|backlog| backlog.oldest_sealed_at_micros.load(Ordering::Relaxed))
+            .filter(|sealed_at| *sealed_at > 0)
+            .min()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct HistoryUploadBacklogSegments(pub(crate) HistoryUploadBacklog);
+
+#[derive(Clone, Debug)]
+pub struct HistoryUploadBacklogBytes(pub(crate) HistoryUploadBacklog);
+
+#[derive(Clone, Debug)]
+pub struct HistoryUploadOldestSealedAge(pub(crate) HistoryUploadBacklog);
+
+impl EncodeMetric for HistoryUploadBacklogSegments {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        encoder.encode_gauge(&i64::try_from(self.0.segments()).unwrap_or(i64::MAX))
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Gauge
+    }
+}
+
+impl EncodeMetric for HistoryUploadBacklogBytes {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        encoder.encode_gauge(&i64::try_from(self.0.bytes()).unwrap_or(i64::MAX))
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Gauge
+    }
+}
+
+impl EncodeMetric for HistoryUploadOldestSealedAge {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+        let age = self.0.oldest_sealed_at_micros().map_or(0.0, |sealed_at| {
+            (now - sealed_at as f64 / 1_000_000.0).max(0.0)
+        });
+        encoder.encode_gauge(&age)
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Gauge
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +313,19 @@ mod tests {
         assert_eq!(backlog.entries().max(), Some(7));
         backlog.clear();
         assert_eq!(backlog.entries().sum::<u64>(), 0);
+    }
+
+    #[test]
+    fn history_upload_backlog_totals_partitions_and_keeps_the_oldest_seal() {
+        let backlog = HistoryUploadBacklog::new(3);
+        backlog.set_partition(0, 2, 300, Some(50));
+        backlog.set_partition(2, 1, 100, Some(20));
+        backlog.set_partition(9, 100, 100, Some(1));
+        assert_eq!(backlog.segments(), 3);
+        assert_eq!(backlog.bytes(), 400);
+        assert_eq!(backlog.oldest_sealed_at_micros(), Some(20));
+        backlog.clear();
+        assert_eq!(backlog.segments(), 0);
+        assert_eq!(backlog.oldest_sealed_at_micros(), None);
     }
 }

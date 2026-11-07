@@ -4,6 +4,10 @@
 
 Runtime that proposes, commits, and applies server-zd commands and runs their effects: dispatch, timers, deliveries, and recovery.
 
+## History segment uploads
+
+The effect runner uploads each committed SEALED history segment to the primary object store and proposes `HistorySegmentUploaded`. One task per run uploads its segments oldest first. The committed `HistorySegmentSealed` effect, partition rebuild from the `HistoryUploadPending` index, and a periodic rescan start that task, so a restart, takeover, or snapshot restore never loses an upload. A segment's key and content come from committed state alone. A repeated upload therefore finds an equal content checksum and acknowledges the existing object; an object with another checksum is replaced with an If-Match write. Failed object storage calls retry with backoff and never delay commands; a permanent rejection waits for the next rescan. Every call ends when the node stops, so no history request outlives its owner. A run purge waits one minute, so the client side of every write that an earlier owner or an abandoned attempt started has ended. It then deletes the run's segment objects by their catalog keys, sweeps the run's `history/` prefix, and proposes `RunPurge`. Dropping a call does not fence a write that the object store already accepted: such a write can still land after the purge. It leaks an object of a purged run, whose run ID is never reused, so no read returns it. A periodic orphan sweep of `history/`, not yet implemented, is to remove these objects.
+
 ## SubFlow hard-delete Attributes
 
 WaitFor results upload hard-delete values before the parent command enters the log. Object reference indices cover the parent Attribute writes, then each SubFlow's initial Attributes in condition order. Apply places the SubFlow references in its child-start outbox message without doing I/O.

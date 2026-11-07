@@ -1180,8 +1180,11 @@ dependencies = [
 name = "dexzd-e2e-tests"
 version = "0.1.0"
 dependencies = [
+ "dexzd-history-segment",
+ "dexzd-keyspace",
  "dexzd-protocol",
  "dexzd-server",
+ "dexzd-storage",
  "futures",
  "prost",
  "prost-types",
@@ -1379,6 +1382,7 @@ dependencies = [
  "dexzd-clock",
  "dexzd-cluster-metadata",
  "dexzd-engine",
+ "dexzd-history-segment",
  "dexzd-keyspace",
  "dexzd-log",
  "dexzd-metrics",

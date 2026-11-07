@@ -155,6 +155,18 @@ impl S3Emulator {
         }
     }
 
+    /// Returns the whole object at `key` in `bucket`.
+    pub(crate) fn read_object(&self, bucket: &str, key: &str) -> Vec<u8> {
+        let body = self
+            .store
+            .read_object(bucket, key, &s3local::ObjectReadRequest::default())
+            .expect("the emulator reads the object");
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::Read::take(body.file, body.length), &mut bytes)
+            .expect("the object body reads");
+        bytes
+    }
+
     /// Replaces the emulator's fault rules with `rules`, a JSON array of s3local fault rules.
     pub(crate) async fn set_fault_rules(&self, rules: &str) {
         let response = self

@@ -498,6 +498,7 @@ impl ServerNode {
                     metrics: metrics.clone(),
                     dispatcher: Arc::new(dispatch.clone()),
                     hard_delete_objects: hard_delete_objects.clone(),
+                    history_object_store: object_stores.primary.clone(),
                     partition_hasher: partition_hasher.clone(),
                     clock: clock.clone(),
                     validation_config: components.validation().clone(),

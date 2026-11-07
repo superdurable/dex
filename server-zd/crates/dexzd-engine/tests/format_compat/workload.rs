@@ -15,7 +15,7 @@ use dexzd_engine::{
     decode_hard_delete_value, default_run_settings, encode_hard_delete_value,
     hard_delete_placeholder_value,
 };
-use dexzd_history_segment::encode_history_segment;
+use dexzd_history_segment::{HistorySegmentContent, encode_history_segment};
 use dexzd_keyspace::row_keys::{decode_search_outbox_key, partition_index_range, prefix_range};
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionHasher, PartitionId, RunId, RunTable, TenantId,
@@ -183,17 +183,23 @@ impl Workload<'_> {
             }),
         )
         .await;
+        let content = self.acknowledge_only_history_segment(&run).await;
+        assert_eq!(content.values.len(), 1, "the replaced value is listed");
+    }
+
+    /// Acknowledges the run's only history segment as an upload would, and returns its content.
+    async fn acknowledge_only_history_segment(&self, run: &FlowRun) -> HistorySegmentContent {
         let segments = self
-            .run_rows::<HistorySegmentRecord>(&run, RunTable::HistorySegment)
+            .run_rows::<HistorySegmentRecord>(run, RunTable::HistorySegment)
             .await;
-        assert_eq!(segments.len(), 1, "the stop sealed one segment");
+        assert_eq!(segments.len(), 1, "the close sealed one segment");
         let segment = segments[0].clone();
         let view = self
             .node
             .committer()
             .committed_view()
             .expect("open a committed view");
-        let flow_hash = self.context(&flow_id).flow_hash;
+        let flow_hash = self.context(&run.flow_id).flow_hash;
         let run_id = run.run_id;
         let first_seq = segment.first_seq;
         let content = tokio::task::spawn_blocking(move || {
@@ -203,10 +209,9 @@ impl Workload<'_> {
         })
         .await
         .expect("the read task completes");
-        assert_eq!(content.values.len(), 1, "the replaced value is listed");
         let encoded = encode_history_segment(&content).expect("the segment encodes");
         self.commit(
-            &run,
+            run,
             Command::HistorySegmentUploaded(HistorySegmentUploadedCommand {
                 first_seq: segment.first_seq,
                 last_seq: segment.last_seq,
@@ -215,6 +220,7 @@ impl Workload<'_> {
             }),
         )
         .await;
+        content
     }
 
     /// Sets the history offload mode of each partition in `partitions`.
@@ -1392,7 +1398,8 @@ impl Workload<'_> {
         .await;
     }
 
-    /// A short retention fires after close, and the purge deletes the run.
+    /// A short retention fires after close, once the run's sealed history segment is uploaded,
+    /// and the purge deletes the run.
     async fn purge_after_retention(&self) {
         let short_lived = self
             .start_flow(
@@ -1419,6 +1426,8 @@ impl Workload<'_> {
             close_response(CloseDecisionType::ForceComplete, "done"),
         )
         .await;
+        // Retention postpones while a segment is SEALED.
+        self.acknowledge_only_history_segment(&short_lived).await;
         let fired = self.fire_due_timers(&short_lived, 61 * SECOND_MICROS).await;
         assert!(
             fired

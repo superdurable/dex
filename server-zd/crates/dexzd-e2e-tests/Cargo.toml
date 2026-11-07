@@ -11,8 +11,11 @@ publish.workspace = true
 [dependencies]
 
 [dev-dependencies]
+dexzd-history-segment.workspace = true
+dexzd-keyspace.workspace = true
 dexzd-protocol.workspace = true
 dexzd-server = { workspace = true, features = ["test-util"] }
+dexzd-storage.workspace = true
 futures.workspace = true
 prost.workspace = true
 prost-types.workspace = true

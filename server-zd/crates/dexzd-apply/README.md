@@ -70,7 +70,9 @@ at or below U while the partition offloads history and, whatever the mode, while
 the run has a SEALED segment. So turning offload off never deletes sealed content
 before its acknowledgment; once every SEALED segment is acknowledged, pruning
 returns to the window rule. Segment rows count as history bytes, never toward the
-run state limit. Run purge deletes the pending index row with the run.
+run state limit. Run purge deletes the pending index row with the run. Retention postpones a closed run while it has a SEALED
+segment, as it does for an unacknowledged outbox message, so purging never
+abandons an upload.
 
 ## Value and storage accounting
 

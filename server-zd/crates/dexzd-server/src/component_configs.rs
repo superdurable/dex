@@ -248,6 +248,10 @@ impl ComponentConfigs {
                 ..EffectsConfig::default().child_run_settings
             },
             heads_resync_interval: config.matching.heads_resync_interval,
+            history_upload_concurrency: to_usize(
+                "history.uploadConcurrency",
+                u64::from(config.history.upload_concurrency),
+            )?,
             ..EffectsConfig::default()
         };
         let matching = MatchingConfig {

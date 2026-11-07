@@ -16,6 +16,7 @@ mod dev_restart;
 mod dev_soak;
 mod harness;
 mod history_offload_mode;
+mod history_uploads;
 mod lease_release;
 mod lease_validity;
 mod local_command;

@@ -74,7 +74,10 @@ pub(crate) fn on_retention_fired(
     cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
 ) -> Result<(), ApplyError> {
-    if has_unacknowledged_outbox(transaction, cursor.rows)? {
+    // Purging stops uploads, so a sealed segment would never reach object storage.
+    if has_unacknowledged_outbox(transaction, cursor.rows)?
+        || has_sealed_history_segment(transaction, cursor.rows)?
+    {
         postpone_retention(transaction, cursor, scope.now_micros);
         return Ok(());
     }
@@ -259,6 +262,22 @@ fn has_unacknowledged_outbox(
     Ok(messages
         .iter()
         .any(|(_, message)| message.acknowledged_at_micros == 0))
+}
+
+/// Returns whether the run has a SEALED history segment; its upload pending index row exists
+/// exactly while one remains.
+fn has_sealed_history_segment(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+) -> Result<bool, ApplyError> {
+    let key = history_upload_pending_index_key(
+        transaction.context().partition,
+        rows.flow_hash,
+        rows.run_id,
+    );
+    Ok(transaction
+        .get(ColumnFamily::PartitionIndex, &key)?
+        .is_some())
 }
 
 fn remove_timer_indexes(

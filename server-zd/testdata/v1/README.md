@@ -59,8 +59,10 @@ Then the node took a snapshot. After the snapshot:
 - `travel-flow`: two Steps and a client Attribute write complete the run. Time travel to the
   second Step's Execute, with writes reapplied, reopens it in run attempt 2, which completes.
 - `idle-flow`: a timer wait is skipped, the Flow config is updated, and the Flow is canceled.
-- `short-lived-flow`: a run with a 60-second retention completes; the retention timer fires
-  and the run is purged.
+- `short-lived-flow`: a run with a 60-second retention completes in partition 0, which
+  offloads history, so its close seals a segment. A HistorySegmentUploaded acknowledgment
+  marks it uploaded, because retention postpones while a segment is SEALED. Then the retention
+  timer fires and the run is purged.
 - `handout-sync`: an Execute that locks an Attribute is started and returned three times, with
   reasons UNSUPPORTED, LEGACY_NO_CAPACITY, and NOT_DELIVERED, then fails before any start. Its
   retries fail as STARTED_ATTEMPT_INTERRUPTED after a heartbeat with a task ID, as a not-run
