@@ -1,0 +1,490 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+/* Session view, tool call cards, and approval cards. Colours come from the v2 tokens. */
+
+.v2-run-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+}
+
+.v2-run-tab {
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--p-ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.v2-run-tab[aria-selected='true'] {
+  border-bottom-color: var(--color-cta);
+  color: var(--p-ink-0);
+  font-weight: 600;
+}
+
+.v2-canvas[data-view='session'] > .v2-canvas-pane {
+  display: none;
+}
+
+.v2-canvas-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ses {
+  display: flex;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 16px 0;
+  font-size: 14px;
+}
+
+.ses > * {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+}
+
+.ses-head {
+  display: grid;
+  gap: 4px;
+}
+
+.ses-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ses-status {
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font-size: 12.5px;
+}
+
+.ses-status[data-status='running_tools'],
+.ses-status[data-status='running_model'],
+.ses-status[data-status='compacting_context'] {
+  background: var(--p-run-active-dim, var(--p-surface-2));
+  color: var(--p-run-active);
+}
+
+.ses-status[data-status='failed'] {
+  color: var(--p-run-failed);
+}
+
+.ses-turn {
+  color: var(--p-ink-2);
+  font-size: 12.5px;
+}
+
+.ses-reload {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.ses-usage {
+  margin: 0;
+  color: var(--p-ink-2);
+  font-size: 12.5px;
+}
+
+.ses-usage-label {
+  color: var(--p-ink-1);
+  font-weight: 600;
+}
+
+.ses-state,
+.ses-note,
+.ses-stale {
+  margin: 0;
+  color: var(--p-ink-2);
+  font-size: 13px;
+}
+
+.ses-note {
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--p-line);
+}
+
+.ses-note[data-kind='history'] {
+  border-left-color: var(--p-unknown);
+}
+
+.ses-error {
+  margin: 0;
+  color: var(--p-run-failed);
+  font-size: 13.5px;
+}
+
+.ses-missing {
+  padding: 8px 12px;
+  border: 1px solid var(--p-run-failed);
+  border-radius: 6px;
+  color: var(--p-ink-1);
+  font-size: 13px;
+}
+
+.ses-missing ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.ses-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ses-earlier {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 12.5px;
+}
+
+.ses-turnmark {
+  margin-top: 6px;
+  color: var(--p-ink-3);
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ses-msg {
+  display: grid;
+  gap: 2px;
+  max-width: 88%;
+  padding: 8px 12px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 10px;
+  background: var(--p-surface-1);
+}
+
+.ses-msg[data-role='user'] {
+  align-self: flex-end;
+  background: var(--p-surface-2);
+}
+
+.ses-who {
+  color: var(--p-ink-2);
+  font-size: 12px;
+}
+
+.ses-writer {
+  color: var(--p-ink-3);
+  font-size: 11px;
+}
+
+.ses-text {
+  margin: 0;
+  color: var(--p-ink-0);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ses-gap {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--p-run-failed);
+  border-radius: 6px;
+  color: var(--p-run-failed);
+  font-size: 13px;
+}
+
+.ses-controls {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: 10px 0 14px;
+  border-top: 1px solid var(--p-line-soft);
+  background: var(--p-bg);
+}
+
+.ses-steer {
+  display: grid;
+  gap: 6px;
+}
+
+/* Tool call card */
+
+.atc {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--p-line);
+  border-left-width: 3px;
+  border-radius: 7px;
+  background: var(--p-surface-1);
+}
+
+.atc[data-source='messages'] {
+  border-style: dashed;
+  border-left-style: solid;
+}
+
+.atc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+
+.atc-name {
+  color: var(--p-ink-0);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.atc-effect {
+  color: var(--p-ink-2);
+  font-size: 12px;
+}
+
+.atc-effect[data-unknown='true'] {
+  font-style: italic;
+}
+
+.atc-state {
+  margin-left: auto;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.atc[data-state='awaiting_approval'],
+.atc[data-state='awaiting_answer'] {
+  border-left-color: var(--p-external);
+}
+
+.atc-state[data-state='awaiting_approval'],
+.atc-state[data-state='awaiting_answer'] {
+  background: var(--p-external-dim);
+  color: var(--p-external);
+}
+
+.atc[data-state='queued'] {
+  border-left-color: var(--p-clock);
+}
+
+.atc-state[data-state='queued'],
+.atc-state[data-state='waiting'],
+.atc-state[data-state='deciding'] {
+  background: var(--p-clock-dim);
+  color: var(--p-clock);
+}
+
+.atc[data-state='running'],
+.atc[data-state='retrying'] {
+  border-left-color: var(--p-run-active);
+}
+
+.atc-state[data-state='running'],
+.atc-state[data-state='retrying'] {
+  color: var(--p-run-active);
+}
+
+.atc[data-state='done'],
+.atc[data-state='returned'] {
+  border-left-color: var(--p-run-done);
+}
+
+.atc-state[data-state='done'] {
+  color: var(--p-run-done);
+}
+
+.atc[data-state='failed'],
+.atc[data-state='recording'],
+.atc[data-state='outcome_unknown'] {
+  border-left-color: var(--p-run-failed);
+}
+
+.atc-state[data-state='failed'],
+.atc-state[data-state='recording'],
+.atc-state[data-state='outcome_unknown'] {
+  color: var(--p-run-failed);
+}
+
+.atc[data-state='skipped'],
+.atc[data-state='rejected'],
+.atc[data-state='cancelled'],
+.atc[data-state='no_result'] {
+  border-left-color: var(--p-ink-3);
+}
+
+.atc-args,
+.atc-result pre {
+  overflow-x: auto;
+  max-height: 180px;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.atc-detail {
+  margin: 0;
+  color: var(--p-ink-1);
+  font-size: 13px;
+}
+
+.atc-result summary {
+  color: var(--p-ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.atc-foot {
+  color: var(--p-ink-3);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* Approval and question card */
+
+.agc {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.agc-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agc-buttons button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+.agc-danger {
+  border: 1px solid var(--p-run-failed);
+  background: transparent;
+  color: var(--p-run-failed);
+}
+
+.agc-danger:disabled,
+.agc-buttons button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.agc-reject {
+  display: grid;
+  gap: 6px;
+}
+
+.agc-label {
+  display: grid;
+  gap: 3px;
+  color: var(--p-ink-2);
+  font-size: 12.5px;
+}
+
+.agc-label textarea {
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 8px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-1);
+  color: var(--p-ink-0);
+  font: inherit;
+  font-size: 13.5px;
+  resize: vertical;
+}
+
+.agc-question {
+  margin: 0;
+  color: var(--p-ink-0);
+  font-weight: 600;
+}
+
+.agc-deadline,
+.agc-blocked,
+.agc-note {
+  margin: 0;
+  color: var(--p-ink-2);
+  font-size: 12.5px;
+}
+
+.agc-deadline[data-passed='true'] {
+  color: var(--p-run-failed);
+}
+
+.agc-blocked {
+  color: var(--p-external);
+}
+
+/* The session reads on a phone: the tab takes the whole width there. */
+@media (max-width: 640px) {
+  .v2-run-body[data-view='session'] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .v2-run-body[data-view='session'] > :not(.v2-canvas) {
+    display: none;
+  }
+
+  .ses {
+    padding-inline: 12px;
+  }
+
+  .ses-msg {
+    max-width: 100%;
+  }
+
+  .ses-controls .agc-label textarea {
+    min-height: 40px;
+  }
+
+  .ses-controls .agc-label > span {
+    display: none;
+  }
+}
+
+.ses-workas {
+  margin-left: 4px;
+  padding: 2px 9px;
+  border-radius: 5px;
+  font-size: 12.5px;
+}
+
+.ses-note[data-kind='permission'] {
+  border-left-color: var(--p-external);
+}

@@ -310,6 +310,65 @@ The browser condition only controls presentation. Every Action RPC must check th
 
 Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
 
+## Agent session view {#agent-session-view}
+
+Since 1.39, the run page of a Dex Agents session has two tabs: **Canvas** and **Session**. **Session** reads the session as one conversation. Each tool call is drawn as a card where the agent made it. Add **?view=session** to a run URL to open the tab directly.
+
+<img
+  src="/img/production/dex-web-agent-session.png"
+  alt="Dex Web Session tab with a turn waiting at two tool call approvals"
+/>
+
+The header shows the session status, the active turn, and the token usage from **AgentUsage**. A tool call card shows the tool name, its effect class, its arguments, and its state:
+
+| State | Meaning |
+| --- | --- |
+| **waiting for approval** | The call waits for **resolve_interrupt**. The card has **Approve** and **Reject**. A rejection can carry a reason, which the model sees. |
+| **waiting for an answer** | A question waits for **answer_question**. The card offers its choices, free text when allowed, and **Decline**. |
+| **queued for a Worker** | The call's Step is pending. The card names the pending reason and how long it waited. On the first attempt it says the call has not run. |
+| **running** | A Worker runs the call. The card shows **Attempt n of m** from the Step's retry policy. |
+| **retrying** | An attempt failed, and the next one starts after a backoff. |
+| **recording the result** | The Step's attempts ended without a result, and a recovery Step is pending. The call may have run. |
+| **done**, **failed** | The tool ran and returned a result or an error. |
+| **outcome unknown** | The call may have run. Check the system it writes to. **Tell the agent** fills the steer box. |
+| **skipped** | The tool did not run, so it is safe to call again. |
+| **rejected**, **not run** | A person or a deadline rejected the call, or steering or **cancel_turn** abandoned it. |
+
+The bottom of the tab has a message box with **Steer** and **Stop turn**. **Steer** calls **steer_user_message**. While no turn runs, the button reads **Send** and the message starts the next turn. **Stop turn** calls **cancel_turn** for the active turn.
+
+### Read path {#agent-session-read-path}
+
+The tab reads the session's Attributes with **GET /api/flows/state** and loads their stored values with **POST /api/blobs/load**. It reads the active Steps from the same response and the newest Flow history window with **GET /api/flows/history**. It calls no session RPC, so it works while the session's Workers are down. When a value cannot be read, the tab lists each missing Attribute or message. It never shows an empty conversation in place of a failed read.
+
+A session deletes its tool call records when a turn ends, and only the message text stays. A past call inside the loaded history window shows the last record that history holds. An older call shows only what its message text keeps: tool name, arguments, and result. The card then reads **effect not kept**, and the tab says why.
+
+**AgentMessageChunks** holds older messages. The tab loads them only when you select **Show earlier messages**.
+
+### Session controls {#agent-session-controls}
+
+Every control is an Action and goes through **POST /api/v2/actions** with its own input. Each approval card sends its own **interrupt_id**, so nobody copies one by hand. Each Action requires the permission the session graph declares. The tab asks you to choose **Working as** that permission, and offers a button for it on narrow screens.
+
+A control is disabled, with the reason, when:
+
+- the Flow Definition Graph declares no such Action;
+- the session is closed;
+- **Working as** does not include the Action's permission;
+- an active session Step has waited more than 15 seconds for a Worker. Actions are RPCs, and RPCs need a Worker.
+
+**Stop turn** is also disabled while no turn runs, or when the turn does not accept steering or stopping.
+
+When **resolve_interrupt** or **answer_question** returns false, or fails on a lock conflict, another operator or a deadline answered the call first. The card says **Already handled** and the tab reloads from committed state.
+
+### Compatibility {#agent-session-compatibility}
+
+Dex Web shows the **Session** tab for a valid Flow Definition Graph 2.0 that declares the Attributes **AgentState**, **AgentMessages**, **AgentToolCalls**, and **PendingInterrupts**. **AgentMessages** and **AgentToolCalls** must be AttributeMaps. The [session graph](/agent-frameworks/deploy-agents#dex-web) that Dex Agents renders declares them.
+
+Dex Web reads the session schema by name. It reads these Attributes: **AgentState**, **AgentMessages**, **AgentMessageChunks**, **AgentMessageIndex**, **AgentToolCalls**, **PendingInterrupts**, and **AgentUsage**. It reads the Step types **CallTool**, **CallSingleAttemptTool**, **PollToolTask**, **RecordToolFailure**, and **RecordToolOutcomeUnknown**, whose input is a tool call ID. It reads the Actions **resolve_interrupt**, **answer_question**, **steer_user_message**, and **cancel_turn**.
+
+The rule for the schema is additive. Dex Agents may add fields, enum values, Steps, and Actions, and Dex Web ignores what it does not know. An unknown status shows as its raw value. Renaming or removing a name above, or changing what a field means, breaks the tab. Such a change needs a matching Dex Web release.
+
+Python and TypeScript sessions get the full tab. A Go session has no questions, steering, or stopping. Its tab shows messages, tool calls, approvals, and usage. Each control its graph does not declare is disabled with the reason.
+
 ## Run against server-zd {#run-against-server-zd}
 
 [server-zd](/reference/server/) does not serve Dex Web. Point **--flow-service-address** at the server-zd

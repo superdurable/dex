@@ -351,6 +351,8 @@ Dex Web 提供四个 Action：**resolve_interrupt**、**answer_question**、**st
 这四个 Action；不适用的 RPC 返回 false。interrupt ID 可以从 run 状态中的 **PendingInterrupts** 读取，
 也可以从 session snapshot 读取。
 
+session 的 run 页面还有一个 **Session** 标签页。它按对话顺序显示消息，每个工具调用都画在 agent 发起它的位置。每个待审批的调用各有一张审批卡片，底部有 **Steer** 和 **Stop turn**。这个标签页直接读取 session 的 Attribute，所以 Worker 停机时仍能显示 session。详见 [Agent session view](/reference/web/dex-web#agent-session-view)。
+
 session 没有声明 Summary 或 Display 字段，所以 Dex Web 显示 session 时不调用 Worker。Action 仍然需要
 Worker。
 
