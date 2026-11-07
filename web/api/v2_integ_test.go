@@ -1436,6 +1436,67 @@ func TestV2ConditionlessActionStaysOutOfPermissionMappings(t *testing.T) {
 	}
 }
 
+func TestV2WorkingAsKeepsFlowTypesThatOfferThePermissionWithoutCondition(t *testing.T) {
+	agent := V2Definition{Actions: []V2Action{{
+		RPCName: "resolve_interrupt", Label: "Resolve interrupt", RequiredPermission: "agent.operate",
+		Input: V2ActionInput{Kind: "object"},
+	}}}
+	definitions := map[string]V2Definition{
+		"SupportAgent": agent, "FinanceAgent": agent, "RefundFlow": testV2Definition(),
+		"MixedFlow": testV2DefinitionWithConditionlessAction(),
+	}
+	for _, testCase := range []struct {
+		name        string
+		flowTypes   string
+		permissions string
+		wantQuery   string
+	}{
+		{
+			name: "one Flow type offering it without a condition", flowTypes: `["SupportAgent"]`,
+			permissions: `["agent.operate"]`, wantQuery: "FlowType = 'SupportAgent'",
+		},
+		{
+			name: "several Flow types offering it without a condition", flowTypes: `["SupportAgent","FinanceAgent"]`,
+			permissions: `["agent.operate"]`, wantQuery: "(FlowType = 'FinanceAgent' OR FlowType = 'SupportAgent')",
+		},
+		{
+			name: "only a condition projects it", flowTypes: `["RefundFlow"]`, permissions: `["refund.manage"]`,
+			wantQuery: "FlowType = 'RefundFlow' AND DexWorkQueuePermissions = 'refund.manage'",
+		},
+		{
+			name: "a conditionless Action beside a conditioned one", flowTypes: `["MixedFlow"]`,
+			permissions: `["refund.manage"]`, wantQuery: "FlowType = 'MixedFlow'",
+		},
+		{
+			name: "a Flow type that does not offer it keeps the filter", flowTypes: `["RefundFlow","SupportAgent"]`,
+			permissions: `["agent.operate"]`,
+			wantQuery: "(FlowType = 'SupportAgent' OR (FlowType = 'RefundFlow' AND DexWorkQueuePermissions = 'agent.operate'))",
+		},
+		{
+			name: "no permission chosen", flowTypes: `["SupportAgent"]`, permissions: `[]`,
+			wantQuery: "FlowType = 'SupportAgent'",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &v2TestClient{}
+			mux := http.NewServeMux()
+			RegisterV2Handlers(mux, client, definitions)
+
+			response := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{
+				"flowTypes":`+testCase.flowTypes+`,"workQueuePermissions":`+testCase.permissions+`,
+				"filters":[{"field":"activeStepTypes","operator":"in","values":["AwaitToolApproval"]}]
+			}`)
+			if response.Code != http.StatusOK {
+				t.Fatalf("search status = %d body=%q", response.Code, response.Body.String())
+			}
+			wantQuery := testCase.wantQuery + " AND (ActiveStepTypes = 'AwaitToolApproval')"
+			if query := client.searchRequests[0].GetQuery(); query != wantQuery {
+				t.Fatalf("compiled query = %q, want %q", query, wantQuery)
+			}
+		})
+	}
+}
+
 func testV2Definition() V2Definition {
 	return V2Definition{
 		IndexedAttributes: []V2IndexedAttribute{{

@@ -214,6 +214,16 @@ a permission remains searchable for that Flow execution. `POST
 /api/v2/search` also accepts several `workQueuePermissions`; they are matched
 with OR, then combined with the Flow type and other filters using AND. This
 selector does not grant authorization.
+A Flow type that offers a requested permission through an Action without a
+condition skips the permission filter, because that Action is offered on every
+active run and never enters the projection.
+
+`/v2/work-queue?view=agents` is the agent mode. It lists Dex Agents sessions
+waiting at `AwaitToolApproval` or `AwaitQuestionAnswer` across every session
+Flow type, grouped by Flow type, and answers them in the side panel through
+`resolve_interrupt` and `answer_question`. Rows read `PendingInterrupts`,
+`AgentToolCalls`, and `AgentMessages` through `/api/flows/state` and
+`/api/blobs/load`. See the Dex Web reference, section Agent inbox.
 
 The local v2 Connectors page is available at `/v2/connectors` when Dex Web
 runs through loopback-bound `dexcli dev` with a local Flow Definition source.

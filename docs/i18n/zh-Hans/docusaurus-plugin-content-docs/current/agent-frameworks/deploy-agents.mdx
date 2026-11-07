@@ -375,9 +375,9 @@ session 的 run 页面还有一个 **Session** 标签页。它按对话顺序显
 session 没有声明 Summary 或 Display 字段，所以 Dex Web 显示 session 时不调用 Worker。Action 仍然需要
 Worker。
 
-只有 **Working as** 选了某个权限的用户，Dex Web 才显示需要这个权限的 Action 表单。这个筛选同时把 run
-列表限制为 Worker 记录过这个权限的 run，而 session 的 Worker 不记录任何权限。先把 **Working as** 设为
-**Anyone** 找到 session 并打开它，再选择权限。在这个权限下搜索不会列出任何 session。
+只有 **Working as** 选了某个权限的用户，Dex Web 才显示需要这个权限的 Action 表单。session 的 Action 没有条件，所以这个选择不会隐藏这个 agent 的任何 session：Working as 列出 Flow type 提供这个权限的所有 session。
+
+Work Queue 的 agent 模式列出等待人处理的 session，按 agent 分组，并在侧边面板中直接回答。见 [Agent inbox](/reference/web/dex-web#agent-inbox)。只有当 session 的 Flow 开启了按活动 Step 类型搜索时，它才会出现在这里；**start_session** 默认开启。
 
 Go 核心只注册了 session Flow 的一部分，所以这张图不能描述由 Go Worker 运行的 session。
 

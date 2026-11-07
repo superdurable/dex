@@ -286,7 +286,7 @@ Edits are available only while the current run is active. Dex Web writes the Att
 
 An Action is an RPC registered with **RPCOptions.Action**. **DefineAction** receives its label, an Attribute condition, and one **ActionRequiresPermission** option. The visualizer reads this typed Go registration directly. Dex Web re-reads the condition Attribute before invoking the RPC, and answers **409** without running it when the condition no longer matches.
 
-The Go SDK requires a condition. A Flow Definition Graph from another source can omit **condition** from an Action when its RPC checks current state itself. Dex Web then reads no Attribute before invoking the RPC, and offers the Action while the run is active. The permission check is unchanged. An omitted condition gives the Action no permission mapping, so its permission enters **DexWorkQueuePermissions** only through another Action with a condition. Permission filters do not find a Flow through that Action. A malformed condition, including an empty object, still makes the graph invalid.
+The Go SDK requires a condition. A Flow Definition Graph from another source can omit **condition** from an Action when its RPC checks current state itself. Dex Web then reads no Attribute before invoking the RPC, and offers the Action while the run is active. The permission check is unchanged. An omitted condition gives the Action no permission mapping, so its permission enters **DexWorkQueuePermissions** only through another Action with a condition. The Action is offered on every active run instead, so **Working as** does not filter that Flow type by permission history. See the rule below. A malformed condition, including an empty object, still makes the graph invalid.
 
 **POST /api/v2/actions** answers with **invoked** set to true and **output** set to the value the RPC returned, or null when it returned none. An integer output is decimal text so it keeps its exact value. Numbers inside an object stay JSON numbers. Dex Web reads a large output from its blob first. If that read fails, the RPC has still run: the response stays **200** and **output** holds a blob reference for **POST /api/blobs/load**. The Run page does not display the output.
 
@@ -303,6 +303,8 @@ The Server overlays the business writes on authoritative Attribute state and eva
 The permission history lasts for the Flow execution and remains searchable after completion. A Server upgrade preserves permissions that are still stored but does not reconstruct permissions removed before the upgrade. A new, independent Flow execution starts from its own initial Attributes. A changed Action definition is first evaluated when a later source write sends its mapping or a new Flow starts. Removing or renaming an Action permission does not clear the old value from existing permission history.
 
 Work Queue offers the permissions declared by the Flow types being searched. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers that derive them from multiple user roles. A run matches when its permission history contains any requested permission. This permission group is joined with the Flow types and other filters using AND.
+
+Since 1.39, the permission filter applies per Flow type. When a searched Flow type offers a requested permission through an Action without a condition, every run of that Flow type matches, because that Action is offered whenever the run is active. Other Flow types still match only through their permission history. Before 1.39, choosing such a permission listed no run of that Flow type, because no Worker records it. A Flow type that declares the permission only on Actions with a condition behaves as before.
 
 A matching permission means an Action is or was available; it does not mean the Action is available now. A keyed gate also needs its current key, and the list reads an eventually consistent index. The run decides which Actions are currently available once it is open.
 
@@ -369,6 +371,27 @@ Dex Web reads the session schema by name. It reads these Attributes: **AgentStat
 The rule for the schema is additive. Dex Agents may add fields, enum values, Steps, and Actions, and Dex Web ignores what it does not know. An unknown status shows as its raw value. Renaming or removing a name above, or changing what a field means, breaks the tab. Such a change needs a matching Dex Web release.
 
 Python and TypeScript sessions get the full tab. A Go session has no questions, steering, or stopping. Its tab shows messages, tool calls, approvals, and usage. Each control its graph does not declare is disabled with the reason.
+
+## Agent inbox {#agent-inbox}
+
+Since 1.39, Work Queue has an agent mode for [Dex Agents](/agent-frameworks/deploy-agents) sessions. Choose **Agents** at the top of the Work Queue list. The switch appears when at least one Flow type is a session Flow: its graph has the **AwaitToolApproval** and **AwaitQuestionAnswer** Steps and the **resolve_interrupt** and **answer_question** Actions. The mode's URL is **/v2/work-queue?view=agents**.
+
+<img
+  src="/img/production/dex-web-agent-inbox.png"
+  alt="Dex Web Work Queue in agent mode, with sessions grouped by agent and an approval open in the side panel"
+/>
+
+The list shows each session that waits for a person. It searches every session Flow type in one query for runs at **AwaitToolApproval** or **AwaitQuestionAnswer**, through the built-in **activeStepTypes** field. See [Find runs at a Step](#find-runs-at-a-step). A session appears only while its Flow searches by active Step type. Rows are grouped by agent, which is the session's Flow type, and each group shows its count.
+
+Each row says what is asked: the tool and a short summary of its arguments, or the question. It also shows the session ID, and the time left before the deadline or, without one, how long the session has waited. Dex Web reads these from **PendingInterrupts** after the search. Inside a group, the earliest deadline comes first, then the longest wait. The deadline is not indexed, so this order covers the loaded page only. When more sessions match, the list says so.
+
+Selecting a row opens the side panel. It shows each pending call with its tool, arguments, effect class, and deadline, and the last message with text. An approval offers **Approve** and **Reject**, with an optional reason that the model sees. A question offers its choices, a free-text answer when the question allows one, and **Decline**. **Open session** opens the run page. On a narrow screen, the panel replaces the list, and its close button returns to the list.
+
+The panel reads stored Attributes, so it works while Workers are down. Answering calls **resolve_interrupt** or **answer_question** through **POST /api/v2/actions**, which needs a Worker. The answer is offered only while **Working as** names the permission of that Action.
+
+After each answer, Dex Web reads the session again. When the call is gone, its row leaves the list. Two operators can answer the same call. Once one answer has committed, the RPC returns false for a later one. The panel then reads the committed state and says **Already handled**. A deadline can reject the call while an operator decides; the panel says so when the deadline has passed. An RPC that cannot take its lock fails. When the call is still pending after that, the panel says **Not applied** and keeps the call.
+
+The inbox does not show a tool call whose outcome is unknown or a draft plan that waits for **execute_plan**. No Step waits on either, so the search cannot find them. Open the session to see them.
 
 ## Run against server-zd {#run-against-server-zd}
 

@@ -503,11 +503,15 @@ See [Agent session view](/reference/web/dex-web#agent-session-view).
 The session declares no Summary or Display fields, so Dex Web shows a session
 without calling a Worker. Actions still need a Worker.
 
-Dex Web shows an Action form only to a user **Working as** its permission. That
-filter also limits the run list to runs whose Workers recorded the permission,
-and session Workers record none. Find the session with **Working as** set to
-**Anyone**, open it, then choose the permission. A search under that permission
-lists no sessions.
+Dex Web shows an Action form only to a user **Working as** its permission.
+Because the session Actions have no condition, that choice does not hide any
+session of the agent: Working as lists every session whose Flow type offers the
+permission.
+
+The agent mode of Work Queue lists the sessions that wait for a person, grouped
+by agent, and answers them in its side panel. See
+[Agent inbox](/reference/web/dex-web#agent-inbox). A session appears there only
+while its Flow searches by active Step type, which **start_session** turns on.
 
 The Go core registers only part of the session Flow, so the graph does not
 describe a session that Go Workers serve.
