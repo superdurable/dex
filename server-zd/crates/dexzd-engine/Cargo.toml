@@ -41,6 +41,8 @@ xxhash-rust.workspace = true
 test-util = []
 
 [dev-dependencies]
+# Unit and integration tests stage time travel the way an owner does.
+dexzd-apply = { workspace = true, features = ["test-util"] }
 # Enables test-util for this crate's own integration tests.
 dexzd-engine = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true

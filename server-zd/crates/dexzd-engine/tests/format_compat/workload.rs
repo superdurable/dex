@@ -8,12 +8,17 @@
 
 use bytes::Bytes;
 use dexzd_apply::read_model::read_history_segment_content;
-use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, WaitableChange};
+use dexzd_apply::values::NoOffloadedValues;
+use dexzd_apply::{
+    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateHistorySource,
+    TimeTravelComputation, TimeTravelComputationRequest, TimeTravelComputationSources,
+    WaitableChange, compute_time_travel,
+};
 use dexzd_clock::WallClock;
 use dexzd_engine::{
-    CommitTicket, CommitUrgency, CommittedCommand, EngineNode, HardDeleteObjectOwner,
-    decode_hard_delete_value, default_run_settings, encode_hard_delete_value,
-    hard_delete_placeholder_value,
+    CommitTicket, CommitUrgency, CommittedCommand, EngineIdSource, EngineNode,
+    HardDeleteObjectOwner, decode_hard_delete_value, default_run_settings,
+    encode_hard_delete_value, hard_delete_placeholder_value,
 };
 use dexzd_history_segment::{HistorySegmentContent, encode_history_segment};
 use dexzd_keyspace::row_keys::{decode_search_outbox_key, partition_index_range, prefix_range};
@@ -501,19 +506,17 @@ impl Workload<'_> {
         }
         self.commit(&run, completed).await;
         let outcome = self
-            .commit(
+            .time_travel(
                 &run,
-                Command::TimeTravel(TimeTravelCommand {
-                    should_restore_running_as_pending: true,
-                    request: Some(ResetFlowRequest {
-                        flow_id: run.flow_id.clone(),
-                        reset_type: FlowResetType::HistoryEventTime as i32,
-                        reason: "ship again".to_owned(),
-                        history_event_time: (i128::from(target_micros) * 1000).to_string(),
-                        skip_writes_reapply: true,
-                        ..ResetFlowRequest::default()
-                    }),
-                }),
+                ResetFlowRequest {
+                    flow_id: run.flow_id.clone(),
+                    reset_type: FlowResetType::HistoryEventTime as i32,
+                    reason: "ship again".to_owned(),
+                    history_event_time: (i128::from(target_micros) * 1000).to_string(),
+                    skip_writes_reapply: true,
+                    ..ResetFlowRequest::default()
+                },
+                true,
             )
             .await;
         assert!(
@@ -1290,20 +1293,18 @@ impl Workload<'_> {
         )
         .await;
         let outcome = self
-            .commit(
+            .time_travel(
                 &travel,
-                Command::TimeTravel(TimeTravelCommand {
-                    should_restore_running_as_pending: false,
-                    request: Some(ResetFlowRequest {
-                        flow_id: travel.flow_id.clone(),
-                        reset_type: FlowResetType::StepExecutionId as i32,
-                        reason: "rerun the second step".to_owned(),
-                        step_execution_id: "SecondStep-1".to_owned(),
-                        step_method: FlowResetStepMethod::Execute as i32,
-                        skip_writes_reapply: false,
-                        ..ResetFlowRequest::default()
-                    }),
-                }),
+                ResetFlowRequest {
+                    flow_id: travel.flow_id.clone(),
+                    reset_type: FlowResetType::StepExecutionId as i32,
+                    reason: "rerun the second step".to_owned(),
+                    step_execution_id: "SecondStep-1".to_owned(),
+                    step_method: FlowResetStepMethod::Execute as i32,
+                    skip_writes_reapply: false,
+                    ..ResetFlowRequest::default()
+                },
+                false,
             )
             .await;
         assert!(
@@ -1796,6 +1797,92 @@ impl Workload<'_> {
             .await
     }
 
+    /// Time-travels `run` as an owner does: computes the result on a committed view, commits
+    /// its TimeTravelStage commands, then the TimeTravel command that names them.
+    async fn time_travel(
+        &self,
+        run: &FlowRun,
+        request: ResetFlowRequest,
+        should_restore_running_as_pending: bool,
+    ) -> ApplyOutcome {
+        let context = self.context(&run.flow_id);
+        let computed = {
+            let view = self
+                .node
+                .committer()
+                .committed_view()
+                .expect("the committed view opens");
+            let history = StateHistorySource::new(&view, context, run.run_id);
+            let computation = compute_time_travel(
+                &context,
+                &TimeTravelComputationSources {
+                    state: &view,
+                    history: &history,
+                    offloaded_values: &NoOffloadedValues,
+                },
+                &TimeTravelComputationRequest {
+                    run_id: run.run_id,
+                    reset: &request,
+                    now_micros: self.clock.now_unix_micros(),
+                    replay_memory_budget_bytes: u64::MAX,
+                },
+            )
+            .expect("the time travel computes");
+            match computation {
+                TimeTravelComputation::Computed(computed) => *computed,
+                TimeTravelComputation::Rejected(reply) => {
+                    panic!("the workload's time travel is rejected: {reply:?}")
+                }
+            }
+        };
+        let staging_id = self.ids.time_travel_staging_id().as_bytes().to_vec();
+        let stage_commands = computed
+            .stage_commands(&staging_id)
+            .expect("the result fits in Stage commands");
+        for stage in stage_commands {
+            self.commit_expecting_attempt(
+                run,
+                computed.run_attempt(),
+                Command::TimeTravelStage(stage),
+            )
+            .await;
+        }
+        self.commit_expecting_attempt(
+            run,
+            computed.run_attempt(),
+            Command::TimeTravel(TimeTravelCommand {
+                request: Some(request),
+                should_restore_running_as_pending,
+                staging_id,
+                computed_through_seq: computed.computed_through_seq(),
+            }),
+        )
+        .await
+    }
+
+    /// Commits `body` for `run`, which apply rejects unless the run is at `expected_run_attempt`.
+    async fn commit_expecting_attempt(
+        &self,
+        run: &FlowRun,
+        expected_run_attempt: u32,
+        body: Command,
+    ) -> ApplyOutcome {
+        self.clock.advance(COMMAND_SPACING_MICROS);
+        let command = FlowCommand {
+            flow_id: run.flow_id.clone(),
+            run_id: run.run_id.as_bytes().to_vec(),
+            expected_run_attempt,
+            command: Some(body),
+            ..FlowCommand::default()
+        };
+        let (_, ticket) = self
+            .node
+            .committer()
+            .submit(self.context(&run.flow_id), command, CommitUrgency::Prompt)
+            .expect("the node accepts the command");
+        self.wait_applied(vec![ticket]).await.remove(0)
+    }
+
     async fn commit_to(&self, flow_id: &str, run_id: &[u8], body: Command) -> ApplyOutcome {
         let ticket = self.submit_to(flow_id, run_id, body, CommitUrgency::Prompt);
         let mut outcomes = self.wait_applied(vec![ticket]).await;
@@ -2139,6 +2226,8 @@ mod load_blobs_purge_tests {
                 step_queue_status: ports.clone(),
                 hard_delete_reader: ports.clone(),
                 hard_delete_uploader: ports,
+                time_travel_history: Arc::new(dexzd_engine::LocalTimeTravelHistory),
+                clock: clock.clone(),
                 id_source: ids.clone(),
             },
         );

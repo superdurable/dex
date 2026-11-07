@@ -45,6 +45,16 @@ pub(crate) fn rewrite_holders_for_time_travel(
     Ok(())
 }
 
+/// Returns the value-table values that `rows` hold, with their sizes, by value ID.
+pub(crate) fn held_table_values(
+    rows: &[CheckpointRow],
+) -> Result<BTreeMap<ValueId, u64>, ApplyError> {
+    Ok(collect_holder_assignments(rows)?
+        .into_values()
+        .filter_map(|(stored, _)| table_value_id(&stored))
+        .collect())
+}
+
 fn collect_holder_assignments(rows: &[CheckpointRow]) -> Result<HolderAssignments, ApplyError> {
     let mut assignments = HolderAssignments::new();
     for row in rows {

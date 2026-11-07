@@ -81,6 +81,8 @@ history:
   # Commands of any kind since the last checkpoint that trigger a new one.
   checkpointCommandThreshold: 1000
   maxRetainedSupersededBytes: 268435456
+  # Most bytes one time travel holds in memory while it replays history to its target.
+  timeTravelReplayMemoryBytes: 1073741824
   # Experimental: keep false until the release notes announce history offload.
   offloadEnabled: false
   segmentTargetBytes: 4194304

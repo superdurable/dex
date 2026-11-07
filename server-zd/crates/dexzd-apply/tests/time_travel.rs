@@ -18,7 +18,8 @@ use dexzd_apply::read_model::{
 };
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow,
-    StateWrite, apply_flow_command,
+    StateWrite, apply_flow_command, apply_staged_time_travel_for_test,
+    is_unstaged_time_travel_for_test, stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{
     attempt_record_key, checkpoint_key, hard_delete_current_key, hard_delete_pending_key,
@@ -179,6 +180,18 @@ impl Harness {
 
     fn apply(&mut self, body: Command) -> ApplyOutcome {
         let command = self.command(body);
+        self.apply_command(command)
+    }
+
+    /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
+    fn apply_command(&mut self, command: FlowCommand) -> ApplyOutcome {
+        if is_unstaged_time_travel_for_test(&command) {
+            let staged = stage_time_travel_for_test(&self.context, &self.state, &command)
+                .expect("time travel computes");
+            return apply_staged_time_travel_for_test(staged, |staged_command| {
+                self.apply_command(staged_command)
+            });
+        }
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         let again =
@@ -464,6 +477,8 @@ impl Harness {
 
     fn time_travel(&mut self, request: ResetFlowRequest) -> ApplyOutcome {
         self.apply(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
         }))
@@ -932,6 +947,8 @@ fn a_closed_point_closes_each_new_attempt_with_retention_and_history() {
             );
         }
         let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
@@ -1477,6 +1494,8 @@ fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running
         .expect("target history remains in the window")
         .timestamp_micros;
     let travel = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -1484,10 +1503,8 @@ fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running
         .expect("snapshot rebuild must not halt diagnostics")
         .expect("target exists");
     assert_eq!(target.state_hash, recorded_hashes[&target_seq]);
-    let outcome = apply_flow_command(&harness.context, &harness.state, &travel)
+    let (outcome, repeated) = apply_staged_twice(&harness.context, &mut harness.state, &travel)
         .expect("snapshot rebuild must not halt the partition");
-    let repeated = apply_flow_command(&harness.context, &harness.state, &travel)
-        .expect("repeated snapshot rebuild succeeds");
     assert_eq!(outcome.reply, repeated.reply);
     assert_eq!(outcome.writes, repeated.writes);
     assert_eq!(outcome.effects, repeated.effects);
@@ -1838,6 +1855,8 @@ fn rebuilt_states_equal_the_recorded_states_at_every_point() {
     assert!(harness.attempt_record(1).checkpoint_seqs.len() > 2);
     for (seq, timestamp, rows, status, expected_hash) in recorded {
         let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
@@ -1882,6 +1901,8 @@ fn diagnostic_hash_detects_a_broken_time_travel_rebuild() {
     .expect("hash current state")
     .expect("start is semantic");
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset(FlowResetType::Beginning)),
     }));
@@ -2524,10 +2545,12 @@ fn an_unexpected_reapply_rejection_is_an_invariant_violation() {
         .rows
         .insert((ColumnFamily::History, key), record.encode_to_vec());
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reapplying(reset(FlowResetType::Beginning))),
     }));
-    let error = apply_flow_command(&harness.context, &harness.state, &command)
+    let error = apply_staged_twice(&harness.context, &mut harness.state, &command)
         .expect_err("an invalid reapplied input fails apply");
     assert!(
         matches!(error, ApplyError::InvariantViolation { .. }),
@@ -3226,6 +3249,8 @@ fn permission_rebuild_skips_unread_inputs_when_invalid_wait_for_closes_the_flow(
             .is_some()
     );
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -3238,7 +3263,7 @@ fn permission_rebuild_skips_unread_inputs_when_invalid_wait_for_closes_the_flow(
             .expect("close diagnostics")
             .is_some()
     );
-    let outcome = apply_flow_command(&harness.context, &harness.state, &command)
+    let (outcome, _) = apply_staged_twice(&harness.context, &mut harness.state, &command)
         .expect("unread input must not halt apply");
     assert!(matches!(
         outcome.reply.reply,
@@ -3385,6 +3410,8 @@ fn assert_permission_rebuild_with_collected_value(
         .expect("target history remains in the window")
         .timestamp_micros;
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -3394,10 +3421,8 @@ fn assert_permission_rebuild_with_collected_value(
             .expect("current search document reads")
             .expect("current search document exists")
             .work_queue_permissions;
-    let outcome = apply_flow_command(&harness.context, &harness.state, &command)
+    let (outcome, repeated) = apply_staged_twice(&harness.context, &mut harness.state, &command)
         .expect("unavailable history must not halt the partition");
-    let repeated = apply_flow_command(&harness.context, &harness.state, &command)
-        .expect("repeated rebuild must not halt the partition");
     assert_eq!(outcome.reply, repeated.reply);
     assert_eq!(outcome.writes, repeated.writes);
     assert_eq!(outcome.effects, repeated.effects);
@@ -3440,6 +3465,42 @@ fn assert_permission_rebuild_with_collected_value(
             .is_none()
     );
     assert_eq!(harness.state.rows, previous_state);
+}
+
+/// Computes the unstaged TimeTravel `command` on `state` as an owner does and commits its Stage
+/// commands there, then applies the staged TimeTravel twice without committing it.
+///
+/// Returns the TimeTravel's outcome and its repetition. A rejected computation stages nothing
+/// and returns its reply as both outcomes. Returns apply's error for the TimeTravel.
+fn apply_staged_twice(
+    context: &ApplyContext,
+    state: &mut MemoryState,
+    command: &FlowCommand,
+) -> Result<(ApplyOutcome, ApplyOutcome), ApplyError> {
+    let mut commands = match stage_time_travel_for_test(context, state, command)? {
+        Ok(staged) => staged.commands,
+        Err(reply) => {
+            return Ok((
+                ApplyOutcome::rejected(reply.clone()),
+                ApplyOutcome::rejected(reply),
+            ));
+        }
+    };
+    let time_travel = commands
+        .pop()
+        .expect("staging ends with the TimeTravel command");
+    for stage in commands {
+        let staged = apply_flow_command(context, state, &stage).expect("staging applies");
+        assert!(
+            matches!(staged.reply.reply, Some(command_reply::Reply::Ok(_))),
+            "staging is accepted: {:?}",
+            staged.reply
+        );
+        state.commit(&staged);
+    }
+    let outcome = apply_flow_command(context, state, &time_travel)?;
+    let repeated = apply_flow_command(context, state, &time_travel)?;
+    Ok((outcome, repeated))
 }
 
 fn record_permission_rebuild_hash(
@@ -3547,6 +3608,8 @@ fn permission_rebuild_preserves_accumulated_grants_and_reapplies_new_grants() {
     harness.apply(permission_mapping_command("done", "later"));
     let later_attribute = attribute(&harness, PERMISSION_ATTRIBUTE_KEY);
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -4293,12 +4356,16 @@ fn time_travel_over_older_metadata_selects_the_same_point_from_records() {
     );
     for (index, request) in requests.into_iter().enumerate() {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
         }));
-        let expected = apply_flow_command(&harness.context, &harness.state, &command).unwrap();
+        let (expected, _) =
+            apply_staged_twice(&harness.context, &mut harness.state.clone(), &command).unwrap();
         for state in [&older_state, &older_genesis_state] {
-            let outcome = apply_flow_command(&harness.context, state, &command).unwrap();
+            let (outcome, _) =
+                apply_staged_twice(&harness.context, &mut state.clone(), &command).unwrap();
             assert_eq!(outcome.reply, expected.reply, "case {index}");
             assert_eq!(outcome.writes, expected.writes, "case {index}");
             assert_eq!(outcome.effects, expected.effects, "case {index}");

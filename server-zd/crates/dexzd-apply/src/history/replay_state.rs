@@ -10,13 +10,15 @@
 
 use std::collections::BTreeMap;
 
-use dexzd_keyspace::row_keys::run_singleton_key;
-use dexzd_keyspace::{ColumnFamily, RunTable, run_table_prefix};
+use dexzd_keyspace::row_keys::{run_singleton_key, value_row_key};
+use dexzd_keyspace::{ColumnFamily, RunTable, ValueId, run_table_prefix};
+use dexzd_protocol::dex::Value;
 use dexzd_protocol::dexzd::v1::{RunRecord, SubFlowResultRecord, ValueBirthRecord, ValueRecord};
 use prost::Message;
 
-use crate::history::attempt_scope::{ATTEMPT_SCOPED_TABLES, AttemptRow};
+use crate::history::attempt_scope::{ATTEMPT_SCOPED_TABLES, AttemptRow, hex};
 use crate::state_access::{FlowTransaction, RunRows};
+use crate::values::OffloadedValues;
 use crate::{ApplyError, FlowStateReader, StateReadError, StateRow, StateWrite};
 
 /// Base rows fetched per page while merging a scan with the overlay.
@@ -29,9 +31,15 @@ const SCAN_PAGE_ROWS: usize = 256;
 /// Child Flow results received at or after the replayed seq are hidden.
 ///
 /// Pruned values look live; no point inside the window references them.
+///
+/// Values the base no longer stores come from `offloaded_values` first.
 pub(crate) struct ReplayState<'base> {
     base: &'base dyn FlowStateReader,
+    offloaded_values: &'base dyn OffloadedValues,
+    rows: RunRows,
     overlay: BTreeMap<(ColumnFamily, Vec<u8>), Option<Vec<u8>>>,
+    /// Key and value bytes of the overlay entries, for the replay memory budget.
+    overlay_bytes: u64,
     masked_prefixes: Vec<Vec<u8>>,
     sub_flow_result_prefix: Vec<u8>,
     value_birth_prefix: Vec<u8>,
@@ -43,6 +51,7 @@ pub(crate) struct ReplayState<'base> {
 impl<'base> ReplayState<'base> {
     pub(crate) fn new(
         base: &'base dyn FlowStateReader,
+        offloaded_values: &'base dyn OffloadedValues,
         rows: RunRows,
         checkpoint_rows: &[AttemptRow],
         run_record: &RunRecord,
@@ -60,37 +69,78 @@ impl<'base> ReplayState<'base> {
             ]
             .map(table_prefix),
         );
-        let mut overlay = BTreeMap::new();
-        for row in checkpoint_rows {
-            overlay.insert((ColumnFamily::Flow, row.key(rows)), Some(row.value.clone()));
-        }
         let run_record_key = run_singleton_key(rows.flow_hash, rows.run_id, RunTable::RunRecord);
-        overlay.insert(
-            (ColumnFamily::Flow, run_record_key.clone()),
-            Some(run_record.encode_to_vec()),
-        );
-        Self {
+        let mut replay_state = Self {
             base,
-            overlay,
+            offloaded_values,
+            rows,
+            overlay: BTreeMap::new(),
+            overlay_bytes: 0,
             masked_prefixes,
             sub_flow_result_prefix: table_prefix(RunTable::SubFlowResult),
             value_birth_prefix: table_prefix(RunTable::ValueBirth),
             value_prefix: table_prefix(RunTable::Value),
-            run_record_key,
+            run_record_key: run_record_key.clone(),
             as_of_seq: 0,
+        };
+        for row in checkpoint_rows {
+            replay_state.insert(ColumnFamily::Flow, row.key(rows), Some(row.value.clone()));
         }
+        replay_state.insert(
+            ColumnFamily::Flow,
+            run_record_key,
+            Some(run_record.encode_to_vec()),
+        );
+        replay_state
     }
 
     /// Prepares the next replayed command: its seq and the run record it opens.
     pub(crate) fn prepare_command(&mut self, seq: u64) -> Result<(), ApplyError> {
         let mut record = self.run_record()?;
         record.next_run_seq = seq;
-        self.overlay.insert(
-            (ColumnFamily::Flow, self.run_record_key.clone()),
+        self.insert(
+            ColumnFamily::Flow,
+            self.run_record_key.clone(),
             Some(record.encode_to_vec()),
         );
         self.as_of_seq = seq;
         Ok(())
+    }
+
+    /// Returns the key and value bytes the overlay holds.
+    pub(crate) fn overlay_bytes(&self) -> u64 {
+        self.overlay_bytes
+    }
+
+    /// Returns a value that a replayed command stored, or `None` when replay stored none.
+    pub(crate) fn replayed_value(&self, value_id: ValueId) -> Result<Option<Value>, ApplyError> {
+        let key = value_row_key(
+            self.rows.flow_hash,
+            self.rows.run_id,
+            RunTable::Value,
+            value_id,
+        );
+        let Some(Some(bytes)) = self.overlay.get(&(ColumnFamily::Value, key)) else {
+            return Ok(None);
+        };
+        let record =
+            ValueRecord::decode(bytes.as_slice()).map_err(|error| ApplyError::CorruptState {
+                table: "value",
+                key: hex(&value_id.to_key_suffix()),
+                detail: error.to_string(),
+            })?;
+        Ok(record.value)
+    }
+
+    fn insert(&mut self, column_family: ColumnFamily, key: Vec<u8>, value: Option<Vec<u8>>) {
+        let key_bytes = key.len() as u64;
+        let added_bytes = value.as_ref().map_or(0, |value| value.len() as u64);
+        let replaced = self.overlay.insert((column_family, key), value);
+        let removed_bytes = match replaced {
+            Some(previous) => key_bytes + previous.map_or(0, |previous| previous.len() as u64),
+            None => 0,
+        };
+        self.overlay_bytes = (self.overlay_bytes + key_bytes + added_bytes) - removed_bytes;
     }
 
     pub(crate) fn run_record(&self) -> Result<RunRecord, ApplyError> {
@@ -116,11 +166,11 @@ impl<'base> ReplayState<'base> {
                     key,
                     value,
                 } => {
-                    self.overlay.insert((column_family, key), Some(value));
+                    self.insert(column_family, key, Some(value));
                 }
                 StateWrite::Delete { column_family, key }
                 | StateWrite::SingleDelete { column_family, key } => {
-                    self.overlay.insert((column_family, key), None);
+                    self.insert(column_family, key, None);
                 }
                 StateWrite::DeleteRange { .. } => {
                     return Err(ApplyError::InvariantViolation {
@@ -171,6 +221,32 @@ impl<'base> ReplayState<'base> {
             _ => None,
         }
     }
+
+    /// Returns the value row of an offloaded value that the base no longer stores.
+    fn offloaded_value_row(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        let Some(suffix) = key.strip_prefix(self.value_prefix.as_slice()) else {
+            return Ok(None);
+        };
+        if column_family != ColumnFamily::Value {
+            return Ok(None);
+        }
+        let value_id = ValueId::from_key_suffix(suffix).ok_or_else(|| StateReadError {
+            column_family,
+            detail: format!("value key {} has no 12-byte value ID", hex(key)),
+        })?;
+        let value = self
+            .offloaded_values
+            .offloaded_value(self.rows.run_id, value_id)
+            .map_err(|error| StateReadError {
+                column_family,
+                detail: error.to_string(),
+            })?;
+        Ok(value.map(|value| ValueRecord { value: Some(value) }.encode_to_vec()))
+    }
 }
 
 impl FlowStateReader for ReplayState<'_> {
@@ -190,7 +266,13 @@ impl FlowStateReader for ReplayState<'_> {
                 other => other,
             }
         };
-        Ok(committed.or_else(|| self.pruned_value_stand_in(column_family, key)))
+        if committed.is_some() {
+            return Ok(committed);
+        }
+        if let Some(offloaded) = self.offloaded_value_row(column_family, key)? {
+            return Ok(Some(offloaded));
+        }
+        Ok(self.pruned_value_stand_in(column_family, key))
     }
 
     fn scan(

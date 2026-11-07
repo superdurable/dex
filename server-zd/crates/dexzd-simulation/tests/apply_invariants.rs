@@ -232,6 +232,7 @@ const REGRESSION_MAIN_COMMAND_DIGESTS: &[(u64, usize, u128)] = &[
     (10906685018, 1000, 0xc974a195c9d758af8d64cf1cc190faa2),
     (2204788261, 1000, 0xecb935089cd7e33f4d1614ad50c846d6),
     (476371563, 580, 0x556ef4870181627f6cd2e95a145dec13),
+    (1592590450, 400, 0x8d8dc54188cb30b0d5c3f2e925ab2d57),
 ];
 
 #[test]
@@ -596,6 +597,8 @@ fn pinned_snapshot_value_survives_window_advance_and_final_holder_release() {
                 travel.proposed_at_micros += 1;
                 travel.command_id = vec![0x83; 16];
                 travel.command = Some(Command::TimeTravel(TimeTravelCommand {
+                    staging_id: Vec::new(),
+                    computed_through_seq: 0,
                     should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: command.flow_id.clone(),

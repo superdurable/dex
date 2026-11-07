@@ -263,6 +263,11 @@ impl Config {
             "must be positive",
         )?;
         ensure(
+            self.history.time_travel_replay_memory_bytes > 0,
+            "history.timeTravelReplayMemoryBytes",
+            "must be positive",
+        )?;
+        ensure(
             self.history.max_retained_superseded_bytes >= self.values.max_value_bytes,
             "history.maxRetainedSupersededBytes",
             "must hold at least one maximum-sized value",

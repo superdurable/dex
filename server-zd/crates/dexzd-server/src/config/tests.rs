@@ -335,6 +335,45 @@ fn a_null_checkpoint_key_is_rejected_by_name() {
 }
 
 #[test]
+fn time_travel_replay_memory_reaches_the_flow_runtime_and_must_be_positive() {
+    assert_eq!(
+        Config::default().history.time_travel_replay_memory_bytes,
+        1024 * 1024 * 1024
+    );
+    assert_eq!(
+        ComponentConfigs::from_config(&valid_config(), false)
+            .expect("component config")
+            .flow_coordination
+            .time_travel_replay_memory_bytes,
+        1024 * 1024 * 1024
+    );
+    let parsed = Config::parse_yaml("history:\n  timeTravelReplayMemoryBytes: 4096\n")
+        .expect("parse the time travel replay memory");
+    let mut configuration = valid_config();
+    configuration.history.time_travel_replay_memory_bytes =
+        parsed.history.time_travel_replay_memory_bytes;
+    configuration
+        .validate()
+        .expect("a positive replay memory is valid");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(
+        components.flow_coordination.time_travel_replay_memory_bytes,
+        4096
+    );
+    configuration.history.time_travel_replay_memory_bytes = 0;
+    let error = configuration
+        .validate()
+        .expect_err("a zero replay memory is invalid");
+    assert!(
+        error
+            .to_string()
+            .contains("history.timeTravelReplayMemoryBytes"),
+        "{error}"
+    );
+}
+
+#[test]
 fn history_window_settings_default_and_reach_run_settings_and_validation() {
     let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
     let default_run_settings = defaults.flow_coordination.run_settings;

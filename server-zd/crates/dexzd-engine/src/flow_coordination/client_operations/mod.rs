@@ -12,17 +12,18 @@ mod hard_delete_uploads;
 pub(super) mod request_fingerprint;
 mod rpc_invocation;
 pub(super) mod rpc_requests;
+mod time_travel;
 
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{
-    DeleteChannelMessageRequest, PublishToChannelRequest, ResetFlowRequest, ResetFlowResponse,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StartFlowResponse, StopFlowRequest,
-    StopType, UpdateFlowConfigRequest, WorkerTarget,
+    DeleteChannelMessageRequest, PublishToChannelRequest, SetAttributesRequest, SkipTimerRequest,
+    StartFlowRequest, StartFlowResponse, StopFlowRequest, StopType, UpdateFlowConfigRequest,
+    WorkerTarget,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, ChannelMessageDeleteCommand, ChannelPublishCommand, FlowCommand,
-    FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, TimeTravelCommand,
-    TimerSkipCommand, command_reply, flow_command,
+    FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, TimerSkipCommand, command_reply,
+    flow_command,
 };
 use dexzd_request_validation::{
     ClientRequest, validate_client_request, validate_start_flow_request,
@@ -278,47 +279,6 @@ impl FlowCoordinatorRegistry {
         })
         .await
         .and_then(expect_ok_reply)
-    }
-
-    /// Time-travels a run to an earlier point once the reset is committed. The run ID stays
-    /// the same, so the response carries the target run's ID.
-    pub async fn reset_flow(
-        &self,
-        tenant_id: TenantId,
-        request: ResetFlowRequest,
-    ) -> Result<ResetFlowResponse, FlowCoordinationError> {
-        validate_client_request(
-            ClientRequest::ResetFlow(&request),
-            &self.inner.config.validation,
-        )?;
-        let flow = FlowAddress::new(tenant_id, request.flow_id.clone());
-        let mut target_run_id = None;
-        let reply = self
-            .propose_client_command(&flow, |scope| {
-                let run_id =
-                    resolve_command_run(scope.state, scope.context, &flow, &request.run_id)?;
-                target_run_id = Some(run_id);
-                Ok(unstamped_flow_command(
-                    &flow,
-                    Some(run_id),
-                    flow_command::Command::TimeTravel(TimeTravelCommand {
-                        should_restore_running_as_pending: true,
-                        request: Some(request.clone()),
-                    }),
-                ))
-            })
-            .await?;
-        match (reply, target_run_id) {
-            (command_reply::Reply::TimeTravel(time_travel), Some(run_id)) => {
-                Ok(ResetFlowResponse {
-                    run_id: run_id.to_string(),
-                    run_attempt: i32::try_from(time_travel.run_attempt).map_err(|error| {
-                        FlowCoordinationError::corrupt_row("time travel reply", error)
-                    })?,
-                })
-            }
-            (other, _) => Err(unexpected_reply("ResetFlow", &other)),
-        }
     }
 
     /// Proposes a command for the run named by `run_id` (or the newest run) and waits for its

@@ -32,7 +32,8 @@ use std::time::Duration;
 
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
-    apply_flow_command,
+    apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
 };
 use dexzd_clock::WallClock;
 use dexzd_keyspace::dispatch_queue_keys::DispatchQueueName;
@@ -288,9 +289,22 @@ impl InMemoryFlowEffectOperations {
                     partition: self.hasher.partition_of(flow_hash),
                     flow_hash,
                 };
-                let outcome: ApplyOutcome =
-                    apply_flow_command(&context, &*state, &command).expect("apply succeeds");
-                state.commit(&outcome.writes);
+                let outcome: ApplyOutcome = if is_unstaged_time_travel_for_test(&command) {
+                    // An owner stages the result before it commits the TimeTravel.
+                    let staged = stage_time_travel_for_test(&context, &*state, &command)
+                        .expect("time travel computes");
+                    apply_staged_time_travel_for_test(staged, |staged_command| {
+                        let outcome = apply_flow_command(&context, &*state, &staged_command)
+                            .expect("apply succeeds");
+                        state.commit(&outcome.writes);
+                        outcome
+                    })
+                } else {
+                    let outcome =
+                        apply_flow_command(&context, &*state, &command).expect("apply succeeds");
+                    state.commit(&outcome.writes);
+                    outcome
+                };
                 effects = outcome.effects;
                 reply = outcome.reply;
             }

@@ -13,7 +13,8 @@ use dexzd_protocol::dexzd::v1::{
     HardDeleteObjectRecord, HistoryRecord, HistoryRowMetadata, HistorySegmentRecord,
     HistorySegmentValueRecord, InboxDedupRecord, LockRecord, OutboxRecord, PermissionSetRecord,
     RequestDedupRecord, RunRecord, SearchDocumentRecord, StepCounterRecord, StepExecutionRecord,
-    SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord, ValueRecord,
+    SubFlowResultRecord, TimeTravelStagedChunk, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    ValueRecord,
 };
 use prost::Message;
 
@@ -81,6 +82,7 @@ pub fn reencode_row(
         RunTable::AttributeSyncOutbox => reencode::<AttributeSyncOutboxRecord>(value),
         RunTable::HistorySegment => reencode::<HistorySegmentRecord>(value),
         RunTable::HistorySegmentValue => reencode::<HistorySegmentValueRecord>(value),
+        RunTable::TimeTravelStaging => reencode::<TimeTravelStagedChunk>(value),
         RunTable::ValueHolder | RunTable::RequestDedupOrder => Ok(value.to_vec()),
     };
     result.map_err(|detail| error(table_name, detail))
@@ -122,6 +124,7 @@ fn table_name(table: RunTable) -> &'static str {
         RunTable::AttributeSyncOutbox => "AttributeSyncOutbox",
         RunTable::HistorySegment => "HistorySegment",
         RunTable::HistorySegmentValue => "HistorySegmentValue",
+        RunTable::TimeTravelStaging => "TimeTravelStaging",
     }
 }
 

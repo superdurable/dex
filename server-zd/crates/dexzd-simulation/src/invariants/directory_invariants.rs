@@ -23,6 +23,7 @@ const DIRECTORY: &str = "flow-directory";
 const RUN_RECORD: &str = "run-record";
 const HISTORY: &str = "history-order";
 const TIMER_INDEX: &str = "timer-index";
+const TIME_TRAVEL_STAGING: &str = "time-travel-staging";
 
 pub(crate) fn check_directory(flow_id: &str, view: &FlowView) -> Result<(), InvariantViolation> {
     let Some(directory) = &view.directory else {
@@ -93,6 +94,37 @@ pub(crate) fn check_directory(flow_id: &str, view: &FlowView) -> Result<(), Inva
                 format!("Flow {flow_id} has rows of run {run_id}, which the directory omits"),
             ));
         }
+    }
+    Ok(())
+}
+
+/// A run's staged TimeTravel rows are exactly the chunks its staging state lists.
+pub(crate) fn check_time_travel_staging(
+    context: &RunContext<'_>,
+    run: &RunView,
+) -> Result<(), InvariantViolation> {
+    let staging = run
+        .record
+        .as_ref()
+        .and_then(|record| record.time_travel_staging.as_ref());
+    let expected: BTreeSet<u32> =
+        staging.map_or_else(BTreeSet::new, |staging| (0..staging.chunk_count).collect());
+    if run.time_travel_staging_chunks != expected {
+        return Err(InvariantViolation::new(
+            TIME_TRAVEL_STAGING,
+            format!(
+                "{context} stores staging chunks {:?} but its staging state lists {:?}",
+                run.time_travel_staging_chunks, expected
+            ),
+        ));
+    }
+    if let Some(staging) = staging
+        && (staging.staging_id.is_empty() || staging.chunk_count == 0)
+    {
+        return Err(InvariantViolation::new(
+            TIME_TRAVEL_STAGING,
+            format!("{context} has a staging state without an ID or chunks: {staging:?}"),
+        ));
     }
     Ok(())
 }

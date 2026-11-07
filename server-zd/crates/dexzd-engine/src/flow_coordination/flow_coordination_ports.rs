@@ -6,10 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Services the runtime calls but other modules implement: effects, Worker RPCs, and
-//! hard-delete values.
+//! Services the runtime calls but other modules implement: effects, Worker RPCs, hard-delete
+//! values, and time travel history.
 
-use dexzd_apply::ApplyEffect;
+use dexzd_apply::values::{NoOffloadedValues, OffloadedValues};
+use dexzd_apply::{ApplyContext, ApplyEffect, FlowStateReader, HistorySource, StateHistorySource};
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
     AttributeWrite, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, PullRouting, Value,
@@ -216,4 +217,87 @@ pub trait HardDeleteValueUploader: Send + Sync + 'static {
         uploads: HardDeleteUploads,
         outcome: HardDeleteUploadOutcome,
     ) -> BoxFuture<'_, Result<(), HardDeleteUploadError>>;
+}
+
+/// The history of one run that a time travel computation replays, as one committed view shows
+/// it.
+pub trait TimeTravelRunHistory: Send {
+    /// Returns the committed state of the run's Flow.
+    fn state(&self) -> &dyn FlowStateReader;
+
+    /// Returns the run's History records and checkpoints.
+    fn history(&self) -> Box<dyn HistorySource + '_>;
+
+    /// Returns the run's values that [`Self::state`] no longer holds.
+    fn offloaded_values(&self) -> &dyn OffloadedValues;
+}
+
+/// Error from opening the history a time travel computation replays.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("reading the history of run {run_id} failed: {detail}")]
+pub struct TimeTravelHistoryError {
+    /// The run.
+    pub run_id: RunId,
+    /// Store message.
+    pub detail: String,
+}
+
+/// Opens the history that time travel computations replay on a blocking thread.
+pub trait TimeTravelHistoryOpener: Send + Sync + 'static {
+    /// Opens the history of run `run_id` that `view` shows, fetching remote data first so the
+    /// replay never waits.
+    ///
+    /// Returns [`TimeTravelHistoryError`] when the history cannot be read.
+    fn open_time_travel_history(
+        &self,
+        view: Box<dyn FlowStateReader + Send>,
+        context: ApplyContext,
+        run_id: RunId,
+    ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>>;
+}
+
+/// The [`TimeTravelHistoryOpener`] of a node whose local store holds every history record and
+/// value that a time travel reads.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LocalTimeTravelHistory;
+
+impl TimeTravelHistoryOpener for LocalTimeTravelHistory {
+    fn open_time_travel_history(
+        &self,
+        view: Box<dyn FlowStateReader + Send>,
+        context: ApplyContext,
+        run_id: RunId,
+    ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>> {
+        let history: Box<dyn TimeTravelRunHistory> = Box::new(LocalRunHistory {
+            view,
+            context,
+            run_id,
+        });
+        Box::pin(std::future::ready(Ok(history)))
+    }
+}
+
+/// History that a committed view of the local store holds.
+struct LocalRunHistory {
+    view: Box<dyn FlowStateReader + Send>,
+    context: ApplyContext,
+    run_id: RunId,
+}
+
+impl TimeTravelRunHistory for LocalRunHistory {
+    fn state(&self) -> &dyn FlowStateReader {
+        self.view.as_ref()
+    }
+
+    fn history(&self) -> Box<dyn HistorySource + '_> {
+        Box::new(StateHistorySource::new(
+            self.view.as_ref(),
+            self.context,
+            self.run_id,
+        ))
+    }
+
+    fn offloaded_values(&self) -> &dyn OffloadedValues {
+        &NoOffloadedValues
+    }
 }

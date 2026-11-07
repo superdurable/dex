@@ -370,6 +370,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::TimersFired(_)) => "TimersFired",
         Some(Command::TimerSkip(_)) => "TimerSkip",
         Some(Command::TimeTravel(_)) => "TimeTravel",
+        Some(Command::TimeTravelStage(_)) => "TimeTravelStage",
         Some(Command::InboxMessage(_)) => "InboxMessage",
         Some(Command::OutboxAck(_)) => "OutboxAck",
         Some(Command::AttributeSyncAck(_)) => "AttributeSyncAck",

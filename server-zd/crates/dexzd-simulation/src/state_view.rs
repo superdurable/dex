@@ -106,6 +106,8 @@ pub struct RunView {
     pub value_garbage: Vec<(u64, ValueId, ValueGarbageRecord)>,
     /// Values with a row in the value column family.
     pub value_rows: BTreeSet<ValueId>,
+    /// Chunk indexes of the run's staged TimeTravel result rows.
+    pub time_travel_staging_chunks: BTreeSet<u32>,
     /// History records: key seq and record.
     pub history: Vec<(u64, HistoryRecord)>,
     /// Metadata of the History records by seq.
@@ -162,6 +164,17 @@ impl FlowView {
         for (key, _) in state.rows_with_prefix(ColumnFamily::Value, &flow_prefix) {
             let parsed = parse_key(key)?;
             if !selection.contains(&parsed.run_id) {
+                continue;
+            }
+            if parsed.table == RunTable::TimeTravelStaging {
+                let chunk_index = <[u8; 4]>::try_from(parsed.suffix)
+                    .map(u32::from_be_bytes)
+                    .map_err(|_| {
+                        view_error(key, "time travel staging", "key suffix is not 4 bytes")
+                    })?;
+                view.run_mut(parsed.run_id)
+                    .time_travel_staging_chunks
+                    .insert(chunk_index);
                 continue;
             }
             let value_id = value_id_from_suffix(key, parsed.suffix)?;
@@ -423,6 +436,7 @@ impl FlowView {
             | RunTable::InboxDedup
             | RunTable::PermissionSet
             | RunTable::Value
+            | RunTable::TimeTravelStaging
             | RunTable::HistoryRecord
             | RunTable::Checkpoint
             | RunTable::RequestDedupOrder => {}

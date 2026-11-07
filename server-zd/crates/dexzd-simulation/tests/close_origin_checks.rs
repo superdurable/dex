@@ -167,6 +167,8 @@ fn a_reset_that_finalizes_a_restored_pending_close_is_a_natural_close() {
     let held_time = probe.now_micros;
 
     let travel = probe.apply(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: FLOW_ID.to_owned(),

@@ -20,8 +20,8 @@ use dexzd_protocol::dexzd::v1::{
     HistorySegmentRecord, HistorySegmentValueRecord, InboxDedupRecord, LocalStoreKind, LockRecord,
     LogRecord, Manifest, NodeMeta, OutboxRecord, PartitionMeta, PermissionSetRecord,
     RequestDedupRecord, RunRecord, SearchDocumentRecord, SnapshotManifest, StepCounterRecord,
-    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
-    ValueRecord, log_record,
+    StepExecutionRecord, SubFlowResultRecord, TimeTravelStagedChunk, TimerRecord, ValueBirthRecord,
+    ValueGarbageRecord, ValueRecord, flow_command, log_record,
 };
 use prost::Message;
 use xxhash_rust::xxh3::xxh3_64;
@@ -130,6 +130,10 @@ fn decode_log_batch(key: &str, body: &[u8], decoded: &mut DecodedObjects) {
             command.command.is_some(),
             "FlowCommand in {key} has a known command body"
         );
+        if let Some(flow_command::Command::TimeTravelStage(stage)) = &command.command {
+            TimeTravelStagedChunk::decode(stage.chunk.as_slice())
+                .unwrap_or_else(|error| panic!("staged chunk in {key} decodes: {error}"));
+        }
         decoded.commands.push(command);
     }
 }
@@ -250,6 +254,7 @@ fn decode_run_row(table: RunTable, value: &[u8], describe: &dyn Fn() -> String) 
         RunTable::SubFlowResult => decode_as::<SubFlowResultRecord>(value, describe),
         RunTable::PermissionSet => decode_as::<PermissionSetRecord>(value, describe),
         RunTable::Value => decode_as::<ValueRecord>(value, describe),
+        RunTable::TimeTravelStaging => decode_as::<TimeTravelStagedChunk>(value, describe),
         RunTable::ValueBirth => decode_as::<ValueBirthRecord>(value, describe),
         RunTable::ValueGarbage => decode_as::<ValueGarbageRecord>(value, describe),
         RunTable::HardDeleteObject => decode_as::<HardDeleteObjectRecord>(value, describe),

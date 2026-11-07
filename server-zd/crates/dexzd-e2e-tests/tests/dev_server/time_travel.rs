@@ -435,6 +435,53 @@ async fn finish_after_rerun(
     );
 }
 
+/// The server replays history for a time travel within `history.timeTravelReplayMemoryBytes`;
+/// a reset that needs more fails with RESOURCE_EXHAUSTED and changes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_reset_over_the_replay_memory_budget_fails_and_changes_nothing() {
+    let server = DevServer::start_with_config_overrides(Some(
+        "history:\n  timeTravelReplayMemoryBytes: 1\n",
+    ))
+    .await;
+    let mut flow_client = server.flow_client();
+    let flow_id = "travel-over-budget";
+    start_pull_flow(
+        &mut flow_client,
+        flow_id,
+        FLOW_TYPE,
+        CHARGE_STEP_TYPE,
+        string_value(ORDER_INPUT),
+        StepOptions::default(),
+    )
+    .await;
+    let status = flow_client
+        .reset_flow(ResetFlowRequest {
+            flow_id: flow_id.to_owned(),
+            reset_type: FlowResetType::Beginning.into(),
+            reason: "over budget".to_owned(),
+            ..ResetFlowRequest::default()
+        })
+        .await
+        .expect_err("the replay needs more than one byte");
+    assert_eq!(status.code(), tonic::Code::ResourceExhausted, "{status:?}");
+    assert!(
+        status
+            .message()
+            .contains("history.timeTravelReplayMemoryBytes"),
+        "{status:?}"
+    );
+    let summary = flow_client
+        .get_flow_summary(GetFlowSummaryRequest {
+            flow_id: flow_id.to_owned(),
+            run_id: String::new(),
+        })
+        .await
+        .expect("GetFlowSummary succeeds")
+        .into_inner();
+    assert_eq!(summary.run_attempt, 1, "the run keeps its attempt");
+    server.shutdown().await;
+}
+
 async fn reset_flow(
     flow_client: &mut FlowServiceClient<Channel>,
     request: ResetFlowRequest,

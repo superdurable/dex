@@ -19,6 +19,7 @@ use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateWrite, TransactionalRpcHold,
     WaitableChange, transactional_rpc_hold,
 };
+use dexzd_clock::WallClock;
 use dexzd_keyspace::row_keys::run_singleton_key;
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, parse_run_key};
 use dexzd_protocol::dex::{FlowStatus, InvokeRpcResponse};
@@ -43,7 +44,8 @@ use crate::flow_coordination::speculative_overlay::{
 use crate::flow_coordination::{
     CommitTicket, CommitUrgency, CommittedFlowCommand, FlowAddress, FlowCommandCommitter,
     FlowCoordinationConfig, FlowCoordinationEffectSink, FlowCoordinationError,
-    HardDeleteValueReader, HardDeleteValueUploader, RpcWorkerInvoker, StepQueueStatus, grpc_code,
+    HardDeleteValueReader, HardDeleteValueUploader, RpcWorkerInvoker, StepQueueStatus,
+    TimeTravelHistoryOpener, grpc_code,
 };
 use crate::long_poll::WaiterRegistry;
 
@@ -65,6 +67,10 @@ pub struct FlowCoordinatorDependencies {
     pub hard_delete_reader: Arc<dyn HardDeleteValueReader>,
     /// Uploads hard-delete Attribute values before their commands are proposed.
     pub hard_delete_uploader: Arc<dyn HardDeleteValueUploader>,
+    /// Opens the history that time travel computations replay.
+    pub time_travel_history: Arc<dyn TimeTravelHistoryOpener>,
+    /// The owner's clock; a time travel resolves relative target times against it.
+    pub clock: Arc<dyn WallClock>,
     /// Creates run IDs and Channel message IDs.
     pub id_source: Arc<dyn EngineIdSource>,
 }

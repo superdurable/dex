@@ -12,7 +12,8 @@ use std::collections::BTreeMap;
 
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
-    apply_flow_command,
+    apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{
     attribute_sync_outbox_key, attribute_sync_pending_index_key, prefix_range, run_named_key,
@@ -155,6 +156,18 @@ impl Harness {
             is_transactional_rpc_in_flight: false,
             command: Some(body),
         };
+        self.apply_command(command)
+    }
+
+    /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
+    fn apply_command(&mut self, command: FlowCommand) -> ApplyOutcome {
+        if is_unstaged_time_travel_for_test(&command) {
+            let staged = stage_time_travel_for_test(&self.context, &self.state, &command)
+                .expect("time travel computes");
+            return apply_staged_time_travel_for_test(staged, |staged_command| {
+                self.apply_command(staged_command)
+            });
+        }
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         let again =
@@ -563,6 +576,8 @@ fn time_travel_to_an_unsynced_value_marks_a_store_deletion() {
     assert!(harness.entries().is_empty());
 
     harness.apply(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
@@ -593,6 +608,8 @@ fn time_travel_refreshes_pending_snapshots_before_reapplying_writes() {
         harness.set(vec![synced("status", string_value("opened"))], "opened");
         harness.set(vec![unsynced("status", string_value("quiet"))], "quiet");
         let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "account-1".to_owned(),
@@ -622,6 +639,8 @@ fn reapplied_synced_write_retains_its_snapshot_after_an_unsynced_write() {
     harness.set(vec![synced("status", string_value("opened"))], "opened");
     harness.set(vec![unsynced("status", string_value("quiet"))], "quiet");
     harness.apply(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
@@ -664,6 +683,8 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
             );
             // The fork checkpoint holds a reference that replay cannot recreate after collection.
             harness.apply(Command::TimeTravel(TimeTravelCommand {
+                staging_id: Vec::new(),
+                computed_through_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::Beginning as i32,
@@ -728,6 +749,8 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
             assert!(harness.entries().is_empty());
             assert_eq!(harness.pending_index_count(), 0);
             let traveled = harness.apply(Command::TimeTravel(TimeTravelCommand {
+                staging_id: Vec::new(),
+                computed_through_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::HistoryEventTime as i32,
@@ -1012,6 +1035,8 @@ fn time_travel_remarks_rows_of_the_abandoned_and_restored_state() {
     assert!(!harness.has_pending_index(PRIMARY));
 
     let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),
@@ -1068,6 +1093,8 @@ fn time_travel_reapplies_unsynced_writes_without_requesting_synchronization() {
     assert!(harness.entries().is_empty());
 
     let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "account-1".to_owned(),

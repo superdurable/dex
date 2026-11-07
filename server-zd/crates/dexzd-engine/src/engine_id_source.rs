@@ -39,6 +39,9 @@ pub trait EngineIdSource: Send + Sync + 'static {
     /// Returns a new UUIDv7 that names the task of one dispatched method attempt.
     fn dispatch_task_id(&self) -> Uuid;
 
+    /// Returns a new UUIDv7 that names the staged result of one time travel computation.
+    fn time_travel_staging_id(&self) -> Uuid;
+
     /// Returns a new UUIDv7 for a store created empty or restored from a snapshot; the engine
     /// replaces it with [`Self::lineage_id`] before the store's first upload.
     fn store_lineage_id(&self) -> Uuid;
@@ -77,6 +80,10 @@ impl EngineIdSource for SystemEngineIdSource {
     }
 
     fn dispatch_task_id(&self) -> Uuid {
+        Uuid::now_v7()
+    }
+
+    fn time_travel_staging_id(&self) -> Uuid {
         Uuid::now_v7()
     }
 
@@ -150,6 +157,10 @@ impl EngineIdSource for SeededEngineIdSourceForTest {
     }
 
     fn dispatch_task_id(&self) -> Uuid {
+        self.next_uuid_v7()
+    }
+
+    fn time_travel_staging_id(&self) -> Uuid {
         self.next_uuid_v7()
     }
 

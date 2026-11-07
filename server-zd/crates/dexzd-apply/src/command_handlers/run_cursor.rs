@@ -284,6 +284,7 @@ impl RunCursor {
         search_document::refresh_search_document(transaction, &self, scope)?;
         history::after_command(transaction, &mut self, window_events)?;
         seal_or_migrate_history_segment(transaction, &mut self, scope.now_micros, has_closed_run)?;
+        history::delete_idle_staging(transaction, &mut self, scope.now_micros);
         self.rows.put_run_record(transaction, &self.record);
         if scope.is_replay {
             reconcile_run_storage(transaction, &mut self)?;

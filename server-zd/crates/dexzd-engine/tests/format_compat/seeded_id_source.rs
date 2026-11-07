@@ -82,6 +82,10 @@ impl EngineIdSource for SeededIdSource {
         self.next_uuid_v7()
     }
 
+    fn time_travel_staging_id(&self) -> Uuid {
+        self.next_uuid_v7()
+    }
+
     fn store_lineage_id(&self) -> Uuid {
         self.next_unrecorded_uuid_v7()
     }

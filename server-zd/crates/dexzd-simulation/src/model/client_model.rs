@@ -389,6 +389,8 @@ pub(crate) fn later_handler_command(
             }),
         }),
         _ => Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: flow_id.to_owned(),
@@ -407,6 +409,8 @@ pub(crate) fn time_travel_to_window_point(
     run_attempt: i32,
 ) -> Command {
     Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: flow_id.to_owned(),

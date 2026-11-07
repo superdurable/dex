@@ -20,9 +20,18 @@ mod time_travel;
 mod window;
 
 pub(crate) use checkpoints::{after_command, pending_step_methods};
-pub use lineage::{HistoryRecords, HistorySource};
+pub use lineage::{HistoryRecords, HistorySource, StateHistorySource};
 pub(crate) use lineage::{LocalHistorySource, genesis_seq};
-pub(crate) use time_travel::apply_time_travel;
+pub use time_travel::{
+    ComputedTimeTravel, StagedEntryTooLarge, TimeTravelComputation, TimeTravelComputationRequest,
+    TimeTravelComputationSources, compute_time_travel,
+};
+#[cfg(feature = "test-util")]
+pub use time_travel::{
+    StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
+};
+pub(crate) use time_travel::{apply_time_travel, apply_time_travel_stage, delete_idle_staging};
 pub(crate) use window::{
     WindowAdvanceTarget, advance_window, metadata_identity, prune_window_history,
 };

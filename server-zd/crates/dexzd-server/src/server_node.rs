@@ -34,8 +34,8 @@ use dexzd_engine::{
     AttributeSyncWaker, CommandCommitter, EffectDependencies, EffectRunner, EffectTasksHandle,
     EngineCommandAndEffectHooks, EngineNode, EngineNodeConfig, EngineNodeDependencies,
     EngineServices, EngineStartError, FlowCoordinatorDependencies, FlowCoordinatorRegistry,
-    HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreCloseWaiter, NodeMetaUploadLedger,
-    NodeStopReason,
+    HardDeleteObjects, HotStandby, HotStandbyTakeover, LocalStoreCloseWaiter,
+    LocalTimeTravelHistory, NodeMetaUploadLedger, NodeStopReason,
 };
 use dexzd_keyspace::PartitionHasher;
 use dexzd_metrics::NodeMetrics;
@@ -526,6 +526,8 @@ impl ServerNode {
                     step_queue_status: Arc::new(dispatch.clone()),
                     hard_delete_reader: Arc::new(hard_delete_objects.clone()),
                     hard_delete_uploader: Arc::new(hard_delete_objects),
+                    time_travel_history: Arc::new(LocalTimeTravelHistory),
+                    clock: clock.clone(),
                     id_source: services.id_source,
                 },
             );

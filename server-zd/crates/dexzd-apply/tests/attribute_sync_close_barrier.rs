@@ -14,6 +14,8 @@ use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_h
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     TERMINAL_CLEANUP_MESSAGE, WaitableChange, apply_flow_command,
+    apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{
     history_record_key, prefix_range, run_named_key, run_singleton_key,
@@ -204,6 +206,18 @@ impl Harness {
 
     fn apply(&mut self, body: Command) -> ApplyOutcome {
         let command = self.command(body);
+        self.apply_command(command)
+    }
+
+    /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
+    fn apply_command(&mut self, command: FlowCommand) -> ApplyOutcome {
+        if is_unstaged_time_travel_for_test(&command) {
+            let staged = stage_time_travel_for_test(&self.context, &self.state, &command)
+                .expect("time travel computes");
+            return apply_staged_time_travel_for_test(staged, |staged_command| {
+                self.apply_command(staged_command)
+            });
+        }
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         let again =
@@ -394,6 +408,8 @@ impl Harness {
 
     fn travel_to(&mut self, request: ResetFlowRequest) -> ApplyOutcome {
         let outcome = self.apply(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
         }));
@@ -1049,6 +1065,8 @@ fn rebuilt_cleanup_points_equal_their_recorded_states() {
 
     for (timestamp, expected) in &points {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(reset_to_time(*timestamp)),
         }));
@@ -1287,6 +1305,8 @@ fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
 
         for (timestamp, expected) in &points {
             let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+                staging_id: Vec::new(),
+                computed_through_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(reset_to_time(*timestamp)),
             }));
@@ -1450,6 +1470,8 @@ fn a_reapplied_flow_timeout_skip_waits_for_remarked_attributes() {
 
     for (timestamp, expected) in &points {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 2,
@@ -1506,6 +1528,8 @@ fn a_reapplied_flow_timeout_skip_closes_when_reapplied_writes_leave_nothing_to_s
 
     let expected = harness.semantic_point_hash();
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             run_attempt: 2,

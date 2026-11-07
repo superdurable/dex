@@ -58,6 +58,8 @@ Then the node took a snapshot. After the snapshot:
   value; the object is deleted and the deletion committed.
 - `travel-flow`: two Steps and a client Attribute write complete the run. Time travel to the
   second Step's Execute, with writes reapplied, reopens it in run attempt 2, which completes.
+  As in every time travel of this log, the owner first commits the result it computed in a
+  TimeTravelStage command, and the TimeTravel command names that staged result.
 - `idle-flow`: a timer wait is skipped, the Flow config is updated, and the Flow is canceled.
 - `short-lived-flow`: a run with a 60-second retention completes in partition 0, which
   offloads history, so its close seals a segment. A HistorySegmentUploaded acknowledgment

@@ -13,7 +13,8 @@ use std::collections::BTreeMap;
 use dexzd_apply::read_model::get_history_events;
 use dexzd_apply::{
     ApplyContext, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
-    apply_flow_command,
+    apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{prefix_range, run_singleton_key};
 use dexzd_keyspace::{
@@ -169,6 +170,18 @@ impl Harness {
             command: Some(body),
             ..FlowCommand::default()
         };
+        self.apply_command(command)
+    }
+
+    /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
+    fn apply_command(&mut self, command: FlowCommand) -> ApplyOutcome {
+        if is_unstaged_time_travel_for_test(&command) {
+            let staged = stage_time_travel_for_test(&self.context, &self.state, &command)
+                .expect("time travel computes");
+            return apply_staged_time_travel_for_test(staged, |staged_command| {
+                self.apply_command(staged_command)
+            });
+        }
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("the command applies");
         self.state.commit(&outcome);
@@ -250,6 +263,8 @@ impl Harness {
 
     fn time_travel(&mut self, request: ResetFlowRequest) -> CommandReply {
         self.apply(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
         }))

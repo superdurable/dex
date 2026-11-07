@@ -151,6 +151,8 @@ async fn submit_time_travel(
         flow_id: flow_id.to_owned(),
         run_id: run_id.0.to_vec(),
         command: Some(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: flow_id.to_owned(),
@@ -163,9 +165,29 @@ async fn submit_time_travel(
         })),
         ..FlowCommand::default()
     };
+    // An owner stages the result it computed before it submits the TimeTravel.
+    let mut commands = {
+        let view = node.committer().committed_view().expect("view opens");
+        dexzd_apply::stage_time_travel_for_test(&context, &view, &command)
+            .expect("time travel computes")
+            .expect("time travel is accepted")
+            .commands
+    };
+    let time_travel = commands.pop().expect("staging ends with the TimeTravel");
+    for stage in commands {
+        let (_, ticket) = node
+            .committer()
+            .submit(context, stage, CommitUrgency::Prompt)
+            .expect("stage submitted");
+        let committed = ticket.wait().await.expect("stage committed");
+        assert!(matches!(
+            committed.outcome.reply.reply,
+            Some(command_reply::Reply::Ok(_))
+        ));
+    }
     let (stamped, ticket) = node
         .committer()
-        .submit(context, command, CommitUrgency::Prompt)
+        .submit(context, time_travel, CommitUrgency::Prompt)
         .expect("travel submitted");
     (stamped, ticket.wait().await)
 }

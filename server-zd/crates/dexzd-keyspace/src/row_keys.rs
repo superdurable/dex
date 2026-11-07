@@ -283,6 +283,16 @@ pub fn history_segment_value_key(
     key
 }
 
+/// Key of chunk `chunk_index` of a run's staged TimeTravel result (`value` column family).
+pub fn time_travel_staging_key(flow_hash: FlowHash, run_id: RunId, chunk_index: u32) -> Vec<u8> {
+    run_key(
+        flow_hash,
+        run_id,
+        RunTable::TimeTravelStaging,
+        &chunk_index.to_be_bytes(),
+    )
+}
+
 fn flow_run_suffix(flow_hash: FlowHash, run_id: RunId) -> Vec<u8> {
     let mut suffix = flow_hash.to_be_bytes().to_vec();
     suffix.extend_from_slice(run_id.as_bytes());

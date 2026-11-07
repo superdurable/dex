@@ -156,11 +156,13 @@ pub enum RunTable {
     HistorySegment = 0x1b,
     /// `first_seq(8) ‖ value_id(12)`: values superseded inside each history segment.
     HistorySegmentValue = 0x1c,
+    /// `chunk_index(4)`: chunks of the run's staged TimeTravel result (`value` column family).
+    TimeTravelStaging = 0x1d,
 }
 
 impl RunTable {
     /// Every table, in byte order.
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::RunRecord,
         Self::AttemptRecord,
         Self::Attribute,
@@ -189,12 +191,13 @@ impl RunTable {
         Self::AttributeSyncOutbox,
         Self::HistorySegment,
         Self::HistorySegmentValue,
+        Self::TimeTravelStaging,
     ];
 
     /// Returns the column family that stores this table.
     pub fn column_family(self) -> ColumnFamily {
         match self {
-            Self::Value => ColumnFamily::Value,
+            Self::Value | Self::TimeTravelStaging => ColumnFamily::Value,
             Self::HistoryRecord | Self::Checkpoint => ColumnFamily::History,
             _ => ColumnFamily::Flow,
         }
@@ -431,7 +434,7 @@ mod tests {
     #[test]
     fn table_bytes_are_unique_and_permanent() {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
-        assert_eq!(bytes, (1..=28).collect::<Vec<u8>>());
+        assert_eq!(bytes, (1..=29).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
         assert_eq!(kinds, (1..=15).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
@@ -440,6 +443,10 @@ mod tests {
         assert_eq!(
             RunTable::HistorySegmentValue.column_family(),
             ColumnFamily::Flow
+        );
+        assert_eq!(
+            RunTable::TimeTravelStaging.column_family(),
+            ColumnFamily::Value
         );
     }
 

@@ -11,6 +11,8 @@ use std::time::Duration;
 use dexzd_protocol::dexzd::v1::RunSettings;
 use dexzd_request_validation::ValidationConfig;
 
+use crate::BlockingWorkPlacement;
+
 /// Configuration section of the Flow runtime: speculation limits, long polls, RPC calls, and
 /// the settings recorded into new runs.
 #[derive(Debug, Clone)]
@@ -61,6 +63,13 @@ pub struct FlowCoordinationConfig {
     /// output. GetHistoryEvents still returns references, as the Go Server does, and LoadBlobs
     /// resolves them. Hard-delete references in GetFlowState stay references in both modes.
     pub hydrate_value_references: bool,
+    /// Largest number of key and value bytes that one time travel's replay holds in memory.
+    /// Default 1 GiB, from `history.timeTravelReplayMemoryBytes`. ResetFlow fails with
+    /// `RESOURCE_EXHAUSTED` when replaying from the checkpoint to the target needs more.
+    pub time_travel_replay_memory_bytes: u64,
+    /// Where time travel computations read history and replay it. Default
+    /// [`BlockingWorkPlacement::BlockingThreadPool`].
+    pub blocking_work: BlockingWorkPlacement,
     /// Settings recorded into every new run at FlowStart; apply never reads configuration.
     /// Defaults follow the `RunSettings` field documentation.
     pub run_settings: RunSettings,
@@ -84,6 +93,8 @@ impl Default for FlowCoordinationConfig {
             max_worker_rpc_request_bytes: 32 * 1024 * 1024,
             max_history_events_response_bytes: 32 * 1024 * 1024,
             hydrate_value_references: false,
+            time_travel_replay_memory_bytes: 1024 * 1024 * 1024,
+            blocking_work: BlockingWorkPlacement::BlockingThreadPool,
             run_settings: default_run_settings(),
             validation: ValidationConfig::default(),
         }
