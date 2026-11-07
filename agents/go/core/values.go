@@ -32,6 +32,10 @@ const (
 	// AgentSessionStatusCompactingContext means CompactContext summarizes earlier messages. Only a
 	// Worker with compaction writes it; this Go core reads it.
 	AgentSessionStatusCompactingContext AgentSessionStatus = "compacting_context"
+	// AgentSessionStatusFailed means the session ended and takes no more messages. Its Flow closed
+	// failed, and AgentState.LastTurnError holds the reason. Python and TypeScript Workers write it;
+	// the Go core reads it.
+	AgentSessionStatusFailed AgentSessionStatus = "failed"
 )
 
 // UnmarshalText decodes a status and rejects a value outside the contract.
@@ -40,7 +44,8 @@ const (
 func (status *AgentSessionStatus) UnmarshalText(text []byte) error {
 	return decodeWireEnum(text, status, "AgentSessionStatus",
 		AgentSessionStatusWaitingForUserMessage, AgentSessionStatusRunningModel,
-		AgentSessionStatusRunningTools, AgentSessionStatusCompactingContext)
+		AgentSessionStatusRunningTools, AgentSessionStatusCompactingContext,
+		AgentSessionStatusFailed)
 }
 
 // MessageRole names the author of one stored agent message.

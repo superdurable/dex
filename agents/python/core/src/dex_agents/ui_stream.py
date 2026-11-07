@@ -46,6 +46,7 @@ from dex import (
     StreamMessagesPage,
 )
 
+from dex_agents.session_failure import read_agent_snapshot, read_agent_snapshot_sync
 from dex_agents.session_flow import AgentSessionFlow
 from dex_agents.values import AgentEvent, AgentSnapshot
 
@@ -428,10 +429,10 @@ async def read_agent_event_stream_snapshot(
     except DexServiceError as error:
         if not _is_stream_store_disabled(error):
             raise
-        snapshot = await client.invoke_rpc(flow.get_agent_snapshot, session_id)
+        snapshot = await read_agent_snapshot(client, flow, session_id)
         return AgentEventStreamSnapshot(snapshot=snapshot, resume_token="")
     tail_resume_token = _newest_resume_token(tail_page)
-    snapshot = await client.invoke_rpc(flow.get_agent_snapshot, session_id)
+    snapshot = await read_agent_snapshot(client, flow, session_id)
     active_turn_id = None if snapshot.state is None else snapshot.state.active_turn_id
     if active_turn_id is None:
         return AgentEventStreamSnapshot(snapshot=snapshot, resume_token=tail_resume_token)
@@ -489,10 +490,10 @@ def read_agent_event_stream_snapshot_sync(
     except DexServiceError as error:
         if not _is_stream_store_disabled(error):
             raise
-        snapshot = client.invoke_rpc(flow.get_agent_snapshot, session_id)
+        snapshot = read_agent_snapshot_sync(client, flow, session_id)
         return AgentEventStreamSnapshot(snapshot=snapshot, resume_token="")
     tail_resume_token = _newest_resume_token(tail_page)
-    snapshot = client.invoke_rpc(flow.get_agent_snapshot, session_id)
+    snapshot = read_agent_snapshot_sync(client, flow, session_id)
     active_turn_id = None if snapshot.state is None else snapshot.state.active_turn_id
     if active_turn_id is None:
         return AgentEventStreamSnapshot(snapshot=snapshot, resume_token=tail_resume_token)

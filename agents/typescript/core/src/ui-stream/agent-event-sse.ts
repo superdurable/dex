@@ -9,6 +9,7 @@
 import type { Client, StreamMessage } from "@superdurable/dex";
 
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
+import { readAgentSnapshot } from "../agent-session-failure.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type { AgentEvent, AgentSnapshot } from "../agent-session-values.js";
 import { convertAgentEventToJson, convertAgentSnapshotToJson } from "./agent-event-json.js";
@@ -228,7 +229,7 @@ export async function readAgentEventStreamSnapshot(options: {
 }): Promise<AgentEventStreamSnapshot> {
   const { client, flow, flowId } = options;
   const tailResumeToken = await readAgentEventsTailResumeToken(client, flow, flowId);
-  const snapshot = await client.invokeRPC(flow.getAgentSnapshot, flowId);
+  const snapshot = await readAgentSnapshot(client, flow, flowId);
   const activeTurnId = snapshot.state?.activeTurnId ?? null;
   if (activeTurnId === null) {
     return { snapshot, resumeToken: tailResumeToken };

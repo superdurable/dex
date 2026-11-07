@@ -231,15 +231,40 @@ The packages store state this way:
 - **AgentToolCalls** records are deleted when the turn ends. They then no
   longer count toward the run budget.
 
-The server checks the run budget for Step heartbeats and Step completions,
-among other writes, and only when the write adds active state. Once a session is
-over the budget, such a Step fails without retry. A model call or tool call
-then fails its turn. A Step without a failure route fails the whole session
-instead, when its own write crosses the budget. **AwaitUserMessage**, which
-stores the next user message, is such a Step. An RPC that changes Flow state,
-such as **send_user_message**, is checked too. Over the budget it fails with
-RESOURCE_EXHAUSTED and changes nothing. Plan sessions to stay well below
-64 MiB.
+The server checks the run budget for Step heartbeats, Step completions, and
+RPCs that change Flow state, such as **send_user_message**, and only when the
+write adds active state. Once a session is over the budget, such a write is
+refused. What happens next depends on what was writing.
+
+- **A model call or tool call.** The session ends, because the next turn would
+  meet the same limit. Its status becomes **failed**, **last_turn_error** holds
+  the reason, such as "active run state of 67492 bytes exceeds the maximum of
+  65536 bytes", and the Flow closes failed with the same text. The Step's
+  result is not stored. A model answer you paid for is lost, and a tool that ran
+  keeps its effect with no stored result. No further model call is made.
+- **Any other Step.** A Step without a failure route, such as
+  **AwaitUserMessage**, closes the Flow failed with that reason. The same happens
+  when recording the failure above does not fit, which is common when turns are
+  small. The stored **AgentState** then keeps its last value.
+  **AgentSessionClient.get_agent_snapshot** in Python and **readAgentSnapshot** in
+  TypeScript read the Flow's close, so they report **failed** and the reason for
+  any session that stored a state. Use them, not the **get_agent_snapshot** RPC
+  alone. A session that fails before it stores a state has a snapshot with no
+  state. Read the reason from the Flow's result.
+- **A new message to a failed session.** The closed Flow refuses it.
+  **AgentSessionClient.send_user_message** in Python and **sendAgentUserMessage** in
+  TypeScript raise **AgentSessionFailedError** with the reason. A direct RPC call
+  gets **FlowNotActiveOrNotFoundError**.
+- **Queued messages of a failed session.** They never run. They stay readable in
+  the snapshot's **queued_messages** until retention deletes the session, so
+  you can send them to a new session.
+- **A message that does not fit.** **send_user_message** fails with
+  **RESOURCE_EXHAUSTED** and the same text, and the message is not queued. No Step
+  ran, so the session does not fail: it keeps waiting, and a shorter message
+  may still fit. Only the caller sees this error.
+
+A failed session cannot be recovered. Raising the limit applies only to new
+sessions. Plan sessions to stay well below 64 MiB.
 
 The Flow history keeps about the newest 10,000 events of a session. Read the
 conversation with **get_agent_snapshot** or **list_agent_messages**, not from
@@ -523,6 +548,10 @@ session can run on different versions.
   framework serialized. The framework version on the new Worker must restore
   it. Stay within the framework range that the adapter pins, and upgrade the
   adapter and the framework together.
+- Upgrade every reader of a session before the Workers that write the status
+  **failed**. A Worker or client from agents 0.2.0 or earlier cannot decode it, so
+  its **get_agent_snapshot** of a failed session raises an error. Only failed
+  sessions are affected.
 - **Upgrading from agents 0.1.0: stop every 0.1.0 Worker of the Flow type
   before any 0.2.0 Worker starts.** Do not run them side by side. A 0.1.0
   session keeps every message in **AgentMessages**. Once a 0.2.0 Worker stores

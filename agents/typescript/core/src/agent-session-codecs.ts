@@ -65,6 +65,7 @@ const agentSessionStatuses: readonly AgentSessionStatus[] = [
   "running_model",
   "running_tools",
   "compacting_context",
+  "failed",
 ];
 const agentMessageRoles: readonly AgentMessageRole[] = ["user", "assistant", "tool"];
 const toolEffects: readonly ToolEffect[] = [

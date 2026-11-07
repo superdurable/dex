@@ -120,6 +120,7 @@ from dex_agents.runner import (
     describe_tool_call_outcome,
     resolve_tool_policy,
 )
+from dex_agents.session_failure import AgentSessionFailedError, read_agent_snapshot
 from dex_agents.session_flow import (
     BLANK_TOOL_TASK_ID,
     INVALID_START_SESSION_SETTINGS_REASON,
@@ -254,6 +255,7 @@ __all__ = [
     "AgentPlan",
     "AgentPlanTask",
     "AgentSessionClient",
+    "AgentSessionFailedError",
     "AgentSessionFlow",
     "AgentSessionOptions",
     "AgentSessionStartInput",
@@ -329,6 +331,7 @@ __all__ = [
     "message_sequence_key",
     "plan_execution_key",
     "plan_status_after_write",
+    "read_agent_snapshot",
     "resolve_tool_policy",
     "session_settings_size",
     "validate_session_settings",

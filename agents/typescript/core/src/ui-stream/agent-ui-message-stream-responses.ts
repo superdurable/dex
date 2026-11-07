@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { RpcLockConflictError, type Client } from "@superdurable/dex";
 
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
+import { readAgentSnapshot, sendAgentUserMessage } from "../agent-session-failure.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import {
   describeToolCallOutcome,
@@ -229,7 +230,7 @@ export async function sendAgentUserMessageWithUIMessageStream(
   const { client, flow, flowId } = options;
   const [state] = await client.getAttributes(flowId, flow.agentState);
   const eventResumeToken = await readAgentEventsTailResumeToken(client, flow, flowId);
-  const isQueued = await client.invokeRPC(flow.sendUserMessage, flowId, { text: options.text });
+  const isQueued = await sendAgentUserMessage(client, flow, flowId, { text: options.text });
   if (!isQueued) {
     return new Response("the user message text is blank", {
       status: 400,
@@ -367,7 +368,7 @@ export async function resolveAgentToolApprovalsWithUIMessageStream(
   }
   // Position before snapshot: events may repeat the snapshot, but none goes missing.
   const tailResumeToken = await readAgentEventsTailResumeToken(client, flow, flowId);
-  const snapshot = await client.invokeRPC(flow.getAgentSnapshot, flowId);
+  const snapshot = await readAgentSnapshot(client, flow, flowId);
   const activeTurnId = snapshot.state?.activeTurnId ?? null;
   // Decisions from an older turn's message settle that message only; the active turn goes elsewhere.
   const isActiveTurnRequest = options.approvals.every(

@@ -9,6 +9,7 @@
 import type { Client } from "@superdurable/dex";
 
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
+import { readAgentSnapshot } from "../agent-session-failure.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import {
   describeToolCallOutcome,
@@ -117,7 +118,7 @@ export async function readAgentSessionUIMessages(options: {
   readonly flowId: string;
 }): Promise<AgentSessionUIMessages> {
   const { client, flow, flowId } = options;
-  const snapshot = await client.invokeRPC(flow.getAgentSnapshot, flowId);
+  const snapshot = await readAgentSnapshot(client, flow, flowId);
   const messages = convertAgentSnapshotToUIMessages(snapshot);
   const activeTurnId = snapshot.state?.activeTurnId ?? null;
   if (activeTurnId === null) {

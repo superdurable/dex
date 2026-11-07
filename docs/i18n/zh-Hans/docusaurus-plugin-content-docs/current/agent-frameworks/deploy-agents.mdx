@@ -188,11 +188,31 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
   不计入它。
 - **AgentToolCalls** 记录在一轮结束时删除，之后不再计入 run 预算。
 
-服务器会对 Step heartbeat 和 Step 完成等写入检查 run 预算，并且只在写入增加活动状态时检查。
-session 超出预算后，这样的 Step 会失败且不重试。模型调用或 tool call 失败时，它所在的轮次
-随之失败。没有失败路由的 Step 在它自己的写入越过预算时，会让整个 session 失败。保存下一条
-用户消息的 **AwaitUserMessage** 就是这样的 Step。改变 Flow 状态的 RPC，比如
-**send_user_message**，同样要检查。超出预算时它会以 RESOURCE_EXHAUSTED 失败，不做任何改动。规划时让 session 远低于 64 MiB。
+服务器会对 Step heartbeat、Step 完成，以及改变 Flow 状态的 RPC（比如 **send_user_message**）
+检查 run 预算，并且只在写入增加活动状态时检查。session 超出预算后，这样的写入会被拒绝。接下来
+发生什么，取决于写入来自哪里。
+
+- **模型调用或 tool call。** session 结束，因为下一轮会碰到同一个上限。它的状态变为
+  **failed**，**last_turn_error** 保存原因，比如 "active run state of 67492 bytes exceeds
+  the maximum of 65536 bytes"，Flow 也以同样的文本关闭为失败。这个 Step 的结果不会保存。已付费
+  的模型回答会丢失，已经运行的 tool 保留它的效果，但没有保存结果。之后不再调用模型。
+- **其他 Step。** 没有失败路由的 Step，比如 **AwaitUserMessage**，会以这个原因让 Flow
+  关闭为失败。上面的失败记录写不下时也一样，而轮次较小时这很常见。此时保存的
+  **AgentState** 保持最后的值。Python 的 **AgentSessionClient.get_agent_snapshot** 和
+  TypeScript 的 **readAgentSnapshot** 会读取 Flow 的关闭记录，所以对保存过状态的 session，
+  它们会报告 **failed** 和原因。请使用它们，不要只调用 **get_agent_snapshot** RPC。在保存状态
+  之前就失败的 session，其 snapshot 没有状态，原因要从 Flow 的结果读取。
+- **发给已失败 session 的新消息。** 已关闭的 Flow 会拒绝它。Python 的
+  **AgentSessionClient.send_user_message** 和 TypeScript 的 **sendAgentUserMessage** 会抛出
+  带原因的 **AgentSessionFailedError**。直接调用 RPC 得到的是
+  **FlowNotActiveOrNotFoundError**。
+- **已失败 session 中排队的消息。** 它们不会运行。在保留期删除 session 之前，它们都能从
+  snapshot 的 **queued_messages** 读到，所以你可以把它们发给新的 session。
+- **写不下的消息。** **send_user_message** 以 **RESOURCE_EXHAUSTED** 和同样的文本失败，
+  消息不会进入队列。没有 Step 运行，所以 session 不会失败：它继续等待，更短的消息可能还能
+  写入。只有调用方能看到这个错误。
+
+已失败的 session 无法恢复。提高上限只对新 session 生效。规划时让 session 远低于 64 MiB。
 
 Flow history 大约保留一个 session 最新的 10,000 个事件。读取对话用
 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
@@ -419,6 +439,9 @@ session 的两个 Step 可能运行在不同版本上。
 - 在一轮的各个 Step 之间，**FrameworkRunState** 保存 framework 序列化的状态。新 Worker 上的
   framework 版本必须能恢复它。保持在 adapter 固定的 framework 版本范围内，并且同时升级
   adapter 和 framework。
+- 先升级 session 的所有读取方，再升级会写入状态 **failed** 的 Worker。agents 0.2.0 及更早版本
+  的 Worker 和 client 无法解码这个状态，所以它们对已失败 session 调用 **get_agent_snapshot**
+  时会报错。只有已失败的 session 受影响。
 - **从 agents 0.1.0 升级时：先停止该 Flow type 的所有 0.1.0 Worker，再启动任何 0.2.0
   Worker。** 不要让两者同时运行。0.1.0 的 session 把每条消息都保存在 **AgentMessages** 中。
   0.2.0 Worker 一旦在其中保存消息，就会把较早的消息移入 **AgentMessageChunks**，每个 Step 移动

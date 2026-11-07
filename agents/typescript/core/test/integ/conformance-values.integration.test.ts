@@ -415,6 +415,7 @@ describe("the conformance suite's names manifest", () => {
       running_model: true,
       running_tools: true,
       compacting_context: true,
+      failed: true,
     } satisfies Record<AgentSessionStatus, true>,
     MessageRole: { user: true, assistant: true, tool: true } satisfies Record<AgentMessageRole, true>,
     ToolEffect: {
