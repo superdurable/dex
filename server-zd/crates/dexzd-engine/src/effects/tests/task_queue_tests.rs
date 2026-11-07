@@ -689,8 +689,11 @@ async fn a_queued_retry_goes_behind_the_backlog_queued_before_its_backoff_ended(
     harness.dispatcher.claim(2, refs[1].clone());
     harness.dispatcher.next_dispatch().await;
     harness.settle().await;
+    let mut replies = claim_results(&harness);
+    // Each Claim replies from its own task, so different Claims' replies arrive in any order.
+    replies.sort_by_key(|(claim_id, _, _)| *claim_id);
     assert_eq!(
-        claim_results(&harness),
+        replies,
         vec![
             (1, ClaimResult::Started, Some(refs[1].clone())),
             (2, ClaimResult::Started, Some(refs[2].clone())),
@@ -1257,6 +1260,8 @@ async fn a_claim_removed_right_before_its_start_starts_nothing() {
     harness.dispatcher.claim(2, task);
     let runner = harness.dispatcher.next_dispatch().await;
     assert_eq!(runner.context().attempt, 1);
+    // The Claim reply follows a blocking read, so it can land after the dispatch.
+    harness.settle().await;
     assert_eq!(
         claim_results(&harness)
             .iter()
@@ -1508,6 +1513,8 @@ async fn a_claim_that_panics_after_taking_its_entry_frees_it_and_its_row_starts_
     harness.dispatcher.claim(2, refs[1].clone());
     let runner = harness.dispatcher.next_dispatch().await;
     assert_eq!(runner.context().attempt, 1);
+    // The Claim reply follows a blocking read, so it can land after the dispatch.
+    harness.settle().await;
     assert_eq!(claim_results(&harness)[1].1, ClaimResult::Started);
     harness.shutdown().await;
 }
