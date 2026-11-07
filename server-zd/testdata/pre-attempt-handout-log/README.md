@@ -19,6 +19,6 @@ The `old_log_replay` test in `crates/dexzd-engine/tests/format_compat/` replays 
 without its snapshot, and requires the committed state of that binary. Step execution rows and
 attempt checkpoints must match after clearing only the attempt progress fields that the newer
 binary adds. Run records must match without their byte counters: storage usage,
-`written_bytes_since_checkpoint`, and `last_checkpoint_state_bytes`, which count those bytes. It
+`row_write_bytes_since_checkpoint`, and `last_checkpoint_state_bytes`, which count those bytes. It
 is a test fixture, not a `v<N>` version: the generator never writes it and the version pins do
 not cover it. Never edit or regenerate it.

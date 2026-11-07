@@ -525,8 +525,8 @@ fn settings() -> RunSettings {
         retention_after_close_micros: 60 * SECOND,
         wire_inline_threshold_bytes: 100,
         max_value_bytes: 16 << 20,
-        checkpoint_min_written_bytes: 1 << 20,
-        checkpoint_max_commands: 10_000,
+        checkpoint_row_write_bytes_threshold: 1 << 20,
+        checkpoint_command_threshold: 10_000,
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
@@ -1029,7 +1029,7 @@ fn restored_stop_ignores_remarked_attribute_sync_entries() {
 #[test]
 fn rebuilt_cleanup_points_equal_their_recorded_states() {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 2,
+        checkpoint_command_threshold: 2,
         ..settings()
     });
     let mut points = Vec::new();
@@ -1263,7 +1263,7 @@ fn a_read_that_records_a_held_close_replays_only_under_the_state_budget() {
 fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
     for is_finalized_by_check in [true, false] {
         let mut harness = Harness::with_settings(RunSettings {
-            checkpoint_max_commands: 2,
+            checkpoint_command_threshold: 2,
             ..settings()
         });
         let mut points = Vec::new();
@@ -1405,7 +1405,7 @@ fn attribute_sync_pending_count(outcome: &ApplyOutcome) -> usize {
 #[test]
 fn a_reapplied_flow_timeout_skip_waits_for_remarked_attributes() {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 2,
+        checkpoint_command_threshold: 2,
         ..settings()
     });
     harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
@@ -1465,7 +1465,7 @@ fn a_reapplied_flow_timeout_skip_waits_for_remarked_attributes() {
 #[test]
 fn a_reapplied_flow_timeout_skip_closes_when_reapplied_writes_leave_nothing_to_sync() {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 2,
+        checkpoint_command_threshold: 2,
         ..settings()
     });
     harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
@@ -1592,7 +1592,7 @@ fn restored_closes_without_a_stored_origin_follow_the_status_heuristic() {
         (Some(StopType::Terminate), FlowStatus::Terminated),
     ] {
         let mut harness = Harness::with_settings(RunSettings {
-            checkpoint_max_commands: 1,
+            checkpoint_command_threshold: 1,
             ..settings()
         });
         harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);

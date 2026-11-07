@@ -84,9 +84,23 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
                 step.step_execution_id
             );
         }
+        let runs = decoded_rows::<RunRecord>(&stored, RunTable::RunRecord);
+        assert!(!runs.is_empty());
+        for run in &runs {
+            let settings = run.settings.expect("every run records its settings");
+            assert_eq!(
+                (
+                    settings.checkpoint_command_threshold,
+                    settings.checkpoint_row_write_bytes_threshold
+                ),
+                (10_000, 1024 * 1024),
+                "{snapshot_use:?}: run {} keeps the checkpoint thresholds the older binary recorded",
+                run.flow_id
+            );
+        }
         // An older time travel restored a running attempt as Running; its result without a
         // task ID then completed the Flow.
-        let travel_runs: Vec<_> = decoded_rows::<RunRecord>(&stored, RunTable::RunRecord)
+        let travel_runs: Vec<_> = runs
             .into_iter()
             .filter(|run| run.flow_type == "TravelRunningFlow")
             .collect();
@@ -176,7 +190,7 @@ fn history_without_scheduled_time(value: &[u8]) -> Vec<u8> {
 fn run_record_without_storage(value: &[u8]) -> RunRecord {
     let mut run = RunRecord::decode(value).expect("run record rows decode");
     run.storage = None;
-    run.written_bytes_since_checkpoint = 0;
+    run.row_write_bytes_since_checkpoint = 0;
     run.last_checkpoint_state_bytes = 0;
     run
 }

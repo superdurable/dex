@@ -859,8 +859,8 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             RunSettings {
                 history_window_semantic_events: 1,
                 history_prune_chunk_semantic_events: 1,
-                checkpoint_max_commands: 10_000,
-                checkpoint_min_written_bytes: 1 << 20,
+                checkpoint_command_threshold: 10_000,
+                checkpoint_row_write_bytes_threshold: 1 << 20,
                 ..settings()
             },
         );
@@ -2703,8 +2703,8 @@ fn time_travel_replays_a_stale_child_report_that_an_older_binary_recorded() {
         0,
         None,
         RunSettings {
-            checkpoint_max_commands: 10_000,
-            checkpoint_min_written_bytes: 1 << 20,
+            checkpoint_command_threshold: 10_000,
+            checkpoint_row_write_bytes_threshold: 1 << 20,
             ..settings()
         },
     );

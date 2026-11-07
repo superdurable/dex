@@ -576,8 +576,8 @@ fn settings() -> RunSettings {
         retention_after_close_micros: 7 * 24 * 3600 * SECOND,
         wire_inline_threshold_bytes: 100,
         max_value_bytes: 16 << 20,
-        checkpoint_min_written_bytes: 1 << 20,
-        checkpoint_max_commands: 10_000,
+        checkpoint_row_write_bytes_threshold: 1 << 20,
+        checkpoint_command_threshold: 10_000,
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
@@ -1598,7 +1598,7 @@ fn long_history_window_work_is_bounded_and_resumes_across_commands() {
     run_settings.max_retained_superseded_bytes = 0;
     run_settings.history_window_semantic_events = 250;
     run_settings.history_prune_chunk_semantic_events = 1;
-    run_settings.checkpoint_max_commands = 1;
+    run_settings.checkpoint_command_threshold = 1;
     harness.start_with_settings(start_request("request-1"), run_settings);
     let first_reference = harness.value_reference(2, 0);
     let run_id = RunId::from_slice(&harness.run_id).expect("started run");

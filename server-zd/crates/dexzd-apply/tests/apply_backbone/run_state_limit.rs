@@ -627,3 +627,178 @@ impl Harness {
             .insert((ColumnFamily::Flow, key), record.encode_to_vec());
     }
 }
+
+const SUPERSEDED_REWRITES: usize = 20;
+const SUPERSEDED_VALUE_BYTES: usize = 10_000;
+/// Room under the limit for a small write; far below the superseded bytes.
+const ACTIVE_HEADROOM_BYTES: u64 = 4096;
+
+fn active_bytes(usage: &RunStorageUsage) -> u64 {
+    usage.state_row_bytes + usage.live_value_bytes
+}
+
+fn active_bytes_without_attempts(usage: &RunStorageUsage) -> u64 {
+    active_bytes(usage) - usage.attempt_state_bytes
+}
+
+impl Harness {
+    /// Rewrites one Attribute with distinct table values, so each earlier value becomes superseded.
+    fn build_superseded_values(&mut self) {
+        for index in 0..SUPERSEDED_REWRITES {
+            let text = format!("{index:04}-{}", "s".repeat(SUPERSEDED_VALUE_BYTES));
+            self.set_attribute("report", string_value(&text), &format!("rewrite-{index}"));
+        }
+    }
+
+    /// Sets the limit `headroom` bytes above active state and checks superseded bytes far exceed it.
+    fn limit_active_state_with_headroom(&mut self, headroom: u64) -> u64 {
+        let usage = self.run_record().storage.expect("storage is accounted");
+        let max_bytes = active_bytes(&usage) + headroom;
+        self.set_max_run_state_bytes(max_bytes);
+        let usage = self.run_record().storage.expect("storage is accounted");
+        assert!(active_bytes(&usage) < max_bytes, "{usage:?}");
+        assert!(usage.superseded_value_bytes > 4 * max_bytes, "{usage:?}");
+        max_bytes
+    }
+
+    /// Completes a WaitFor attempt that writes a new `notes` Attribute of `note_bytes` bytes.
+    fn complete_wait_for_with_note(
+        &mut self,
+        step_execution_id: &str,
+        note_bytes: usize,
+    ) -> ApplyOutcome {
+        self.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(key(step_execution_id, StepMethod::WaitFor)),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::WaitFor(
+                InvokeWaitForMethodResponse {
+                    upsert_attributes: vec![AttributeWrite {
+                        key: "notes".to_owned(),
+                        value: Some(string_value(&"n".repeat(note_bytes))),
+                        ..AttributeWrite::default()
+                    }],
+                    ..InvokeWaitForMethodResponse::default()
+                },
+            )),
+            app_worker_id: "worker-a".to_owned(),
+            ..StepMethodCompletedCommand::default()
+        }))
+    }
+}
+
+#[test]
+fn superseded_values_above_the_limit_do_not_reject_a_growing_client_write() {
+    let mut harness = Harness::new("order-1");
+    harness.start(start_request("request-1"));
+    harness.build_superseded_values();
+    harness.limit_active_state_with_headroom(ACTIVE_HEADROOM_BYTES);
+    let before = harness.run_record().storage.expect("storage is accounted");
+    let accepted = harness.try_set_attribute("notes", string_value(&"n".repeat(1000)), "notes-1");
+    assert!(
+        !matches!(accepted.reply.reply, Some(command_reply::Reply::Error(_))),
+        "{:?}",
+        accepted.reply
+    );
+    let after = harness.run_record().storage.expect("storage is accounted");
+    assert!(active_bytes(&after) > active_bytes(&before));
+    assert!(harness.attribute("notes").is_some());
+}
+
+#[test]
+fn superseded_values_above_the_limit_do_not_fail_a_growing_step_completion() {
+    let mut harness = Harness::new("order-1");
+    harness.start(start_request("request-1"));
+    harness.build_superseded_values();
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.limit_active_state_with_headroom(ACTIVE_HEADROOM_BYTES);
+    let before = harness.run_record().storage.expect("storage is accounted");
+    harness.complete_wait_for_with_note("ChargeStep-1", 1000);
+    let record = harness.run_record();
+    assert_eq!(
+        record.status,
+        FlowStatus::Running as i32,
+        "{:?}",
+        record.close
+    );
+    let after = record.storage.expect("storage is accounted");
+    assert!(active_bytes_without_attempts(&after) > active_bytes_without_attempts(&before));
+    assert!(harness.attribute("notes").is_some());
+    assert_eq!(
+        harness
+            .step_execution("ChargeStep-1")
+            .invocation
+            .map(|invocation| invocation.method),
+        Some(StepMethod::Execute as i32)
+    );
+}
+
+#[test]
+fn active_state_above_the_limit_still_rejects_a_growing_client_write() {
+    let mut harness = Harness::new("order-1");
+    harness.start(start_request("request-1"));
+    harness.build_superseded_values();
+    let max_bytes = harness.limit_active_state_with_headroom(1000);
+    let before = harness.state.rows.clone();
+    let rejected = harness.try_set_attribute("notes", string_value(&"n".repeat(9000)), "notes-1");
+    assert!(is_error(&rejected.reply, 8), "{:?}", rejected.reply);
+    let Some(command_reply::Reply::Error(error)) = &rejected.reply.reply else {
+        panic!("expected a rejection, got {:?}", rejected.reply);
+    };
+    assert!(
+        error.message.starts_with("active run state of ")
+            && error
+                .message
+                .ends_with(&format!("exceeds the maximum of {max_bytes} bytes")),
+        "{error:?}"
+    );
+    assert!(rejected.writes.is_empty());
+    assert_eq!(harness.state.rows, before);
+}
+
+#[test]
+fn active_state_above_the_limit_still_fails_a_growing_step_completion_without_retry() {
+    let mut harness = Harness::new("order-1");
+    let mut request = start_request("request-1");
+    request.step_options = Some(StepOptions {
+        wait_for_retry_policy: Some(RetryPolicy {
+            maximum_attempts: 5,
+            ..RetryPolicy::default()
+        }),
+        ..StepOptions::default()
+    });
+    harness.start(request);
+    harness.build_superseded_values();
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.limit_active_state_with_headroom(1000);
+    let outcome = harness.complete_wait_for_with_note("ChargeStep-1", 9000);
+    assert!(!is_error(&outcome.reply, 8));
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Failed as i32);
+    let close = record.close.expect("the failed run has a close");
+    assert!(
+        close.error_message.contains("active run state of "),
+        "{:?}",
+        close.error_message
+    );
+    assert!(harness.attribute("notes").is_none());
+    assert_eq!(
+        record.storage.expect("storage is accounted"),
+        harness.recount_storage()
+    );
+}
+
+#[test]
+fn superseded_values_above_the_limit_keep_read_rpc_replies_for_deduplication() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(SEEDED_MESSAGES, turn_options(&[]));
+    harness.build_superseded_values();
+    harness.limit_active_state_with_headroom(ACTIVE_HEADROOM_BYTES);
+    let first = harness.commit_rpc(
+        "read-once",
+        read_response(string_value(&"v".repeat(10_000))),
+    );
+    assert!(is_rpc_reply(&first.reply), "{:?}", first.reply);
+    let replayed = harness.commit_rpc("read-once", read_response(string_value("second")));
+    assert_eq!(replayed.reply, first.reply);
+    assert!(replayed.writes.is_empty());
+}

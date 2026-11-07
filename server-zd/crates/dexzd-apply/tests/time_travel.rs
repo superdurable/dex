@@ -487,8 +487,8 @@ fn settings() -> RunSettings {
         retention_after_close_micros: 7 * 24 * 3600 * SECOND,
         wire_inline_threshold_bytes: 100,
         max_value_bytes: 16 << 20,
-        checkpoint_min_written_bytes: 1 << 20,
-        checkpoint_max_commands: 10_000,
+        checkpoint_row_write_bytes_threshold: 1 << 20,
+        checkpoint_command_threshold: 10_000,
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
@@ -713,7 +713,7 @@ fn flow_start_writes_the_genesis_checkpoint_and_records_pending_methods() {
 #[test]
 fn checkpoints_follow_the_command_count_and_written_bytes_rules() {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 3,
+        checkpoint_command_threshold: 3,
         ..settings()
     });
     harness.start(start_request());
@@ -722,7 +722,7 @@ fn checkpoints_follow_the_command_count_and_written_bytes_rules() {
     }
     assert_eq!(harness.attempt_record(1).checkpoint_seqs, vec![1, 4, 7]);
     let mut by_bytes = Harness::with_settings(RunSettings {
-        checkpoint_min_written_bytes: 1,
+        checkpoint_row_write_bytes_threshold: 1,
         ..settings()
     });
     by_bytes.start(start_request());
@@ -735,7 +735,7 @@ fn checkpoints_follow_the_command_count_and_written_bytes_rules() {
         vec![1],
         "small writes stay below the current state size"
     );
-    assert!(record.written_bytes_since_checkpoint > 0);
+    assert!(record.row_write_bytes_since_checkpoint > 0);
     let mut checkpoint_seq = None;
     for index in 0..100 {
         by_bytes.set_attribute(&format!("key-{index}"), "value", "");
@@ -747,8 +747,39 @@ fn checkpoints_follow_the_command_count_and_written_bytes_rules() {
     let checkpoint_seq = checkpoint_seq.expect("written bytes eventually reach the state size");
     assert!(checkpoint_seq > 3);
     let record = by_bytes.run_record();
-    assert_eq!(record.written_bytes_since_checkpoint, 0);
+    assert_eq!(record.row_write_bytes_since_checkpoint, 0);
     assert!(record.last_checkpoint_state_bytes > state_bytes);
+}
+
+#[test]
+fn checkpoints_follow_the_command_threshold_each_run_recorded() {
+    let mut new_run = Harness::with_settings(RunSettings {
+        checkpoint_command_threshold: 1_000,
+        ..settings()
+    });
+    new_run.start(start_request());
+    for index in 0..2_000 {
+        new_run.set_attribute("status", &format!("v{index}"), "");
+    }
+    assert_eq!(
+        new_run.attempt_record(1).checkpoint_seqs,
+        vec![1, 1_001, 2_001],
+        "a run started with the 1000 default writes a checkpoint every 1000 commands"
+    );
+    let mut earlier_run = Harness::with_settings(RunSettings {
+        checkpoint_command_threshold: 10_000,
+        ..settings()
+    });
+    earlier_run.start(start_request());
+    for index in 0..2_000 {
+        earlier_run.set_attribute("status", &format!("v{index}"), "");
+    }
+    assert_eq!(
+        earlier_run.attempt_record(1).checkpoint_seqs,
+        vec![1],
+        "a run started with the earlier 10000 default keeps its recorded threshold"
+    );
+    assert_eq!(earlier_run.run_record().commands_since_checkpoint, 2_000);
 }
 
 #[test]
@@ -1038,7 +1069,7 @@ fn pruned_termination_history_keeps_its_message_after_reset() {
     let mut harness = Harness::with_settings(RunSettings {
         history_window_semantic_events: 4,
         history_prune_chunk_semantic_events: 2,
-        checkpoint_max_commands: 2,
+        checkpoint_command_threshold: 2,
         ..settings()
     });
     harness.start(start_request());
@@ -1326,7 +1357,7 @@ fn retry_snapshot_rebuild_from_running_checkpoint_crosses_collected_values() {
 
 fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running_attempt: bool) {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 20,
+        checkpoint_command_threshold: 20,
         history_window_semantic_events: 2,
         history_prune_chunk_semantic_events: 1,
         ..settings()
@@ -1754,7 +1785,7 @@ fn a_point_in_an_abandoned_attempt_can_be_restored() {
 #[test]
 fn rebuilt_states_equal_the_recorded_states_at_every_point() {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 3,
+        checkpoint_command_threshold: 3,
         ..settings()
     });
     let mut recorded: Vec<(u64, i64, AttemptRows, i32, [u8; 16])> = Vec::new();
@@ -1898,7 +1929,7 @@ fn the_window_prunes_history_and_rejects_points_outside_it() {
     let mut harness = Harness::with_settings(RunSettings {
         history_window_semantic_events: 4,
         history_prune_chunk_semantic_events: 2,
-        checkpoint_max_commands: 3,
+        checkpoint_command_threshold: 3,
         ..settings()
     });
     harness.start(start_request());
@@ -2278,7 +2309,7 @@ fn only_beginning_targets_genesis_outside_the_window() {
     let mut harness = Harness::with_settings(RunSettings {
         history_window_semantic_events: 4,
         history_prune_chunk_semantic_events: 2,
-        checkpoint_max_commands: 3,
+        checkpoint_command_threshold: 3,
         ..settings()
     });
     harness.start(start_request());
@@ -2508,7 +2539,7 @@ fn a_restored_large_value_survives_window_pruning() {
     let mut harness = Harness::with_settings(RunSettings {
         history_window_semantic_events: 4,
         history_prune_chunk_semantic_events: 2,
-        checkpoint_max_commands: 3,
+        checkpoint_command_threshold: 3,
         ..settings()
     });
     harness.start(start_request());
@@ -2787,7 +2818,7 @@ fn reapplied_publications_to_one_channel_stay_distinct() {
 fn a_shrinking_command_checkpoints_against_the_size_after_it() {
     let mut harness = Harness::with_settings(RunSettings {
         wire_inline_threshold_bytes: 1 << 20,
-        checkpoint_min_written_bytes: 200,
+        checkpoint_row_write_bytes_threshold: 200,
         ..settings()
     });
     harness.start(start_request());
@@ -3125,7 +3156,7 @@ fn permission_rebuild_rejects_collected_execute_inputs() {
 #[test]
 fn permission_rebuild_skips_unread_inputs_when_invalid_wait_for_closes_the_flow() {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 4,
+        checkpoint_command_threshold: 4,
         ..settings()
     });
     harness.start(start_request());
@@ -3229,7 +3260,7 @@ fn assert_permission_rebuild_with_collected_value(
     source: PermissionMappingSource,
 ) {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 4,
+        checkpoint_command_threshold: 4,
         history_window_semantic_events: 2,
         history_prune_chunk_semantic_events: 1,
         ..settings()
@@ -3819,7 +3850,7 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
     let mut harness = Harness::with_settings(RunSettings {
         history_window_semantic_events: 4,
         history_prune_chunk_semantic_events: 2,
-        checkpoint_max_commands: 3,
+        checkpoint_command_threshold: 3,
         ..settings()
     });
     harness.start(start_request());
@@ -4121,7 +4152,7 @@ fn the_timeout_handler_and_a_proceeding_wait_for_failure_have_no_related_ids() {
 #[test]
 fn a_rebuild_from_a_later_checkpoint_replays_the_deciding_command_to_the_same_rows() {
     let mut harness = Harness::with_settings(RunSettings {
-        checkpoint_max_commands: 3,
+        checkpoint_command_threshold: 3,
         ..settings()
     });
     let (_, decision_seq) = run_charge_then_ship(&mut harness);

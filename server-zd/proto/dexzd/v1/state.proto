@@ -121,10 +121,13 @@ message RunRecord {
   RunStorageUsage storage = 22;
   // Semantic events recorded so far, for window accounting.
   uint64 semantic_event_count = 23;
-  // Seq of the latest checkpoint of the current attempt and the state bytes written since.
+  // Seq of the latest checkpoint of the current attempt and the attempt-scoped row bytes written
+  // since, summed per write; see RunSettings.checkpoint_row_write_bytes_threshold.
   uint64 last_checkpoint_seq = 24;
-  uint64 written_bytes_since_checkpoint = 25;
+  uint64 row_write_bytes_since_checkpoint = 25;
   uint32 commands_since_checkpoint = 26;
+  // Renamed field; this name must never be used again.
+  reserved "written_bytes_since_checkpoint";
   // True after retention expired and the prefix purge started.
   // Retention sets it only once no outbox item awaits acknowledgment; it never becomes false again.
   bool is_purging = 27;
