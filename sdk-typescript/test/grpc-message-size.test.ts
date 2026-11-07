@@ -157,6 +157,7 @@ for (const [name, failure] of [
   ["a Dex RESOURCE_EXHAUSTED error", grpcError(status.RESOURCE_EXHAUSTED, "quota", dexStatusDetails())],
   ["a RESOURCE_EXHAUSTED error without a size diagnostic", grpcError(status.RESOURCE_EXHAUSTED, "Bandwidth exhausted")],
   ["a Dex OUT_OF_RANGE error", grpcError(status.OUT_OF_RANGE, serverSendLimitMessage, dexStatusDetails())],
+  ["an unrelated OUT_OF_RANGE error", grpcError(status.OUT_OF_RANGE, "page token out of range")],
 ] as const) {
   test(`${name} is not split and keeps its error`, async () => {
     const service = new LimitedBlobService(1, undefined, failure);

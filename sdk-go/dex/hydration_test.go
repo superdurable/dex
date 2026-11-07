@@ -347,6 +347,7 @@ func TestHydrateValuesDoesNotSplitOtherFailures(t *testing.T) {
 		"unavailable":                 status.Error(codes.Unavailable, "down"),
 		"non-size resource exhausted": status.Error(codes.ResourceExhausted, "Bandwidth exhausted"),
 		"Dex out of range":            testDexStatusError(t, codes.OutOfRange, testServerSendLimitMessage),
+		"unrelated out of range":      status.Error(codes.OutOfRange, "page token out of range"),
 	}
 	for name, otherFailure := range otherFailures {
 		t.Run(name, func(t *testing.T) {

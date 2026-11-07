@@ -414,6 +414,10 @@ def test_async_one_blob_over_the_limit_names_the_blob(
             ),
             id="dex-out-of-range",
         ),
+        pytest.param(
+            FakeRpcError(grpc.StatusCode.OUT_OF_RANGE, "page token out of range"),
+            id="unrelated-out-of-range",
+        ),
     ],
 )
 def test_other_failures_are_not_split(tmp_path: Path, error: FakeRpcError) -> None:
