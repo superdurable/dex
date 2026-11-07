@@ -10,12 +10,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Agent Frameworks',
-      link: {type: 'doc', id: 'agent-frameworks'},
-      items: ['agent-frameworks/deploy-agents'],
-    },
-    {
-      type: 'category',
       label: 'Primitives',
       link: {type: 'doc', id: 'primitives/index'},
       items: [
@@ -27,26 +21,31 @@ const sidebars: SidebarsConfig = {
         'primitives/stream',
         'primitives/timer',
         'primitives/subflow',
-        'primitives/connector',
         'primitives/client',
-        {
-          type: 'category',
-          label: 'Components',
-          link: {type: 'doc', id: 'primitives/components/index'},
-          items: [
-            'primitives/components/application',
-            'primitives/components/server',
-            'primitives/components/cli',
-            'primitives/components/web',
-            'primitives/components/connector',
-            'primitives/components/external-attribute-sync',
-          ],
-        },
       ],
     },
     {
       type: 'category',
-      label: 'Build with AI',
+      label: 'Components',
+      link: {type: 'doc', id: 'primitives/components/index'},
+      items: [
+        'primitives/components/application',
+        'primitives/components/server',
+        'primitives/components/cli',
+        'primitives/components/web',
+        'primitives/components/connector',
+        'primitives/components/external-attribute-sync',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Agent Frameworks',
+      link: {type: 'doc', id: 'agent-frameworks'},
+      items: ['agent-frameworks/deploy-agents'],
+    },
+    {
+      type: 'category',
+      label: 'Agent Skills',
       collapsed: false,
       items: [
         'build-with-ai/dex-developer-skill',
