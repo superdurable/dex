@@ -50,6 +50,13 @@ WAIT_TIMEOUT = timedelta(seconds=30)
 VALUE_BYTES = 2 << 20
 LARGE_VALUES = tuple(Attribute(f"grpc-size-value-{index}", str) for index in range(4))
 FIVE_MIB_TEXT = "r" * (5 << 20)
+# Three values whose sum exceeds the server's default 32 MiB send limit.
+ABOVE_SERVER_LIMIT_VALUE_BYTES = 12 << 20
+ABOVE_SERVER_LIMIT_VALUES = tuple(
+    Attribute(f"grpc-size-above-server-limit-{index}", str) for index in range(3)
+)
+# Smaller than one value, so the Worker cache rejects every hydrated value.
+UNCACHED_BLOB_CACHE_BYTES = 1 << 10
 
 
 class SumValueLengths(Step[None]):
@@ -80,10 +87,30 @@ class LargeRpcResultFlow(Flow[None]):
         return RPCResult(FIVE_MIB_TEXT)
 
 
+class AboveServerLimitFlow(Flow[None]):
+    def get_steps(self) -> StepList[None]:
+        return StepList.without_start_step()
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(*ABOVE_SERVER_LIMIT_VALUES)
+
+    @rpc
+    def write_large_value(self, context: Context, input: int) -> None:
+        ABOVE_SERVER_LIMIT_VALUES[input].set(
+            context, str(input) * ABOVE_SERVER_LIMIT_VALUE_BYTES
+        )
+
+    @rpc
+    def sum_value_lengths(self, context: Context) -> RPCResult[int]:
+        return RPCResult(
+            sum(len(value.get(context)) for value in ABOVE_SERVER_LIMIT_VALUES)
+        )
+
+
 @contextmanager
-def fresh_blob_cache() -> Iterator[BlobCache]:
+def fresh_blob_cache(max_bytes: int = 64 << 20) -> Iterator[BlobCache]:
     with TemporaryDirectory(prefix="dex-python-message-size-") as directory:
-        cache = open_blob_cache(BlobCacheConfig(directory, 64 << 20))
+        cache = open_blob_cache(BlobCacheConfig(directory, max_bytes))
         try:
             yield cache
         finally:
@@ -91,9 +118,13 @@ def fresh_blob_cache() -> Iterator[BlobCache]:
 
 
 @contextmanager
-def running_worker(flow: Flow[None], max_message_bytes: int = 0) -> Iterator[Registry]:
+def running_worker(
+    flow: Flow[None],
+    max_message_bytes: int = 0,
+    cache_bytes: int = 64 << 20,
+) -> Iterator[Registry]:
     registry = Registry((flow,))
-    with fresh_blob_cache() as cache:
+    with fresh_blob_cache(cache_bytes) as cache:
         worker = Worker(
             registry,
             cache,
@@ -138,6 +169,22 @@ def test_worker_with_an_empty_cache_loads_blobs_over_several_calls() -> None:
             client.start_flow(flow, flow_id, None, start_options_with_large_values())
             result = client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert result.status is FlowStatus.COMPLETED
+
+
+def test_default_worker_splits_a_batch_above_the_server_send_limit() -> None:
+    flow = AboveServerLimitFlow()
+    with (
+        running_worker(flow, cache_bytes=UNCACHED_BLOB_CACHE_BYTES) as registry,
+        fresh_blob_cache() as cache,
+        Client(registry, cache, ClientOptions(SERVER_ADDRESS)) as client,
+    ):
+        flow_id = unique_id("grpc-size-above-server-limit")
+        client.start_flow(flow, flow_id, None)
+        for index in range(len(ABOVE_SERVER_LIMIT_VALUES)):
+            client.invoke_rpc(flow.write_large_value, flow_id, index)
+        total = client.invoke_rpc(flow.sum_value_lengths, flow_id)
+        client.stop_flow(flow_id)
+    assert total == len(ABOVE_SERVER_LIMIT_VALUES) * ABOVE_SERVER_LIMIT_VALUE_BYTES
 
 
 def test_client_limit_smaller_than_one_blob_names_the_blob() -> None:

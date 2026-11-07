@@ -166,13 +166,34 @@ export function translateServiceError(
   }
 }
 
+// Lowercase diagnostics of gRPC message size limits; transports reuse the codes otherwise.
+const grpcMessageSizeDiagnostics = [
+  "message larger than max",
+  "message after decompression larger than max",
+  "message too large",
+  "message with a size larger than",
+  "decompresses to a size larger than",
+  "message length too large",
+  "exceeded while decompressing message",
+  "cannot return body with more than 4gb of data",
+];
+
 /**
  * Reports a gRPC message size rejection, which carries no Dex service error details.
- * @returns Whether `failure` is a RESOURCE_EXHAUSTED gRPC error without status details.
+ * The receiver's limit yields RESOURCE_EXHAUSTED, and a tonic server's send limit yields OUT_OF_RANGE.
+ * The message must also name a size limit, because HTTP/2 flow control reuses RESOURCE_EXHAUSTED.
+ * @returns Whether `failure` is such a gRPC error without status details.
  */
 export function isGrpcMessageSizeError(failure: unknown): failure is GrpcServiceError {
   const error = failure as Partial<GrpcServiceError> | undefined;
-  if (error?.code !== status.RESOURCE_EXHAUSTED || !(error.metadata instanceof Metadata)) {
+  if (
+    (error?.code !== status.RESOURCE_EXHAUSTED && error?.code !== status.OUT_OF_RANGE) ||
+    !(error.metadata instanceof Metadata)
+  ) {
+    return false;
+  }
+  const message = (error.details || error.message || "").toLowerCase();
+  if (!grpcMessageSizeDiagnostics.some((diagnostic) => message.includes(diagnostic))) {
     return false;
   }
   const encoded = error.metadata.get(statusDetailsKey)[0];

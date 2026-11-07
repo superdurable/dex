@@ -316,10 +316,36 @@ func (hydrator *valueHydratorImpl) storeCached(
 }
 
 // gRPC reports a message size violation as RESOURCE_EXHAUSTED without details; Dex errors,
-// including rate limits, always carry details. The status code decides, never the message text.
+// including rate limits, always carry details. A tonic server's send limit reports OUT_OF_RANGE
+// instead. Transports also send detail-free RESOURCE_EXHAUSTED for HTTP/2 flow control, so the
+// message must name a size limit as well.
 func isGrpcMessageSizeError(err error) bool {
 	rpcStatus, ok := status.FromError(err)
-	return ok && rpcStatus.Code() == codes.ResourceExhausted && len(rpcStatus.Details()) == 0
+	if !ok || len(rpcStatus.Details()) > 0 {
+		return false
+	}
+	if rpcStatus.Code() != codes.ResourceExhausted && rpcStatus.Code() != codes.OutOfRange {
+		return false
+	}
+	message := strings.ToLower(rpcStatus.Message())
+	for _, diagnostic := range grpcMessageSizeDiagnostics {
+		if strings.Contains(message, diagnostic) {
+			return true
+		}
+	}
+	return false
+}
+
+// Lowercase diagnostics of grpc-go, grpc-core, grpc-js, and tonic message size limits.
+var grpcMessageSizeDiagnostics = []string{
+	"message larger than max",
+	"message after decompression larger than max",
+	"message too large",
+	"message with a size larger than",
+	"decompresses to a size larger than",
+	"message length too large",
+	"exceeded while decompressing message",
+	"cannot return body with more than 4gb of data",
 }
 
 func flowBlobCacheKey(flowID string, blobID string) string {

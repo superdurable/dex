@@ -102,19 +102,18 @@ export class DexServiceError extends Error {
  * Reports a blob value that alone exceeds a gRPC message size limit.
  *
  * Dex stores large Attribute, Channel, and RPC values as blobs, and the SDK hydrates them with
- * LoadBlobs. The SDK first requests every uncached blob in one call. When gRPC rejects that call
- * with RESOURCE_EXHAUSTED and no Dex error details, the SDK splits the request in half and retries
- * each half, so N blobs take at most 2N-1 calls. This error means a single blob still does not fit
- * in one message.
+ * LoadBlobs. The SDK first requests every uncached blob in one call. When that response exceeds a
+ * gRPC message size limit, the SDK splits the request in half and retries each half, so N blobs take
+ * at most 2N-1 calls. This error means a single blob still does not fit in one message.
  *
- * The limit is usually `grpcMaxMessageBytes` on the Client or Worker options. `detail` keeps gRPC's
- * message, which states the limit. `code` is RESOURCE_EXHAUSTED, and `cause` is the gRPC error.
- * Raise the limit above the value size plus headroom, or split the value across several Attributes
- * or AttributeMap instances.
+ * The limit that rejected the response is either `grpcMaxMessageBytes` on the Client or Worker
+ * options, or the Dex server's `api.grpcMaxMessageBytes`. The SDK's receive limit yields
+ * RESOURCE_EXHAUSTED. The Dex server's send limit yields OUT_OF_RANGE. The SDK treats either code as
+ * a size failure only when it has no Dex error details and its message names a size limit.
  *
- * The SDK does not split a batch that the Dex server itself rejects for exceeding its
- * `api.grpcMaxMessageBytes`. The server reports OUT_OF_RANGE for such a response, so the call fails
- * with a {@link DexServiceError}. Raise the server limit above the total size of the uncached blobs.
+ * `detail` keeps gRPC's message, which states the limit. `code` is always RESOURCE_EXHAUSTED, and
+ * `cause` is the gRPC error with its own code. Raise the smaller limit above the value size plus
+ * headroom, or split the value across several Attributes or AttributeMap instances.
  *
  * A Client call rejects with this error. A Worker reports it as a failed Step or RPC whose detail
  * contains this message.

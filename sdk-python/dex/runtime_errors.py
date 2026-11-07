@@ -127,9 +127,12 @@ class BlobMessageTooLargeError(DexServiceError):
 
     The limit that rejected the response is either ``grpc_max_message_bytes`` on the
     Client or Worker options, or the Dex server's ``api.grpcMaxMessageBytes``. ``detail``
-    keeps gRPC's message, which states the response size and the limit. Raise the smaller
-    limit above the value size plus headroom, or split the value across several
-    Attributes or AttributeMap instances. A Worker reports this as a failed Step or RPC.
+    keeps gRPC's message, which states the response size and the limit. ``code`` is
+    always RESOURCE_EXHAUSTED. The chained ``__cause__`` is the gRPC error with its own
+    code: RESOURCE_EXHAUSTED for the SDK's receive limit, or OUT_OF_RANGE for the Dex
+    server's send limit. Raise the smaller limit above the value size plus headroom, or
+    split the value across several Attributes or AttributeMap instances. A Worker
+    reports this as a failed Step or RPC.
 
     Example:
         >>> try:

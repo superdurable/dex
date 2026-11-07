@@ -207,9 +207,15 @@ func (e *AttributeNotFoundError) Error() string {
 //
 // The limit that rejected the response is either the SDK's GrpcMaxMessageBytes on
 // ClientOptions or WorkerOptions, or the Dex server's api.grpcMaxMessageBytes. Err
-// keeps gRPC's RESOURCE_EXHAUSTED status, whose message states the response size and
-// the limit. Raise the smaller limit above the value size plus envelope headroom, or
+// keeps gRPC's status, whose message states the response size and the limit. The SDK's
+// receive limit yields RESOURCE_EXHAUSTED. The Dex server's send limit yields
+// OUT_OF_RANGE. Raise the smaller limit above the value size plus envelope headroom, or
 // split the value across several Attributes or AttributeMap instances.
+//
+// Changed in 1.38.0: the SDK also splits a batch that the Dex server rejects with
+// OUT_OF_RANGE for exceeding its send limit, so Err may carry OUT_OF_RANGE. A
+// RESOURCE_EXHAUSTED or OUT_OF_RANGE status splits the batch only when its message names
+// a gRPC message size limit.
 //
 // A Client call returns this error wrapped in a ServiceError. A Worker reports it as an
 // INTERNAL Step or RPC failure whose detail contains this message.
@@ -224,7 +230,8 @@ type BlobMessageTooLargeError struct {
 	FlowID string
 	// BlobID is the Dex blob ID of the value that did not fit.
 	BlobID string
-	// Err is the gRPC RESOURCE_EXHAUSTED status returned for the single-blob LoadBlobs call.
+	// Err is the gRPC status returned for the single-blob LoadBlobs call: RESOURCE_EXHAUSTED
+	// for the SDK's receive limit, or OUT_OF_RANGE for the Dex server's send limit.
 	Err error
 }
 
@@ -241,7 +248,7 @@ func (e *BlobMessageTooLargeError) Error() string {
 	)
 }
 
-// Unwrap returns the gRPC RESOURCE_EXHAUSTED status.
+// Unwrap returns the gRPC RESOURCE_EXHAUSTED or OUT_OF_RANGE status.
 func (e *BlobMessageTooLargeError) Unwrap() error {
 	return e.Err
 }

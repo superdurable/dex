@@ -9,11 +9,11 @@
   A Worker task frame may now be up to that limit too. Set `grpcMaxMessageBytes` on
   `ClientOptions` or `WorkerOptions` to change it. A positive value limits both
   directions; a negative or non-integer value throws `RangeError`.
-- Split a LoadBlobs request in half when gRPC rejects it with RESOURCE_EXHAUSTED and
-  no Dex error details, as happens at the SDK's own limit. A single blob that does
-  not fit rejects with the new `BlobMessageTooLargeError`. A response over the
-  server's `api.grpcMaxMessageBytes` is not split, because the server reports
-  OUT_OF_RANGE for it.
+- Split a LoadBlobs request in half when its response exceeds a gRPC message size
+  limit: RESOURCE_EXHAUSTED at the SDK's own receive limit, or OUT_OF_RANGE at the
+  Dex server's send limit. Either code counts only without Dex error details and
+  with a message that names a size limit. A single blob that does not fit rejects
+  with the new `BlobMessageTooLargeError`.
 - Add `ClientOptions.flowServiceTls` and `WorkerOptions.flowServiceTls` with the
   `FlowServiceTlsOptions` type. Setting it connects to Dex over TLS with the
   Node.js default trust store, optional `additionalRootCAsPem`, an optional
