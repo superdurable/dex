@@ -160,11 +160,11 @@ export class Client {
 
   /**
    * Constructs a Client and lazy gRPC connection, plaintext unless `options.flowServiceTls` is set.
-   * @param registry - Flow definitions used for validation and routing.
-   * @param blobCache - Open cache used to hydrate large response values.
    * Changed in 1.38.0: the default gRPC receive limit rose from 4 MiB to
    * `DEFAULT_GRPC_MAX_MESSAGE_BYTES`, and a LoadBlobs batch over the SDK's gRPC limit is split
    * instead of failing.
+   * @param registry - Flow definitions used for validation and routing.
+   * @param blobCache - Open cache used to hydrate large response values.
    * @param options - Service address, optional bearer credential, optional TLS settings, and optional gRPC message size limit.
    * @throws {TypeError} When `flowServiceTls` is set and the address or TLS settings are invalid.
    * @throws {RangeError} When `grpcMaxMessageBytes` is negative or not an integer.
