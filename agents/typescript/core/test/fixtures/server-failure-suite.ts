@@ -68,6 +68,10 @@ const compactionAgent: AgentFixture = {
   markerVariable: compactionMarkerDirectoryVariable,
 };
 const turnTimeout = { timeoutMs: 120_000 };
+const lastAttemptCases = [
+  { tool: "lookup_a", gateName: "lookups", status: "failed" },
+  { tool: "transfer_funds", gateName: "transfer_funds", status: "outcome_unknown" },
+] as const;
 
 function fixturePath(name: string): string {
   return fileURLToPath(new URL(`./${name}`, import.meta.url));
@@ -131,6 +135,12 @@ class ServerFailureStack {
       .map((entry) => entry.stepType);
   }
 
+  public async modelAttempts(sessionId: string): Promise<number[]> {
+    return (await readStepHistory(this.server.serverAddress, sessionId))
+      .filter((entry) => entry.stepType === "RunModel" && entry.eventType === executeCompletedEvent)
+      .map((entry) => entry.finalAttempt);
+  }
+
   public async waitForStepMethods(sessionId: string, stepType: string, eventType: string, count: number): Promise<void> {
     await pollUntil(
       async () =>
@@ -175,7 +185,28 @@ export function defineServerFailureSuite(kind: ServerFailureKind): void {
     });
 
 
-    test("a failure during RunModel reruns only that model call", async () => {
+    test("a failure after model output reruns the model call", async () => {
+      const agent = await open(scriptedAgent);
+      const sessionId = `server-model-output-${randomUUID()}`;
+      await agent.sessions.startSession(sessionId, "slow stream");
+      const gate = agent.gate("turn");
+      await gate.waitUntilReached();
+      await pollUntil(
+        async () =>
+          (await agent.sessions.listAgentEvents(sessionId)).some((event) => event.type === "text_delta")
+            ? true
+            : undefined,
+        { description: `a text delta in session ${sessionId}` },
+      );
+
+      await agent.crashAndRecover(gate);
+      await agent.sessions.waitForCompletedTurns(sessionId, 1, turnTimeout);
+
+      assert.equal(await agent.lastMessage(sessionId), "slow turn done");
+      assert.equal(gate.reachedCount(), 2);
+    });
+
+    test("a failure during a resumed RunModel reruns it, not the tools before it", async () => {
       const agent = await open(scriptedAgent);
       const sessionId = `server-model-${randomUUID()}`;
       await agent.sessions.startSession(sessionId, "call get_weather then pause");
@@ -235,6 +266,45 @@ export function defineServerFailureSuite(kind: ServerFailureKind): void {
       ]);
       assert.equal(gate.reachedCount(), 2);
     });
+
+    test("a failure during a read runs it again", async () => {
+      const agent = await open(scriptedAgent);
+      const sessionId = `server-read-${randomUUID()}`;
+      await agent.sessions.startSession(sessionId, "call lookup_a");
+      const gate = agent.gate("lookups");
+      await gate.waitUntilReached();
+
+      await agent.crashAndRecover(gate);
+      await agent.sessions.waitForCompletedTurns(sessionId, 1, turnTimeout);
+
+      assert.equal(await agent.lastMessage(sessionId), "lookup_a -> lookup_a found");
+      assert.deepEqual(agent.invocations("lookup_a"), [
+        `${sessionId} turn-1-lookup_a attempt 1`,
+        `${sessionId} turn-1-lookup_a attempt 2`,
+      ]);
+    });
+
+    if (kind === "restart") {
+      for (const { tool, gateName, status } of lastAttemptCases) {
+        test(`a restart on every attempt of ${tool} records ${status}`, async () => {
+          const agent = await open(scriptedAgent);
+          const sessionId = `server-every-${randomUUID()}`;
+          await agent.sessions.startSession(sessionId, `call ${tool}`);
+          const gate = agent.gate(gateName);
+
+          for (const attempt of [1, 2, 3]) {
+            await pollUntil(() => (gate.reachedCount() >= attempt ? true : undefined), {
+              description: `attempt ${attempt} of ${tool} at its gate`,
+            });
+            await agent.crashAndRecover();
+          }
+          await agent.sessions.waitForCompletedTurns(sessionId, 1, turnTimeout);
+
+          assert.equal(agent.invocations(tool).length, 3);
+          assert.deepEqual(await agent.finishedStatuses(sessionId), [status]);
+        });
+      }
+    }
 
     test("a failure during a single-attempt write records outcome_unknown and never reruns it", async () => {
       const agent = await open(scriptedAgent);
@@ -311,7 +381,8 @@ export function defineServerFailureSuite(kind: ServerFailureKind): void {
       await agent.sessions.startSession(sessionId, `wait 3 ${token}`);
       await agent.waitForStepMethods(sessionId, "AwaitTimer", waitForCompletedEvent, 1);
 
-      await agent.crashAndRecover();
+      // The 3 second Timer comes due while no node serves.
+      await agent.server.crashFor(4_000);
       await agent.sessions.waitForCompletedTurns(sessionId, 1, turnTimeout);
 
       assert.equal(
@@ -370,6 +441,7 @@ export function defineServerFailureSuite(kind: ServerFailureKind): void {
       );
       await agent.sessions.waitForCompletedTurns(sessionId, 2, turnTimeout);
       assert.equal(await agent.lastMessage(sessionId), "echo: second");
+      assert.deepEqual(await agent.modelAttempts(sessionId), [1, 1]);
     });
 
     test("a failure during CompactContext reruns only the summary call and commits one generation", async () => {

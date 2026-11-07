@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from dex import FlowConfig, StartFlowOptions, Step, StepDurability
 
 from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentEvent, AgentEventType, MessageRole
@@ -162,6 +163,8 @@ async def test_worker_killed_while_a_session_is_idle_leaves_the_next_message_to_
     assert await harness.sessions.send_user_message(session_id, "say second")
     snapshot = await harness.wait_for_turns(session_id, 2)
     assert snapshot.messages[-1].text == "said: second"
+    assert harness.invocations.count("model:turn-1:1") == 1
+    assert harness.invocations.count("model:turn-2:1") == 1
 
 
 async def test_worker_killed_during_an_idempotent_write_retries_with_the_same_key(
@@ -186,6 +189,52 @@ async def test_worker_killed_during_an_idempotent_write_retries_with_the_same_ke
         f"charge {key} attempt 1",
         f"charge {key} attempt 2",
     ]
+
+
+@pytest.mark.parametrize(
+    ("command", "invocation", "final_text", "status"),
+    [
+        (
+            'call lookup {"query": "q", "gate": "every-gate"}',
+            "lookup",
+            "lookup: The tool call failed: ",
+            "failed",
+        ),
+        (
+            'call charge {"amount": 9, "gate": "every-gate"}',
+            "charge",
+            f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}",
+            "outcome_unknown",
+        ),
+    ],
+    ids=["read", "write"],
+)
+async def test_worker_killed_on_every_attempt_records_the_last_attempt_outcome(
+    harness: ScriptedAgentHarness, command: str, invocation: str, final_text: str, status: str
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, command)
+    gate = harness.gate("every-gate")
+
+    for attempt in (1, 2, 3):
+
+        async def has_reached(count: int = attempt) -> bool:
+            return gate.reached_count() >= count
+
+        await wait_until(f"attempt {attempt} at the gate", has_reached)
+        worker.kill()
+        worker = await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert (snapshot.messages[-1].text or "").startswith(final_text)
+    assert harness.invocations.count(invocation) == 3
+    finished = [
+        json.loads(event.payload)["status"]
+        for event in await harness.agent_events(session_id)
+        if event.type == AgentEventType.TOOL_CALL_FINISHED
+    ]
+    assert finished == [status]
 
 
 async def test_worker_killed_during_an_approved_single_attempt_write_records_outcome_unknown(

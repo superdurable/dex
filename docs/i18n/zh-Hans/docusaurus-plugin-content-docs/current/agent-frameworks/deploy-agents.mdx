@@ -282,9 +282,11 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 | Step | 中断时刻 | 结果 | Worker 被杀 | Server 重启 | 接管 |
 | --- | --- | --- | --- | --- | --- |
 | **RunModel** | 任何输出到达 Dex 之前 | 这次模型调用重新运行，30 分钟内最多 3 次 attempt，之后这一轮失败。如果 tool 已经运行过，history 中的一条说明会告诉下一轮的模型不要重复它们。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| **RunModel** | 输出已到达 Dex 之后 | 同上。 | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| **CallTool**，读取或幂等写入 | 第一个 heartbeat 到达 Dex 之前 | 用同一个幂等键再次运行。最后一次 attempt 之后，读取记录 **failed**，写入记录 **outcome_unknown**。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| **CallTool** | tool 运行期间 | 同上。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **RunModel** | 输出已到达 Dex 之后 | 同上。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**，幂等写入 | 第一个 heartbeat 到达 Dex 之前 | 用同一个幂等键再次运行。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**，幂等写入 | tool 运行期间 | 同上。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**，读取 | tool 运行期间 | 再次运行。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool** | 每次 attempt | 最后一次 attempt 之后，读取记录 **failed**，写入记录 **outcome_unknown**。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | 未测试 |
 | **CallSingleAttemptTool** | 第一个 heartbeat 到达 Dex 之前 | 记录 **outcome_unknown**，不再运行。模型会看到结果未知。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CallSingleAttemptTool** | tool 运行期间 | 同上。 | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **AwaitToolApproval** | 等待期间 | 不会重跑任何东西。等待发生在 Dex Server 中。之后的批准让 tool 运行一次。 | [Python][py-tools], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
@@ -294,8 +296,8 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 | **PollToolTask** | 一次轮询期间 | 这次轮询重新运行，不会启动第二个 task。 | [Python][py-tasks], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | **CompactContext** | 摘要调用期间 | 只有摘要调用重新运行，30 分钟内最多 3 次 attempt。session 只保存一份摘要。如果所有 attempt 都失败，这一轮失败，下一条用户消息会再次压缩。 | [Python][py-compaction], [TypeScript][ts-compaction] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
 | 等待用户消息 | session 空闲期间 | 不会重跑任何东西。下一条消息开始新的一轮。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
-| 任何 Step | 在排队，Dex 还没有把它交给 Worker | Step 留在队列中，不消耗 attempt。Worker 接手时，它以 attempt 1 运行。 | [server-zd][zd-pull] | [server-zd][zd-queued] | [server-zd][zd-queued] |
-| **PollToolTask**、**CompactContext** | 第一个 heartbeat 到达 Dex 之前 | 按设计，与上面对应 Step 的行相同。 | 未测试 | 未测试 | 未测试 |
+| 任何 Step | 在排队，Dex 还没有把它交给 Worker | Step 留在队列中，不消耗 attempt。Worker 接手时，它以 attempt 1 运行。 | [Python][py-stepwise], [TypeScript][ts-stepwise] | [server-zd][zd-queued] | [server-zd][zd-queued] |
+| 读取的 **CallTool**、**PollToolTask**、**CompactContext** | 第一个 heartbeat 到达 Dex 之前 | 按设计，与上面对应 Step 的行相同。 | 未测试 | 未测试 | 未测试 |
 | **AwaitToolApproval**、**AwaitQuestionAnswer**、**AwaitTimer** | 等待结束后，推进这一轮的 handler 运行期间 | 按设计，handler 重新运行。已经记录的批准、回答或 Timer 结果保持不变。 | 未测试 | 未测试 | 未测试 |
 | 任何 Step | Worker 已发送结果、Dex 尚未提交时 | 按设计，Dex 要么提交结果，要么让 attempt 失败。失败的 attempt 按对应 Step 的行处理。 | 未测试 | 未测试 | 未测试 |
 | framework 无法推迟的 tool | 运行期间 | tool 在 **RunModel** 内部运行，**RunModel** 重跑时它也会重复，属于至少一次。 | 未测试 | 未测试 | 未测试 |
@@ -324,11 +326,10 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 [ts-claude]: https://github.com/superdurable/dex/blob/main/agents/typescript/claude-agent-sdk/test/integ/worker-kills.integration.test.ts
 [go-kills]: https://github.com/superdurable/dex/blob/main/agents/go/core/integ/approvals_and_crashes_test.go
 [zd-queued]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/queued_restart.rs
-[zd-pull]: https://github.com/superdurable/dex/blob/main/server-zd/integ/pull_worker_test.go
 [zd-drain]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/attempt_drain.rs
 [zd-failover]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/standby_failover.rs
 
-单次尝试的 tool 在少数很窄的情况下会运行两次，例如节点崩溃后 ASYNC 的重新运行。见
+单次尝试的 tool 在一种很窄的情况下仍会运行两次：被取消的运行继续执行。见
 [Tool call 的限制](#tool-runs-twice)。
 
 优雅停止 Worker 时，它会在 drain 超时内等待正在运行的 handler，默认 30 秒，然后取消它们。
@@ -342,7 +343,7 @@ Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictEr
 单次尝试的 tool 在 **CallSingleAttemptTool** Step 中运行。这个 Step 负责
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
 已经运行过时记录 **outcome_unknown**。tool 确定没有运行时，这次调用改为记录 **failed**，模型
-可以再次调用这个 tool。有两种情况会打破“最多运行一次”这一承诺，两种都要提前准备。它们源于 Dex 交出任何
+可以再次调用这个 tool。有一种情况会打破“最多运行一次”这一承诺，要提前准备。它源于 Dex 停止任何
 Step attempt 的方式。见[失败与重新投递](/reference/server/runtime-steps#failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
@@ -352,12 +353,8 @@ Worker。如果 Worker 在 tool 运行期间停掉，或者断开了与 Dex 的�
 尝试的 tool 没有剩余的 retry，所以这次调用记录 **outcome_unknown**。之前的那次运行可能已经
 完成了副作用，因此 session 不会再次运行这个 tool。
 
-只有两种很窄的情况仍可能让单次尝试的 tool 运行两次：
-
-- 这个 Step 使用 ASYNC durability，并且 Dex Server 节点在 Dex 把 attempt 的开始记录写入
-  object storage 之前崩溃。Dex 会回滚这次开始，并再次运行同一个 attempt 编号，可能在另一个
-  Worker 上。两次运行可能重叠。
-- 取消是协作式的。Dex 取消一个 attempt 时，被中断的运行可能仍在继续，而 failure route 已经开始。
+只有一种很窄的情况仍可能让单次尝试的 tool 运行两次。取消是协作式的。Dex 取消一个 attempt 时，
+被中断的运行可能仍在继续，而 failure route 已经开始。
 
 要让第二次运行无害，把这次调用的幂等键传给 tool 写入的服务。每个 tool call 都会收到一个幂等键：
 session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **session-42/turn-3/call-7**。

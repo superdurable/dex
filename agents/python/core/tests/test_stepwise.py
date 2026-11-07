@@ -593,6 +593,30 @@ async def test_a_question_deadline_rejects_the_call_and_refuses_a_late_answer(
     ]
 
 
+async def test_a_step_that_comes_due_after_a_worker_kill_waits_and_runs_as_attempt_one(
+    stepwise_harness: ScriptedAgentHarness,
+) -> None:
+    harness = stepwise_harness
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "wait 3 the next Worker")
+    await _wait_for_step_method(harness, session_id, "AwaitTimer", WAIT_FOR_COMPLETED_EVENT)
+
+    worker.kill()
+    # The Timer fires with no Worker, so the Step that follows it stays queued.
+    await asyncio.sleep(4)
+    await harness.stack.start_worker()
+    await harness.wait_for_turns(session_id, 1)
+
+    history = await harness.stack.read_step_history(session_id)
+    attempts = [
+        entry.final_attempt
+        for entry in history
+        if entry.step_type == "AwaitTimer" and entry.event_type == EXECUTE_COMPLETED_EVENT
+    ]
+    assert attempts == [1]
+
+
 async def test_worker_killed_while_awaiting_a_timer_still_fires_it_once(
     stepwise_harness: ScriptedAgentHarness,
 ) -> None:

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import re
+import signal
 from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
@@ -25,6 +27,7 @@ from dex_agents.testing import (
     KillableProcess,
     PrivateDexEngine,
     find_free_port,
+    find_free_ports,
     wait_until,
 )
 from dex_agents.testing.processes import resolve_dexcli_path, resolve_server_zd_path
@@ -50,6 +53,12 @@ class CrashableServer(PrivateDexEngine):
         """Serve again from the state the crash left, at the same address."""
         raise NotImplementedError
 
+    async def crash_for(self, outage: timedelta) -> None:
+        """Crash, keep every node down for ``outage``, then recover."""
+        await self.crash()
+        await asyncio.sleep(outage.total_seconds())
+        await self.recover()
+
 
 class RestartedServer(CrashableServer):
     """A single node that restarts on its data directory after SIGKILL."""
@@ -59,6 +68,14 @@ class RestartedServer(CrashableServer):
 
     async def recover(self) -> None:
         await self.start()
+
+
+class _PausableProcess(KillableProcess):
+    """A process the test can freeze, so it cannot act until it is resumed."""
+
+    def send_signal(self, signal_number: int) -> None:
+        assert self._process is not None
+        os.killpg(self._process.pid, signal_number)
 
 
 class TcpRelay:
@@ -122,7 +139,7 @@ class TakenOverServer(CrashableServer):
         self._relay = TcpRelay()
         self._object_store = KillableProcess("object store", state_dir / "object-store.log")
         self._active = KillableProcess("active node", state_dir / "active.log")
-        self._standby = KillableProcess("standby node", state_dir / "standby.log")
+        self._standby = _PausableProcess("standby node", state_dir / "standby.log")
         self._standby_port = 0
 
     @property
@@ -130,6 +147,13 @@ class TakenOverServer(CrashableServer):
         return f"127.0.0.1:{self._relay.port}"
 
     async def start(self, ready_timeout: timedelta = timedelta(seconds=60)) -> None:
+        try:
+            await self._start_nodes(ready_timeout)
+        except BaseException:
+            self.kill()
+            raise
+
+    async def _start_nodes(self, ready_timeout: timedelta) -> None:
         server_zd = str(resolve_server_zd_path(resolve_dexcli_path()))
         self._directory.mkdir(parents=True, exist_ok=True)
         store_config = self._directory / "object-store.yaml"
@@ -149,8 +173,7 @@ class TakenOverServer(CrashableServer):
             ready_timeout=ready_timeout,
         )
         endpoint = self._object_store_address()
-        active_port = find_free_port()
-        self._standby_port = find_free_port()
+        active_port, self._standby_port = find_free_ports(2)
         await self._active.start(
             [
                 server_zd,
@@ -184,6 +207,14 @@ class TakenOverServer(CrashableServer):
         await wait_until("the hot standby to serve", is_serving, timeout=timedelta(seconds=30))
         assert _HOT_TAKEOVER_LINE in self._standby.read_log()
         self._relay.switch_to(f"127.0.0.1:{self._standby_port}")
+
+    async def crash_for(self, outage: timedelta) -> None:
+        # A frozen standby cannot take the lease, so no node serves during the outage.
+        self._standby.send_signal(signal.SIGSTOP)
+        await self.crash()
+        await asyncio.sleep(outage.total_seconds())
+        self._standby.send_signal(signal.SIGCONT)
+        await self.recover()
 
     def kill(self) -> None:
         self._active.kill()

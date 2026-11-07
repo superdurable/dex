@@ -11,6 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { ChildProcessGroup } from "../../src/testing/child-process-group.js";
 import { findFreeLoopbackPorts, pollUntil } from "../../src/testing/index.js";
@@ -35,6 +36,8 @@ export interface CrashableServer {
   crash(): Promise<void>;
   /** Serves again from the state the crash left. */
   recover(): Promise<void>;
+  /** Crashes, keeps every node down for the given milliseconds, then recovers. */
+  crashFor(outageMs: number): Promise<void>;
   /** Kills every process and deletes the state directory. */
   stop(): Promise<void>;
 }
@@ -84,12 +87,17 @@ class RestartedServer implements CrashableServer {
 
   public static async start(): Promise<RestartedServer> {
     const stateDirectory = mkdtempSync(join(tmpdir(), "dex-agents-restart-"));
-    const configPath = join(stateDirectory, "server.yaml");
-    writeFileSync(configPath, processCrashSafeConfig);
-    const [port] = await findFreeLoopbackPorts(1);
-    const serverAddress = `127.0.0.1:${port}`;
-    const node = await RestartedServer.launch(stateDirectory, serverAddress, configPath);
-    return new RestartedServer(serverAddress, stateDirectory, configPath, node);
+    try {
+      const configPath = join(stateDirectory, "server.yaml");
+      writeFileSync(configPath, processCrashSafeConfig);
+      const [port] = await findFreeLoopbackPorts(1);
+      const serverAddress = `127.0.0.1:${port}`;
+      const node = await RestartedServer.launch(stateDirectory, serverAddress, configPath);
+      return new RestartedServer(serverAddress, stateDirectory, configPath, node);
+    } catch (error: unknown) {
+      rmSync(stateDirectory, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   private static launch(
@@ -111,6 +119,12 @@ class RestartedServer implements CrashableServer {
 
   public async recover(): Promise<void> {
     this.node = await RestartedServer.launch(this.stateDirectory, this.serverAddress, this.configPath);
+  }
+
+  public async crashFor(outageMs: number): Promise<void> {
+    await this.crash();
+    await delay(outageMs);
+    await this.recover();
   }
 
   public async stop(): Promise<void> {
@@ -183,35 +197,50 @@ class TakenOverServer implements CrashableServer {
 
   public static async start(): Promise<TakenOverServer> {
     const stateDirectory = mkdtempSync(join(tmpdir(), "dex-agents-takeover-"));
-    const [storePort, activePort, standbyPort] = await findFreeLoopbackPorts(3);
-    const storeConfigPath = join(stateDirectory, "object-store.yaml");
-    writeFileSync(storeConfigPath, processCrashSafeConfig);
-    const objectStore = await launchServerZd(
-      "object store",
-      join(stateDirectory, "object-store.log"),
-      [
-        "dev",
-        "--data-dir",
-        join(stateDirectory, "object-store"),
-        "--listen",
-        `127.0.0.1:${storePort}`,
-        "--config",
-        storeConfigPath,
-      ],
-      objectStoreReadyLine,
-    );
-    const storeAddress = readObjectStoreAddress(objectStore.readLog());
-    const launchNode = (name: string, address: string, readyLine: string): Promise<ChildProcessGroup> => {
-      const configPath = join(stateDirectory, `${name}.yaml`);
-      writeFileSync(configPath, nodeConfig(stateDirectory, name, storeAddress, address));
-      return launchServerZd(`${name} node`, join(stateDirectory, `${name}.log`), ["serve", "--config", configPath], readyLine);
+    const started: ChildProcessGroup[] = [];
+    const launch = async (
+      name: string,
+      commandArguments: readonly string[],
+      readyLine: string,
+    ): Promise<ChildProcessGroup> => {
+      const group = await launchServerZd(name, join(stateDirectory, `${name}.log`), commandArguments, readyLine);
+      started.push(group);
+      return group;
     };
-    const activeAddress = `127.0.0.1:${activePort}`;
-    const standbyAddress = `127.0.0.1:${standbyPort}`;
-    const active = await launchNode("active", activeAddress, nodeServingLine);
-    const standby = await launchNode("standby", standbyAddress, standbyReadyLine);
-    const relay = await TcpRelay.start(activeAddress);
-    return new TakenOverServer(stateDirectory, relay, objectStore, active, standby, standbyAddress);
+    try {
+      const [storePort, activePort, standbyPort] = await findFreeLoopbackPorts(3);
+      const storeConfigPath = join(stateDirectory, "object-store.yaml");
+      writeFileSync(storeConfigPath, processCrashSafeConfig);
+      const objectStore = await launch(
+        "object-store",
+        [
+          "dev",
+          "--data-dir",
+          join(stateDirectory, "object-store"),
+          "--listen",
+          `127.0.0.1:${storePort}`,
+          "--config",
+          storeConfigPath,
+        ],
+        objectStoreReadyLine,
+      );
+      const storeAddress = readObjectStoreAddress(objectStore.readLog());
+      const launchNode = (name: string, address: string, readyLine: string): Promise<ChildProcessGroup> => {
+        const configPath = join(stateDirectory, `${name}.yaml`);
+        writeFileSync(configPath, nodeConfig(stateDirectory, name, storeAddress, address));
+        return launch(name, ["serve", "--config", configPath], readyLine);
+      };
+      const activeAddress = `127.0.0.1:${activePort}`;
+      const standbyAddress = `127.0.0.1:${standbyPort}`;
+      const active = await launchNode("active", activeAddress, nodeServingLine);
+      const standby = await launchNode("standby", standbyAddress, standbyReadyLine);
+      const relay = await TcpRelay.start(activeAddress);
+      return new TakenOverServer(stateDirectory, relay, objectStore, active, standby, standbyAddress);
+    } catch (error: unknown) {
+      await Promise.all(started.map((group) => group.kill()));
+      rmSync(stateDirectory, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   public get serverAddress(): string {
@@ -231,6 +260,15 @@ class TakenOverServer implements CrashableServer {
     assert.ok(this.standby.readLog().includes(hotTakeoverLine));
     this.relay.target = this.standbyAddress;
     this.relay.dropConnections();
+  }
+
+  public async crashFor(outageMs: number): Promise<void> {
+    // A frozen standby cannot take the lease, so no node serves during the outage.
+    this.standby.signalGroupSynchronously("SIGSTOP");
+    await this.crash();
+    await delay(outageMs);
+    this.standby.signalGroupSynchronously("SIGCONT");
+    await this.recover();
   }
 
   public async stop(): Promise<void> {

@@ -21,6 +21,7 @@ import {
   InvocationLog,
   KillableWorkerProcess,
   PrivateDexEngine,
+  executeCompletedEvent,
   pollUntil,
   readStepHistory,
   waitForCompletedEvent,
@@ -216,7 +217,38 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     assert.equal(await sessions.sendUserMessage(sessionId, "second"), true);
     await sessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
     assert.equal((await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "echo: second");
+    assert.deepEqual(
+      (await readStepHistory(engine.serverAddress, sessionId))
+        .filter((entry) => entry.stepType === "RunModel" && entry.eventType === executeCompletedEvent)
+        .map((entry) => entry.finalAttempt),
+      [1, 1],
+    );
   });
+
+  for (const { tool, gateName, status } of [
+    { tool: "lookup_a", gateName: "lookups", status: "failed" },
+    { tool: "transfer_funds", gateName: "transfer_funds", status: "outcome_unknown" },
+  ]) {
+    test(`a Worker killed on every attempt of ${tool} records ${status}`, async () => {
+      const markerDirectory = newMarkerDirectory();
+      let worker = await startWorker(markerDirectory);
+      const sessionId = `kill-every-${randomUUID()}`;
+      await sessions.startSession(sessionId, `call ${tool}`);
+      const gate = new FileGate(markerDirectory, gateName);
+
+      for (const attempt of [1, 2, 3]) {
+        await pollUntil(() => (gate.reachedCount() >= attempt ? true : undefined), {
+          description: `attempt ${attempt} of ${tool} at its gate`,
+        });
+        await worker.kill();
+        worker = await startWorker(markerDirectory);
+      }
+      await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+      assert.equal(new InvocationLog(join(markerDirectory, `${tool}.log`)).names().length, 3);
+      assert.deepEqual(await finishedStatuses(sessionId), [status]);
+    });
+  }
 
   test("approval then a single-attempt write killed under an ASYNC step durability FlowConfig never reruns", async () => {
     const markerDirectory = newMarkerDirectory();

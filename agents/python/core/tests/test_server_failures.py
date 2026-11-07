@@ -10,13 +10,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
+from dex import DexServiceError
 
 from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
@@ -139,6 +142,7 @@ async def test_server_failure_during_run_model_reruns_only_that_call(
         )
         gate = harness.gate("model-gate")
         await gate.wait_until_reached()
+        await _wait_for_text_delta(harness, session_id)
 
         await _crash_and_recover(server, gate)
         snapshot = await harness.wait_for_turns(session_id, 1)
@@ -231,6 +235,65 @@ async def test_server_failure_during_a_single_attempt_write_records_outcome_unkn
         assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
 
 
+async def test_server_failure_during_a_read_runs_it_again(
+    tmp_path: Path, server: CrashableServer
+) -> None:
+    async with _scripted(tmp_path, server) as harness:
+        session_id = harness.new_session_id()
+        await harness.sessions.start_session(
+            session_id, 'call lookup {"query": "q", "gate": "read-gate"}'
+        )
+        gate = harness.gate("read-gate")
+        await gate.wait_until_reached()
+
+        await _crash_and_recover(server, gate)
+        snapshot = await harness.wait_for_turns(session_id, 1)
+
+        assert snapshot.messages[-1].text == "lookup: found q"
+        assert harness.invocations.count("lookup") == 2
+
+
+@pytest.mark.parametrize(
+    ("command", "invocation", "final_text", "status"),
+    [
+        (
+            'call lookup {"query": "q", "gate": "every-gate"}',
+            "lookup",
+            "lookup: The tool call failed: ",
+            "failed",
+        ),
+        (
+            'call charge {"amount": 9, "gate": "every-gate"}',
+            "charge",
+            f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}",
+            "outcome_unknown",
+        ),
+    ],
+    ids=["read", "write"],
+)
+async def test_a_restart_on_every_attempt_records_the_last_attempt_outcome(
+    tmp_path: Path, command: str, invocation: str, final_text: str, status: str
+) -> None:
+    server = RestartedServer(tmp_path / "server")
+    async with _scripted(tmp_path, server) as harness:
+        session_id = harness.new_session_id()
+        await harness.sessions.start_session(session_id, command)
+        gate = harness.gate("every-gate")
+
+        for attempt in (1, 2, 3):
+
+            async def has_reached(count: int = attempt) -> bool:
+                return bool(gate.reached_count() >= count)
+
+            await wait_until(f"attempt {attempt} at the gate", has_reached)
+            await _crash_and_recover(server)
+        snapshot = await harness.wait_for_turns(session_id, 1)
+
+        assert (snapshot.messages[-1].text or "").startswith(final_text)
+        assert harness.invocations.count(invocation) == 3
+        assert _finished_statuses(await harness.agent_events(session_id)) == [status]
+
+
 async def test_server_failure_before_the_first_heartbeat_runs_a_single_attempt_tool_once(
     tmp_path: Path, server: CrashableServer
 ) -> None:
@@ -304,7 +367,8 @@ async def test_a_timer_wait_survives_a_server_failure_and_fires_once(
         await harness.sessions.start_session(session_id, "wait 3 the failure")
         await _wait_for_step_methods(harness, session_id, "AwaitTimer", WAIT_FOR_COMPLETED_EVENT, 1)
 
-        await _crash_and_recover(server)
+        # The 3 second Timer comes due while no node serves.
+        await server.crash_for(timedelta(seconds=4))
         snapshot = await harness.wait_for_turns(session_id, 1)
 
         assert snapshot.messages[-1].text == (
@@ -370,11 +434,16 @@ async def test_an_idle_session_survives_a_server_failure_and_the_next_message_st
         await _crash_and_recover(server)
 
         async def message_was_taken() -> bool:
-            return bool(await harness.sessions.send_user_message(session_id, "say second"))
+            # The RPC fails until the Worker reconnects.
+            with contextlib.suppress(DexServiceError):
+                return bool(await harness.sessions.send_user_message(session_id, "say second"))
+            return False
 
         await wait_until("the session to take a message", message_was_taken)
         snapshot = await harness.wait_for_turns(session_id, 2)
         assert snapshot.messages[-1].text == "said: second"
+        assert harness.invocations.count("model:turn-1:1") == 1
+        assert harness.invocations.count("model:turn-2:1") == 1
 
 
 async def test_server_failure_during_compact_context_reruns_only_the_summary_call(
@@ -424,6 +493,14 @@ async def _wait_for_pending_interrupt(
         lambda snapshot: next(iter(snapshot.pending_interrupts), None),
         description="a pending interrupt",
     )
+
+
+async def _wait_for_text_delta(harness: ScriptedAgentHarness, session_id: str) -> None:
+    async def has_delta() -> bool:
+        events = await harness.agent_events(session_id)
+        return any(event.type == AgentEventType.TEXT_DELTA for event in events)
+
+    await wait_until("a text delta in Dex", has_delta)
 
 
 async def _wait_for_snapshot(harness: ScriptedAgentHarness, session_id: str) -> Any:
