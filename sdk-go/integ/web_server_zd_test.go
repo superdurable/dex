@@ -176,6 +176,11 @@ func TestDexWebOnServerZDFindsRunsAtActiveStepsAcrossFlowTypes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, otherStep, replyID, "a run at another Step matched the Step filter")
 
+	// A trailing backslash must reach the server as data, not escape the closing quote.
+	backslash, err := searchDexWebV2AtSteps(web, flowTypes, []string{`closeThread\`})
+	require.NoError(t, err)
+	require.Empty(t, backslash)
+
 	anyOfSteps, err := searchDexWebV2AtSteps(web, flowTypes, []string{"closeThread", waitingStep})
 	require.NoError(t, err)
 	require.Contains(t, anyOfSteps, approvalID)
@@ -183,9 +188,14 @@ func TestDexWebOnServerZDFindsRunsAtActiveStepsAcrossFlowTypes(t *testing.T) {
 
 	// The unindexed run is at the same Step and in the list, but the Step filter cannot see it.
 	require.NotContains(t, anyOfSteps, unindexedID, "a Flow without ActiveStepSearchMode matched the Step filter")
-	everyRun, err := searchDexWebV2AtSteps(web, flowTypes, nil)
-	require.NoError(t, err)
-	require.Contains(t, everyRun, unindexedID)
+	require.Eventually(t, func() bool {
+		everyRun, searchErr := searchDexWebV2AtSteps(web, flowTypes, nil)
+		if searchErr != nil {
+			return false
+		}
+		_, listed := everyRun[unindexedID]
+		return listed
+	}, dexWebV2ConvergenceTimeout, dexWebV2PollInterval, "the Flow without ActiveStepSearchMode never reached the list")
 
 	web.approveDecision(t, approvalFlow, approvalID)
 	require.Eventually(t, func() bool {

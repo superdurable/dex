@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   LIST_WIDTH_DEFAULT,
@@ -20,7 +20,7 @@ import { RUN_COPY } from '../run/copy';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
-import { permissionActionLabelsAcross, permissionsAcross } from '../workspace/permissions';
+import { permissionActionLabelsAcross } from '../workspace/permissions';
 import {
   EMPTY_RUN_QUERY,
   emptyRunsText,
@@ -32,6 +32,7 @@ import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useRunQuery } from '../workspace/useRunQuery';
 import { useStrandedRuns } from '../workspace/useStrandedRuns';
+import { useWorkingAs } from '../workspace/useWorkingAs';
 import { WORK_QUEUE_COPY } from './copy';
 import { openFlowStatusLabel } from './liveness';
 
@@ -48,13 +49,16 @@ export function WorkQueueWorkspace() {
   const { ready, canUseV2, catalog, definitions, error, definitionUpdateKey } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // A work queue opens on active work; the control widens it.
-  const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: flowStatusQueryValue(openFlowStatusLabel()) });
-  const [permission, setPermission] = useState('');
-  const searchFlowTypes = searchedFlowTypes(runQuery.appliedFlowTypes, flowType);
-  const workQueuePermissions = useMemo(
-    () => permission === '' ? [] : [permission],
-    [permission],
+  const runQuery = useRunQuery(
+    entry?.definition,
+    flowType,
+    { ...EMPTY_RUN_QUERY, status: flowStatusQueryValue(openFlowStatusLabel()) },
   );
+  const searchFlowTypes = searchedFlowTypes(runQuery.appliedFlowTypes, flowType);
+  const searchedDefinitions = (catalog?.flows ?? [])
+    .filter((candidate) => searchFlowTypes.includes(candidate.flowType))
+    .map((candidate) => candidate.definition);
+  const { permission, permissionOptions, setPermission, workQueuePermissions } = useWorkingAs(searchedDefinitions);
   const search = useFlowSearch(
     searchFlowTypes,
     entry?.definition,
@@ -85,9 +89,6 @@ export function WorkQueueWorkspace() {
   if (!entry) return <Navigate to={v2WorkQueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
-  const searchedDefinitions = catalog.flows
-    .filter((candidate) => searchFlowTypes.includes(candidate.flowType))
-    .map((candidate) => candidate.definition);
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
@@ -100,7 +101,7 @@ export function WorkQueueWorkspace() {
           heading={WORK_QUEUE_COPY.appName}
           headerNote={WORK_QUEUE_COPY.liveNote}
           onExpand={listPane.expand}
-          permissionControl={permissionsAcross(searchedDefinitions).length > 0 ? (
+          permissionControl={permissionOptions.length > 0 ? (
             <label className="rsw-permission">
               <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
               <select
@@ -109,7 +110,7 @@ export function WorkQueueWorkspace() {
                 onChange={(event) => setPermission(event.target.value)}
               >
                 <option value="">{WORK_QUEUE_COPY.anyPermission}</option>
-                {permissionsAcross(searchedDefinitions).map((candidate) => (
+                {permissionOptions.map((candidate) => (
                   <option key={candidate} value={candidate}>{candidate}</option>
                 ))}
               </select>

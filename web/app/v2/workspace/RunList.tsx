@@ -114,6 +114,9 @@ export function RunList({
       {stateText !== '' && (
         <p className="sq-state" data-liveness={liveness}>{stateText}</p>
       )}
+      {search.hasNextPage && flows.length > 0 && (
+        <p className="sq-state">{SEARCH_COPY.moreRuns(flows.length)}</p>
+      )}
       <div className="rsw-scroll" data-zone="list">
         {groups.map((group) => (
           <section className="rsw-group" data-group={group.key} key={group.key}>

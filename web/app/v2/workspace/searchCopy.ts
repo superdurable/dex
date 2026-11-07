@@ -35,4 +35,7 @@ export const SEARCH_COPY = {
   noActiveStepMatch:
     'No runs found at these Steps. Runs may still be waiting there: a Flow shows up in this search only if it set ActiveStepSearchMode.',
   noRunsAcrossFlowTypes: 'No runs of these Flow types.',
+  moreRuns(shown: number): string {
+    return `Showing the first ${shown} runs. More match this search, so narrow it to see them.`;
+  },
 } as const;

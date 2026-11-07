@@ -303,6 +303,10 @@ func TestV2SearchFiltersByActiveStepTypes(t *testing.T) {
 		filter: `{"field":"activeStepTypes","operator":"in","values":["AwaitApproval","Await'Manager"]}`,
 		wantQuery: "FlowType = 'RefundFlow' AND " +
 			"(ActiveStepTypes = 'AwaitApproval' OR ActiveStepTypes = 'Await''Manager')",
+	}, {
+		name:      "a backslash is escaped before the quote",
+		filter:    `{"field":"activeStepTypes","operator":"eq","values":["Await\\'Manager\\"]}`,
+		wantQuery: `FlowType = 'RefundFlow' AND ActiveStepTypes = 'Await\\''Manager\\'`,
 	}}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -248,7 +248,9 @@ The **v2** list searches the page's Flow type. Filters include Flow ID, executio
 
 Under **Advanced search**, tick more **Flow types** to search them in one query. The page's own Flow type stays ticked. **POST /api/v2/search** accepts **flowTypes** in place of **flowType**, and rejects a request that sends both. Every Flow type needs a valid definition.
 
-Each row then shows its Flow type and reads its indexed Attributes, Summary, and UI slots from that Flow type's definition. Opening a row moves the page to its Flow type and keeps the list. Choosing a Flow type from the picker returns to that one Flow type.
+Each row then shows its Flow type and reads its indexed Attributes, Summary, and UI slots from that Flow type's definition. Opening a row moves the page to its Flow type and keeps the list. Choosing a Flow type from the picker returns to that one Flow type, and so does moving to a Flow type outside the selection, such as with Back. **Working as** resets when the Flow types searched no longer declare the chosen permission.
+
+The list shows one page of up to 50 runs. When more runs match, it says so.
 
 A search of several Flow types accepts only built-in fields: Flow ID, execution status, start and close time, and active Step types. An indexed Attribute belongs to one Flow type, and the same physical key can mean something else in another. The API rejects such a filter, and the UI hides the Attribute control. **Working as** still applies, and offers the permissions of every Flow type searched.
 

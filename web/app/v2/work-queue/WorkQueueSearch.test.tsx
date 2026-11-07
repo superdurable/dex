@@ -9,7 +9,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '../../providers';
 import { WebCatalogProvider } from '../WebCatalogProvider';
@@ -65,7 +65,7 @@ interface SearchBody {
   filters: { field: string; operator: string; values: unknown[] }[];
 }
 
-function stubServer(flowsFor: (body: SearchBody) => unknown[]) {
+function stubServer(flowsFor: (body: SearchBody) => unknown[], nextPageToken = '') {
   const searches: SearchBody[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
@@ -73,8 +73,12 @@ function stubServer(flowsFor: (body: SearchBody) => unknown[]) {
       return json({
         configured: true,
         definitionRevision: 'r1',
-        definitionCount: 2,
-        definitions: [graphEntry('OrderFlow', ['AwaitPacking']), graphEntry('RefundFlow', ['AwaitApproval'])],
+        definitionCount: 3,
+        definitions: [
+          graphEntry('OrderFlow', ['AwaitPacking']),
+          graphEntry('PayFlow', ['AwaitPayment']),
+          graphEntry('RefundFlow', ['AwaitApproval']),
+        ],
       });
     }
     if (url === '/api/v2/catalog') {
@@ -83,6 +87,7 @@ function stubServer(flowsFor: (body: SearchBody) => unknown[]) {
         definitionRevision: 'r1',
         flows: [
           { flowType: 'OrderFlow', definition: contract('warehouse', 'order.manage') },
+          { flowType: 'PayFlow', definition: contract('payment', 'pay.manage') },
           { flowType: 'RefundFlow', definition: contract('case-title', 'refund.manage') },
         ],
       });
@@ -90,7 +95,7 @@ function stubServer(flowsFor: (body: SearchBody) => unknown[]) {
     if (url === '/api/v2/search') {
       const body = JSON.parse(String(init?.body)) as SearchBody;
       searches.push(body);
-      return json({ flows: flowsFor(body), nextPageToken: '' });
+      return json({ flows: flowsFor(body), nextPageToken });
     }
     return new Response('{}', { status: 404 });
   }));
@@ -98,7 +103,13 @@ function stubServer(flowsFor: (body: SearchBody) => unknown[]) {
 }
 
 function LocationProbe() {
-  return <output aria-label="location">{useLocation().pathname}</output>;
+  const navigate = useNavigate();
+  return (
+    <>
+      <output aria-label="location">{useLocation().pathname}</output>
+      <button onClick={() => navigate(-1)} type="button">Back</button>
+    </>
+  );
 }
 
 function renderQueue() {
@@ -216,6 +227,54 @@ describe('Work Queue search', () => {
     expect(lastSearch(searches).workQueuePermissions).toEqual(['refund.manage']);
     const options = within(screen.getByLabelText('Working as')).getAllByRole('option');
     expect(options.map((option) => option.textContent)).toEqual(['Anyone', 'order.manage', 'refund.manage']);
+  });
+
+  it('drops a widening that Back leaves behind', async () => {
+    const searches = stubServer(() => []);
+    renderQueue();
+    await screen.findByText(SEARCH_COPY.advanced);
+    fireEvent.change(screen.getByLabelText(SEARCH_COPY.flowTypeLabel), { target: { value: 'OrderFlow' } });
+    await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow']));
+    const advanced = await openAdvanced();
+    fireEvent.click(within(advanced).getByRole('checkbox', { name: 'PayFlow' }));
+    submit();
+    await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow', 'PayFlow']));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(screen.getByLabelText('location').textContent).toBe('/v2/work-queue/RefundFlow'));
+    await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['RefundFlow']));
+    const refund = within(advanced).getByRole('checkbox', { name: 'RefundFlow' }) as HTMLInputElement;
+    const pay = within(advanced).getByRole('checkbox', { name: 'PayFlow' }) as HTMLInputElement;
+    expect([refund.checked, pay.checked]).toEqual([true, false]);
+    expect(within(advanced).getByLabelText(SEARCH_COPY.attributeLabel)).toBeTruthy();
+  });
+
+  it('resets Working as when the search no longer offers that permission', async () => {
+    const searches = stubServer(() => []);
+    renderQueue();
+    fireEvent.change(await screen.findByLabelText('Working as'), { target: { value: 'refund.manage' } });
+
+    fireEvent.change(screen.getByLabelText(SEARCH_COPY.flowTypeLabel), { target: { value: 'OrderFlow' } });
+
+    await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow']));
+    expect(lastSearch(searches).workQueuePermissions).toEqual([]);
+    expect((screen.getByLabelText('Working as') as HTMLSelectElement).value).toBe('');
+  });
+
+  it('says when more runs match than the list shows', async () => {
+    stubServer(() => [run('refund-1', 'RefundFlow', { 'case-title': 'Damaged item' })], 'next-page');
+    renderQueue();
+
+    expect(await screen.findByText(SEARCH_COPY.moreRuns(1))).toBeTruthy();
+  });
+
+  it('says nothing about more runs on the last page', async () => {
+    stubServer(() => [run('refund-1', 'RefundFlow', { 'case-title': 'Damaged item' })]);
+    renderQueue();
+
+    await screen.findByText('Damaged item');
+    expect(screen.queryByText(SEARCH_COPY.moreRuns(1))).toBeNull();
   });
 
   it('goes back to one Flow type when the reader picks one', async () => {

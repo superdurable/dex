@@ -1066,8 +1066,11 @@ func visibilityLiteral(value interface{}, valueType string) (string, error) {
 	}
 }
 
+// quoteVisibilityString escapes the backslash first: the query lexer reads it as an escape, so
+// a value ending in one would otherwise swallow the closing quote.
 func quoteVisibilityString(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	return "'" + strings.ReplaceAll(escaped, "'", "''") + "'"
 }
 
 func quoteVisibilityField(value string) string {

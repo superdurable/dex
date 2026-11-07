@@ -235,6 +235,10 @@ describe('Flow type scope', () => {
     expect(searchedFlowTypes([], '')).toEqual([]);
   });
 
+  it('ignores a widening that does not cover the page', () => {
+    expect(searchedFlowTypes(['OrderFlow', 'PayFlow'], 'RefundFlow')).toEqual(['RefundFlow']);
+  });
+
   it('widens from the page Flow type and collapses back to it', () => {
     const widened = toggleFlowType([], 'RefundFlow', 'OrderFlow');
 

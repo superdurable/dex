@@ -199,9 +199,13 @@ function activeParts(query: RunQuery): number {
   ].filter((part) => part !== '').length;
 }
 
-/** The Flow types one search covers: the page's own, unless the reader widened past it. */
+/**
+ * The Flow types one search covers: the page's own, unless the reader widened past it.
+ *
+ * A widening that left the page out is stale, as after Back to a Flow type it never covered.
+ */
 export function searchedFlowTypes(flowTypes: readonly string[], pageFlowType: string): readonly string[] {
-  if (flowTypes.length > 1) return flowTypes;
+  if (flowTypes.length > 1 && flowTypes.includes(pageFlowType)) return flowTypes;
   return pageFlowType === '' ? [] : [pageFlowType];
 }
 
