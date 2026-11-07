@@ -269,7 +269,10 @@ run's next pruning. A larger window keeps more of the events recorded after the
 change; pruned events never come back. Once set, the run's window can be changed
 but not cleared. A child Flow inherits its parent's window unless its own
 override sets one. Values must be positive and at most
-**history.maxWindowEvents**; other values fail with INVALID_ARGUMENT.
+**history.maxWindowEvents**. StartFlow and UpdateFlowConfig reject other values
+with INVALID_ARGUMENT. A Step result that starts a SubFlow with such an override
+is an invalid Worker response: the Step attempt fails and is retried under the
+Step's retry policy.
 
 History reads, such as **dexcli flow history --all**, return only the retained
 events. [Time travel](/reference/server/runtime-client#time-travel) can target only
@@ -285,7 +288,7 @@ on another page.
 | --- | --- | --- |
 | **history.windowEvents** | 10000 | Approximate number of the newest history events kept in the window of a run that sets no window of its own. Pruning starts when the window exceeds this value plus one prune chunk. Must be positive. The deprecated name **history.windowSemanticEvents** is still accepted with a startup warning; setting both names is an error. Changed in 0.1.21: the window counted semantic commands, not events, and the key was named **history.windowSemanticEvents**. A run that started before 0.1.21 keeps its recorded size, which now counts events, so its window reaches a little less far back. |
 | **history.pruneChunkSize** | 1000 | Most old history events pruned at a time. A run prunes at most one tenth of its window at a time, and at least one event, when that is smaller. Must be positive and must not exceed **windowEvents**. Changed in 0.1.21: the unit was semantic commands. |
-| **history.maxWindowEvents** | 100000 | Largest window that a run's **history_window_events** may set. StartFlow, UpdateFlowConfig, and SubFlow starts with a larger value fail with INVALID_ARGUMENT. It does not limit **windowEvents**. Must be positive. Changing it affects later requests only. Since 0.1.21. |
+| **history.maxWindowEvents** | 100000 | Largest window that a run's **history_window_events** may set. StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents**. Must be positive. Changing it affects later requests only. Since 0.1.21. |
 | **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. A superseded value is a stored value that the run no longer holds, such as the earlier value of a rewritten Attribute. When a run's superseded values exceed this cap, the window moves forward and the oldest of them are deleted. The cap is a soft target: the window always keeps the current point, and each command does a bounded amount of pruning, so local superseded bytes can exceed the cap for a while until later commands prune them. Time travel then reaches less far back. The cap never rejects a command or fails a Flow, and superseded values do not count toward **limits.maxFlowStateBytes**. A run that keeps rewriting large values can hold up to this many superseded value bytes on local disk. Its history records, which also hold each written value, stay until a later checkpoint lets the window prune them, so they can take more space than this cap. Changed in 0.1.21: before, the 64 MiB **limits.maxFlowStateBytes** default counted superseded values, so a Flow failed before this cap took effect. |
 
 Each run records **windowEvents**, **pruneChunkSize**, and

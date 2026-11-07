@@ -230,8 +230,9 @@ pub struct HistoryConfig {
     /// Defaults to 100000; largest window that `FlowConfig.history_window_events` may set for a
     /// run.
     ///
-    /// StartFlow, UpdateFlowConfig, and SubFlow starts with a larger value fail with
-    /// INVALID_ARGUMENT. It does not limit `window_events`. Must be positive. Changes apply to
+    /// StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step
+    /// result that starts a SubFlow with a larger value is an invalid Worker response, and the
+    /// Step attempt is retried under the Step's retry policy. It does not limit `window_events`. Must be positive. Changes apply to
     /// later requests only; runs keep the window they already have.
     pub max_window_events: u32,
     /// Defaults to 1 MiB; a checkpoint is written once the run has written this many bytes of

@@ -249,8 +249,10 @@ private static final long serialVersionUID = 0L;
    * value can be changed but not cleared back to the server default. A child Flow inherits it
    * from its parent unless its own override sets it.
    *
-   * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
-   * setting, which defaults to 100000, with INVALID_ARGUMENT.
+   * The value must be positive and at most the server's history.maxWindowEvents setting, which
+   * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+   * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+   * Step attempt fails and is retried under the Step's retry policy.
    *
    * Since server-zd 0.1.21.
    * </pre>
@@ -286,8 +288,10 @@ private static final long serialVersionUID = 0L;
    * value can be changed but not cleared back to the server default. A child Flow inherits it
    * from its parent unless its own override sets it.
    *
-   * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
-   * setting, which defaults to 100000, with INVALID_ARGUMENT.
+   * The value must be positive and at most the server's history.maxWindowEvents setting, which
+   * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+   * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+   * Step attempt fails and is retried under the Step's retry policy.
    *
    * Since server-zd 0.1.21.
    * </pre>
@@ -1341,8 +1345,10 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
-     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     * The value must be positive and at most the server's history.maxWindowEvents setting, which
+     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy.
      *
      * Since server-zd 0.1.21.
      * </pre>
@@ -1378,8 +1384,10 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
-     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     * The value must be positive and at most the server's history.maxWindowEvents setting, which
+     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy.
      *
      * Since server-zd 0.1.21.
      * </pre>
@@ -1415,8 +1423,10 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
-     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     * The value must be positive and at most the server's history.maxWindowEvents setting, which
+     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy.
      *
      * Since server-zd 0.1.21.
      * </pre>
@@ -1456,8 +1466,10 @@ private static final long serialVersionUID = 0L;
      * value can be changed but not cleared back to the server default. A child Flow inherits it
      * from its parent unless its own override sets it.
      *
-     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
-     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     * The value must be positive and at most the server's history.maxWindowEvents setting, which
+     * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+     * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+     * Step attempt fails and is retried under the Step's retry policy.
      *
      * Since server-zd 0.1.21.
      * </pre>
