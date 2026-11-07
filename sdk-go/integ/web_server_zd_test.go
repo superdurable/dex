@@ -207,6 +207,52 @@ func TestDexWebOnServerZDDeletesPendingMessagesAndTimeTravelsRunAttempts(t *test
 	require.Equal(t, "Terminated", readDexWebSummary(t, web, flowID).FlowStatus)
 }
 
+func TestDexWebOnServerZDActionReturnsRPCOutput(t *testing.T) {
+	ctx := integrationContext(t)
+	web := newDexWebOnServerZDClient(t)
+	var catalog dexWebV2Catalog
+	status, err := web.getJSON("/api/v2/catalog", &catalog)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	web.revision = catalog.DefinitionRevision
+
+	flow := &webv2approval.ApprovalFlow{}
+	flowType := dex.GetFinalFlowType(flow)
+	flowID := newFlowID(t, "web-action-output")
+	_, err = integClient.StartFlow(ctx, flow, flowID, webv2approval.Input{Requester: flowID}, dex.StartFlowOptions{})
+	require.NoError(t, err)
+
+	checkDecision := func(permission string, output any) (int, error) {
+		return web.sendJSON(http.MethodPost, "/api/v2/actions", map[string]any{
+			"flowType": flowType, "flowId": flowID, "rpcName": "DecisionPending",
+			"workQueuePermissions": []string{permission}, "input": map[string]any{}, "attributeSnapshot": map[string]any{},
+		}, output)
+	}
+	var result struct {
+		Invoked bool `json:"invoked"`
+		Output  any  `json:"output"`
+	}
+	require.Eventually(t, func() bool {
+		status, err := checkDecision(webv2approval.DecidePermission, &result)
+		return err == nil && status == http.StatusOK && result.Output == true
+	}, dexWebV2ConvergenceTimeout, dexWebV2PollInterval, "DecisionPending never returned true: %+v", &result)
+	require.True(t, result.Invoked)
+
+	status, err = checkDecision("other.permission", nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusForbidden, status)
+
+	testFlow := dexWebV2TestFlow{flowType: flowType, permission: webv2approval.DecidePermission}
+	web.approveDecision(t, testFlow, flowID)
+	require.Equal(t, dex.FlowCompleted, waitForFlow(t, flowID, false).Status)
+
+	var display dexWebV2DisplayResponse
+	status, err = web.getJSON(web.displayPath(flowType, flowID), &display)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	require.NotContains(t, display.EligibleActions, "DecisionPending")
+}
+
 func newDexWebOnServerZDClient(t *testing.T) *dexWebV2Client {
 	t.Helper()
 	serverEngine, err := integrationServerEngine()

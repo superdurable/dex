@@ -661,7 +661,8 @@ Attributes before ordered Summary fields. Selecting a run validates the Display
 contract, supports inline edits for declared primitive fields, and renders
 conditional none/object Actions beside the Flow Definition Graph.
 Attribute-sourced Action inputs remain hidden. The UI condition is
-presentational; Action RPCs must re-check current state.
+presentational; Action RPCs must re-check current state. A graph can omit an
+Action's condition, and `POST /api/v2/actions` returns the RPC's output.
 Version 2 definitions use `uiSlot` for reusable display placement and expose
 each Action's `requiredPermission` from the Go SDK Action registration.
 User-sourced string Action inputs marked with `capture: "qr-code"` retain their

@@ -261,7 +261,7 @@
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["rpcName", "label", "requiredPermission", "condition", "input"],
+      "required": ["rpcName", "label", "requiredPermission", "input"],
       "properties": {
         "rpcName": {"type": "string"},
         "label": {"type": "string", "minLength": 1},
