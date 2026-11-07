@@ -9,8 +9,14 @@
 //! Services the runtime calls but other modules implement: effects, Worker RPCs, hard-delete
 //! values, and time travel history.
 
-use dexzd_apply::values::{NoOffloadedValues, OffloadedValues};
-use dexzd_apply::{ApplyContext, ApplyEffect, FlowStateReader, HistorySource, StateHistorySource};
+use std::sync::Arc;
+
+use dexzd_apply::values::NoOffloadedValues;
+use dexzd_apply::{
+    ApplyContext, ApplyEffect, ApplyError, FlowStateReader, LoadedHistorySegments,
+    SegmentedTimeTravelComputation, TimeTravelComputationRequest,
+    compute_time_travel_from_segments,
+};
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
     AttributeWrite, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, PullRouting, Value,
@@ -219,17 +225,18 @@ pub trait HardDeleteValueUploader: Send + Sync + 'static {
     ) -> BoxFuture<'_, Result<(), HardDeleteUploadError>>;
 }
 
-/// The history of one run that a time travel computation replays, as one committed view shows
-/// it.
+/// The history of one run that a time travel computation replays: what one committed view
+/// shows, with the uploaded segments fetched before the view was pinned.
 pub trait TimeTravelRunHistory: Send {
-    /// Returns the committed state of the run's Flow.
-    fn state(&self) -> &dyn FlowStateReader;
-
-    /// Returns the run's History records and checkpoints.
-    fn history(&self) -> Box<dyn HistorySource + '_>;
-
-    /// Returns the run's values that [`Self::state`] no longer holds.
-    fn offloaded_values(&self) -> &dyn OffloadedValues;
+    /// Computes `request` over this history on the calling thread, which may block.
+    ///
+    /// Returns [`SegmentedTimeTravelComputation::NeedsSegments`] when the computation reached
+    /// uploaded segments this history lacks. Returns an error when stored state is corrupt.
+    fn compute_time_travel(
+        &self,
+        context: &ApplyContext,
+        request: &TimeTravelComputationRequest<'_>,
+    ) -> Result<SegmentedTimeTravelComputation, ApplyError>;
 }
 
 /// Error from opening the history a time travel computation replays.
@@ -242,10 +249,11 @@ pub struct TimeTravelHistoryError {
     pub detail: String,
 }
 
-/// Opens the history that time travel computations replay on a blocking thread.
+/// Opens the history that time travel computations replay. The runtime fetches the uploaded
+/// segments a computation needs between computations, while it holds no committed view.
 pub trait TimeTravelHistoryOpener: Send + Sync + 'static {
-    /// Opens the history of run `run_id` that `view` shows, fetching remote data first so the
-    /// replay never waits.
+    /// Opens the history of run `run_id` that `view` shows, with the uploaded segments
+    /// `segments` holds. It reads nothing from object storage.
     ///
     /// Returns [`TimeTravelHistoryError`] when the history cannot be read.
     fn open_time_travel_history(
@@ -253,51 +261,48 @@ pub trait TimeTravelHistoryOpener: Send + Sync + 'static {
         view: Box<dyn FlowStateReader + Send>,
         context: ApplyContext,
         run_id: RunId,
+        segments: Arc<LoadedHistorySegments>,
     ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>>;
 }
 
-/// The [`TimeTravelHistoryOpener`] of a node whose local store holds every history record and
-/// value that a time travel reads.
+/// The [`TimeTravelHistoryOpener`] that reads local rows and uploaded history segments.
+///
+/// Values that the local store no longer holds are not read yet.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct LocalTimeTravelHistory;
+pub struct SegmentedTimeTravelHistory;
 
-impl TimeTravelHistoryOpener for LocalTimeTravelHistory {
+impl TimeTravelHistoryOpener for SegmentedTimeTravelHistory {
     fn open_time_travel_history(
         &self,
         view: Box<dyn FlowStateReader + Send>,
-        context: ApplyContext,
-        run_id: RunId,
+        _context: ApplyContext,
+        _run_id: RunId,
+        segments: Arc<LoadedHistorySegments>,
     ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>> {
-        let history: Box<dyn TimeTravelRunHistory> = Box::new(LocalRunHistory {
-            view,
-            context,
-            run_id,
-        });
+        let history: Box<dyn TimeTravelRunHistory> =
+            Box::new(SegmentedRunHistory { view, segments });
         Box::pin(std::future::ready(Ok(history)))
     }
 }
 
-/// History that a committed view of the local store holds.
-struct LocalRunHistory {
+/// History that a committed view of the local store and fetched uploaded segments hold.
+struct SegmentedRunHistory {
     view: Box<dyn FlowStateReader + Send>,
-    context: ApplyContext,
-    run_id: RunId,
+    segments: Arc<LoadedHistorySegments>,
 }
 
-impl TimeTravelRunHistory for LocalRunHistory {
-    fn state(&self) -> &dyn FlowStateReader {
-        self.view.as_ref()
-    }
-
-    fn history(&self) -> Box<dyn HistorySource + '_> {
-        Box::new(StateHistorySource::new(
+impl TimeTravelRunHistory for SegmentedRunHistory {
+    fn compute_time_travel(
+        &self,
+        context: &ApplyContext,
+        request: &TimeTravelComputationRequest<'_>,
+    ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
+        compute_time_travel_from_segments(
+            context,
             self.view.as_ref(),
-            self.context,
-            self.run_id,
-        ))
-    }
-
-    fn offloaded_values(&self) -> &dyn OffloadedValues {
-        &NoOffloadedValues
+            &self.segments,
+            &NoOffloadedValues,
+            request,
+        )
     }
 }

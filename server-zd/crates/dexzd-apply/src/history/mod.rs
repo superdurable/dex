@@ -23,8 +23,9 @@ pub(crate) use checkpoints::{after_command, pending_step_methods};
 pub use lineage::{HistoryRecords, HistorySource, StateHistorySource};
 pub(crate) use lineage::{LocalHistorySource, genesis_seq};
 pub use time_travel::{
-    ComputedTimeTravel, StagedEntryTooLarge, TimeTravelComputation, TimeTravelComputationRequest,
-    TimeTravelComputationSources, compute_time_travel,
+    ComputedTimeTravel, SegmentedTimeTravelComputation, StagedEntryTooLarge, TimeTravelComputation,
+    TimeTravelComputationRequest, TimeTravelComputationSources, compute_time_travel,
+    compute_time_travel_from_segments,
 };
 #[cfg(feature = "test-util")]
 pub use time_travel::{

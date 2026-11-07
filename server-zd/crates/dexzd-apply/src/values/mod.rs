@@ -489,6 +489,13 @@ fn parse_own_reference(text: &str, rows: RunRows) -> Option<ValueReference> {
     (reference.run_id == rows.run_id).then_some(reference)
 }
 
+/// Returns the ID of the value of run `rows` that `value` references, or `None` when `value`
+/// is no such reference.
+pub(crate) fn own_referenced_value_id(value: &Value, rows: RunRows) -> Option<ValueId> {
+    let reference = parse_own_reference(reference_text(value)?, rows)?;
+    Some(reference.value_id)
+}
+
 /// Whether the run stores value `value_id`: its birth record and value row both exist.
 pub(crate) fn is_stored_value(
     transaction: &FlowTransaction<'_>,

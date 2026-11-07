@@ -37,11 +37,11 @@ server-zd 0.1.21 changes apply results: **limits.maxFlowStateBytes** counts
 only active state. Stop the standby and the active process, upgrade both binaries,
 then start the active process first and the standby after it.
 
-Changed in 0.1.21: the lease holder computes each ResetFlow result and writes it
-to the log in new commands before the time travel itself. A server before 0.1.21
+Changed in 0.1.22: the lease holder computes each ResetFlow result and writes it
+to the log in new commands before the time travel itself. A server before 0.1.22
 cannot apply these commands, so a standby that still runs the older version
 stops applying the partition at the first ResetFlow. Upgrade the active process
-and the standby together, as above. Log entries that a server before 0.1.21
+and the standby together, as above. Log entries that a server before 0.1.22
 wrote still apply after the upgrade.
 
 A later release that raises the minimum protocol needs the same care. Stop old

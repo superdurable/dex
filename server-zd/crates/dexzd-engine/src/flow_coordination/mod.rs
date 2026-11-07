@@ -34,7 +34,7 @@ pub use flow_coordination_error::{FlowCoordinationError, grpc_code};
 pub use flow_coordination_ports::{
     FlowCoordinationEffectSink, HardDeleteReadError, HardDeleteUploadError,
     HardDeleteUploadOutcome, HardDeleteUploads, HardDeleteValueReader, HardDeleteValueUploader,
-    LocalTimeTravelHistory, RpcInvokeError, RpcWorkerInvoker, StepQueueStatus,
+    RpcInvokeError, RpcWorkerInvoker, SegmentedTimeTravelHistory, StepQueueStatus,
     TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation,
     WorkerRpcResult,
 };

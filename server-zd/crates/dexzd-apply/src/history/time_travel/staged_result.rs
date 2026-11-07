@@ -23,6 +23,7 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use super::TimeTravelResult;
+use super::reapplied_input_values::reapplied_input_value_ids;
 use super::result_computation::{
     InputCollectionFailure, collect_external_inputs, pruned_input_rejection, selected_lineage,
 };
@@ -206,7 +207,7 @@ fn check_staged_inputs(
 }
 
 /// Writes the result's values the run no longer stores, then checks every value the restored
-/// state holds anew.
+/// state holds anew and every value its reapplied input references.
 ///
 /// A staged value is restored only over its birth record, whose recorded size it must match.
 ///
@@ -259,7 +260,7 @@ pub(super) fn restore_held_values(
             restore_unheld_value(transaction, rows, value_id, &birth, value, cursor.seq);
         }
     }
-    let mut missing = Vec::new();
+    let mut missing = BTreeSet::new();
     let newly_held = newly_held_values(
         transaction,
         rows,
@@ -274,22 +275,28 @@ pub(super) fn restore_held_values(
     .ok_or_else(|| ApplyError::InvariantViolation {
         detail: "an unlimited memory budget was exceeded".to_owned(),
     })?;
-    for value_id in newly_held.into_keys() {
+    let input_value_ids = reapplied_input_value_ids(&result.reapplied_inputs, rows);
+    for value_id in newly_held.into_keys().chain(input_value_ids) {
         if !is_stored_value(transaction, rows, value_id)? {
-            missing.push(
-                ValueReference {
-                    run_id: rows.run_id,
-                    value_id,
-                }
-                .to_string(),
-            );
+            missing.insert(value_id);
         }
     }
     if missing.is_empty() {
         return Ok(Ok(()));
     }
+    let missing: Vec<String> = missing
+        .into_iter()
+        .map(|value_id| {
+            ValueReference {
+                run_id: rows.run_id,
+                value_id,
+            }
+            .to_string()
+        })
+        .collect();
     Ok(Err(value_rejection(format!(
-        "lacks values that the restored state holds and the run no longer stores: {}",
+        "lacks values that the restored state holds or its reapplied input references, and the \
+         run no longer stores: {}",
         missing.join(", ")
     ))))
 }

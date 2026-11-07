@@ -11,14 +11,16 @@
 //! compares every restored point with the hash recorded when that point was applied.
 
 use std::collections::BTreeMap;
-use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use bytes::Bytes;
+use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyError, FlowStateReader, HistoryRecords, HistorySource,
-    StateHistorySource,
+    ApplyContext, ApplyEffect, ApplyError, FlowStateReader, LoadedHistorySegments,
+    SegmentedTimeTravelComputation, TimeTravelComputationRequest,
+    compute_time_travel_from_segments,
 };
 use dexzd_engine::{
     CommandCommitter, CommitUrgency, CommittedCommandSink, CommittedFlowCommand,
@@ -26,23 +28,29 @@ use dexzd_engine::{
     EngineServices, FlowAddress, FlowCoordinationConfig, FlowCoordinationEffectSink,
     FlowCoordinationError, FlowCoordinationHardDeleteUploads, FlowCoordinatorDependencies,
     FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
-    HardDeleteValueReader, HardDeleteValueUploader, LocalStoreConfig, LocalTimeTravelHistory,
-    RpcInvokeError, RpcWorkerInvoker, StepQueueStatus, SystemEngineIdSource,
+    HardDeleteValueReader, HardDeleteValueUploader, LocalStoreConfig, RpcInvokeError,
+    RpcWorkerInvoker, SegmentedTimeTravelHistory, StepQueueStatus, SystemEngineIdSource,
     TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation,
     WorkerRpcResult, grpc_code,
 };
-use dexzd_keyspace::row_keys::{history_record_key, run_singleton_key, value_row_key};
-use dexzd_keyspace::{
-    ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, ValueId,
+use dexzd_history_segment::{encode_history_segment, history_segment_object_key};
+use dexzd_keyspace::row_keys::{
+    checkpoint_key, history_record_key, prefix_range, run_singleton_key, value_row_key,
 };
+use dexzd_keyspace::{
+    ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, ValueId, ValueReference,
+    run_table_prefix,
+};
+use dexzd_object_store::{InMemoryObjectStore, ObjectStore, ObjectStoreOperation, WriteCondition};
 use dexzd_protocol::dex::{
     AttributeWrite, FlowConfig, FlowResetStepMethod, FlowResetType, FlowStartOptions,
     ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepOptions, Value, WorkerTarget,
     value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeRecord, CheckpointRecord, FlowCommand, HardDeleteObjectReference, HistoryRecord,
-    LogPosition, RunRecord, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
+    AttributeRecord, AttributesSetCommand, FlowCommand, HardDeleteObjectReference, HistoryRecord,
+    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, LogPosition,
+    RunRecord, RunSettings, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
     StepInvocationKey, StepMethod, ValueBirthRecord, ValueRecord, flow_command::Command,
     step_attempt_heartbeat_command, stored_value,
 };
@@ -68,6 +76,7 @@ struct TravelNode {
     hasher: PartitionHasher,
     recording: Arc<RecordingCommandAndEffectHooks>,
     next_request: AtomicUsize,
+    objects: Arc<InMemoryObjectStore>,
 }
 
 impl TravelNode {
@@ -167,6 +176,7 @@ impl TravelNode {
             hasher,
             recording,
             next_request: AtomicUsize::new(0),
+            objects: cluster.object_store.clone(),
         }
     }
 
@@ -311,17 +321,104 @@ impl TravelNode {
             .count()
     }
 
-    /// Removes the history record at `seq` from the local store, as offloading does, and
-    /// returns it.
-    fn remove_history_record(&self, run_id: RunId, seq: u64) -> HistoryRecord {
-        let record = self.history_record(run_id, seq);
-        let mut batch = WriteBatch::new();
-        batch.delete(
-            ColumnFamily::History,
-            history_record_key(self.context().flow_hash, run_id, seq),
-        );
-        self.store.write(batch).expect("the record is removed");
-        record
+    /// Turns offload mode on for the Flow's partition.
+    async fn enable_history_offload(&self) {
+        let partition = self.context().partition;
+        let (_, ticket) = self
+            .committer()
+            .submit(
+                self.context(),
+                FlowCommand {
+                    flow_id: FLOW_ID.to_owned(),
+                    command: Some(Command::SetHistoryOffloadMode(
+                        dexzd_protocol::dexzd::v1::SetHistoryOffloadModeCommand {
+                            enabled: true,
+                            partition: u32::from(partition.0),
+                        },
+                    )),
+                    ..FlowCommand::default()
+                },
+                CommitUrgency::Prompt,
+            )
+            .expect("the mode command is submitted");
+        ticket.wait().await.expect("the mode commits");
+    }
+
+    /// Uploads and acknowledges every SEALED segment of the run as the uploader does, then
+    /// deletes the local History records and checkpoints they cover, except genesis, as local
+    /// deletion after upload does. Returns the run's uploaded-through seq.
+    async fn offload_sealed_history(&self, run_id: RunId) -> u64 {
+        let flow_hash = self.context().flow_hash;
+        // FlowStart is the run's first seq.
+        let genesis_seq = 1;
+        for segment in self.segments(run_id) {
+            if segment.state != HistorySegmentState::Sealed as i32 {
+                continue;
+            }
+            let content =
+                read_history_segment_content(&self.view(), flow_hash, run_id, segment.first_seq)
+                    .expect("the segment content reads")
+                    .expect("the segment exists");
+            let encoded = encode_history_segment(&content).expect("the content encodes");
+            let object_size_bytes = u64::try_from(encoded.bytes.len()).expect("small object");
+            let key = history_segment_object_key(
+                TenantId::DEFAULT,
+                flow_hash,
+                run_id,
+                segment.first_seq,
+                segment.last_seq,
+            );
+            self.objects
+                .put(&key, Bytes::from(encoded.bytes), WriteCondition::CreateOnly)
+                .await
+                .expect("the object writes");
+            self.commit(
+                run_id,
+                Command::HistorySegmentUploaded(HistorySegmentUploadedCommand {
+                    first_seq: segment.first_seq,
+                    last_seq: segment.last_seq,
+                    content_checksum: encoded.content_checksum.to_vec(),
+                    object_size_bytes,
+                }),
+            )
+            .await;
+            let mut batch = WriteBatch::new();
+            for record in &content.records {
+                if record.seq != genesis_seq {
+                    batch.delete(
+                        ColumnFamily::History,
+                        history_record_key(flow_hash, run_id, record.seq),
+                    );
+                }
+            }
+            for checkpoint in &content.checkpoints {
+                batch.delete(
+                    ColumnFamily::History,
+                    checkpoint_key(flow_hash, run_id, checkpoint.attempt, checkpoint.seq),
+                );
+            }
+            self.store.write(batch).expect("the local rows are removed");
+        }
+        self.run_record(run_id).history_uploaded_through_seq
+    }
+
+    fn segments(&self, run_id: RunId) -> Vec<HistorySegmentRecord> {
+        let prefix = run_table_prefix(self.context().flow_hash, run_id, RunTable::HistorySegment);
+        let (start, end) = prefix_range(&prefix);
+        self.view()
+            .scan(ColumnFamily::Flow, &start, &end, usize::MAX)
+            .expect("the catalog scans")
+            .into_iter()
+            .map(|(_, value)| {
+                HistorySegmentRecord::decode(value.as_slice()).expect("the catalog row decodes")
+            })
+            .collect()
+    }
+
+    /// Returns how many ranged reads of history segment objects object storage served.
+    fn history_object_reads(&self) -> u64 {
+        self.objects
+            .call_count(ObjectStoreOperation::Get, "history/")
     }
 
     /// Removes a superseded value's value row, as offloading does, keeping its birth and
@@ -466,15 +563,14 @@ impl HardDeleteValueUploader for UnusedPorts {
 }
 
 /// A test-controlled history opener: the first open can wait at a gate while the test changes
-/// committed state, and every open serves the records and values the test removed from the
-/// local store, as an object storage source does.
+/// committed state, and every open serves the values the test removed from the local store
+/// besides local rows and fetched segments, as an object storage source does.
 #[derive(Default)]
 struct ScriptedHistory {
     gate: Mutex<Option<(Arc<Notify>, Arc<Notify>)>>,
     opens: AtomicUsize,
     /// Current run attempt each open saw.
     seen_attempts: Mutex<Vec<u32>>,
-    removed_records: Arc<Mutex<BTreeMap<u64, HistoryRecord>>>,
     removed_values: Arc<Mutex<BTreeMap<ValueId, Value>>>,
 }
 
@@ -494,6 +590,7 @@ impl TimeTravelHistoryOpener for ScriptedHistory {
         view: Box<dyn FlowStateReader + Send>,
         context: ApplyContext,
         run_id: RunId,
+        segments: Arc<LoadedHistorySegments>,
     ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>> {
         Box::pin(async move {
             self.opens.fetch_add(1, Ordering::SeqCst);
@@ -515,9 +612,7 @@ impl TimeTravelHistoryOpener for ScriptedHistory {
             }
             let history: Box<dyn TimeTravelRunHistory> = Box::new(ScriptedRunHistory {
                 view,
-                context,
-                run_id,
-                removed_records: self.removed_records.lock().expect("record lock").clone(),
+                segments,
                 removed_values: RemovedValues(
                     self.removed_values.lock().expect("value lock").clone(),
                 ),
@@ -529,60 +624,23 @@ impl TimeTravelHistoryOpener for ScriptedHistory {
 
 struct ScriptedRunHistory {
     view: Box<dyn FlowStateReader + Send>,
-    context: ApplyContext,
-    run_id: RunId,
-    removed_records: BTreeMap<u64, HistoryRecord>,
+    segments: Arc<LoadedHistorySegments>,
     removed_values: RemovedValues,
 }
 
 impl TimeTravelRunHistory for ScriptedRunHistory {
-    fn state(&self) -> &dyn FlowStateReader {
-        self.view.as_ref()
-    }
-
-    fn history(&self) -> Box<dyn HistorySource + '_> {
-        Box::new(MergedHistory {
-            local: StateHistorySource::new(self.view.as_ref(), self.context, self.run_id),
-            removed: &self.removed_records,
-        })
-    }
-
-    fn offloaded_values(&self) -> &dyn OffloadedValues {
-        &self.removed_values
-    }
-}
-
-/// Local records plus the removed ones, in seq order.
-struct MergedHistory<'source> {
-    local: StateHistorySource<'source>,
-    removed: &'source BTreeMap<u64, HistoryRecord>,
-}
-
-impl HistorySource for MergedHistory<'_> {
-    fn history_records(
+    fn compute_time_travel(
         &self,
-        seqs: RangeInclusive<u64>,
-        batch_records: usize,
-    ) -> HistoryRecords<'_> {
-        let mut records = BTreeMap::new();
-        for record in self.local.history_records(seqs.clone(), batch_records) {
-            match record {
-                Ok(record) => {
-                    records.insert(record.seq, Ok(record));
-                }
-                Err(error) => return Box::new(std::iter::once(Err(error))),
-            }
-        }
-        if !seqs.is_empty() {
-            for (seq, record) in self.removed.range(seqs) {
-                records.insert(*seq, Ok(record.clone()));
-            }
-        }
-        Box::new(records.into_values())
-    }
-
-    fn checkpoint(&self, attempt: u32, seq: u64) -> Result<Option<CheckpointRecord>, ApplyError> {
-        self.local.checkpoint(attempt, seq)
+        context: &ApplyContext,
+        request: &TimeTravelComputationRequest<'_>,
+    ) -> Result<SegmentedTimeTravelComputation, ApplyError> {
+        compute_time_travel_from_segments(
+            context,
+            self.view.as_ref(),
+            &self.segments,
+            &self.removed_values,
+            request,
+        )
     }
 }
 
@@ -644,8 +702,22 @@ fn table_value_id(record: &AttributeRecord) -> ValueId {
     }
 }
 
-fn local_opener() -> Arc<dyn TimeTravelHistoryOpener> {
-    Arc::new(LocalTimeTravelHistory)
+/// Coordination whose runs seal a history segment with every command and write a checkpoint
+/// every two commands, so offloading leaves little history local.
+fn offloading_config() -> FlowCoordinationConfig {
+    let config = FlowCoordinationConfig::default();
+    FlowCoordinationConfig {
+        run_settings: RunSettings {
+            history_segment_target_bytes: 1,
+            checkpoint_command_threshold: 2,
+            ..config.run_settings
+        },
+        ..config
+    }
+}
+
+fn segmented_opener() -> Arc<dyn TimeTravelHistoryOpener> {
+    Arc::new(SegmentedTimeTravelHistory)
 }
 
 /// Every target type restores the point that apply first produced: the debug replay check
@@ -656,7 +728,7 @@ async fn every_target_type_restores_the_point_its_first_apply_recorded() {
     let travel = TravelNode::start(
         &cluster,
         LocalStoreConfig::InMemory,
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig::default(),
     )
     .await;
@@ -707,7 +779,7 @@ async fn time_travel_takes_the_same_path_while_the_partition_offloads_history() 
     let travel = TravelNode::start(
         &cluster,
         LocalStoreConfig::InMemory,
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig::default(),
     )
     .await;
@@ -813,7 +885,7 @@ async fn a_run_with_a_heartbeating_step_travels_in_one_computation() {
 
 /// Input committed while the owner computes is reapplied from the local tail. Input that left
 /// the local store by then makes apply reject the result; the owner computes again with the
-/// input from object storage.
+/// input from its uploaded segment.
 #[tokio::test(start_paused = true)]
 async fn input_committed_during_the_computation_is_reapplied() {
     let cluster = TestCluster::new();
@@ -822,9 +894,10 @@ async fn input_committed_during_the_computation_is_reapplied() {
         &cluster,
         LocalStoreConfig::InMemory,
         history.clone(),
-        FlowCoordinationConfig::default(),
+        offloading_config(),
     )
     .await;
+    travel.enable_history_offload().await;
     let run_id = travel.start_flow(None).await;
     travel.set_attribute("early", string_value("1")).await;
     let (opened, release) = history.gate_next_open();
@@ -851,26 +924,102 @@ async fn input_committed_during_the_computation_is_reapplied() {
         opened.notified().await;
         travel.set_attribute("offloaded", string_value("3")).await;
         let seq = travel.run_record(run_id).next_run_seq - 1;
-        let record = travel.remove_history_record(run_id, seq);
-        history
-            .removed_records
-            .lock()
-            .expect("record lock")
-            .insert(seq, record);
+        assert!(
+            travel.offload_sealed_history(run_id).await >= seq,
+            "the input's segment is uploaded and its local record deleted"
+        );
         release.notify_one();
     };
     let (attempt, ()) = tokio::join!(resetting, offloaded_input);
     assert_eq!(attempt.expect("the reset applies"), 3);
-    assert_eq!(
-        history.opens.load(Ordering::SeqCst),
-        3,
-        "apply rejected the first result and the owner computed again"
+    assert!(
+        history.opens.load(Ordering::SeqCst) > 3,
+        "apply rejected the first result, and the owner computed again over segments it fetched"
     );
+    assert!(travel.history_object_reads() > 0);
     assert!(
         travel.attribute(run_id, "offloaded").is_some(),
         "the input read from object storage is reapplied"
     );
     travel.assert_every_travel_verified(2);
+    travel.shutdown().await;
+}
+
+/// Every target type restores the point its first apply recorded when the target's history and
+/// checkpoints exist only in uploaded segments, and when the target is local after uploaded
+/// history.
+#[tokio::test(start_paused = true)]
+async fn targets_whose_history_exists_only_in_uploaded_segments_restore_their_recorded_points() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    travel.set_attribute("status", string_value("paid")).await;
+    let paid_seq = travel.run_record(run_id).next_run_seq - 1;
+    let paid_time = travel.history_record(run_id, paid_seq).timestamp_micros;
+    for index in 0..4 {
+        travel
+            .set_attribute("report", string_value(&format!("{index}").repeat(400)))
+            .await;
+    }
+    let requests = [
+        reset(FlowResetType::Beginning, true),
+        reset_to_time(paid_time),
+        ResetFlowRequest {
+            step_type: START_STEP.to_owned(),
+            ..reset(FlowResetType::StepType, true)
+        },
+        ResetFlowRequest {
+            step_execution_id: START_STEP_EXECUTION.to_owned(),
+            step_method: FlowResetStepMethod::WaitFor as i32,
+            ..reset(FlowResetType::StepExecutionId, false)
+        },
+        ResetFlowRequest {
+            run_attempt: 1,
+            ..reset_to_time(paid_time)
+        },
+    ];
+    let mut expected_verified = 0;
+    for request in requests {
+        let uploaded_through_seq = travel.offload_sealed_history(run_id).await;
+        assert_eq!(
+            uploaded_through_seq,
+            travel.run_record(run_id).next_run_seq - 1,
+            "every record is uploaded and only genesis stays local"
+        );
+        let reads_before = travel.history_object_reads();
+        let attempt = travel.reset(request).await.expect("the reset applies");
+        expected_verified += 1;
+        assert_eq!(attempt, expected_verified + 1);
+        travel.assert_every_travel_verified(u64::from(expected_verified));
+        assert!(
+            travel.history_object_reads() > reads_before,
+            "the computation read uploaded segments"
+        );
+    }
+
+    // A local target after uploaded history.
+    travel.offload_sealed_history(run_id).await;
+    travel.set_attribute("tail", string_value("local")).await;
+    let tail_seq = travel.run_record(run_id).next_run_seq - 1;
+    let tail_time = travel.history_record(run_id, tail_seq).timestamp_micros;
+    travel
+        .set_attribute("after-tail", string_value("local"))
+        .await;
+    let attempt = travel
+        .reset(reset_to_time(tail_time))
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, expected_verified + 2);
+    travel.assert_every_travel_verified(u64::from(expected_verified) + 1);
+    assert!(travel.attribute(run_id, "tail").is_some());
+    assert!(travel.attribute(run_id, "after-tail").is_none());
     travel.shutdown().await;
 }
 
@@ -939,6 +1088,95 @@ async fn a_value_offloaded_during_the_computation_is_staged_on_the_next_one() {
     travel.shutdown().await;
 }
 
+/// A value that reapplied input references left the local store after the computation: apply
+/// rejects the result naming it without halting, and the owner computes again and stages the
+/// value from object storage.
+#[tokio::test(start_paused = true)]
+async fn a_value_reapplied_input_references_is_staged_after_it_leaves_the_store() {
+    let cluster = TestCluster::new();
+    let history = Arc::new(ScriptedHistory::default());
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        history.clone(),
+        FlowCoordinationConfig::default(),
+    )
+    .await;
+    let run_id = travel.start_flow(None).await;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    let reference = ValueReference {
+        run_id,
+        value_id: old_value,
+    }
+    .to_string();
+    // Request validation admits no reference, so the input is committed as apply accepts it.
+    travel
+        .commit(
+            run_id,
+            Command::AttributesSet(AttributesSetCommand {
+                request: Some(SetAttributesRequest {
+                    flow_id: FLOW_ID.to_owned(),
+                    attributes: vec![AttributeWrite {
+                        key: "copy".to_owned(),
+                        value: Some(Value {
+                            kind: Some(value::Kind::InternalBlobIdForStringValue(reference)),
+                        }),
+                        ..AttributeWrite::default()
+                    }],
+                    request_id: "copy-report".to_owned(),
+                    ..SetAttributesRequest::default()
+                }),
+                hard_delete_objects: Vec::new(),
+                request_fingerprint: b"copy-report".to_vec(),
+            }),
+        )
+        .await;
+    assert_eq!(
+        table_value_id(&travel.attribute(run_id, "copy").expect("the copy")),
+        old_value
+    );
+    travel.set_attribute("report", string_value("new")).await;
+    travel.set_attribute("copy", string_value("new")).await;
+    let (opened, release) = history.gate_next_open();
+    let resetting = travel.reset(reset(FlowResetType::Beginning, true));
+    let offload = async {
+        opened.notified().await;
+        let value = travel.offload_superseded_value(run_id, old_value);
+        history
+            .removed_values
+            .lock()
+            .expect("value lock")
+            .insert(old_value, value);
+        release.notify_one();
+    };
+    let (attempt, ()) = tokio::join!(resetting, offload);
+    assert_eq!(attempt.expect("the reset applies"), 2);
+    assert_eq!(
+        history.opens.load(Ordering::SeqCst),
+        2,
+        "apply rejected the first result and the owner computed again"
+    );
+    let value_key = value_row_key(
+        travel.context().flow_hash,
+        run_id,
+        RunTable::Value,
+        old_value,
+    );
+    assert!(
+        travel
+            .view()
+            .get(ColumnFamily::Value, &value_key)
+            .expect("the value reads")
+            .is_some(),
+        "the staged value is stored again"
+    );
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
+}
+
 /// A replay that needs more memory than configured fails with RESOURCE_EXHAUSTED, which names
 /// the configuration key.
 #[tokio::test(start_paused = true)]
@@ -947,7 +1185,7 @@ async fn a_replay_over_the_memory_budget_fails_explicitly() {
     let travel = TravelNode::start(
         &cluster,
         LocalStoreConfig::InMemory,
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig {
             time_travel_replay_memory_bytes: 2048,
             ..FlowCoordinationConfig::default()
@@ -972,6 +1210,53 @@ async fn a_replay_over_the_memory_budget_fails_explicitly() {
         "{error}"
     );
     assert_eq!(travel.committed_count(is_stage), 0, "nothing is staged");
+    travel.shutdown().await;
+}
+
+/// Uploaded history larger than the replay memory budget fails the ResetFlow with
+/// RESOURCE_EXHAUSTED once the fetched part exceeds it, before every segment is read.
+#[tokio::test(start_paused = true)]
+async fn uploaded_history_over_the_memory_budget_fails_before_every_segment_is_read() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        FlowCoordinationConfig {
+            time_travel_replay_memory_bytes: 8 << 10,
+            ..offloading_config()
+        },
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    for index in 0..200 {
+        travel
+            .set_attribute("note", string_value(&format!("{index:03}").repeat(100)))
+            .await;
+    }
+    travel.offload_sealed_history(run_id).await;
+    let segment_count = u64::try_from(travel.segments(run_id).len()).expect("few segments");
+    assert!(segment_count > 200);
+    let reads_before = travel.history_object_reads();
+    let error = travel
+        .reset(reset(FlowResetType::Beginning, true))
+        .await
+        .expect_err("the uploaded history exceeds 8 KiB");
+    assert_eq!(error.grpc_code(), grpc_code::RESOURCE_EXHAUSTED, "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("history.timeTravelReplayMemoryBytes"),
+        "{error}"
+    );
+    let reads = travel.history_object_reads() - reads_before;
+    assert!(
+        reads < segment_count,
+        "{reads} object reads for {segment_count} segments of two parts each"
+    );
+    assert_eq!(travel.committed_count(is_stage), 0, "nothing is staged");
+    assert_eq!(travel.run_record(run_id).current_attempt, 1);
     travel.shutdown().await;
 }
 
@@ -1019,7 +1304,7 @@ async fn competing_resets_from_two_registries_compute_again_after_the_attempt_ch
     let travel = TravelNode::start_with_registries(
         &cluster,
         LocalStoreConfig::InMemory,
-        vec![local_opener(), competing.clone()],
+        vec![segmented_opener(), competing.clone()],
         FlowCoordinationConfig::default(),
     )
     .await;
@@ -1060,7 +1345,7 @@ async fn a_beginning_reset_that_holds_more_input_than_its_budget_fails_explicitl
     let travel = TravelNode::start(
         &cluster,
         LocalStoreConfig::InMemory,
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig {
             time_travel_replay_memory_bytes: 256 << 10,
             ..FlowCoordinationConfig::default()
@@ -1104,7 +1389,7 @@ async fn a_result_larger_than_a_log_record_is_staged_in_several_commands() {
     let travel = TravelNode::start(
         &cluster,
         LocalStoreConfig::InMemory,
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig::default(),
     )
     .await;
@@ -1187,7 +1472,7 @@ async fn a_hot_standby_replays_staged_time_travel_to_the_serving_state() {
     let travel = TravelNode::start(
         &cluster,
         crate::hot_standby::rocksdb_store(&serving_directory),
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig::default(),
     )
     .await;
@@ -1239,7 +1524,7 @@ async fn a_restored_snapshot_keeps_the_staging_for_its_time_travel() {
     let first = TravelNode::start(
         &cluster,
         LocalStoreConfig::InMemory,
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig::default(),
     )
     .await;
@@ -1262,7 +1547,7 @@ async fn a_restored_snapshot_keeps_the_staging_for_its_time_travel() {
     let second = TravelNode::start(
         &cluster,
         LocalStoreConfig::InMemory,
-        local_opener(),
+        segmented_opener(),
         FlowCoordinationConfig::default(),
     )
     .await;
