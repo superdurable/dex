@@ -17,7 +17,7 @@ use crate::command_handlers::{
     CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 use crate::history;
-use crate::history_offload::segment_seal::seal_history_segment_if_due;
+use crate::history_offload::segment_migration::seal_or_migrate_history_segment;
 use crate::projections::history_event_links::{
     HistoryEventIndex, PendingHistoryEvents, StepEventLink, resolve_step_event_links,
     with_recorded_event_ids,
@@ -283,7 +283,7 @@ impl RunCursor {
         );
         search_document::refresh_search_document(transaction, &self, scope)?;
         history::after_command(transaction, &mut self, window_events)?;
-        seal_history_segment_if_due(transaction, &mut self, scope.now_micros, has_closed_run)?;
+        seal_or_migrate_history_segment(transaction, &mut self, scope.now_micros, has_closed_run)?;
         self.rows.put_run_record(transaction, &self.record);
         if scope.is_replay {
             reconcile_run_storage(transaction, &mut self)?;

@@ -79,6 +79,13 @@ Then the node took a snapshot. After the snapshot:
   run's only history segment with that value listed, and a HistorySegmentUploaded
   acknowledgment marks the segment uploaded and removes the run's pending index row.
 - Partition 0 disables history offload, which deletes its mode record.
+- `legacy-running` and `legacy-closed`, in partition 2, which never offloads history, run with an
+  eight-event window, a checkpoint every two commands, and 1,500-byte segments. Thirty commands
+  that alternately replace a long `profile` Attribute and publish to a Channel let the window
+  prune `legacy-running`, which stays running without segment state. `legacy-closed` applies four
+  such commands and is canceled; its 60-second retention timer stays pending.
+- `legacy-migrating`, in partition 3, records the same thirty commands. Then partition 3 enables
+  history offload, and each of the run's next two commands seals one migration segment.
 
 Every `FlowCommand` kind of behavior version 1 appears in the log. Hand-out commands outside
 `handout-sync` and `handout-travel` carry no task ID, as an older log does. Log cleanup did not run,

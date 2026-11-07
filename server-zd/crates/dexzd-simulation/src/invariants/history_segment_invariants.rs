@@ -20,6 +20,7 @@ use dexzd_protocol::dexzd::v1::{
     FlowCommand, HistorySegmentState, RunRecord, flow_command::Command,
 };
 
+use crate::invariants::history_migration_invariants::{is_migration_step, must_migrate};
 use crate::invariants::{InvariantViolation, RunContext};
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunView};
@@ -75,17 +76,21 @@ pub(crate) fn check_open_segment_transitions(
                 record.history_open_segment_superseded_value_count,
             )
         };
+        let seq = previous.next_run_seq.max(1);
+        let is_migration_required = must_migrate(previous, current, view, seq);
         if previous.history_open_segment_first_seq == 0 {
-            if current.history_open_segment_first_seq != 0 {
+            if (current.history_open_segment_first_seq != 0 || is_migration_required)
+                && !is_migration_step(previous, current, run, view, seq)
+            {
                 return Err(violation(
                     "H9-open-segment-transition",
                     &context,
-                    "an existing run without segment state gained it",
+                    "an existing run without segment state gained it without migrating, or a \
+                     running one did not start migrating",
                 ));
             }
             continue;
         }
-        let seq = previous.next_run_seq.max(1);
         if current.next_run_seq != seq + 1 {
             if open(current) != open(previous) {
                 return Err(violation(
@@ -126,11 +131,20 @@ pub(crate) fn check_open_segment_transitions(
             let is_kept = current.history_open_segment_first_seq == first_seq
                 && current.history_open_segment_first_event_id
                     == previous.history_open_segment_first_event_id;
-            if !(is_kept || (moved_after_command && sealed_now)) {
+            let has_migration_step = is_migration_step(previous, current, run, view, seq);
+            let is_valid = if is_migration_required {
+                has_migration_step
+            } else {
+                is_kept || (moved_after_command && sealed_now) || has_migration_step
+            };
+            if !is_valid {
                 return Err(violation(
                     "H9-open-segment-transition",
                     &context,
-                    format!("seq {seq} moved the open segment without sealing it"),
+                    format!(
+                        "seq {seq} moved the open segment without sealing it, or a running \
+                         migration made no progress"
+                    ),
                 ));
             }
         }

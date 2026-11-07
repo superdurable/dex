@@ -38,8 +38,8 @@ pub use invalid_client_inputs::{
     check_invalid_client_input_rejected, invalid_client_input,
 };
 pub use invariants::{
-    CheckerMemory, CloseBarrierCounts, GUARDED_ATTRIBUTE_KEYS, InvariantViolation, check_flow,
-    check_fresh_snapshot,
+    CheckerMemory, CloseBarrierCounts, GUARDED_ATTRIBUTE_KEYS, HistoryMigrationCounts,
+    InvariantViolation, check_flow, check_fresh_snapshot,
 };
 pub use memory_state::MemoryFlowState;
 pub use model::{

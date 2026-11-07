@@ -164,6 +164,9 @@ message RunRecord {
   uint64 history_open_segment_superseded_value_count = 62;
   // Last seq of the newest uploaded history segment (U); zero before the first upload.
   uint64 history_uploaded_through_seq = 63;
+  // Seq that started migrating older history; zero when not migrating. The open segment then
+  // tracks no bytes.
+  uint64 history_migration_started_seq = 64;
   // First event ID the open history segment can hold: the run's next event ID when it opened.
   int64 history_open_segment_first_event_id = 66;
 }

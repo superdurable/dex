@@ -52,7 +52,8 @@ superseded inside it, or when the command closed the run. Sealing writes a SEALE
 with a superseded seq inside the range, and the run's `HistoryUploadPending`
 index row, and emits `HistorySegmentSealed`. A value revived later keeps its row,
 so the segment's content never changes. Runs that started while offload was off
-keep no segment state. While the partition does not offload, apply seals nothing,
+keep no segment state until they migrate; see History migration. While the
+partition does not offload, apply seals nothing,
 and each command of a run with segment state moves the open segment past itself.
 The seqs and events of those commands belong to no segment, and their local rows
 follow window pruning, so a segment opened after offload is turned on again never
@@ -73,6 +74,35 @@ returns to the window rule. Segment rows count as history bytes, never toward th
 run state limit. Run purge deletes the pending index row with the run. Retention postpones a closed run while it has a SEALED
 segment, as it does for an unacknowledged outbox message, so purging never
 abandons an upload.
+
+## History migration
+
+A run that started while its partition did not offload history has no segment
+state. The first command that leaves such a run running while its partition
+offloads starts the migration: it sets `history_migration_started_seq` to its
+seq and opens the segment at the run's first seq and event 1. While the run
+migrates, the open segment holds every unsealed seq up to the current command
+and tracks no bytes, and each command of the run seals one segment of it.
+
+A migration segment ends at a whole seq: the first one where it holds at least
+two history records and reaches the target bytes, 10,000 superseded values, or
+10,000 history rows. Otherwise it ends at the command's own seq, which ends the
+migration. Cutting it reads one bounded page of history metadata and of table G.
+Because segments end only at whole seqs, a migration step is bounded by the
+largest single command in the migrated range, as sealing is: one seq whose
+command superseded 30,000 values seals all of them in one step.
+Two records per segment let the migration gain on the run, since each command
+adds one record. The segment holds the rows still stored in its seqs, so seqs
+that window pruning deleted earlier are holes inside the reported pruned event
+range. Its event range comes from the metadata `last_assigned_event_id`; records
+written before that field are decoded instead. Pruning keeps every row above U
+while the partition offloads, so nothing is deleted before its segment uploads.
+
+A closed run never starts migrating, so retention purges its local history
+directly. A run that closes during its migration seals one more segment at its
+closing command and then keeps the rest local until purge; a time travel that
+reopens it continues the migration. Turning offload off ends a migration, and the
+unsealed rest joins the gap of commands applied while offload is off.
 
 ## Value and storage accounting
 

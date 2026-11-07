@@ -144,6 +144,11 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         total.history_segments_sealed > 0,
         "the seed set never sealed a history segment: {total:#?}"
     );
+    let migrations = total.history_migrations;
+    assert!(
+        migrations.started > 0 && migrations.completed > 0 && migrations.abandoned > 0,
+        "the seed set never started, completed, and abandoned a history migration: {total:#?}"
+    );
     assert!(
         total.history_offload_off_time_travels > 0,
         "the seed set never time traveled a run while its partition did not offload: {total:#?}"
