@@ -6,6 +6,22 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### The session graph for Dex Web
+
+- Python and TypeScript cores: `render_session_flow_graph` (`renderSessionFlowGraph`)
+  and the `dex-agents-session-graph` command render the Flow Definition Graph 2.0
+  file of an agent's session Flow, with the application's Flow type and Action
+  permission. Dex Web loads it with `--flow-rendering-dir`, draws the session
+  Steps, and offers `resolve_interrupt`, `answer_question`, `steer_user_message`,
+  and `cancel_turn` as Actions without a condition. Both cores write the same bytes.
+- The graph is derived from the Python core's registered Flow and source and
+  ships in both packages. The conformance suite adds `session_graph.json`, and
+  each core's tests fail when the graph and the session Flow disagree.
+- Dex Web needs a release that accepts Actions without a condition and calls no
+  RPC for a view without fields.
+- Go core: no graph. It registers only part of the session Flow.
+- See [Show sessions in Dex Web](../docs/content/agent-frameworks/deploy-agents.mdx).
+
 ### Spend limits
 
 - Python and TypeScript cores: the new `ModelSpendLimit` interface is an

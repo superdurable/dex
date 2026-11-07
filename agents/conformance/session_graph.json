@@ -1,0 +1,2187 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "dex_agents/session_flow.py"
+  },
+  "flow": {
+    "name": "<flow-type>",
+    "startStepId": "step:StartAgentSession"
+  },
+  "nodes": [
+    {
+      "id": "resource:stream:AgentEvents",
+      "kind": "stream",
+      "name": "AgentEvents",
+      "resource": {
+        "valueType": "AgentEvent"
+      }
+    },
+    {
+      "id": "resource:attribute:AgentMessageChunks",
+      "kind": "attribute",
+      "name": "AgentMessageChunks",
+      "resource": {
+        "valueType": "AgentMessageChunk",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:attribute:AgentMessageIndex",
+      "kind": "attribute",
+      "name": "AgentMessageIndex",
+      "resource": {
+        "valueType": "AgentMessageIndex"
+      }
+    },
+    {
+      "id": "resource:attribute:AgentMessages",
+      "kind": "attribute",
+      "name": "AgentMessages",
+      "resource": {
+        "valueType": "AgentMessage",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:attribute:AgentPlan",
+      "kind": "attribute",
+      "name": "AgentPlan",
+      "resource": {
+        "valueType": "AgentPlan"
+      }
+    },
+    {
+      "id": "resource:attribute:AgentState",
+      "kind": "attribute",
+      "name": "AgentState",
+      "resource": {
+        "valueType": "AgentState"
+      }
+    },
+    {
+      "id": "resource:attribute:AgentToolCalls",
+      "kind": "attribute",
+      "name": "AgentToolCalls",
+      "resource": {
+        "valueType": "AgentToolCall",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:attribute:AgentTraceContext",
+      "kind": "attribute",
+      "name": "AgentTraceContext",
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:AgentUsage",
+      "kind": "attribute",
+      "name": "AgentUsage",
+      "resource": {
+        "valueType": "AgentUsage"
+      }
+    },
+    {
+      "id": "resource:attribute:ContextSummary",
+      "kind": "attribute",
+      "name": "ContextSummary",
+      "resource": {
+        "valueType": "ContextSummary"
+      }
+    },
+    {
+      "id": "resource:attribute:FrameworkRunState",
+      "kind": "attribute",
+      "name": "FrameworkRunState",
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:channel:InterruptResolutions",
+      "kind": "channel",
+      "name": "InterruptResolutions",
+      "resource": {
+        "valueType": "AgentInterruptResolution",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:attribute:PendingInterrupts",
+      "kind": "attribute",
+      "name": "PendingInterrupts",
+      "resource": {
+        "valueType": "AgentInterruptList"
+      }
+    },
+    {
+      "id": "resource:attribute:PendingPlanExecution",
+      "kind": "attribute",
+      "name": "PendingPlanExecution",
+      "resource": {
+        "valueType": "PlanExecutionRequest"
+      }
+    },
+    {
+      "id": "resource:channel:PlanExecutions",
+      "kind": "channel",
+      "name": "PlanExecutions",
+      "resource": {
+        "valueType": "PlanExecutionRequest",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:QueuedUserMessages",
+      "kind": "channel",
+      "name": "QueuedUserMessages",
+      "resource": {
+        "valueType": "AgentUserMessage"
+      }
+    },
+    {
+      "id": "resource:attribute:SessionSettings",
+      "kind": "attribute",
+      "name": "SessionSettings",
+      "resource": {
+        "valueType": "SessionSettings"
+      }
+    },
+    {
+      "id": "resource:channel:SteeredUserMessages",
+      "kind": "channel",
+      "name": "SteeredUserMessages",
+      "resource": {
+        "valueType": "AgentUserMessage"
+      }
+    },
+    {
+      "id": "resource:channel:ToolCallCancellations",
+      "kind": "channel",
+      "name": "ToolCallCancellations",
+      "resource": {
+        "valueType": "ToolCallCancellation",
+        "map": true
+      }
+    },
+    {
+      "id": "resource:channel:ToolCallResults",
+      "kind": "channel",
+      "name": "ToolCallResults",
+      "resource": {
+        "valueType": "ToolCallCompleted"
+      }
+    },
+    {
+      "id": "resource:attribute:TurnCancellationRequest",
+      "kind": "attribute",
+      "name": "TurnCancellationRequest",
+      "resource": {
+        "valueType": "TurnCancellationRequest"
+      }
+    },
+    {
+      "id": "resource:channel:TurnControlRequests",
+      "kind": "channel",
+      "name": "TurnControlRequests",
+      "resource": {
+        "valueType": "TurnControlRequest"
+      }
+    },
+    {
+      "id": "resource:attribute:TurnReplySequence",
+      "kind": "attribute",
+      "name": "TurnReplySequence",
+      "resource": {
+        "valueType": "TurnReplySequence"
+      }
+    },
+    {
+      "id": "resource:attribute:TurnSessionSettings",
+      "kind": "attribute",
+      "name": "TurnSessionSettings",
+      "resource": {
+        "valueType": "TurnSessionSettings"
+      }
+    },
+    {
+      "id": "step:StartAgentSession",
+      "kind": "step",
+      "name": "StartAgentSession",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Initialize the session and start its first turn when a message is given."
+      },
+      "start": true
+    },
+    {
+      "id": "decision:step:StartAgentSession:goTo:AwaitUserMessage",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:StartAgentSession",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:StartAgentSession:goTo:RunModel",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:StartAgentSession",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:StartAgentSession:forceFail",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:StartAgentSession",
+      "phase": "execute",
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "step:AwaitUserMessage",
+      "kind": "step",
+      "name": "AwaitUserMessage",
+      "phase": "wait_for+execute",
+      "metadata": {
+        "explanation": "Wait for a steer, a queued user message, or a plan execution."
+      }
+    },
+    {
+      "id": "wait:AwaitUserMessage",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitUserMessage",
+      "phase": "wait_for",
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "TurnControlRequests",
+            "resourceId": "resource:channel:TurnControlRequests"
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "QueuedUserMessages",
+            "resourceId": "resource:channel:QueuedUserMessages"
+          },
+          {
+            "index": 2,
+            "kind": "channel",
+            "label": "PlanExecutions",
+            "resourceId": "resource:channel:PlanExecutions"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:AwaitUserMessage:goTo:ApplyTurnControl",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitUserMessage",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitUserMessage:goTo:AwaitUserMessage",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitUserMessage",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitUserMessage:goTo:RunModel",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitUserMessage",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:RunModel",
+      "kind": "step",
+      "name": "RunModel",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Make one model call of the active turn through the framework runner."
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:ApplyTurnControl",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:AwaitQuestionAnswer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:AwaitTimer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:AwaitToolApproval",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:AwaitUserMessage",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:CallSingleAttemptTool",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:CallTool",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:CompactContext",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:RecordTurnFailure",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RunModel:goTo:ResumeTurn",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:CompactContext",
+      "kind": "step",
+      "name": "CompactContext",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Summarize the messages through a sequence for the model input, then call the model."
+      }
+    },
+    {
+      "id": "decision:step:CompactContext:goTo:RecordTurnFailure",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CompactContext",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CompactContext:goTo:RunModel",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CompactContext",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:AwaitToolApproval",
+      "kind": "step",
+      "name": "AwaitToolApproval",
+      "phase": "wait_for+execute",
+      "metadata": {
+        "explanation": "Wait for one tool call's approval or deadline, then run or reject it."
+      }
+    },
+    {
+      "id": "wait:AwaitToolApproval",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitToolApproval",
+      "phase": "wait_for",
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "ToolCallCancellations",
+            "resourceId": "resource:channel:ToolCallCancellations"
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "InterruptResolutions",
+            "resourceId": "resource:channel:InterruptResolutions"
+          },
+          {
+            "index": 2,
+            "kind": "timer",
+            "label": "Timer"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:AwaitToolApproval:goTo:AwaitToolApproval",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitToolApproval",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitToolApproval:goTo:CallSingleAttemptTool",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitToolApproval",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitToolApproval:goTo:CallTool",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitToolApproval",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitToolApproval:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:AwaitToolApproval",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "step:AwaitQuestionAnswer",
+      "kind": "step",
+      "name": "AwaitQuestionAnswer",
+      "phase": "wait_for+execute",
+      "metadata": {
+        "explanation": "Wait for one question's answer, decline, or deadline, then record the result."
+      }
+    },
+    {
+      "id": "wait:AwaitQuestionAnswer",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitQuestionAnswer",
+      "phase": "wait_for",
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "ToolCallCancellations",
+            "resourceId": "resource:channel:ToolCallCancellations"
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "InterruptResolutions",
+            "resourceId": "resource:channel:InterruptResolutions"
+          },
+          {
+            "index": 2,
+            "kind": "timer",
+            "label": "Timer"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:AwaitQuestionAnswer:goTo:AwaitQuestionAnswer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitQuestionAnswer",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitQuestionAnswer:goTo:CallSingleAttemptTool",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitQuestionAnswer",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitQuestionAnswer:goTo:CallTool",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitQuestionAnswer",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitQuestionAnswer:goTo:FinishTurnCancellation",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitQuestionAnswer",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitQuestionAnswer:goTo:PollToolTask",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitQuestionAnswer",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitQuestionAnswer:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:AwaitQuestionAnswer",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "step:AwaitTimer",
+      "kind": "step",
+      "name": "AwaitTimer",
+      "phase": "wait_for+execute",
+      "metadata": {
+        "explanation": "Wait on the Timer of one durable_wait call, then record that it completed."
+      }
+    },
+    {
+      "id": "wait:AwaitTimer",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AwaitTimer",
+      "phase": "wait_for",
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "timer",
+            "label": "Timer"
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "ToolCallCancellations",
+            "resourceId": "resource:channel:ToolCallCancellations"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:AwaitTimer:goTo:AwaitTimer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AwaitTimer",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AwaitTimer:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:AwaitTimer",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "step:CallTool",
+      "kind": "step",
+      "name": "CallTool",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Run one read or idempotent write tool call with up to three attempts."
+      }
+    },
+    {
+      "id": "decision:step:CallTool:goTo:AwaitQuestionAnswer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CallTool",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CallTool:goTo:PollToolTask",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CallTool",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CallTool:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:CallTool",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "step:CallSingleAttemptTool",
+      "kind": "step",
+      "name": "CallSingleAttemptTool",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Run one non-idempotent or unclassified tool call exactly once."
+      }
+    },
+    {
+      "id": "decision:step:CallSingleAttemptTool:goTo:AwaitQuestionAnswer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CallSingleAttemptTool",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CallSingleAttemptTool:goTo:PollToolTask",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CallSingleAttemptTool",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CallSingleAttemptTool:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:CallSingleAttemptTool",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "step:PollToolTask",
+      "kind": "step",
+      "name": "PollToolTask",
+      "phase": "wait_for+execute",
+      "metadata": {
+        "explanation": "Poll one tool's remote task after its poll interval, until the task finishes."
+      }
+    },
+    {
+      "id": "wait:PollToolTask",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:PollToolTask",
+      "phase": "wait_for",
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "timer",
+            "label": "Timer"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:PollToolTask:goTo:AwaitQuestionAnswer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:PollToolTask",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:PollToolTask:goTo:FinishTurnCancellation",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:PollToolTask",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:PollToolTask:goTo:PollToolTask",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:PollToolTask",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:PollToolTask:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:PollToolTask",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "step:RecordToolFailure",
+      "kind": "step",
+      "name": "RecordToolFailure",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Record a CallTool call whose attempts ran out: failed for reads, unknown for writes."
+      }
+    },
+    {
+      "id": "decision:step:RecordToolFailure:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:RecordToolFailure",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:RecordToolFailure:forceFail",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:RecordToolFailure",
+      "phase": "execute",
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "step:RecordToolOutcomeUnknown",
+      "kind": "step",
+      "name": "RecordToolOutcomeUnknown",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Record that a single-attempt tool call stopped without a result."
+      }
+    },
+    {
+      "id": "decision:step:RecordToolOutcomeUnknown:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:RecordToolOutcomeUnknown",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:RecordToolOutcomeUnknown:forceFail",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:RecordToolOutcomeUnknown",
+      "phase": "execute",
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "step:ResumeTurn",
+      "kind": "step",
+      "name": "ResumeTurn",
+      "phase": "wait_for+execute",
+      "metadata": {
+        "explanation": "Wait for every tool call result of the model response, then call the model again."
+      }
+    },
+    {
+      "id": "wait:ResumeTurn",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:ResumeTurn",
+      "phase": "wait_for",
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "ToolCallResults",
+            "resourceId": "resource:channel:ToolCallResults"
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "TurnControlRequests",
+            "resourceId": "resource:channel:TurnControlRequests"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:ResumeTurn:goTo:ApplyTurnControl",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ResumeTurn",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ResumeTurn:goTo:ResumeTurn",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ResumeTurn",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ResumeTurn:goTo:RunModel",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ResumeTurn",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:ApplyTurnControl",
+      "kind": "step",
+      "name": "ApplyTurnControl",
+      "phase": "wait_for+execute",
+      "metadata": {
+        "explanation": "End a steered or cancelled turn, then start a turn with the steered messages."
+      }
+    },
+    {
+      "id": "wait:ApplyTurnControl",
+      "kind": "wait",
+      "name": "allOf",
+      "parentId": "step:ApplyTurnControl",
+      "phase": "wait_for",
+      "wait": {
+        "type": "allOf",
+        "conditions": [
+          {
+            "index": 0,
+            "kind": "channel",
+            "label": "SteeredUserMessages",
+            "resourceId": "resource:channel:SteeredUserMessages"
+          },
+          {
+            "index": 1,
+            "kind": "channel",
+            "label": "TurnControlRequests",
+            "resourceId": "resource:channel:TurnControlRequests"
+          }
+        ]
+      }
+    },
+    {
+      "id": "decision:step:ApplyTurnControl:goTo:AwaitUserMessage",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ApplyTurnControl",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ApplyTurnControl:goTo:RunModel",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ApplyTurnControl",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:RecordTurnFailure",
+      "kind": "step",
+      "name": "RecordTurnFailure",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Record a failed turn and wait for the next user message."
+      }
+    },
+    {
+      "id": "decision:step:RecordTurnFailure:goTo:AwaitUserMessage",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RecordTurnFailure",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:RecordTurnFailure:forceFail",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:RecordTurnFailure",
+      "phase": "execute",
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "step:FinishTurnCancellation",
+      "kind": "step",
+      "name": "FinishTurnCancellation",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Finish a turn that cancel_turn stopped, from the state that committed."
+      }
+    },
+    {
+      "id": "decision:step:FinishTurnCancellation:goTo:ApplyTurnControl",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:FinishTurnCancellation",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:FinishTurnCancellation:goTo:AwaitQuestionAnswer",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:FinishTurnCancellation",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:FinishTurnCancellation:goTo:AwaitToolApproval",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:FinishTurnCancellation",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:FinishTurnCancellation:goTo:CancelToolTask",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:FinishTurnCancellation",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:FinishTurnCancellation:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:FinishTurnCancellation",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "step:CancelToolTask",
+      "kind": "step",
+      "name": "CancelToolTask",
+      "phase": "execute",
+      "metadata": {
+        "explanation": "Ask the runner to cancel one task that cancel_turn abandoned, then record it."
+      }
+    },
+    {
+      "id": "decision:step:CancelToolTask:deadEnd",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:CancelToolTask",
+      "phase": "execute",
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "rpc:answer_question",
+      "kind": "rpc",
+      "name": "answer_question"
+    },
+    {
+      "id": "rpc:cancel_turn",
+      "kind": "rpc",
+      "name": "cancel_turn"
+    },
+    {
+      "id": "decision:rpc:cancel_turn:rpcResult",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:cancel_turn",
+      "phase": "rpc",
+      "decision": {
+        "type": "rpcResult",
+        "cancellations": [
+          {
+            "stepId": "step:RunModel",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:CompactContext",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:RecordTurnFailure",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:AwaitToolApproval",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:AwaitQuestionAnswer",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:AwaitTimer",
+            "scope": "all"
+          },
+          {
+            "stepId": "step:PollToolTask",
+            "scope": "all"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rpc:delete_queued_message",
+      "kind": "rpc",
+      "name": "delete_queued_message"
+    },
+    {
+      "id": "rpc:execute_plan",
+      "kind": "rpc",
+      "name": "execute_plan"
+    },
+    {
+      "id": "rpc:get_agent_snapshot",
+      "kind": "rpc",
+      "name": "get_agent_snapshot"
+    },
+    {
+      "id": "rpc:list_agent_messages",
+      "kind": "rpc",
+      "name": "list_agent_messages"
+    },
+    {
+      "id": "rpc:resolve_interrupt",
+      "kind": "rpc",
+      "name": "resolve_interrupt"
+    },
+    {
+      "id": "rpc:send_user_message",
+      "kind": "rpc",
+      "name": "send_user_message"
+    },
+    {
+      "id": "rpc:steer_user_message",
+      "kind": "rpc",
+      "name": "steer_user_message"
+    },
+    {
+      "id": "rpc:update_session_settings",
+      "kind": "rpc",
+      "name": "update_session_settings"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:StartAgentSession:goTo:AwaitUserMessage",
+      "to": "step:AwaitUserMessage",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:StartAgentSession:goTo:RunModel",
+      "to": "step:RunModel",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0003",
+      "kind": "wait_condition",
+      "from": "resource:channel:TurnControlRequests",
+      "to": "wait:AwaitUserMessage",
+      "label": "TurnControlRequests",
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "wait_condition",
+      "from": "resource:channel:QueuedUserMessages",
+      "to": "wait:AwaitUserMessage",
+      "label": "QueuedUserMessages",
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "wait_condition",
+      "from": "resource:channel:PlanExecutions",
+      "to": "wait:AwaitUserMessage",
+      "label": "PlanExecutions",
+      "metadata": {
+        "conditionIndex": 2
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:AwaitUserMessage:goTo:ApplyTurnControl",
+      "to": "step:ApplyTurnControl",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0007",
+      "kind": "transition",
+      "from": "decision:step:AwaitUserMessage:goTo:AwaitUserMessage",
+      "to": "step:AwaitUserMessage",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0008",
+      "kind": "transition",
+      "from": "decision:step:AwaitUserMessage:goTo:RunModel",
+      "to": "step:RunModel",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_lock",
+      "from": "step:AwaitUserMessage",
+      "to": "resource:attribute:TurnCancellationRequest",
+      "label": "Lock",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:ApplyTurnControl",
+      "to": "step:ApplyTurnControl",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0011",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:AwaitQuestionAnswer",
+      "to": "step:AwaitQuestionAnswer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0012",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:AwaitTimer",
+      "to": "step:AwaitTimer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0013",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:AwaitToolApproval",
+      "to": "step:AwaitToolApproval",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0014",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:AwaitUserMessage",
+      "to": "step:AwaitUserMessage",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0015",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:CallSingleAttemptTool",
+      "to": "step:CallSingleAttemptTool",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0016",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:CallTool",
+      "to": "step:CallTool",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0017",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:CompactContext",
+      "to": "step:CompactContext",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0018",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:RecordTurnFailure",
+      "to": "step:RecordTurnFailure",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0019",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:ResumeTurn",
+      "to": "step:ResumeTurn",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_publish",
+      "from": "step:RunModel",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "transition",
+      "from": "decision:step:CompactContext:goTo:RecordTurnFailure",
+      "to": "step:RecordTurnFailure",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0022",
+      "kind": "transition",
+      "from": "decision:step:CompactContext:goTo:RunModel",
+      "to": "step:RunModel",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0023",
+      "kind": "wait_condition",
+      "from": "resource:channel:ToolCallCancellations",
+      "to": "wait:AwaitToolApproval",
+      "label": "ToolCallCancellations",
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "wait_condition",
+      "from": "resource:channel:InterruptResolutions",
+      "to": "wait:AwaitToolApproval",
+      "label": "InterruptResolutions",
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "transition",
+      "from": "decision:step:AwaitToolApproval:goTo:AwaitToolApproval",
+      "to": "step:AwaitToolApproval",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0026",
+      "kind": "transition",
+      "from": "decision:step:AwaitToolApproval:goTo:CallSingleAttemptTool",
+      "to": "step:CallSingleAttemptTool",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0027",
+      "kind": "transition",
+      "from": "decision:step:AwaitToolApproval:goTo:CallTool",
+      "to": "step:CallTool",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0028",
+      "kind": "resource_lock",
+      "from": "step:AwaitToolApproval",
+      "to": "resource:attribute:PendingInterrupts",
+      "label": "Lock",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0029",
+      "kind": "resource_publish",
+      "from": "step:AwaitToolApproval",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0030",
+      "kind": "wait_condition",
+      "from": "resource:channel:ToolCallCancellations",
+      "to": "wait:AwaitQuestionAnswer",
+      "label": "ToolCallCancellations",
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0031",
+      "kind": "wait_condition",
+      "from": "resource:channel:InterruptResolutions",
+      "to": "wait:AwaitQuestionAnswer",
+      "label": "InterruptResolutions",
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0032",
+      "kind": "transition",
+      "from": "decision:step:AwaitQuestionAnswer:goTo:AwaitQuestionAnswer",
+      "to": "step:AwaitQuestionAnswer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0033",
+      "kind": "transition",
+      "from": "decision:step:AwaitQuestionAnswer:goTo:CallSingleAttemptTool",
+      "to": "step:CallSingleAttemptTool",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0034",
+      "kind": "transition",
+      "from": "decision:step:AwaitQuestionAnswer:goTo:CallTool",
+      "to": "step:CallTool",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0035",
+      "kind": "transition",
+      "from": "decision:step:AwaitQuestionAnswer:goTo:FinishTurnCancellation",
+      "to": "step:FinishTurnCancellation",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0036",
+      "kind": "transition",
+      "from": "decision:step:AwaitQuestionAnswer:goTo:PollToolTask",
+      "to": "step:PollToolTask",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0037",
+      "kind": "resource_lock",
+      "from": "step:AwaitQuestionAnswer",
+      "to": "resource:attribute:PendingInterrupts",
+      "label": "Lock",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0038",
+      "kind": "resource_publish",
+      "from": "step:AwaitQuestionAnswer",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0039",
+      "kind": "wait_condition",
+      "from": "resource:channel:ToolCallCancellations",
+      "to": "wait:AwaitTimer",
+      "label": "ToolCallCancellations",
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0040",
+      "kind": "transition",
+      "from": "decision:step:AwaitTimer:goTo:AwaitTimer",
+      "to": "step:AwaitTimer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0041",
+      "kind": "resource_publish",
+      "from": "step:AwaitTimer",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0042",
+      "kind": "transition",
+      "from": "decision:step:CallTool:goTo:AwaitQuestionAnswer",
+      "to": "step:AwaitQuestionAnswer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0043",
+      "kind": "transition",
+      "from": "decision:step:CallTool:goTo:PollToolTask",
+      "to": "step:PollToolTask",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0044",
+      "kind": "resource_publish",
+      "from": "step:CallTool",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0045",
+      "kind": "transition",
+      "from": "decision:step:CallSingleAttemptTool:goTo:AwaitQuestionAnswer",
+      "to": "step:AwaitQuestionAnswer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0046",
+      "kind": "transition",
+      "from": "decision:step:CallSingleAttemptTool:goTo:PollToolTask",
+      "to": "step:PollToolTask",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0047",
+      "kind": "resource_publish",
+      "from": "step:CallSingleAttemptTool",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0048",
+      "kind": "transition",
+      "from": "decision:step:PollToolTask:goTo:AwaitQuestionAnswer",
+      "to": "step:AwaitQuestionAnswer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0049",
+      "kind": "transition",
+      "from": "decision:step:PollToolTask:goTo:FinishTurnCancellation",
+      "to": "step:FinishTurnCancellation",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0050",
+      "kind": "transition",
+      "from": "decision:step:PollToolTask:goTo:PollToolTask",
+      "to": "step:PollToolTask",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0051",
+      "kind": "resource_publish",
+      "from": "step:PollToolTask",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0052",
+      "kind": "resource_publish",
+      "from": "step:RecordToolFailure",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0053",
+      "kind": "resource_publish",
+      "from": "step:RecordToolOutcomeUnknown",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0054",
+      "kind": "wait_condition",
+      "from": "resource:channel:ToolCallResults",
+      "to": "wait:ResumeTurn",
+      "label": "ToolCallResults",
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0055",
+      "kind": "wait_condition",
+      "from": "resource:channel:TurnControlRequests",
+      "to": "wait:ResumeTurn",
+      "label": "TurnControlRequests",
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0056",
+      "kind": "transition",
+      "from": "decision:step:ResumeTurn:goTo:ApplyTurnControl",
+      "to": "step:ApplyTurnControl",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0057",
+      "kind": "transition",
+      "from": "decision:step:ResumeTurn:goTo:ResumeTurn",
+      "to": "step:ResumeTurn",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0058",
+      "kind": "transition",
+      "from": "decision:step:ResumeTurn:goTo:RunModel",
+      "to": "step:RunModel",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0059",
+      "kind": "resource_lock",
+      "from": "step:ResumeTurn",
+      "to": "resource:attribute:PendingInterrupts",
+      "label": "Lock",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0060",
+      "kind": "resource_publish",
+      "from": "step:ResumeTurn",
+      "to": "resource:channel:ToolCallCancellations",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0061",
+      "kind": "wait_condition",
+      "from": "resource:channel:SteeredUserMessages",
+      "to": "wait:ApplyTurnControl",
+      "label": "SteeredUserMessages",
+      "metadata": {
+        "conditionIndex": 0
+      }
+    },
+    {
+      "id": "edge:0062",
+      "kind": "wait_condition",
+      "from": "resource:channel:TurnControlRequests",
+      "to": "wait:ApplyTurnControl",
+      "label": "TurnControlRequests",
+      "metadata": {
+        "conditionIndex": 1
+      }
+    },
+    {
+      "id": "edge:0063",
+      "kind": "transition",
+      "from": "decision:step:ApplyTurnControl:goTo:AwaitUserMessage",
+      "to": "step:AwaitUserMessage",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0064",
+      "kind": "transition",
+      "from": "decision:step:ApplyTurnControl:goTo:RunModel",
+      "to": "step:RunModel",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0065",
+      "kind": "resource_lock",
+      "from": "step:ApplyTurnControl",
+      "to": "resource:attribute:TurnCancellationRequest",
+      "label": "Lock",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0066",
+      "kind": "transition",
+      "from": "decision:step:RecordTurnFailure:goTo:AwaitUserMessage",
+      "to": "step:AwaitUserMessage",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0067",
+      "kind": "transition",
+      "from": "decision:step:FinishTurnCancellation:goTo:ApplyTurnControl",
+      "to": "step:ApplyTurnControl",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0068",
+      "kind": "transition",
+      "from": "decision:step:FinishTurnCancellation:goTo:AwaitQuestionAnswer",
+      "to": "step:AwaitQuestionAnswer",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0069",
+      "kind": "transition",
+      "from": "decision:step:FinishTurnCancellation:goTo:AwaitToolApproval",
+      "to": "step:AwaitToolApproval",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0070",
+      "kind": "transition",
+      "from": "decision:step:FinishTurnCancellation:goTo:CancelToolTask",
+      "to": "step:CancelToolTask",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0071",
+      "kind": "resource_lock",
+      "from": "step:FinishTurnCancellation",
+      "to": "resource:attribute:TurnCancellationRequest",
+      "label": "Lock",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0072",
+      "kind": "resource_lock",
+      "from": "step:FinishTurnCancellation",
+      "to": "resource:attribute:PendingInterrupts",
+      "label": "Lock",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0073",
+      "kind": "resource_publish",
+      "from": "step:FinishTurnCancellation",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0074",
+      "kind": "resource_publish",
+      "from": "step:CancelToolTask",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0075",
+      "kind": "failure_transition",
+      "from": "step:CallSingleAttemptTool",
+      "to": "step:RecordToolOutcomeUnknown",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0076",
+      "kind": "failure_transition",
+      "from": "step:CallTool",
+      "to": "step:RecordToolFailure",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0077",
+      "kind": "failure_transition",
+      "from": "step:CancelToolTask",
+      "to": "step:RecordToolOutcomeUnknown",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0078",
+      "kind": "failure_transition",
+      "from": "step:CompactContext",
+      "to": "step:RecordTurnFailure",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0079",
+      "kind": "failure_transition",
+      "from": "step:PollToolTask",
+      "to": "step:RecordToolFailure",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0080",
+      "kind": "failure_transition",
+      "from": "step:PollToolTask",
+      "to": "step:RecordToolOutcomeUnknown",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0081",
+      "kind": "failure_transition",
+      "from": "step:RunModel",
+      "to": "step:RecordTurnFailure",
+      "label": "Execute failure",
+      "metadata": {
+        "skipWaitFor": true
+      }
+    },
+    {
+      "id": "edge:0082",
+      "kind": "resource_lock",
+      "from": "rpc:answer_question",
+      "to": "resource:attribute:PendingInterrupts",
+      "label": "Lock"
+    },
+    {
+      "id": "edge:0083",
+      "kind": "resource_publish",
+      "from": "rpc:answer_question",
+      "to": "resource:channel:InterruptResolutions",
+      "label": "Publish"
+    },
+    {
+      "id": "edge:0084",
+      "kind": "resource_lock",
+      "from": "rpc:cancel_turn",
+      "to": "resource:attribute:PendingInterrupts",
+      "label": "Lock"
+    },
+    {
+      "id": "edge:0085",
+      "kind": "resource_lock",
+      "from": "rpc:cancel_turn",
+      "to": "resource:attribute:TurnCancellationRequest",
+      "label": "Lock"
+    },
+    {
+      "id": "edge:0086",
+      "kind": "transition",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:FinishTurnCancellation",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0087",
+      "kind": "cancel",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:RunModel",
+      "label": "Cancel"
+    },
+    {
+      "id": "edge:0088",
+      "kind": "cancel",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:CompactContext",
+      "label": "Cancel"
+    },
+    {
+      "id": "edge:0089",
+      "kind": "cancel",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:RecordTurnFailure",
+      "label": "Cancel"
+    },
+    {
+      "id": "edge:0090",
+      "kind": "cancel",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:AwaitToolApproval",
+      "label": "Cancel"
+    },
+    {
+      "id": "edge:0091",
+      "kind": "cancel",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:AwaitQuestionAnswer",
+      "label": "Cancel"
+    },
+    {
+      "id": "edge:0092",
+      "kind": "cancel",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:AwaitTimer",
+      "label": "Cancel"
+    },
+    {
+      "id": "edge:0093",
+      "kind": "cancel",
+      "from": "decision:rpc:cancel_turn:rpcResult",
+      "to": "step:PollToolTask",
+      "label": "Cancel"
+    },
+    {
+      "id": "edge:0094",
+      "kind": "resource_lock",
+      "from": "rpc:execute_plan",
+      "to": "resource:attribute:PendingPlanExecution",
+      "label": "Lock"
+    },
+    {
+      "id": "edge:0095",
+      "kind": "resource_publish",
+      "from": "rpc:execute_plan",
+      "to": "resource:channel:PlanExecutions",
+      "label": "Publish"
+    },
+    {
+      "id": "edge:0096",
+      "kind": "resource_lock",
+      "from": "rpc:resolve_interrupt",
+      "to": "resource:attribute:PendingInterrupts",
+      "label": "Lock"
+    },
+    {
+      "id": "edge:0097",
+      "kind": "resource_publish",
+      "from": "rpc:resolve_interrupt",
+      "to": "resource:channel:InterruptResolutions",
+      "label": "Publish"
+    },
+    {
+      "id": "edge:0098",
+      "kind": "resource_publish",
+      "from": "rpc:send_user_message",
+      "to": "resource:channel:QueuedUserMessages",
+      "label": "Publish"
+    },
+    {
+      "id": "edge:0099",
+      "kind": "resource_publish",
+      "from": "rpc:steer_user_message",
+      "to": "resource:channel:QueuedUserMessages",
+      "label": "Publish"
+    },
+    {
+      "id": "edge:0100",
+      "kind": "resource_publish",
+      "from": "rpc:steer_user_message",
+      "to": "resource:channel:SteeredUserMessages",
+      "label": "Publish"
+    },
+    {
+      "id": "edge:0101",
+      "kind": "resource_publish",
+      "from": "rpc:steer_user_message",
+      "to": "resource:channel:TurnControlRequests",
+      "label": "Publish"
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "session",
+      "label": "Session",
+      "stepIds": [
+        "step:StartAgentSession",
+        "step:AwaitUserMessage"
+      ]
+    },
+    {
+      "id": "model",
+      "label": "Model",
+      "stepIds": [
+        "step:RunModel",
+        "step:CompactContext"
+      ]
+    },
+    {
+      "id": "wait",
+      "label": "Wait",
+      "stepIds": [
+        "step:AwaitToolApproval",
+        "step:AwaitQuestionAnswer",
+        "step:AwaitTimer"
+      ]
+    },
+    {
+      "id": "tools",
+      "label": "Tools",
+      "stepIds": [
+        "step:CallTool",
+        "step:CallSingleAttemptTool",
+        "step:PollToolTask"
+      ]
+    },
+    {
+      "id": "turn-end",
+      "label": "Turn end",
+      "stepIds": [
+        "step:ResumeTurn",
+        "step:ApplyTurnControl"
+      ]
+    },
+    {
+      "id": "cancellation",
+      "label": "Cancellation",
+      "stepIds": [
+        "step:FinishTurnCancellation",
+        "step:CancelToolTask"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": [
+      {
+        "rpcName": "resolve_interrupt",
+        "label": "Resolve interrupt",
+        "requiredPermission": "<action-permission>",
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "interrupt_id",
+              "valueType": "string",
+              "source": "user",
+              "required": true,
+              "description": "Interrupt ID"
+            },
+            {
+              "fieldName": "approved",
+              "valueType": "bool",
+              "source": "user",
+              "required": true,
+              "description": "Approve the tool call"
+            },
+            {
+              "fieldName": "rejection_message",
+              "valueType": "string",
+              "source": "user",
+              "required": false,
+              "description": "Message the model sees after a rejection"
+            }
+          ]
+        }
+      },
+      {
+        "rpcName": "answer_question",
+        "label": "Answer question",
+        "requiredPermission": "<action-permission>",
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "interrupt_id",
+              "valueType": "string",
+              "source": "user",
+              "required": true,
+              "description": "Interrupt ID"
+            },
+            {
+              "fieldName": "answer",
+              "valueType": "string",
+              "source": "user",
+              "required": true,
+              "description": "Answer"
+            }
+          ]
+        }
+      },
+      {
+        "rpcName": "steer_user_message",
+        "label": "Steer turn",
+        "requiredPermission": "<action-permission>",
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "message_id",
+              "valueType": "string",
+              "source": "user",
+              "required": false,
+              "description": "Queued message ID"
+            },
+            {
+              "fieldName": "text",
+              "valueType": "string",
+              "source": "user",
+              "required": false,
+              "description": "New message"
+            }
+          ]
+        }
+      },
+      {
+        "rpcName": "cancel_turn",
+        "label": "Stop turn",
+        "requiredPermission": "<action-permission>",
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "turn_id",
+              "valueType": "string",
+              "source": "user",
+              "required": false,
+              "description": "Turn ID"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

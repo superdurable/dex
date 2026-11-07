@@ -13,6 +13,9 @@
     "url": "https://github.com/superdurable/dex/issues"
   },
   "type": "module",
+  "bin": {
+    "dex-agents-session-graph": "dist/src/agent-session-flow-graph-cli.js"
+  },
   "types": "./dist/src/index.d.ts",
   "engines": {
     "node": "^22.0.0 || ^24.0.0"

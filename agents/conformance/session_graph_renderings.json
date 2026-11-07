@@ -1,0 +1,15 @@
+{
+  "description": "The SHA-256 of the UTF-8 graph text that every core must render.",
+  "cases": [
+    {
+      "flow_type": "SupportAgent",
+      "action_permission": "support-agent.operate",
+      "sha256": "f4cbab56f77d6e1e2aaae2f1f9799b5ec5c38161a566410edfe454ea9c639f74"
+    },
+    {
+      "flow_type": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok> \u0001",
+      "action_permission": "a.b-c1",
+      "sha256": "39439c61355192588a161ca6007e98a8e24e7f79096e5b611ef93dbb3a3f9900"
+    }
+  ]
+}

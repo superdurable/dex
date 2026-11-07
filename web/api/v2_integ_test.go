@@ -1572,3 +1572,53 @@ func jsonDexValue(value string) *dexpb.Value {
 func blobObjDexValue(blobID string) *dexpb.Value {
 	return &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForObjValue{InternalBlobIdForObjValue: blobID}}
 }
+
+func TestV2ViewWithoutFieldsInvokesNoRPC(t *testing.T) {
+	client := &v2TestClient{
+		searchEntries: []*dexpb.SearchFlowsResponseEntry{{
+			FlowId: "session-1", FlowType: "RefundFlow", FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+		}},
+	}
+	client.invokeRPCHandler = func(_ context.Context, request *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		if request.GetRpcName() == "GetDexSummary" || request.GetRpcName() == "GetDexDisplay" {
+			return nil, status.Error(codes.DeadlineExceeded, "no Worker registers this RPC")
+		}
+		return &dexpb.InvokeRPCResponse{Output: &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: true}}}, nil
+	}
+	definition := V2Definition{
+		IndexedAttributes: []V2IndexedAttribute{},
+		Summary:           V2RPCView{RPCName: "GetDexSummary", Fields: []V2ViewField{}},
+		Display:           V2RPCView{RPCName: "GetDexDisplay", Fields: []V2ViewField{}},
+		Actions: []V2Action{{
+			RPCName: "resolve_interrupt", Label: "Resolve interrupt", RequiredPermission: "agent.operate",
+			Input: V2ActionInput{Kind: "object", Fields: []V2ActionInputField{{
+				FieldName: "interrupt_id", ValueType: "string", Source: "user", Required: true, Description: "Interrupt ID",
+			}}},
+		}},
+	}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": definition})
+
+	search := performV2JSON(t, mux, http.MethodPost, "/api/v2/search", `{"flowType":"RefundFlow"}`)
+	var searched v2SearchResponse
+	decodeV2Response(t, search, &searched)
+	if search.Code != http.StatusOK || len(searched.Flows) != 1 || searched.Flows[0].SummaryError != "" {
+		t.Fatalf("search status = %d body=%q", search.Code, search.Body.String())
+	}
+	if len(searched.Flows[0].Summary) != 0 {
+		t.Fatalf("summary = %+v", searched.Flows[0].Summary)
+	}
+
+	display := performV2JSON(t, mux, http.MethodGet, "/api/v2/display?flowType=RefundFlow&flowId=session-1", "")
+	if display.Code != http.StatusOK {
+		t.Fatalf("display status = %d body=%q", display.Code, display.Body.String())
+	}
+	var displayed v2DisplayResponse
+	decodeV2Response(t, display, &displayed)
+	if len(displayed.Display) != 0 || len(displayed.EligibleActions) != 1 {
+		t.Fatalf("display = %+v", displayed)
+	}
+	for _, request := range client.rpcRequests {
+		t.Fatalf("a view without fields invoked RPC %q", request.GetRpcName())
+	}
+}

@@ -18,6 +18,9 @@ dependencies = [
     "dex-python-sdk==1.35.0",
 ]
 
+[project.scripts]
+dex-agents-session-graph = "dex_agents.session_graph:main"
+
 [project.optional-dependencies]
 # dex_agents.mcp: MCP servers' tools as agent tools.
 mcp = [
@@ -70,7 +73,7 @@ known-first-party = ["dex_agents", "tests"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src", "tests", "../../conformance/generate.py"]
+files = ["src", "tests", "../../conformance/generate.py", "../../conformance/session_graph.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

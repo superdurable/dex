@@ -264,7 +264,7 @@ A run appears only if its Flow set **ActiveStepSearchMode**, which the server do
 
 The field holds the Step types active now. A run leaves the search when it moves on, after the search index catches up.
 
-Each row calls **GetDexSummary** for the logical Flow ID's current run. The RPC accepts **dex.None** and returns a **map[string]any**. Dex Web loads at most eight summaries concurrently, applies a five-second timeout to each call, and isolates a failure to its row. Indexed Attributes appear before Summary fields.
+Each row calls **GetDexSummary** for the logical Flow ID's current run. Since 1.39, a Summary or Display with no fields calls no RPC, because the RPC could only return an empty object. Such a Flow needs no Worker to be listed or shown. The RPC accepts **dex.None** and returns a **map[string]any**. Dex Web loads at most eight summaries concurrently, applies a five-second timeout to each call, and isolates a failure to its row. Indexed Attributes appear before Summary fields.
 
 ## Display and edits
 

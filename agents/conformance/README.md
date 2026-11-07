@@ -20,7 +20,10 @@ TypeScript core. A core passes when it passes all four parts below.
 | [`names.json`](names.json) | Step types, RPCs, persistence names, event types, enums, map keys, ID and timestamp formats |
 | [`texts.json`](texts.json) | Every model-visible text the session writes |
 | [`transcripts/`](transcripts) | Scripted-turn scenarios and the transcript each core must reproduce |
+| [`session_graph.json`](session_graph.json) | The session Flow Definition Graph that Dex Web loads, with placeholders for the Flow type and the Action permission |
+| [`session_graph_renderings.json`](session_graph_renderings.json) | The hash of the graph text each core must render |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
+| [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |
 
 ## Comparison rule: canonical JSON for stored values, exact bytes for model-visible text
 
@@ -162,6 +165,30 @@ non-ASCII text, and a non-text block. Record
 inputs are wire JSON; decode them with the core's codec first.
 `language_specific` texts name a method in the core's own language, so they
 are listed, not compared.
+
+## Session Flow Definition Graph
+
+`dexcli visualize` cannot read the session Flow, so `session_graph.py` derives
+the graph. The registered Flow gives Steps, RPCs, persistence names, locks, and
+failure routes. The source of `session_flow.py` gives wait conditions,
+transitions, and Channel publishes. Step explanations are the Step docstrings.
+Only the group names and the Action words are written by hand. The graph leaves
+out Attribute reads and writes.
+
+`generate.py` writes the same file here and into the Python and TypeScript
+packages. Never edit a copy: change the session Flow, run `generate.py`, and
+commit the result. These tests fail otherwise:
+
+- Python: `test_the_suite_files_match_the_python_core` fails on any stale copy.
+  A change to a Step, RPC, Channel, lock, failure route, wait condition, or
+  transition changes the derived graph.
+- TypeScript: `session-flow-graph.integration.test.ts` compares the graph with
+  the registered Flow and with the TypeScript source, which it scans for wait
+  conditions, routes, and publishes.
+- Both cores render `session_graph_renderings.json` byte for byte.
+
+The Go core registers fewer Steps and RPCs than the graph shows, so it ships no
+graph yet.
 
 ## Scripted-turn transcripts
 
