@@ -271,8 +271,8 @@ async fn a_value_whose_segment_is_not_uploaded_reads_as_absent() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn load_blobs_takes_at_most_a_thousand_entries() {
-    let (run, offloaded) = offloaded_profiles(2, 1).await;
+async fn load_blobs_takes_at_most_a_thousand_entries_only_while_offload_is_on() {
+    let (mut run, offloaded) = offloaded_profiles(2, 1).await;
     let (reference, text) = offloaded.first().expect("a value is offloaded").clone();
     let harness = run.harness(run.reader(
         &HistoryReadsConfig::default(),
@@ -282,7 +282,7 @@ async fn load_blobs_takes_at_most_a_thousand_entries() {
         .registry
         .load_blobs(TENANT, blob_request(vec![reference.clone(); 1001]))
         .await
-        .expect_err("1001 entries are too many");
+        .expect_err("1001 entries are too many while offload is on");
     assert_eq!(error.grpc_code(), grpc_code::INVALID_ARGUMENT, "{error}");
     let response = harness
         .registry
@@ -290,6 +290,25 @@ async fn load_blobs_takes_at_most_a_thousand_entries() {
         .await
         .expect("1000 entries load");
     assert_eq!(text_of(&response.values[&reference]), text);
+
+    // With offload off, LoadBlobs takes any number of entries, as before.
+    let partition = u32::from(run.context.partition.0);
+    run.apply(Command::SetHistoryOffloadMode(
+        SetHistoryOffloadModeCommand {
+            enabled: false,
+            partition,
+        },
+    ));
+    let live = run.reference(run.profile_value_id());
+    let mut references = vec![reference.clone(); 1500];
+    references.push(live.clone());
+    let response = harness
+        .registry
+        .load_blobs(TENANT, blob_request(references))
+        .await
+        .expect("any number of entries loads while offload is off");
+    assert_eq!(text_of(&response.values[&reference]), text);
+    assert!(response.values.contains_key(&live));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

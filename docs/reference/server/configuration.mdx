@@ -440,6 +440,11 @@ that object storage fails, or whose uploaded segment object is missing, fails
 with UNAVAILABLE. A ResetFlow whose target state holds such a value reads it
 from object storage in the same way.
 
+Changed in 0.1.22: while history offload is on, a LoadBlobs request names at
+most 1000 values. A request with more entries fails with INVALID_ARGUMENT when
+the partition of a Flow it names offloads history. With offload off, LoadBlobs
+takes any number of entries, as before.
+
 The node keeps uploaded segment headers in memory and keeps segment headers,
 records, and values in its disk read cache, up to **history.readCacheMaxBytes**.
 Uploaded segments never change, so cached entries are never stale. The cache
@@ -468,9 +473,6 @@ evicts the oldest request IDs instead.
 Changed in 0.1.22: a GetHistoryEvents page holds at most 1000 events. A
 request whose **estimate_page_size** is larger returns 1000 events and a next
 page token. Earlier versions had no such limit.
-
-Changed in 0.1.22: a LoadBlobs request names at most 1000 values. A request with
-more entries fails with INVALID_ARGUMENT. Earlier versions had no such limit.
 
 Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
 **limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node

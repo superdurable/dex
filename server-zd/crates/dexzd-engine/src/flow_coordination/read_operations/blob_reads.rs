@@ -8,14 +8,20 @@
 
 //! LoadBlobs across local values and uploaded segments; see the crate README.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use dexzd_apply::FlowStateReader;
 use dexzd_apply::read_model::{OffloadedValueLocation, locate_offloaded_value};
-use dexzd_keyspace::{ColumnFamily, RunId, RunTable, TenantId, ValueReference, run_key};
+use dexzd_keyspace::row_keys::history_offload_mode_key;
+use dexzd_keyspace::{
+    ColumnFamily, PartitionId, RunId, RunTable, TenantId, ValueReference, run_key,
+};
 use dexzd_protocol::dex::{
     LoadBlobRequestEntry, LoadBlobsRequest, LoadBlobsResponse, Value, value,
 };
-use dexzd_protocol::dexzd::v1::{HistorySegmentRecord, RunRecord, ValueRecord};
+use dexzd_protocol::dexzd::v1::{
+    HistoryOffloadModeRecord, HistorySegmentRecord, RunRecord, ValueRecord,
+};
 use futures::future::join_all;
 use prost::Message;
 
@@ -27,8 +33,8 @@ use crate::flow_coordination::read_operations::state_rows::{
 };
 use crate::flow_coordination::{FlowAddress, FlowCoordinationError, FlowCoordinatorRegistry};
 
-/// Most entries one LoadBlobs request may name, so one request reads a bounded number of values
-/// from object storage.
+/// Most entries one LoadBlobs request may name while a named Flow's partition offloads history,
+/// so one request reads a bounded number of values from object storage.
 pub(crate) const MAX_LOAD_BLOBS_ENTRIES: usize = 1000;
 
 /// One requested value that its run and Flow own.
@@ -55,20 +61,15 @@ impl FlowCoordinatorRegistry {
     /// Reads only committed state, so no client sees a value that may never commit. Dispatch
     /// inlines uncommitted values instead.
     ///
-    /// Returns `INVALID_ARGUMENT` for more than 1000 entries, and `UNAVAILABLE` when object
-    /// storage fails or lacks an uploaded segment.
+    /// Returns `INVALID_ARGUMENT` for more than 1000 entries when the partition of a named Flow
+    /// offloads history, and `UNAVAILABLE` when object storage fails or lacks an uploaded
+    /// segment.
     pub async fn load_blobs(
         &self,
         tenant_id: TenantId,
         request: LoadBlobsRequest,
     ) -> Result<LoadBlobsResponse, FlowCoordinationError> {
         self.check_running()?;
-        if request.entries.len() > MAX_LOAD_BLOBS_ENTRIES {
-            return Err(FlowCoordinationError::invalid_argument(format!(
-                "LoadBlobs takes at most {MAX_LOAD_BLOBS_ENTRIES} entries; this request has {}",
-                request.entries.len()
-            )));
-        }
         let entries = parse_blob_entries(tenant_id, request.entries)?;
         let lookups = self.look_up_blobs(&entries)?;
         let reader = &self.inner.dependencies.history_segment_reader;
@@ -101,6 +102,21 @@ impl FlowCoordinatorRegistry {
     ) -> Result<Vec<Option<BlobLookup>>, FlowCoordinationError> {
         let committed = self.inner.dependencies.committer.committed_view()?;
         let state = committed.as_ref();
+        if entries.len() > MAX_LOAD_BLOBS_ENTRIES {
+            let partitions: BTreeSet<PartitionId> = entries
+                .iter()
+                .map(|entry| self.flow_context(&entry.flow).partition)
+                .collect();
+            for partition in partitions {
+                if is_history_offload_enabled(state, partition)? {
+                    return Err(FlowCoordinationError::invalid_argument(format!(
+                        "while history offload is on, LoadBlobs takes at most \
+                         {MAX_LOAD_BLOBS_ENTRIES} entries; this request has {}",
+                        entries.len()
+                    )));
+                }
+            }
+        }
         let mut lookups = Vec::with_capacity(entries.len());
         for entry in entries {
             let flow = &entry.flow;
@@ -324,6 +340,20 @@ fn parse_blob_entries(
             })
         })
         .collect()
+}
+
+/// Returns whether `partition` offloads run history; an absent mode record means it does not.
+fn is_history_offload_enabled(
+    state: &dyn FlowStateReader,
+    partition: PartitionId,
+) -> Result<bool, FlowCoordinationError> {
+    let mode: Option<HistoryOffloadModeRecord> = decode_row(
+        state,
+        ColumnFamily::PartitionIndex,
+        &history_offload_mode_key(partition),
+        "history offload mode",
+    )?;
+    Ok(mode.is_some_and(|mode| mode.enabled))
 }
 
 fn decode_value_row(row: &[u8]) -> Option<Value> {
