@@ -15,7 +15,7 @@ call that was running, and a single-attempt write is never repeated silently.
 ## Installation
 
 The package needs Python 3.11 or later. It requires `dex-agents` at the same
-version, the released `dex-python-sdk==1.35.0`, and `openai-agents>=0.24,<0.25`
+version, the released `dex-python-sdk==1.38.0`, and `openai-agents>=0.24,<0.25`
 (0.24.0 is locked and tested):
 
 ```bash

@@ -15,7 +15,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "dex-python-sdk==1.35.0",
+    "dex-python-sdk==1.38.0",
 ]
 
 [project.scripts]
