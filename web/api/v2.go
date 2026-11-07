@@ -155,11 +155,12 @@ type V2ViewField struct {
 
 // V2Action describes one operator RPC.
 type V2Action struct {
-	RPCName            string            `json:"rpcName"`
-	Label              string            `json:"label"`
-	RequiredPermission string            `json:"requiredPermission"`
-	Condition          V2ActionCondition `json:"condition"`
-	Input              V2ActionInput     `json:"input"`
+	RPCName            string `json:"rpcName"`
+	Label              string `json:"label"`
+	RequiredPermission string `json:"requiredPermission"`
+	// Condition is nil for an Action whose RPC checks current state itself.
+	Condition *V2ActionCondition `json:"condition,omitempty"`
+	Input     V2ActionInput      `json:"input"`
 }
 
 // V2ActionCondition describes an Action's visibility predicate.
@@ -489,13 +490,17 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 		}
 		attributeSnapshot = keyValueMap(attributes.GetAttributes())
 	}
+	isActive := summary.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_RUNNING
 	eligibleActions := make([]string, 0, len(definition.Actions))
 	for _, action := range definition.Actions {
-		if actionConditionMatches(action.Condition, attributeSnapshot[action.Condition.AttributeKey]) {
+		eligible := isActive
+		if action.Condition != nil {
+			eligible = actionConditionMatches(*action.Condition, attributeSnapshot[action.Condition.AttributeKey])
+		}
+		if eligible {
 			eligibleActions = append(eligibleActions, action.RPCName)
 		}
 	}
-	isActive := summary.GetFlowStatus() == dexpb.FlowStatus_FLOW_STATUS_RUNNING
 	writeJSON(response, http.StatusOK, v2DisplayResponse{
 		FlowID: flowID, FlowType: flowType,
 		FlowStatus: flowStatusLabel(summary.GetFlowStatus()), FlowStatusCode: int32(summary.GetFlowStatus()),
@@ -568,7 +573,7 @@ func actionPermissionMappingsForAttributeWrite(
 ) (*dexpb.ActionPermissionMappings, error) {
 	isActionSource := false
 	for _, action := range definition.Actions {
-		if action.Condition.AttributeKey == attributeKey {
+		if action.Condition != nil && action.Condition.AttributeKey == attributeKey {
 			isActionSource = true
 			break
 		}
@@ -579,6 +584,9 @@ func actionPermissionMappingsForAttributeWrite(
 
 	mappings := make([]*dexpb.ActionPermissionMapping, 0, len(definition.Actions))
 	for _, action := range definition.Actions {
+		if action.Condition == nil {
+			continue
+		}
 		equalValues := make([]*dexpb.Value, 0, len(action.Condition.Values))
 		for _, conditionValue := range action.Condition.Values {
 			value, err := encodeActionPermissionConditionValue(conditionValue)
@@ -651,17 +659,19 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		writeGRPCError(response, err, "GetFlowSummary")
 		return
 	}
-	conditionAttributes, err := h.client.GetAttributes(request.Context(), &dexpb.GetAttributesRequest{
-		FlowId: body.FlowID, Keys: []string{action.Condition.AttributeKey},
-	})
-	if err != nil {
-		writeGRPCError(response, err, "GetAttributes")
-		return
-	}
-	currentValues := keyValueMap(conditionAttributes.GetAttributes())
-	if !actionConditionMatches(action.Condition, currentValues[action.Condition.AttributeKey]) {
-		WriteError(response, http.StatusConflict, "Action condition no longer matches the current Flow state", nil)
-		return
+	if action.Condition != nil {
+		conditionAttributes, err := h.client.GetAttributes(request.Context(), &dexpb.GetAttributesRequest{
+			FlowId: body.FlowID, Keys: []string{action.Condition.AttributeKey},
+		})
+		if err != nil {
+			writeGRPCError(response, err, "GetAttributes")
+			return
+		}
+		currentValues := keyValueMap(conditionAttributes.GetAttributes())
+		if !actionConditionMatches(*action.Condition, currentValues[action.Condition.AttributeKey]) {
+			WriteError(response, http.StatusConflict, "Action condition no longer matches the current Flow state", nil)
+			return
+		}
 	}
 	input, err := buildActionInput(action, body.Input, body.AttributeSnapshot)
 	if err != nil {
@@ -676,11 +686,14 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		writeGRPCError(response, err, action.RPCName)
 		return
 	}
-	if dexValue(result.GetOutput()) != nil {
-		WriteError(response, http.StatusBadGateway, "Action RPC returned a non-null value", nil)
-		return
+	output, err := h.hydrateV2Value(request.Context(), body.FlowID, result.GetOutput())
+	if err != nil {
+		// The RPC already ran, so answer success with the blob reference the caller can load later.
+		output = result.GetOutput()
 	}
-	writeJSON(response, http.StatusOK, map[string]bool{"invoked": true})
+	writeJSON(response, http.StatusOK, v2ResponseSnapshot(map[string]interface{}{
+		"invoked": true, "output": v2DexValue(output),
+	}))
 }
 
 func (h *v2Handler) loadSnapshot(
@@ -1297,10 +1310,10 @@ func v2SnapshotKeys(definition V2Definition) []string {
 	seen := make(map[string]struct{})
 	keys := make([]string, 0)
 	for _, action := range definition.Actions {
-		for _, key := range []string{action.Condition.AttributeKey} {
-			if _, exists := seen[key]; !exists {
-				seen[key] = struct{}{}
-				keys = append(keys, key)
+		if action.Condition != nil {
+			if _, exists := seen[action.Condition.AttributeKey]; !exists {
+				seen[action.Condition.AttributeKey] = struct{}{}
+				keys = append(keys, action.Condition.AttributeKey)
 			}
 		}
 		for _, field := range action.Input.Fields {

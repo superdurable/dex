@@ -91,6 +91,23 @@ for flow_package in webv2approval webv2reply; do
     --out "$work_dir/definitions/$flow_package"
 done
 
+# Go Actions always have a condition, so add the one without a condition to the graph directly.
+python3 - "$work_dir/definitions/webv2approval.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as file:
+    graph = json.load(file)
+graph["v2"]["actions"].append({
+    "rpcName": "DecisionPending",
+    "label": "Check decision",
+    "requiredPermission": "approval.decide",
+    "input": {"kind": "none"},
+})
+with open(sys.argv[1], "w") as file:
+    json.dump(graph, file)
+PY
+
 # Skips fsync for speed; a config file, unlike a flag, also works with an older binary.
 printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$work_dir/zd-overrides.yaml"
 "$DEX_SERVER_ZD_BINARY" dev \

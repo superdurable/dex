@@ -65,6 +65,7 @@ func (flow *ApprovalFlow) GetRPCs() []dex.RPCDef {
 				dex.ActionRequiresPermission(DecidePermission),
 			),
 		}),
+		dex.DefineRPC(flow.DecisionPending, nil),
 	}
 }
 
@@ -113,6 +114,16 @@ func (*ApprovalFlow) ApproveDecision(ctx dex.Context, _ dex.None) (*dex.RPCResul
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// DecisionPending returns a value and checks current state itself, so the Dex Web test exposes it
+// as an Action without a condition. Go Actions always have one, so the test adds it to the graph.
+func (*ApprovalFlow) DecisionPending(ctx dex.Context, _ dex.None) (*dex.RPCResult[bool], error) {
+	status, err := optionalAttribute(ctx, approvalStatus)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[bool]{Output: status == StatusAwaitingDecision}, nil
 }
 
 // dex:group group-id:decision group-label:"Decision"

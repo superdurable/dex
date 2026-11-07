@@ -45,6 +45,7 @@ type v2TestClient struct {
 	blobs              map[string]*dexpb.Value
 	currentCaseStatus  string
 	currentGateRequest string
+	flowStatus         dexpb.FlowStatus
 	invokeRPCHandler   func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error)
 	startFlowHandler   func(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error)
 	serverEngine       dexpb.ServerEngine
@@ -113,11 +114,15 @@ func (client *v2TestClient) GetFlowSummary(
 ) (*dexpb.GetFlowSummaryResponse, error) {
 	client.mutex.Lock()
 	client.summaryRequests = append(client.summaryRequests, request)
+	flowStatus := client.flowStatus
 	client.mutex.Unlock()
+	if flowStatus == dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED {
+		flowStatus = dexpb.FlowStatus_FLOW_STATUS_RUNNING
+	}
 	return &dexpb.GetFlowSummaryResponse{
 		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: request.GetFlowId(), RunId: "current-run"},
 		FlowType:        "RefundFlow",
-		FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
+		FlowStatus:      flowStatus,
 	}, nil
 }
 
@@ -1200,6 +1205,237 @@ func TestV2SummaryCallsUseFiveSecondTimeout(t *testing.T) {
 	}
 }
 
+func TestV2ActionReturnsRPCOutput(t *testing.T) {
+	boolValue := func(value bool) *dexpb.Value {
+		return &dexpb.Value{Kind: &dexpb.Value_BoolValue{BoolValue: value}}
+	}
+	tests := []struct {
+		name   string
+		output *dexpb.Value
+		want   string
+	}{
+		{name: "no output", output: nil, want: `{"invoked":true,"output":null}`},
+		{name: "null", output: &dexpb.Value{
+			Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE},
+		}, want: `{"invoked":true,"output":null}`},
+		{name: "false stays a value", output: boolValue(false), want: `{"invoked":true,"output":false}`},
+		{name: "true", output: boolValue(true), want: `{"invoked":true,"output":true}`},
+		{name: "string", output: stringDexValue("done"), want: `{"invoked":true,"output":"done"}`},
+		{name: "int64 keeps precision", output: &dexpb.Value{
+			Kind: &dexpb.Value_IntValue{IntValue: 9223372036854775807},
+		}, want: `{"invoked":true,"output":"9223372036854775807"}`},
+		{name: "double", output: &dexpb.Value{
+			Kind: &dexpb.Value_DoubleValue{DoubleValue: 2},
+		}, want: `{"invoked":true,"output":2}`},
+		{name: "object keeps number digits", output: jsonDexValue(`{"count":9007199254740993}`),
+			want: `{"invoked":true,"output":{"count":9007199254740993}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+			client.invokeRPCHandler = func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+				return &dexpb.InvokeRPCResponse{Output: test.output}, nil
+			}
+			mux := http.NewServeMux()
+			RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2Definition()})
+
+			response := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
+				"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}
+			}`)
+			if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != test.want {
+				t.Fatalf("Action status = %d body=%q, want %q", response.Code, response.Body.String(), test.want)
+			}
+			if len(client.rpcRequests) != 1 {
+				t.Fatalf("RPC requests = %+v", client.rpcRequests)
+			}
+		})
+	}
+}
+
+func TestV2ActionOutputReadsBlobAndNeverFailsAfterTheRPCRan(t *testing.T) {
+	client := &v2TestClient{
+		currentCaseStatus: "awaiting-manager",
+		blobs:             map[string]*dexpb.Value{"stored": jsonDexValue(`{"accepted":true}`)},
+	}
+	blobID := "stored"
+	client.invokeRPCHandler = func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		return &dexpb.InvokeRPCResponse{Output: blobObjDexValue(blobID)}, nil
+	}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2Definition()})
+	body := `{"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}}`
+
+	hydrated := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", body)
+	want := `{"invoked":true,"output":{"accepted":true}}`
+	if hydrated.Code != http.StatusOK || strings.TrimSpace(hydrated.Body.String()) != want {
+		t.Fatalf("hydrated Action status = %d body=%q", hydrated.Code, hydrated.Body.String())
+	}
+
+	blobID = "missing"
+	unavailable := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", body)
+	want = `{"invoked":true,"output":{"__dexBlobReference":{"id":"missing","kind":"object"}}}`
+	if unavailable.Code != http.StatusOK || strings.TrimSpace(unavailable.Body.String()) != want {
+		t.Fatalf("unavailable blob Action status = %d body=%q", unavailable.Code, unavailable.Body.String())
+	}
+}
+
+func TestV2ActionConditionIsStillEnforced(t *testing.T) {
+	client := &v2TestClient{currentCaseStatus: "resolved"}
+	client.invokeRPCHandler = func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		return &dexpb.InvokeRPCResponse{Output: stringDexValue("ran")}, nil
+	}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2DefinitionWithConditionlessAction()})
+	body := `{"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}}`
+
+	stale := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", body)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale Action status = %d body=%q", stale.Code, stale.Body.String())
+	}
+	if len(client.rpcRequests) != 0 {
+		t.Fatalf("stale Action invoked its RPC: %+v", client.rpcRequests)
+	}
+	if len(client.attributeRequests) != 1 || len(client.attributeRequests[0].GetKeys()) != 1 ||
+		client.attributeRequests[0].GetKeys()[0] != "case-status" {
+		t.Fatalf("condition reads = %+v", client.attributeRequests)
+	}
+
+	client.currentCaseStatus = "awaiting-manager"
+	current := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", body)
+	if current.Code != http.StatusOK {
+		t.Fatalf("current Action status = %d body=%q", current.Code, current.Body.String())
+	}
+}
+
+func TestV2ActionWithoutConditionLeavesTheCheckToItsRPC(t *testing.T) {
+	client := &v2TestClient{currentCaseStatus: "resolved"}
+	client.invokeRPCHandler = func(_ context.Context, request *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		if request.GetRpcName() == "GetDexDisplay" {
+			return &dexpb.InvokeRPCResponse{Output: jsonDexValue(`{"operator-note":"n","case-status":"resolved"}`)}, nil
+		}
+		return &dexpb.InvokeRPCResponse{Output: &dexpb.Value{Kind: &dexpb.Value_BoolValue{}}}, nil
+	}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2DefinitionWithConditionlessAction()})
+	displayPath := "/api/v2/display?flowType=RefundFlow&flowId=refund-1"
+
+	display := performV2JSON(t, mux, http.MethodGet, displayPath, "")
+	if display.Code != http.StatusOK {
+		t.Fatalf("display status = %d body=%q", display.Code, display.Body.String())
+	}
+	var active v2DisplayResponse
+	decodeV2Response(t, display, &active)
+	if len(active.EligibleActions) != 1 || active.EligibleActions[0] != "ConfirmCase" {
+		t.Fatalf("eligible Actions = %+v", active.EligibleActions)
+	}
+	for _, request := range client.attributeRequests {
+		for _, key := range request.GetKeys() {
+			if key == "" {
+				t.Fatalf("display read an empty Attribute key: %+v", request)
+			}
+		}
+	}
+
+	client.attributeRequests = nil
+	client.rpcRequests = nil
+	action := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ConfirmCase",
+		"input":{"callId":"call-1"},"attributeSnapshot":{}
+	}`)
+	if action.Code != http.StatusOK || strings.TrimSpace(action.Body.String()) != `{"invoked":true,"output":false}` {
+		t.Fatalf("Action status = %d body=%q", action.Code, action.Body.String())
+	}
+	if len(client.attributeRequests) != 0 {
+		t.Fatalf("conditionless Action read Attributes: %+v", client.attributeRequests)
+	}
+	var input map[string]interface{}
+	if err := json.Unmarshal(client.rpcRequests[0].GetInput().GetObjValue().GetPayload(), &input); err != nil {
+		t.Fatal(err)
+	}
+	if input["callId"] != "call-1" {
+		t.Fatalf("Action input = %+v", input)
+	}
+
+	client.flowStatus = dexpb.FlowStatus_FLOW_STATUS_COMPLETED
+	client.rpcRequests = nil
+	display = performV2JSON(t, mux, http.MethodGet, displayPath, "")
+	var finished v2DisplayResponse
+	decodeV2Response(t, display, &finished)
+	if len(finished.EligibleActions) != 0 {
+		t.Fatalf("finished Flow eligible Actions = %+v", finished.EligibleActions)
+	}
+	inactive := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ConfirmCase","input":{"callId":"call-1"}
+	}`)
+	if inactive.Code == http.StatusOK {
+		t.Fatalf("finished Flow Action body=%q", inactive.Body.String())
+	}
+	for _, request := range client.rpcRequests {
+		if request.GetRpcName() == "ConfirmCase" {
+			t.Fatal("finished Flow invoked the Action RPC")
+		}
+	}
+}
+
+func TestV2ActionWithoutConditionKeepsPermissionCheck(t *testing.T) {
+	client := &v2TestClient{}
+	mux := http.NewServeMux()
+	RegisterDynamicV2Handlers(mux, client, func(context.Context) (V2DefinitionSnapshot, error) {
+		return V2DefinitionSnapshot{
+			Definitions: map[string]V2Definition{"RefundFlow": testV2DefinitionWithConditionlessAction()},
+			Revision:    "sha256:current",
+		}, nil
+	}, V2HandlerConfig{})
+	invoke := func(permission string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/v2/actions", strings.NewReader(`{
+			"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ConfirmCase",
+			"workQueuePermissions":["`+permission+`"],"input":{"callId":"call-1"}
+		}`))
+		request.Header.Set(V2DefinitionRevisionHeader, "sha256:current")
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		return response
+	}
+
+	if denied := invoke("refund.message"); denied.Code != http.StatusForbidden {
+		t.Fatalf("denied Action status = %d body=%q", denied.Code, denied.Body.String())
+	}
+	if len(client.rpcRequests) != 0 {
+		t.Fatalf("denied Action invoked its RPC: %+v", client.rpcRequests)
+	}
+	if allowed := invoke("refund.manage"); allowed.Code != http.StatusOK {
+		t.Fatalf("allowed Action status = %d body=%q", allowed.Code, allowed.Body.String())
+	}
+}
+
+func TestV2ConditionlessActionStaysOutOfPermissionMappings(t *testing.T) {
+	client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2DefinitionWithConditionlessAction()})
+
+	edit := performV2JSON(
+		t, mux, http.MethodPatch, "/api/v2/display",
+		`{"flowType":"RefundFlow","flowId":"refund-1","attributeKey":"case-status","value":"review"}`,
+	)
+	if edit.Code != http.StatusOK {
+		t.Fatalf("edit status = %d body=%q", edit.Code, edit.Body.String())
+	}
+	mappings := client.setRequests[0].GetActionPermissionMappings().GetMappings()
+	if len(mappings) != len(testV2Definition().Actions) {
+		t.Fatalf("permission mappings = %+v", mappings)
+	}
+	for _, mapping := range mappings {
+		if mapping.GetAttributeKey() == "" {
+			t.Fatalf("permission mapping without an Attribute: %+v", mappings)
+		}
+	}
+
+	catalog := performV2JSON(t, mux, http.MethodGet, "/api/v2/catalog", "")
+	if catalog.Code != http.StatusOK || strings.Contains(catalog.Body.String(), `"condition":null`) {
+		t.Fatalf("catalog status = %d body=%q", catalog.Code, catalog.Body.String())
+	}
+}
+
 func testV2Definition() V2Definition {
 	return V2Definition{
 		IndexedAttributes: []V2IndexedAttribute{{
@@ -1216,13 +1452,13 @@ func testV2Definition() V2Definition {
 		}}},
 		Actions: []V2Action{{
 			RPCName: "ApproveRefund", Label: "Approve", RequiredPermission: "refund.manage",
-			Condition: V2ActionCondition{
+			Condition: &V2ActionCondition{
 				AttributeKey: "case-status", Operator: "in", Values: []interface{}{"awaiting-manager"},
 			},
 			Input: V2ActionInput{Kind: "none"},
 		}, {
 			RPCName: "RejectRefund", Label: "Reject", RequiredPermission: "refund.manage",
-			Condition: V2ActionCondition{
+			Condition: &V2ActionCondition{
 				AttributeKey: "case-status", Operator: "in", Values: []interface{}{"awaiting-manager"},
 			},
 			Input: V2ActionInput{Kind: "object", Fields: []V2ActionInputField{{
@@ -1234,13 +1470,24 @@ func testV2Definition() V2Definition {
 			}}},
 		}, {
 			RPCName: "NotifyCustomer", Label: "Notify", RequiredPermission: "refund.message",
-			Condition: V2ActionCondition{
+			Condition: &V2ActionCondition{
 				AttributeKey: "message-priority", Operator: "in",
 				Values: []interface{}{json.Number("9223372036854775807")},
 			},
 			Input: V2ActionInput{Kind: "none"},
 		}},
 	}
+}
+
+func testV2DefinitionWithConditionlessAction() V2Definition {
+	definition := testV2Definition()
+	definition.Actions = append(definition.Actions, V2Action{
+		RPCName: "ConfirmCase", Label: "Confirm", RequiredPermission: "refund.manage",
+		Input: V2ActionInput{Kind: "object", Fields: []V2ActionInputField{{
+			FieldName: "callId", ValueType: "string", Source: "user", Required: true, Description: "Call",
+		}}},
+	})
+	return definition
 }
 
 func testV2StartDefinition() *V2StartDefinition {

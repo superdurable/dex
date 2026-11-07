@@ -154,7 +154,8 @@ export interface FlowV2Action {
   label: string;
   /** Permission required to discover and authorize this Action. */
   requiredPermission: string;
-  condition: {
+  /** Absent when the RPC checks current state itself. */
+  condition?: {
     attributeKey: string;
     operator: 'in';
     values: unknown[];

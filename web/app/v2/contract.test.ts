@@ -83,6 +83,17 @@ describe('Dex Web v2 contract helpers', () => {
     });
   });
 
+  it('shows an eligible Action that has no condition', () => {
+    const confirm: FlowV2Action = {
+      rpcName: 'ConfirmCase',
+      label: 'Confirm',
+      requiredPermission: 'refund.manage',
+      input: { kind: 'none' },
+    };
+    expect(visibleV2Actions([confirm], ['ConfirmCase'])).toEqual([confirm]);
+    expect(visibleV2Actions([confirm], [])).toEqual([]);
+  });
+
   it('preserves int64 Action values as decimal strings', () => {
     const countAction: FlowV2Action = {
       rpcName: 'RetryRefund',

@@ -300,14 +300,16 @@ func validateV2Definition(definition api.V2Definition) error {
 		if !v2ActionPermissionPattern.MatchString(action.RequiredPermission) {
 			return fmt.Errorf("Action %q has an invalid required permission %q", action.RPCName, action.RequiredPermission)
 		}
-		if action.Condition.AttributeKey == "" || action.Condition.Operator != "in" || len(action.Condition.Values) == 0 {
-			return fmt.Errorf("Action %q has an invalid condition", action.RPCName)
-		}
-		for _, value := range action.Condition.Values {
-			switch value.(type) {
-			case string, json.Number, bool:
-			default:
-				return fmt.Errorf("Action %q condition values must be JSON scalars", action.RPCName)
+		if action.Condition != nil {
+			if action.Condition.AttributeKey == "" || action.Condition.Operator != "in" || len(action.Condition.Values) == 0 {
+				return fmt.Errorf("Action %q has an invalid condition", action.RPCName)
+			}
+			for _, value := range action.Condition.Values {
+				switch value.(type) {
+				case string, json.Number, bool:
+				default:
+					return fmt.Errorf("Action %q condition values must be JSON scalars", action.RPCName)
+				}
 			}
 		}
 		if err := validateV2ActionInput(action.Input); err != nil {

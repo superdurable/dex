@@ -134,6 +134,39 @@ func TestLoadFlowDefinitionsRejectsInvalidV2ActionPermission(t *testing.T) {
 	}
 }
 
+func TestLoadFlowDefinitionsAcceptsV2ActionWithoutCondition(t *testing.T) {
+	directory := t.TempDir()
+	writeFlowDefinitionTestFile(t, directory, "refund.json", withV2Action("RefundFlow", ``))
+
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action := handler.V2Definitions()["RefundFlow"].Actions[0]; action.Condition != nil {
+		t.Fatalf("Action condition = %+v", action.Condition)
+	}
+}
+
+func TestLoadFlowDefinitionsRejectsMalformedV2ActionCondition(t *testing.T) {
+	tests := map[string]string{
+		"empty object":   `"condition":{},`,
+		"no Attribute":   `"condition":{"attributeKey":"","operator":"in","values":["open"]},`,
+		"other operator": `"condition":{"attributeKey":"case-status","operator":"eq","values":["open"]},`,
+		"no values":      `"condition":{"attributeKey":"case-status","operator":"in","values":[]},`,
+		"object value":   `"condition":{"attributeKey":"case-status","operator":"in","values":[{}]},`,
+		"misspelled":     `"conditions":{"attributeKey":"case-status","operator":"in","values":["open"]},`,
+	}
+	for name, condition := range tests {
+		t.Run(name, func(t *testing.T) {
+			directory := t.TempDir()
+			writeFlowDefinitionTestFile(t, directory, "refund.json", withV2Action("RefundFlow", condition))
+			if _, err := loadFlowDefinitions(directory); err == nil {
+				t.Fatal("malformed condition was accepted")
+			}
+		})
+	}
+}
+
 func TestLoadFlowDefinitionsPreservesV2ActionQRCapture(t *testing.T) {
 	directory := t.TempDir()
 	definition := withV2ActionInput(validFlowDefinitionV2("RefundFlow", true),
@@ -295,6 +328,16 @@ func validFlowDefinitionV2(flowType string, valid bool) string {
 		`"valueType":"string","editable":false,"description":"Charge"}]},` +
 		`"display":{"rpcName":"GetDexDisplay","fields":[{"attributeKey":"operator-note",` +
 		`"valueType":"string","editable":true,"description":"Note"}]},"actions":[]}}`
+}
+
+func withV2Action(flowType string, condition string) string {
+	return strings.Replace(
+		validFlowDefinitionV2(flowType, true),
+		`"actions":[]`,
+		`"actions":[{"rpcName":"ConfirmCase","label":"Confirm","requiredPermission":"refund.manage",`+
+			condition+`"input":{"kind":"none"}}]`,
+		1,
+	)
 }
 
 func withV2Start(definition string, start string) string {
