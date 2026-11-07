@@ -68,6 +68,7 @@ message FlowCommand {
     PendingCloseCheckCommand pending_close_check = 73;
     SearchOutboxAckCommand search_outbox_ack = 74;
     SetSearchProjectionModeCommand set_search_projection_mode = 75;
+    SetHistoryOffloadModeCommand set_history_offload_mode = 76;
     HardDeleteObjectsDeletedCommand hard_delete_objects_deleted = 80;
     RunPurgeCommand run_purge = 81;
   }
@@ -437,6 +438,13 @@ message RunPurgeCommand {}
 // Sets whether apply appends SearchOutbox entries in this partition.
 message SetSearchProjectionModeCommand {
   bool enabled = 1;
+}
+
+// Sets whether this partition offloads run history to object storage.
+message SetHistoryOffloadModeCommand {
+  bool enabled = 1;
+  // Partition the owner routed the command to; apply rejects a command applied elsewhere.
+  uint32 partition = 2;
 }
 
 // The external search projection wrote this partition's outbox through through_seq; apply deletes

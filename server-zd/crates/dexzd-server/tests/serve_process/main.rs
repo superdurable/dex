@@ -15,6 +15,7 @@ mod dev_abrupt_exit;
 mod dev_restart;
 mod dev_soak;
 mod harness;
+mod history_offload_mode;
 mod lease_release;
 mod lease_validity;
 mod local_command;

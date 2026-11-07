@@ -236,6 +236,12 @@ pub struct HistoryConfig {
     /// Defaults to 256 MiB per run; cap on superseded values retained for reconstruction within the window.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub max_retained_superseded_bytes: u64,
+    /// Defaults to false; experimental switch that offloads run history to object storage.
+    /// Do not enable it until the release notes announce the feature: enabling it early can grow
+    /// local disk or fail Steps. At start, the lease holder commits this value to every partition
+    /// whose stored mode differs, so turning it off again takes effect at the next start.
+    #[serde(rename = "offloadEnabled")]
+    pub is_offload_enabled: bool,
     /// Deprecated keys that the parsed YAML used; never serialized.
     #[serde(skip)]
     deprecated_keys: Vec<DeprecatedConfigKey>,
@@ -256,6 +262,7 @@ impl Default for HistoryConfig {
             checkpoint_row_write_bytes_threshold: 1024 * 1024,
             checkpoint_command_threshold: 1_000,
             max_retained_superseded_bytes: 256 * 1024 * 1024,
+            is_offload_enabled: false,
             deprecated_keys: Vec::new(),
         }
     }
@@ -294,6 +301,8 @@ struct HistoryConfigSource {
     #[serde(deserialize_with = "deserialize_present_key")]
     checkpoint_command_interval: PresentKey<u32>,
     max_retained_superseded_bytes: u64,
+    #[serde(rename = "offloadEnabled")]
+    is_offload_enabled: bool,
 }
 
 /// A key's YAML value: `None` when the key is absent, `Some(None)` when it is an explicit null.
@@ -319,6 +328,7 @@ impl Default for HistoryConfigSource {
             checkpoint_command_threshold: None,
             checkpoint_command_interval: None,
             max_retained_superseded_bytes: defaults.max_retained_superseded_bytes,
+            is_offload_enabled: defaults.is_offload_enabled,
         }
     }
 }
@@ -349,6 +359,7 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             checkpoint_row_write_bytes_threshold,
             checkpoint_command_threshold,
             max_retained_superseded_bytes: source.max_retained_superseded_bytes,
+            is_offload_enabled: source.is_offload_enabled,
             deprecated_keys,
         })
     }

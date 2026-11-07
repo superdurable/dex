@@ -77,6 +77,8 @@ history:
   # Commands of any kind since the last checkpoint that trigger a new one.
   checkpointCommandThreshold: 1000
   maxRetainedSupersededBytes: 268435456
+  # Experimental: keep false until the release notes announce history offload.
+  offloadEnabled: false
 values:
   wireInlineThresholdBytes: 100
   maxValueBytes: 16777216

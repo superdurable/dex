@@ -176,6 +176,8 @@ pub struct NodeMetrics {
     pub search_initial_loads: Counter,
     /// Stopped partitions that kept their previous search projection mode at startup.
     pub search_projection_mode_skipped_partitions: Counter,
+    /// Stopped partitions that kept their previous history offload mode at startup.
+    pub history_offload_mode_skipped_partitions: Counter,
     /// Hot standby state, with one series for each closed state.
     pub hot_standby_states: HotStandbyStateGauges,
     /// Log batches the hot standby has yet to apply, as of its last listing.
@@ -548,6 +550,11 @@ impl NodeMetrics {
             metrics.search_projection_mode_skipped_partitions.clone(),
         );
         registry.register(
+            "dexzd_history_offload_mode_skipped_partitions",
+            "Stopped partitions that kept their previous history offload mode at startup.",
+            metrics.history_offload_mode_skipped_partitions.clone(),
+        );
+        registry.register(
             "dexzd_hot_standby_state",
             "Hot standby state of this process.",
             metrics.hot_standby_states.clone(),
@@ -648,6 +655,7 @@ impl NodeMetrics {
             search_initial_load_documents: Counter::default(),
             search_initial_loads: Counter::default(),
             search_projection_mode_skipped_partitions: Counter::default(),
+            history_offload_mode_skipped_partitions: Counter::default(),
             hot_standby_states: HotStandbyStateGauges::default(),
             hot_standby_lag_batches: Gauge::default(),
             hot_standby_lag_seconds: Gauge::default(),

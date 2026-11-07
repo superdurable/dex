@@ -187,6 +187,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_search_initial_load_pending_partitions` | gauge | — | Partitions whose initial SQL visibility load has not finished |
 | `dexzd_search_initial_loads_total` | counter | — | Partition loads started, including loads of progress that cannot continue; the log gives the reason |
 | `dexzd_search_projection_mode_skipped_partitions_total` | counter | — | Stopped partitions that kept their previous search projection mode at startup |
+| `dexzd_history_offload_mode_skipped_partitions_total` | counter | — | Stopped partitions that kept their previous history offload mode at startup |
 | `dexzd_search_initial_load_documents_total` | counter | — | Documents written by initial SQL visibility loads |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.

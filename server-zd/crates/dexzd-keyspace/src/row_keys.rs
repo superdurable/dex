@@ -435,6 +435,11 @@ pub fn search_projection_mode_key(partition: PartitionId) -> Vec<u8> {
     partition_index_prefix(partition, IndexKind::SearchProjectionMode)
 }
 
+/// Key of a partition's HistoryOffloadModeRecord; an absent record means disabled.
+pub fn history_offload_mode_key(partition: PartitionId) -> Vec<u8> {
+    partition_index_prefix(partition, IndexKind::HistoryOffloadMode)
+}
+
 /// Attribute Sync pending index key: length-prefixed store name, Flow hash, run ID.
 pub fn attribute_sync_pending_index_key(
     partition: PartitionId,
@@ -627,12 +632,13 @@ mod tests {
         SearchOrderPosition, attribute_sync_outbox_key, attribute_sync_outbox_store_prefix,
         attribute_sync_pending_index_key, attribute_sync_pending_store_prefix, channel_name_prefix,
         decode_attribute_sync_pending_index_key, decode_search_order_identity,
-        decode_search_outbox_key, decode_timer_index_key, ordered_timestamp_bytes, prefix_range,
-        search_order_index_key, search_order_index_prefix, search_outbox_key,
-        search_outbox_range_after, search_outbox_range_through, search_projection_mode_key,
-        timer_index_key, timestamp_from_ordered_bytes,
+        decode_search_outbox_key, decode_timer_index_key, history_offload_mode_key,
+        ordered_timestamp_bytes, partition_index_range, prefix_range, search_order_index_key,
+        search_order_index_prefix, search_outbox_key, search_outbox_range_after,
+        search_outbox_range_through, search_projection_mode_key, timer_index_key,
+        timestamp_from_ordered_bytes,
     };
-    use crate::{FlowHash, PartitionId, RunId, TenantId};
+    use crate::{FlowHash, IndexKind, PartitionId, RunId, TenantId};
 
     #[test]
     fn search_order_keys_sort_in_default_order() {
@@ -774,6 +780,17 @@ mod tests {
             &everything,
             &search_projection_mode_key(partition)
         ));
+    }
+
+    #[test]
+    fn history_offload_mode_keys_stay_inside_their_own_partition_index() {
+        let partition = PartitionId(5);
+        let key = history_offload_mode_key(partition);
+        let (start, end) = partition_index_range(partition, IndexKind::HistoryOffloadMode);
+        assert!(start <= key && key < end);
+        let (start, end) = partition_index_range(PartitionId(6), IndexKind::HistoryOffloadMode);
+        assert!(!(start <= key && key < end));
+        assert_ne!(key, search_projection_mode_key(partition));
     }
 
     #[test]

@@ -646,3 +646,9 @@ message SearchProjectionModeRecord {
   // Seq of the command that last enabled the mode; older SQL progress misses later changes.
   uint64 enabled_at_seq = 3;
 }
+
+// Singleton of the HistoryOffloadMode partition index. Absent means disabled.
+message HistoryOffloadModeRecord {
+  // The partition offloads run history to object storage while enabled.
+  bool enabled = 1;
+}
