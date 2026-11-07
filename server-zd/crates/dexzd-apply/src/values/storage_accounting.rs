@@ -282,17 +282,13 @@ fn add_attempt_state_delta(current: u64, delta: i128) -> u64 {
     u64::try_from(sum).expect("the sum is clamped to the u64 range")
 }
 
-/// Returns whether the run's committed storage already exceeds its state budget.
+/// Returns whether the run's committed active state already exceeds its state budget.
 pub(crate) fn is_run_over_state_budget(record: &RunRecord) -> bool {
     let max_run_state_bytes = record.settings.unwrap_or_default().max_run_state_bytes;
     record
         .storage
         .as_ref()
-        .is_some_and(|usage| total_run_storage_bytes(usage) > max_run_state_bytes)
-}
-
-pub(crate) fn total_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
-    active_run_storage_bytes(usage).saturating_add(usage.superseded_value_bytes)
+        .is_some_and(|usage| active_run_storage_bytes(usage) > max_run_state_bytes)
 }
 
 /// Returns the run's current storage without attempt state, which unchecked commands write and
@@ -301,6 +297,12 @@ pub(crate) fn active_run_storage_bytes_without_attempts(usage: &RunStorageUsage)
     active_run_storage_bytes(usage).saturating_sub(usage.attempt_state_bytes)
 }
 
-fn active_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
+/// Returns the run's active state, which the run state limit compares with its maximum.
+///
+/// It is the bytes of the current state rows plus the values they hold. History records,
+/// checkpoints, and superseded values are not counted. The state rows still include the small
+/// ValueBirth row of each table value and the ValueGarbage row of each superseded value, so
+/// existing runs need no recount.
+pub(crate) fn active_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
     usage.state_row_bytes.saturating_add(usage.live_value_bytes)
 }

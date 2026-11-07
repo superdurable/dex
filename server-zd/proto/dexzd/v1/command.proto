@@ -101,7 +101,8 @@ message RunSettings {
   reserved "checkpoint_min_written_bytes", "checkpoint_max_commands";
   // Request IDs remembered per run for deduplication (default 1000).
   uint32 request_dedup_capacity = 9;
-  // Largest total state size of the run (default 1 GiB).
+  // Largest active state of the run: current rows and the values they hold, without history
+  // records, checkpoints, or superseded values (default 64 MiB).
   uint64 max_run_state_bytes = 10;
   // Largest number of Step executions in the current attempt (default 10000).
   uint32 max_active_step_executions = 11;

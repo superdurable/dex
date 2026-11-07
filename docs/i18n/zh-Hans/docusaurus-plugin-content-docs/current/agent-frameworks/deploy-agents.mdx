@@ -165,7 +165,7 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 
 | Key | 默认值 | 限制对象 |
 | --- | --- | --- |
-| **limits.maxFlowStateBytes** | 64 MiB | 一个 session 的全部存储：当前状态、Attribute 和 Channel 值，以及为 time travel 保留的被替换值 |
+| **limits.maxFlowStateBytes** | 64 MiB | 一个 session 的活动状态：当前状态，包括它持有的 Attribute 和 Channel 值。history 以及 history 为 time travel 保留的被替换值不计入。 |
 | **values.maxValueBytes** | 16 MiB | 单个值的上限，比如一条消息、一条 tool call 记录或一份 framework run state |
 | **history.windowSemanticEvents** | 约 10,000 个事件 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
 | **retention.closedFlowDuration** | 7 天 | 已停止的 session 还能读取多久 |
@@ -179,16 +179,16 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
   32 条消息、1 MiB，因此远低于 **values.maxValueBytes**。更大的消息不进入窗口，保存时直接放进
   自己的 chunk，所以超过 **values.maxValueBytes** 的消息会让它所在的轮次立即失败，和以前一样。
   **AgentMessageIndex** 记录消息所在的位置，只在写入或删除 chunk 时改变。每条消息写两次：一次在窗口中，一次在
-  它的 chunk 中；history 保留窗口副本期间，它作为被替换值计入预算。启用[压缩](#compaction)时，**RunModel** 只加载
+  它的 chunk 中。窗口副本移除后，就不再计入 run 预算。启用[压缩](#compaction)时，**RunModel** 只加载
   摘要之后的消息。不启用压缩时，每次模型调用都加载并发送完整历史，也不会删除任何消息。
 - **FrameworkRunState** 在一轮等待 tool 结果时保存 framework 的状态。每次模型调用请求 tool
   后，**RunModel** 都会重写它。它保存这一轮到目前为止的工作，包括 tool 输出。OpenAI Agents
-  SDK 的状态还包含这一轮的输入，Vercel AI SDK 的状态会把每个 tool 输出保存两次。之前的每个值
-  都会作为被替换值保留，只要 history 还保留它，就计入 run 预算。
-- **AgentToolCalls** 记录在一轮结束时删除。被删除的值同样会成为被替换值，在 history 窗口
-  裁剪掉它之前，仍计入 run 预算。
+  SDK 的状态还包含这一轮的输入，Vercel AI SDK 的状态会把每个 tool 输出保存两次。只有当前值
+  计入 run 预算。之前的每个值都成为被替换值，history 会为 time travel 保留它，但 run 预算
+  不计入它。
+- **AgentToolCalls** 记录在一轮结束时删除，之后不再计入 run 预算。
 
-服务器会对 Step heartbeat 和 Step 完成等写入检查 run 预算，并且只在写入增加存储时检查。
+服务器会对 Step heartbeat 和 Step 完成等写入检查 run 预算，并且只在写入增加活动状态时检查。
 session 超出预算后，这样的 Step 会失败且不重试。模型调用或 tool call 失败时，它所在的轮次
 随之失败。没有失败路由的 Step 在它自己的写入越过预算时，会让整个 session 失败。保存下一条
 用户消息的 **AwaitUserMessage** 就是这样的 Step。事务型 RPC 的写入，比如
@@ -198,7 +198,9 @@ Flow history 大约保留一个 session 最新的 10,000 个事件。读取对�
 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
 [Time travel](/reference/server/runtime-client#time-travel) 只能以
 [history 窗口](/reference/server/configuration#history-window)内的时间点为目标。
-Time travel 到起点始终可用。
+Time travel 到起点始终可用。重写大值（比如 **FrameworkRunState**）的 session 窗口可能更短：
+被替换值超过 **history.maxRetainedSupersededBytes**（默认 256 MiB）时，窗口也会移除旧事件。
+这不会让 session 失败。
 
 session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 session 及其
 **get_agent_snapshot** RPC 在[保留期](/reference/server/configuration#retention)内仍可用，
@@ -237,8 +239,8 @@ tool call 的长轮次会在轮次中途压缩。
 600 字符的回答，约 2.9 KB，session 在 8,000 token 的窗口下压缩。上限为 100 时，在第 200、
 400、600 和 800 轮，保存的消息都在 162 KB 到 185 KB 之间，session 的全部活动状态在 167 KB 到
 191 KB 之间，而 session 一共保存了 2.3 MB 的消息。使用默认上限 1,000 时，按上限乘以一条消息的
-大小，加上摘要之后的消息，再加上 history 窗口保留的被替换值来规划。被删除的 chunk 在 history
-窗口裁剪掉它之前，作为被替换值计入预算。
+大小，加上摘要之后的消息，再加上一轮持有的最大 framework run state 和 tool call 记录来规划。
+被删除的 chunk 和被重写 Attribute 的旧值不计入。
 
 让长 session 保持在预算之内：
 
