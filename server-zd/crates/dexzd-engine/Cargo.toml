@@ -14,6 +14,7 @@ bytes.workspace = true
 dexzd-apply.workspace = true
 dexzd-clock.workspace = true
 dexzd-cluster-metadata.workspace = true
+dexzd-history-segment.workspace = true
 dexzd-keyspace.workspace = true
 dexzd-log.workspace = true
 dexzd-metrics.workspace = true
@@ -42,7 +43,6 @@ test-util = []
 [dev-dependencies]
 # Enables test-util for this crate's own integration tests.
 dexzd-engine = { workspace = true, features = ["test-util"] }
-dexzd-history-segment.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

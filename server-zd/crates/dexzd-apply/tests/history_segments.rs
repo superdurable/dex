@@ -1251,37 +1251,82 @@ impl Harness {
 }
 
 #[test]
+fn retention_waits_for_every_sealed_segment_then_the_purge_deletes_every_row() {
+    let mut harness = harness_with_three_sealed_segments();
+    harness.stop();
+    assert!(harness.has_upload_pending_index_row());
+    let retention = harness.run_record().retention_deadline_micros;
+    assert!(retention > 0);
+    harness.now_micros = retention;
+    let postponed = harness.apply(retention_fired());
+    assert!(!requests_purge(&postponed), "{:?}", postponed.effects);
+    let record = harness.run_record();
+    assert!(!record.is_purging, "purging would stop the uploads");
+    assert!(record.retention_deadline_micros > retention);
+
+    for segment in harness.segments() {
+        if segment.state == HistorySegmentState::Sealed as i32 {
+            let acknowledged = harness.ack(segment.first_seq, segment.last_seq);
+            assert!(is_ok(&acknowledged.reply), "{:?}", acknowledged.reply);
+        }
+    }
+    assert!(!harness.has_upload_pending_index_row());
+    harness.now_micros = record.retention_deadline_micros;
+    let fired = harness.apply(retention_fired());
+    assert!(requests_purge(&fired), "{:?}", fired.effects);
+    let purge = harness.apply(Command::RunPurge(
+        dexzd_protocol::dexzd::v1::RunPurgeCommand {},
+    ));
+    assert!(is_ok(&purge.reply), "{:?}", purge.reply);
+    assert_every_run_row_purged(&harness);
+}
+
+#[test]
 fn purging_a_run_deletes_its_upload_pending_index_row() {
     let mut harness = harness_with_three_sealed_segments();
     harness.stop();
     assert!(harness.has_upload_pending_index_row());
-    let record = harness.run_record();
-    let retention = record.retention_deadline_micros;
-    assert!(retention > 0);
-    harness.now_micros = retention;
-    let fired = harness.apply(Command::TimersFired(
-        dexzd_protocol::dexzd::v1::TimersFiredCommand {
-            timers: vec![dexzd_protocol::dexzd::v1::TimerId {
-                run_attempt: 0,
-                kind: Some(dexzd_protocol::dexzd::v1::timer_id::Kind::Retention(
-                    dexzd_protocol::dexzd::v1::RetentionTimerId {},
-                )),
-            }],
-        },
-    ));
-    assert!(
-        fired
-            .effects
-            .iter()
-            .any(|effect| matches!(effect, ApplyEffect::RunPurgeRequested { .. })),
-        "{:?}",
-        fired.effects
+    // Retention never purges a run with a SEALED segment, so the test marks the purge itself.
+    let key = run_singleton_key(
+        harness.context.flow_hash,
+        harness.run(),
+        RunTable::RunRecord,
     );
+    let purging = RunRecord {
+        is_purging: true,
+        ..harness.run_record()
+    };
+    harness
+        .state
+        .rows
+        .insert((ColumnFamily::Flow, key), purging.encode_to_vec());
     let purge = harness.apply(Command::RunPurge(
         dexzd_protocol::dexzd::v1::RunPurgeCommand {},
     ));
     assert!(is_ok(&purge.reply), "{:?}", purge.reply);
     assert!(!harness.has_upload_pending_index_row());
+    assert_every_run_row_purged(&harness);
+}
+
+fn retention_fired() -> Command {
+    Command::TimersFired(dexzd_protocol::dexzd::v1::TimersFiredCommand {
+        timers: vec![dexzd_protocol::dexzd::v1::TimerId {
+            run_attempt: 0,
+            kind: Some(dexzd_protocol::dexzd::v1::timer_id::Kind::Retention(
+                dexzd_protocol::dexzd::v1::RetentionTimerId {},
+            )),
+        }],
+    })
+}
+
+fn requests_purge(outcome: &ApplyOutcome) -> bool {
+    outcome
+        .effects
+        .iter()
+        .any(|effect| matches!(effect, ApplyEffect::RunPurgeRequested { .. }))
+}
+
+fn assert_every_run_row_purged(harness: &Harness) {
     assert!(
         harness
             .state

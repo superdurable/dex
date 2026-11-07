@@ -104,6 +104,22 @@ impl DevServer {
         WorkerTaskServiceClient::new(self.channel.clone())
     }
 
+    /// Stops the server gracefully and returns its data directory, so a test can open the
+    /// stopped server's local store.
+    pub(crate) async fn shutdown_keeping_data(self) -> TempDir {
+        let Self {
+            server,
+            _data_directory: data_directory,
+            ..
+        } = self;
+        server
+            .expect("the server is shut down once")
+            .shutdown()
+            .await
+            .expect("the server stops cleanly");
+        data_directory
+    }
+
     /// Stops the server gracefully and returns how long the shutdown took.
     pub(crate) async fn shutdown(mut self) -> Duration {
         let server = self.server.take().expect("the server is shut down once");

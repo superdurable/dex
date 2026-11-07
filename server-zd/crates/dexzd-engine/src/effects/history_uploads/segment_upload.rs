@@ -1,0 +1,470 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+//! Uploads one run's sealed history segments, oldest first, and proposes each acknowledgment
+//! (plan section 5.4).
+
+use std::collections::BTreeSet;
+
+use bytes::Bytes;
+use dexzd_apply::ApplyError;
+use dexzd_apply::FlowStateReader;
+use dexzd_apply::read_model::{
+    ReadModelError, oldest_sealed_history_segment, read_history_segment_content,
+};
+use dexzd_history_segment::{
+    HistorySegmentCodecError, decode_history_segment, decode_history_segment_header,
+    encode_history_segment, history_segment_object_key,
+};
+use dexzd_keyspace::{RunId, TenantId};
+use dexzd_metrics::HistoryUploadOutcome;
+use dexzd_object_store::{
+    ObjectStoreError, ObjectStoreErrorKind, ObjectStoreOperation, WriteCondition, WriteOutcome,
+};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, HistorySegmentUploadedCommand, command_reply, flow_command,
+};
+use tokio::sync::OwnedSemaphorePermit;
+
+use super::until_stopped;
+use crate::blocking_work::BlockingWorkFailure;
+use crate::effects::state_reads::RunLocation;
+use crate::effects::{EffectContext, EffectError};
+use crate::flow_coordination::{CommitUrgency, FlowAddress};
+
+/// gRPC NOT_FOUND, which apply returns for a run that is gone or purging.
+const GRPC_NOT_FOUND: i32 = 5;
+/// Conditional writes one upload attempt makes before it backs off; each extra write means the
+/// object changed between our read and write.
+const MAX_CONDITIONAL_WRITES: usize = 4;
+
+/// One sealed segment encoded from committed state. It owns its upload slot, so encoded bytes
+/// never outlive the slot and memory stays bounded by `history.uploadConcurrency`.
+struct EncodedSealedSegment {
+    identity: SealedSegmentIdentity,
+    body: Bytes,
+    _upload_slot: OwnedSemaphorePermit,
+}
+
+/// What names a sealed segment and its object; holds no object bytes.
+struct SealedSegmentIdentity {
+    first_seq: u64,
+    last_seq: u64,
+    object_key: String,
+    content_checksum: [u8; 16],
+}
+
+/// A segment whose object is stored, with how the upload ended; holds no object bytes.
+struct StoredSealedSegment {
+    identity: SealedSegmentIdentity,
+    outcome: HistoryUploadOutcome,
+    object_size_bytes: u64,
+    /// Bytes this upload wrote; zero when the object already existed.
+    written_bytes: u64,
+}
+
+/// Uploads the run's SEALED history segments in seq order and acknowledges each one, until
+/// committed state has none left. Retryable object storage failures retry with backoff and
+/// never block commands.
+///
+/// A run whose upload failed without a retry is skipped by every trigger until the rescan
+/// allows it again, so it is retried at most once per rescan.
+///
+/// Returns `Ok` once no SEALED segment remains, the run is gone or purging, or the run waits
+/// for the rescan after a failure. Returns an error when committed state cannot be read or
+/// encoded, when object storage rejects a call permanently, or when an acknowledgment is
+/// rejected or does not advance the run; nothing is acknowledged meanwhile.
+pub(crate) async fn upload_sealed_history_segments(
+    context: &EffectContext,
+    flow: &FlowAddress,
+    run_id: RunId,
+) -> Result<(), EffectError> {
+    if failed_runs(context).contains(&run_id) {
+        tracing::debug!(%run_id, "a failed history upload waits for the next rescan");
+        return Ok(());
+    }
+    let result = upload_run_segments(context, flow, run_id).await;
+    match &result {
+        Ok(()) => {
+            failed_runs(context).remove(&run_id);
+        }
+        Err(EffectError::Stopped) => {}
+        Err(_) => {
+            failed_runs(context).insert(run_id);
+        }
+    }
+    result
+}
+
+/// Lets the next trigger retry `run_id` after a failure; the rescan calls it.
+pub(super) fn allow_upload_retry(context: &EffectContext, run_id: RunId) {
+    failed_runs(context).remove(&run_id);
+}
+
+fn failed_runs(context: &EffectContext) -> std::sync::MutexGuard<'_, BTreeSet<RunId>> {
+    context
+        .history_upload_failed_runs
+        .lock()
+        .expect("the failed upload set lock is never poisoned")
+}
+
+async fn upload_run_segments(
+    context: &EffectContext,
+    flow: &FlowAddress,
+    run_id: RunId,
+) -> Result<(), EffectError> {
+    let run = context.run_location(flow, run_id);
+    let mut backoff = context.retry_backoff();
+    let mut acknowledged_first_seq = None;
+    loop {
+        let upload_slot = tokio::select! {
+            biased;
+            () = context.shutdown.cancelled() => return Err(EffectError::Stopped),
+            permit = context.history_upload_slots.clone().acquire_owned() => {
+                permit.map_err(|_| EffectError::Stopped)?
+            }
+        };
+        let segment = match encode_oldest_sealed_segment(context, flow, run, upload_slot).await {
+            Ok(Some(segment)) => segment,
+            Ok(None) => return Ok(()),
+            Err(EffectError::Stopped) => return Err(EffectError::Stopped),
+            Err(error) if error.is_retryable() => {
+                tracing::warn!(%error, %run_id, "reading a sealed history segment failed; retrying");
+                if !backoff.wait(&context.shutdown).await {
+                    return Err(EffectError::Stopped);
+                }
+                continue;
+            }
+            Err(error) => return Err(failed_until_rescan(context, run_id, None, error)),
+        };
+        let object_key = segment.identity.object_key.clone();
+        if acknowledged_first_seq == Some(segment.identity.first_seq) {
+            let error = EffectError::InvariantViolation {
+                detail: format!(
+                    "history segment {}..={} of run {run_id} stays SEALED after its \
+                     acknowledgment applied",
+                    segment.identity.first_seq, segment.identity.last_seq
+                ),
+            };
+            return Err(failed_until_rescan(
+                context,
+                run_id,
+                Some(&object_key),
+                error,
+            ));
+        }
+        let stored = match store_segment_object(context, segment).await {
+            Ok(stored) => stored,
+            Err(EffectError::Stopped) => return Err(EffectError::Stopped),
+            Err(error) if error.is_retryable() => {
+                context
+                    .metrics
+                    .history_uploads
+                    .record(HistoryUploadOutcome::Failed);
+                tracing::warn!(
+                    %error,
+                    %run_id,
+                    object_key,
+                    "uploading a history segment failed; retrying"
+                );
+                if !backoff.wait(&context.shutdown).await {
+                    return Err(EffectError::Stopped);
+                }
+                continue;
+            }
+            Err(error) => {
+                return Err(failed_until_rescan(
+                    context,
+                    run_id,
+                    Some(&object_key),
+                    error,
+                ));
+            }
+        };
+        backoff = context.retry_backoff();
+        let is_run_uploading = match acknowledge_segment(context, flow, run_id, &stored).await {
+            Ok(is_run_uploading) => is_run_uploading,
+            Err(EffectError::Stopped) => return Err(EffectError::Stopped),
+            Err(error) => {
+                return Err(failed_until_rescan(
+                    context,
+                    run_id,
+                    Some(&object_key),
+                    error,
+                ));
+            }
+        };
+        // Recorded once the acknowledgment committed, so the counter shows finished uploads.
+        record_stored_segment(context, &stored);
+        if !is_run_uploading {
+            return Ok(());
+        }
+        acknowledged_first_seq = Some(stored.identity.first_seq);
+    }
+}
+
+/// Counts and logs an upload failure that waits for the next rescan, and returns its error.
+fn failed_until_rescan(
+    context: &EffectContext,
+    run_id: RunId,
+    object_key: Option<&str>,
+    error: EffectError,
+) -> EffectError {
+    context
+        .metrics
+        .history_uploads
+        .record(HistoryUploadOutcome::Failed);
+    tracing::error!(
+        %error,
+        %run_id,
+        object_key,
+        "a history segment upload failed without a retry; retrying at the next rescan"
+    );
+    error
+}
+
+/// Reads the run's oldest SEALED segment from committed state and encodes it on a blocking
+/// thread, so zstd compression never stalls async tasks.
+///
+/// Returns `None` when no SEALED segment remains or the run is gone or purging. Returns an
+/// error, and writes nothing, when the segment's content cannot be read or encoded.
+async fn encode_oldest_sealed_segment(
+    context: &EffectContext,
+    flow: &FlowAddress,
+    run: RunLocation,
+    upload_slot: OwnedSemaphorePermit,
+) -> Result<Option<EncodedSealedSegment>, EffectError> {
+    let reader = context
+        .flow_effect_operations
+        .flow_state_reader(flow, false)?;
+    let tenant_id = flow.tenant_id;
+    let encoding = context
+        .config
+        .blocking_work
+        .run_tracked(&context.tracker, move || {
+            encode_from_committed_state(reader.as_ref(), tenant_id, run)
+        });
+    let encoded = match encoding.await {
+        Ok(result) => result?,
+        Err(BlockingWorkFailure::Panicked(payload)) => std::panic::resume_unwind(payload),
+        Err(BlockingWorkFailure::Cancelled) => return Err(EffectError::Stopped),
+    };
+    Ok(encoded.map(|(identity, body)| EncodedSealedSegment {
+        identity,
+        body,
+        _upload_slot: upload_slot,
+    }))
+}
+
+fn encode_from_committed_state(
+    reader: &dyn FlowStateReader,
+    tenant_id: TenantId,
+    run: RunLocation,
+) -> Result<Option<(SealedSegmentIdentity, Bytes)>, EffectError> {
+    let segment = match oldest_sealed_history_segment(reader, run.flow_hash, run.run_id) {
+        Ok(Some(segment)) => segment,
+        Ok(None) | Err(ReadModelError::RunNotFound { .. }) => return Ok(None),
+        Err(error) => return Err(read_model_error(error)),
+    };
+    let content =
+        read_history_segment_content(reader, run.flow_hash, run.run_id, segment.first_seq)
+            .map_err(read_model_error)?
+            .ok_or_else(|| EffectError::InvariantViolation {
+                detail: format!(
+                    "history segment {}..={} of run {} disappeared within one committed view",
+                    segment.first_seq, segment.last_seq, run.run_id
+                ),
+            })?;
+    let encoded = encode_history_segment(&content)
+        .map_err(|error| encoding_error(run.run_id, segment.first_seq, &error))?;
+    let identity = SealedSegmentIdentity {
+        first_seq: segment.first_seq,
+        last_seq: segment.last_seq,
+        object_key: history_segment_object_key(
+            tenant_id,
+            run.flow_hash,
+            run.run_id,
+            segment.first_seq,
+            segment.last_seq,
+        ),
+        content_checksum: encoded.content_checksum,
+    };
+    Ok(Some((identity, Bytes::from(encoded.bytes))))
+}
+
+/// Creates the segment's object, or confirms an existing one (plan R11), then releases the
+/// encoded bytes and the upload slot before returning.
+///
+/// An existing object that decodes with the same content checksum came from an earlier upload
+/// of this segment. Any other existing object came from committed history that no longer
+/// exists, such as an older restored snapshot, or from a determinism bug; committed state is
+/// authoritative while the segment is SEALED, so it is replaced with an If-Match write.
+///
+/// Returns the stored segment, the object storage error, which leaves no partial object, or
+/// [`EffectError::Stopped`] when the node stops during a call.
+async fn store_segment_object(
+    context: &EffectContext,
+    segment: EncodedSealedSegment,
+) -> Result<StoredSealedSegment, EffectError> {
+    let store = &context.history_object_store;
+    let key = segment.identity.object_key.as_str();
+    let body_size = segment.body.len() as u64;
+    let mut condition = WriteCondition::CreateOnly;
+    for _ in 0..MAX_CONDITIONAL_WRITES {
+        let is_replacement = matches!(condition, WriteCondition::ReplaceIfEtagMatches { .. });
+        let written =
+            until_stopped(context, store.put(key, segment.body.clone(), condition)).await?;
+        if let WriteOutcome::Written { .. } = written {
+            let outcome = if is_replacement {
+                HistoryUploadOutcome::Replaced
+            } else {
+                HistoryUploadOutcome::Created
+            };
+            return Ok(stored_segment(segment, outcome, body_size, body_size));
+        }
+        let Some(existing) = until_stopped(context, store.get(key)).await? else {
+            condition = WriteCondition::CreateOnly;
+            continue;
+        };
+        let existing_checksum = verified_content_checksum(context, existing.bytes).await?;
+        if existing_checksum == Some(segment.identity.content_checksum) {
+            let outcome = HistoryUploadOutcome::AlreadyPresent;
+            return Ok(stored_segment(segment, outcome, existing.object_size, 0));
+        }
+        context.metrics.history_upload_checksum_mismatches.inc();
+        tracing::error!(
+            object_key = key,
+            existing_object_size_bytes = existing.object_size,
+            "an existing history segment object differs from committed state; replacing it"
+        );
+        condition = WriteCondition::ReplaceIfEtagMatches {
+            etag: existing.etag,
+        };
+    }
+    Err(EffectError::ObjectStore(ObjectStoreError::new(
+        ObjectStoreOperation::Put,
+        key,
+        ObjectStoreErrorKind::Transient,
+        format!("the object changed during each of {MAX_CONDITIONAL_WRITES} conditional writes"),
+    )))
+}
+
+/// Drops the segment's bytes and upload slot, keeping what its acknowledgment needs.
+fn stored_segment(
+    segment: EncodedSealedSegment,
+    outcome: HistoryUploadOutcome,
+    object_size_bytes: u64,
+    written_bytes: u64,
+) -> StoredSealedSegment {
+    StoredSealedSegment {
+        identity: segment.identity,
+        outcome,
+        object_size_bytes,
+        written_bytes,
+    }
+}
+
+/// Decodes an existing object completely on a blocking thread, under the caller's upload slot.
+///
+/// Returns its content checksum, or `None` for an object that fails any block, value, trailer,
+/// or content check.
+async fn verified_content_checksum(
+    context: &EffectContext,
+    object: Bytes,
+) -> Result<Option<[u8; 16]>, EffectError> {
+    let verification = context
+        .config
+        .blocking_work
+        .run_tracked(&context.tracker, move || {
+            decode_history_segment(&object).ok()?;
+            decode_history_segment_header(&object, object.len() as u64)
+                .ok()
+                .map(|layout| layout.content_checksum())
+        });
+    match verification.await {
+        Ok(checksum) => Ok(checksum),
+        Err(BlockingWorkFailure::Panicked(payload)) => std::panic::resume_unwind(payload),
+        Err(BlockingWorkFailure::Cancelled) => Err(EffectError::Stopped),
+    }
+}
+
+fn record_stored_segment(context: &EffectContext, stored: &StoredSealedSegment) {
+    let metrics = &context.metrics;
+    metrics.history_uploads.record(stored.outcome);
+    metrics.history_upload_bytes.inc_by(stored.written_bytes);
+    tracing::debug!(
+        object_key = stored.identity.object_key,
+        outcome = ?stored.outcome,
+        object_size_bytes = stored.object_size_bytes,
+        "stored a history segment object"
+    );
+}
+
+/// Proposes the segment's acknowledgment and waits until it commits.
+///
+/// Returns false when the run is gone or purging, which ends the run's uploads. A duplicate or
+/// stale acknowledgment applies as a no-op and returns true.
+async fn acknowledge_segment(
+    context: &EffectContext,
+    flow: &FlowAddress,
+    run_id: RunId,
+    stored: &StoredSealedSegment,
+) -> Result<bool, EffectError> {
+    let identity = &stored.identity;
+    let command = FlowCommand {
+        flow_id: flow.flow_id.clone(),
+        run_id: run_id.as_bytes().to_vec(),
+        tenant_id: flow.tenant_id.0,
+        command: Some(flow_command::Command::HistorySegmentUploaded(
+            HistorySegmentUploadedCommand {
+                first_seq: identity.first_seq,
+                last_seq: identity.last_seq,
+                content_checksum: identity.content_checksum.to_vec(),
+                object_size_bytes: stored.object_size_bytes,
+            },
+        )),
+        ..FlowCommand::default()
+    };
+    let reply = context
+        .propose_until_committed(flow, command, CommitUrgency::Batched)
+        .await
+        .ok_or(EffectError::Stopped)?;
+    match reply.reply {
+        Some(command_reply::Reply::Error(error)) if error.grpc_code == GRPC_NOT_FOUND => {
+            tracing::debug!(%run_id, "stopping history uploads of a run that is gone or purging");
+            Ok(false)
+        }
+        Some(command_reply::Reply::Error(error)) => Err(EffectError::InvariantViolation {
+            detail: format!(
+                "HistorySegmentUploaded {}..={} of run {run_id} was rejected: {}",
+                identity.first_seq, identity.last_seq, error.message
+            ),
+        }),
+        _ => Ok(true),
+    }
+}
+
+/// Maps a committed read failure; a failed store read stays retryable.
+fn read_model_error(error: ReadModelError) -> EffectError {
+    match error {
+        ReadModelError::State(ApplyError::StateRead(error)) => EffectError::StateRead(error),
+        ReadModelError::State(ApplyError::CorruptState { table, key, detail }) => {
+            EffectError::CorruptState { table, key, detail }
+        }
+        error => EffectError::InvariantViolation {
+            detail: format!("reading a sealed history segment failed: {error}"),
+        },
+    }
+}
+
+/// Maps a segment encoding failure; committed content always encodes, so a failure is a bug.
+fn encoding_error(run_id: RunId, first_seq: u64, error: &HistorySegmentCodecError) -> EffectError {
+    EffectError::InvariantViolation {
+        detail: format!("encoding history segment {first_seq} of run {run_id} failed: {error}"),
+    }
+}

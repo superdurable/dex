@@ -205,6 +205,89 @@ impl EncodeMetric for AttributeSyncWriteFailures {
     }
 }
 
+/// How one upload of a sealed history segment ended; every outcome but `Failed` is counted once
+/// the upload's acknowledgment committed.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum HistoryUploadOutcome {
+    /// The upload created the object.
+    Created,
+    /// An object with the same content checksum already existed, as a repeated upload finds.
+    AlreadyPresent,
+    /// An object with another content checksum existed; the upload replaced it.
+    Replaced,
+    /// An upload attempt failed. A transient object storage failure counts here and is retried
+    /// with backoff. A failure that is not retried with backoff also counts here and is retried
+    /// only at the next rescan: a permanent object storage rejection, a segment that cannot be
+    /// read or encoded from committed state, or a rejected acknowledgment.
+    Failed,
+}
+
+label_value!(HistoryUploadOutcome { Created => "created", AlreadyPresent => "already_present", Replaced => "replaced", Failed => "failed" });
+
+impl HistoryUploadOutcome {
+    const ALL: [Self; 4] = [
+        Self::Created,
+        Self::AlreadyPresent,
+        Self::Replaced,
+        Self::Failed,
+    ];
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Created => 0,
+            Self::AlreadyPresent => 1,
+            Self::Replaced => 2,
+            Self::Failed => 3,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct HistoryUploadOutcomeLabel {
+    outcome: HistoryUploadOutcome,
+}
+
+/// Fixed counters of history segment uploads, by outcome.
+#[derive(Clone, Debug)]
+pub struct HistoryUploadOutcomes {
+    values: Arc<[Counter; 4]>,
+}
+
+impl Default for HistoryUploadOutcomes {
+    fn default() -> Self {
+        Self {
+            values: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl HistoryUploadOutcomes {
+    /// Records one upload attempt.
+    pub fn record(&self, outcome: HistoryUploadOutcome) {
+        self.values[outcome.index()].inc();
+    }
+
+    /// Returns the upload attempts recorded with `outcome`.
+    pub fn count(&self, outcome: HistoryUploadOutcome) -> u64 {
+        self.values[outcome.index()].get()
+    }
+}
+
+impl EncodeMetric for HistoryUploadOutcomes {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for outcome in HistoryUploadOutcome::ALL {
+            encoder
+                .encode_family(&HistoryUploadOutcomeLabel { outcome })?
+                .encode_counter::<NoLabelSet, _, u64>(&self.values[outcome.index()].get(), None)?;
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}
+
 /// What this process does as a hot standby.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum HotStandbyMetricState {

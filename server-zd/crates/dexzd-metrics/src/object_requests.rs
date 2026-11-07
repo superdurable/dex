@@ -52,18 +52,21 @@ pub enum ObjectKind {
     Manifest,
     /// Node lease.
     Lease,
+    /// History segment object.
+    History,
     /// Cluster metadata or value object.
     Other,
 }
 
-label_value!(ObjectKind { Log => "log", Snapshot => "snapshot", Manifest => "manifest", Lease => "lease", Other => "other" });
+label_value!(ObjectKind { Log => "log", Snapshot => "snapshot", Manifest => "manifest", Lease => "lease", History => "history", Other => "other" });
 
 impl ObjectKind {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Log,
         Self::Snapshot,
         Self::Manifest,
         Self::Lease,
+        Self::History,
         Self::Other,
     ];
 
@@ -73,7 +76,8 @@ impl ObjectKind {
             Self::Snapshot => 1,
             Self::Manifest => 2,
             Self::Lease => 3,
-            Self::Other => 4,
+            Self::History => 4,
+            Self::Other => 5,
         }
     }
 }
@@ -88,6 +92,8 @@ pub fn classify_object_kind(key: &str) -> ObjectKind {
         ObjectKind::Manifest
     } else if key.starts_with("lease/") || key == "lease" {
         ObjectKind::Lease
+    } else if key.starts_with("history/") || key == "history" {
+        ObjectKind::History
     } else {
         ObjectKind::Other
     }
@@ -102,7 +108,7 @@ struct ObjectLabel {
 /// Fixed atomic object request counters, emitting only observed label pairs.
 #[derive(Clone, Debug)]
 pub struct ObjectRequests {
-    counts: Arc<[[Counter; 5]; 4]>,
+    counts: Arc<[[Counter; 6]; 4]>,
 }
 
 impl Default for ObjectRequests {
@@ -171,6 +177,11 @@ mod tests {
             ),
             ("manifest", ObjectKind::Manifest),
             ("lease/node-a", ObjectKind::Lease),
+            (
+                "history/0000000000000000/00000000000000ab/0192f3a4-5b6c-7d8e-9fa0-b1c2d3e4f5a6/\
+                 00000000000000000001-00000000000000000009",
+                ObjectKind::History,
+            ),
             ("cluster", ObjectKind::Other),
             ("hard-delete/tenant/value", ObjectKind::Other),
         ] {

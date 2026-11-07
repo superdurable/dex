@@ -35,15 +35,17 @@ use std::path::PathBuf;
 pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc};
 pub use commit_latency::CommitLatency;
 pub use fixed_labels::{
-    AttributeSyncFailureKind, AttributeSyncWriteFailures, HotStandbyMetricState,
-    HotStandbyStateGauges, ObjectErrorCounters, OutcomeCounters, RoleGauges, TakeoverCounters,
-    TakeoverDurations, TakeoverStandbyMode, TakeoverStoreSource,
+    AttributeSyncFailureKind, AttributeSyncWriteFailures, HistoryUploadOutcome,
+    HistoryUploadOutcomes, HotStandbyMetricState, HotStandbyStateGauges, ObjectErrorCounters,
+    OutcomeCounters, RoleGauges, TakeoverCounters, TakeoverDurations, TakeoverStandbyMode,
+    TakeoverStoreSource,
 };
 pub use histogram::AtomicHistogram;
 use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
 pub use lag_gauges::{
-    SearchOutboxBacklog, SearchOutboxEntries, SearchOutboxMaxPartitionEntries,
-    SearchOutboxOldestEntryAge, TimerLag,
+    HistoryUploadBacklog, HistoryUploadBacklogBytes, HistoryUploadBacklogSegments,
+    HistoryUploadOldestSealedAge, SearchOutboxBacklog, SearchOutboxEntries,
+    SearchOutboxMaxPartitionEntries, SearchOutboxOldestEntryAge, TimerLag,
 };
 pub use object_requests::{ObjectKind, ObjectOperation, ObjectRequests, classify_object_kind};
 use prometheus_client::encoding::{EncodeLabelSet, text::encode};
@@ -178,6 +180,17 @@ pub struct NodeMetrics {
     pub search_projection_mode_skipped_partitions: Counter,
     /// Stopped partitions that kept their previous history offload mode at startup.
     pub history_offload_mode_skipped_partitions: Counter,
+    /// Sealed history segments waiting for upload, per partition, as of the uploader's last scan.
+    pub history_upload_backlog: HistoryUploadBacklog,
+    /// History segment uploads by outcome: each upload once its acknowledgment committed, and
+    /// each failed attempt.
+    pub history_uploads: HistoryUploadOutcomes,
+    /// Bytes of the history segment objects this node wrote.
+    pub history_upload_bytes: Counter,
+    /// Existing history segment objects whose content checksum differed from committed state.
+    pub history_upload_checksum_mismatches: Counter,
+    /// Runs or index rows that the history upload rescan could not read and skipped.
+    pub history_upload_rescan_errors: Counter,
     /// Hot standby state, with one series for each closed state.
     pub hot_standby_states: HotStandbyStateGauges,
     /// Log batches the hot standby has yet to apply, as of its last listing.
@@ -555,6 +568,41 @@ impl NodeMetrics {
             metrics.history_offload_mode_skipped_partitions.clone(),
         );
         registry.register(
+            "dexzd_history_upload_backlog_segments",
+            "Sealed history segments waiting for upload.",
+            HistoryUploadBacklogSegments(metrics.history_upload_backlog.clone()),
+        );
+        registry.register(
+            "dexzd_history_upload_backlog_bytes",
+            "Uncompressed bytes of the sealed history segments waiting for upload.",
+            HistoryUploadBacklogBytes(metrics.history_upload_backlog.clone()),
+        );
+        registry.register(
+            "dexzd_history_upload_oldest_sealed_age_seconds",
+            "Age of the oldest sealed history segment waiting for upload.",
+            HistoryUploadOldestSealedAge(metrics.history_upload_backlog.clone()),
+        );
+        registry.register(
+            "dexzd_history_uploads",
+            "History segment uploads by outcome: acknowledged uploads and failed attempts.",
+            metrics.history_uploads.clone(),
+        );
+        registry.register(
+            "dexzd_history_upload_bytes",
+            "Bytes of the history segment objects this node wrote.",
+            metrics.history_upload_bytes.clone(),
+        );
+        registry.register(
+            "dexzd_history_upload_checksum_mismatches",
+            "Existing history segment objects whose content differed from committed state.",
+            metrics.history_upload_checksum_mismatches.clone(),
+        );
+        registry.register(
+            "dexzd_history_upload_rescan_errors",
+            "Runs or index rows that the history upload rescan could not read and skipped.",
+            metrics.history_upload_rescan_errors.clone(),
+        );
+        registry.register(
             "dexzd_hot_standby_state",
             "Hot standby state of this process.",
             metrics.hot_standby_states.clone(),
@@ -596,6 +644,12 @@ impl NodeMetrics {
     /// Creates unregistered handles for tests and simulations.
     pub fn unregistered() -> Self {
         Self::with_partitions(0)
+    }
+
+    /// Creates unregistered handles whose per-partition gauges track `partition_count`
+    /// partitions, for tests and simulations that read those gauges.
+    pub fn unregistered_with_partitions(partition_count: usize) -> Self {
+        Self::with_partitions(partition_count)
     }
 
     fn with_partitions(partition_count: usize) -> Self {
@@ -656,6 +710,11 @@ impl NodeMetrics {
             search_initial_loads: Counter::default(),
             search_projection_mode_skipped_partitions: Counter::default(),
             history_offload_mode_skipped_partitions: Counter::default(),
+            history_upload_backlog: HistoryUploadBacklog::new(partition_count),
+            history_uploads: HistoryUploadOutcomes::default(),
+            history_upload_bytes: Counter::default(),
+            history_upload_checksum_mismatches: Counter::default(),
+            history_upload_rescan_errors: Counter::default(),
             hot_standby_states: HotStandbyStateGauges::default(),
             hot_standby_lag_batches: Gauge::default(),
             hot_standby_lag_seconds: Gauge::default(),

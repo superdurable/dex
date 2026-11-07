@@ -35,6 +35,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
+| History offload (experimental) | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total** |
 | Attribute Store sync | See [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring) |
 | External search projection | See [Monitoring](/reference/server/search#search-projection-monitoring) |
 
@@ -77,6 +78,18 @@ Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each stream close and, with
 **event="delivered"**, every task frame sent, including RPC task frames. A returned attempt
 that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
+
+The history offload gauges come from a rescan of every partition each minute.
+**dexzd_history_upload_backlog_segments** counts sealed history segments that
+are not uploaded yet. **dexzd_history_upload_backlog_bytes** is their
+uncompressed size. **outcome** of **dexzd_history_uploads_total** is one of
+**created**, **already_present** (a repeated upload found the same content),
+**replaced** (an existing object had other content), each counted once the
+upload is recorded, and **failed**. A transient object storage failure is
+retried with backoff; any other failure is retried at the next rescan. Alert when
+**dexzd_history_upload_oldest_sealed_age_seconds** stays above 900, or when
+**dexzd_history_upload_checksum_mismatches_total** or
+**dexzd_history_upload_rescan_errors_total** rises.
 
 ~~~text
 # Failed API calls by class and code

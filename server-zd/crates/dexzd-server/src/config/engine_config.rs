@@ -272,6 +272,11 @@ pub struct HistoryConfig {
     /// superseded values reach this many bytes. Recorded in RunRecord at FlowStart; changes
     /// affect only later runs.
     pub segment_target_bytes: u64,
+    /// Defaults to 16; from 1 to 1024. Most sealed history segments the lease holder reads,
+    /// encodes, and uploads to object storage at once. Higher values drain an upload backlog
+    /// faster and hold more segments in memory; each in-flight segment holds about its encoded
+    /// size, usually up to `segmentTargetBytes` plus one command's history.
+    pub upload_concurrency: u32,
     /// Deprecated keys that the parsed YAML used; never serialized.
     #[serde(skip)]
     deprecated_keys: Vec<DeprecatedConfigKey>,
@@ -295,6 +300,7 @@ impl Default for HistoryConfig {
             max_retained_superseded_bytes: 256 * 1024 * 1024,
             is_offload_enabled: false,
             segment_target_bytes: 4 * 1024 * 1024,
+            upload_concurrency: 16,
             deprecated_keys: Vec::new(),
         }
     }
@@ -344,6 +350,7 @@ struct HistoryConfigSource {
     #[serde(rename = "offloadEnabled")]
     is_offload_enabled: bool,
     segment_target_bytes: u64,
+    upload_concurrency: u32,
 }
 
 /// A key's YAML value: `None` when the key is absent, `Some(None)` when it is an explicit null.
@@ -373,6 +380,7 @@ impl Default for HistoryConfigSource {
             max_retained_superseded_bytes: defaults.max_retained_superseded_bytes,
             is_offload_enabled: defaults.is_offload_enabled,
             segment_target_bytes: defaults.segment_target_bytes,
+            upload_concurrency: defaults.upload_concurrency,
         }
     }
 }
@@ -413,6 +421,7 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             max_retained_superseded_bytes: source.max_retained_superseded_bytes,
             is_offload_enabled: source.is_offload_enabled,
             segment_target_bytes: source.segment_target_bytes,
+            upload_concurrency: source.upload_concurrency,
             deprecated_keys,
         })
     }

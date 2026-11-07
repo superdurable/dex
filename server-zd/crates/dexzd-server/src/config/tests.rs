@@ -152,6 +152,28 @@ fn history_segment_target_bytes_reaches_run_and_child_settings() {
 }
 
 #[test]
+fn history_upload_concurrency_reaches_the_effect_runner() {
+    assert_eq!(Config::default().history.upload_concurrency, 16);
+    assert_eq!(
+        ComponentConfigs::from_config(&valid_config(), false)
+            .expect("component config")
+            .effects
+            .history_upload_concurrency,
+        16
+    );
+    let parsed = Config::parse_yaml("history:\n  uploadConcurrency: 3\n")
+        .expect("parse the history upload concurrency");
+    let mut configuration = valid_config();
+    configuration.history.upload_concurrency = parsed.history.upload_concurrency;
+    configuration
+        .validate()
+        .expect("a valid history upload concurrency");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(components.effects.history_upload_concurrency, 3);
+}
+
+#[test]
 fn run_limits_and_the_child_result_limit_reach_run_settings() {
     assert_eq!(
         Config::default().limits.max_child_flow_result_bytes,
@@ -1264,6 +1286,12 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("history.segmentTargetBytes", |config| {
             config.history.segment_target_bytes = 256 * 1024 * 1024 + 1
+        }),
+        ("history.uploadConcurrency", |config| {
+            config.history.upload_concurrency = 0
+        }),
+        ("history.uploadConcurrency", |config| {
+            config.history.upload_concurrency = 1025
         }),
         ("values.maxValueBytes", |config| {
             config.values.max_value_bytes = 0

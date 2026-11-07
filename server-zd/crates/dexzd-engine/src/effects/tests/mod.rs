@@ -14,6 +14,7 @@ mod deadline_tests;
 mod dispatch_tests;
 mod handout_tests;
 mod hard_delete_tests;
+mod history_upload_tests;
 mod keyword_index_tests;
 mod outbox_and_purge_tests;
 mod rebuild_tests;
@@ -1423,6 +1424,7 @@ pub(super) struct EffectHarness {
     pub(super) clock: Arc<TokioWallClock>,
     pub(super) stream_store: Arc<StreamStore>,
     pub(super) attribute_sync_waker: AttributeSyncWaker,
+    pub(super) metrics: Arc<dexzd_metrics::NodeMetrics>,
     tasks: EffectTasksHandle,
 }
 
@@ -1478,6 +1480,9 @@ impl EffectHarness {
             Arc::new(SystemEngineIdSource),
         );
         let dispatcher = Arc::new(FakeDispatcher::new());
+        let metrics = Arc::new(dexzd_metrics::NodeMetrics::unregistered_with_partitions(
+            usize::try_from(hasher.partition_count()).expect("a partition count fits in usize"),
+        ));
         let attribute_sync_waker = AttributeSyncWaker::new();
         let stream_store = Arc::new(
             StreamStore::new(&StreamStoreConfig {
@@ -1489,9 +1494,10 @@ impl EffectHarness {
         let (runner, tasks) = EffectRunner::new(
             &config,
             EffectDependencies {
-                metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+                metrics: Arc::clone(&metrics),
                 dispatcher: Arc::clone(&dispatcher) as _,
                 hard_delete_objects: hard_delete_objects.clone(),
+                history_object_store: Arc::clone(&durable.objects) as _,
                 partition_hasher: hasher.clone(),
                 clock: Arc::clone(&clock) as _,
                 validation_config,
@@ -1540,6 +1546,7 @@ impl EffectHarness {
             clock,
             stream_store,
             attribute_sync_waker,
+            metrics,
             tasks,
         }
     }

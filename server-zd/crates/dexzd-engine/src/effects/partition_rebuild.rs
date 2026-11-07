@@ -58,6 +58,7 @@ pub(crate) async fn rebuild_partition(
     rebuild_pending_close_checks(reader.as_ref(), partition, &mut work)?;
     rebuild_outbox_messages(reader.as_ref(), partition, &mut work)?;
     rebuild_hard_delete_deletions(reader.as_ref(), partition, &mut work)?;
+    rebuild_history_uploads(reader.as_ref(), partition, &mut work)?;
     rebuild_run_purges(reader.as_ref(), partition, &mut work)?;
     let effect_count: usize = work
         .values()
@@ -232,6 +233,24 @@ fn rebuild_hard_delete_deletions(
                 run_id: run.run_id,
                 object_ids,
             };
+            add_effects(work, run, flow, vec![effect]);
+        }
+    }
+    Ok(())
+}
+
+/// Runs with SEALED history segments: a previous owner may have stopped before acknowledging
+/// them, and a takeover or snapshot restore finds them only here.
+fn rebuild_history_uploads(
+    reader: &dyn FlowStateReader,
+    partition: PartitionId,
+    work: &mut BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)>,
+) -> Result<(), EffectError> {
+    let prefix = partition_index_prefix(partition, IndexKind::HistoryUploadPending);
+    for (key, _) in scan_all(reader, ColumnFamily::PartitionIndex, &prefix)? {
+        let (run, _) = parse_run_item_index_key(partition, IndexKind::HistoryUploadPending, &key)?;
+        if let Some((flow, _)) = flow_of_run(reader, run)? {
+            let effect = ApplyEffect::HistorySegmentSealed { run_id: run.run_id };
             add_effects(work, run, flow, vec![effect]);
         }
     }

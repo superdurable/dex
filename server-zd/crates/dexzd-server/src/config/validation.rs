@@ -18,6 +18,8 @@ use super::{Config, ConfigError, CredentialSource, SearchBackend};
 const MAX_LOG_RECORD_BYTES: u64 = 32 * 1024 * 1024;
 /// Bounds the memory a reader needs to decompress one segment's records block.
 const MAX_HISTORY_SEGMENT_TARGET_BYTES: u64 = 256 * 1024 * 1024;
+/// Bounds the memory that in-flight history segment uploads hold.
+const MAX_HISTORY_UPLOAD_CONCURRENCY: u32 = 1024;
 
 impl Config {
     /// Checks cross-section limits and reports the first failing camelCase YAML field path.
@@ -269,6 +271,11 @@ impl Config {
             (1..=MAX_HISTORY_SEGMENT_TARGET_BYTES).contains(&self.history.segment_target_bytes),
             "history.segmentTargetBytes",
             "must be positive and at most 256 MiB",
+        )?;
+        ensure(
+            (1..=MAX_HISTORY_UPLOAD_CONCURRENCY).contains(&self.history.upload_concurrency),
+            "history.uploadConcurrency",
+            "must be from 1 to 1024",
         )?;
         ensure(
             self.retention.closed_flow_duration > Duration::ZERO,

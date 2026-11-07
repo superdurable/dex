@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! Object storage deletions that precede a command: hard-delete objects replaced by a committed
-//! write, and a run's whole hard-delete prefix before its retention purge.
+//! write, and a run's history segment objects and whole hard-delete prefix before its retention
+//! purge.
 
 use dexzd_keyspace::row_keys::HARD_DELETE_PENDING_OBJECT;
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, run_table_prefix};
@@ -17,6 +18,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 use crate::effects::hard_delete_objects::HardDeleteObjectOwner;
+use crate::effects::history_uploads::delete_run_history_objects;
 use crate::effects::state_reads::{decode_row, read_run_record, scan_all};
 use crate::effects::{EffectContext, EffectError};
 use crate::flow_coordination::{CommitUrgency, FlowAddress};
@@ -89,7 +91,8 @@ pub(crate) async fn delete_pending_hard_delete_objects(
     }
 }
 
-/// Deletes the run's hard-delete object prefix, then proposes `RunPurge`.
+/// Deletes the run's history segment objects and its hard-delete object prefix, then proposes
+/// `RunPurge`.
 ///
 /// Apply requests it only after deciding a purge that never postpones, so deletion is safe.
 pub(crate) async fn purge_run(
@@ -107,6 +110,7 @@ pub(crate) async fn purge_run(
     if !is_purging {
         return Ok(());
     }
+    delete_run_history_objects(context, flow, run).await?;
     let owner = HardDeleteObjectOwner {
         tenant_id: flow.tenant_id,
         flow_hash: run.flow_hash,

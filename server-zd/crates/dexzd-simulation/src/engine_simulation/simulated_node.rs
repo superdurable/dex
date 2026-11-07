@@ -284,6 +284,7 @@ impl NodeProcess {
         let factory_parts = Arc::clone(&startup_parts);
         let factory_clock = Arc::clone(&wall_clock);
         let factory_store = Arc::clone(&object_store_port);
+        let factory_history_store = Arc::clone(&object_store_port);
         let factory_applier: Arc<dyn CommandApplier> = Arc::new(DryRunCountingApplier {
             applier: Arc::clone(&applier),
             applied_command_ids: Mutex::new(BTreeSet::new()),
@@ -316,6 +317,7 @@ impl NodeProcess {
                     metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                     dispatcher: worker_port.clone(),
                     hard_delete_objects: hard_delete_objects.clone(),
+                    history_object_store: factory_history_store,
                     partition_hasher: partition_hasher.clone(),
                     clock: factory_clock,
                     validation_config: ValidationConfig::default(),

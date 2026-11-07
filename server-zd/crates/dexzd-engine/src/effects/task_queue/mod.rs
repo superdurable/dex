@@ -97,6 +97,11 @@ impl TaskQueueMemory {
         }
     }
 
+    /// Returns the partitions this node rebuilt and serves, in ascending order.
+    pub(crate) fn owned_partition_list(&self) -> Vec<PartitionId> {
+        self.owned_partitions.iter().copied().collect()
+    }
+
     /// Lowers the queue's smallest written key, so the next scan starts at or before it.
     pub(crate) fn note_written(&mut self, entry: &DispatchQueueEntry) {
         let slot = (entry.partition, entry.queue.clone());
