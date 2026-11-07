@@ -50,13 +50,13 @@ These come from the owner reviews and apply to every item.
 
 M3 implementation starts after these M2 items close. Design can proceed now.
 
-| Item | State on 2026-11-06 |
+| Item | State on 2026-11-07 |
 | --- | --- |
-| npm packages at 0.2.0 | `latest` is 0.1.0. The publish failed twice; #1317 fixed the first failure, and the second ended in `E404` |
-| Go core tag | Untagged. The tag scheme needs the owner (`agents-go-java-rust.md`) |
-| Published crash matrix | Not published. Worker-kill tests exist per core. [#1282](https://github.com/superdurable/dex/issues/1282) is open, and no agent-level test restarts or fails over the server |
-| Cost of the SYNC start commit | Not measured. [#1266](https://github.com/superdurable/dex/issues/1266) is open |
+| npm packages at 0.2.0 | Done |
+| Published crash matrix | Done (#1337) |
 | Python Connector packages O1 offers first | 26 of 102 are on PyPI. [dex-connectors-library#627](https://github.com/superdurable/dex-connectors-library/pull/627) makes the rest installable from GitHub releases |
+| Go core tag | Untagged. The tag scheme needs the owner. Go is second tier, so O1 does not wait for it |
+| Cost of the SYNC start commit | Not measured. [#1266](https://github.com/superdurable/dex/issues/1266) is open |
 
 ## Relation to earlier proposals
 
@@ -199,13 +199,13 @@ safely run again?
 | Operation | Effect | Runs in |
 | --- | --- | --- |
 | Query | `READ` | `CallTool` |
-| Mutation with provider idempotency | `IDEMPOTENT_WRITE` | `CallTool` |
-| Mutation with `dispatchFence` | `IDEMPOTENT_WRITE` (proposed) | `CallTool` |
-| Mutation with neither | `NON_IDEMPOTENT_WRITE` | `CallSingleAttemptTool` |
+| Mutation with `agent.retry: safe` | `IDEMPOTENT_WRITE` | `CallTool` |
+| Mutation without it | `NON_IDEMPOTENT_WRITE` | `CallSingleAttemptTool` |
 
-The third row differs from the first mapping in #1132, which put any Mutation with
-`uncertain` in `NON_IDEMPOTENT_WRITE`. A fenced Mutation is safe to retry, because
-the fence refuses a second send. The clear gain is a write proven unsent, such as a 429:
+`retry: safe` is an authored review result, because every Mutation declares
+`idempotency: required`. Absence fails closed: a missed review costs a retry, not a duplicate.
+A fenced Mutation is safe to retry once the bridge fix exists, because the fence refuses a
+second send. The clear gain is a write proven unsent, such as a 429:
 `CallTool` sends it on retry, while `CallSingleAttemptTool` ends `outcome_unknown` with
 nothing sent. Read-back helps only as far as the provider allows. With Slack, a kill while
 the provider holds the response still ends `outcome_unknown`.
@@ -586,15 +586,15 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 6. **Python and TypeScript gain Actions.** The agent inbox does not wait for this.
 7. **O7 closes.** A new requirement reopens it.
 
-**For the owner.**
+**Settled without an owner decision, and shared as FYI on this PR.**
 
-8. **Two changes to the Action route.** Return an RPC's output instead of 502, and accept an
-   Action without a condition Attribute. Session RPCs check current state themselves, and the
-   route is not authorization. Is that acceptable for `POST /api/v2/actions`?
-9. **Long record keeping.** With #1325, is archiving old messages still needed, and if so, to a
-   hard-delete AttributeMap, which keeps the current retention rule?
+8. **Action route.** #1352 returns an RPC's output and accepts an Action without a condition.
+9. **Limit exemption.** Dropped. The read path in #1335 reports the failure.
+10. **Error code.** Text matching stays for now. #1350 tracks a dedicated code.
 
-**Answered.** Superseded values: #1325 removes them from the state limit.
+**Still open.**
+
+11. **Long record keeping.** With #1325, is archiving old messages still needed?
 
 ## Non-goals
 
