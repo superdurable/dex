@@ -363,8 +363,8 @@ A tab on the run page, shown for Flows with the Dex Agents schema.
   `AgentToolCalls`.
 - **Past turns:** the session deletes tool records when a turn ends, and only message text
   stays. Effect class, approval decision, and `outcome_unknown` of a past call are available
-  from Flow history inside its window, or from the message text. The view says so. Keeping
-  them for longer needs a persisted field, which is a decision for O2's first PR.
+  from Flow history inside its window, or from the message text. The view says so. No
+  persisted field keeps them longer. An audit need reopens this.
 - **State of a call:** queued for a Worker comes from `StepMethodPendingReason`. Since #1259
   a tool Step can wait a long time, and a Flow timeout or stop skips the failure route.
 - **Controls:** approve, reject, answer, steer, stop, through the Action route below.
@@ -588,16 +588,18 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 8. **Inbox and session view layout.** The inbox groups rows by agent and acts in the Work
    Queue side panel. The session view is one conversation with tool calls inline, which also
    reads on a phone. Grouping needs the cross Flow type search listed under Dex Web changes.
+9. **No persisted record of past calls.** Effect class and approval of a past call come from
+   Flow history only. An audit need reopens this.
 
 **Settled without an owner decision, and shared as FYI on this PR.**
 
-9. **Action route.** #1352 returns an RPC's output and accepts an Action without a condition.
-10. **Limit exemption.** Dropped. The read path in #1335 reports the failure.
-11. **Error code.** Text matching stays for now. #1350 tracks a dedicated code.
+10. **Action route.** #1352 returns an RPC's output and accepts an Action without a condition.
+11. **Limit exemption.** Dropped. The read path in #1335 reports the failure.
+12. **Error code.** Text matching stays for now. #1350 tracks a dedicated code.
 
 **Still open.**
 
-12. **Long record keeping.** With #1325, is archiving old messages still needed?
+13. **Long record keeping.** With #1325, is archiving old messages still needed?
 
 ## Non-goals
 
