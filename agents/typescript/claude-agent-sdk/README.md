@@ -242,6 +242,9 @@ deltas of the main conversation stream to `AgentEvents` as `text_delta` and `rea
 tool calls write `tool_call_started` and `tool_call_finished`; the session writes them for deferred
 calls. Group live text by `(turnId, stepExecutionId, attempt)` as the core README describes.
 
+A `spendLimit` is checked once per segment, and its usage arrives when the segment ends, so one segment can
+overshoot it. Set `maxBudgetUsd` in the options too to bound a single segment.
+
 ## Tracing
 
 The session emits a `chat` span for every `RunModel` attempt, as the

@@ -20,6 +20,7 @@ import {
   type AgentSessionFlow,
   type AgentTracingOptions,
   type AgentTurnContext,
+  type ModelSpendLimit,
   type AgentTurnOutcome,
   type DeferredToolCall,
   type DeferredToolExecution,
@@ -516,6 +517,7 @@ export function createScriptedAgentFlow(
     readonly runner?: AgentFrameworkRunner<DeferredToolOutcome>;
     readonly builtInTools?: readonly BuiltInTool[];
     readonly unfinishedTurnMessages?: "throw" | "malformed";
+    readonly spendLimit?: ModelSpendLimit;
   } = {},
 ): AgentSessionFlow<AgentFrameworkRunner<DeferredToolOutcome>> {
   const runner =
@@ -526,6 +528,7 @@ export function createScriptedAgentFlow(
       ? {}
       : { interruptDeadlineMs: flowOptions.interruptDeadlineMs }),
     ...(flowOptions.tracing === undefined ? {} : { tracing: flowOptions.tracing }),
+    ...(flowOptions.spendLimit === undefined ? {} : { spendLimit: flowOptions.spendLimit }),
     toolPolicies: {
       get_weather: { effect: "read" },
       lookup_a: { effect: "read" },

@@ -268,6 +268,9 @@ of the main conversation stream to `AgentEvents` as `text_delta` and
 text by `(turn_id, step_execution_id, attempt)` as the core README describes:
 a retried segment has a higher `attempt` under the same `step_execution_id`.
 
+A `spend_limit` is checked once per segment, and its usage arrives when the segment ends, so one segment can
+overshoot it. Set `max_budget_usd` in the options too to bound a single segment.
+
 ## Tracing
 
 The session emits a `chat` span for every `RunModel` attempt, as the

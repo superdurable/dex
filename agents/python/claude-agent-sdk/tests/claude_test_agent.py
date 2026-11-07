@@ -23,6 +23,7 @@ CLI with that JSON object as extra CLI environment.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from datetime import timedelta
@@ -41,7 +42,15 @@ from claude_agent_sdk import (
     tool,
 )
 
-from dex_agents import AgentSessionFlow, RunModelLimit, ToolEffect, ToolPolicy
+from dex_agents import (
+    AgentSessionFlow,
+    ModelCallCheck,
+    ModelCallDecision,
+    ModelUsageReport,
+    RunModelLimit,
+    ToolEffect,
+    ToolPolicy,
+)
 from dex_agents.testing import FileGate, InvocationLog
 from dex_agents_claude_agent_sdk import (
     ClaudeAgentOptionsContext,
@@ -55,6 +64,10 @@ FAKE_CLI_PATH_ENVIRONMENT_VARIABLE = "FAKE_CLAUDE_CLI_PATH"
 REAL_CLI_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_REAL_CLI_ENV"
 PERMISSION_MODE_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_PERMISSION_MODE"
 RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_RUN_MODEL_LIMIT"
+SPEND_LIMIT_ENVIRONMENT_VARIABLE = "CLAUDE_TEST_AGENT_SPEND_LIMIT"
+SPEND_REFUSAL_FILE_NAME = "spend-refusal"
+SPEND_CHECKS_LOG_NAME = "spend-checks.jsonl"
+SPEND_REPORTS_LOG_NAME = "spend-reports.jsonl"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
 SLOW_WRITE_GATE = "slow_write"
 TOOL_POLICIES = {
@@ -94,6 +107,9 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
         flow_type=CLAUDE_TEST_AGENT_FLOW_TYPE,
         tool_policies=TOOL_POLICIES,
         run_model_limit=_run_model_limit_from_environment(),
+        spend_limit=(
+            FileSpendLimit(state_dir) if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE) else None
+        ),
     )
 
 
@@ -106,6 +122,29 @@ def _run_model_limit_from_environment() -> RunModelLimit | None:
         method_timeout=timedelta(seconds=int(method_timeout_seconds)),
         maximum_attempts=int(maximum_attempts),
     )
+
+
+class FileSpendLimit:
+    """Logs every call, and refuses while ``SPEND_REFUSAL_FILE_NAME`` exists."""
+
+    def __init__(self, state_dir: Path) -> None:
+        self._state_dir = state_dir
+
+    async def check_model_call(self, check: ModelCallCheck) -> ModelCallDecision:
+        self._log(SPEND_CHECKS_LOG_NAME, check)
+        refusal = self._state_dir / SPEND_REFUSAL_FILE_NAME
+        return (
+            ModelCallDecision.refuse(refusal.read_text())
+            if refusal.exists()
+            else ModelCallDecision.allow()
+        )
+
+    async def report_model_usage(self, report: ModelUsageReport) -> None:
+        self._log(SPEND_REPORTS_LOG_NAME, report)
+
+    def _log(self, file_name: str, entry: ModelCallCheck | ModelUsageReport) -> None:
+        with (self._state_dir / file_name).open("a") as log:
+            log.write(json.dumps(dataclasses.asdict(entry)) + "\n")
 
 
 def build_claude_test_agent_flow_from_environment() -> AgentSessionFlow:

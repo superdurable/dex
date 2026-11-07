@@ -41,6 +41,7 @@ from dex_agents.runner import (
     resolve_tool_policy,
 )
 from dex_agents.session_flow import AgentSessionFlow, AgentSessionOptions
+from dex_agents.spend_limit import ModelSpendLimit
 from dex_agents.stepwise.function_tools import FunctionTool, ToolCallContext
 from dex_agents.stepwise.model import (
     ModelClient,
@@ -284,6 +285,8 @@ class AgentDefinition:
         compaction: When to summarize earlier messages so the model input
             stays under the window, counted by the model client's
             ``estimate_input_tokens``. ``None``, the default, never compacts.
+        spend_limit: The application's ``ModelSpendLimit``, called before and
+            after each model call. ``None``, the default, makes no checks.
 
     Raises:
         ValueError: If ``name`` is blank, two tools share a name, a tool or a
@@ -314,6 +317,7 @@ class AgentDefinition:
     plan_mode_enabled: bool = False
     planning_tool_choice: PlanningToolChoice = "auto"
     compaction: CompactionPolicy | None = None
+    spend_limit: ModelSpendLimit | None = None
     tool_sources: Sequence[ToolSource] = ()
     tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT
     resolve_model: Callable[[Mapping[str, Any]], ModelClient] | None = None
@@ -988,7 +992,8 @@ def stepwise_agent_session_options(definition: AgentDefinition) -> AgentSessionO
 
     Returns:
         Options with the definition's tool policies, default effect, built-in
-        tools, plan mode, interrupt deadline, Stream capacity, and compaction policy.
+        tools, plan mode, interrupt deadline, Stream capacity, compaction policy,
+        and spend limit.
     """
     return AgentSessionOptions(
         tool_policies=definition.tool_policies,
@@ -998,6 +1003,7 @@ def stepwise_agent_session_options(definition: AgentDefinition) -> AgentSessionO
         built_in_tools=definition.built_in_tools,
         plan_mode_enabled=definition.plan_mode_enabled,
         compaction=definition.compaction,
+        spend_limit=definition.spend_limit,
     )
 
 

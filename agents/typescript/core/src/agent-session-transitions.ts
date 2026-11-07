@@ -33,6 +33,11 @@ import {
   type ToolPolicy,
 } from "./agent-framework-runner.js";
 import { messageSequenceKey, type AgentSessionPersistence } from "./agent-session-persistence.js";
+import {
+  modelCallRefusedErrorPrefix,
+  withinSpendLimitCallTimeout,
+  type ModelSpendLimit,
+} from "./agent-session-spend-limit.js";
 import { messageStepOptions, type MessageChunkLoads, type ResolvedRunModelLimit } from "./agent-session-step-options.js";
 import type { AgentSessionTracer } from "./agent-session-tracer.js";
 import {
@@ -120,6 +125,7 @@ export interface AgentSessionConfig {
   readonly messageChunkMaxBytes: number;
   readonly retainedMessageLimit: number | null;
   readonly runModelLimit: ResolvedRunModelLimit;
+  readonly spendLimit: ModelSpendLimit | undefined;
 }
 
 /** Shared state reads, writes, and routing used by every session Step. */
@@ -847,6 +853,74 @@ export class AgentSessionTransitions {
       this.config.defaultToolEffect,
       frameworkEffect,
     );
+  }
+
+  /**
+   * Asks the application's spend limit whether a model call may run.
+   * @returns The move that ends the refused turn, or `null` to call the model.
+   * @throws What the check threw, which fails the attempt so no model call runs unchecked.
+   */
+  public async checkSpendLimit(
+    context: AsyncContext,
+    state: AgentState,
+    turnId: string,
+    stepType: string,
+  ): Promise<StepDecision | null> {
+    const spendLimit = this.config.spendLimit;
+    if (spendLimit === undefined) {
+      return null;
+    }
+    const decision = await withinSpendLimitCallTimeout(
+      "checkModelCall",
+      spendLimit.checkModelCall({
+        flowId: context.flowId,
+        turnId,
+        stepType,
+        attempt: context.attempt,
+        sessionSettings: this.readTurnSessionSettings(context),
+        sessionUsage: this.readAgentUsage(context),
+      }),
+    );
+    if (typeof decision?.isAllowed !== "boolean") {
+      throw new TypeError("checkModelCall must return a ModelCallDecision");
+    }
+    if (decision.isAllowed) {
+      return null;
+    }
+    // RecordTurnFailure loads what ending a turn needs, which CompactContext does not.
+    this.writeAgentState(context, { ...state, lastTurnError: `${modelCallRefusedErrorPrefix}: ${decision.reason}` });
+    return goTo(new StepRef(agentSessionStepTypes.recordTurnFailure), undefined);
+  }
+
+  /** Reports a finished model call. A failure is logged: failing the attempt would pay for the call again. */
+  public async reportModelUsage(
+    context: AsyncContext,
+    turnId: string,
+    stepType: string,
+    usage: AgentUsage,
+  ): Promise<void> {
+    const spendLimit = this.config.spendLimit;
+    if (spendLimit === undefined) {
+      return;
+    }
+    const reportId = `${context.flowId}/${turnId}/${context.stepExecutionId}/${context.attempt}`;
+    try {
+      await withinSpendLimitCallTimeout(
+        "reportModelUsage",
+        spendLimit.reportModelUsage({
+          reportId,
+          flowId: context.flowId,
+          turnId,
+          stepType,
+          attempt: context.attempt,
+          sessionSettings: this.readTurnSessionSettings(context),
+          usage,
+          sessionUsage: addAgentUsage(this.readAgentUsage(context), usage),
+        }),
+      );
+    } catch (error) {
+      console.warn(`dex-agents: reportModelUsage failed for ${reportId}:`, error);
+    }
   }
 
   public recordUsage(context: Context, usage: AgentUsage, events: StreamAgentEventWriter): void {
