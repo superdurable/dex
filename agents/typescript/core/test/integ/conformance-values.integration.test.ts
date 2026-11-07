@@ -44,6 +44,7 @@ import {
 } from "../../src/agent-plans.js";
 import {
   decodeAgentInterrupt,
+  decodeAgentMessage,
   decodeAgentPlan,
   decodeAgentPlanTask,
   decodeAgentToolCall,
@@ -113,6 +114,8 @@ import {
   type TurnControlKind,
 } from "../../src/agent-session-values.js";
 import { modelCallRefusedErrorPrefix } from "../../src/agent-session-spend-limit.js";
+import { buildContextSummaryPrompt, contextSummaryTranscriptHeader } from "../../src/agent-context-compaction.js";
+import type { AgentEventWriter } from "../../src/agent-framework-runner.js";
 import type { BuiltInTool } from "../../src/agent-built-in-tools.js";
 import {
   buildContextSummaryNote,
@@ -589,6 +592,7 @@ describe("the conformance suite's text table", () => {
       stepwise_context_summary_note_header: contextSummaryNoteHeader,
       stepwise_context_summary_instructions: contextSummaryInstructions,
       stepwise_context_summary_request: contextSummaryRequest,
+      adapter_context_summary_transcript_header: contextSummaryTranscriptHeader,
     };
     assert.deepEqual(constants, texts.constants);
   });
@@ -612,6 +616,22 @@ describe("the conformance suite's text table", () => {
       stepwise_tool_call_limit_reached_result: (input) => buildToolCallLimitReachedResult(input["max_model_calls_per_turn"] as number),
       stepwise_context_summary_omission_note: (input) => buildContextSummaryOmissionNote(input["omitted_count"] as number),
       stepwise_context_summary_note: (input) => buildContextSummaryNote(decodeContextSummary(input["summary"])),
+      adapter_context_summary_prompt: (input) =>
+        buildContextSummaryPrompt({
+          flowId: "session-1",
+          turnId: "turn-4",
+          attempt: 1,
+          stepExecutionId: "CompactContext-1",
+          previousSummary: input["previous_summary"] === null ? null : decodeContextSummary(input["previous_summary"]),
+          messages: (input["messages"] as unknown[]).map(decodeAgentMessage),
+          throughSequence: 0,
+          // The prompt builder writes no events.
+          events: {} as AgentEventWriter,
+          cancellationSignal: new AbortController().signal,
+          deadline: undefined,
+          ...(input["input_token_budget"] === null ? {} : { inputTokenBudget: input["input_token_budget"] as number }),
+          heartbeat: async () => undefined,
+        }),
       stepwise_unknown_tool_error: (input) => buildUnknownToolError(input["tool_name"] as string),
       mcp_tool_output_json: (input) => serializeToolOutputJson(JSON.parse(input["value"] as string)),
       mcp_tool_result_text: (input) => renderToolResultText(input["result"] as Parameters<typeof renderToolResultText>[0]),

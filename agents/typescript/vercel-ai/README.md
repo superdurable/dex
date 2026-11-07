@@ -296,6 +296,27 @@ idempotencyKey, events }` while a session Step runs. In a tool Step,
 middleware added with `wrapLanguageModel`. Outside a session Step it returns
 `undefined`.
 
+## Compaction
+
+Since 0.3.0 the runner can compact a session that would outgrow the model's
+context window. Pass `compaction: { contextWindowTokens }` in the session options, and optionally `summaryModel` in the agent definition; the summary call uses `generateText` on `summaryModel`, else `model`. Without a policy nothing changes, and a session
+started before the upgrade starts compacting once its Worker has one.
+
+- It compacts only between turns, before the first model call of a turn. A
+  model call that continues a turn after its tool calls does not compact, so
+  one turn's growth must fit in the rest of the window. Lower the trigger
+  ratio when a turn can add more than about 15 percent of the window.
+- The summary enters the model input as a user message before the kept turns.
+  It is never stored as a message, and every message stays readable until
+  retention deletes it behind the summary.
+- The estimate counts three bytes of each stored message as one token, plus
+  the instructions and tool definitions the runner can see. Set the policy's
+  `reservedInputTokens` for the rest, such as dynamic instructions.
+- The summary call gets the earlier turns as plain text, without tools.
+- Provider-side compaction and a `prepareStep` the application adds outside this adapter change only the model input. Dex stores every message and owns the record.
+
+See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+
 ## Limits
 
 - A crash in `RunModel` reruns that model call and any provider-executed tools
@@ -330,8 +351,8 @@ middleware added with `wrapLanguageModel`. Outside a session Step it returns
   conditions read.
 - Usage from a crashed attempt is lost, and AI SDK stream retries inside one
   step are not counted as model calls.
-- The core's limits apply: no history compaction, best-effort events, and one
-  queued message per turn.
+- The core's limits apply: best-effort events, and one queued message per
+  turn. See [Compaction](#compaction) for long sessions.
 
 ## Follow-up: AI SDK UI message streams
 

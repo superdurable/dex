@@ -319,10 +319,32 @@ several model calls, such as after a sub-agent tool Mastra runs itself, the
 model and provider fields are set only when every call shares them, and
 `finishReasons` is left out. A sub-agent's own model calls are not reported.
 
+## Compaction
+
+Since 0.3.0 the runner can compact a session that would outgrow the model's
+context window. Pass `compaction: { contextWindowTokens }` to `createMastraAgentSessionFlow`, and optionally `summaryModel`; the summary call runs a tool-less Mastra agent on `summaryModel`, else the agent's model for the turn's `RequestContext`. The estimate reads the agent's instructions and tools for that context. Without a policy nothing changes, and a session
+started before the upgrade starts compacting once its Worker has one.
+
+- It compacts only between turns, before the first model call of a turn. A
+  model call that continues a turn after its tool calls does not compact, so
+  one turn's growth must fit in the rest of the window. Lower the trigger
+  ratio when a turn can add more than about 15 percent of the window.
+- The summary enters the model input as a user message before the kept turns.
+  It is never stored as a message, and every message stays readable until
+  retention deletes it behind the summary.
+- The estimate counts three bytes of each stored message as one token, plus
+  the instructions and tool definitions the runner can see. Set the policy's
+  `reservedInputTokens` for the rest, such as dynamic instructions.
+- The summary call gets the earlier turns as plain text, without tools.
+- Input processors, such as a token limiter, and Mastra Memory change only Mastra's model input. Dex stores every message and owns the record.
+
+See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+
 ## Limits
 
-- Every model call replays the whole history to `agent.stream()` as input
-  messages, so input processors see all of it. There is no compaction yet.
+- Every model call replays the stored history to `agent.stream()` as input
+  messages, so input processors see all of it: every message, or the summary
+  and the kept turns with [compaction](#compaction).
 - Mastra Memory is not used by default: the runner passes no `memory` option,
   so no thread is loaded or saved. Mastra still uses a Memory thread when one is
   selected elsewhere: by the agent's default options, by `resource:` or

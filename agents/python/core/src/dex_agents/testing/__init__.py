@@ -22,11 +22,23 @@ Every adapter package tests against a real Dex Server with these tools:
   assert the Step shape of a turn.
 * ``ScriptedModelClient`` answers Stepwise model calls from a script, so a
   test needs no model key. It is the class ``dex_agents.stepwise`` exports.
+* ``ContextWindowModelScript`` is a scripted model with a context window, and
+  ``ContextWindowSessionScenario`` drives an adapter's session past it.
 
 The tools read ``DEXCLI`` for the ``dexcli`` executable and expect
 ``dex-server-zd`` in the same directory, or ``DEX_SERVER_ZD_BINARY``.
 """
 
+from dex_agents.testing.context_window import (
+    CONTEXT_WINDOW_EXCEEDED_ERROR,
+    CONTEXT_WINDOW_SETTINGS_ENVIRONMENT_VARIABLE,
+    CONTEXT_WINDOW_TOOL_NAME,
+    ContextWindowModelScript,
+    ContextWindowReply,
+    ContextWindowSessionScenario,
+    ContextWindowSettings,
+    read_context_window_requests,
+)
 from dex_agents.testing.coordination import FileGate, InvocationLog
 from dex_agents.testing.history import (
     EXECUTE_COMPLETED_EVENT,
@@ -71,6 +83,9 @@ from dex_agents.testing.worker import (
 
 __all__ = [
     "BLOB_CACHE_DIR_ENVIRONMENT_VARIABLE",
+    "CONTEXT_WINDOW_EXCEEDED_ERROR",
+    "CONTEXT_WINDOW_SETTINGS_ENVIRONMENT_VARIABLE",
+    "CONTEXT_WINDOW_TOOL_NAME",
     "DEFAULT_POLL_INTERVAL",
     "DEFAULT_WAIT_TIMEOUT",
     "DEXCLI_ENVIRONMENT_VARIABLE",
@@ -84,6 +99,10 @@ __all__ = [
     "WORKER_READY_LINE",
     "AgentTestStack",
     "AgentWorkerProcess",
+    "ContextWindowModelScript",
+    "ContextWindowReply",
+    "ContextWindowSessionScenario",
+    "ContextWindowSettings",
     "FileGate",
     "InvocationLog",
     "KillableProcess",
@@ -95,6 +114,7 @@ __all__ = [
     "StepHistoryEntry",
     "find_free_port",
     "find_free_ports",
+    "read_context_window_requests",
     "read_step_history",
     "resolve_dexcli_path",
     "resolve_server_zd_path",

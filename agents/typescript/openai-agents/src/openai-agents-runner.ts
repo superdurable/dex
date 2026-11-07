@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import {
+  Agent,
   ModelBehaviorError,
   RunContext,
   RunState,
@@ -14,8 +15,8 @@ import {
   ToolInputGuardrailTripwireTriggered,
   invokeFunctionTool,
   runToolInputGuardrails,
-  type Agent,
   type AgentInputItem,
+  type Model,
   type RunConfig,
   type RunStreamEvent,
   type RunToolApprovalItem,
@@ -25,12 +26,22 @@ import {
 import { getToolCallDisplayName } from "@openai/agents/utils";
 import {
   ToolExecutionError,
+  buildContextSummaryNote,
+  buildContextSummaryPrompt,
+  contextSummaryInstructions,
   defaultRejectionToolResult,
+  describeStoredMessage,
+  estimateStoredInputTokens,
+  estimateTextTokens,
   isFinalToolCallStatus,
+  selectTurnBoundaryCutoff,
   type AgentEventWriter,
   type AgentFrameworkRunner,
   type AgentTurnContext,
+  type AgentMessage,
   type AgentTurnOutcome,
+  type ContextSummaryRequest,
+  type ContextSummaryResult,
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
@@ -80,12 +91,19 @@ export interface OpenAIAgentsRunnerSettings<TContext> extends AgentGraphConfigur
   readonly runConfig: Partial<RunConfig>;
   readonly maxTurns: number | null | undefined;
   readonly createContext: ((flowId: string) => TContext | Promise<TContext>) | undefined;
+  readonly summaryModel?: string | Model | undefined;
 }
 
-/** Runs an OpenAI Agents SDK agent graph in Step mode: one model call per `RunModel` Step. */
+/**
+ * Runs an OpenAI Agents SDK agent graph in Step mode: one model call per `RunModel` Step. It implements the
+ * compaction methods: with `AgentSessionOptions.compaction` the session compacts at turn boundaries, and the
+ * summary enters as the first input item of a turn's first model call. A resumed call continues from the
+ * `RunState`, which holds its input, so it never compacts.
+ */
 export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
   private readonly agentGraph: WrappedAgentGraph;
   private readonly sdkRunner: Runner;
+  private fixedInputTokens: number | undefined;
 
   public constructor(
     startingAgent: Agent<TContext, any>,
@@ -104,7 +122,7 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
     const unreturnedResumedToolCallIds = new Set<string>();
     const runInput =
       turn.frameworkRunState === null
-        ? readAgentInputItems(turn.messages)
+        ? readTurnInputItems(turn)
         : await this.restoreRunState(turn, turn.frameworkRunState, runContext, unreturnedResumedToolCallIds);
     const modelStepRun = await runningModelStepScope.run({ turn, unreturnedResumedToolCallIds }, () =>
       this.streamModelCall(turn, runInput, runContext),
@@ -126,6 +144,72 @@ export class OpenAIAgentsRunner<TContext> implements AgentFrameworkRunner {
       toolCalls,
       usage,
       ...modelCallMetadata,
+    };
+  }
+
+  /**
+   * Estimates the next model input: every stored item as stored, the summary, the `RunState` of a resumed call,
+   * and the largest prompt in the agent graph, from static instructions and function tool definitions. Dynamic
+   * instructions and MCP tools are not visible here; cover them with `CompactionPolicy.reservedInputTokens`.
+   * @param turn - The context of the next model call.
+   * @returns The estimated input tokens.
+   * @since 0.3.0
+   */
+  public estimateInputTokens(turn: AgentTurnContext): number {
+    this.fixedInputTokens ??= estimateGraphPromptTokens(this.agentGraph.startingAgent);
+    return estimateStoredInputTokens(turn, this.fixedInputTokens);
+  }
+
+  /**
+   * Chooses the last message to summarize, at a boundary between turns.
+   * @param turn - The context of the model call that crossed the threshold.
+   * @param retainedTokenBudget - Tokens that the kept messages may use.
+   * @returns What `selectTurnBoundaryCutoff` returns.
+   * @since 0.3.0
+   */
+  public selectCompactionCutoff(turn: AgentTurnContext, retainedTokenBudget: number): number | null {
+    return selectTurnBoundaryCutoff(turn, retainedTokenBudget);
+  }
+
+  /**
+   * Writes a new summary with one model call of a tool-less agent, on the summary model or the agent's model,
+   * without guardrails. Encrypted reasoning and compaction items are left out of the prompt.
+   * @param request - The previous summary and the messages to summarize.
+   * @returns The summary text and the usage of the call.
+   * @throws {Error} When the model returns no text, or any SDK or model error.
+   * @since 0.3.0
+   */
+  public async summarizeContext(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+    const startingAgent = this.agentGraph.startingAgent;
+    const summaryModel = this.settings.summaryModel ?? this.settings.runConfig.model;
+    // A tool choice without tools is an error, so the summary call keeps the other settings only.
+    const { toolChoice, parallelToolCalls, ...modelSettings } = startingAgent.modelSettings;
+    const summaryAgent = new Agent({
+      name: `${startingAgent.name} summary`,
+      instructions: contextSummaryInstructions,
+      model: summaryModel ?? startingAgent.model,
+      modelSettings,
+    });
+    const summaryRunner = new Runner({
+      ...this.settings.runConfig,
+      ...(summaryModel === undefined ? {} : { model: summaryModel }),
+      inputGuardrails: [],
+      outputGuardrails: [],
+    });
+    const result = await summaryRunner.run(summaryAgent, buildContextSummaryPrompt(request, describeForSummary), {
+      maxTurns: 1,
+      signal: request.cancellationSignal,
+    });
+    const text = typeof result.finalOutput === "string" ? result.finalOutput.trim() : "";
+    if (text === "") {
+      throw new Error("the summary model call returned no text");
+    }
+    return {
+      text,
+      usage: toAgentUsage(result.state.usage),
+      ...(typeof summaryModel === "string" || typeof startingAgent.model === "string"
+        ? { modelCallMetadata: { requestModel: String(summaryModel ?? startingAgent.model) } }
+        : {}),
     };
   }
 
@@ -432,4 +516,50 @@ function writeRunStreamEvent(events: AgentEventWriter, event: RunStreamEvent): v
     case "run_item_stream_event":
       return;
   }
+}
+
+function readTurnInputItems(turn: AgentTurnContext): AgentInputItem[] {
+  const items = readAgentInputItems(turn.messages);
+  if (turn.contextSummary) {
+    items.unshift(buildUserMessageItem(buildContextSummaryNote(turn.contextSummary)));
+  }
+  return items;
+}
+
+// Reasoning and server compaction items are encrypted for the provider, not text.
+const opaqueItemTypes = new Set(["reasoning", "compaction"]);
+
+function describeForSummary(message: AgentMessage): string | null {
+  if (message.role === "assistant" && message.text === null) {
+    const item = JSON.parse(message.frameworkItem) as { readonly type?: unknown };
+    if (typeof item.type === "string" && opaqueItemTypes.has(item.type)) {
+      return null;
+    }
+  }
+  return describeStoredMessage(message);
+}
+
+function estimateGraphPromptTokens(startingAgent: AnyAgent): number {
+  const agents: AnyAgent[] = [startingAgent];
+  for (const agent of agents) {
+    for (const handoff of agent.handoffs) {
+      const target = handoff instanceof Agent ? handoff : (handoff as { readonly agent?: unknown }).agent;
+      if (target instanceof Agent && !agents.includes(target)) {
+        agents.push(target);
+      }
+    }
+  }
+  return Math.max(...agents.map(estimateAgentPromptTokens));
+}
+
+function estimateAgentPromptTokens(agent: AnyAgent): number {
+  const parts: string[] = [typeof agent.instructions === "string" ? agent.instructions : ""];
+  parts.push(agent.handoffDescription);
+  for (const tool of agent.tools) {
+    parts.push(tool.name);
+    if (tool.type === "function") {
+      parts.push(tool.description, JSON.stringify(tool.parameters));
+    }
+  }
+  return parts.reduce((tokens, part) => tokens + estimateTextTokens(part), 0);
 }

@@ -533,6 +533,21 @@ it. The AI SDK UI message stream sends
 the compaction events and the summary call's `usage_recorded` as event data,
 outside the assistant message's steps.
 
+A framework adapter cannot measure or rebuild the framework's own request, so
+the core exports one shared rule. `estimateStoredInputTokens(turn,
+fixedInputTokens)` counts each stored `frameworkItem` with `estimateTextTokens`,
+three UTF-8 bytes per token, which errs high for English text.
+`selectTurnBoundaryCutoff(turn, retainedTokenBudget)` cuts only between turns,
+never inside the running turn, and returns `null` while `turn.frameworkRunState`
+is set, because a resumed call continues from that state.
+`buildContextSummaryPrompt(request)` writes the range as one plain text prompt,
+starting with `contextSummaryTranscriptHeader`, that fits `inputTokenBudget`,
+byte for byte as the Python core writes it. `CompactionPolicy.reservedInputTokens`
+adds what an adapter's estimate cannot see, such as a framework's system prompt.
+The adapters of this repository use them; see each adapter's README.
+`ContextWindowSessionScenario` from `/testing` runs the same session past a
+small context window for any adapter.
+
 ## Session settings
 
 Session settings let one Flow type serve sessions that differ, such as by

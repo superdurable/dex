@@ -87,6 +87,12 @@ export const defaultVercelAiTurnStepCount = 20;
 export interface VercelAiAgentDefinition<TOOLS extends ToolSet = ToolSet> {
   /** Language model of every model call, such as `openai("gpt-5")` or a gateway model ID. */
   readonly model: LanguageModel;
+  /**
+   * Language model of the `CompactContext` summary call, when `compaction` is set in the session options.
+   * Defaults to {@link model}.
+   * @since 0.3.0
+   */
+  readonly summaryModel?: LanguageModel;
   /** AI SDK `instructions` sent before the conversation on every model call. Defaults to none. */
   readonly instructions?: Instructions;
   /**
@@ -222,6 +228,7 @@ function resolveVercelAiAgentDefinition<TOOLS extends ToolSet>(
   const stopWhen = agent.stopWhen ?? isStepCount(defaultVercelAiTurnStepCount);
   return {
     model: agent.model,
+    summaryModel: agent.summaryModel,
     instructions: agent.instructions,
     tools,
     toolPolicies,

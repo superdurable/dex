@@ -101,6 +101,11 @@ export function createMastraAgentSessionFlow(
     tracing,
     runModelLimit,
     spendLimit,
+    compaction,
+    messageWindowSize,
+    messageChunkSize,
+    messageChunkMaxBytes,
+    retainedMessageLimit,
     ...runnerOptions
   } = options;
   const runner = new MastraAgentRunner(agent, {
@@ -115,5 +120,10 @@ export function createMastraAgentSessionFlow(
     ...(tracing === undefined ? {} : { tracing }),
     ...(runModelLimit === undefined ? {} : { runModelLimit }),
     ...(spendLimit === undefined ? {} : { spendLimit }),
+    ...(compaction === undefined ? {} : { compaction }),
+    ...(messageWindowSize === undefined ? {} : { messageWindowSize }),
+    ...(messageChunkSize === undefined ? {} : { messageChunkSize }),
+    ...(messageChunkMaxBytes === undefined ? {} : { messageChunkMaxBytes }),
+    ...(retainedMessageLimit === undefined ? {} : { retainedMessageLimit }),
   });
 }

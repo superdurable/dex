@@ -23,7 +23,8 @@
     "model_call_refused_error_prefix": "the model call was refused",
     "stepwise_context_summary_note_header": "[Dex] Summary of the earlier conversation:",
     "stepwise_context_summary_instructions": "You summarize the earlier part of an agent conversation. The agent continues from your summary and the messages after it, so keep every fact, decision, user request and preference, open task, and tool result that it still needs, including what an earlier summary says. Write plain text.",
-    "stepwise_context_summary_request": "[Dex] Summarize the conversation above. Reply with the summary only."
+    "stepwise_context_summary_request": "[Dex] Summarize the conversation above. Reply with the summary only.",
+    "adapter_context_summary_transcript_header": "[Dex] The conversation to summarize:"
   },
   "templates": {
     "tool_call_outcome": [
@@ -773,6 +774,137 @@
           }
         },
         "text": "[Dex] Summary of the earlier conversation:\nThe user asked about order 7.\nIt shipped."
+      }
+    ],
+    "adapter_context_summary_prompt": [
+      {
+        "input": {
+          "previous_summary": null,
+          "messages": [
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"user_text\",\"text\":\"Where is order 7?\"}",
+              "role": "user",
+              "sequence": 1,
+              "text": "Where is order 7?",
+              "tool_arguments": null,
+              "tool_call_id": null,
+              "tool_name": null,
+              "tool_output": null,
+              "turn_id": "turn-1"
+            },
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"response\",\"calls\":[\"a\",\"b\"],\"note\":\"日本語 ☕\"}",
+              "role": "assistant",
+              "sequence": 3,
+              "text": null,
+              "tool_arguments": null,
+              "tool_call_id": null,
+              "tool_name": null,
+              "tool_output": null,
+              "turn_id": "turn-1"
+            },
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"tool_result\",\"call_id\":\"call-7\",\"output\":\"moved 5\"}",
+              "role": "tool",
+              "sequence": 7,
+              "text": null,
+              "tool_arguments": "{\"amount\": 5}",
+              "tool_call_id": "call-7",
+              "tool_name": "transfer_funds",
+              "tool_output": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>",
+              "turn_id": "turn-3"
+            }
+          ],
+          "input_token_budget": null
+        },
+        "text": "[Dex] The conversation to summarize:\n\nuser: Where is order 7?\n\nassistant: {\"type\":\"response\",\"calls\":[\"a\",\"b\"],\"note\":\"日本語 ☕\"}\n\ntool call transfer_funds: {\"amount\": 5}\ntool result transfer_funds: Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>\n\n[Dex] Summarize the conversation above. Reply with the summary only."
+      },
+      {
+        "input": {
+          "previous_summary": {
+            "created_at": "2026-11-02T09:45:30.125Z",
+            "first_sequence": 1,
+            "generation": 2,
+            "last_sequence": 40,
+            "text": "The user asked about order 7.\nIt shipped."
+          },
+          "messages": [
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"user_text\",\"text\":\"Where is order 7?\"}",
+              "role": "user",
+              "sequence": 1,
+              "text": "Where is order 7?",
+              "tool_arguments": null,
+              "tool_call_id": null,
+              "tool_name": null,
+              "tool_output": null,
+              "turn_id": "turn-1"
+            },
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"response\",\"calls\":[\"a\",\"b\"],\"note\":\"日本語 ☕\"}",
+              "role": "assistant",
+              "sequence": 3,
+              "text": null,
+              "tool_arguments": null,
+              "tool_call_id": null,
+              "tool_name": null,
+              "tool_output": null,
+              "turn_id": "turn-1"
+            },
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"tool_result\",\"call_id\":\"call-7\",\"output\":\"moved 5\"}",
+              "role": "tool",
+              "sequence": 7,
+              "text": null,
+              "tool_arguments": "{\"amount\": 5}",
+              "tool_call_id": "call-7",
+              "tool_name": "transfer_funds",
+              "tool_output": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>",
+              "turn_id": "turn-3"
+            }
+          ],
+          "input_token_budget": 220
+        },
+        "text": "[Dex] Summary of the earlier conversation:\nThe user asked about order 7.\nIt shipped.\n\n[Dex] 2 earlier messages did not fit in this request and are left out.\n\n[Dex] The conversation to summarize:\n\ntool call transfer_funds: {\"amount\": 5}\ntool result transfer_funds: Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>\n\n[Dex] Summarize the conversation above. Reply with the summary only."
+      },
+      {
+        "input": {
+          "previous_summary": null,
+          "messages": [
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"user_text\",\"text\":\"Where is order 7?\"}",
+              "role": "user",
+              "sequence": 1,
+              "text": "Where is order 7?",
+              "tool_arguments": null,
+              "tool_call_id": null,
+              "tool_name": null,
+              "tool_output": null,
+              "turn_id": "turn-1"
+            },
+            {
+              "created_at": "2026-11-02T09:30:00.000Z",
+              "framework_item": "{\"type\":\"message\"}",
+              "role": "assistant",
+              "sequence": 8,
+              "text": "日本語 ☕ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "tool_arguments": null,
+              "tool_call_id": null,
+              "tool_name": null,
+              "tool_output": null,
+              "turn_id": "turn-3"
+            }
+          ],
+          "input_token_budget": 600
+        },
+        "text": "[Dex] 1 earlier message did not fit in this request and is left out.\n\n[Dex] The conversation to summarize:\n\nassistant: 日本語 ☕ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n[Dex] The rest of this message is left out.\n\n[Dex] Summarize the conversation above. Reply with the summary only."
       }
     ]
   },

@@ -14,14 +14,16 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any
 
-from agents import Agent, RunConfig, RunHooks
+from agents import Agent, Model, RunConfig, RunHooks
 from agents.run import DEFAULT_MAX_TURNS
 
 from dex_agents import (
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    DEFAULT_RETAINED_MESSAGE_LIMIT,
     AgentSessionFlow,
     AgentSessionOptions,
     AgentTracingOptions,
+    CompactionPolicy,
     ToolEffect,
     ToolPolicy,
 )
@@ -42,6 +44,9 @@ def openai_agents_session_flow(
     max_turns: int | None = DEFAULT_MAX_TURNS,
     hooks: RunHooks[Any] | None = None,
     allow_at_least_once_tools: bool = False,
+    compaction: CompactionPolicy | None = None,
+    retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
+    summary_model: str | Model | None = None,
 ) -> AgentSessionFlow:
     """Build the durable Step-mode agent session Flow for one OpenAI Agents SDK agent.
 
@@ -104,6 +109,18 @@ def openai_agents_session_flow(
         allow_at_least_once_tools: Accept tools the SDK runs inside
             ``RunModel``, such as ``Agent.mcp_servers`` tools; they repeat when
             ``RunModel`` retries. Defaults to ``False``. See ``OpenAIAgentsRunner``.
+        compaction: When to summarize earlier turns so the model input fits the
+            context window. ``None``, the default, never compacts. See
+            ``AgentSessionOptions.compaction``.
+
+            .. versionadded:: 0.3.0
+        retained_message_limit: With ``compaction``, how many stored messages
+            retention keeps. See ``AgentSessionOptions.retained_message_limit``.
+
+            .. versionadded:: 0.3.0
+        summary_model: Model of the summary call. ``None`` uses the agent's model.
+
+            .. versionadded:: 0.3.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``OpenAIAgentsRunner``.
@@ -122,6 +139,8 @@ def openai_agents_session_flow(
         event_stream_capacity_bytes=event_stream_capacity_bytes,
         tracing=AgentTracingOptions() if tracing is None else tracing,
         interrupt_deadline=interrupt_deadline,
+        compaction=compaction,
+        retained_message_limit=retained_message_limit,
     )
     runner = OpenAIAgentsRunner(
         agent,
@@ -130,6 +149,7 @@ def openai_agents_session_flow(
         max_turns=max_turns,
         hooks=hooks,
         allow_at_least_once_tools=allow_at_least_once_tools,
+        summary_model=summary_model,
     )
     runner.validate_tool_policies(options.tool_policies)
     return AgentSessionFlow(runner, flow_type=flow_type, options=options)

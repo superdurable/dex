@@ -37,6 +37,13 @@ Example:
     >>> flow = stepwise_agent_session_flow(support_agent, flow_type="SupportAgent")
 """
 
+from dex_agents.compaction import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
+    CONTEXT_SUMMARY_NOTE_HEADER,
+    CONTEXT_SUMMARY_REQUEST,
+    build_context_summary_note,
+    build_context_summary_omission_note,
+)
 from dex_agents.stepwise.function_tools import FunctionTool, ToolCallContext, function_tool
 from dex_agents.stepwise.model import (
     ModelClient,
@@ -55,9 +62,6 @@ from dex_agents.stepwise.model import (
     UserTextItem,
 )
 from dex_agents.stepwise.runner import (
-    CONTEXT_SUMMARY_INSTRUCTIONS,
-    CONTEXT_SUMMARY_NOTE_HEADER,
-    CONTEXT_SUMMARY_REQUEST,
     DEFAULT_MAX_MODEL_CALLS_PER_TURN,
     DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     TOOL_CALL_LIMIT_REACHED_RESULT,
@@ -65,8 +69,6 @@ from dex_agents.stepwise.runner import (
     InstructionContext,
     PlanningToolChoice,
     StepwiseAgentRunner,
-    build_context_summary_note,
-    build_context_summary_omission_note,
     stepwise_agent_session_flow,
     stepwise_agent_session_options,
 )

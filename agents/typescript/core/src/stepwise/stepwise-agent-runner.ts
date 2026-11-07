@@ -7,7 +7,22 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { builtInToolDefinitions, type BuiltInTool } from "../agent-built-in-tools.js";
-import type { ContextSummaryRequest, ContextSummaryResult } from "../agent-context-compaction.js";
+import {
+  buildContextSummaryNote,
+  buildContextSummaryOmissionNote,
+  contextSummaryInstructions,
+  contextSummaryRequest,
+  type ContextSummaryRequest,
+  type ContextSummaryResult,
+} from "../agent-context-compaction.js";
+
+export {
+  buildContextSummaryNote,
+  buildContextSummaryOmissionNote,
+  contextSummaryInstructions,
+  contextSummaryNoteHeader,
+  contextSummaryRequest,
+} from "../agent-context-compaction.js";
 import {
   ToolExecutionError,
   type AgentFrameworkRunner,
@@ -24,7 +39,6 @@ import {
 import { buildPlanNote } from "../agent-plans.js";
 import {
   describeToolCallOutcome,
-  type ContextSummary,
   type FrameworkMessage,
   type SessionSettings,
 } from "../agent-session-values.js";
@@ -68,44 +82,9 @@ export const defaultToolSourceListingTimeoutMs = 10_000;
 
 export const defaultMaxModelCallsPerTurn = 100;
 
-/** First line of the user text that carries the {@link ContextSummary} into the model input. */
-export const contextSummaryNoteHeader = "[Dex] Summary of the earlier conversation:";
-
-/** Instructions of the model call that writes a {@link ContextSummary}. */
-export const contextSummaryInstructions =
-  "You summarize the earlier part of an agent conversation. The agent continues from your " +
-  "summary and the messages after it, so keep every fact, decision, user request and " +
-  "preference, open task, and tool result that it still needs, including what an earlier " +
-  "summary says. Write plain text.";
-
-/** Last user text of the model call that writes a {@link ContextSummary}. */
-export const contextSummaryRequest = "[Dex] Summarize the conversation above. Reply with the summary only.";
-
 /** Result of a tool call the model made after the turn's model call limit; the same text as the Python core. */
 export function buildToolCallLimitReachedResult(maxModelCallsPerTurn: number): string {
   return `The tool call was not run: this turn reached its limit of ${maxModelCallsPerTurn} model calls.`;
-}
-
-/**
- * Returns the user text that says how many of the oldest messages a summary request left out.
- * @param omittedCount - Messages left out, at least 1.
- * @returns `[Dex] <omittedCount> earlier messages did not fit in this request and are left out.`, or
- * `[Dex] 1 earlier message did not fit in this request and is left out.` for one message.
- */
-export function buildContextSummaryOmissionNote(omittedCount: number): string {
-  if (omittedCount === 1) {
-    return "[Dex] 1 earlier message did not fit in this request and is left out.";
-  }
-  return `[Dex] ${omittedCount} earlier messages did not fit in this request and are left out.`;
-}
-
-/**
- * Returns the user text that puts a summary before the newer messages in a model input.
- * @param summary - The session's summary.
- * @returns {@link contextSummaryNoteHeader}, a newline, and the summary text.
- */
-export function buildContextSummaryNote(summary: ContextSummary): string {
-  return `${contextSummaryNoteHeader}\n${summary.text}`;
 }
 
 // The summary is not the assistant's answer, so its live text goes nowhere.

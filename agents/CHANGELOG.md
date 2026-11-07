@@ -22,6 +22,40 @@ for the Dex SDK and framework versions each release supports.
 - Go core: no graph. It registers only part of the session Flow.
 - See [Show sessions in Dex Web](../docs/content/agent-frameworks/deploy-agents.mdx).
 
+### Compaction in framework adapters
+
+- The OpenAI Agents SDK (Python and TypeScript), Pydantic AI, LangChain and
+  LangGraph, Google ADK, Vercel AI SDK, and Mastra adapters implement the
+  compaction methods, so `AgentSessionOptions.compaction` works with them. A
+  session compacts with the existing `CompactContext` Step and stores a
+  `ContextSummary`, so retention can delete messages behind it. Without a policy
+  nothing changes, and a session started on 0.2.0 starts compacting once its
+  Workers have one.
+- Adapters compact only between turns, before a turn's first model call. A model
+  call that resumes a turn after its tool calls never compacts, because the
+  OpenAI Agents SDK and LangGraph resume from a run state that holds the input.
+- The adapters' session flow functions take `compaction`,
+  `retained_message_limit`, and `summary_model` (`summaryModel`). LangGraph
+  needs `summary_model`, because a compiled graph does not expose its model. The
+  TypeScript OpenAI Agents and Mastra session flow functions now forward
+  `compaction` and the message storage options to the core.
+- Google ADK: the summary ends with a line that carries the ADK session state and
+  the agent that replied last, so the rebuilt session keeps both.
+- Claude Agent SDK: unchanged. Claude Code compacts its own transcript, and the
+  adapter takes no compaction policy.
+- Python and TypeScript cores: new helpers for adapters,
+  `estimate_text_tokens`, `estimate_stored_input_tokens`,
+  `select_turn_boundary_cutoff`, `describe_stored_message`, and
+  `build_context_summary_prompt` (camelCase in TypeScript). The Stepwise summary
+  texts move to the core's root module and stay exported from Stepwise.
+- `CompactionPolicy.reserved_input_tokens` (`reservedInputTokens`), default 0,
+  adds tokens the runner's estimate cannot see.
+- `dex_agents.testing` and `@superdurable/dex-agents/testing` add
+  `ContextWindowModelScript` and `ContextWindowSessionScenario`.
+- No stored value changes. The conformance suite adds the summary prompt texts.
+- Go core: unchanged.
+- See [Compaction and the storage bound](../docs/content/agent-frameworks/deploy-agents.mdx#compaction).
+
 ### Spend limits
 
 - Python and TypeScript cores: the new `ModelSpendLimit` interface is an

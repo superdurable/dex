@@ -15,12 +15,15 @@ from datetime import timedelta
 
 from dex_agents import (
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    DEFAULT_RETAINED_MESSAGE_LIMIT,
     AgentSessionFlow,
     AgentSessionOptions,
     AgentTracingOptions,
+    CompactionPolicy,
     ToolEffect,
     ToolPolicy,
 )
+from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.serde.base import SerializerProtocol
 
@@ -38,6 +41,9 @@ def langchain_agent_session_flow(
     tracing: AgentTracingOptions | None = None,
     tools: Sequence[BaseTool] = (),
     checkpoint_serializer: SerializerProtocol | None = None,
+    compaction: CompactionPolicy | None = None,
+    retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
+    summary_model: BaseChatModel | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a ``create_agent`` agent.
 
@@ -99,12 +105,26 @@ def langchain_agent_session_flow(
             ``ToolNode``, such as tools that middleware adds dynamically.
         checkpoint_serializer: Serializer for the graph checkpoint stored while
             tool calls run. ``None`` uses LangGraph's ``JsonPlusSerializer``.
+        compaction: When to summarize earlier turns so the model input fits the
+            context window. It needs ``summary_model``. ``None``, the default,
+            never compacts. See ``AgentSessionOptions.compaction``.
+
+            .. versionadded:: 0.3.0
+        retained_message_limit: With ``compaction``, how many stored messages
+            retention keeps. See ``AgentSessionOptions.retained_message_limit``.
+
+            .. versionadded:: 0.3.0
+        summary_model: Chat model of the summary call. A compiled graph does
+            not expose its own model.
+
+            .. versionadded:: 0.3.0
 
     Returns:
         The session Flow.
 
     Raises:
-        ValueError: If ``flow_type`` is empty, an option is not positive, or a
+        ValueError: If ``flow_type`` is empty, an option is not positive,
+            ``compaction`` is set without ``summary_model``, or a
             compiled ``agent`` has no ``messages`` channel, uses a
             ``DeltaChannel``, or has two tool nodes whose different tools share
             a name that ``tools`` does not settle.
@@ -120,9 +140,12 @@ def langchain_agent_session_flow(
             event_stream_capacity_bytes=event_stream_capacity_bytes,
             tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
+            compaction=compaction,
+            retained_message_limit=retained_message_limit,
         ),
         tools=tools,
         checkpoint_serializer=checkpoint_serializer,
+        summary_model=summary_model,
     )
 
 
@@ -138,6 +161,9 @@ def langgraph_agent_session_flow(
     tracing: AgentTracingOptions | None = None,
     tools: Sequence[BaseTool] = (),
     checkpoint_serializer: SerializerProtocol | None = None,
+    compaction: CompactionPolicy | None = None,
+    retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
+    summary_model: BaseChatModel | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for a custom LangGraph graph.
 
@@ -190,12 +216,26 @@ def langgraph_agent_session_flow(
             tool nodes.
         checkpoint_serializer: Serializer for the graph checkpoint stored while
             tool calls run. ``None`` uses LangGraph's ``JsonPlusSerializer``.
+        compaction: When to summarize earlier turns so the model input fits the
+            context window. It needs ``summary_model``. ``None``, the default,
+            never compacts. See ``AgentSessionOptions.compaction``.
+
+            .. versionadded:: 0.3.0
+        retained_message_limit: With ``compaction``, how many stored messages
+            retention keeps. See ``AgentSessionOptions.retained_message_limit``.
+
+            .. versionadded:: 0.3.0
+        summary_model: Chat model of the summary call. A compiled graph does
+            not expose its own model.
+
+            .. versionadded:: 0.3.0
 
     Returns:
         The session Flow.
 
     Raises:
-        ValueError: If ``flow_type`` is empty, an option is not positive, or a
+        ValueError: If ``flow_type`` is empty, an option is not positive,
+            ``compaction`` is set without ``summary_model``, or a
             compiled ``graph`` has no ``messages_key`` channel, uses a
             ``DeltaChannel``, or has two tool nodes whose different tools share
             a name that ``tools`` does not settle.
@@ -211,9 +251,12 @@ def langgraph_agent_session_flow(
             event_stream_capacity_bytes=event_stream_capacity_bytes,
             tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
+            compaction=compaction,
+            retained_message_limit=retained_message_limit,
         ),
         tools=tools,
         checkpoint_serializer=checkpoint_serializer,
+        summary_model=summary_model,
     )
 
 
@@ -225,11 +268,15 @@ def _graph_session_flow(
     options: AgentSessionOptions,
     tools: Sequence[BaseTool],
     checkpoint_serializer: SerializerProtocol | None,
+    summary_model: BaseChatModel | None,
 ) -> AgentSessionFlow:
+    if options.compaction is not None and summary_model is None:
+        raise ValueError("compaction needs a summary_model")
     runner = LangGraphAgentRunner(
         graph,
         tools=tools,
         messages_key=messages_key,
         checkpoint_serializer=checkpoint_serializer,
+        summary_model=summary_model,
     )
     return AgentSessionFlow(runner, flow_type=flow_type, options=options)
