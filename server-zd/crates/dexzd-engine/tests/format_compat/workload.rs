@@ -135,6 +135,7 @@ impl Workload<'_> {
             .await;
         self.set_history_offload_modes(&[PartitionId(0)], false)
             .await;
+        self.legacy_runs_record_history_without_offload().await;
     }
 
     /// `history-flow`, in partition 1, which offloads history: a replaced Attribute supersedes a
@@ -2029,6 +2030,8 @@ pub(crate) async fn put_new_object(store: &InMemoryObjectStore, key: &str, body:
         "{key} is new"
     );
 }
+
+mod legacy_history;
 
 mod load_blobs_purge_tests {
     use std::sync::Arc;

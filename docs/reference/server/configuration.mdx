@@ -354,10 +354,22 @@ pruning then deletes local history only after its segment is uploaded. Each run
 records **history.segmentTargetBytes** when it starts, so a new value applies only
 to runs that start after the node restarts with it.
 
+Runs that already exist when offload turns on migrate, including runs that
+started while it was off. The first command that leaves such a run running seals
+the oldest part of its local history. Each later command of the run seals one
+more segment, until a segment reaches the command itself. The run then continues
+like a run that started with offload on. Events that the history window removed
+before the migration stay removed. A run that is already closed is not migrated;
+deleting it after its retention deletes its local history. A run that closes
+during its migration keeps the rest of its history on local disk until it is
+deleted.
+
 Turning offload off stops sealing. History of segments sealed earlier stays on
 local disk until each segment is uploaded; then pruning returns to the window
 rule. Commands applied while offload is off belong to no segment, so turning it
-on again starts a new segment after them.
+on again starts a new segment after them. Turning offload off also ends every
+migration; the rest of each such run's history follows the window rule like
+those commands.
 
 The lease holder uploads each sealed segment to the primary object store, under
 the **history/** prefix of the bucket that holds the commit log. It uploads a

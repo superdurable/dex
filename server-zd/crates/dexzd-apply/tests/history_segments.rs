@@ -1089,28 +1089,6 @@ fn reenabling_offload_opens_a_fresh_segment_after_the_commands_applied_while_off
 }
 
 #[test]
-fn runs_started_before_offload_keep_no_segment_state_and_keep_their_history() {
-    let mut harness = Harness::new(small_window_settings(1));
-    harness.start();
-    harness.set_offload_mode(true);
-    for round in 0..12 {
-        let outcome = harness.set_attribute("profile", large_text(&format!("v{round}"), 300));
-        assert_eq!(sealed_effect_count(&outcome), 0);
-    }
-    assert_eq!(harness.run_record().history_open_segment_first_seq, 0);
-    assert!(harness.segments().is_empty());
-    assert_eq!(
-        harness.history_record_count(),
-        harness.last_seq() as usize,
-        "nothing is uploaded, so nothing is pruned"
-    );
-    assert!(
-        harness.run_record().window_start_seq > 1,
-        "the window still moves"
-    );
-}
-
-#[test]
 fn window_pruning_deletes_only_uploaded_rows() {
     let mut harness = Harness::offloading(small_window_settings(2_000));
     for round in 0..16 {

@@ -21,7 +21,8 @@ use dexzd_keyspace::row_keys::{
 };
 use dexzd_keyspace::{ColumnFamily, RunTable, ValueId, run_prefix, run_table_prefix};
 use dexzd_protocol::dexzd::v1::{
-    HistorySegmentRecord, HistorySegmentState, HistorySegmentValueRecord, ValueGarbageRecord,
+    HistorySegmentRecord, HistorySegmentState, HistorySegmentValueRecord, RunRecord,
+    ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -77,14 +78,7 @@ pub(crate) fn seal_history_segment_if_due(
     record.history_open_segment_superseded_value_count = record
         .history_open_segment_superseded_value_count
         .saturating_add(additions.superseded_values);
-    let target_bytes = match record
-        .settings
-        .unwrap_or_default()
-        .history_segment_target_bytes
-    {
-        0 => DEFAULT_HISTORY_SEGMENT_TARGET_BYTES,
-        configured => configured,
-    };
+    let target_bytes = segment_target_bytes(record);
     let is_due = has_closed_run
         || record.history_open_segment_bytes >= target_bytes
         || record.history_open_segment_superseded_value_count >= MAX_SEGMENT_SUPERSEDED_VALUES;
@@ -145,10 +139,36 @@ fn seal_open_segment(
     cursor: &mut RunCursor,
     now_micros: i64,
 ) -> Result<(), ApplyError> {
+    let bounds = SealedSegmentBounds {
+        first_seq: cursor.record.history_open_segment_first_seq,
+        last_seq: cursor.seq,
+        first_event_id: cursor.record.history_open_segment_first_event_id,
+        last_event_id: cursor.record.next_event_id.max(1) - 1,
+    };
+    write_sealed_segment(transaction, cursor, &bounds, now_micros)?;
+    open_segment_after_command(cursor);
+    Ok(())
+}
+
+/// Seq and event ID range of a segment that apply seals.
+pub(crate) struct SealedSegmentBounds {
+    pub(crate) first_seq: u64,
+    pub(crate) last_seq: u64,
+    pub(crate) first_event_id: i64,
+    /// Smaller than `first_event_id` when the seqs assigned no event.
+    pub(crate) last_event_id: i64,
+}
+
+/// Writes the SEALED segment, its value list, and the pending index row, then emits the effect.
+pub(crate) fn write_sealed_segment(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    bounds: &SealedSegmentBounds,
+    now_micros: i64,
+) -> Result<(), ApplyError> {
     let rows = cursor.rows;
-    let first_seq = cursor.record.history_open_segment_first_seq;
-    let last_seq = cursor.seq;
-    let next_event_id = cursor.record.next_event_id.max(1);
+    let first_seq = bounds.first_seq;
+    let last_seq = bounds.last_seq;
     let garbage_prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::ValueGarbage);
     let mut start = garbage_prefix.clone();
     start.extend_from_slice(&first_seq.to_be_bytes());
@@ -181,8 +201,8 @@ fn seal_open_segment(
         &HistorySegmentRecord {
             first_seq,
             last_seq,
-            first_event_id: cursor.record.history_open_segment_first_event_id,
-            last_event_id: next_event_id - 1,
+            first_event_id: bounds.first_event_id,
+            last_event_id: bounds.last_event_id,
             state: HistorySegmentState::Sealed as i32,
             sealed_at_micros: now_micros,
             superseded_value_count,
@@ -196,14 +216,25 @@ fn seal_open_segment(
         history_upload_pending_index_key(partition, rows.flow_hash, rows.run_id),
         Vec::new(),
     );
-    open_segment_after_command(cursor);
     let run_id = cursor.run_id();
     cursor.add_effect(ApplyEffect::HistorySegmentSealed { run_id });
     Ok(())
 }
 
+/// Returns the run's segment target bytes; runs older than the setting record zero.
+pub(crate) fn segment_target_bytes(record: &RunRecord) -> u64 {
+    match record
+        .settings
+        .unwrap_or_default()
+        .history_segment_target_bytes
+    {
+        0 => DEFAULT_HISTORY_SEGMENT_TARGET_BYTES,
+        configured => configured,
+    }
+}
+
 /// Opens an empty segment whose seqs and events start right after the command's.
-fn open_segment_after_command(cursor: &mut RunCursor) {
+pub(crate) fn open_segment_after_command(cursor: &mut RunCursor) {
     let first_seq = cursor.seq + 1;
     let record = &mut cursor.record;
     record.history_open_segment_first_seq = first_seq;
@@ -213,7 +244,7 @@ fn open_segment_after_command(cursor: &mut RunCursor) {
 }
 
 /// Returns the superseded seq and value ID of a value garbage key.
-fn garbage_identity(key: &[u8], prefix: &[u8]) -> Result<(u64, ValueId), ApplyError> {
+pub(crate) fn garbage_identity(key: &[u8], prefix: &[u8]) -> Result<(u64, ValueId), ApplyError> {
     let suffix = key
         .strip_prefix(prefix)
         .filter(|suffix| suffix.len() == 20)

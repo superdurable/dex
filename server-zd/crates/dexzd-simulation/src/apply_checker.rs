@@ -22,10 +22,11 @@ use prost::Message;
 
 use crate::invalid_client_inputs::{check_invalid_client_input_rejected, invalid_client_input};
 use crate::invariants::{
-    CheckerMemory, CloseBarrierCounts, InvariantViolation, OffloadGapsByRun, WindowPointState,
-    check_close_barrier, check_deletions_were_uploaded, check_flow, check_fresh_snapshot,
-    check_open_segment_transitions, check_outbox_writes, check_sealed_segment_encodings,
-    check_window_value_content, remember_ack, remember_window_points,
+    CheckerMemory, CloseBarrierCounts, HistoryMigrationCounts, InvariantViolation,
+    OffloadGapsByRun, WindowPointState, check_close_barrier, check_deletions_were_uploaded,
+    check_flow, check_fresh_snapshot, check_history_migration, check_open_segment_transitions,
+    check_outbox_writes, check_sealed_segment_encodings, check_window_value_content, remember_ack,
+    remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunSelection};
@@ -51,6 +52,7 @@ pub struct ApplyChecker {
     history_offload_off_time_travels: usize,
     /// Every run an admitted transactional RPC ever held, for checks of recovered stores.
     ever_rpc_held_runs: BTreeSet<RunId>,
+    history_migration_counts: HistoryMigrationCounts,
 }
 
 /// When the checker retained one window point, in applied command counts.
@@ -93,6 +95,7 @@ impl ApplyChecker {
             close_barrier_counts: CloseBarrierCounts::default(),
             history_offload_off_time_travels: 0,
             ever_rpc_held_runs: BTreeSet::new(),
+            history_migration_counts: HistoryMigrationCounts::default(),
         }
     }
 
@@ -189,6 +192,9 @@ impl ApplyChecker {
             &mut self.memory.rpc_held_runs,
         )?;
         self.close_barrier_counts.merge(&close_barrier_counts);
+        let migration_counts =
+            check_history_migration(&command.flow_id, &outcome, &previous_records, &view)?;
+        self.history_migration_counts.merge(&migration_counts);
         self.ever_rpc_held_runs
             .extend(self.memory.rpc_held_runs.iter().copied());
         let pruned_points = remember_window_points(
@@ -235,6 +241,11 @@ impl ApplyChecker {
     /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
     pub fn close_barrier_counts(&self) -> CloseBarrierCounts {
         self.close_barrier_counts
+    }
+
+    /// History migrations that started, caught up, or ended because offload turned off.
+    pub fn history_migration_counts(&self) -> HistoryMigrationCounts {
+        self.history_migration_counts
     }
 
     /// Every run whose pending close an admitted transactional RPC held at some point.

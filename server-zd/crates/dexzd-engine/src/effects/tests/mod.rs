@@ -14,6 +14,7 @@ mod deadline_tests;
 mod dispatch_tests;
 mod handout_tests;
 mod hard_delete_tests;
+mod history_migration_upload_tests;
 mod history_upload_tests;
 mod keyword_index_tests;
 mod outbox_and_purge_tests;

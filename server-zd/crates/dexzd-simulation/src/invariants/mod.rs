@@ -11,6 +11,7 @@
 mod attribute_sync_invariants;
 mod directory_invariants;
 mod dispatch_queue_invariants;
+mod history_migration_invariants;
 mod history_segment_invariants;
 mod lock_invariants;
 mod search_order_invariants;
@@ -28,6 +29,8 @@ pub use attribute_sync_invariants::CloseBarrierCounts;
 pub(crate) use attribute_sync_invariants::{
     AttributeSyncAcks, check_close_barrier, check_outbox_writes, remember_ack,
 };
+pub use history_migration_invariants::HistoryMigrationCounts;
+pub(crate) use history_migration_invariants::check_history_migration;
 pub(crate) use history_segment_invariants::{
     OffloadGapsByRun, check_deletions_were_uploaded, check_open_segment_transitions,
     check_sealed_segment_encodings,

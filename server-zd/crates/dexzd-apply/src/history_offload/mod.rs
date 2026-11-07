@@ -9,5 +9,6 @@
 //! Offloading run history to object storage, gated by a committed partition mode.
 
 pub(crate) mod offload_mode;
+pub(crate) mod segment_migration;
 pub(crate) mod segment_seal;
 pub(crate) mod segment_upload;
