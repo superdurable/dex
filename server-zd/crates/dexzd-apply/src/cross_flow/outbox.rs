@@ -197,6 +197,9 @@ fn effective_flow_config(
                 .attribute_store_names
                 .clone_from(&overrides.attribute_store_names);
         }
+        if overrides.history_window_events.is_some() {
+            effective.history_window_events = overrides.history_window_events;
+        }
     }
     effective
 }
@@ -314,6 +317,12 @@ fn validate_effective_flow_config(flow_config: &FlowConfig) -> Result<(), String
             .is_some_and(|value| value < 0)
     {
         return Err("FlowConfig thresholds must be non-negative".to_owned());
+    }
+    if flow_config
+        .history_window_events
+        .is_some_and(|window_events| window_events <= 0)
+    {
+        return Err("FlowConfig history window must be positive".to_owned());
     }
     if flow_config
         .active_step_search_mode

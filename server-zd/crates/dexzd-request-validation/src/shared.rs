@@ -57,6 +57,10 @@ pub struct ValidationConfig {
     pub has_blob_store: bool,
     /// Optional indexed Keyword byte limit; defaults to None (unlimited).
     pub keyword_value_limit: Option<KeywordValueLimit>,
+    /// Largest accepted FlowConfig.history_window_events; defaults to 100000 events.
+    ///
+    /// The server sets it from `history.maxWindowEvents`.
+    pub max_history_window_events: u32,
 }
 
 impl Default for ValidationConfig {
@@ -73,6 +77,7 @@ impl Default for ValidationConfig {
             attribute_store_names: HashSet::new(),
             has_blob_store: false,
             keyword_value_limit: None,
+            max_history_window_events: 100_000,
         }
     }
 }
@@ -581,6 +586,17 @@ pub(crate) fn validate_flow_config(
             format!("continue_as_new_page_size_in_bytes must be >= 0, got {page_size}"),
         ));
     }
+    if let Some(window_events) = flow_config.history_window_events
+        && (window_events <= 0 || window_events.unsigned_abs() > config.max_history_window_events)
+    {
+        return Err(invalid(
+            format!("{path}.history_window_events"),
+            format!(
+                "history_window_events must be between 1 and {}, got {window_events}",
+                config.max_history_window_events
+            ),
+        ));
+    }
     if flow_config
         .step_durability
         .is_some_and(|value| StepDurability::try_from(value).is_err())
@@ -658,6 +674,9 @@ pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_co
         effective
             .attribute_store_names
             .clone_from(&override_config.attribute_store_names);
+    }
+    if override_config.history_window_events.is_some() {
+        effective.history_window_events = override_config.history_window_events;
     }
 }
 

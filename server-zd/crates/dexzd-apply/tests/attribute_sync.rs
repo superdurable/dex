@@ -323,8 +323,8 @@ impl Harness {
 
 fn settings() -> RunSettings {
     RunSettings {
-        history_window_semantic_events: 10_000,
-        history_prune_chunk_semantic_events: 1000,
+        history_window_events: 10_000,
+        history_prune_chunk_events: 1000,
         max_retained_superseded_bytes: 256 << 20,
         retention_after_close_micros: 60 * SECOND,
         wire_inline_threshold_bytes: 100,
@@ -652,8 +652,8 @@ fn time_travel_replays_synced_references_after_their_values_are_collected() {
             null_value(),
         ] {
             let mut harness = Harness::with_settings(RunSettings {
-                history_window_semantic_events: 2,
-                history_prune_chunk_semantic_events: 1,
+                history_window_events: 2,
+                history_prune_chunk_events: 1,
                 ..settings()
             });
             harness.start(Some(&[PRIMARY, REPLICA]), Vec::new());

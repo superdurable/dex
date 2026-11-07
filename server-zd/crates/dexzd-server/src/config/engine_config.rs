@@ -210,11 +210,30 @@ impl Default for RecoveryConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(try_from = "HistoryConfigSource", rename_all = "camelCase")]
 pub struct HistoryConfig {
-    /// Defaults to 10000; maximum semantic events in the recent reconstruction window before chunk pruning.
+    /// Defaults to 10000; approximate number of the newest history events in each run's window.
+    ///
+    /// The window serves history reads and Time Travel. A history record counts its events, and
+    /// a semantic record without events counts as one. When a run holds more than this many
+    /// events plus one prune chunk, the oldest events are pruned until about this many remain.
+    /// A run's `FlowConfig.history_window_events` overrides it. Must be positive.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
-    pub window_semantic_events: u32,
-    /// Defaults to 1000; number of old semantic events pruned per chunk, no greater than the window.
+    /// Set by `history.windowEvents`; the deprecated key `history.windowSemanticEvents` is still
+    /// accepted with a startup warning.
+    pub window_events: u32,
+    /// Defaults to 1000; largest number of old history events pruned at once, no greater than
+    /// `window_events`.
+    ///
+    /// A run prunes at most a tenth of its window at once, and at least one event, when that is
+    /// smaller.
+    /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub prune_chunk_size: u32,
+    /// Defaults to 100000; largest window that `FlowConfig.history_window_events` may set for a
+    /// run.
+    ///
+    /// StartFlow, UpdateFlowConfig, and SubFlow starts with a larger value fail with
+    /// INVALID_ARGUMENT. It does not limit `window_events`. Must be positive. Changes apply to
+    /// later requests only; runs keep the window they already have.
+    pub max_window_events: u32,
     /// Defaults to 1 MiB; a checkpoint is written once the run has written this many bytes of
     /// attempt-scoped rows since the last checkpoint.
     ///
@@ -262,8 +281,9 @@ impl HistoryConfig {
 impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
-            window_semantic_events: 10_000,
+            window_events: 10_000,
             prune_chunk_size: 1_000,
+            max_window_events: 100_000,
             checkpoint_row_write_bytes_threshold: 1024 * 1024,
             checkpoint_command_threshold: 1_000,
             max_retained_superseded_bytes: 256 * 1024 * 1024,
@@ -286,6 +306,10 @@ const CHECKPOINT_ROW_WRITE_BYTES_THRESHOLD_RENAME: DeprecatedConfigKey = Depreca
     deprecated_key: "history.checkpointMinWrittenBytes",
     replacement_key: "history.checkpointRowWriteBytesThreshold",
 };
+const WINDOW_EVENTS_RENAME: DeprecatedConfigKey = DeprecatedConfigKey {
+    deprecated_key: "history.windowSemanticEvents",
+    replacement_key: "history.windowEvents",
+};
 const CHECKPOINT_COMMAND_THRESHOLD_RENAME: DeprecatedConfigKey = DeprecatedConfigKey {
     deprecated_key: "history.checkpointCommandInterval",
     replacement_key: "history.checkpointCommandThreshold",
@@ -295,8 +319,12 @@ const CHECKPOINT_COMMAND_THRESHOLD_RENAME: DeprecatedConfigKey = DeprecatedConfi
 #[derive(Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 struct HistoryConfigSource {
-    window_semantic_events: u32,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    window_events: PresentKey<u32>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    window_semantic_events: PresentKey<u32>,
     prune_chunk_size: u32,
+    max_window_events: u32,
     #[serde(deserialize_with = "deserialize_present_key")]
     checkpoint_row_write_bytes_threshold: PresentKey<u64>,
     #[serde(deserialize_with = "deserialize_present_key")]
@@ -326,8 +354,10 @@ impl Default for HistoryConfigSource {
     fn default() -> Self {
         let defaults = HistoryConfig::default();
         Self {
-            window_semantic_events: defaults.window_semantic_events,
+            window_events: None,
+            window_semantic_events: None,
             prune_chunk_size: defaults.prune_chunk_size,
+            max_window_events: defaults.max_window_events,
             checkpoint_row_write_bytes_threshold: None,
             checkpoint_min_written_bytes: None,
             checkpoint_command_threshold: None,
@@ -344,6 +374,13 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
     fn try_from(source: HistoryConfigSource) -> Result<Self, Self::Error> {
         let defaults = Self::default();
         let mut deprecated_keys = Vec::new();
+        let window_events = read_renamed_key(
+            source.window_events,
+            source.window_semantic_events,
+            WINDOW_EVENTS_RENAME,
+            &mut deprecated_keys,
+        )?
+        .unwrap_or(defaults.window_events);
         let checkpoint_row_write_bytes_threshold = read_renamed_key(
             source.checkpoint_row_write_bytes_threshold,
             source.checkpoint_min_written_bytes,
@@ -359,8 +396,9 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
         )?
         .unwrap_or(defaults.checkpoint_command_threshold);
         Ok(Self {
-            window_semantic_events: source.window_semantic_events,
+            window_events,
             prune_chunk_size: source.prune_chunk_size,
+            max_window_events: source.max_window_events,
             checkpoint_row_write_bytes_threshold,
             checkpoint_command_threshold,
             max_retained_superseded_bytes: source.max_retained_superseded_bytes,

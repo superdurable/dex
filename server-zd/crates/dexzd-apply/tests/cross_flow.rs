@@ -535,8 +535,8 @@ fn settings() -> RunSettings {
         request_dedup_capacity: 1000,
         max_run_state_bytes: 1 << 30,
         max_active_step_executions: 10_000,
-        history_window_semantic_events: 10_000,
-        history_prune_chunk_semantic_events: 1000,
+        history_window_events: 10_000,
+        history_prune_chunk_events: 1000,
         max_retained_superseded_bytes: 256 << 20,
         ..RunSettings::default()
     }
@@ -718,6 +718,7 @@ fn child_flow_inherits_parent_effective_config_and_applies_its_override() {
         continue_as_new_threshold: Some(100),
         step_durability: Some(StepDurability::Sync as i32),
         worker_target: Some(pull_worker()),
+        history_window_events: Some(500),
         ..FlowConfig::default()
     };
     harness.start_parent_with_config(parent_config.clone());
@@ -752,6 +753,7 @@ fn child_flow_inherits_parent_effective_config_and_applies_its_override() {
         continue_as_new_threshold: Some(25),
         step_durability: Some(StepDurability::Sync as i32),
         worker_target: Some(pull_worker()),
+        history_window_events: Some(500),
         ..FlowConfig::default()
     };
     let Some(outbox_record::Payload::ChildStart(message)) = start.payload.as_ref() else {
@@ -857,8 +859,8 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             0,
             None,
             RunSettings {
-                history_window_semantic_events: 1,
-                history_prune_chunk_semantic_events: 1,
+                history_window_events: 1,
+                history_prune_chunk_events: 1,
                 checkpoint_command_threshold: 10_000,
                 checkpoint_row_write_bytes_threshold: 1 << 20,
                 ..settings()
@@ -2242,7 +2244,7 @@ fn sub_flow_start_validation_fails_parent_before_outbox_write() {
         .as_mut()
         .expect("options")
         .timeout_handler_options = Some(FlowTimeoutHandlerOptions::default());
-    let mut invalid_config = base;
+    let mut invalid_config = base.clone();
     invalid_config
         .options
         .as_mut()
@@ -2251,11 +2253,21 @@ fn sub_flow_start_validation_fails_parent_before_outbox_write() {
         continue_as_new_threshold: Some(-1),
         ..FlowConfig::default()
     });
+    let mut invalid_window = base;
+    invalid_window
+        .options
+        .as_mut()
+        .expect("options")
+        .flow_config_override = Some(FlowConfig {
+        history_window_events: Some(0),
+        ..FlowConfig::default()
+    });
     for (condition, expected_error) in [
         (unstable_index, "unstable index"),
         (invalid_timeout_policy, "positive timeout"),
         (invalid_handler_options, "Handler policy"),
         (invalid_config, "thresholds"),
+        (invalid_window, "history window must be positive"),
     ] {
         let mut harness = Harness::new();
         harness.start_parent();

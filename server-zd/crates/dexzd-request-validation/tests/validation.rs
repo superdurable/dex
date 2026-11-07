@@ -1458,3 +1458,99 @@ fn quote_go_string_matches_go_quote_for_combining_marks_and_controls() {
     assert_eq!(quote_go_string("\u{200b}"), "\"\\u200b\"");
     assert_eq!(quote_go_string("tab\t\"q\""), "\"tab\\t\\\"q\\\"\"");
 }
+
+#[test]
+fn history_window_events_must_be_positive_and_within_the_server_maximum() {
+    let mut config = config();
+    config.max_history_window_events = 500;
+    let flow_config = |history_window_events| FlowConfig {
+        history_window_events: Some(history_window_events),
+        ..FlowConfig::default()
+    };
+    for (history_window_events, is_valid) in [
+        (1, true),
+        (500, true),
+        (0, false),
+        (-1, false),
+        (i32::MIN, false),
+        (501, false),
+        (i32::MAX, false),
+    ] {
+        let mut start = start_request();
+        start.flow_start_options = Some(FlowStartOptions {
+            flow_config_override: Some(flow_config(history_window_events)),
+            ..FlowStartOptions::default()
+        });
+        let update = dex::UpdateFlowConfigRequest {
+            flow_id: "flow-1".into(),
+            flow_config: Some(flow_config(history_window_events)),
+            ..dex::UpdateFlowConfigRequest::default()
+        };
+        let waiting = WaitingCondition {
+            waiting_condition_type: 1,
+            sub_flow_conditions: vec![SubFlowCondition {
+                sub_flow_type: "ChildFlow".into(),
+                start_step_type: "StartStep".into(),
+                options: Some(SubFlowOptions {
+                    flow_config_override: Some(flow_config(history_window_events)),
+                    ..SubFlowOptions::default()
+                }),
+                ..SubFlowCondition::default()
+            }],
+            ..WaitingCondition::default()
+        };
+        let results = [
+            (
+                "StartFlow",
+                validate_client_request(ClientRequest::StartFlow(&start), &config),
+            ),
+            (
+                "UpdateFlowConfig",
+                validate_client_request(ClientRequest::UpdateFlowConfig(&update), &config),
+            ),
+            (
+                "SubFlow",
+                validate_waiting_condition(Some(&waiting), &config.default_flow_config, &config),
+            ),
+        ];
+        for (path, result) in results {
+            if is_valid {
+                result.unwrap_or_else(|error| {
+                    panic!("{path} accepts window {history_window_events}: {error:?}")
+                });
+                continue;
+            }
+            let error = result.expect_err("an out-of-range window is rejected");
+            assert!(
+                error.field_path.ends_with("history_window_events"),
+                "{path}: {error:?}"
+            );
+            assert_eq!(
+                error.message,
+                format!(
+                    "history_window_events must be between 1 and 500, got {history_window_events}"
+                ),
+                "{path}"
+            );
+            if path != "SubFlow" {
+                assert_eq!(error.category, ValidationCategory::InvalidArgument);
+            }
+        }
+    }
+    let effective = dexzd_request_validation::validate_start_flow_request(
+        &dex::StartFlowRequest {
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(flow_config(200)),
+                ..FlowStartOptions::default()
+            }),
+            ..start_request()
+        },
+        &config,
+    )
+    .expect("a window within the maximum is valid");
+    assert_eq!(effective.history_window_events, Some(200));
+    assert_eq!(
+        ValidationConfig::default().max_history_window_events,
+        100_000
+    );
+}

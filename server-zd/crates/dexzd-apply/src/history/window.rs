@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The time travel window (plan section 8.4): the newest N semantic points, pruned M at a time.
+//! The time travel window (plan section 8.4): about the newest N history events, pruned about M at
+//! a time.
 //!
 //! FlowStart and the genesis checkpoint are kept until the run is deleted (D12).
 
@@ -16,7 +17,7 @@ use dexzd_keyspace::row_keys::{
     checkpoint_key, history_record_key, history_row_metadata_key, prefix_range,
 };
 use dexzd_keyspace::{ColumnFamily, RunTable, run_table_prefix};
-use dexzd_protocol::dexzd::v1::HistoryRowMetadata;
+use dexzd_protocol::dexzd::v1::{HistoryRowMetadata, RunRecord};
 
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
@@ -25,32 +26,83 @@ use crate::state_access::FlowTransaction;
 
 const HISTORY_ROWS_PER_COMMAND: usize = 128;
 
+/// Metadata pages one command may scan to prune an event chunk; covers the default 1000-event chunk.
+const EVENT_CHUNK_PAGES_PER_COMMAND: usize = 16;
+
 /// FlowStart records event 1 of every run, and the window always keeps it.
 const FLOW_START_EVENT_ID: i64 = 1;
 
 pub(crate) enum WindowAdvanceTarget {
-    SemanticPoints(u64),
+    /// Window events to prune; W stops at the first semantic point that prunes at least this many.
+    Events(u64),
     GarbageSeq(u64),
 }
 
-/// Advances the window start W when the window holds more than N + M semantic points.
+/// A run's window size N and prune chunk M, both in window events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HistoryWindowSize {
+    window_events: u64,
+    prune_chunk_events: u64,
+}
+
+impl HistoryWindowSize {
+    /// Returns the size from the run's FlowConfig override or its settings; `None` never prunes.
+    ///
+    /// Settings of zero never prune. A small window prunes at most a tenth of itself at once.
+    fn of_run(record: &RunRecord) -> Result<Option<Self>, ApplyError> {
+        let settings = record.settings.unwrap_or_default();
+        let window_events = match record
+            .flow_config
+            .as_ref()
+            .and_then(|flow_config| flow_config.history_window_events)
+        {
+            Some(configured) => u64::try_from(configured)
+                .ok()
+                .filter(|window_events| *window_events > 0)
+                .ok_or_else(|| ApplyError::InvariantViolation {
+                    detail: format!(
+                        "run FlowConfig history_window_events {configured} passed validation \
+                         but is not positive"
+                    ),
+                })?,
+            None => u64::from(settings.history_window_events),
+        };
+        if window_events == 0 {
+            return Ok(None);
+        }
+        let prune_chunk_events = u64::from(settings.history_prune_chunk_events)
+            .min(window_events / 10)
+            .max(1);
+        Ok(Some(Self {
+            window_events,
+            prune_chunk_events,
+        }))
+    }
+}
+
+/// Advances the window start W when the window holds more than N + M window events.
+///
+/// It prunes M, or back to N + M when a shrunk window holds more, within a bounded scan.
 pub(crate) fn advance_window_if_full(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
 ) -> Result<(), ApplyError> {
+    let Some(size) = HistoryWindowSize::of_run(&cursor.record)? else {
+        return Ok(());
+    };
+    let window_event_count =
+        cursor
+            .record
+            .window_event_count
+            .ok_or_else(|| ApplyError::InvariantViolation {
+                detail: "window pruning runs before the command counts window events".to_owned(),
+            })?;
+    let in_window = window_event_count.saturating_sub(cursor.record.pruned_window_event_count);
+    let full_window_events = size.window_events + size.prune_chunk_events;
+    if in_window <= full_window_events {
+        return Ok(());
+    }
     let settings = cursor.record.settings.unwrap_or_default();
-    let window_events = u64::from(settings.history_window_semantic_events);
-    let chunk_events = u64::from(settings.history_prune_chunk_semantic_events.max(1));
-    if window_events == 0 {
-        return Ok(());
-    }
-    let in_window = cursor
-        .record
-        .semantic_event_count
-        .saturating_sub(cursor.record.pruned_semantic_event_count);
-    if in_window <= window_events + chunk_events {
-        return Ok(());
-    }
     if crate::values::projected_superseded_value_bytes(transaction, cursor)?
         > settings.max_retained_superseded_bytes
     {
@@ -59,12 +111,12 @@ pub(crate) fn advance_window_if_full(
     advance_window(
         transaction,
         cursor,
-        WindowAdvanceTarget::SemanticPoints(chunk_events),
+        WindowAdvanceTarget::Events(size.prune_chunk_events.max(in_window - full_window_events)),
     )?;
     Ok(())
 }
 
-/// Moves W past up to the requested semantic points, keeping what rebuilds every later point.
+/// Moves W past up to the requested window events, keeping what rebuilds every later point.
 ///
 /// Returns false without a later semantic point; the superseded value byte cap also calls this.
 pub(crate) fn advance_window(
@@ -73,7 +125,7 @@ pub(crate) fn advance_window(
     target: WindowAdvanceTarget,
 ) -> Result<bool, ApplyError> {
     if cursor.has_used_history_window_page
-        || matches!(target, WindowAdvanceTarget::SemanticPoints(0))
+        || matches!(target, WindowAdvanceTarget::Events(0))
         || matches!(target, WindowAdvanceTarget::GarbageSeq(seq) if seq < cursor.record.window_start_seq)
     {
         return Ok(false);
@@ -90,6 +142,9 @@ pub(crate) fn advance_window(
     record.window_start_seq = pruned.window_start_seq;
     record.window_scan_seq = 0;
     record.pruned_semantic_event_count += pruned.semantic_points;
+    record.pruned_window_event_count = record
+        .pruned_window_event_count
+        .max(pruned.window_event_count_before);
     record.max_pruned_external_input_seq = record
         .max_pruned_external_input_seq
         .max(pruned.max_external_input_seq);
@@ -103,11 +158,15 @@ pub(crate) fn advance_window(
 struct PrunedChunk {
     window_start_seq: u64,
     semantic_points: u64,
+    /// Window events recorded before the new W, which all leave the window.
+    window_event_count_before: u64,
     max_external_input_seq: u64,
     max_semantic_timestamp_micros: i64,
 }
 
 /// Skips up to one page of history metadata; the next semantic record becomes the new W.
+///
+/// An event target may scan up to 16 pages, so one command prunes a whole default chunk.
 fn find_new_window_start(
     transaction: &FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -115,6 +174,7 @@ fn find_new_window_start(
 ) -> Result<Option<PrunedChunk>, ApplyError> {
     let rows = cursor.rows;
     let current_start = cursor.record.window_start_seq;
+    let pruned_window_event_count = cursor.record.pruned_window_event_count;
     let start_seq = cursor.record.window_scan_seq.max(current_start);
     let start = history_row_metadata_key(
         rows.flow_hash,
@@ -125,13 +185,6 @@ fn find_new_window_start(
     );
     let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::HistoryRowMetadata);
     let (_, end) = prefix_range(&prefix);
-    let page = transaction.scan_messages::<HistoryRowMetadata>(
-        ColumnFamily::Flow,
-        &start,
-        &end,
-        HISTORY_ROWS_PER_COMMAND,
-        "history metadata",
-    )?;
     cursor.has_used_history_window_page = true;
     let start_metadata_key = history_row_metadata_key(
         rows.flow_hash,
@@ -153,35 +206,68 @@ fn find_new_window_start(
     let mut semantic_points = 0;
     let mut candidate = None;
     let mut last_scanned_seq = None;
-    for (key, metadata) in page {
-        let (seq, history_table, _) = metadata_identity(&key, &prefix)?;
-        last_scanned_seq = Some(seq);
-        if history_table != RunTable::HistoryRecord
-            || !metadata.is_semantic
-            || seq <= current_start
-            || seq > cursor.seq
-        {
-            continue;
+    let page_count = match target {
+        WindowAdvanceTarget::Events(_) => EVENT_CHUNK_PAGES_PER_COMMAND,
+        WindowAdvanceTarget::GarbageSeq(_) => 1,
+    };
+    let mut page_start = start;
+    'pages: for _ in 0..page_count {
+        let page = transaction.scan_messages::<HistoryRowMetadata>(
+            ColumnFamily::Flow,
+            &page_start,
+            &end,
+            HISTORY_ROWS_PER_COMMAND,
+            "history metadata",
+        )?;
+        let is_last_page = page.len() < HISTORY_ROWS_PER_COMMAND;
+        if let Some((last_key, _)) = page.last() {
+            // The smallest key after the last one scanned starts the next page.
+            page_start.clone_from(last_key);
+            page_start.push(0);
         }
-        if was_previous_external {
-            max_external_input_seq = max_external_input_seq.max(previous_semantic_seq);
+        for (key, metadata) in page {
+            let (seq, history_table, _) = metadata_identity(&key, &prefix)?;
+            last_scanned_seq = Some(seq);
+            if history_table != RunTable::HistoryRecord
+                || !metadata.is_semantic
+                || seq <= current_start
+                || seq > cursor.seq
+            {
+                continue;
+            }
+            if was_previous_external {
+                max_external_input_seq = max_external_input_seq.max(previous_semantic_seq);
+            }
+            max_semantic_timestamp_micros =
+                max_semantic_timestamp_micros.max(previous_semantic_timestamp_micros);
+            semantic_points += 1;
+            // Rows written before the window counted events count one per semantic point.
+            let window_event_count_before = metadata
+                .window_event_count_before
+                .unwrap_or(pruned_window_event_count + semantic_points);
+            candidate = Some(PrunedChunk {
+                window_start_seq: seq,
+                semantic_points,
+                window_event_count_before,
+                max_external_input_seq,
+                max_semantic_timestamp_micros,
+            });
+            previous_semantic_seq = seq;
+            previous_semantic_timestamp_micros = metadata.timestamp_micros;
+            was_previous_external = metadata.is_external_input;
+            match target {
+                WindowAdvanceTarget::Events(limit)
+                    if window_event_count_before.saturating_sub(pruned_window_event_count)
+                        >= limit =>
+                {
+                    break 'pages;
+                }
+                WindowAdvanceTarget::GarbageSeq(garbage_seq) if seq > garbage_seq => break 'pages,
+                _ => {}
+            }
         }
-        max_semantic_timestamp_micros =
-            max_semantic_timestamp_micros.max(previous_semantic_timestamp_micros);
-        semantic_points += 1;
-        candidate = Some(PrunedChunk {
-            window_start_seq: seq,
-            semantic_points,
-            max_external_input_seq,
-            max_semantic_timestamp_micros,
-        });
-        previous_semantic_seq = seq;
-        previous_semantic_timestamp_micros = metadata.timestamp_micros;
-        was_previous_external = metadata.is_external_input;
-        match target {
-            WindowAdvanceTarget::SemanticPoints(limit) if semantic_points >= limit => break,
-            WindowAdvanceTarget::GarbageSeq(garbage_seq) if seq > garbage_seq => break,
-            _ => {}
+        if is_last_page {
+            break;
         }
     }
     if candidate.is_none()
@@ -193,6 +279,8 @@ fn find_new_window_start(
 }
 
 /// Deletes history records and checkpoints older than the checkpoint that rebuilds W.
+///
+/// Their metadata rows go too, and they alone advance `max_pruned_event_id`.
 pub(crate) fn prune_window_history(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -263,10 +351,11 @@ pub(crate) fn prune_window_history(
                 0
             };
         }
-        identities.push((seq, history_table, attempt));
+        identities.push((key, seq, history_table, attempt));
     }
     cursor.record.max_pruned_event_id = max_pruned_event_id;
-    for (seq, history_table, attempt) in identities {
+    for (metadata_key, seq, history_table, attempt) in identities {
+        transaction.delete(ColumnFamily::Flow, metadata_key.clone());
         match history_table {
             RunTable::HistoryRecord => transaction.delete(
                 ColumnFamily::History,

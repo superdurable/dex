@@ -223,6 +223,83 @@ private static final long serialVersionUID = 0L;
     return attributeStoreNames_ == null ? io.superdurable.gen.AttributeStoreNames.getDefaultInstance() : attributeStoreNames_;
   }
 
+  public static final int HISTORY_WINDOW_EVENTS_FIELD_NUMBER = 7;
+  private int historyWindowEvents_ = 0;
+  /**
+   * <pre>
+   * Approximate number of the newest history events that the run keeps for history reads and
+   * Time Travel.
+   *
+   * Use it to keep more history for a run that you inspect or travel back in often, or less
+   * history for a run that writes many events and needs less disk. Leave it unset to use the
+   * server's history.windowEvents setting, which defaults to 10000.
+   *
+   * The window counts history events. A command that changes the Flow but records no event
+   * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+   * prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+   * server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+   * Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+   * value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+   * always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+   * commands inside the window.
+   *
+   * Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+   * with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+   * keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+   * value can be changed but not cleared back to the server default. A child Flow inherits it
+   * from its parent unless its own override sets it.
+   *
+   * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
+   * setting, which defaults to 100000, with INVALID_ARGUMENT.
+   *
+   * Since server-zd 0.1.21.
+   * </pre>
+   *
+   * <code>optional int32 history_window_events = 7;</code>
+   * @return Whether the historyWindowEvents field is set.
+   */
+  @java.lang.Override
+  public boolean hasHistoryWindowEvents() {
+    return ((bitField0_ & 0x00000040) != 0);
+  }
+  /**
+   * <pre>
+   * Approximate number of the newest history events that the run keeps for history reads and
+   * Time Travel.
+   *
+   * Use it to keep more history for a run that you inspect or travel back in often, or less
+   * history for a run that writes many events and needs less disk. Leave it unset to use the
+   * server's history.windowEvents setting, which defaults to 10000.
+   *
+   * The window counts history events. A command that changes the Flow but records no event
+   * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+   * prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+   * server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+   * Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+   * value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+   * always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+   * commands inside the window.
+   *
+   * Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+   * with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+   * keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+   * value can be changed but not cleared back to the server default. A child Flow inherits it
+   * from its parent unless its own override sets it.
+   *
+   * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
+   * setting, which defaults to 100000, with INVALID_ARGUMENT.
+   *
+   * Since server-zd 0.1.21.
+   * </pre>
+   *
+   * <code>optional int32 history_window_events = 7;</code>
+   * @return The historyWindowEvents.
+   */
+  @java.lang.Override
+  public int getHistoryWindowEvents() {
+    return historyWindowEvents_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -255,6 +332,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000020) != 0)) {
       output.writeMessage(6, getAttributeStoreNames());
     }
+    if (((bitField0_ & 0x00000040) != 0)) {
+      output.writeInt32(7, historyWindowEvents_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -282,6 +362,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000020) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(6, getAttributeStoreNames());
+    }
+    if (((bitField0_ & 0x00000040) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt32Size(7, historyWindowEvents_);
     }
     return size;
   }
@@ -335,6 +419,11 @@ private static final long serialVersionUID = 0L;
       if (!getAttributeStoreNames()
           .equals(other.getAttributeStoreNames())) return false;
     }
+    if (hasHistoryWindowEvents() != other.hasHistoryWindowEvents()) return false;
+    if (hasHistoryWindowEvents()) {
+      if (getHistoryWindowEvents()
+          != other.getHistoryWindowEvents()) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -369,6 +458,10 @@ private static final long serialVersionUID = 0L;
     if (hasAttributeStoreNames()) {
       hash = (37 * hash) + ATTRIBUTE_STORE_NAMES_FIELD_NUMBER;
       hash = (53 * hash) + getAttributeStoreNames().hashCode();
+    }
+    if (hasHistoryWindowEvents()) {
+      hash = (37 * hash) + HISTORY_WINDOW_EVENTS_FIELD_NUMBER;
+      hash = (53 * hash) + getHistoryWindowEvents();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -522,6 +615,7 @@ private static final long serialVersionUID = 0L;
         attributeStoreNamesBuilder_.dispose();
         attributeStoreNamesBuilder_ = null;
       }
+      historyWindowEvents_ = 0;
       return this;
     }
 
@@ -584,6 +678,10 @@ private static final long serialVersionUID = 0L;
             : attributeStoreNamesBuilder_.build();
         to_bitField0_ |= 0x00000020;
       }
+      if (((from_bitField0_ & 0x00000040) != 0)) {
+        result.historyWindowEvents_ = historyWindowEvents_;
+        to_bitField0_ |= 0x00000040;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -616,6 +714,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasAttributeStoreNames()) {
         mergeAttributeStoreNames(other.getAttributeStoreNames());
+      }
+      if (other.hasHistoryWindowEvents()) {
+        setHistoryWindowEvents(other.getHistoryWindowEvents());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -677,6 +778,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000020;
               break;
             } // case 50
+            case 56: {
+              historyWindowEvents_ = input.readInt32();
+              bitField0_ |= 0x00000040;
+              break;
+            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1208,6 +1314,162 @@ private static final long serialVersionUID = 0L;
         attributeStoreNames_ = null;
       }
       return attributeStoreNamesBuilder_;
+    }
+
+    private int historyWindowEvents_ ;
+    /**
+     * <pre>
+     * Approximate number of the newest history events that the run keeps for history reads and
+     * Time Travel.
+     *
+     * Use it to keep more history for a run that you inspect or travel back in often, or less
+     * history for a run that writes many events and needs less disk. Leave it unset to use the
+     * server's history.windowEvents setting, which defaults to 10000.
+     *
+     * The window counts history events. A command that changes the Flow but records no event
+     * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+     * prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+     * server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+     * Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+     * value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+     * always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+     * commands inside the window.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+     * with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+     * keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+     * value can be changed but not cleared back to the server default. A child Flow inherits it
+     * from its parent unless its own override sets it.
+     *
+     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
+     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     *
+     * Since server-zd 0.1.21.
+     * </pre>
+     *
+     * <code>optional int32 history_window_events = 7;</code>
+     * @return Whether the historyWindowEvents field is set.
+     */
+    @java.lang.Override
+    public boolean hasHistoryWindowEvents() {
+      return ((bitField0_ & 0x00000040) != 0);
+    }
+    /**
+     * <pre>
+     * Approximate number of the newest history events that the run keeps for history reads and
+     * Time Travel.
+     *
+     * Use it to keep more history for a run that you inspect or travel back in often, or less
+     * history for a run that writes many events and needs less disk. Leave it unset to use the
+     * server's history.windowEvents setting, which defaults to 10000.
+     *
+     * The window counts history events. A command that changes the Flow but records no event
+     * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+     * prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+     * server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+     * Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+     * value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+     * always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+     * commands inside the window.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+     * with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+     * keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+     * value can be changed but not cleared back to the server default. A child Flow inherits it
+     * from its parent unless its own override sets it.
+     *
+     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
+     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     *
+     * Since server-zd 0.1.21.
+     * </pre>
+     *
+     * <code>optional int32 history_window_events = 7;</code>
+     * @return The historyWindowEvents.
+     */
+    @java.lang.Override
+    public int getHistoryWindowEvents() {
+      return historyWindowEvents_;
+    }
+    /**
+     * <pre>
+     * Approximate number of the newest history events that the run keeps for history reads and
+     * Time Travel.
+     *
+     * Use it to keep more history for a run that you inspect or travel back in often, or less
+     * history for a run that writes many events and needs less disk. Leave it unset to use the
+     * server's history.windowEvents setting, which defaults to 10000.
+     *
+     * The window counts history events. A command that changes the Flow but records no event
+     * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+     * prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+     * server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+     * Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+     * value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+     * always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+     * commands inside the window.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+     * with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+     * keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+     * value can be changed but not cleared back to the server default. A child Flow inherits it
+     * from its parent unless its own override sets it.
+     *
+     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
+     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     *
+     * Since server-zd 0.1.21.
+     * </pre>
+     *
+     * <code>optional int32 history_window_events = 7;</code>
+     * @param value The historyWindowEvents to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHistoryWindowEvents(int value) {
+
+      historyWindowEvents_ = value;
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Approximate number of the newest history events that the run keeps for history reads and
+     * Time Travel.
+     *
+     * Use it to keep more history for a run that you inspect or travel back in often, or less
+     * history for a run that writes many events and needs less disk. Leave it unset to use the
+     * server's history.windowEvents setting, which defaults to 10000.
+     *
+     * The window counts history events. A command that changes the Flow but records no event
+     * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+     * prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+     * server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+     * Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+     * value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+     * always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+     * commands inside the window.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+     * with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+     * keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+     * value can be changed but not cleared back to the server default. A child Flow inherits it
+     * from its parent unless its own override sets it.
+     *
+     * Dex rejects zero, negative values, and values above the server's history.maxWindowEvents
+     * setting, which defaults to 100000, with INVALID_ARGUMENT.
+     *
+     * Since server-zd 0.1.21.
+     * </pre>
+     *
+     * <code>optional int32 history_window_events = 7;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHistoryWindowEvents() {
+      bitField0_ = (bitField0_ & ~0x00000040);
+      historyWindowEvents_ = 0;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowConfig)

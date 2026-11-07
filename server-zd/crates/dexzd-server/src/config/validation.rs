@@ -233,15 +233,20 @@ impl Config {
             "must be positive",
         )?;
         ensure(
-            self.history.window_semantic_events > 0,
-            "history.windowSemanticEvents",
+            self.history.window_events > 0,
+            "history.windowEvents",
             "must be positive",
         )?;
         ensure(
             self.history.prune_chunk_size > 0
-                && self.history.prune_chunk_size <= self.history.window_semantic_events,
+                && self.history.prune_chunk_size <= self.history.window_events,
             "history.pruneChunkSize",
-            "must be positive and no larger than history.windowSemanticEvents",
+            "must be positive and no larger than history.windowEvents",
+        )?;
+        ensure(
+            self.history.max_window_events > 0,
+            "history.maxWindowEvents",
+            "must be positive",
         )?;
         ensure(
             self.history.checkpoint_row_write_bytes_threshold > 0,

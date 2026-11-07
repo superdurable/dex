@@ -437,8 +437,8 @@ impl Harness {
 
 fn settings() -> RunSettings {
     RunSettings {
-        history_window_semantic_events: 10_000,
-        history_prune_chunk_semantic_events: 1000,
+        history_window_events: 10_000,
+        history_prune_chunk_events: 1000,
         max_retained_superseded_bytes: 256 << 20,
         retention_after_close_micros: 7 * 24 * 3600 * SECOND,
         wire_inline_threshold_bytes: 100,

@@ -167,7 +167,7 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 | --- | --- | --- |
 | **limits.maxFlowStateBytes** | 64 MiB | 一个 session 的活动状态：当前状态，包括它持有的 Attribute 和 Channel 值。history 以及 history 为 time travel 保留的被替换值不计入。 |
 | **values.maxValueBytes** | 16 MiB | 单个值的上限，比如一条消息、一条 tool call 记录或一份 framework run state |
-| **history.windowSemanticEvents** | 约 10,000 个事件 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
+| **history.windowEvents** | 约 10,000 个事件 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
 | **retention.closedFlowDuration** | 7 天 | 已停止的 session 还能读取多久 |
 
 每个 run 在启动时记录这些值。新值只对服务器带着新值重启之后启动的 session 生效。

@@ -12,7 +12,7 @@ use dexzd_keyspace::row_keys::checkpoint_key;
 use dexzd_keyspace::{ColumnFamily, parse_run_key};
 use dexzd_protocol::dexzd::v1::{CheckpointRecord, HistoryStepMethodPending, StepInvocationKey};
 
-use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
+use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::attempt_scope::{ATTEMPT_SCOPED_TABLES, read_attempt_rows, run_status_of};
 use crate::history::window::advance_window_if_full;
 use crate::state_access::FlowTransaction;
@@ -65,11 +65,11 @@ pub(crate) fn pending_step_methods(
     Ok(pending)
 }
 
-/// Writes a checkpoint when due and prunes the window after semantic commands.
+/// Writes a checkpoint when due and prunes the window after a command that added window events.
 pub(crate) fn after_command(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
-    kind: HistoryKind,
+    window_events: u64,
 ) -> Result<(), ApplyError> {
     let row_write_bytes = attempt_write_bytes(transaction, cursor);
     let current_state_bytes = state_bytes_after_command(transaction, cursor)?;
@@ -89,7 +89,7 @@ pub(crate) fn after_command(
     if is_attempt_start || has_enough_commands || has_enough_bytes {
         write_checkpoint(transaction, cursor)?;
     }
-    if kind.is_semantic {
+    if window_events > 0 {
         advance_window_if_full(transaction, cursor)?;
     }
     Ok(())
