@@ -214,6 +214,32 @@ var testMessageSizeFailures = []struct {
 	{name: "server send limit", code: codes.OutOfRange, message: testServerSendLimitMessage},
 }
 
+// testTransportMessageSizeFailures lists every message size failure of the pinned grpc-go, grpc-core,
+// grpc-js, and tonic.
+var testTransportMessageSizeFailures = []struct {
+	name    string
+	code    codes.Code
+	message string
+}{
+	{name: "grpc-go receive", code: codes.ResourceExhausted, message: "grpc: received message larger than max (37748736 vs. 33554432)"},
+	{name: "grpc-go receive on current machine", code: codes.ResourceExhausted, message: "grpc: received message larger than max length allowed on current machine (37748736 vs. 33554432)"},
+	{name: "grpc-go decompressed receive", code: codes.ResourceExhausted, message: "grpc: message after decompression larger than max (37748736 vs. 33554432)"},
+	{name: "grpc-go decompressed stream receive", code: codes.ResourceExhausted, message: "grpc: received message after decompression larger than max 33554432"},
+	{name: "grpc-go server send", code: codes.ResourceExhausted, message: "grpc: trying to send message larger than max (37748736 vs. 33554432)"},
+	{name: "grpc-go client send", code: codes.ResourceExhausted, message: "trying to send message larger than max (37748736 vs. 33554432)"},
+	{name: "grpc-go marshal", code: codes.ResourceExhausted, message: "grpc: message too large (4294967296 bytes)"},
+	{name: "grpc-core client receive", code: codes.ResourceExhausted, message: "CLIENT: Received message larger than max (37748736 vs. 33554432)"},
+	{name: "grpc-core client send", code: codes.ResourceExhausted, message: "CLIENT: Sent message larger than max (37748736 vs. 33554432)"},
+	{name: "grpc-core server receive", code: codes.ResourceExhausted, message: "SERVER: Received message larger than max (37748736 vs. 33554432)"},
+	{name: "grpc-js receive", code: codes.ResourceExhausted, message: "Received message larger than max (37748736 vs 33554432)"},
+	{name: "grpc-js decompressed receive", code: codes.ResourceExhausted, message: "Received message that decompresses to a size larger than 33554432"},
+	{name: "grpc-js client send", code: codes.ResourceExhausted, message: "Attempted to send message with a size larger than 33554432"},
+	{name: "grpc-js server send", code: codes.ResourceExhausted, message: "Sent message larger than max (37748736 vs. 33554432)"},
+	{name: "tonic encode", code: codes.OutOfRange, message: "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"},
+	{name: "tonic decode", code: codes.OutOfRange, message: "Error, decoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"},
+	{name: "tonic decompress", code: codes.ResourceExhausted, message: "Error decompressing: size limit, of 33554432 bytes, exceeded while decompressing message"},
+}
+
 // limitedHydrationFlowServiceClient fails LoadBlobs calls above maxBlobs entries, or with oversizedBlobID.
 type limitedHydrationFlowServiceClient struct {
 	dexpb.FlowServiceClient
@@ -244,17 +270,8 @@ func (client *limitedHydrationFlowServiceClient) LoadBlobs(
 }
 
 func TestIsGrpcMessageSizeErrorRequiresCodeDiagnosticAndNoDetails(t *testing.T) {
-	sizeFailures := []*status.Status{
-		status.New(codes.ResourceExhausted, testReceiveLimitMessage),
-		status.New(codes.ResourceExhausted, "grpc: trying to send message larger than max (9 vs. 5)"),
-		status.New(codes.ResourceExhausted, "grpc: received message after decompression larger than max 5"),
-		status.New(codes.ResourceExhausted, "Received message larger than max (9 vs. 5)"),
-		status.New(codes.ResourceExhausted, "Sent message larger than max (9 vs. 5)"),
-		status.New(codes.ResourceExhausted, "Error, decoded message length too large: found 9 bytes, the limit is: 5 bytes"),
-		status.New(codes.OutOfRange, testServerSendLimitMessage),
-	}
-	for _, sizeFailure := range sizeFailures {
-		require.True(t, isGrpcMessageSizeError(sizeFailure.Err()), sizeFailure.Message())
+	for _, sizeFailure := range testTransportMessageSizeFailures {
+		require.True(t, isGrpcMessageSizeError(status.Error(sizeFailure.code, sizeFailure.message)), sizeFailure.name)
 	}
 	otherFailures := []error{
 		status.Error(codes.ResourceExhausted, "Bandwidth exhausted"),
@@ -271,7 +288,7 @@ func TestIsGrpcMessageSizeErrorRequiresCodeDiagnosticAndNoDetails(t *testing.T) 
 }
 
 func TestHydrateValuesSplitsOversizedBatchInOrder(t *testing.T) {
-	for _, sizeFailure := range testMessageSizeFailures {
+	for _, sizeFailure := range testTransportMessageSizeFailures {
 		t.Run(sizeFailure.name, func(t *testing.T) {
 			client := &limitedHydrationFlowServiceClient{
 				maxBlobs: 2,

@@ -59,7 +59,11 @@ _GRPC_SIZE_STATUS_CODES = frozenset(
 _GRPC_SIZE_DIAGNOSTICS = (
     "message larger than max",
     "message after decompression larger than max",
+    "message too large",
+    "message with a size larger than",
+    "decompresses to a size larger than",
     "message length too large",
+    "exceeded while decompressing message",
 )
 
 

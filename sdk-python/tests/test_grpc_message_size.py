@@ -49,6 +49,95 @@ SIZE_FAILURES = [
     ),
 ]
 
+# Every message size failure that the pinned grpc-go, grpc-core, grpc-js, and tonic emit.
+TRANSPORT_SIZE_FAILURES = [
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "grpc: received message larger than max (37748736 vs. 33554432)",
+        id="grpc-go-receive",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "grpc: received message larger than max length allowed on current machine (37748736 vs. 33554432)",
+        id="grpc-go-receive-machine",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "grpc: message after decompression larger than max (37748736 vs. 33554432)",
+        id="grpc-go-decompressed",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "grpc: received message after decompression larger than max 33554432",
+        id="grpc-go-decompressed-stream",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "grpc: trying to send message larger than max (37748736 vs. 33554432)",
+        id="grpc-go-server-send",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "trying to send message larger than max (37748736 vs. 33554432)",
+        id="grpc-go-client-send",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "grpc: message too large (4294967296 bytes)",
+        id="grpc-go-marshal",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "CLIENT: Received message larger than max (37748736 vs. 33554432)",
+        id="grpc-core-client-receive",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "CLIENT: Sent message larger than max (37748736 vs. 33554432)",
+        id="grpc-core-client-send",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "SERVER: Received message larger than max (37748736 vs. 33554432)",
+        id="grpc-core-server-receive",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "Received message larger than max (37748736 vs 33554432)",
+        id="grpc-js-receive",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "Received message that decompresses to a size larger than 33554432",
+        id="grpc-js-decompressed",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "Attempted to send message with a size larger than 33554432",
+        id="grpc-js-client-send",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "Sent message larger than max (37748736 vs. 33554432)",
+        id="grpc-js-server-send",
+    ),
+    pytest.param(
+        grpc.StatusCode.OUT_OF_RANGE,
+        "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes",
+        id="tonic-encode",
+    ),
+    pytest.param(
+        grpc.StatusCode.OUT_OF_RANGE,
+        "Error, decoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes",
+        id="tonic-decode",
+    ),
+    pytest.param(
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        "Error decompressing: size limit, of 33554432 bytes, exceeded while decompressing message",
+        id="tonic-decompress",
+    ),
+]
+
 
 class FakeRpcError(grpc.RpcError):
     def __init__(
@@ -169,26 +258,7 @@ def test_negative_limit_is_rejected(options_type: Any) -> None:
         options_type(grpc_max_message_bytes=-1)
 
 
-@pytest.mark.parametrize(
-    "code, message",
-    [
-        (grpc.StatusCode.RESOURCE_EXHAUSTED, RECEIVE_LIMIT_MESSAGE),
-        (grpc.StatusCode.RESOURCE_EXHAUSTED, "Sent message larger than max (9 vs. 5)"),
-        (
-            grpc.StatusCode.RESOURCE_EXHAUSTED,
-            "grpc: trying to send message larger than max (9 vs. 5)",
-        ),
-        (
-            grpc.StatusCode.RESOURCE_EXHAUSTED,
-            "grpc: received message after decompression larger than max 5",
-        ),
-        (
-            grpc.StatusCode.RESOURCE_EXHAUSTED,
-            "Error, decoded message length too large: found 9 bytes, the limit is: 5 bytes",
-        ),
-        (grpc.StatusCode.OUT_OF_RANGE, SERVER_SEND_LIMIT_MESSAGE),
-    ],
-)
+@pytest.mark.parametrize("code, message", TRANSPORT_SIZE_FAILURES)
 def test_a_detail_free_size_diagnostic_is_a_size_error(
     code: grpc.StatusCode, message: str
 ) -> None:
@@ -257,7 +327,7 @@ def test_a_real_aio_error_is_classified_by_code_message_and_details() -> None:
     assert not is_grpc_message_size_error(dex_error)
 
 
-@pytest.mark.parametrize("code, message", SIZE_FAILURES)
+@pytest.mark.parametrize("code, message", TRANSPORT_SIZE_FAILURES)
 def test_oversized_batch_is_split_in_order_until_it_fits(
     tmp_path: Path, code: grpc.StatusCode, message: str
 ) -> None:
@@ -276,7 +346,7 @@ def test_oversized_batch_is_split_in_order_until_it_fits(
     ]
 
 
-@pytest.mark.parametrize("code, message", SIZE_FAILURES)
+@pytest.mark.parametrize("code, message", TRANSPORT_SIZE_FAILURES)
 def test_async_oversized_batch_is_split_until_it_fits(
     tmp_path: Path, code: grpc.StatusCode, message: str
 ) -> None:

@@ -23,6 +23,26 @@ const dexDetailsTypeUrl = "type.googleapis.com/dex.ServiceErrorResponse";
 const receiveLimitMessage = "Received message larger than max (9 vs 5)";
 const serverSendLimitMessage =
   "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes";
+/** Every message size failure that the pinned grpc-go, grpc-core, grpc-js, and tonic emit. */
+const transportMessageSizeFailures: readonly (readonly [string, status, string])[] = [
+  ["grpc-go receive", status.RESOURCE_EXHAUSTED, "grpc: received message larger than max (37748736 vs. 33554432)"],
+  ["grpc-go receive on current machine", status.RESOURCE_EXHAUSTED, "grpc: received message larger than max length allowed on current machine (37748736 vs. 33554432)"],
+  ["grpc-go decompressed receive", status.RESOURCE_EXHAUSTED, "grpc: message after decompression larger than max (37748736 vs. 33554432)"],
+  ["grpc-go decompressed stream receive", status.RESOURCE_EXHAUSTED, "grpc: received message after decompression larger than max 33554432"],
+  ["grpc-go server send", status.RESOURCE_EXHAUSTED, "grpc: trying to send message larger than max (37748736 vs. 33554432)"],
+  ["grpc-go client send", status.RESOURCE_EXHAUSTED, "trying to send message larger than max (37748736 vs. 33554432)"],
+  ["grpc-go marshal", status.RESOURCE_EXHAUSTED, "grpc: message too large (4294967296 bytes)"],
+  ["grpc-core client receive", status.RESOURCE_EXHAUSTED, "CLIENT: Received message larger than max (37748736 vs. 33554432)"],
+  ["grpc-core client send", status.RESOURCE_EXHAUSTED, "CLIENT: Sent message larger than max (37748736 vs. 33554432)"],
+  ["grpc-core server receive", status.RESOURCE_EXHAUSTED, "SERVER: Received message larger than max (37748736 vs. 33554432)"],
+  ["grpc-js receive", status.RESOURCE_EXHAUSTED, "Received message larger than max (37748736 vs 33554432)"],
+  ["grpc-js decompressed receive", status.RESOURCE_EXHAUSTED, "Received message that decompresses to a size larger than 33554432"],
+  ["grpc-js client send", status.RESOURCE_EXHAUSTED, "Attempted to send message with a size larger than 33554432"],
+  ["grpc-js server send", status.RESOURCE_EXHAUSTED, "Sent message larger than max (37748736 vs. 33554432)"],
+  ["tonic encode", status.OUT_OF_RANGE, "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"],
+  ["tonic decode", status.OUT_OF_RANGE, "Error, decoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"],
+  ["tonic decompress", status.RESOURCE_EXHAUSTED, "Error decompressing: size limit, of 33554432 bytes, exceeded while decompressing message"],
+];
 
 test("the default receive limit matches Go and Python and keeps sends unlimited", () => {
   assert.equal(DEFAULT_GRPC_MAX_MESSAGE_BYTES, 32 * 1024 * 1024);
@@ -61,15 +81,8 @@ test("Client and Worker reject an invalid grpcMaxMessageBytes", () => {
 });
 
 test("a RESOURCE_EXHAUSTED or OUT_OF_RANGE size diagnostic without Dex details is a size error", () => {
-  for (const [code, message] of [
-    [status.RESOURCE_EXHAUSTED, receiveLimitMessage],
-    [status.RESOURCE_EXHAUSTED, "Sent message larger than max (9 vs. 5)"],
-    [status.RESOURCE_EXHAUSTED, "grpc: trying to send message larger than max (9 vs. 5)"],
-    [status.RESOURCE_EXHAUSTED, "grpc: received message after decompression larger than max 5"],
-    [status.RESOURCE_EXHAUSTED, "Error, decoded message length too large: found 9 bytes, the limit is: 5 bytes"],
-    [status.OUT_OF_RANGE, serverSendLimitMessage],
-  ] as const) {
-    assert.equal(isGrpcMessageSizeError(grpcError(code, message)), true, message);
+  for (const [name, code, message] of transportMessageSizeFailures) {
+    assert.equal(isGrpcMessageSizeError(grpcError(code, message)), true, name);
   }
   assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, receiveLimitMessage, emptyStatusDetails())), true);
   assert.equal(isGrpcMessageSizeError(grpcError(status.OUT_OF_RANGE, serverSendLimitMessage, emptyStatusDetails())), true);
@@ -88,9 +101,9 @@ test("other failures are not size errors", () => {
   assert.equal(isGrpcMessageSizeError(undefined), false);
 });
 
-for (const [name, sizeFailure] of sizeFailures()) {
-  test(`an oversized batch rejected at the ${name} is split in order until it fits`, async () => {
-    const service = new LimitedBlobService(2, undefined, undefined, sizeFailure);
+for (const [name, code, message] of transportMessageSizeFailures) {
+  test(`an oversized batch rejected with the ${name} message is split in order until it fits`, async () => {
+    const service = new LimitedBlobService(2, undefined, undefined, grpcError(code, message));
     const hydrated = await hydrator(service).hydrateAll("flow", blobValues(5));
     assert.deepEqual(hydrated.map(stringOf), [0, 1, 2, 3, 4].map((index) => `value-blob-${index}`));
     assert.deepEqual(service.requestedBlobIds, [
@@ -101,7 +114,9 @@ for (const [name, sizeFailure] of sizeFailures()) {
       ["blob-3", "blob-4"],
     ]);
   });
+}
 
+for (const [name, sizeFailure] of sizeFailures()) {
   test(`N blobs that each need their own call at the ${name} take exactly 2N-1 calls`, async () => {
     const service = new LimitedBlobService(1, undefined, undefined, sizeFailure);
     const hydrated = await hydrator(service).hydrateAll("flow", blobValues(4));
