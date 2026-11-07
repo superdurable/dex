@@ -34,7 +34,7 @@ use crate::command_handlers::{CommandScope, HandlerResult, ReplayedCommandCounte
 use crate::history::attempt_scope::{
     AttemptRow, decode_timer_id, hex, holder_rows, read_attempt_rows, run_status_of, set_run_status,
 };
-use crate::history::lineage::{Lineage, history_records};
+use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage, LocalHistorySource};
 use crate::history::replay_state::{TransactionReader, absorb_writes};
 use crate::history::reset_target::{TravelTarget, resolve_target};
 use crate::history::state_rebuild::rebuild_attempt_state;
@@ -89,7 +89,16 @@ pub(crate) fn apply_time_travel(
         )));
     }
     let lineage = Lineage::of_attempt(transaction, cursor.rows, selected_attempt)?;
-    let target = match resolve_target(transaction, &cursor, scope.now_micros, &request, &lineage)? {
+    let history = LocalHistorySource::new(transaction, cursor.rows);
+    let target = match resolve_target(
+        transaction,
+        &history,
+        cursor.rows,
+        &cursor.record,
+        scope.now_micros,
+        &request,
+        &lineage,
+    )? {
         Ok(target) => target,
         Err(reply) => return Ok(HandlerResult::Rejected(reply)),
     };
@@ -107,15 +116,20 @@ pub(crate) fn apply_time_travel(
         )));
     }
     let reapplied_inputs = if is_reapplying {
-        collect_external_inputs(transaction, &cursor, &lineage, target.point.seq)?
+        collect_external_inputs(&history, &lineage, target.point.seq)?
     } else {
         Vec::new()
     };
-    let rebuilt =
-        match rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)? {
-            Ok(rebuilt) => rebuilt,
-            Err(reply) => return Ok(HandlerResult::Rejected(reply)),
-        };
+    let rebuilt = match rebuild_attempt_state(
+        transaction,
+        &history,
+        cursor.rows,
+        &cursor.record,
+        target.point,
+    )? {
+        Ok(rebuilt) => rebuilt,
+        Err(reply) => return Ok(HandlerResult::Rejected(reply)),
+    };
     let restored_closing = restored_closing(&rebuilt.run_status, &target)?;
     let previous_rows = read_attempt_rows(transaction, cursor.rows)?;
     let pending_sync_keys = pending_attribute_sync_keys(transaction, cursor.rows)?;
@@ -232,13 +246,13 @@ pub(crate) fn apply_time_travel(
 ///
 /// A TimeTravel record contributes the input it reapplied.
 fn collect_external_inputs(
-    transaction: &FlowTransaction<'_>,
-    cursor: &RunCursor,
+    history: &dyn HistorySource,
     lineage: &Lineage,
     target_seq: u64,
 ) -> Result<Vec<FlowCommand>, ApplyError> {
     let mut inputs = Vec::new();
-    for record in history_records(transaction, cursor.rows, target_seq + 1, u64::MAX)? {
+    for record in history.history_records(target_seq + 1..=u64::MAX, HISTORY_PAGE_RECORDS) {
+        let record = record?;
         if !record.is_external_input || !lineage.contains(record.attempt, record.seq) {
             continue;
         }

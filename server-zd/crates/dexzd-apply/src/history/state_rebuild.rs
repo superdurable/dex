@@ -8,8 +8,6 @@
 
 //! Rebuilds S' (plan section 8.4 step 2): a checkpoint, then the attempt's commands replayed.
 
-use dexzd_keyspace::ColumnFamily;
-use dexzd_keyspace::row_keys::checkpoint_key;
 use dexzd_protocol::dex::flow_history_event;
 use dexzd_protocol::dexzd::v1::{
     CheckpointRecord, CheckpointRunStatus, CommandReply, FlowCommand, HistoryRecord, RunRecord,
@@ -17,7 +15,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 use crate::history::attempt_scope::{AttemptRow, read_attempt_rows, run_status_of, set_run_status};
-use crate::history::lineage::{history_records, required_attempt_record};
+use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, required_attempt_record};
 use crate::history::replay_state::{ReplayState, TransactionReader};
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::{ApplyContext, ApplyError, BehaviorVersion};
@@ -37,9 +35,12 @@ pub(crate) struct RebuiltAttempt {
 
 /// Rebuilds the attempt state at `point` on top of what `transaction` reads.
 ///
+/// The checkpoint and the replayed records come from `history`.
+///
 /// Returns a rejection if required permission projection bytes were collected, or an error for other state failures.
 pub(crate) fn rebuild_attempt_state(
     transaction: &FlowTransaction<'_>,
+    history: &dyn HistorySource,
     rows: RunRows,
     record: &RunRecord,
     point: HistoryPoint,
@@ -56,12 +57,8 @@ pub(crate) fn rebuild_attempt_state(
                 point.attempt, point.seq
             ),
         })?;
-    let checkpoint: CheckpointRecord = transaction
-        .get_message(
-            ColumnFamily::History,
-            &checkpoint_key(rows.flow_hash, rows.run_id, point.attempt, checkpoint_seq),
-            "checkpoint",
-        )?
+    let checkpoint: CheckpointRecord = history
+        .checkpoint(point.attempt, checkpoint_seq)?
         .ok_or_else(|| ApplyError::InvariantViolation {
             detail: format!(
                 "checkpoint ({}, {checkpoint_seq}) is listed but missing",
@@ -83,7 +80,10 @@ pub(crate) fn rebuild_attempt_state(
     let base = TransactionReader::new(transaction);
     let mut replay_state = ReplayState::new(&base, rows, &checkpoint_rows, &replay_record);
     let context = transaction.context();
-    for history_record in history_records(transaction, rows, checkpoint_seq + 1, point.seq)? {
+    for history_record in
+        history.history_records(checkpoint_seq + 1..=point.seq, HISTORY_PAGE_RECORDS)
+    {
+        let history_record = history_record?;
         if history_record.attempt != point.attempt {
             continue;
         }

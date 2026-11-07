@@ -9,13 +9,12 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-use dexzd_keyspace::row_keys::{history_record_key, prefix_range};
-use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, run_table_prefix};
+use dexzd_keyspace::{FlowHash, RunId};
 use dexzd_protocol::dex::{FlowHistoryEvent, GetHistoryEventsResponse, HistoryEventIdRange};
 use dexzd_protocol::dexzd::v1::HistoryRecord;
 use prost::Message;
 
-use crate::history::genesis_seq;
+use crate::history::{HistorySource, LocalHistorySource, genesis_seq};
 use crate::read_model::{ReadModelError, RunView};
 use crate::{ApplyError, FlowStateReader};
 
@@ -48,48 +47,120 @@ pub fn get_history_events(
     run_attempt: i32,
     max_response_bytes: usize,
 ) -> Result<GetHistoryEventsResponse, ReadModelError> {
-    if start_event_id < 0 || page_size < 0 || run_attempt < 0 {
-        return Err(ReadModelError::InvalidRequest {
-            detail: "event ID, page size, and run attempt must be non-negative".to_owned(),
-        });
-    }
-    let mut first_event_id = start_event_id.max(1);
-    if !next_page_token.is_empty() {
-        let token: [u8; 8] =
-            next_page_token
-                .try_into()
-                .map_err(|_| ReadModelError::InvalidRequest {
-                    detail: "history page token must contain one event ID".to_owned(),
-                })?;
-        let last_event_id = i64::from_be_bytes(token);
-        if last_event_id < 1 {
+    let request = HistoryPageRequest::parse(
+        start_event_id,
+        page_size,
+        next_page_token,
+        run_attempt,
+        max_response_bytes,
+    )?;
+    let view = RunView::open(reader, flow_hash, run_id)?;
+    let history = LocalHistorySource::new(&view.transaction, view.rows);
+    read_history_page(&view, &history, &request)
+}
+
+/// Like [`get_history_events`], but reads History records from `history`, which holds every
+/// unpruned record.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors get_history_events plus the history source"
+)]
+pub fn get_history_events_from_source(
+    reader: &dyn FlowStateReader,
+    history: &dyn HistorySource,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    start_event_id: i64,
+    page_size: i32,
+    next_page_token: &[u8],
+    run_attempt: i32,
+    max_response_bytes: usize,
+) -> Result<GetHistoryEventsResponse, ReadModelError> {
+    let request = HistoryPageRequest::parse(
+        start_event_id,
+        page_size,
+        next_page_token,
+        run_attempt,
+        max_response_bytes,
+    )?;
+    let view = RunView::open(reader, flow_hash, run_id)?;
+    read_history_page(&view, history, &request)
+}
+
+/// A validated history page request.
+struct HistoryPageRequest {
+    first_event_id: i64,
+    page_size: i32,
+    run_attempt: i32,
+    max_response_bytes: usize,
+}
+
+impl HistoryPageRequest {
+    fn parse(
+        start_event_id: i64,
+        page_size: i32,
+        next_page_token: &[u8],
+        run_attempt: i32,
+        max_response_bytes: usize,
+    ) -> Result<Self, ReadModelError> {
+        if start_event_id < 0 || page_size < 0 || run_attempt < 0 {
             return Err(ReadModelError::InvalidRequest {
-                detail: "history page token has an invalid event ID".to_owned(),
+                detail: "event ID, page size, and run attempt must be non-negative".to_owned(),
             });
         }
-        first_event_id = first_event_id.max(last_event_id.saturating_add(1));
+        let mut first_event_id = start_event_id.max(1);
+        if !next_page_token.is_empty() {
+            let token: [u8; 8] =
+                next_page_token
+                    .try_into()
+                    .map_err(|_| ReadModelError::InvalidRequest {
+                        detail: "history page token must contain one event ID".to_owned(),
+                    })?;
+            let last_event_id = i64::from_be_bytes(token);
+            if last_event_id < 1 {
+                return Err(ReadModelError::InvalidRequest {
+                    detail: "history page token has an invalid event ID".to_owned(),
+                });
+            }
+            first_event_id = first_event_id.max(last_event_id.saturating_add(1));
+        }
+        Ok(Self {
+            first_event_id,
+            page_size,
+            run_attempt,
+            max_response_bytes,
+        })
     }
-    let view = RunView::open(reader, flow_hash, run_id)?;
-    let selected_attempt = if run_attempt == 0 {
+}
+
+/// Reads the page `request` names from the run `view` opened.
+fn read_history_page(
+    view: &RunView<'_>,
+    history: &dyn HistorySource,
+    request: &HistoryPageRequest,
+) -> Result<GetHistoryEventsResponse, ReadModelError> {
+    let first_event_id = request.first_event_id;
+    let selected_attempt = if request.run_attempt == 0 {
         view.record.current_attempt
     } else {
-        u32::try_from(run_attempt).unwrap_or(u32::MAX)
+        u32::try_from(request.run_attempt).unwrap_or(u32::MAX)
     };
-    let lineage = lineage_cutoffs(&view, selected_attempt)?;
-    let size = if page_size == 0 {
+    let lineage = lineage_cutoffs(view, selected_attempt)?;
+    let size = if request.page_size == 0 {
         100_usize
     } else {
-        usize::try_from(page_size).unwrap_or(usize::MAX)
+        usize::try_from(request.page_size).unwrap_or(usize::MAX)
     };
-    let history = HistoryRecordRows::new(&view);
-    let mut events = history.collect_lineage_events(
+    let max_response_bytes = request.max_response_bytes;
+    let history_rows = HistoryRecordRows::new(view, history);
+    let mut events = history_rows.collect_lineage_events(
         &lineage,
         first_event_id,
         size.saturating_add(1),
         max_response_bytes,
     )?;
     events.sort_by_key(|event| event.event_id);
-    let pruned_event_id_range = pruned_event_id_range(&view)?;
+    let pruned_event_id_range = pruned_event_id_range(view, history)?;
     let page_len = events_within_limit(
         &events,
         size,
@@ -209,7 +280,7 @@ pub(super) fn lineage_cutoffs(
 /// Event IDs increase with seq across attempts.
 struct HistoryRecordRows<'view, 'reader> {
     view: &'view RunView<'reader>,
-    table_prefix: Vec<u8>,
+    history: &'view dyn HistorySource,
 }
 
 /// The first record with events in a scanned seq range.
@@ -259,15 +330,8 @@ impl EventlessRanges {
 }
 
 impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
-    fn new(view: &'view RunView<'reader>) -> Self {
-        Self {
-            view,
-            table_prefix: run_table_prefix(
-                view.rows.flow_hash,
-                view.rows.run_id,
-                RunTable::HistoryRecord,
-            ),
-        }
+    fn new(view: &'view RunView<'reader>, history: &'view dyn HistorySource) -> Self {
+        Self { view, history }
     }
 
     /// Returns lineage events at or after `first_event_id` in event ID order.
@@ -467,34 +531,17 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
         end: u64,
         limit: usize,
     ) -> Result<Vec<(u64, HistoryRecord)>, ReadModelError> {
-        let view = self.view;
-        let start_key = history_record_key(view.rows.flow_hash, view.rows.run_id, start);
-        let end_key = if end == u64::MAX {
-            prefix_range(&self.table_prefix).1
-        } else {
-            history_record_key(view.rows.flow_hash, view.rows.run_id, end)
-        };
-        let rows: Vec<(Vec<u8>, HistoryRecord)> = view.transaction.scan_messages(
-            ColumnFamily::History,
-            &start_key,
-            &end_key,
-            limit,
-            "history record",
-        )?;
-        rows.into_iter()
-            .map(|(key, record)| Ok((self.seq_of_key(&key)?, record)))
-            .collect()
-    }
-
-    fn seq_of_key(&self, key: &[u8]) -> Result<u64, ReadModelError> {
-        key.strip_prefix(self.table_prefix.as_slice())
-            .and_then(|suffix| <[u8; 8]>::try_from(suffix).ok())
-            .map(u64::from_be_bytes)
-            .ok_or_else(|| {
-                ReadModelError::State(ApplyError::InvariantViolation {
-                    detail: format!("history record key {key:02x?} has no seq suffix"),
-                })
-            })
+        if start >= end {
+            return Ok(Vec::new());
+        }
+        // u64::MAX stands for the end of the table, so it stays in the scanned range.
+        let last = if end == u64::MAX { end } else { end - 1 };
+        self.history
+            .history_records(start..=last, limit)
+            .take(limit)
+            .map(|record| record.map(|record| (record.seq, record)))
+            .collect::<Result<Vec<_>, ApplyError>>()
+            .map_err(ReadModelError::State)
     }
 }
 
@@ -513,6 +560,7 @@ fn events_left_in_budget(event_count: usize, event_bytes: usize, byte_budget: us
 /// Runs whose window advanced before `max_pruned_event_id` existed scan for their first kept event.
 fn pruned_event_id_range(
     view: &RunView<'_>,
+    history: &dyn HistorySource,
 ) -> Result<Option<HistoryEventIdRange>, ReadModelError> {
     let genesis_seq = genesis_seq(&view.transaction, view.rows)?;
     // Pruning deletes rows only below the window start, so an unmoved window deleted none.
@@ -522,9 +570,9 @@ fn pruned_event_id_range(
     let end_event_id = if view.record.max_pruned_event_id > 0 {
         view.record.max_pruned_event_id
     } else {
-        let history = HistoryRecordRows::new(view);
+        let history_rows = HistoryRecordRows::new(view, history);
         let mut chunk_rows = 1;
-        match history.find_first_event_record(
+        match history_rows.find_first_event_record(
             genesis_seq.saturating_add(1),
             view.record.next_run_seq,
             &mut chunk_rows,

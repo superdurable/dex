@@ -32,7 +32,7 @@ pub use apply_outcome::{ApplyEffect, ApplyError, ApplyOutcome, StateWrite, Waita
 pub use command_handlers::command_replies::{CLOSED_RUN_STOP_MESSAGE, TERMINAL_CLEANUP_MESSAGE};
 pub use command_handlers::flow_close::{TransactionalRpcHold, transactional_rpc_hold};
 pub use hard_delete_admission::{HardDeleteAdmissionError, validate_hard_delete_command};
-pub use history::diagnostics;
+pub use history::{HistoryRecords, HistorySource, diagnostics};
 pub use state_access::{BoundedRowSeek, FlowStateReader, StateReadError, StateRow};
 pub use steps::dispatch_queue::{dispatch_queue_entry, effective_pending_since_micros};
 
