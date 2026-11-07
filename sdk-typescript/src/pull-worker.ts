@@ -48,21 +48,11 @@ import { WorkerDispatcher } from "./worker-dispatcher.js";
 const BUSY_PULL_STREAM_KEEPALIVE_MS = 20_000;
 // Extra time after the drain deadline for a final output that Dex has not confirmed reading.
 const FINAL_OUTPUT_FLUSH_GRACE_MS = 5_000;
-// Bounds every task frame, including after grpc-js decompresses it.
-const MAX_TASK_FRAME_BYTES = 4 * 1024 * 1024;
 
 class UndecodableTaskFrame {
   public constructor(public readonly failure: unknown) {}
 }
 
-// The SDK encodes and decodes frames itself, so grpc-js never cancels a stream for a codec failure.
-const ResettableWorkerTaskServiceClient = makeGenericClientConstructor({
-  pollWorkerTask: {
-    ...WorkerTaskServiceService.pollWorkerTask,
-    requestSerialize: (value: Buffer): Buffer => value,
-    responseDeserialize: decodeTaskFrame,
-  },
-}, "dex.WorkerTaskService") as unknown as typeof WorkerTaskServiceClient;
 const grpcJsVersion = readGrpcJsVersion();
 
 interface ActiveTask {
@@ -865,10 +855,19 @@ function generateAppWorkerID(): string {
 }
 
 function createWorkerTaskClient(channel: FlowServiceChannel, credential: Credential | undefined): InstanceType<typeof WorkerTaskServiceClient> {
+  // The SDK encodes and decodes frames itself, so grpc-js never cancels a stream for a codec failure.
+  const ResettableWorkerTaskServiceClient = makeGenericClientConstructor({
+    pollWorkerTask: {
+      ...WorkerTaskServiceService.pollWorkerTask,
+      requestSerialize: (value: Buffer): Buffer => value,
+      responseDeserialize: (value: Buffer) => decodeTaskFrame(value, channel.maxReceiveMessageBytes),
+    },
+  }, "dex.WorkerTaskService") as unknown as typeof WorkerTaskServiceClient;
   return new ResettableWorkerTaskServiceClient(channel.target, channel.channelCredentials, {
     ...channel.channelOptions,
     interceptors: credentialInterceptors(credential),
-    "grpc.max_receive_message_length": MAX_TASK_FRAME_BYTES,
+    // grpc-js shares connections between equal options; this keeps task streams off the FlowService one.
+    "dex.worker_task_channel": 1,
   });
 }
 
@@ -876,9 +875,10 @@ function createWorkerTaskClient(channel: FlowServiceChannel, credential: Credent
  * Decodes one task frame without throwing, so a bad frame resets the stream instead of a grpc-js cancel.
  * @returns The decoded frame, or an UndecodableTaskFrame when it is oversized or malformed.
  */
-function decodeTaskFrame(value: Buffer): PollWorkerTaskResponse | UndecodableTaskFrame {
-  if (value.length > MAX_TASK_FRAME_BYTES) {
-    return new UndecodableTaskFrame(new RangeError(`Worker task frame of ${value.length} bytes exceeds ${MAX_TASK_FRAME_BYTES} bytes`));
+function decodeTaskFrame(value: Buffer, maxTaskFrameBytes: number): PollWorkerTaskResponse | UndecodableTaskFrame {
+  // Bounds every task frame, including after grpc-js decompresses it.
+  if (value.length > maxTaskFrameBytes) {
+    return new UndecodableTaskFrame(new RangeError(`Worker task frame of ${value.length} bytes exceeds ${maxTaskFrameBytes} bytes`));
   }
   try {
     const response = PollWorkerTaskResponse.decode(value);

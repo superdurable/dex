@@ -8,13 +8,14 @@
 
 import type { BlobCache } from "./blob-cache.js";
 import { jsonCodec, type Codec, type Value as CodecValue } from "./codec.js";
-import { ValueMappingError } from "./errors.js";
+import { BlobMessageTooLargeError, ValueMappingError } from "./errors.js";
 import { NullValue } from "./gen/google/protobuf/struct.js";
 import {
   Value as ProtoValue,
   type FlowServiceClient,
   type LoadBlobsResponse,
 } from "./gen/dex.js";
+import { isGrpcMessageSizeError } from "./grpc-status.js";
 
 const jsonValueCodec = jsonCodec<unknown>();
 
@@ -140,6 +141,11 @@ function nullValue(): ProtoValue {
   });
 }
 
+interface PendingBlob {
+  readonly blobId: string;
+  readonly value: ProtoValue;
+}
+
 export class ValueHydrator {
   public constructor(
     private readonly service: FlowServiceClient,
@@ -162,10 +168,8 @@ export class ValueHydrator {
     if (cached !== undefined) {
       return ProtoValue.decode(cached);
     }
-    const response = await unary<LoadBlobsResponse>((callback) =>
-      this.service.loadBlobs({ entries: [{ flowId, blobValue: value }] }, callback),
-    );
-    const hydrated = response.values[blobId];
+    const values = await this.loadBlobValues(flowId, [{ blobId, value }]);
+    const hydrated = values[blobId];
     if (hydrated?.kind === undefined || blobIdOf(hydrated) !== undefined) {
       throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
     }
@@ -181,7 +185,7 @@ export class ValueHydrator {
       throw new ValueMappingError("hydrate", "Flow ID is required");
     }
     const hydrated: Array<ProtoValue | undefined> = new Array(values.length);
-    const missing = new Map<string, { value: ProtoValue; indexes: number[] }>();
+    const missing = new Map<string, PendingBlob & { indexes: number[] }>();
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index];
       if (value?.kind === undefined) {
@@ -199,25 +203,15 @@ export class ValueHydrator {
       }
       const pending = missing.get(blobId);
       if (pending === undefined) {
-        missing.set(blobId, { value, indexes: [index] });
+        missing.set(blobId, { blobId, value, indexes: [index] });
       } else {
         pending.indexes.push(index);
       }
     }
     if (missing.size > 0) {
-      const response = await unary<LoadBlobsResponse>((callback) =>
-        this.service.loadBlobs(
-          {
-            entries: [...missing.values()].map((pending) => ({
-              flowId,
-              blobValue: pending.value,
-            })),
-          },
-          callback,
-        ),
-      );
+      const values = await this.loadBlobValues(flowId, [...missing.values()]);
       for (const [blobId, pending] of missing) {
-        const value = response.values[blobId];
+        const value = values[blobId];
         if (value?.kind === undefined || blobIdOf(value) !== undefined) {
           throw new ValueMappingError("hydrate", `Dex did not hydrate blob ${blobId}`);
         }
@@ -233,6 +227,38 @@ export class ValueHydrator {
       }
       return value;
     });
+  }
+
+  /**
+   * Loads blobs, halving a batch that gRPC rejects for size, so N blobs take at most 2N-1 calls.
+   * @returns The hydrated values keyed by blob ID.
+   * @throws {@link BlobMessageTooLargeError} when one blob alone exceeds the limit.
+   */
+  private async loadBlobValues(
+    flowId: string,
+    blobs: readonly PendingBlob[],
+  ): Promise<{ [key: string]: ProtoValue }> {
+    try {
+      const response = await unary<LoadBlobsResponse>((callback) =>
+        this.service.loadBlobs(
+          { entries: blobs.map((blob) => ({ flowId, blobValue: blob.value })) },
+          callback,
+        ),
+      );
+      return response.values;
+    } catch (failure) {
+      if (!isGrpcMessageSizeError(failure)) {
+        throw failure;
+      }
+      const [onlyBlob] = blobs;
+      if (blobs.length === 1 && onlyBlob !== undefined) {
+        throw new BlobMessageTooLargeError(flowId, onlyBlob.blobId, failure.details || failure.message, { cause: failure });
+      }
+      const half = Math.floor(blobs.length / 2);
+      const firstValues = await this.loadBlobValues(flowId, blobs.slice(0, half));
+      const secondValues = await this.loadBlobValues(flowId, blobs.slice(half));
+      return { ...firstValues, ...secondValues };
+    }
   }
 }
 

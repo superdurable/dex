@@ -23,6 +23,17 @@ export interface ClientOptions {
    * @since 1.35.0
    */
   readonly flowServiceTls?: FlowServiceTlsOptions;
+  /**
+   * Largest gRPC message this Client exchanges with Dex, in bytes.
+   *
+   * Zero, the default, receives up to `DEFAULT_GRPC_MAX_MESSAGE_BYTES` (32 MiB) and leaves
+   * sends unlimited, so the server's limit bounds them. A positive value limits both directions.
+   * A negative or non-integer value makes the Client constructor throw `RangeError`. Raise it with
+   * the server's `api.grpcMaxMessageBytes` when one message must carry more.
+   *
+   * @since 1.38.0
+   */
+  readonly grpcMaxMessageBytes?: number;
 }
 
 /**
@@ -583,6 +594,17 @@ export interface WorkerOptions {
   readonly flowServiceTls?: FlowServiceTlsOptions;
   /** Startup Indexed Attribute synchronization deadline in milliseconds. Defaults to 120000. */
   readonly attributeIndexSyncTimeoutMs?: number;
+  /**
+   * Largest gRPC message this Worker exchanges with Dex, in bytes, on its FlowService calls and pull streams.
+   *
+   * Zero, the default, receives up to `DEFAULT_GRPC_MAX_MESSAGE_BYTES` (32 MiB) and leaves
+   * sends unlimited, so the server's limit bounds them. A positive value limits both directions.
+   * A negative or non-integer value makes the Worker constructor throw `RangeError`. Raise it with
+   * the server's `api.grpcMaxMessageBytes` when one message must carry more.
+   *
+   * @since 1.38.0
+   */
+  readonly grpcMaxMessageBytes?: number;
 }
 
 /**

@@ -60,6 +60,7 @@ import {
 import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
   ErrorSubStatus,
+  BlobMessageTooLargeError,
   DexServiceError,
   FlowDefinitionError,
   FlowErrorType,
@@ -161,15 +162,23 @@ export class Client {
    * Constructs a Client and lazy gRPC connection, plaintext unless `options.flowServiceTls` is set.
    * @param registry - Flow definitions used for validation and routing.
    * @param blobCache - Open cache used to hydrate large response values.
-   * @param options - Service address, optional bearer credential, and optional TLS settings.
+   * Changed in 1.38.0: the default gRPC receive limit rose from 4 MiB to
+   * `DEFAULT_GRPC_MAX_MESSAGE_BYTES`, and a LoadBlobs batch over the SDK's gRPC limit is split
+   * instead of failing.
+   * @param options - Service address, optional bearer credential, optional TLS settings, and optional gRPC message size limit.
    * @throws {TypeError} When `flowServiceTls` is set and the address or TLS settings are invalid.
+   * @throws {RangeError} When `grpcMaxMessageBytes` is negative or not an integer.
    */
   public constructor(
     public readonly registry: Registry,
     public readonly blobCache: BlobCache,
     public readonly options: ClientOptions = {},
   ) {
-    const channel = createFlowServiceChannel(options.serverAddress ?? defaultServerAddress, options.flowServiceTls);
+    const channel = createFlowServiceChannel(
+      options.serverAddress ?? defaultServerAddress,
+      options.flowServiceTls,
+      options.grpcMaxMessageBytes,
+    );
     this.service = new FlowServiceClient(
       channel.target,
       channel.channelCredentials,
@@ -354,6 +363,7 @@ export class Client {
    * }
    * ```
    * @throws {@link RpcLockConflictError} when the requested locks are held.
+   * @throws {@link BlobMessageTooLargeError} when one output blob alone exceeds a gRPC message size limit.
    * @throws {@link WorkerInvocationError} when Worker dispatch or application execution fails.
    * @throws {@link FlowNotActiveOrNotFoundError} when the target is missing or this RPC requires an active Flow.
    * @throws {@link FlowClosingError} when the Flow is closing and rejects the operation.
@@ -384,6 +394,7 @@ export class Client {
    * an active execution.
    * See the typed-input invokeRPC overload for completion semantics and error handling.
    * @throws {@link RpcLockConflictError} when the requested locks are held.
+   * @throws {@link BlobMessageTooLargeError} when one output blob alone exceeds a gRPC message size limit.
    * @throws {@link WorkerInvocationError} when Worker dispatch or application execution fails.
    * @throws {@link FlowNotActiveOrNotFoundError} when missing or unable to use a closed execution.
    * @throws {@link DexServiceError} for other service or transport failures.
@@ -428,6 +439,7 @@ export class Client {
    * an active execution.
    * See the typed-input invokeRPC overload for completion semantics and error handling.
    * @throws {@link RpcLockConflictError} when the requested locks are held.
+   * @throws {@link BlobMessageTooLargeError} when one output blob alone exceeds a gRPC message size limit.
    * @throws {@link WorkerInvocationError} when Worker dispatch or application execution fails.
    * @throws {@link FlowNotActiveOrNotFoundError} when missing or unable to use a closed execution.
    * @throws {@link DexServiceError} for other service or transport failures.
@@ -785,6 +797,7 @@ export class Client {
    * @throws {@link FlowNotFoundError} when no retained target exists.
    * @throws {@link LongPollTimeoutError} when the Flow remains open at timeout.
    * @throws {@link ValueMappingError} when Dex returns malformed blob-backed output.
+   * @throws {@link BlobMessageTooLargeError} when one output blob alone exceeds a gRPC message size limit.
    */
   public async waitForFlow(
     flowId: string,
@@ -932,6 +945,7 @@ export class Client {
    * Flow in the Client's Registry, or differs from the registered definition object.
    * @throws {@link FlowNotFoundError} when the Flow does not exist or its latest run is being purged.
    * @throws {@link ValueMappingError} when a value cannot be hydrated or decoded with its codec.
+   * @throws {@link BlobMessageTooLargeError} when one blob alone exceeds a gRPC message size limit.
    * @throws {@link DexServiceError} for other FlowService failures, including a failed LoadBlobs
    * request. The error keeps the gRPC `code` and the server `detail`, and its `operation` is
    * `loadBlobs` for a LoadBlobs failure.
@@ -1033,6 +1047,9 @@ export class Client {
     try {
       hydrated = await this.hydrator.hydrateAll(flowId, returnedValues);
     } catch (failure) {
+      if (failure instanceof BlobMessageTooLargeError) {
+        throw failure;
+      }
       const context = `getAttributes Flow ${flowId} Attributes ${returnedKeys.join(", ")}`;
       if (failure instanceof ValueMappingError) {
         throw new ValueMappingError("hydrate", `${context}: ${valueMappingDetail(failure)}`, { cause: failure });
@@ -1053,6 +1070,7 @@ export class Client {
    * @param nextPageToken - Opaque token from the preceding page, or empty first.
    * @param options - Whether to include earlier internally replaced runs; defaults to exclusion.
    * @returns Server-ordered entries and the next-page token.
+   * @throws {@link BlobMessageTooLargeError} when one Indexed Attribute blob alone exceeds a gRPC message size limit.
    */
   public async searchFlows(
     query: string,
