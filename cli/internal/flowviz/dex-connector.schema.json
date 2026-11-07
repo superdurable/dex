@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Dex Connector package manifest",
-  "description": "Static factory metadata for Python and TypeScript Flow source analysis.",
+  "description": "Static factory metadata for Python and TypeScript Flow source analysis and agent tool discovery.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -84,6 +84,22 @@
         "triggerName": {
           "type": "string",
           "minLength": 1
+        },
+        "inputType": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public input model of the operation in this package's language."
+        },
+        "inputSchema": {
+          "$ref": "#/$defs/inputSchema"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Model-facing description of the operation."
+        },
+        "agent": {
+          "$ref": "#/$defs/agent"
         },
         "fields": {
           "type": "object",
@@ -178,6 +194,10 @@
               "triggerName"
             ],
             "properties": {
+              "inputType": false,
+              "inputSchema": false,
+              "description": false,
+              "agent": false,
               "fields": {
                 "required": [
                   "bindingName"
@@ -200,7 +220,61 @@
             }
           }
         }
-      ]
+      ],
+      "dependentRequired": {
+        "inputType": [
+          "inputSchema"
+        ],
+        "inputSchema": [
+          "inputType"
+        ],
+        "agent": [
+          "inputType",
+          "inputSchema"
+        ]
+      }
+    },
+    "inputSchema": {
+      "type": "object",
+      "description": "JSON Schema draft 2020-12 for the operation's input, using the JSON field names of the wire format.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "object"
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Review result for offering this operation as an agent tool. Absent means the operation is not offered.",
+      "required": [
+        "exposed"
+      ],
+      "properties": {
+        "exposed": {
+          "type": "boolean"
+        },
+        "approval": {
+          "enum": [
+            "recommended"
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "exposed": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "approval": false
+        }
+      }
     },
     "configurationUI": {
       "type": "object",

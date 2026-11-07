@@ -386,6 +386,9 @@ decorators may appear between the comments and class. Connector packages ship
 [`dex-connector.json`](internal/flowviz/dex-connector.schema.json) inside the Python
 import package or next to npm's `package.json`. The manifest maps exported
 factories to static config fields, branches, resources, and ConfigurationUI.
+Operation factories may also carry an input type, an input JSON Schema, a
+model-facing description, and an `agent` block. The analyzers check their shape
+and do not use them.
 Python resolves installed packages with `--python /path/to/venv/bin/python`;
 TypeScript walks `node_modules` from the source directory. Neither analyzer
 imports the application. Python runs with `-I -S`, which disables automatic

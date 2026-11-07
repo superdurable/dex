@@ -68,9 +68,19 @@ type connectorManifestFactory struct {
 	Kind            string                    `json:"kind"`
 	OperationID     string                    `json:"operationId,omitempty"`
 	TriggerName     string                    `json:"triggerName,omitempty"`
+	InputType       string                    `json:"inputType,omitempty"`
+	InputSchema     json.RawMessage           `json:"inputSchema,omitempty"`
+	Description     string                    `json:"description,omitempty"`
+	Agent           *connectorManifestAgent   `json:"agent,omitempty"`
 	Fields          map[string]string         `json:"fields"`
 	Branches        []connectorManifestBranch `json:"branches,omitempty"`
 	ConfigurationUI ConnectorConfigurationUI  `json:"configurationUI"`
+}
+
+// connectorManifestAgent is checked for shape only; Flow analysis ignores the agent tool metadata.
+type connectorManifestAgent struct {
+	Exposed  *bool  `json:"exposed"`
+	Approval string `json:"approval,omitempty"`
 }
 
 type connectorManifestBranch struct {
@@ -394,6 +404,9 @@ func validateConnectorManifestFactory(factory connectorManifestFactory) error {
 		if factory.TriggerName == "" || factory.Fields["bindingName"] == "" {
 			return fmt.Errorf("Trigger factory requires triggerName and fields.bindingName")
 		}
+		if factory.InputType != "" || len(factory.InputSchema) != 0 || factory.Description != "" || factory.Agent != nil {
+			return fmt.Errorf("Trigger factory must not declare inputType, inputSchema, description, or agent")
+		}
 		return nil
 	}
 	if factory.Kind != "query" && factory.Kind != "mutation" {
@@ -408,6 +421,38 @@ func validateConnectorManifestFactory(factory connectorManifestFactory) error {
 			return fmt.Errorf("branches require unique IDs and non-empty fields: %q", branch.ID)
 		}
 		branchIDs[branch.ID] = true
+	}
+	return validateConnectorManifestToolMetadata(factory)
+}
+
+// Manifests from before agent tools carry none of these fields, so every field stays optional.
+func validateConnectorManifestToolMetadata(factory connectorManifestFactory) error {
+	if (factory.InputType == "") != (len(factory.InputSchema) == 0) {
+		return fmt.Errorf("inputType and inputSchema must appear together")
+	}
+	if len(factory.InputSchema) != 0 {
+		var inputSchema map[string]json.RawMessage
+		if err := json.Unmarshal(factory.InputSchema, &inputSchema); err != nil || inputSchema == nil || string(inputSchema["type"]) != `"object"` {
+			return fmt.Errorf("inputSchema must be a JSON Schema object with type object")
+		}
+	}
+	if factory.Agent == nil {
+		return nil
+	}
+	if factory.Agent.Exposed == nil {
+		return fmt.Errorf("agent requires exposed")
+	}
+	if factory.InputType == "" {
+		return fmt.Errorf("agent requires inputType and inputSchema")
+	}
+	switch factory.Agent.Approval {
+	case "":
+	case "recommended":
+		if !*factory.Agent.Exposed {
+			return fmt.Errorf("agent.approval requires agent.exposed to be true")
+		}
+	default:
+		return fmt.Errorf("agent.approval %q must be recommended", factory.Agent.Approval)
 	}
 	return nil
 }
