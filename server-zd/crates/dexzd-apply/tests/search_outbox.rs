@@ -153,8 +153,8 @@ impl SearchHarness {
                 max_value_bytes: 16 << 20,
                 wire_inline_threshold_bytes: 100,
                 history_window_semantic_events: 10000,
-                checkpoint_min_written_bytes: 1 << 20,
-                checkpoint_max_commands: 10000,
+                checkpoint_row_write_bytes_threshold: 1 << 20,
+                checkpoint_command_threshold: 10000,
                 request_dedup_capacity: 100,
                 ..Default::default()
             }),
@@ -535,8 +535,8 @@ fn acks_and_other_flows_between_speculative_and_committed_apply_keep_the_outcome
                 max_value_bytes: 16 << 20,
                 wire_inline_threshold_bytes: 100,
                 history_window_semantic_events: 10000,
-                checkpoint_min_written_bytes: 1 << 20,
-                checkpoint_max_commands: 10000,
+                checkpoint_row_write_bytes_threshold: 1 << 20,
+                checkpoint_command_threshold: 10000,
                 request_dedup_capacity: 100,
                 ..Default::default()
             }),

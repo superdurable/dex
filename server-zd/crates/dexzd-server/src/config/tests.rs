@@ -11,6 +11,7 @@
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_engine::{EffectsConfig, LocalStoreConfig};
@@ -152,6 +153,129 @@ fn run_limits_and_the_child_result_limit_reach_run_settings() {
             .child_run_settings
             .max_run_state_bytes
     );
+}
+
+#[test]
+fn checkpoint_thresholds_default_and_reach_run_settings() {
+    let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    let default_run_settings = defaults.flow_coordination.run_settings;
+    assert_eq!(default_run_settings.checkpoint_command_threshold, 1_000);
+    assert_eq!(
+        default_run_settings.checkpoint_row_write_bytes_threshold,
+        1024 * 1024
+    );
+    assert_eq!(
+        defaults
+            .effects
+            .child_run_settings
+            .checkpoint_command_threshold,
+        1_000
+    );
+    let parsed = Config::parse_yaml(
+        "history:\n  checkpointRowWriteBytesThreshold: 4096\n  checkpointCommandThreshold: 250\n",
+    )
+    .expect("parse checkpoint thresholds");
+    assert!(parsed.history.deprecated_keys().is_empty());
+    let mut configuration = valid_config();
+    configuration.history = parsed.history;
+    configuration
+        .validate()
+        .expect("valid checkpoint thresholds");
+    let run_settings = ComponentConfigs::from_config(&configuration, false)
+        .expect("component config")
+        .flow_coordination
+        .run_settings;
+    assert_eq!(run_settings.checkpoint_row_write_bytes_threshold, 4096);
+    assert_eq!(run_settings.checkpoint_command_threshold, 250);
+}
+
+#[test]
+fn deprecated_checkpoint_keys_apply_and_log_a_startup_warning() {
+    let parsed = Config::parse_yaml(
+        "history:\n  checkpointMinWrittenBytes: 4096\n  checkpointCommandInterval: 250\n",
+    )
+    .expect("deprecated checkpoint keys still parse");
+    assert_eq!(parsed.history.checkpoint_row_write_bytes_threshold, 4096);
+    assert_eq!(parsed.history.checkpoint_command_threshold, 250);
+    let deprecated_keys: Vec<_> = parsed
+        .history
+        .deprecated_keys()
+        .iter()
+        .map(|key| (key.deprecated_key, key.replacement_key))
+        .collect();
+    assert_eq!(
+        deprecated_keys,
+        [
+            (
+                "history.checkpointMinWrittenBytes",
+                "history.checkpointRowWriteBytesThreshold"
+            ),
+            (
+                "history.checkpointCommandInterval",
+                "history.checkpointCommandThreshold"
+            ),
+        ]
+    );
+    let log = captured_warnings(&parsed);
+    assert!(
+        log.contains("configuration uses a deprecated key")
+            && log.contains("deprecated_key=\"history.checkpointMinWrittenBytes\"")
+            && log.contains("replacement_key=\"history.checkpointCommandThreshold\""),
+        "{log}"
+    );
+    assert!(captured_warnings(&Config::default()).is_empty());
+}
+
+#[test]
+fn a_checkpoint_key_set_under_both_names_is_rejected() {
+    for (yaml, deprecated_key) in [
+        (
+            "history:\n  checkpointMinWrittenBytes: 4096\n  checkpointRowWriteBytesThreshold: 4096\n",
+            "history.checkpointMinWrittenBytes",
+        ),
+        (
+            "history:\n  checkpointCommandThreshold: 250\n  checkpointCommandInterval: 250\n",
+            "history.checkpointCommandInterval",
+        ),
+    ] {
+        let error = Config::parse_yaml(yaml).expect_err("both names of one key must fail");
+        assert!(matches!(error, ConfigError::Yaml { .. }), "{error}");
+        assert!(error.to_string().contains(deprecated_key), "{error}");
+    }
+}
+
+/// Returns what the deprecated-key startup check logs for `configuration`.
+fn captured_warnings(configuration: &Config) -> String {
+    let buffer = Arc::new(Mutex::new(Vec::new()));
+    let writer_buffer = buffer.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(move || CapturedLog(writer_buffer.clone()))
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        configuration.warn_about_deprecated_keys();
+    });
+    let bytes = buffer
+        .lock()
+        .expect("the log buffer lock is not poisoned")
+        .clone();
+    String::from_utf8(bytes).expect("logs are UTF-8")
+}
+
+struct CapturedLog(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturedLog {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .expect("the log buffer lock is not poisoned")
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -923,11 +1047,11 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("history.pruneChunkSize", |config| {
             config.history.prune_chunk_size = 10_001
         }),
-        ("history.checkpointMinWrittenBytes", |config| {
-            config.history.checkpoint_min_written_bytes = 0
+        ("history.checkpointRowWriteBytesThreshold", |config| {
+            config.history.checkpoint_row_write_bytes_threshold = 0
         }),
-        ("history.checkpointCommandInterval", |config| {
-            config.history.checkpoint_command_interval = 0
+        ("history.checkpointCommandThreshold", |config| {
+            config.history.checkpoint_command_threshold = 0
         }),
         ("history.maxRetainedSupersededBytes", |config| {
             config.history.max_retained_superseded_bytes = 1

@@ -71,21 +71,21 @@ pub(crate) fn after_command(
     cursor: &mut RunCursor,
     kind: HistoryKind,
 ) -> Result<(), ApplyError> {
-    let written_bytes = attempt_write_bytes(transaction, cursor);
+    let row_write_bytes = attempt_write_bytes(transaction, cursor);
     let current_state_bytes = state_bytes_after_command(transaction, cursor)?;
     let record = &mut cursor.record;
-    record.written_bytes_since_checkpoint = record
-        .written_bytes_since_checkpoint
-        .saturating_add(written_bytes);
+    record.row_write_bytes_since_checkpoint = record
+        .row_write_bytes_since_checkpoint
+        .saturating_add(row_write_bytes);
     let settings = record.settings.unwrap_or_default();
     let is_attempt_start = cursor.is_starting_attempt || record.last_checkpoint_seq == 0;
-    let has_enough_commands = settings.checkpoint_max_commands > 0
-        && record.commands_since_checkpoint >= settings.checkpoint_max_commands;
+    let has_enough_commands = settings.checkpoint_command_threshold > 0
+        && record.commands_since_checkpoint >= settings.checkpoint_command_threshold;
     // A shrunk state lowers the bar; appends alone never catch up with the current size.
-    let written_threshold = settings
-        .checkpoint_min_written_bytes
+    let row_write_bytes_threshold = settings
+        .checkpoint_row_write_bytes_threshold
         .max(current_state_bytes.min(record.last_checkpoint_state_bytes));
-    let has_enough_bytes = record.written_bytes_since_checkpoint >= written_threshold;
+    let has_enough_bytes = record.row_write_bytes_since_checkpoint >= row_write_bytes_threshold;
     if is_attempt_start || has_enough_commands || has_enough_bytes {
         write_checkpoint(transaction, cursor)?;
     }
@@ -145,7 +145,7 @@ fn write_checkpoint(
     let record = &mut cursor.record;
     record.last_checkpoint_seq = cursor.seq;
     record.last_checkpoint_state_bytes = state_bytes;
-    record.written_bytes_since_checkpoint = 0;
+    record.row_write_bytes_since_checkpoint = 0;
     record.commands_since_checkpoint = 0;
     Ok(())
 }

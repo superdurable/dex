@@ -88,11 +88,17 @@ message RunSettings {
   uint32 wire_inline_threshold_bytes = 5;
   // Largest accepted value (default 16 MiB).
   uint64 max_value_bytes = 6;
-  // A checkpoint is written after at least max(this, current state size) bytes of state writes
-  // (default 1 MiB).
-  uint64 checkpoint_min_written_bytes = 7;
-  // A checkpoint is also written after this many commands (default 10000).
-  uint32 checkpoint_max_commands = 8;
+  // A checkpoint is written once the attempt-scoped row bytes written since the last checkpoint
+  // reach max(this, min(the run's current state row bytes, the row bytes of the last
+  // checkpoint)) (default 1 MiB). Attempt-scoped rows are Attribute, ChannelMessage, ChannelMeta,
+  // StepExecution, StepCounter, Lock, Waiter, and Timer rows. Every write of such a row adds its
+  // encoded size, and a large value counts only as its reference.
+  uint64 checkpoint_row_write_bytes_threshold = 7;
+  // A checkpoint is also written once this many commands have been applied to the run since the
+  // last checkpoint, counting every command including bookkeeping (default 1000).
+  uint32 checkpoint_command_threshold = 8;
+  // Renamed fields; these names must never be used again.
+  reserved "checkpoint_min_written_bytes", "checkpoint_max_commands";
   // Request IDs remembered per run for deduplication (default 1000).
   uint32 request_dedup_capacity = 9;
   // Largest total state size of the run (default 1 GiB).
