@@ -6,18 +6,29 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { Agent } from "@mastra/core/agent";
+import { Agent } from "@mastra/core/agent";
 import type { AIV5Type, MessageListInput } from "@mastra/core/agent/message-list";
+import { standardSchemaToJSONSchema, toStandardSchema } from "@mastra/core/schema";
 import { MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY, RequestContext } from "@mastra/core/request-context";
 import type { LLMStepResult, MastraModelOutput, StepStartPayload } from "@mastra/core/stream";
 import {
+  addAgentUsage,
+  buildContextSummaryNote,
+  buildContextSummaryPrompt,
+  contextSummaryInstructions,
   describeToolCallOutcome,
+  emptyAgentUsage,
+  estimateStoredInputTokens,
+  estimateTextTokens,
   isFinalToolCallStatus,
+  selectTurnBoundaryCutoff,
   type AgentEventWriter,
   type AgentFrameworkRunner,
   type AgentTurnContext,
   type AgentTurnOutcome,
   type AgentUsage,
+  type ContextSummaryRequest,
+  type ContextSummaryResult,
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
@@ -89,6 +100,12 @@ export interface MastraAgentRunnerOptions {
    * `TypeError` then. Defaults to an empty `RequestContext`.
    */
   readonly createRequestContext?: (turn: MastraTurnIdentity) => RequestContext;
+  /**
+   * Model of the `CompactContext` summary call, as a Mastra model config such as `"openai/gpt-5-mini"`, when the
+   * session options set `compaction`. Defaults to the agent's model for the turn's `RequestContext`.
+   * @since 0.3.0
+   */
+  readonly summaryModel?: ConstructorParameters<typeof Agent>[0]["model"];
 }
 
 /**
@@ -123,6 +140,7 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
   private readonly maxSteps: number | undefined;
   private readonly shouldTrustMcpServerToolAnnotations: boolean;
   private readonly createRequestContext: (turn: MastraTurnIdentity) => RequestContext;
+  private readonly summaryModel: MastraAgentRunnerOptions["summaryModel"];
 
   /**
    * Creates a runner for one Mastra agent.
@@ -143,6 +161,7 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
     this.maxSteps = options.maxSteps;
     this.shouldTrustMcpServerToolAnnotations = options.shouldTrustMcpServerToolAnnotations ?? false;
     this.createRequestContext = options.createRequestContext ?? (() => new RequestContext());
+    this.summaryModel = options.summaryModel;
   }
 
   /**
@@ -177,6 +196,17 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     const requestContext = this.createTurnRequestContext({ flowId: turn.flowId, turnId: turn.turnId });
     const history = decodeStoredMastraMessages(turn.messages);
+    if (turn.contextSummary) {
+      // The fixed ID keeps the summary out of the turn's messages; time 0 sorts it first.
+      const summaryMessage = JSON.parse(
+        buildMastraUserFrameworkMessage(buildContextSummaryNote(turn.contextSummary)).frameworkItem,
+      ) as Omit<(typeof history)[number], "id" | "createdAt">;
+      history.unshift({
+        ...summaryMessage,
+        id: `dex-context-summary-${turn.contextSummary.generation}`,
+        createdAt: new Date(0),
+      });
+    }
     const runState = turn.frameworkRunState === null ? null : decodeMastraTurnRunState(turn.frameworkRunState);
     const toolPlan = planMastraModelStepTools(
       await this.agent.listTools({ requestContext }),
@@ -247,6 +277,78 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
   }
 
   /**
+   * Estimates the next model input: every stored message as stored, the summary, the run state of a resumed call,
+   * the agent's instructions, and its tool definitions for the turn's `RequestContext`. Input processors and
+   * Memory are not visible here; cover what they add with `CompactionPolicy.reservedInputTokens`.
+   * @param turn - The context of the next model call.
+   * @returns The estimated input tokens.
+   * @since 0.3.0
+   */
+  public async estimateInputTokens(turn: AgentTurnContext): Promise<number> {
+    const requestContext = this.createTurnRequestContext({ flowId: turn.flowId, turnId: turn.turnId });
+    const [instructions, tools] = await Promise.all([
+      this.agent.getInstructions({ requestContext }),
+      this.agent.listTools({ requestContext }),
+    ]);
+    let fixedInputTokens = estimateTextTokens(JSON.stringify(instructions ?? ""));
+    for (const [toolName, tool] of Object.entries(tools)) {
+      const { description, inputSchema } = tool as { readonly description?: unknown; readonly inputSchema?: unknown };
+      fixedInputTokens += estimateTextTokens(`${toolName} ${typeof description === "string" ? description : ""}`);
+      fixedInputTokens += estimateTextTokens(describeToolInputSchema(inputSchema));
+    }
+    return estimateStoredInputTokens(turn, fixedInputTokens);
+  }
+
+  /**
+   * Chooses the last message to summarize, at a boundary between turns; a resumed model call never compacts.
+   * @param turn - The context of the model call that crossed the threshold.
+   * @param retainedTokenBudget - Tokens that the kept messages may use.
+   * @returns What `selectTurnBoundaryCutoff` returns.
+   * @since 0.3.0
+   */
+  public selectCompactionCutoff(turn: AgentTurnContext, retainedTokenBudget: number): number | null {
+    return selectTurnBoundaryCutoff(turn, retainedTokenBudget);
+  }
+
+  /**
+   * Writes a new summary with one model call of a tool-less Mastra agent, on
+   * {@link MastraAgentRunnerOptions.summaryModel} or the agent's model. The agent's processors and Memory do not
+   * apply to it.
+   * @param request - The previous summary and the messages to summarize.
+   * @returns The summary text and the usage of the call.
+   * @throws {Error} When the model returns no text, or any model error.
+   * @since 0.3.0
+   */
+  public async summarizeContext(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+    const requestContext = this.createTurnRequestContext({ flowId: request.flowId, turnId: request.turnId });
+    const summaryAgent = new Agent({
+      id: `${this.agent.id}-context-summary`,
+      name: `${this.agent.name} context summary`,
+      instructions: contextSummaryInstructions,
+      model: this.summaryModel ?? (({ requestContext: context }) => this.agent.getModel({ requestContext: context })),
+    });
+    const output = await summaryAgent.generate(buildContextSummaryPrompt(request), {
+      requestContext,
+      abortSignal: request.cancellationSignal,
+    });
+    const text = output.text.trim();
+    if (text === "") {
+      throw new Error("the summary model call returned no text");
+    }
+    const usage = output.totalUsage;
+    return {
+      text,
+      usage: addAgentUsage(emptyAgentUsage(), {
+        modelCalls: 1,
+        inputTokens: usage.inputTokens ?? 0,
+        outputTokens: usage.outputTokens ?? 0,
+        cachedInputTokens: usage.cachedInputTokens ?? 0,
+        reasoningTokens: usage.reasoningTokens ?? 0,
+      }),
+    };
+  }
+
+  /**
    * Runs the agent's original tool for one tool call, in `CallTool` or `CallSingleAttemptTool`.
    *
    * The tool receives the parsed arguments and a context with `toolCallId`, `abortSignal`, and a copy of
@@ -299,6 +401,19 @@ export class MastraAgentRunner implements AgentFrameworkRunner {
         );
       }
     }
+  }
+}
+
+/** Returns a tool's input schema as the JSON schema text the model receives. */
+function describeToolInputSchema(schema: unknown): string {
+  if (typeof schema !== "object" || schema === null) {
+    return "";
+  }
+  try {
+    return JSON.stringify(standardSchemaToJSONSchema(toStandardSchema(schema as never))) ?? "";
+  } catch {
+    // Estimating must never fail a model call; the name and description still count.
+    return "";
   }
 }
 

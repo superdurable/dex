@@ -7,6 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import {
+  asSchema,
+  generateText,
   streamText,
   type FinishReason,
   type Instructions,
@@ -25,7 +27,13 @@ import {
 import {
   ToolExecutionError,
   addAgentUsage,
+  buildContextSummaryNote,
+  buildContextSummaryPrompt,
+  contextSummaryInstructions,
   emptyAgentUsage,
+  estimateStoredInputTokens,
+  estimateTextTokens,
+  selectTurnBoundaryCutoff,
   isFinalToolCallStatus,
   toolEffectFromMcpToolAnnotations,
   type AgentEventWriter,
@@ -34,6 +42,8 @@ import {
   type AgentTurnContext,
   type AgentTurnOutcome,
   type AgentUsage,
+  type ContextSummaryRequest,
+  type ContextSummaryResult,
   type DeferredToolCall,
   type DeferredToolExecution,
   type FrameworkMessage,
@@ -70,6 +80,7 @@ export interface VercelAiStreamTextSettings {
 /** Agent definition after the factory validated it. */
 export interface ResolvedVercelAiAgentDefinition {
   readonly model: LanguageModel;
+  readonly summaryModel: LanguageModel | undefined;
   readonly instructions: Instructions | undefined;
   readonly tools: Readonly<Record<string, Tool>>;
   readonly toolPolicies: Readonly<Record<string, ToolPolicy>>;
@@ -133,16 +144,78 @@ interface ModelCallResult {
   readonly usage: AgentUsage;
 }
 
-/** Runs one `streamText` step per `RunModel`; every tool lacks `execute`, so tool calls come back to Dex. */
+/**
+ * Runs one `streamText` step per `RunModel`; every tool lacks `execute`, so tool calls come back to Dex.
+ * It implements the compaction methods, so with `AgentSessionOptions.compaction` the session compacts at turn
+ * boundaries and the summary enters as the first message.
+ */
 export class VercelAiAgentRunner implements AgentFrameworkRunner {
+  private fixedInputTokens: number | undefined;
+
   public constructor(private readonly agent: ResolvedVercelAiAgentDefinition) {}
 
   public buildUserMessage(text: string): FrameworkMessage {
     return toFrameworkMessage({ role: "user", content: text });
   }
 
+  /**
+   * Estimates the next model input: every stored message as stored, the summary, the run state of a resumed call,
+   * the instructions, and the tool definitions.
+   * @param turn - The context of the next model call.
+   * @returns The estimated input tokens.
+   * @since 0.3.0
+   */
+  public estimateInputTokens(turn: AgentTurnContext): number {
+    this.fixedInputTokens ??= estimateAgentPromptTokens(this.agent);
+    return estimateStoredInputTokens(turn, this.fixedInputTokens);
+  }
+
+  /**
+   * Chooses the last message to summarize, at a boundary between turns; a resumed model call never compacts.
+   * @param turn - The context of the model call that crossed the threshold.
+   * @param retainedTokenBudget - Tokens that the kept messages may use.
+   * @returns What `selectTurnBoundaryCutoff` returns.
+   * @since 0.3.0
+   */
+  public selectCompactionCutoff(turn: AgentTurnContext, retainedTokenBudget: number): number | null {
+    return selectTurnBoundaryCutoff(turn, retainedTokenBudget);
+  }
+
+  /**
+   * Writes a new summary with one `generateText` call of the summary model, without tools.
+   * @param request - The previous summary and the messages to summarize.
+   * @returns The summary text and the usage of the call.
+   * @throws {Error} When the model returns no text, or any model error.
+   * @since 0.3.0
+   */
+  public async summarizeContext(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+    const settings = this.agent.streamTextSettings;
+    const result = await generateText({
+      ...settings.callSettings,
+      model: this.agent.summaryModel ?? this.agent.model,
+      instructions: contextSummaryInstructions,
+      prompt: buildContextSummaryPrompt(request),
+      ...(settings.providerOptions === undefined ? {} : { providerOptions: settings.providerOptions }),
+      ...(settings.maxRetries === undefined ? {} : { maxRetries: settings.maxRetries }),
+      ...(settings.headers === undefined ? {} : { headers: { ...settings.headers } }),
+      abortSignal: request.cancellationSignal,
+    });
+    const text = result.text.trim();
+    if (text === "") {
+      throw new Error("the summary model call returned no text");
+    }
+    return {
+      text,
+      usage: result.steps.reduce((usage, step) => addAgentUsage(usage, toAgentUsage(step.usage)), emptyAgentUsage()),
+      ...createModelCallMetadata(result.steps),
+    };
+  }
+
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     const history = turn.messages.map(parseStoredModelMessage);
+    if (turn.contextSummary) {
+      history.unshift({ role: "user", content: buildContextSummaryNote(turn.contextSummary) });
+    }
     let turnMessages: ModelMessage[] = [];
     let modelSteps: RecordedModelStep[] = [];
     if (turn.frameworkRunState !== null) {
@@ -358,6 +431,21 @@ export class VercelAiAgentRunner implements AgentFrameworkRunner {
       usage: steps.reduce((usage, step) => addAgentUsage(usage, toAgentUsage(step.usage)), emptyAgentUsage()),
     };
   }
+}
+
+function estimateAgentPromptTokens(agent: ResolvedVercelAiAgentDefinition): number {
+  const parts: string[] = [agent.instructions === undefined ? "" : JSON.stringify(agent.instructions)];
+  for (const [toolName, tool] of Object.entries(agent.tools)) {
+    parts.push(toolName, typeof tool.description === "string" ? tool.description : "");
+    try {
+      const schema = asSchema(tool.inputSchema).jsonSchema;
+      // A schema that resolves later is not counted; reservedInputTokens covers it.
+      parts.push(typeof (schema as PromiseLike<unknown>).then === "function" ? "" : JSON.stringify(schema));
+    } catch {
+      // Estimating must never fail a session; the name and description still count.
+    }
+  }
+  return parts.reduce((tokens, part) => tokens + estimateTextTokens(part), 0);
 }
 
 /** Returns a copy of a tool without `execute` and without input callbacks, which would rerun with the model call. */

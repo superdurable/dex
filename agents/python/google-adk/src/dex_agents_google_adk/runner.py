@@ -24,7 +24,7 @@ from google.adk.auth.credential_service.base_credential_service import BaseCrede
 from google.adk.events import Event
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.memory import BaseMemoryService
-from google.adk.models import LlmResponse
+from google.adk.models import BaseLlm, LlmRequest, LlmResponse
 from google.adk.plugins.plugin_manager import PluginManager
 from google.adk.runners import Runner
 from google.adk.tools import ToolContext
@@ -32,7 +32,9 @@ from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.genai import types
 
 from dex_agents import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    DEFAULT_RETAINED_MESSAGE_LIMIT,
     AgentEventWriter,
     AgentSessionFlow,
     AgentSessionOptions,
@@ -40,6 +42,9 @@ from dex_agents import (
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
+    CompactionPolicy,
+    ContextSummaryRequest,
+    ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
@@ -52,6 +57,17 @@ from dex_agents import (
     ToolExecutionResult,
     ToolPolicy,
     TurnCompleted,
+    build_context_summary_prompt,
+    estimate_stored_input_tokens,
+    select_turn_boundary_cutoff,
+)
+from dex_agents_google_adk._compaction import (
+    build_summary_events,
+    carry_summary_state,
+    estimate_agent_tree_prompt_tokens,
+    has_active_task_at,
+    resolve_summary_llm,
+    without_carried_state,
 )
 from dex_agents_google_adk._history import (
     build_adk_session,
@@ -96,6 +112,12 @@ class AdkAgentRunner:
     ``adk_request_confirmation`` call, and the plugin gives ADK the recorded
     result instead of running the tool.
 
+    The runner implements ``ContextCompactionRunner``. Set
+    ``AgentSessionOptions.compaction`` to compact at turn boundaries: the summary
+    replaces the summarized events in the rebuilt ADK session, as a user event
+    that also restores the ADK session state and the agent that replied last.
+    Without a policy nothing changes.
+
     The runner holds no per-session state, so one instance serves every
     session of its Flow type, also concurrently. The agent, its tools,
     toolsets, plugins, and the optional services stay owned by the
@@ -119,6 +141,7 @@ class AdkAgentRunner:
         artifact_service: BaseArtifactService | None = None,
         memory_service: BaseMemoryService | None = None,
         credential_service: BaseCredentialService | None = None,
+        summary_model: BaseLlm | str | None = None,
     ) -> None:
         """Wrap an ADK agent or App.
 
@@ -140,6 +163,11 @@ class AdkAgentRunner:
             artifact_service: ADK artifact service, or ``None`` for none.
             memory_service: ADK memory service, or ``None`` for none.
             credential_service: ADK credential service, or ``None`` for none.
+            summary_model: Model of the ``CompactContext`` summary call, an ADK
+                ``BaseLlm`` or a model name. ``None`` uses the model of the
+                first ``LlmAgent`` of the tree.
+
+                .. versionadded:: 0.3.0
 
         Raises:
             TypeError: If the App's root is not a ``BaseAgent``.
@@ -162,6 +190,8 @@ class AdkAgentRunner:
         self._artifact_service = artifact_service
         self._memory_service = memory_service
         self._credential_service = credential_service
+        self._summary_model = summary_model
+        self._fixed_input_tokens: int | None = None
 
     @property
     def app(self) -> App:
@@ -235,6 +265,8 @@ class AdkAgentRunner:
         """
         user_message_index = _turn_user_message_index(turn)
         earlier_events = stored_adk_events(turn.messages[:user_message_index])
+        if turn.context_summary is not None:
+            earlier_events = [*build_summary_events(turn.context_summary), *earlier_events]
         suspended: SuspendedAdkTurn | None = None
         if turn.framework_run_state is None:
             resumed_events: Sequence[Event] = []
@@ -317,6 +349,99 @@ class AdkAgentRunner:
             tool_calls=deferred,
             usage=usage,
             model_call_metadata=model_call_metadata,
+        )
+
+    def estimate_input_tokens(self, turn: AgentTurnContext) -> int:
+        """Estimate the next model input from the stored events and the agents' prompts.
+
+        ADK builds the request, so this counts every stored event as stored,
+        the summary, the suspended events of a resumed call, and the largest
+        static instruction and tool declarations of an agent in the tree.
+        Instruction providers and toolsets are not visible here; cover them
+        with ``CompactionPolicy.reserved_input_tokens``.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            turn: The context of the next model step.
+
+        Returns:
+            The estimated input tokens, from ``estimate_text_tokens``.
+        """
+        if self._fixed_input_tokens is None:
+            # The agent tree must not change after construction, so its prompt size is fixed.
+            self._fixed_input_tokens = estimate_agent_tree_prompt_tokens(self._root_agent)
+        return estimate_stored_input_tokens(turn, fixed_input_tokens=self._fixed_input_tokens)
+
+    def select_compaction_cutoff(
+        self, turn: AgentTurnContext, retained_token_budget: int
+    ) -> int | None:
+        """Choose the last event to summarize, at a boundary between turns.
+
+        The runner does not compact while a task-mode sub-agent waits for the
+        user across turns, because ADK finds that task from its events.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            turn: The context of the model step that crossed the threshold.
+            retained_token_budget: Tokens that the kept events may use.
+
+        Returns:
+            What ``select_turn_boundary_cutoff`` returns, or ``None`` while a
+            task is open at that boundary.
+        """
+        cutoff = select_turn_boundary_cutoff(turn, retained_token_budget)
+        if cutoff is None or has_active_task_at(turn.messages, cutoff, self._app.name):
+            return None
+        return cutoff
+
+    async def summarize_context(self, request: ContextSummaryRequest) -> ContextSummaryResult:
+        """Write a new summary with one ADK model call, and carry the session state.
+
+        The call goes to ``summary_model`` with ``CONTEXT_SUMMARY_INSTRUCTIONS``
+        and no tools. After the model's text, the summary keeps a line that
+        starts with ``SUMMARY_STATE_MARKER`` and holds the ADK session state
+        that the summarized events set, and the agent that replied last. The
+        runner restores both, and keeps that line out of the model input.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            request: The previous summary and the events to summarize.
+
+        Returns:
+            The summary text and the usage of the call.
+
+        Raises:
+            ValueError: If no model is found, or the model returned no text.
+            Exception: Any error of the model fails the attempt.
+        """
+        llm = resolve_summary_llm(self._summary_model, self._root_agent)
+        prompt = build_context_summary_prompt(without_carried_state(request))
+        llm_request = LlmRequest(
+            model=llm.model,
+            contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+            config=types.GenerateContentConfig(system_instruction=CONTEXT_SUMMARY_INSTRUCTIONS),
+        )
+        responses = [response async for response in llm.generate_content_async(llm_request)]
+        text = "".join(
+            part.text
+            for response in responses
+            if response.content is not None and not response.partial
+            for part in response.content.parts or []
+            if part.text and not part.thought
+        ).strip()
+        if not text:
+            raise ValueError("the summary model call returned no text")
+        usage = _segment_usage(
+            [Event(author="summary", usage_metadata=r.usage_metadata) for r in responses],
+            1,
+        )
+        return ContextSummaryResult(
+            text=carry_summary_state(text, request),
+            usage=usage,
+            model_call_metadata=_model_call_metadata([llm.model], responses),
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -409,6 +534,9 @@ def adk_agent_session_flow(
     artifact_service: BaseArtifactService | None = None,
     memory_service: BaseMemoryService | None = None,
     credential_service: BaseCredentialService | None = None,
+    compaction: CompactionPolicy | None = None,
+    retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
+    summary_model: BaseLlm | str | None = None,
 ) -> AgentSessionFlow:
     """Build the durable Dex agent session Flow for one Google ADK agent.
 
@@ -454,6 +582,18 @@ def adk_agent_session_flow(
         artifact_service: ADK artifact service, or ``None`` for none.
         memory_service: ADK memory service, or ``None`` for none.
         credential_service: ADK credential service, or ``None`` for none.
+        compaction: When to summarize earlier turns so the model input fits the
+            context window. ``None``, the default, never compacts. See
+            ``AgentSessionOptions.compaction``.
+
+            .. versionadded:: 0.3.0
+        retained_message_limit: With ``compaction``, how many stored messages
+            retention keeps. See ``AgentSessionOptions.retained_message_limit``.
+
+            .. versionadded:: 0.3.0
+        summary_model: Model of the summary call. See ``AdkAgentRunner``.
+
+            .. versionadded:: 0.3.0
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with an ``AdkAgentRunner``.
@@ -473,6 +613,7 @@ def adk_agent_session_flow(
             artifact_service=artifact_service,
             memory_service=memory_service,
             credential_service=credential_service,
+            summary_model=summary_model,
         ),
         flow_type=flow_type,
         options=AgentSessionOptions(
@@ -481,6 +622,8 @@ def adk_agent_session_flow(
             event_stream_capacity_bytes=event_stream_capacity_bytes,
             tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
+            compaction=compaction,
+            retained_message_limit=retained_message_limit,
         ),
     )
 

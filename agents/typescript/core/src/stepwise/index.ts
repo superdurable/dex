@@ -39,12 +39,11 @@ export {
 } from "./scripted-model-client.js";
 export { createStepwiseAgentSessionFlow } from "./stepwise-agent-session-flow.js";
 export {
-  StepwiseAgentRunner,
   buildContextSummaryNote,
   buildContextSummaryOmissionNote,
   contextSummaryInstructions,
   contextSummaryNoteHeader,
   contextSummaryRequest,
-  defaultToolSourceListingTimeoutMs,
-} from "./stepwise-agent-runner.js";
+} from "../agent-context-compaction.js";
+export { StepwiseAgentRunner, defaultToolSourceListingTimeoutMs } from "./stepwise-agent-runner.js";
 export { type SourceToolDefinition, type ToolSource } from "./tool-source.js";

@@ -415,8 +415,12 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
   transcript under `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter
   never reads it; set `CLAUDE_CONFIG_DIR` in `env` to choose where it goes.
   Later segments run in a temporary directory that the SDK removes.
-- The stored transcript grows with every turn and is never compacted by the
-  adapter; Claude Code's own compaction entries are kept.
+- Dex compaction is not available. Claude Code keeps its own transcript and
+  compacts it inside the CLI, so the adapter has no summary to put in the
+  model input, and `AgentSessionOptions.compaction` raises `TypeError`. The
+  stored transcript keeps every entry, Claude Code's compaction entries
+  included, and retention never deletes it, because no Dex summary covers it.
+  A long session therefore ends at the state limit, not the context window.
 - The real-CLI tests use a scripted Messages API, not a real model, and the
   bundled CLI version in `uv.lock`. A different CLI version may change the
   behavior in "What the real CLI does"; rerun those tests when upgrading.

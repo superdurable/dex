@@ -19,7 +19,15 @@ from datetime import timedelta
 from typing import Any, Literal, TypeAlias
 
 from dex_agents.built_in_tools import BUILT_IN_TOOL_DEFINITIONS, BuiltInTool
-from dex_agents.compaction import CompactionPolicy, ContextSummaryRequest, ContextSummaryResult
+from dex_agents.compaction import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
+    CONTEXT_SUMMARY_REQUEST,
+    CompactionPolicy,
+    ContextSummaryRequest,
+    ContextSummaryResult,
+    build_context_summary_note,
+    build_context_summary_omission_note,
+)
 from dex_agents.persistence import DEFAULT_AGENT_EVENTS_CAPACITY_BYTES
 from dex_agents.plans import build_plan_note
 from dex_agents.runner import (
@@ -65,7 +73,6 @@ from dex_agents.stepwise.transcript import (
 from dex_agents.values import (
     AgentPlan,
     AgentToolCall,
-    ContextSummary,
     InteractionMode,
     MessageRole,
     PlanStatus,
@@ -83,20 +90,6 @@ TOOL_CALL_LIMIT_REACHED_RESULT = (
     "The tool call was not run: this turn reached its limit of "
     "{max_model_calls_per_turn} model calls."
 )
-#: First line of the user text that carries the ``ContextSummary`` into the model input.
-CONTEXT_SUMMARY_NOTE_HEADER = "[Dex] Summary of the earlier conversation:"
-
-#: Instructions of the model call that writes a ``ContextSummary``.
-CONTEXT_SUMMARY_INSTRUCTIONS = (
-    "You summarize the earlier part of an agent conversation. The agent continues from your "
-    "summary and the messages after it, so keep every fact, decision, user request and "
-    "preference, open task, and tool result that it still needs, including what an earlier "
-    "summary says. Write plain text."
-)
-
-#: Last user text of the model call that writes a ``ContextSummary``.
-CONTEXT_SUMMARY_REQUEST = "[Dex] Summarize the conversation above. Reply with the summary only."
-
 
 _FORCED_PLANNING_TOOL_CHOICE_UNSUPPORTED = (
     "planning_tool_choice='required' needs a model that accepts a forced tool "
@@ -119,34 +112,6 @@ _TOOL_SOURCE_METHODS = (
 #: How the first model call of a planning turn without a draft uses ``write_todos``.
 PlanningToolChoice: TypeAlias = Literal["auto", "required"]
 _PLANNING_TOOL_CHOICES: tuple[PlanningToolChoice, ...] = ("auto", "required")
-
-
-def build_context_summary_omission_note(omitted_count: int) -> str:
-    """Return the user text saying how many of the oldest messages a summary request left out.
-
-    Args:
-        omitted_count: Messages left out, at least 1.
-
-    Returns:
-        ``[Dex] <n> earlier messages did not fit in this request and are left
-        out.``, or ``[Dex] 1 earlier message did not fit in this request and is
-        left out.`` for one message.
-    """
-    if omitted_count == 1:
-        return "[Dex] 1 earlier message did not fit in this request and is left out."
-    return f"[Dex] {omitted_count} earlier messages did not fit in this request and are left out."
-
-
-def build_context_summary_note(summary: ContextSummary) -> str:
-    """Return the user text that puts a summary before the newer messages in a model input.
-
-    Args:
-        summary: The session's summary.
-
-    Returns:
-        ``CONTEXT_SUMMARY_NOTE_HEADER``, a newline, and the summary text.
-    """
-    return f"{CONTEXT_SUMMARY_NOTE_HEADER}\n{summary.text}"
 
 
 @dataclass(frozen=True, kw_only=True)

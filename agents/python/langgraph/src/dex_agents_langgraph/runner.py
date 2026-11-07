@@ -20,10 +20,13 @@ from typing import Any, TypeAlias
 from uuid import UUID, uuid4
 
 from dex_agents import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
     AgentFrameworkRunner,
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
+    ContextSummaryRequest,
+    ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
@@ -32,10 +35,23 @@ from dex_agents import (
     ToolExecutionError,
     ToolExecutionResult,
     TurnCompleted,
+    build_context_summary_note,
+    build_context_summary_prompt,
     describe_tool_call_outcome,
+    estimate_stored_input_tokens,
+    estimate_text_tokens,
+    select_turn_boundary_cutoff,
 )
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolCall,
+    ToolMessage,
+)
 from langchain_core.outputs import LLMResult
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, ToolException
@@ -138,6 +154,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
     The runner keeps no session state between calls. It builds the graph from
     a factory once, on first use, and shares it across sessions.
 
+    The runner implements ``ContextCompactionRunner``. With a ``summary_model``
+    and ``AgentSessionOptions.compaction``, the session compacts at turn
+    boundaries: the summary enters as the first message of the graph input. A
+    resumed model call restores a checkpoint that already holds its input, so
+    it never compacts. Without a policy nothing changes.
+
     Example:
         >>> runner = LangGraphAgentRunner(agent)
         >>> flow = AgentSessionFlow(
@@ -156,6 +178,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
         tools: Sequence[BaseTool] = (),
         messages_key: str = "messages",
         checkpoint_serializer: SerializerProtocol | None = None,
+        summary_model: BaseChatModel | None = None,
     ) -> None:
         """Create a runner for one compiled graph.
 
@@ -177,6 +200,12 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
                 and the stored run state, such as an
                 ``EncryptedSerializer``. ``None`` uses LangGraph's default
                 ``JsonPlusSerializer``. Every Worker must use the same one.
+            summary_model: Chat model of the ``CompactContext`` summary call.
+                A compiled graph does not expose its model, so compaction
+                needs this. ``None``, the default, makes every summary call
+                fail.
+
+                .. versionadded:: 0.3.0
 
         Raises:
             TypeError: If ``graph`` is neither a compiled graph nor callable.
@@ -190,6 +219,7 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
         self._explicit_tools = {tool.name: tool for tool in tools}
         self._messages_key = messages_key
         self._checkpoint_serializer = checkpoint_serializer
+        self._summary_model = summary_model
         self._graph_load_lock = asyncio.Lock()
         self._loaded_graph = (
             _inspect_compiled_graph(graph, messages_key, self._explicit_tools)
@@ -234,6 +264,11 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
         """
         loaded_graph = await self._load_graph()
         history = framework_messages_to_langchain_messages(turn.messages)
+        if turn.context_summary is not None:
+            # A fixed ID keeps the summary out of the turn's new messages, resumed calls too.
+            summary_message_id = f"dex-context-summary-{turn.context_summary.generation}"
+            note = build_context_summary_note(turn.context_summary)
+            history.insert(0, HumanMessage(content=note, id=summary_message_id))
         saver = TurnCheckpointSaver(serde=self._checkpoint_serializer)
         graph = loaded_graph.graph.copy(update={"checkpointer": saver})
         turn_callbacks = _TurnCallbackHandler()
@@ -288,6 +323,96 @@ class LangGraphAgentRunner(AgentFrameworkRunner):
             new_messages=self._new_turn_messages(snapshot, history),
             usage=usage,
             model_call_metadata=model_call_metadata,
+        )
+
+    @property
+    def summary_model(self) -> BaseChatModel | None:
+        """Return the chat model that writes a ``ContextSummary``.
+
+        .. versionadded:: 0.3.0
+
+        Returns:
+            The constructor's ``summary_model``, or ``None``.
+        """
+        return self._summary_model
+
+    def estimate_input_tokens(self, turn: AgentTurnContext) -> int:
+        """Estimate the next model input from the stored messages and the known tools.
+
+        The graph builds the request, and a compiled graph does not expose its
+        system prompt or middleware. This counts every stored message as
+        stored, the summary, the checkpoint of a resumed call, and the
+        definitions of the tools the runner knows once the graph is loaded.
+        Cover the system prompt with ``CompactionPolicy.reserved_input_tokens``.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            turn: The context of the next model call.
+
+        Returns:
+            The estimated input tokens, from ``estimate_text_tokens``.
+        """
+        tools = (
+            self._explicit_tools if self._loaded_graph is None else self._loaded_graph.tools_by_name
+        )
+        tool_tokens = sum(
+            estimate_text_tokens(f"{tool.name} {tool.description} {json.dumps(tool.args)}")
+            for tool in tools.values()
+        )
+        return estimate_stored_input_tokens(turn, fixed_input_tokens=tool_tokens)
+
+    def select_compaction_cutoff(
+        self, turn: AgentTurnContext, retained_token_budget: int
+    ) -> int | None:
+        """Choose the last message to summarize, at a boundary between turns.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            turn: The context of the model call that crossed the threshold.
+            retained_token_budget: Tokens that the kept messages may use.
+
+        Returns:
+            What ``select_turn_boundary_cutoff`` returns.
+        """
+        return select_turn_boundary_cutoff(turn, retained_token_budget)
+
+    async def summarize_context(self, request: ContextSummaryRequest) -> ContextSummaryResult:
+        """Write a new summary with one call of ``summary_model``, outside the graph.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            request: The previous summary and the messages to summarize.
+
+        Returns:
+            The summary text and the usage of the call.
+
+        Raises:
+            ValueError: If the runner has no ``summary_model``, or the model
+                returned no text.
+            Exception: Any error of the chat model fails the attempt.
+        """
+        if self._summary_model is None:
+            raise ValueError("compaction needs LangGraphAgentRunner(summary_model=...)")
+        response = await self._summary_model.ainvoke(
+            [
+                SystemMessage(content=CONTEXT_SUMMARY_INSTRUCTIONS),
+                HumanMessage(content=build_context_summary_prompt(request)),
+            ]
+        )
+        if not isinstance(response, AIMessage) or not response.text.strip():
+            raise ValueError("the summary model call returned no text")
+        metadata = response.response_metadata
+        return ContextSummaryResult(
+            text=response.text.strip(),
+            usage=_model_call_usage(response),
+            model_call_metadata=ModelCallMetadata(
+                response_model=_metadata_text(metadata, "model_name"),
+                provider_name=_gen_ai_provider_name(_metadata_text(metadata, "model_provider")),
+                response_id=_metadata_text(metadata, "id"),
+            ),
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:

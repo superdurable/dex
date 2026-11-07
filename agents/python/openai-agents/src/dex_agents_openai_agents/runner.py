@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import dataclasses
 import json
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
@@ -20,7 +21,10 @@ from typing import Any
 
 from agents import (
     Agent,
+    FunctionTool,
+    Handoff,
     ItemHelpers,
+    Model,
     RunConfig,
     RunContextWrapper,
     RunHooks,
@@ -38,10 +42,14 @@ from openai.types.responses import ResponseFunctionToolCall
 from pydantic import ValidationError
 
 from dex_agents import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
     AgentFrameworkRunner,
+    AgentMessage,
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
+    ContextSummaryRequest,
+    ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
@@ -53,7 +61,13 @@ from dex_agents import (
     ToolExecutionResult,
     ToolPolicy,
     TurnCompleted,
+    build_context_summary_note,
+    build_context_summary_prompt,
+    describe_stored_message,
     describe_tool_call_outcome,
+    estimate_stored_input_tokens,
+    estimate_text_tokens,
+    select_turn_boundary_cutoff,
 )
 from dex_agents_openai_agents._agent_graph import (
     ACTIVE_TURN,
@@ -68,6 +82,8 @@ from dex_agents_openai_agents._items import (
     read_input_items,
 )
 from dex_agents_openai_agents._streaming import forward_stream_events
+
+_OPAQUE_ITEM_TYPES = frozenset({"reasoning", "compaction"})
 
 _ACTIVE_DEFERRED_TOOL_EXECUTION: ContextVar[DeferredToolExecution | None] = ContextVar(
     "dex_openai_agents_active_deferred_tool_execution", default=None
@@ -128,6 +144,12 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
     such as ``Agent.mcp_servers`` tools and local non-function tools, are
     refused unless ``allow_at_least_once_tools`` is ``True``.
 
+    The runner implements ``ContextCompactionRunner``. Set
+    ``AgentSessionOptions.compaction`` to compact at turn boundaries: the summary
+    enters as the first input item of a turn's first model call. A resumed model
+    call continues from the ``RunState``, which holds its input already, so it
+    never compacts. Without a policy nothing changes.
+
     The runner is stateless between calls and safe to share across concurrent
     sessions and parallel tool call Steps in one Worker.
 
@@ -150,6 +172,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         max_turns: int | None = DEFAULT_MAX_TURNS,
         hooks: RunHooks[Any] | None = None,
         allow_at_least_once_tools: bool = False,
+        summary_model: str | Model | None = None,
     ) -> None:
         """Copy the agent graph and keep the run settings for every model call.
 
@@ -177,6 +200,10 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
                 They run again when ``RunModel`` retries, and a ``RunModel`` that
                 runs one also makes the next model call. Defaults to ``False``,
                 which raises ``ValueError`` for them.
+            summary_model: Model of the ``CompactContext`` summary call. ``None``
+                uses the model of the run config, else of the starting agent.
+
+                .. versionadded:: 0.3.0
 
         Raises:
             TypeError: If ``context`` is a ``RunContextWrapper``. Pass the
@@ -196,7 +223,9 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         self._run_config = run_config
         self._max_turns = max_turns
         self._hooks = hooks
+        self._summary_model = summary_model
         self._graph_request_model = _shared_request_model(run_config, self._graph.agents)
+        self._fixed_input_tokens: int | None = None
 
     @property
     def agent(self) -> Agent[Any]:
@@ -274,7 +303,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         try:
             run_input: list[Any] | RunState[Any, Agent[Any]]
             if turn.framework_run_state is None:
-                run_input = read_input_items(turn.messages)
+                run_input = _turn_input_items(turn)
             else:
                 run_input = await self._restore_run_state(turn, turn.framework_run_state)
             result = Runner.run_streamed(
@@ -299,6 +328,98 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
             new_messages=project_input_items(turn.messages, new_items),
             usage=usage,
             model_call_metadata=model_call_metadata,
+        )
+
+    def estimate_input_tokens(self, turn: AgentTurnContext) -> int:
+        """Estimate the next model input from the stored items and the agents' prompts.
+
+        The SDK builds the request, so this counts every stored item as stored,
+        the summary, the ``RunState`` of a resumed call, and the largest prompt
+        of the agent graph: static instructions and the definitions of its
+        function tools and handoffs. Dynamic instructions and tools listed at
+        run time are not visible here; cover them with
+        ``CompactionPolicy.reserved_input_tokens``.
+
+        Args:
+            turn: The context of the next model call.
+
+        Returns:
+            The estimated input tokens, from ``estimate_text_tokens``.
+        """
+        if self._fixed_input_tokens is None:
+            # One agent runs each model call; the graph is copied, so this never changes.
+            self._fixed_input_tokens = max(map(_estimate_agent_prompt_tokens, self._graph.agents))
+        return estimate_stored_input_tokens(turn, fixed_input_tokens=self._fixed_input_tokens)
+
+    def select_compaction_cutoff(
+        self, turn: AgentTurnContext, retained_token_budget: int
+    ) -> int | None:
+        """Choose the last message to summarize, at a boundary between turns.
+
+        A resumed model call restores a ``RunState`` that holds its input, so
+        the summary could not replace it. The session then compacts at the
+        next turn.
+
+        Args:
+            turn: The context of the model call that crossed the threshold.
+            retained_token_budget: Tokens that the kept messages may use.
+
+        Returns:
+            What ``select_turn_boundary_cutoff`` returns.
+        """
+        return select_turn_boundary_cutoff(turn, retained_token_budget)
+
+    async def summarize_context(self, request: ContextSummaryRequest) -> ContextSummaryResult:
+        """Write a new summary with one model call of a tool-less agent.
+
+        The call uses ``summary_model``, or the model of the run config, else
+        of the starting agent, with the starting agent's model settings. It has
+        no tools, handoffs, or guardrails. Its text is not written to
+        ``AgentEvents``, and encrypted items, which no model can read as text,
+        are left out of the prompt.
+
+        Args:
+            request: The previous summary and the messages to summarize.
+
+        Returns:
+            The summary text and the usage of the call.
+
+        Raises:
+            ValueError: If the model returned no text.
+            Exception: Any SDK or model error fails the ``CompactContext`` attempt.
+        """
+        starting_agent = self._graph.starting_agent
+        run_config = self._run_config or RunConfig()
+        run_config = dataclasses.replace(
+            run_config,
+            input_guardrails=None,
+            output_guardrails=None,
+            model=self._summary_model or run_config.model,
+        )
+        summary_agent = Agent[Any](
+            name=f"{starting_agent.name} summary",
+            instructions=CONTEXT_SUMMARY_INSTRUCTIONS,
+            model=starting_agent.model,
+            model_settings=dataclasses.replace(
+                starting_agent.model_settings, tool_choice=None, parallel_tool_calls=None
+            ),
+        )
+        result = await Runner.run(
+            summary_agent,
+            build_context_summary_prompt(request, describe_message=_describe_for_summary),
+            max_turns=1,
+            run_config=run_config,
+        )
+        text = str(result.final_output or "").strip()
+        if not text:
+            raise ValueError("the summary model call returned no text")
+        usage = _segment_usage(result.context_wrapper.usage, Usage())
+        return ContextSummaryResult(
+            text=text,
+            usage=usage,
+            model_call_metadata=ModelCallMetadata(
+                request_model=_request_model(run_config, summary_agent)
+            ),
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -435,6 +556,43 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
+
+
+def _turn_input_items(turn: AgentTurnContext) -> list[Any]:
+    items = read_input_items(turn.messages)
+    if turn.context_summary is not None:
+        note = build_context_summary_note(turn.context_summary)
+        items.insert(0, build_user_input_item(note))
+    return items
+
+
+def _describe_for_summary(message: AgentMessage) -> str | None:
+    # Reasoning and server compaction items are encrypted for the provider, not text.
+    if message.role is MessageRole.ASSISTANT and message.text is None:
+        if json.loads(message.framework_item).get("type") in _OPAQUE_ITEM_TYPES:
+            return None
+    return describe_stored_message(message)
+
+
+def _estimate_agent_prompt_tokens(agent: Agent[Any]) -> int:
+    parts: list[str] = []
+    if isinstance(agent.instructions, str):
+        parts.append(agent.instructions)
+    if agent.handoff_description:
+        parts.append(agent.handoff_description)
+    for tool in agent.tools:
+        if isinstance(tool, FunctionTool):
+            schema = json.dumps(tool.params_json_schema, default=str)
+            parts.extend((tool.name, tool.description, schema))
+        else:
+            parts.append(repr(tool))
+    for target in agent.handoffs:
+        if isinstance(target, Handoff):
+            schema = json.dumps(target.input_json_schema, default=str)
+            parts.extend((target.tool_name, target.tool_description, schema))
+        else:
+            parts.extend((target.name, target.handoff_description or ""))
+    return sum(map(estimate_text_tokens, parts))
 
 
 def _validate_tool_arguments(tool: DeferrableFunctionTool, arguments: str) -> None:

@@ -18,6 +18,7 @@ from datetime import timedelta
 from typing import Any, Generic, TypeVar
 
 from pydantic_ai import (
+    Agent,
     AgentRunResult,
     DeferredToolRequests,
     DeferredToolResults,
@@ -33,6 +34,7 @@ from pydantic_ai import (
     ToolReturn,
     ToolReturnPart,
     UnexpectedModelBehavior,
+    UserPromptPart,
 )
 from pydantic_ai.agent import AbstractAgent, WrapperAgent
 from pydantic_ai.capabilities import ReinjectSystemPrompt
@@ -41,7 +43,9 @@ from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.output import OutputSpec
 
 from dex_agents import (
+    CONTEXT_SUMMARY_INSTRUCTIONS,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
+    DEFAULT_RETAINED_MESSAGE_LIMIT,
     AgentFrameworkRunner,
     AgentSessionFlow,
     AgentSessionOptions,
@@ -50,9 +54,13 @@ from dex_agents import (
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
+    CompactionPolicy,
+    ContextSummaryRequest,
+    ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
     FrameworkMessage,
+    ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
     ToolEffect,
@@ -60,7 +68,12 @@ from dex_agents import (
     ToolExecutionResult,
     ToolPolicy,
     TurnCompleted,
+    build_context_summary_note,
+    build_context_summary_prompt,
     describe_tool_call_outcome,
+    estimate_stored_input_tokens,
+    estimate_text_tokens,
+    select_turn_boundary_cutoff,
 )
 from dex_agents_pydantic_ai._capability import DexModelStepCapability, DexToolStepCapability
 from dex_agents_pydantic_ai._history import (
@@ -130,6 +143,11 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
     dependencies, and toolset lifecycles such as MCP connections all apply.
     The model is not called in a tool Step.
 
+    The runner implements ``ContextCompactionRunner``. Set
+    ``AgentSessionOptions.compaction`` to compact at turn boundaries: the
+    summary enters as the first ``ModelRequest`` of ``message_history``. Without
+    a policy nothing changes.
+
     Example:
         >>> runner = PydanticAIRunner(support_agent, deps_factory=lambda session_id: deps)
         >>> flow = AgentSessionFlow(runner, flow_type="SupportAgent",
@@ -145,6 +163,7 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
         *,
         deps_factory: Callable[[str], AgentDepsT] | None = None,
         model: Model | KnownModelName | str | None = None,
+        summary_model: Model | KnownModelName | str | None = None,
     ) -> None:
         """Create a runner for one agent.
 
@@ -163,6 +182,10 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
                 deps.
             model: Model for every run, overriding the agent's default model.
                 ``None`` uses the agent's model.
+            summary_model: Model of the ``CompactContext`` summary call.
+                ``None`` uses ``model``, else the agent's model.
+
+                .. versionadded:: 0.3.0
 
         Raises:
             ValueError: If the agent has output validators and its
@@ -173,6 +196,7 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
         self._agent = agent
         self._deps_factory = deps_factory
         self._model = model
+        self._summary_model = summary_model
         self._run_output_type = _run_output_type_with_deferred_tool_requests(agent)
 
     @property
@@ -217,6 +241,9 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
                 ran, such as one dropped beside a final result.
         """
         prior_history = rebuild_earlier_turn_history(turn.messages, turn.turn_id)
+        if turn.context_summary is not None:
+            note = build_context_summary_note(turn.context_summary)
+            prior_history.insert(0, ModelRequest(parts=[UserPromptPart(note)]))
         user_prompt = read_turn_user_prompt(turn.messages, turn.turn_id)
         capability = DexModelStepCapability(turn=turn)
         earlier_turn_messages: Sequence[ModelMessage] = ()
@@ -258,6 +285,97 @@ class PydanticAIRunner(AgentFrameworkRunner, Generic[AgentDepsT]):
             new_messages=build_turn_messages(turn_messages, user_prompt),
             usage=usage,
             model_call_metadata=capability.model_call_metadata(),
+        )
+
+    @property
+    def summary_model(self) -> Model | KnownModelName | str | None:
+        """Return the model that writes a ``ContextSummary``.
+
+        .. versionadded:: 0.3.0
+
+        Returns:
+            ``summary_model``, else ``model``, else the agent's model; ``None``
+            when none is set, so compaction cannot run.
+        """
+        return self._summary_model or self._model or self._agent.model
+
+    def estimate_input_tokens(self, turn: AgentTurnContext) -> int:
+        """Estimate the next model input from the stored messages and the agent's prompt.
+
+        Pydantic AI builds the request, so this counts every stored message as
+        stored, the summary, the run state of a resumed call, and the agent's
+        static system prompts, instructions, and function tool definitions.
+        Dynamic instructions and tools of other toolsets, such as MCP servers,
+        are not visible here; cover them with
+        ``CompactionPolicy.reserved_input_tokens``.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            turn: The context of the next model call.
+
+        Returns:
+            The estimated input tokens, from ``estimate_text_tokens``.
+        """
+        return estimate_stored_input_tokens(
+            turn, fixed_input_tokens=_estimate_agent_prompt_tokens(self._agent)
+        )
+
+    def select_compaction_cutoff(
+        self, turn: AgentTurnContext, retained_token_budget: int
+    ) -> int | None:
+        """Choose the last message to summarize, at a boundary between turns.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            turn: The context of the model call that crossed the threshold.
+            retained_token_budget: Tokens that the kept messages may use.
+
+        Returns:
+            What ``select_turn_boundary_cutoff`` returns.
+        """
+        return select_turn_boundary_cutoff(turn, retained_token_budget)
+
+    async def summarize_context(self, request: ContextSummaryRequest) -> ContextSummaryResult:
+        """Write a new summary with one call of a tool-less agent on ``summary_model``.
+
+        The summary agent has ``CONTEXT_SUMMARY_INSTRUCTIONS``, the agent's
+        model settings, no tools, and plain text output.
+
+        .. versionadded:: 0.3.0
+
+        Args:
+            request: The previous summary and the messages to summarize.
+
+        Returns:
+            The summary text and the usage of the call.
+
+        Raises:
+            ValueError: If no model is set, or the model returned no text.
+            Exception: Any model or Pydantic AI error fails the attempt.
+        """
+        model = self.summary_model
+        if model is None:
+            raise ValueError("compaction needs a model: pass summary_model or model")
+        summary_agent = Agent(
+            model,
+            instructions=CONTEXT_SUMMARY_INSTRUCTIONS,
+            model_settings=self._agent.model_settings
+            if isinstance(self._agent, Agent) and isinstance(self._agent.model_settings, dict)
+            else None,
+        )
+        result = await summary_agent.run(build_context_summary_prompt(request))
+        text = result.output.strip()
+        if not text:
+            raise ValueError("the summary model call returned no text")
+        response = result.response
+        return ContextSummaryResult(
+            text=text,
+            usage=_agent_usage(result.usage),
+            model_call_metadata=ModelCallMetadata(
+                request_model=response.model_name, response_id=response.provider_response_id
+            ),
         )
 
     async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
@@ -369,6 +487,9 @@ def pydantic_ai_session_flow(
     tracing: AgentTracingOptions | None = None,
     deps_factory: Callable[[str], AgentDepsT] | None = None,
     model: Model | KnownModelName | str | None = None,
+    compaction: CompactionPolicy | None = None,
+    retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT,
+    summary_model: Model | KnownModelName | str | None = None,
 ) -> AgentSessionFlow:
     """Build the durable agent session Flow for one Pydantic AI agent.
 
@@ -423,17 +544,35 @@ def pydantic_ai_session_flow(
             the Worker, before every model Step and tool Step. ``None`` passes
             ``None``.
         model: Model for every run instead of the agent's default model.
+        compaction: When to summarize earlier turns so the model input fits the
+            context window. ``None``, the default, never compacts. See
+            ``AgentSessionOptions.compaction``.
+
+            .. versionadded:: 0.3.0
+        retained_message_limit: With ``compaction``, how many stored messages
+            retention keeps. See ``AgentSessionOptions.retained_message_limit``.
+
+            .. versionadded:: 0.3.0
+        summary_model: Model of the summary call. ``None`` uses ``model``, else
+            the agent's model.
+
+            .. versionadded:: 0.3.0
 
     Returns:
         An ``AgentSessionFlow`` backed by a ``PydanticAIRunner``.
 
     Raises:
-        ValueError: If ``flow_type`` is blank, an option is not positive, or
-            the agent has output validators without ``DeferredToolRequests`` in
-            its ``output_type``.
+        ValueError: If ``flow_type`` is blank, an option is not positive, the
+            agent has output validators without ``DeferredToolRequests`` in
+            its ``output_type``, or ``compaction`` is set and no model is.
     """
+    runner = PydanticAIRunner(
+        agent, deps_factory=deps_factory, model=model, summary_model=summary_model
+    )
+    if compaction is not None and runner.summary_model is None:
+        raise ValueError("compaction needs a model: pass summary_model or model")
     return AgentSessionFlow(
-        PydanticAIRunner(agent, deps_factory=deps_factory, model=model),
+        runner,
         flow_type=flow_type,
         options=AgentSessionOptions(
             tool_policies=tool_policies or {},
@@ -441,8 +580,36 @@ def pydantic_ai_session_flow(
             event_stream_capacity_bytes=event_stream_capacity_bytes,
             tracing=AgentTracingOptions() if tracing is None else tracing,
             interrupt_deadline=interrupt_deadline,
+            compaction=compaction,
+            retained_message_limit=retained_message_limit,
         ),
     )
+
+
+def _estimate_agent_prompt_tokens(agent: AbstractAgent[Any, Any]) -> int:
+    wrapped_agent = agent
+    while isinstance(wrapped_agent, WrapperAgent):
+        wrapped_agent = wrapped_agent.wrapped
+    # Pydantic AI exposes no public accessor for static prompts.
+    parts = [str(prompt) for prompt in getattr(wrapped_agent, "_system_prompts", ())]
+    for instruction in getattr(wrapped_agent, "_instructions", ()):
+        text = getattr(instruction, "instruction", None)
+        if isinstance(text, str):
+            parts.append(text)
+    for toolset in agent.toolsets:
+        tools = getattr(toolset, "tools", None)
+        # Only a FunctionToolset lists its tools; MCP servers list theirs at run time.
+        for tool in tools.values() if isinstance(tools, Mapping) else ():
+            definition = getattr(tool, "tool_def", None)
+            if definition is not None:
+                parts.extend(
+                    (
+                        definition.name,
+                        definition.description or "",
+                        json.dumps(definition.parameters_json_schema),
+                    )
+                )
+    return sum(map(estimate_text_tokens, parts))
 
 
 def _run_output_type_with_deferred_tool_requests(

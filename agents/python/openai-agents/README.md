@@ -209,6 +209,27 @@ so the next turn's model sees which calls already ran.
   `ModelResponse` carries no provider, response model, or finish reason, and a
   Chat Completions model echoes its request name as the response's model.
 
+## Compaction
+
+Since 0.3.0 the runner can compact a session that would outgrow the model's
+context window. Pass `compaction=CompactionPolicy(context_window_tokens=...)` to `openai_agents_session_flow`, and optionally `summary_model`; the summary call uses the run config's model, else the starting agent's. Without a policy nothing changes, and a session
+started before the upgrade starts compacting once its Worker has one.
+
+- It compacts only between turns, before the first model call of a turn. A
+  model call that continues a turn after its tool calls does not compact, so
+  one turn's growth must fit in the rest of the window. Lower the trigger
+  ratio when a turn can add more than about 15 percent of the window.
+- The summary enters the model input as a user message before the kept turns.
+  It is never stored as a message, and every message stays readable until
+  retention deletes it behind the summary.
+- The estimate counts three bytes of each stored message as one token, plus
+  the instructions and tool definitions the runner can see. Set the policy's
+  reserved input tokens for the rest, such as dynamic instructions.
+- The summary call gets the earlier turns as plain text, without tools.
+- Responses API compaction items and `truncation` change only the provider's input. Dex stores every item either way and owns the record; use one of the two. Encrypted reasoning and compaction items are left out of the summary prompt.
+
+See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+
 ## Limits
 
 - Tools the SDK runs itself cannot be gated, so the runner refuses them by
@@ -257,8 +278,8 @@ so the next turn's model sees which calls already ran.
   `openai-agents` 0.24: `evaluate_function_tool_approval`, `get_public_agent`,
   the handoff target reference, the handled-failure flag on `ToolContext`, and
   the nested agent tool result store.
-- The core's limits apply: history is never compacted, and every call adds a
-  Step round trip.
+- The core's limits apply: every call adds a Step round trip. See
+  [Compaction](#compaction) for long sessions.
 - `steer_user_message` and `cancel_turn` work as the
   [core describes](https://github.com/superdurable/dex/blob/main/agents/python/core/README.md#steering-and-turn-cancellation).
   The runner has no `build_unfinished_turn_messages`, so after either one the

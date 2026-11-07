@@ -48,6 +48,7 @@ from dex_agents import (
     APPROVAL_DEADLINE_PASSED,
     BLANK_TOOL_TASK_ID,
     BUILT_IN_TOOL_DEFINITIONS,
+    CONTEXT_SUMMARY_TRANSCRIPT_HEADER,
     DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     DEFAULT_MAX_DURABLE_WAIT,
     DEFAULT_MESSAGE_CHUNK_MAX_BYTES,
@@ -100,6 +101,7 @@ from dex_agents import (
     CancelTurnRequest,
     CompactContextInput,
     ContextSummary,
+    ContextSummaryRequest,
     DeleteQueuedMessageRequest,
     ExecutePlanRequest,
     InteractionMode,
@@ -126,6 +128,7 @@ from dex_agents import (
     TurnReplySequence,
     TurnSessionSettings,
     UpdateSessionSettingsRequest,
+    build_context_summary_prompt,
     build_plan_execution_message,
     build_plan_note,
     build_turn_failure_note,
@@ -523,6 +526,51 @@ def full_summary() -> ContextSummary:
         text="The user asked about order 7.\nIt shipped.",
         created_at=LATER,
     )
+
+
+def summary_prompt_cases() -> list[tuple[ContextSummary | None, list[AgentMessage], int | None]]:
+    """Return adapter summary prompts: whole, oldest left out, and one message shortened."""
+    multi_call = AgentMessage(
+        sequence=3,
+        turn_id="turn-1",
+        role=MessageRole.ASSISTANT,
+        framework_item='{"type":"response","calls":["a","b"],"note":"日本語 ☕"}',
+        created_at=CREATED_AT,
+    )
+    long_answer = AgentMessage(
+        sequence=8,
+        turn_id="turn-3",
+        role=MessageRole.ASSISTANT,
+        text="日本語 ☕ " + "x" * 4000,
+        framework_item='{"type":"message"}',
+        created_at=CREATED_AT,
+    )
+    messages = [user_message(), multi_call, tool_message()]
+    return [
+        (None, messages, None),
+        (full_summary(), messages, 220),
+        (None, [user_message(), long_answer], 600),
+    ]
+
+
+def summary_prompt_request(
+    previous: ContextSummary | None, messages: list[AgentMessage], budget: int | None
+) -> ContextSummaryRequest:
+    return ContextSummaryRequest(
+        flow_id="session-1",
+        turn_id="turn-4",
+        attempt=1,
+        previous_summary=previous,
+        messages=messages,
+        through_sequence=messages[-1].sequence,
+        events=AgentEventWriter(lambda event: None, "turn-4", 1),
+        heartbeat=_no_heartbeat,
+        input_token_budget=budget,
+    )
+
+
+async def _no_heartbeat() -> None:
+    return None
 
 
 def full_usage() -> AgentUsage:
@@ -1593,6 +1641,7 @@ def build_texts() -> dict[str, Any]:
         "stepwise_context_summary_note_header": CONTEXT_SUMMARY_NOTE_HEADER,
         "stepwise_context_summary_instructions": CONTEXT_SUMMARY_INSTRUCTIONS,
         "stepwise_context_summary_request": CONTEXT_SUMMARY_REQUEST,
+        "adapter_context_summary_transcript_header": CONTEXT_SUMMARY_TRANSCRIPT_HEADER,
     }
     templates: dict[str, list[dict[str, Any]]] = {
         "tool_call_outcome": [
@@ -1704,6 +1753,21 @@ def build_texts() -> dict[str, Any]:
                 "input": {"summary": json.loads(encode("ContextSummary", full_summary()))},
                 "text": build_context_summary_note(full_summary()),
             }
+        ],
+        "adapter_context_summary_prompt": [
+            {
+                "input": {
+                    "previous_summary": None
+                    if previous is None
+                    else json.loads(encode("ContextSummary", previous)),
+                    "messages": [json.loads(encode("AgentMessage", m)) for m in messages],
+                    "input_token_budget": budget,
+                },
+                "text": build_context_summary_prompt(
+                    summary_prompt_request(previous, messages, budget)
+                ),
+            }
+            for previous, messages, budget in summary_prompt_cases()
         ],
     }
     max_wait = int(DEFAULT_MAX_DURABLE_WAIT.total_seconds())

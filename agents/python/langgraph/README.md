@@ -365,6 +365,27 @@ model and response that name each `chat` span, with an in-process Worker and
 an in-memory span exporter. Construction tests cover two tool nodes with one
 tool name.
 
+## Compaction
+
+Since 0.3.0 the runner can compact a session that would outgrow the model's
+context window. Pass `compaction=CompactionPolicy(context_window_tokens=...)` and `summary_model`, a chat model, to the session flow function. A compiled graph does not expose its model or system prompt, so the summary model is required and the system prompt belongs in the policy's `reserved_input_tokens`. The summary is the first message of the graph input, with the fixed ID `dex-context-summary-<generation>`. Without a policy nothing changes, and a session
+started before the upgrade starts compacting once its Worker has one.
+
+- It compacts only between turns, before the first model call of a turn. A
+  model call that continues a turn after its tool calls does not compact, so
+  one turn's growth must fit in the rest of the window. Lower the trigger
+  ratio when a turn can add more than about 15 percent of the window.
+- The summary enters the model input as a user message before the kept turns.
+  It is never stored as a message, and every message stays readable until
+  retention deletes it behind the summary.
+- The estimate counts three bytes of each stored message as one token, plus
+  the instructions and tool definitions the runner can see. Set the policy's
+  reserved input tokens for the rest, such as dynamic instructions.
+- The summary call gets the earlier turns as plain text, without tools.
+- Summarization middleware changes only the graph's message state. Dex stores only messages with new IDs and owns the record, so a middleware summary is stored as one more message. Use one of the two.
+
+See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+
 ## Limits
 
 - A graph whose nodes make several model calls before they reach a tool
@@ -383,7 +404,8 @@ tool name.
   `structured_response`, start from their defaults on every turn. Within one
   turn they survive, because they are in the checkpoint.
 - `FrameworkRunState` holds the graph checkpoint, including the replayed
-  history, while tool calls run. Very long sessions store a large value.
+  history, while tool calls run. Very long sessions store a large value;
+  [compaction](#compaction) bounds it to the summary and the kept turns.
 - Tools run outside the graph, so they cannot use `ToolRuntime`,
   `InjectedState`, or `InjectedStore`, and cannot return a graph `Command`.
   `InjectedToolCallId` works. A response artifact (`content_and_artifact`) is

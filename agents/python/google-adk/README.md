@@ -315,6 +315,33 @@ each turn's Step history with `dex_agents.testing.read_step_history`. A Worker
 child runs in its own process group, so a test can SIGKILL it during
 `RunModel` or a tool Step.
 
+## Compaction
+
+Since 0.3.0 the runner can compact a session that would outgrow the model's
+context window. Pass `compaction=CompactionPolicy(context_window_tokens=...)` to `adk_agent_session_flow`, and optionally `summary_model`; the summary call uses the model of the first `LlmAgent` of the tree. The summary replaces the summarized events in the rebuilt ADK session. Without a policy nothing changes, and a session
+started before the upgrade starts compacting once its Worker has one.
+
+- It compacts only between turns, before the first model call of a turn. A
+  model call that continues a turn after its tool calls does not compact, so
+  one turn's growth must fit in the rest of the window. Lower the trigger
+  ratio when a turn can add more than about 15 percent of the window.
+- The summary enters the model input as a user message before the kept turns.
+  It is never stored as a message, and every message stays readable until
+  retention deletes it behind the summary.
+- The estimate counts three bytes of each stored message as one token, plus
+  the instructions and tool definitions the runner can see. Set the policy's
+  reserved input tokens for the rest, such as dynamic instructions.
+- The summary call gets the earlier turns as plain text, without tools.
+- ADK's `EventsCompactionConfig` adds compaction events that ADK's own request builder reads. Dex stores them as events and owns the record; use one of the two.
+- The rebuilt session must not lose what the summarized events set. The
+  summary therefore ends with a line, `[Dex] ADK session state: {...}`, that
+  carries the session state and the agent that replied last. The runner
+  restores both and keeps that line out of the model input. A task-mode
+  sub-agent that waits for the user across turns blocks compaction until it
+  finishes, because ADK finds that task from its events.
+
+See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+
 ## Limits
 
 - The App root must be a `BaseAgent`. ADK `Workflow` roots are not supported.
@@ -343,5 +370,5 @@ child runs in its own process group, so a test can SIGKILL it during
 - `app:` and `user:` state keys live in the Dex session, not across sessions.
 - The adapter never closes the agent's toolsets or plugins; the application
   owns them.
-- The core's limits apply: history is never compacted by Dex, and each model
-  call and tool call adds a Step round trip.
+- The core's limits apply: each model call and tool call adds a Step round
+  trip. See [Compaction](#compaction) for long sessions.

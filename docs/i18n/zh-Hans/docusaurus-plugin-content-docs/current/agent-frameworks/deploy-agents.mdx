@@ -231,11 +231,30 @@ session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 
 
 压缩从 agents 0.2.0 包开始提供，用来让模型输入保持在上下文窗口之内。在
 **AgentSessionOptions** 中，或者在 Stepwise agent 的定义中设置 **compaction**，并给出模型的
-上下文窗口 token 数。runner 必须支持压缩；Stepwise 支持，framework adapter 目前还不支持。
+上下文窗口 token 数。runner 必须支持压缩。Stepwise 支持。从 agents 0.3.0 包开始，OpenAI Agents
+SDK、Pydantic AI、LangChain 与 LangGraph、Google ADK、Vercel AI SDK 和 Mastra 的 adapter 也支持。
 当一次模型调用的输入将达到窗口的 85% 时，session 会先运行一个 **CompactContext** Step。它用
 一次模型调用把较早的消息折叠成一份摘要，下一次模型调用收到的是这份摘要和最新的消息。如果
-较早的消息放不进窗口，Stepwise 会在摘要调用中略去其中最早的部分，并告诉模型。一个包含很多
-tool call 的长轮次会在轮次中途压缩。
+较早的消息放不进窗口，runner 会在摘要调用中略去其中最早的部分，并告诉模型。使用 Stepwise 时，
+一个包含很多 tool call 的长轮次会在轮次中途压缩。
+
+framework adapter 的压缩方式不同，因为模型输入由框架构建：
+
+- **只在轮次之间压缩。** adapter 在一个轮次的第一次模型调用之前压缩，从不摘要正在运行的轮次。
+  tool call 之后继续同一轮次的模型调用不会压缩，所以一个轮次新增的内容必须放得进窗口剩余的部分。
+  如果一个轮次可能新增超过窗口约 15% 的内容，请调低 **trigger_ratio**（**triggerRatio**）。
+- **偏高的估算。** adapter 把每条已保存消息的 3 个字节算作一个 token，这比提供方对英文文本的计数更多。
+  它还会加上自己能看到的 instructions 和工具定义。对它看不到的部分，例如已编译 LangGraph 图中的
+  system prompt、动态 instructions 或 MCP 工具，请在策略中设置
+  **reserved_input_tokens**（**reservedInputTokens**）。
+- **不带工具的摘要调用。** 摘要调用以纯文本接收较早的轮次，并使用 agent 的模型，除非你传入摘要模型。
+  LangGraph 必须传入，因为已编译的图不暴露它的模型。
+- **记录保存在 Dex 中。** 框架自带的压缩，例如摘要 middleware 或提供方侧的压缩，只改变该框架的模型输入。
+  无论如何 Dex 都保存每条消息，并且只有 Dex 的摘要能让 retention 删除消息。两者选用其一。使用 Google ADK
+  时，摘要还会保留 session state 和最后回复的 agent。
+- **Claude Agent SDK 不支持。** Claude Code 在 CLI 内部压缩自己的 transcript。adapter 保存每条
+  transcript 记录，包括 Claude Code 的压缩记录，并且不接受压缩策略。它保存的消息没有 Dex 摘要，
+  所以 retention 从不删除它们。
 
 只有在该 Flow 类型的每个 Worker 都运行带有 **CompactContext** Step 的版本之后，才启用压缩。
 读取 session 快照的客户端也需要 agents 0.2.0：0.1.0 客户端无法读取压缩期间快照中的

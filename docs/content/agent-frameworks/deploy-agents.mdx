@@ -306,13 +306,43 @@ Compaction, from the agents 0.2.0 packages, keeps the model input under the
 context window. Set
 **compaction** in **AgentSessionOptions**, or in the agent definition of a
 Stepwise agent, with the model's context window in tokens. The runner must
-support compaction; Stepwise does, and the framework adapters do not yet.
+support compaction. Stepwise does. From the agents 0.3.0 packages, so do the
+adapters for the OpenAI Agents SDK, Pydantic AI, LangChain and LangGraph,
+Google ADK, the Vercel AI SDK, and Mastra.
 Before a model call whose input would reach 85 percent of the window, the
 session runs a **CompactContext** Step instead. It makes one model call that
 folds the earlier messages into a summary, and the next model call receives the
 summary and the newest messages. When the earlier messages do not fit in the
-window, Stepwise leaves the oldest of them out of the summary call and tells the
-model so. A long turn with many tool calls compacts in the middle of the turn.
+window, the runner leaves the oldest of them out of the summary call and tells the
+model so. With Stepwise, a long turn with many tool calls compacts in the middle
+of the turn.
+
+A framework adapter compacts differently, because the framework builds the
+model input:
+
+- **Only between turns.** The adapter compacts before the first model call of a
+  turn, and never summarizes the running turn. A model call that continues a
+  turn after its tool calls does not compact, so one turn's growth must fit in
+  the rest of the window. Lower **trigger_ratio** (**triggerRatio**) when a turn
+  can add more than about 15 percent of the window.
+- **An estimate that errs high.** The adapter counts three bytes of each stored
+  message as one token, which is more than a provider counts for English text.
+  It adds the instructions and tool definitions it can see. Set
+  **reserved_input_tokens** (**reservedInputTokens**) in the policy for what it
+  cannot see, such as the system prompt of a compiled LangGraph graph, dynamic
+  instructions, or MCP tools.
+- **A summary call without tools.** The summary call receives the earlier turns
+  as plain text and uses the agent's model, unless you pass a summary model.
+  LangGraph needs one, because a compiled graph does not expose its model.
+- **The record stays in Dex.** A framework's own compaction, such as summarization
+  middleware or provider-side compaction, changes only that framework's model
+  input. Dex stores every message either way, and only a Dex summary lets
+  retention delete messages. Use one of the two. With Google ADK, the summary
+  also keeps the session state and the agent that replied last.
+- **Not the Claude Agent SDK.** Claude Code compacts its own transcript inside
+  the CLI. The adapter stores every transcript entry, including Claude Code's
+  compaction entries, and takes no compaction policy. Its stored messages have
+  no Dex summary, so retention never deletes them.
 
 Enable compaction only after every Worker of the Flow type runs a release that
 has the **CompactContext** Step. The clients that read the session's snapshots

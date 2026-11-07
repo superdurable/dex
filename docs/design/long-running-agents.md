@@ -788,8 +788,10 @@ closed run is kept for 7 days by default.
 - **Compaction** (A7, #1194). Before a model call whose input would reach 85
   percent of the context window, `CompactContext` summarizes older messages
   into `ContextSummary`, as its own Step with one model call. The plan is never
-  summarized. A crash reruns only the summary call. Stepwise implements it. No
-  framework adapter does.
+  summarized. A crash reruns only the summary call. Stepwise implements it.
+  Since agents 0.3.0 the Python and TypeScript framework adapters do too, at
+  turn boundaries only, through the core's turn-boundary helpers; the Claude
+  Agent SDK adapter does not, because Claude Code compacts its own transcript.
 - **Chunked messages and retention** (#1221). The owner asked to bound Flow
   state in 0.2.0, because the layout is persisted and changing it later would
   mean reading two layouts for every Beta session. `AgentMessages` keeps a
@@ -803,8 +805,9 @@ closed run is kept for 7 days by default.
   `list_agent_messages`, and the guide tells applications that need the whole
   transcript to copy it out first.
 - **Retention needs a summary.** Retention never deletes a chunk that no
-  summary covers. Adapter sessions have no summary, so retention does not bound
-  their stored messages.
+  summary covers. An adapter session without a compaction policy, and every
+  Claude Agent SDK session, has no summary, so retention does not bound its
+  stored messages.
 - **Upgrade rule** (owner decision). Stop every 0.1.0 Worker of a Flow type
   before any 0.2.0 Worker starts. A 0.1.0 session migrates over several
   commits, a few chunks at a time.

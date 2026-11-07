@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { Agent, RunConfig } from "@openai/agents";
+import type { Agent, Model, RunConfig } from "@openai/agents";
 import {
   createAgentSessionFlow,
   type AgentSessionFlow,
@@ -56,6 +56,12 @@ export interface OpenAIAgentsSessionOptions<TContext = undefined> extends AgentS
    * To run an MCP write durably, call the server from a function tool instead.
    */
   readonly shouldRunMcpServerToolsInline?: boolean;
+  /**
+   * Model of the `CompactContext` summary call when {@link AgentSessionOptions.compaction} is set, as a model name
+   * or an SDK `Model`. Defaults to the run configuration's model, else the starting agent's.
+   * @since 0.3.0
+   */
+  readonly summaryModel?: string | Model;
 }
 
 /**
@@ -159,6 +165,7 @@ export function createOpenAIAgentsSessionFlow<TContext = undefined>(
     runConfig: options.runConfig ?? {},
     maxTurns: options.maxTurns,
     createContext: options.createContext,
+    summaryModel: options.summaryModel,
   });
   return createAgentSessionFlow(runner, flowType, {
     ...(options.toolPolicies === undefined ? {} : { toolPolicies: options.toolPolicies }),
@@ -170,5 +177,10 @@ export function createOpenAIAgentsSessionFlow<TContext = undefined>(
       ? {}
       : { interruptDeadlineMs: options.interruptDeadlineMs }),
     ...(options.tracing === undefined ? {} : { tracing: options.tracing }),
+    ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
+    ...(options.messageWindowSize === undefined ? {} : { messageWindowSize: options.messageWindowSize }),
+    ...(options.messageChunkSize === undefined ? {} : { messageChunkSize: options.messageChunkSize }),
+    ...(options.messageChunkMaxBytes === undefined ? {} : { messageChunkMaxBytes: options.messageChunkMaxBytes }),
+    ...(options.retainedMessageLimit === undefined ? {} : { retainedMessageLimit: options.retainedMessageLimit }),
   });
 }

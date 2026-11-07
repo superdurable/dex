@@ -572,6 +572,21 @@ its result whole, and says so with
 Each `CompactContext` attempt emits a `chat` span for the summary call, as
 `RunModel` does; return `ContextSummaryResult.model_call_metadata` to name it.
 
+A framework adapter cannot measure or rebuild the framework's own request, so
+the core gives adapters one shared rule. `estimate_stored_input_tokens(turn,
+fixed_input_tokens=...)` counts each stored `framework_item` with
+`estimate_text_tokens`, three UTF-8 bytes per token, which errs high for
+English text. `select_turn_boundary_cutoff(turn, retained_token_budget)` cuts
+only between turns, never inside the running turn, and returns `None` while
+`turn.framework_run_state` is set, because a resumed call continues from that
+state. `build_context_summary_prompt(request)` writes the range as one plain
+text prompt, starting with `CONTEXT_SUMMARY_TRANSCRIPT_HEADER`, that fits
+`input_token_budget`. `CompactionPolicy.reserved_input_tokens` adds what an
+adapter's estimate cannot see, such as a framework's system prompt. The
+adapters of this repository use them; see each adapter's README.
+`dex_agents.testing.ContextWindowSessionScenario` runs the same session past a
+small context window for any adapter.
+
 ## Session settings
 
 Session settings let one Flow type serve sessions that differ, such as by

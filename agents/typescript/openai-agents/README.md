@@ -289,6 +289,27 @@ attempt, and that invalid arguments, guardrail rejections, and tripwires record
 `failed` before the tool runs. Dex discards a cancelled attempt's result, so
 only a direct runner call observes it.
 
+## Compaction
+
+Since 0.3.0 the runner can compact a session that would outgrow the model's
+context window. Pass `compaction: { contextWindowTokens }` to `createOpenAIAgentsSessionFlow`, and optionally `summaryModel`; the summary call uses the run configuration's model, else the starting agent's. Without a policy nothing changes, and a session
+started before the upgrade starts compacting once its Worker has one.
+
+- It compacts only between turns, before the first model call of a turn. A
+  model call that continues a turn after its tool calls does not compact, so
+  one turn's growth must fit in the rest of the window. Lower the trigger
+  ratio when a turn can add more than about 15 percent of the window.
+- The summary enters the model input as a user message before the kept turns.
+  It is never stored as a message, and every message stays readable until
+  retention deletes it behind the summary.
+- The estimate counts three bytes of each stored message as one token, plus
+  the instructions and tool definitions the runner can see. Set the policy's
+  `reservedInputTokens` for the rest, such as dynamic instructions.
+- The summary call gets the earlier turns as plain text, without tools.
+- Responses API compaction items and `truncation` change only the provider's input. Dex stores every item either way and owns the record; use one of the two. Encrypted reasoning and compaction items are left out of the summary prompt.
+
+See [Compaction and the storage bound](https://docs.superdurable.io/agent-frameworks/deploy-agents#compaction).
+
 ## Limits
 
 - Only function tools get their own Steps. A local computer, shell, or
@@ -331,6 +352,6 @@ only a direct runner call observes it.
 - A resumed call returns its recorded text, so a structured tool output, such
   as an image, reaches the model as JSON text.
 - `reasoning_delta` comes only from Responses API reasoning summary events.
-- The limits of `@superdurable/dex-agents` apply: no history compaction, a
-  `RunModel` rerun repeats its model call, and sessions never complete on
-  their own.
+- The limits of `@superdurable/dex-agents` apply: a `RunModel` rerun repeats
+  its model call, and sessions never complete on their own. See
+  [Compaction](#compaction) for long sessions.

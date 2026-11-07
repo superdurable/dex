@@ -22,6 +22,23 @@ export {
   runAgentWorkerProcess,
   type KillableWorkerProcessOptions,
 } from "./agent-worker-process.js";
+export {
+  ContextWindowModelScript,
+  ContextWindowSessionScenario,
+  contextWindowExceededError,
+  contextWindowSessionOptions,
+  contextWindowSettingsEnvironment,
+  contextWindowSettingsVariable,
+  contextWindowSummaryGateName,
+  contextWindowToolName,
+  defaultContextWindowSettings,
+  readContextWindowRequests,
+  readContextWindowSettings,
+  type ContextWindowReply,
+  type ContextWindowRequest,
+  type ContextWindowSessionScenarioOptions,
+  type ContextWindowSettings,
+} from "./context-window.js";
 export { FileGate, InvocationLog } from "./coordination.js";
 export { pollUntil, type PollOptions } from "./polling.js";
 export {
