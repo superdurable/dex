@@ -571,6 +571,75 @@ fn a_value_no_source_holds_aborts_the_computation() {
     );
 }
 
+/// Reapplied input that references a value the run no longer stores: apply rejects the result
+/// naming the value without writing anything, and the next result stages it from object
+/// storage.
+#[test]
+fn a_value_reapplied_input_references_is_rejected_by_id_then_staged() {
+    let mut harness = Harness::new("order-1");
+    harness.start(start_request("start"));
+    harness.set_attribute("report", large_text('o', 300), "set-report");
+    let old_value = table_value_id(
+        harness
+            .attribute("report")
+            .expect("the report exists")
+            .value
+            .as_ref(),
+    );
+    let old_reference = harness.value_reference(old_value.run_seq, old_value.index_in_command);
+    harness.set_attribute(
+        "copy",
+        Value {
+            kind: Some(value::Kind::InternalBlobIdForStringValue(
+                old_reference.clone(),
+            )),
+        },
+        "copy-report",
+    );
+    harness.set_attribute("report", string_value("new"), "replace-report");
+    harness.set_attribute("copy", string_value("new"), "replace-copy");
+    assert!(harness.value_birth(old_value).garbage_seq > 0);
+    let mut twin = harness.twin();
+    let travel = harness.travel_command(reset_to(FlowResetType::Beginning, true));
+    let first = computed(harness.compute_travel(&travel, &NoOffloadedValues, u64::MAX));
+    assert!(
+        first.unstored_value_ids_for_test().is_empty(),
+        "the value is local"
+    );
+    let mut removed = RemovedValues::default();
+    removed
+        .values
+        .insert(old_value, harness.offload_superseded_value(old_value));
+    let rejected = harness.apply_staged(&travel, &first, b"first-staging");
+    assert!(is_error(&rejected.reply, ABORTED), "{:?}", rejected.reply);
+    assert!(
+        error_message(&rejected.reply).contains(&old_reference),
+        "{}",
+        error_message(&rejected.reply)
+    );
+    assert!(rejected.writes.is_empty());
+    assert_eq!(harness.run_record().current_attempt, 1);
+
+    let TimeTravelComputation::Rejected(unavailable) =
+        harness.compute_travel(&travel, &NoOffloadedValues, u64::MAX)
+    else {
+        panic!("input must not reference a value that no source has");
+    };
+    assert!(
+        is_error(&unavailable, FAILED_PRECONDITION),
+        "{unavailable:?}"
+    );
+    assert!(error_message(&unavailable).contains(&old_reference));
+    let second = computed(harness.compute_travel(&travel, &removed, u64::MAX));
+    assert_eq!(second.unstored_value_ids_for_test(), vec![old_value]);
+    let restored = harness.apply_staged(&travel, &second, b"second-staging");
+    assert!(is_time_travel(&restored.reply), "{:?}", restored.reply);
+    assert_eq!(
+        harness.restored_rows(),
+        twin.rows_after_travel_at(harness.now_micros, &travel)
+    );
+}
+
 /// External input committed after the computation is reapplied from the local tail; input
 /// that left the local store makes the owner compute again.
 #[test]

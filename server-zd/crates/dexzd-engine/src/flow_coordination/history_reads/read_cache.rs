@@ -32,6 +32,8 @@ pub(super) enum SegmentPart {
     Header,
     /// The stored records block.
     Records,
+    /// The stored checkpoints block.
+    Checkpoints,
 }
 
 impl HistoryReadCacheKey {
@@ -57,6 +59,7 @@ impl HistoryReadCacheKey {
         text.push_str(match part {
             SegmentPart::Header => "|header",
             SegmentPart::Records => "|records",
+            SegmentPart::Checkpoints => "|checkpoints",
         });
         Self::from_text(text).expect("object keys start with history/, never with hd1|")
     }

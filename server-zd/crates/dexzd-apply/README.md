@@ -125,6 +125,22 @@ rows ends its page there. Each fetch round names at most 16 MiB of objects, requ
 first, and one larger required object only alone. A page holds at most 1000 events, and a token
 added to a shorter page never pushes it over the response limit.
 
+`compute_time_travel_from_segments` runs the time travel computation over the
+same source without a catalog budget, so no stream ends early. A checkpoint that
+an UPLOADED segment covers comes from that segment's checkpoints, which the
+caller loads apart from its records. When the computation reaches unloaded
+records or checkpoints, it returns `NeedsSegments` instead of its result: each
+reached segment with every later uploaded segment that its stream goes on to
+read, and the asked-for checkpoints. The caller fetches them and computes again
+on a new committed view.
+
+A reapplied external input can name a value by reference. The computation
+stages each such value that the store lacks, read from the offloaded values, and
+fails with `FAILED_PRECONDITION` when no source has it. Before it forks, apply
+checks that the store holds every such value, after it restored the staged ones.
+A missing one rejects the TimeTravel with `ABORTED` and its value reference, and
+the transaction is discarded, so the owner computes again.
+
 ## Value and storage accounting
 
 Each run tracks encoded Flow and History row bytes, including keys. Live and superseded value bytes use the encoded value sizes in birth records; garbage rows identify the superseded portion. Apply updates these totals from each command's writes and deletes.

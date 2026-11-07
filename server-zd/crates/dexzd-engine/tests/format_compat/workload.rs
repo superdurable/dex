@@ -2223,7 +2223,7 @@ mod load_blobs_purge_tests {
                 step_queue_status: ports.clone(),
                 hard_delete_reader: ports.clone(),
                 hard_delete_uploader: ports,
-                time_travel_history: Arc::new(dexzd_engine::LocalTimeTravelHistory),
+                time_travel_history: Arc::new(dexzd_engine::SegmentedTimeTravelHistory),
                 clock: clock.clone(),
                 history_segment_reader: Arc::new(dexzd_engine::HistorySegmentReader::new(
                     &dexzd_engine::HistoryReadsConfig::default(),

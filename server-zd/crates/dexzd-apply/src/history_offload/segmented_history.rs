@@ -35,10 +35,26 @@ const MAX_PREFETCH_EXAMINED_ROWS: usize = 256;
 /// Object bytes one fetch round names; one larger required object is fetched alone.
 const MAX_FETCH_OBJECT_BYTES: u64 = 16 << 20;
 
-/// History records of uploaded segments that a reader fetched, keyed by seq range.
+/// Catalog rows that one replay's prefetch examines.
+const MAX_REPLAY_PREFETCH_EXAMINED_ROWS: usize = 4096;
+
+/// One checkpoint of an uploaded segment.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentCheckpoint {
+    /// Run attempt of the checkpoint.
+    pub attempt: u32,
+    /// Seq of the checkpoint.
+    pub seq: u64,
+    /// The decoded checkpoint.
+    pub record: CheckpointRecord,
+}
+
+/// History records and checkpoints of uploaded segments that a reader fetched, keyed by seq
+/// range.
 #[derive(Debug, Clone, Default)]
 pub struct LoadedHistorySegments {
     records_by_range: BTreeMap<(u64, u64), Arc<[HistoryRecord]>>,
+    checkpoints_by_range: BTreeMap<(u64, u64), Arc<[SegmentCheckpoint]>>,
 }
 
 impl LoadedHistorySegments {
@@ -69,9 +85,40 @@ impl LoadedHistorySegments {
         Ok(())
     }
 
+    /// Adds the decoded checkpoints of `segment`, the catalog row they were fetched for.
+    ///
+    /// Returns an error, and adds nothing, when the checkpoints are not in strictly ascending
+    /// (seq, attempt) order inside the segment's seq range.
+    pub fn insert_checkpoints(
+        &mut self,
+        segment: &HistorySegmentRecord,
+        checkpoints: Arc<[SegmentCheckpoint]>,
+    ) -> Result<(), ApplyError> {
+        let mut previous_position = None;
+        for checkpoint in checkpoints.iter() {
+            let position = (checkpoint.seq, checkpoint.attempt);
+            let is_in_order = previous_position.is_none_or(|previous| position > previous);
+            if !is_in_order
+                || checkpoint.seq < segment.first_seq
+                || checkpoint.seq > segment.last_seq
+            {
+                return Err(ApplyError::InvariantViolation {
+                    detail: format!(
+                        "history segment {}..={} holds checkpoint ({}, {}) out of order or range",
+                        segment.first_seq, segment.last_seq, checkpoint.attempt, checkpoint.seq
+                    ),
+                });
+            }
+            previous_position = Some(position);
+        }
+        self.checkpoints_by_range
+            .insert((segment.first_seq, segment.last_seq), checkpoints);
+        Ok(())
+    }
+
     /// Returns whether no segment was added.
     pub fn is_empty(&self) -> bool {
-        self.records_by_range.is_empty()
+        self.records_by_range.is_empty() && self.checkpoints_by_range.is_empty()
     }
 
     /// Returns whether the records of `segment` were added.
@@ -85,6 +132,36 @@ impl LoadedHistorySegments {
             .get(&(segment.first_seq, segment.last_seq))
             .map(AsRef::as_ref)
     }
+
+    fn checkpoints(&self, segment: &HistorySegmentRecord) -> Option<&[SegmentCheckpoint]> {
+        self.checkpoints_by_range
+            .get(&(segment.first_seq, segment.last_seq))
+            .map(AsRef::as_ref)
+    }
+}
+
+/// The uploaded segments a replay reached unloaded, which it fetches before it runs again.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MissingHistorySegments {
+    /// Segments whose records a stream reached, then the rest of the uploaded segments that
+    /// those streams go on to read, in seq order.
+    pub records: Vec<HistorySegmentRecord>,
+    /// Segments whose checkpoints a checkpoint read asked for, in seq order.
+    pub checkpoints: Vec<HistorySegmentRecord>,
+}
+
+impl MissingHistorySegments {
+    /// Returns whether the replay reached no unloaded segment.
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty() && self.checkpoints.is_empty()
+    }
+}
+
+/// An unloaded segment a stream reached, and the last seq that stream asked for.
+#[derive(Debug, Clone)]
+struct MissedSegment {
+    segment: HistorySegmentRecord,
+    stream_last_seq: u64,
 }
 
 /// What a read does when it reaches an uploaded segment that is not loaded.
@@ -145,7 +222,8 @@ pub(crate) struct SegmentedHistorySource<'view, 'reader> {
     visibility: Visibility,
     loaded: &'view LoadedHistorySegments,
     unloaded_action: UnloadedSegmentAction,
-    missing: RefCell<Vec<HistorySegmentRecord>>,
+    missing: RefCell<Vec<MissedSegment>>,
+    missing_checkpoints: RefCell<Vec<HistorySegmentRecord>>,
     /// The last catalog lookup: its seq and its answer.
     last_lookup: RefCell<Option<(u64, CatalogPosition)>>,
     /// The earliest point where a stream ended history early.
@@ -192,6 +270,7 @@ impl<'view, 'reader> SegmentedHistorySource<'view, 'reader> {
             loaded,
             unloaded_action,
             missing: RefCell::new(Vec::new()),
+            missing_checkpoints: RefCell::new(Vec::new()),
             last_lookup: RefCell::new(None),
             page_end: Cell::new(None),
             max_examined_catalog_rows,
@@ -206,7 +285,11 @@ impl<'view, 'reader> SegmentedHistorySource<'view, 'reader> {
         &self,
         page_events: usize,
     ) -> Result<Vec<HistorySegmentRecord>, ApplyError> {
-        let mut required = std::mem::take(&mut *self.missing.borrow_mut());
+        let mut required: Vec<HistorySegmentRecord> =
+            std::mem::take(&mut *self.missing.borrow_mut())
+                .into_iter()
+                .map(|missed| missed.segment)
+                .collect();
         required.sort_by_key(|segment| segment.first_seq);
         required.dedup_by_key(|segment| segment.first_seq);
         let Some(last_required) = required.last() else {
@@ -229,6 +312,34 @@ impl<'view, 'reader> SegmentedHistorySource<'view, 'reader> {
             u64::try_from(page_events).unwrap_or(u64::MAX),
             MAX_FETCH_OBJECT_BYTES,
         ))
+    }
+
+    /// Returns the unloaded segments a replay reached: each one's records with every later
+    /// uploaded segment its stream goes on to read, and the asked-for checkpoints. Clears the
+    /// lists.
+    ///
+    /// Returns an error when the catalog cannot be read.
+    pub(crate) fn take_replay_misses(&self) -> Result<MissingHistorySegments, ApplyError> {
+        let mut records: BTreeMap<u64, HistorySegmentRecord> = BTreeMap::new();
+        for missed in std::mem::take(&mut *self.missing.borrow_mut()) {
+            let read_on = self.catalog.uploaded_starting_in(
+                missed.segment.last_seq.saturating_add(1),
+                missed.stream_last_seq,
+                MAX_REPLAY_PREFETCH_EXAMINED_ROWS,
+            )?;
+            for segment in std::iter::once(missed.segment).chain(read_on) {
+                if !self.loaded.contains(&segment) {
+                    records.insert(segment.first_seq, segment);
+                }
+            }
+        }
+        let mut checkpoints = std::mem::take(&mut *self.missing_checkpoints.borrow_mut());
+        checkpoints.sort_by_key(|segment| segment.first_seq);
+        checkpoints.dedup_by_key(|segment| segment.first_seq);
+        Ok(MissingHistorySegments {
+            records: records.into_values().collect(),
+            checkpoints,
+        })
     }
 
     /// Returns the earliest point where a stream ended history early.
@@ -278,10 +389,12 @@ impl<'view, 'reader> SegmentedHistorySource<'view, 'reader> {
         self.page_end.set(Some(earliest));
     }
 
-    /// Handles reaching `segment` unloaded; returns the stream's next item.
+    /// Handles a stream asking for seqs through `stream_last_seq` reaching `segment` unloaded;
+    /// returns the stream's next item.
     fn reach_unloaded(
         &self,
         segment: HistorySegmentRecord,
+        stream_last_seq: u64,
     ) -> Option<Result<HistoryRecord, ApplyError>> {
         let page_end = PageEnd {
             seq: segment.first_seq,
@@ -291,7 +404,10 @@ impl<'view, 'reader> SegmentedHistorySource<'view, 'reader> {
             "history segment {}..={} is not loaded",
             segment.first_seq, segment.last_seq
         );
-        self.missing.borrow_mut().push(segment);
+        self.missing.borrow_mut().push(MissedSegment {
+            segment,
+            stream_last_seq,
+        });
         match self.unloaded_action {
             UnloadedSegmentAction::Report => Some(Err(ApplyError::InvariantViolation { detail })),
             UnloadedSegmentAction::EndBefore => {
@@ -317,19 +433,28 @@ impl HistorySource for SegmentedHistorySource<'_, '_> {
         })
     }
 
+    /// Reads a checkpoint that an UPLOADED segment covers from its loaded checkpoints; an
+    /// unloaded one ends the read with an error and is recorded.
     fn checkpoint(&self, attempt: u32, seq: u64) -> Result<Option<CheckpointRecord>, ApplyError> {
-        if matches!(
-            self.catalog.position(seq)?,
-            CatalogPosition::Covered(segment) if is_uploaded(&segment)
-        ) {
-            return Err(ApplyError::InvariantViolation {
-                detail: format!(
-                    "checkpoint ({seq}, {attempt}) is uploaded, and history page reads load no \
-                     checkpoints"
-                ),
-            });
-        }
-        self.local.checkpoint(attempt, seq)
+        let segment = match self.catalog.position(seq)? {
+            CatalogPosition::Covered(segment) if is_uploaded(&segment) => segment,
+            _ => return self.local.checkpoint(attempt, seq),
+        };
+        let Some(checkpoints) = self.loaded.checkpoints(&segment) else {
+            let detail = format!(
+                "checkpoint ({attempt}, {seq}) of history segment {}..={} is not loaded",
+                segment.first_seq, segment.last_seq
+            );
+            self.missing_checkpoints.borrow_mut().push(segment);
+            return Err(ApplyError::InvariantViolation { detail });
+        };
+        Ok(checkpoints
+            .binary_search_by_key(&(seq, attempt), |checkpoint| {
+                (checkpoint.seq, checkpoint.attempt)
+            })
+            .ok()
+            .and_then(|index| checkpoints.get(index))
+            .map(|checkpoint| checkpoint.record.clone()))
     }
 
     /// Binary-searches local history metadata, whose `last_assigned_event_id` grows with seq.
@@ -455,7 +580,7 @@ impl SegmentedHistoryRecords<'_, '_, '_> {
                             continue;
                         }
                         UploadedStep::Unloaded => {
-                            let item = source.reach_unloaded(segment);
+                            let item = source.reach_unloaded(segment, self.last_seq);
                             return self.end(item);
                         }
                     }

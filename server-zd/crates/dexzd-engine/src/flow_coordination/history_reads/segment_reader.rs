@@ -12,14 +12,15 @@ use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use dexzd_apply::SegmentCheckpoint;
 use dexzd_history_segment::{
-    HistorySegmentCodecError, HistorySegmentLayout, HistorySegmentRecordRow,
+    HistorySegmentCodecError, HistorySegmentLayout, decode_checkpoints_block,
     decode_history_segment_header, decode_records_block, history_segment_object_key,
 };
 use dexzd_keyspace::{FlowHash, RunId, TenantId};
 use dexzd_metrics::{HistoryReadKind, HistoryReadSource, NodeMetrics};
 use dexzd_object_store::{ByteRange, ObjectContent, ObjectStore, ObjectStoreError};
-use dexzd_protocol::dexzd::v1::{HistoryRecord, HistorySegmentRecord};
+use dexzd_protocol::dexzd::v1::{CheckpointRecord, HistoryRecord, HistorySegmentRecord};
 use prost::Message;
 use tokio::sync::Semaphore;
 
@@ -50,6 +51,15 @@ pub(crate) enum HistorySegmentReadError {
         /// What differs.
         detail: String,
     },
+}
+
+/// Who reads a segment, which decides the history read metric it counts in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SegmentReadPurpose {
+    /// A GetHistoryEvents page.
+    Page,
+    /// A time travel computation, which history read metrics do not count.
+    TimeTravel,
 }
 
 /// Names one uploaded segment of a run by its catalog row.
@@ -113,35 +123,112 @@ impl HistorySegmentReader {
         &self,
         location: SegmentLocation<'_>,
     ) -> Result<Option<Arc<[HistoryRecord]>>, HistorySegmentReadError> {
-        let segment = location.segment;
-        let key = history_segment_object_key(
-            location.tenant_id,
-            location.flow_hash,
-            location.run_id,
-            segment.first_seq,
-            segment.last_seq,
-        );
+        self.read_records_for(location, SegmentReadPurpose::Page)
+            .await
+    }
+
+    /// Returns the records of the segment, in ascending seq order, for a time travel
+    /// computation.
+    ///
+    /// Returns `None` when the object does not exist, as after the run was purged. Returns an
+    /// error when object storage fails or the object differs from the catalog row.
+    pub(crate) async fn read_time_travel_records(
+        &self,
+        location: SegmentLocation<'_>,
+    ) -> Result<Option<Arc<[HistoryRecord]>>, HistorySegmentReadError> {
+        self.read_records_for(location, SegmentReadPurpose::TimeTravel)
+            .await
+    }
+
+    /// Returns the checkpoints of the segment, in ascending (seq, attempt) order, for a time
+    /// travel computation.
+    ///
+    /// Returns `None` when the object does not exist, as after the run was purged. Returns an
+    /// error when object storage fails or the object differs from the catalog row.
+    pub(crate) async fn read_time_travel_checkpoints(
+        &self,
+        location: SegmentLocation<'_>,
+    ) -> Result<Option<Arc<[SegmentCheckpoint]>>, HistorySegmentReadError> {
+        let purpose = SegmentReadPurpose::TimeTravel;
+        let (key, checksum) = segment_identity(location)?;
+        let Some(layout) = self
+            .header(&key, &checksum, location.segment.object_size_bytes, purpose)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let rows = match layout.checkpoints_range() {
+            None => Vec::new(),
+            Some(range) => {
+                let block = StoredBlock {
+                    key: &key,
+                    checksum: &checksum,
+                    layout: &layout,
+                    range,
+                    part: SegmentPart::Checkpoints,
+                    purpose,
+                };
+                match self.stored_block(block, decode_checkpoints_block).await? {
+                    Some(rows) => rows,
+                    None => return Ok(None),
+                }
+            }
+        };
+        let checkpoints = rows
+            .into_iter()
+            .map(|row| {
+                let record = CheckpointRecord::decode(row.row.as_slice()).map_err(|error| {
+                    HistorySegmentReadError::Mismatch {
+                        key: key.clone(),
+                        detail: format!(
+                            "checkpoint ({}, {}) does not decode: {error}",
+                            row.attempt, row.seq
+                        ),
+                    }
+                })?;
+                Ok(SegmentCheckpoint {
+                    attempt: row.attempt,
+                    seq: row.seq,
+                    record,
+                })
+            })
+            .collect::<Result<Vec<_>, HistorySegmentReadError>>()?;
+        Ok(Some(checkpoints.into()))
+    }
+
+    /// Returns the records of the segment, counted in the history read metric of `purpose`.
+    async fn read_records_for(
+        &self,
+        location: SegmentLocation<'_>,
+        purpose: SegmentReadPurpose,
+    ) -> Result<Option<Arc<[HistoryRecord]>>, HistorySegmentReadError> {
+        let (key, checksum) = segment_identity(location)?;
         let mismatch = |detail: String| HistorySegmentReadError::Mismatch {
             key: key.clone(),
             detail,
         };
-        let checksum: [u8; 16] = segment
-            .content_checksum
-            .as_slice()
-            .try_into()
-            .map_err(|_| mismatch("the catalog checksum is not 16 bytes".to_owned()))?;
         let Some(layout) = self
-            .header(&key, &checksum, segment.object_size_bytes)
+            .header(&key, &checksum, location.segment.object_size_bytes, purpose)
             .await?
         else {
             return Ok(None);
         };
         let rows = match layout.records_range() {
             None => Vec::new(),
-            Some(range) => match self.records_block(&key, &checksum, &layout, range).await? {
-                Some(rows) => rows,
-                None => return Ok(None),
-            },
+            Some(range) => {
+                let block = StoredBlock {
+                    key: &key,
+                    checksum: &checksum,
+                    layout: &layout,
+                    range,
+                    part: SegmentPart::Records,
+                    purpose,
+                };
+                match self.stored_block(block, decode_records_block).await? {
+                    Some(rows) => rows,
+                    None => return Ok(None),
+                }
+            }
         };
         let records = rows
             .into_iter()
@@ -169,6 +256,7 @@ impl HistorySegmentReader {
         key: &str,
         checksum: &[u8; 16],
         object_size: u64,
+        purpose: SegmentReadPurpose,
     ) -> Result<Option<Arc<HistorySegmentLayout>>, HistorySegmentReadError> {
         let cache_key = HistoryReadCacheKey::segment_part(key, checksum, SegmentPart::Header);
         if let Some(layout) = self.cached_header(&cache_key) {
@@ -177,7 +265,7 @@ impl HistorySegmentReader {
         if let Some(stored) = self.read_cache.get(&cache_key).await {
             match checked_header(&stored, object_size, checksum) {
                 Ok(layout) => {
-                    self.record_read(HistoryReadSource::Cache);
+                    self.record_segment_read(purpose, HistoryReadSource::Cache);
                     return Ok(Some(self.remember_header(&cache_key, layout)));
                 }
                 Err(error) => {
@@ -202,7 +290,7 @@ impl HistorySegmentReader {
             }
             match checked_header(&content.bytes, object_size, checksum) {
                 Ok(layout) => {
-                    self.record_read(HistoryReadSource::ObjectStore);
+                    self.record_segment_read(purpose, HistoryReadSource::ObjectStore);
                     self.read_cache.put(&cache_key, content.bytes).await;
                     return Ok(Some(self.remember_header(&cache_key, layout)));
                 }
@@ -222,23 +310,30 @@ impl HistorySegmentReader {
         }
     }
 
-    /// Returns the rows of the records block at `range`, or `None` when the object is gone.
-    async fn records_block(
+    /// Returns the decoded rows of the block that `block` names, or `None` when the object is
+    /// gone.
+    async fn stored_block<Row>(
         &self,
-        key: &str,
-        checksum: &[u8; 16],
-        layout: &HistorySegmentLayout,
-        range: Range<u64>,
-    ) -> Result<Option<Vec<HistorySegmentRecordRow>>, HistorySegmentReadError> {
-        let cache_key = HistoryReadCacheKey::segment_part(key, checksum, SegmentPart::Records);
+        block: StoredBlock<'_>,
+        decode: fn(&HistorySegmentLayout, &[u8]) -> Result<Vec<Row>, HistorySegmentCodecError>,
+    ) -> Result<Option<Vec<Row>>, HistorySegmentReadError> {
+        let StoredBlock {
+            key,
+            checksum,
+            layout,
+            range,
+            part,
+            purpose,
+        } = block;
+        let cache_key = HistoryReadCacheKey::segment_part(key, checksum, part);
         if let Some(stored) = self.read_cache.get(&cache_key).await {
-            match decode_records_block(layout, &stored) {
+            match decode(layout, &stored) {
                 Ok(rows) => {
-                    self.record_read(HistoryReadSource::Cache);
+                    self.record_segment_read(purpose, HistoryReadSource::Cache);
                     return Ok(Some(rows));
                 }
                 Err(error) => {
-                    tracing::warn!(%error, key, "a cached history records block is damaged");
+                    tracing::warn!(%error, key, ?part, "a cached history segment block is damaged");
                     self.read_cache.remove(&cache_key).await;
                 }
             }
@@ -253,13 +348,12 @@ impl HistorySegmentReader {
         };
         if u64::try_from(content.bytes.len()).ok() != Some(expected_bytes) {
             return Err(mismatch(format!(
-                "the records block read returned {} of {expected_bytes} bytes",
+                "the {part:?} block read returned {} of {expected_bytes} bytes",
                 content.bytes.len()
             )));
         }
-        let rows = decode_records_block(layout, &content.bytes)
-            .map_err(|error| mismatch(error.to_string()))?;
-        self.record_read(HistoryReadSource::ObjectStore);
+        let rows = decode(layout, &content.bytes).map_err(|error| mismatch(error.to_string()))?;
+        self.record_segment_read(purpose, HistoryReadSource::ObjectStore);
         self.read_cache.put(&cache_key, content.bytes).await;
         Ok(Some(rows))
     }
@@ -322,11 +416,52 @@ impl HistorySegmentReader {
         self.record_read(HistoryReadSource::Local);
     }
 
+    fn record_segment_read(&self, purpose: SegmentReadPurpose, source: HistoryReadSource) {
+        if purpose == SegmentReadPurpose::Page {
+            self.record_read(source);
+        }
+    }
+
     fn record_read(&self, source: HistoryReadSource) {
         self.metrics
             .history_reads
             .record(HistoryReadKind::Page, source);
     }
+}
+
+/// One block of a segment object to read: where it is and what it holds.
+struct StoredBlock<'block> {
+    key: &'block str,
+    checksum: &'block [u8; 16],
+    layout: &'block HistorySegmentLayout,
+    range: Range<u64>,
+    part: SegmentPart,
+    purpose: SegmentReadPurpose,
+}
+
+/// Returns the object key and catalog checksum of the segment `location` names.
+///
+/// Returns an error when the catalog checksum is not 16 bytes.
+fn segment_identity(
+    location: SegmentLocation<'_>,
+) -> Result<(String, [u8; 16]), HistorySegmentReadError> {
+    let segment = location.segment;
+    let key = history_segment_object_key(
+        location.tenant_id,
+        location.flow_hash,
+        location.run_id,
+        segment.first_seq,
+        segment.last_seq,
+    );
+    let checksum: [u8; 16] = segment
+        .content_checksum
+        .as_slice()
+        .try_into()
+        .map_err(|_| HistorySegmentReadError::Mismatch {
+            key: key.clone(),
+            detail: "the catalog checksum is not 16 bytes".to_owned(),
+        })?;
+    Ok((key, checksum))
 }
 
 /// Why header bytes do not describe the catalog's segment.

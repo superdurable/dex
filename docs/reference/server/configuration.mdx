@@ -412,6 +412,13 @@ fails, or whose uploaded segment object is missing, fails with UNAVAILABLE; the
 client may retry it. A page that needs many segments can hold fewer events than
 requested; its next page token continues the read.
 
+ResetFlow reads history the same way. The node computes the time travel from
+uploaded segments and local disk. It fetches the segments it needs while it
+holds no view of the local store. A ResetFlow whose segment read fails, or whose
+uploaded segment object is missing, fails with UNAVAILABLE and changes nothing;
+the client may retry it. The history it reads from object storage counts against
+**history.timeTravelReplayMemoryBytes** apart from the computation itself.
+
 The node keeps uploaded segment headers in memory and keeps segment headers and
 records in its disk read cache, up to **history.readCacheMaxBytes**. Uploaded
 segments never change, so cached entries are never stale. The cache survives a

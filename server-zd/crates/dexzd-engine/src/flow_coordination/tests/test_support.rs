@@ -487,7 +487,7 @@ impl FlowCoordinationHarness {
                 step_queue_status: rpc_invoker.clone(),
                 hard_delete_reader: hard_delete_reader.clone(),
                 hard_delete_uploader: hard_delete_uploader.clone(),
-                time_travel_history: Arc::new(crate::flow_coordination::LocalTimeTravelHistory),
+                time_travel_history: Arc::new(crate::flow_coordination::SegmentedTimeTravelHistory),
                 clock: Arc::new(dexzd_clock::SystemWallClock),
                 history_segment_reader,
                 id_source: Arc::new(SystemEngineIdSource),

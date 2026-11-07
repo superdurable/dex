@@ -338,7 +338,7 @@ impl NodeProcess {
                     step_queue_status: worker_port,
                     hard_delete_reader: Arc::new(hard_delete_objects.clone()),
                     hard_delete_uploader: Arc::new(hard_delete_objects),
-                    time_travel_history: Arc::new(dexzd_engine::LocalTimeTravelHistory),
+                    time_travel_history: Arc::new(dexzd_engine::SegmentedTimeTravelHistory),
                     clock: factory_clock,
                     history_segment_reader: Arc::new(HistorySegmentReader::new(
                         &HistoryReadsConfig::default(),

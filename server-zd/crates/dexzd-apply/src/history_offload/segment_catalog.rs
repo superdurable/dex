@@ -145,7 +145,24 @@ impl<'view, 'reader> SegmentCatalog<'view, 'reader> {
         first_seq: u64,
         max_examined_rows: usize,
     ) -> Result<Vec<HistorySegmentRecord>, ApplyError> {
-        let end = self.key(self.uploaded_through_seq.saturating_add(1));
+        self.uploaded_starting_in(first_seq, u64::MAX, max_examined_rows)
+    }
+
+    /// Returns the UPLOADED rows that start in `[first_seq, last_seq]`, in seq order, after
+    /// reading at most `max_examined_rows` rows.
+    ///
+    /// Returns an error when the catalog cannot be read or names an impossible range.
+    pub(crate) fn uploaded_starting_in(
+        &self,
+        first_seq: u64,
+        last_seq: u64,
+        max_examined_rows: usize,
+    ) -> Result<Vec<HistorySegmentRecord>, ApplyError> {
+        let range_last_seq = self.uploaded_through_seq.min(last_seq);
+        if first_seq > range_last_seq {
+            return Ok(Vec::new());
+        }
+        let end = self.key(range_last_seq.saturating_add(1));
         let mut start = self.key(first_seq);
         let mut segments = Vec::new();
         let mut examined = 0;

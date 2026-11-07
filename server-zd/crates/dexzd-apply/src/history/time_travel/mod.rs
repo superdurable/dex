@@ -12,6 +12,7 @@
 //! input, and forks.
 
 mod attempt_fork;
+mod reapplied_input_values;
 mod result_computation;
 mod staged_result;
 mod staging;
@@ -21,8 +22,9 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 pub use result_computation::{
-    ComputedTimeTravel, StagedEntryTooLarge, TimeTravelComputation, TimeTravelComputationRequest,
-    TimeTravelComputationSources, compute_time_travel,
+    ComputedTimeTravel, SegmentedTimeTravelComputation, StagedEntryTooLarge, TimeTravelComputation,
+    TimeTravelComputationRequest, TimeTravelComputationSources, compute_time_travel,
+    compute_time_travel_from_segments,
 };
 pub(crate) use staging::{apply_time_travel_stage, delete_idle_staging, staged_attempt_state};
 

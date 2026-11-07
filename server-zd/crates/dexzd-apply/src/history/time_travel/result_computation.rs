@@ -21,14 +21,18 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use super::TimeTravelResult;
+use super::reapplied_input_values::unstored_input_values;
 use super::staging::{staged_chunks, staged_result_bytes};
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::flow_not_found_reply;
-use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage};
+use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage, LocalHistorySource};
 use crate::history::reset_target::resolve_target;
 use crate::history::state_rebuild::{
     ReplayMemoryBudget, ReplayResources, encoded_bytes, rebuild_attempt_state,
     replay_memory_exceeded_reply,
+};
+use crate::history_offload::segmented_history::{
+    LoadedHistorySegments, MissingHistorySegments, SegmentedHistorySource, UnloadedSegmentAction,
 };
 use crate::state_access::{FlowTransaction, RunRows, read_flow_directory};
 use crate::values::OffloadedValues;
@@ -55,6 +59,16 @@ pub struct TimeTravelComputationRequest<'request> {
     /// Largest number of bytes the computation may hold in memory, for replay, rows, values,
     /// input, and staging.
     pub replay_memory_budget_bytes: u64,
+}
+
+/// The outcome of [`compute_time_travel_from_segments`].
+#[derive(Debug)]
+pub enum SegmentedTimeTravelComputation {
+    /// The computation read every history record and checkpoint it needed.
+    Computed(TimeTravelComputation),
+    /// The computation reached uploaded segments that are not loaded. Fetch them, then compute
+    /// again on a new committed view.
+    NeedsSegments(MissingHistorySegments),
 }
 
 /// The outcome of [`compute_time_travel`].
@@ -217,6 +231,64 @@ pub fn compute_time_travel(
     )))
 }
 
+/// Computes `request` as [`compute_time_travel`] does, reading the run's history from local
+/// rows and from the uploaded segments that `segments` holds.
+///
+/// Returns [`SegmentedTimeTravelComputation::NeedsSegments`] when the computation reached
+/// uploaded segments that `segments` lacks; its result is discarded then. Returns an error when
+/// stored state is corrupt.
+pub fn compute_time_travel_from_segments(
+    context: &ApplyContext,
+    state: &dyn FlowStateReader,
+    segments: &LoadedHistorySegments,
+    offloaded_values: &dyn OffloadedValues,
+    request: &TimeTravelComputationRequest<'_>,
+) -> Result<SegmentedTimeTravelComputation, ApplyError> {
+    let transaction = FlowTransaction::new(state, *context);
+    let rows = RunRows::new(context.flow_hash, request.run_id);
+    let segmented = match rows.run_record(&transaction)? {
+        // An unlimited catalog budget never ends a stream early.
+        Some(record) if !record.is_purging => Some(SegmentedHistorySource::open(
+            &transaction,
+            rows,
+            &record,
+            segments,
+            UnloadedSegmentAction::Report,
+            usize::MAX,
+        )?),
+        _ => None,
+    };
+    let local = LocalHistorySource::new(&transaction, rows);
+    let history: &dyn HistorySource = match &segmented {
+        Some(segmented) => segmented,
+        None => &local,
+    };
+    let computation = compute_time_travel(
+        context,
+        &TimeTravelComputationSources {
+            state,
+            history,
+            offloaded_values,
+        },
+        request,
+    );
+    if let Some(segmented) = &segmented {
+        let missing = segmented.take_replay_misses()?;
+        if !missing.is_empty() {
+            return Ok(SegmentedTimeTravelComputation::NeedsSegments(missing));
+        }
+        if let Some(page_end) = segmented.page_end() {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "a time travel read of run {} ended history early at run seq {}",
+                    request.run_id, page_end.seq
+                ),
+            });
+        }
+    }
+    computation.map(SegmentedTimeTravelComputation::Computed)
+}
+
 /// Computes the result of `request` through `computed_through_seq` on the state `transaction`
 /// reads.
 ///
@@ -289,12 +361,24 @@ pub(super) fn compute_result(
             Ok(rebuilt) => rebuilt,
             Err(reply) => return Ok(Err(reply)),
         };
+    let mut unstored_values = rebuilt.unstored_values;
+    match unstored_input_values(
+        transaction,
+        rows,
+        &reapplied_inputs,
+        &unstored_values,
+        resources,
+        target.point,
+    )? {
+        Ok(values) => unstored_values.extend(values),
+        Err(reply) => return Ok(Err(reply)),
+    }
     Ok(Ok(TimeTravelResult {
         selected_attempt,
         target,
         run_status: rebuilt.run_status,
         rows: rebuilt.rows,
-        unstored_values: rebuilt.unstored_values,
+        unstored_values,
         reapplied_inputs,
     }))
 }
