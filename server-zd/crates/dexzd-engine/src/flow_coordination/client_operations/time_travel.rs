@@ -15,17 +15,20 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dexzd_apply::SegmentCheckpoint;
 use dexzd_apply::{
     ApplyContext, ComputedTimeTravel, LoadedHistorySegments, MissingHistorySegments,
     SegmentedTimeTravelComputation, TimeTravelComputation, TimeTravelComputationRequest,
 };
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, ResetFlowResponse};
+use dexzd_protocol::dexzd::v1::HistoryRecord;
 use dexzd_protocol::dexzd::v1::{
     CommandErrorReply, FlowCommand, HistorySegmentRecord, command_reply, flow_command,
 };
 use dexzd_request_validation::{ClientRequest, validate_client_request};
-use futures::future::join_all;
+use futures::future::BoxFuture;
+use futures::{FutureExt, StreamExt};
 use prost::Message;
 
 use crate::flow_coordination::client_operations::{unexpected_reply, unstamped_flow_command};
@@ -290,11 +293,13 @@ impl FlowCoordinatorRegistry {
         Ok(computation)
     }
 
-    /// Fetches the `needed` segments concurrently and adds them to `reads`.
+    /// Fetches the `needed` segments, at most `history.objectReadConcurrency` at once, and adds
+    /// each to `reads` as it arrives.
     ///
     /// A segment whose object is missing twice fails the computation; once, the next view
-    /// explains it. Returns `RESOURCE_EXHAUSTED` when the fetched history exceeds the replay
-    /// memory budget, and `UNAVAILABLE` when object storage fails.
+    /// explains it. Returns `RESOURCE_EXHAUSTED` once the fetched history exceeds the replay
+    /// memory budget, which drops the reads still running, and `UNAVAILABLE` when object
+    /// storage fails.
     async fn load_time_travel_segments(
         &self,
         flow: &FlowAddress,
@@ -310,34 +315,44 @@ impl FlowCoordinatorRegistry {
             run_id,
             segment,
         };
-        let record_reads = needed
-            .records
-            .iter()
-            .map(|segment| reader.read_time_travel_records(location(segment)));
-        let checkpoint_reads = needed
-            .checkpoints
-            .iter()
-            .map(|segment| reader.read_time_travel_checkpoints(location(segment)));
-        let (records, checkpoints) =
-            futures::join!(join_all(record_reads), join_all(checkpoint_reads));
+        let record_reads = needed.records.iter().map(|segment| {
+            reader
+                .read_time_travel_records(location(segment))
+                .map(move |read| FetchedSegmentPart::Records(segment, read))
+                .boxed()
+        });
+        let checkpoint_reads = needed.checkpoints.iter().map(|segment| {
+            reader
+                .read_time_travel_checkpoints(location(segment))
+                .map(move |read| FetchedSegmentPart::Checkpoints(segment, read))
+                .boxed()
+        });
+        let part_reads: Vec<BoxFuture<'_, FetchedSegmentPart<'_>>> =
+            record_reads.chain(checkpoint_reads).collect();
+        let mut fetched =
+            futures::stream::iter(part_reads).buffer_unordered(reader.object_read_concurrency());
         let mut segments = LoadedHistorySegments::clone(&reads.segments);
-        for (segment, result) in needed.records.iter().zip(records) {
-            let read = result.map_err(|error| segment_read_error(flow, error))?;
-            if let Some(records) = reads.admit(flow, segment, read, |records| {
-                records.iter().map(Message::encoded_len).sum()
-            })? {
-                segments.insert(segment, records)?;
-            }
-        }
-        for (segment, result) in needed.checkpoints.iter().zip(checkpoints) {
-            let read = result.map_err(|error| segment_read_error(flow, error))?;
-            if let Some(checkpoints) = reads.admit(flow, segment, read, |checkpoints| {
-                checkpoints
-                    .iter()
-                    .map(|checkpoint| checkpoint.record.encoded_len())
-                    .sum()
-            })? {
-                segments.insert_checkpoints(segment, checkpoints)?;
+        while let Some(part) = fetched.next().await {
+            match part {
+                FetchedSegmentPart::Records(segment, read) => {
+                    let read = read.map_err(|error| segment_read_error(flow, error))?;
+                    if let Some(records) = reads.admit(flow, segment, read, |records| {
+                        records.iter().map(Message::encoded_len).sum()
+                    })? {
+                        segments.insert(segment, records)?;
+                    }
+                }
+                FetchedSegmentPart::Checkpoints(segment, read) => {
+                    let read = read.map_err(|error| segment_read_error(flow, error))?;
+                    if let Some(checkpoints) = reads.admit(flow, segment, read, |checkpoints| {
+                        checkpoints
+                            .iter()
+                            .map(|checkpoint| checkpoint.record.encoded_len())
+                            .sum()
+                    })? {
+                        segments.insert_checkpoints(segment, checkpoints)?;
+                    }
+                }
             }
         }
         reads.segments = Arc::new(segments);
@@ -371,6 +386,18 @@ impl FlowCoordinatorRegistry {
                 detail: "apply returned an empty reply".to_owned(),
             })
     }
+}
+
+/// One fetched part of an uploaded segment: its records or its checkpoints.
+enum FetchedSegmentPart<'segment> {
+    Records(
+        &'segment HistorySegmentRecord,
+        Result<Option<Arc<[HistoryRecord]>>, HistorySegmentReadError>,
+    ),
+    Checkpoints(
+        &'segment HistorySegmentRecord,
+        Result<Option<Arc<[SegmentCheckpoint]>>, HistorySegmentReadError>,
+    ),
 }
 
 /// The uploaded segments one time travel fetched so far and the bytes they hold.

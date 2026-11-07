@@ -1213,6 +1213,53 @@ async fn a_replay_over_the_memory_budget_fails_explicitly() {
     travel.shutdown().await;
 }
 
+/// Uploaded history larger than the replay memory budget fails the ResetFlow with
+/// RESOURCE_EXHAUSTED once the fetched part exceeds it, before every segment is read.
+#[tokio::test(start_paused = true)]
+async fn uploaded_history_over_the_memory_budget_fails_before_every_segment_is_read() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        FlowCoordinationConfig {
+            time_travel_replay_memory_bytes: 8 << 10,
+            ..offloading_config()
+        },
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    for index in 0..200 {
+        travel
+            .set_attribute("note", string_value(&format!("{index:03}").repeat(100)))
+            .await;
+    }
+    travel.offload_sealed_history(run_id).await;
+    let segment_count = u64::try_from(travel.segments(run_id).len()).expect("few segments");
+    assert!(segment_count > 200);
+    let reads_before = travel.history_object_reads();
+    let error = travel
+        .reset(reset(FlowResetType::Beginning, true))
+        .await
+        .expect_err("the uploaded history exceeds 8 KiB");
+    assert_eq!(error.grpc_code(), grpc_code::RESOURCE_EXHAUSTED, "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("history.timeTravelReplayMemoryBytes"),
+        "{error}"
+    );
+    let reads = travel.history_object_reads() - reads_before;
+    assert!(
+        reads < segment_count,
+        "{reads} object reads for {segment_count} segments of two parts each"
+    );
+    assert_eq!(travel.committed_count(is_stage), 0, "nothing is staged");
+    assert_eq!(travel.run_record(run_id).current_attempt, 1);
+    travel.shutdown().await;
+}
+
 /// Two ResetFlows of one run at once run one after the other: the second computes on the
 /// first one's attempt, so neither is rejected.
 #[tokio::test(start_paused = true)]

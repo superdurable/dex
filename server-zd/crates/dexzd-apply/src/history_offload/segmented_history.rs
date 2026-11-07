@@ -37,6 +37,8 @@ const MAX_FETCH_OBJECT_BYTES: u64 = 16 << 20;
 
 /// Catalog rows that one replay's prefetch examines.
 const MAX_REPLAY_PREFETCH_EXAMINED_ROWS: usize = 4096;
+/// Segments whose records one replay round asks for; reached ones come first.
+const MAX_REPLAY_FETCH_SEGMENTS: usize = 1024;
 
 /// One checkpoint of an uploaded segment.
 #[derive(Debug, Clone, PartialEq)]
@@ -314,20 +316,27 @@ impl<'view, 'reader> SegmentedHistorySource<'view, 'reader> {
         ))
     }
 
-    /// Returns the unloaded segments a replay reached: each one's records with every later
-    /// uploaded segment its stream goes on to read, and the asked-for checkpoints. Clears the
-    /// lists.
+    /// Returns the unloaded segments a replay reached: each one's records with the later
+    /// uploaded segments its stream goes on to read, at most [`MAX_REPLAY_FETCH_SEGMENTS`] in
+    /// all, and the asked-for checkpoints. Clears the lists.
     ///
     /// Returns an error when the catalog cannot be read.
     pub(crate) fn take_replay_misses(&self) -> Result<MissingHistorySegments, ApplyError> {
-        let mut records: BTreeMap<u64, HistorySegmentRecord> = BTreeMap::new();
-        for missed in std::mem::take(&mut *self.missing.borrow_mut()) {
+        let missed_segments = std::mem::take(&mut *self.missing.borrow_mut());
+        let mut records: BTreeMap<u64, HistorySegmentRecord> = missed_segments
+            .iter()
+            .map(|missed| (missed.segment.first_seq, missed.segment.clone()))
+            .collect();
+        for missed in missed_segments {
             let read_on = self.catalog.uploaded_starting_in(
                 missed.segment.last_seq.saturating_add(1),
                 missed.stream_last_seq,
                 MAX_REPLAY_PREFETCH_EXAMINED_ROWS,
             )?;
-            for segment in std::iter::once(missed.segment).chain(read_on) {
+            for segment in read_on {
+                if records.len() >= MAX_REPLAY_FETCH_SEGMENTS {
+                    break;
+                }
                 if !self.loaded.contains(&segment) {
                     records.insert(segment.first_seq, segment);
                 }

@@ -80,6 +80,7 @@ pub struct HistorySegmentReader {
     read_cache: HistoryReadCache,
     metrics: Arc<NodeMetrics>,
     max_page_rounds: usize,
+    object_read_concurrency: usize,
 }
 
 impl HistorySegmentReader {
@@ -92,13 +93,12 @@ impl HistorySegmentReader {
         metrics: Arc<NodeMetrics>,
         blocking_work: BlockingWorkPlacement,
     ) -> Self {
+        let object_read_concurrency = config
+            .object_read_concurrency
+            .clamp(1, Semaphore::MAX_PERMITS);
         Self {
             object_store,
-            object_read_slots: Semaphore::new(
-                config
-                    .object_read_concurrency
-                    .clamp(1, Semaphore::MAX_PERMITS),
-            ),
+            object_read_slots: Semaphore::new(object_read_concurrency),
             headers: Mutex::new(SegmentHeaderCache::new(HEADER_CACHE_MAX_BYTES)),
             read_cache: HistoryReadCache::new(
                 config.read_cache_directory.clone(),
@@ -107,7 +107,13 @@ impl HistorySegmentReader {
             ),
             metrics,
             max_page_rounds: config.max_page_rounds.max(1),
+            object_read_concurrency,
         }
+    }
+
+    /// Returns the most object storage reads the node runs at once, at least 1.
+    pub(crate) fn object_read_concurrency(&self) -> usize {
+        self.object_read_concurrency
     }
 
     /// Returns the most committed view rounds of one history page.

@@ -130,8 +130,8 @@ same source without a catalog budget, so no stream ends early. A checkpoint that
 an UPLOADED segment covers comes from that segment's checkpoints, which the
 caller loads apart from its records. When the computation reaches unloaded
 records or checkpoints, it returns `NeedsSegments` instead of its result: each
-reached segment with every later uploaded segment that its stream goes on to
-read, and the asked-for checkpoints. The caller fetches them and computes again
+reached segment with the later uploaded segments that its stream goes on to
+read, at most 1024 segments in all, and the asked-for checkpoints. The caller fetches them and computes again
 on a new committed view.
 
 A reapplied external input can name a value by reference. The computation
