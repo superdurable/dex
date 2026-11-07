@@ -154,7 +154,12 @@ pub struct SnapshotConfig {
     pub interval: Duration,
     /// Defaults to 3; number of completed snapshot manifests retained for recovery.
     pub retained_count: u32,
-    /// Defaults to 24 h; obsolete log objects wait this long in the deletion queue after snapshot coverage.
+    /// Defaults to 24 h for `serve` and 1 h for `dev` and `local`; obsolete log objects and
+    /// superseded snapshots wait this long in the deletion queue after snapshot coverage.
+    ///
+    /// A longer delay keeps more fallback to older snapshots and lets a standby or a long-stopped
+    /// node catch up from the log, and must exceed the longest snapshot upload. A shorter delay
+    /// frees object storage sooner. Must be greater than zero.
     #[serde(with = "humantime_serde")]
     pub log_deletion_delay: Duration,
 }

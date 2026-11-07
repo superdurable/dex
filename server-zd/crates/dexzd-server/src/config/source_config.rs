@@ -25,6 +25,8 @@ const SINGLE_NODE_DEFAULT_LISTEN: SocketAddr =
 const SINGLE_NODE_LEASE_DURATION: Duration = Duration::from_secs(30);
 /// Cuts SearchFlows fan-out for one node; default applier lanes shrink only above 32 CPUs.
 pub(crate) const SINGLE_NODE_PARTITION_COUNT: u32 = 32;
+/// No standby catches up from the log, and superseded objects share the RocksDB disk.
+const SINGLE_NODE_LOG_DELETION_DELAY: Duration = Duration::from_secs(60 * 60);
 /// Keeps the drain and teardown inside the 10-second stop budget of dexcli dev.
 const DEV_ATTEMPT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -211,6 +213,10 @@ impl Config {
         let has_listen_override = has_yaml_key(override_document.as_ref(), &["api", "listen"]);
         let has_partition_count_override =
             has_yaml_key(override_document.as_ref(), &["cluster", "partitionCount"]);
+        let has_log_deletion_delay_override = has_yaml_key(
+            override_document.as_ref(),
+            &["snapshot", "logDeletionDelay"],
+        );
         let has_attempt_drain_timeout_override = has_yaml_key(
             override_document.as_ref(),
             &["lifecycle", "attemptDrainTimeout"],
@@ -262,6 +268,9 @@ impl Config {
         configuration.local_storage.directory = options.data_dir.join("store");
         if !has_lease_duration_override {
             configuration.lease.duration = SINGLE_NODE_LEASE_DURATION;
+        }
+        if !has_log_deletion_delay_override {
+            configuration.snapshot.log_deletion_delay = SINGLE_NODE_LOG_DELETION_DELAY;
         }
         if !has_partition_count_override {
             configuration.cluster.partition_count = SINGLE_NODE_PARTITION_COUNT;
