@@ -684,8 +684,10 @@ Only one option in a `start` command may use `-`, because stdin can be consumed
 once.
 
 `historyWindowEvents` sets about how many of the newest history events the run
-keeps for history reads and Time Travel. Omit it to use the server's
-`history.windowEvents` setting. The server rejects a value that is not positive
+keeps for history reads and Time Travel. At `flow start`, omitting it uses the
+server's `history.windowEvents` setting. At `update-config`, omitting it keeps
+the run's current value; an update cannot reset an override back to the server
+default. The server rejects a value that is not positive
 or exceeds its `history.maxWindowEvents` setting. For example, keep more history
 on an active Flow:
 

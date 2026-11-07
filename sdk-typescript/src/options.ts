@@ -314,11 +314,14 @@ export interface FlowConfig {
    * `configOverride` sets it.
    *
    * The value must be a positive integer and at most the server's `history.maxWindowEvents`
-   * setting, which defaults to 100000. `startFlow` and `updateFlowConfig` reject any other value
-   * with a `DexServiceError` whose `code` is `INVALID_ARGUMENT`. A Step that starts a
-   * SubFlow with such an override is an invalid Worker response: the Step attempt fails and Dex
-   * retries it under the Step's retry policy. Servers older than server-zd 0.1.21 ignore the
-   * value.
+   * setting, which defaults to 100000. The field is a signed 32-bit integer, so only 1 to
+   * 2147483647 can be sent. A non-integer or a value outside that range fails while the SDK
+   * serializes the request, before it reaches Dex, and the call rejects with an `INTERNAL`
+   * error. `startFlow` and `updateFlowConfig` reject zero, a negative integer, or an integer above
+   * the server limit with a `DexServiceError` whose `code` is `INVALID_ARGUMENT`. A Step that
+   * starts a SubFlow with such an override is an invalid Worker response: the Step attempt fails
+   * and Dex retries it under the Step's retry policy. Servers older than server-zd 0.1.21 ignore
+   * the value.
    *
    * @example
    * ```ts

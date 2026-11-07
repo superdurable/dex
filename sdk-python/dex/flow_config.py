@@ -71,8 +71,11 @@ class FlowConfig:
 
             The value must be positive and at most the server's
             ``history.maxWindowEvents`` setting, which defaults to 100000.
-            ``start_flow`` and ``update_flow_config`` raise ``DexServiceError``
-            with code ``grpc.StatusCode.INVALID_ARGUMENT`` for any other value. A
+            The field is a signed 32-bit integer, so only 1 to 2147483647 can be
+            sent. A value outside that range raises ``ValueError`` locally,
+            before any request. ``start_flow`` and ``update_flow_config`` raise
+            ``DexServiceError`` with code ``grpc.StatusCode.INVALID_ARGUMENT`` for
+            zero, a negative value, or a value above the server limit. A
             Step that starts a SubFlow with such an override is an invalid Worker
             response: the Step attempt fails and Dex retries it under the Step's
             retry policy. Servers older than server-zd 0.1.21 ignore the field.
