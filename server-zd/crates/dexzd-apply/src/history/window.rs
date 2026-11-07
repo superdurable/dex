@@ -22,6 +22,7 @@ use dexzd_protocol::dexzd::v1::{HistoryRowMetadata, RunRecord};
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::lineage::{genesis_seq, required_attempt_record};
+use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 
 const HISTORY_ROWS_PER_COMMAND: usize = 128;
@@ -281,6 +282,9 @@ fn find_new_window_start(
 /// Deletes history records and checkpoints older than the checkpoint that rebuilds W.
 ///
 /// Their metadata rows go too, and they alone advance `max_pruned_event_id`.
+///
+/// Rows after the run's uploaded seq stay while the partition offloads history or the run has a
+/// SEALED segment.
 pub(crate) fn prune_window_history(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -311,6 +315,7 @@ pub(crate) fn prune_window_history(
                 window_metadata.attempt
             ),
         })?;
+    let keep_from = keep_from.min(first_seq_kept_until_upload(transaction, cursor)?);
     let genesis = genesis_seq(transaction, rows)?;
     if keep_from <= genesis + 1 {
         return Ok(0);

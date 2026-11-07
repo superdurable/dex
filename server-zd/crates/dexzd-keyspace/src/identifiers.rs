@@ -145,6 +145,16 @@ impl ValueId {
         suffix[8..].copy_from_slice(&self.index_in_command.to_be_bytes());
         suffix
     }
+
+    /// Decodes [`Self::to_key_suffix`]; returns `None` unless `suffix` has exactly 12 bytes.
+    pub fn from_key_suffix(suffix: &[u8]) -> Option<Self> {
+        let suffix: &[u8; 12] = suffix.try_into().ok()?;
+        let (run_seq, index_in_command) = suffix.split_at(8);
+        Some(Self {
+            run_seq: u64::from_be_bytes(run_seq.try_into().ok()?),
+            index_in_command: u32::from_be_bytes(index_in_command.try_into().ok()?),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -183,5 +193,19 @@ mod tests {
         }
         .to_key_suffix();
         assert!(first < second);
+    }
+
+    #[test]
+    fn value_id_key_suffix_round_trips() {
+        let value_id = ValueId {
+            run_seq: 0x0102_0304_0506_0708,
+            index_in_command: 0x0a0b_0c0d,
+        };
+        assert_eq!(
+            ValueId::from_key_suffix(&value_id.to_key_suffix()),
+            Some(value_id)
+        );
+        assert_eq!(ValueId::from_key_suffix(&[0; 11]), None);
+        assert_eq!(ValueId::from_key_suffix(&[0; 13]), None);
     }
 }

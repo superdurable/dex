@@ -8,8 +8,8 @@
 
 use dexzd_keyspace::row_keys::{
     HARD_DELETE_PENDING_OBJECT, active_work_index_key, flow_list_index_key,
-    hard_delete_pending_key, prefix_range, retention_index_key, run_item_index_key,
-    tenant_run_index_key, timer_index_key,
+    hard_delete_pending_key, history_upload_pending_index_key, prefix_range, retention_index_key,
+    run_item_index_key, tenant_run_index_key, timer_index_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, RunId, RunTable, TenantId, run_prefix, run_table_prefix,
@@ -127,6 +127,14 @@ pub(crate) fn apply_run_purge(
     remove_outbox_indexes(transaction, rows)?;
     remove_hard_delete_indexes(transaction, rows)?;
     crate::projections::attribute_sync::remove_attribute_sync_indexes(transaction, rows)?;
+    // A point get first, so a run that never sealed a segment leaves no tombstone.
+    let upload_pending_key = history_upload_pending_index_key(partition, flow_hash, run_id);
+    if transaction
+        .get(ColumnFamily::PartitionIndex, &upload_pending_key)?
+        .is_some()
+    {
+        transaction.delete(ColumnFamily::PartitionIndex, upload_pending_key);
+    }
     transaction.delete(
         ColumnFamily::PartitionIndex,
         tenant_run_index_key(

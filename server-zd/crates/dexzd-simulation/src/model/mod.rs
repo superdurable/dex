@@ -11,6 +11,7 @@
 //! It also proposes stale, duplicate, and conflicting commands that apply must reject.
 
 mod client_model;
+mod history_offload_model;
 mod value_generation;
 mod worker_model;
 
@@ -29,13 +30,15 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttributesSetCommand, FlowCommand, FlowStopCommand, HardDeleteObjectReference,
-    PendingCloseCheckCommand, StepInvocationPhase, TimerId, flow_command::Command, timer_id,
+    HistorySegmentUploadedCommand, PendingCloseCheckCommand, SetHistoryOffloadModeCommand,
+    StepInvocationPhase, TimerId, flow_command::Command, timer_id,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::apply_checker::ApplyChecker;
 use crate::invariants::InvariantViolation;
+use crate::model::history_offload_model::history_segment_acknowledgments;
 use crate::model::worker_model::Call;
 use crate::state_view::{FlowView, RunSelection, RunView};
 
@@ -53,6 +56,17 @@ pub const STEP_FAILURE_FLOW_IDS: &[&str] = &["order-recovery-1", "order-recovery
 const STEP_FAILURE_STREAM_SEED: u64 = 0x5fa1_7e00_0000_0000;
 const CLOSED_ERASE_STREAM_SEED: u64 = 0xc105_edee_0000_0000;
 const CLOSED_ERASE_FLOW_ID: &str = "closed-erase-simulation";
+/// Flows of the history offload stream; their partitions offload history and no other stream's
+/// Flow shares them.
+pub const HISTORY_OFFLOAD_FLOW_IDS: &[&str] = &["history-offload-1", "history-offload-3"];
+/// Mixed into the seed so the history offload stream never shares draws with the main stream.
+const HISTORY_OFFLOAD_STREAM_SEED: u64 = 0x415e_9e00_0000_0000;
+/// Chance that the history offload stream proposes a command after each main command.
+const HISTORY_OFFLOAD_COMMAND_PROBABILITY: f64 = 0.5;
+/// Small enough that a few large writes seal a segment.
+const HISTORY_OFFLOAD_SEGMENT_TARGET_BYTES: u64 = 3_000;
+/// Weight of turning offload on again; low enough that runs apply several commands while off.
+const HISTORY_OFFLOAD_REENABLE_WEIGHT: u32 = 4;
 /// Chance that the Step failure stream proposes a command after each main command.
 const STEP_FAILURE_COMMAND_PROBABILITY: f64 = 0.8;
 /// Proposal time of the first command: 2027-01-15 in microseconds.
@@ -91,6 +105,9 @@ enum CommandStream {
     /// Step failure policies and retry total durations on [`STEP_FAILURE_FLOW_IDS`].
     StepFailure,
     ClosedErase,
+    /// Sealed history segments and their upload acknowledgments on
+    /// [`HISTORY_OFFLOAD_FLOW_IDS`], whose partitions offload history.
+    HistoryOffload,
 }
 
 /// One possible next command and its weight.
@@ -128,6 +145,16 @@ enum Proposal<'view> {
     SkipFlowTimeout {
         run_id: RunId,
     },
+    /// Turns history offload on or off for the Flow's partition.
+    SetHistoryOffloadMode {
+        enabled: bool,
+        partition: u32,
+    },
+    /// The uploader acknowledges a sealed history segment; a stale one changes nothing.
+    AcknowledgeHistorySegment {
+        run_id: RunId,
+        acknowledgment: HistorySegmentUploadedCommand,
+    },
 }
 
 impl CommandGenerator {
@@ -161,6 +188,16 @@ impl CommandGenerator {
             rng: ChaCha8Rng::seed_from_u64(seed ^ STEP_FAILURE_STREAM_SEED),
             flow_ids: STEP_FAILURE_FLOW_IDS,
             stream: CommandStream::StepFailure,
+            ..Self::new(seed)
+        }
+    }
+
+    /// Creates `seed`'s history offload stream; its own draws leave the main stream unchanged.
+    pub fn history_offload_stream(seed: u64) -> Self {
+        Self {
+            rng: ChaCha8Rng::seed_from_u64(seed ^ HISTORY_OFFLOAD_STREAM_SEED),
+            flow_ids: HISTORY_OFFLOAD_FLOW_IDS,
+            stream: CommandStream::HistoryOffload,
             ..Self::new(seed)
         }
     }
@@ -278,6 +315,7 @@ impl CommandGenerator {
     pub fn should_propose(&mut self) -> bool {
         let probability = match self.stream {
             CommandStream::StepFailure => STEP_FAILURE_COMMAND_PROBABILITY,
+            CommandStream::HistoryOffload => HISTORY_OFFLOAD_COMMAND_PROBABILITY,
             CommandStream::Main | CommandStream::AttributeSync | CommandStream::ClosedErase => {
                 ATTRIBUTE_SYNC_COMMAND_PROBABILITY
             }
@@ -313,7 +351,11 @@ impl CommandGenerator {
             selected.insert(run_ids[self.rng.random_range(0..run_ids.len() - 1)]);
         }
         let view = checker.view(flow_id, RunSelection::Only(&selected))?;
-        let proposals = self.proposals(&view, checker);
+        let proposals = if self.stream == CommandStream::HistoryOffload {
+            self.history_offload_proposals(&view, checker)?
+        } else {
+            self.proposals(&view, checker)?
+        };
         let total: u32 = proposals.iter().map(|(weight, _)| weight).sum();
         let mut ticket = self.rng.random_range(0..total);
         let mut chosen = None;
@@ -332,22 +374,55 @@ impl CommandGenerator {
         {
             command.is_transactional_rpc_in_flight = self.rng.random_bool(0.3);
         }
+        if self.stream == CommandStream::HistoryOffload
+            && let Some(Command::FlowStart(start)) = command.command.as_mut()
+            && let Some(settings) = start.settings.as_mut()
+        {
+            settings.history_segment_target_bytes = HISTORY_OFFLOAD_SEGMENT_TARGET_BYTES;
+        }
         Ok(command)
+    }
+
+    /// Turns offload on before the Flow's first run, then sometimes off and on again, so runs
+    /// also apply commands while offload is off, with SEALED segments still waiting.
+    fn history_offload_proposals<'view>(
+        &mut self,
+        view: &'view FlowView,
+        checker: &ApplyChecker,
+    ) -> Result<Vec<(u32, Proposal<'view>)>, InvariantViolation> {
+        let (partition, _) = view.location.expect("a decoded view records its partition");
+        let mode = |enabled| Proposal::SetHistoryOffloadMode {
+            enabled,
+            partition: u32::from(partition.0),
+        };
+        if view.directory.is_none() && !view.is_history_offload_enabled {
+            return Ok(vec![(1, mode(true))]);
+        }
+        let mut proposals = self.proposals(view, checker)?;
+        if view.is_history_offload_enabled {
+            proposals.push((1, mode(false)));
+        } else {
+            proposals.push((HISTORY_OFFLOAD_REENABLE_WEIGHT, mode(true)));
+        }
+        Ok(proposals)
     }
 
     fn proposals<'view>(
         &mut self,
         view: &'view FlowView,
         checker: &ApplyChecker,
-    ) -> Vec<(u32, Proposal<'view>)> {
+    ) -> Result<Vec<(u32, Proposal<'view>)>, InvariantViolation> {
         let mut proposals = vec![(1, Proposal::StartFlow)];
         if !self.sent_results.is_empty() {
             proposals.push((2, Proposal::RedeliverResult));
         }
         let Some((latest_run_id, latest_run)) = view.latest_run() else {
             proposals[0].0 = 20;
-            return proposals;
+            return Ok(proposals);
         };
+        if self.stream == CommandStream::HistoryOffload {
+            proposals.extend(history_segment_acknowledgments(view, checker)?);
+        }
         let is_running = latest_run
             .record
             .as_ref()
@@ -466,7 +541,7 @@ impl CommandGenerator {
                 }
             }
         }
-        proposals
+        Ok(proposals)
     }
 
     fn realize(&mut self, flow_id: &str, proposal: Proposal<'_>) -> FlowCommand {
@@ -522,6 +597,25 @@ impl CommandGenerator {
             Proposal::SkipFlowTimeout { run_id } => {
                 let body = client_model::skip_flow_timeout(flow_id);
                 self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
+            }
+            Proposal::SetHistoryOffloadMode { enabled, partition } => {
+                let body = Command::SetHistoryOffloadMode(SetHistoryOffloadModeCommand {
+                    enabled,
+                    partition,
+                });
+                let mut command = self.envelope(flow_id, Vec::new(), body);
+                command.expected_run_attempt = 0;
+                command
+            }
+            Proposal::AcknowledgeHistorySegment {
+                run_id,
+                acknowledgment,
+            } => {
+                let body = Command::HistorySegmentUploaded(acknowledgment);
+                let mut command = self.envelope(flow_id, run_id.as_bytes().to_vec(), body);
+                // The uploader never binds an acknowledgment to an attempt.
+                command.expected_run_attempt = 0;
+                command
             }
             Proposal::StartAttempt(call) => {
                 // Only the Step failure stream queues, so main-stream trajectories stay pinned.

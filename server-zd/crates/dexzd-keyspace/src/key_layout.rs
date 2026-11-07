@@ -152,11 +152,15 @@ pub enum RunTable {
     HistoryRowMetadata = 0x19,
     /// Attribute Sync entries waiting to be written to an Attribute Store, keyed by store and key.
     AttributeSyncOutbox = 0x1a,
+    /// `first_seq(8)`: sealed and uploaded history segments of the run.
+    HistorySegment = 0x1b,
+    /// `first_seq(8) ‖ value_id(12)`: values superseded inside each history segment.
+    HistorySegmentValue = 0x1c,
 }
 
 impl RunTable {
     /// Every table, in byte order.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 28] = [
         Self::RunRecord,
         Self::AttemptRecord,
         Self::Attribute,
@@ -183,6 +187,8 @@ impl RunTable {
         Self::RequestDedupOrder,
         Self::HistoryRowMetadata,
         Self::AttributeSyncOutbox,
+        Self::HistorySegment,
+        Self::HistorySegmentValue,
     ];
 
     /// Returns the column family that stores this table.
@@ -243,11 +249,13 @@ pub enum IndexKind {
     DispatchQueue = 0x0d,
     /// No suffix: the partition's HistoryOffloadModeRecord; absent means disabled.
     HistoryOffloadMode = 0x0e,
+    /// `flow_hash(8) ‖ run_id(16)`: runs with a sealed history segment waiting for upload.
+    HistoryUploadPending = 0x0f,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -262,6 +270,7 @@ impl IndexKind {
         Self::SearchProjectionMode,
         Self::DispatchQueue,
         Self::HistoryOffloadMode,
+        Self::HistoryUploadPending,
     ];
 }
 
@@ -422,11 +431,16 @@ mod tests {
     #[test]
     fn table_bytes_are_unique_and_permanent() {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
-        assert_eq!(bytes, (1..=26).collect::<Vec<u8>>());
+        assert_eq!(bytes, (1..=28).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=14).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=15).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
+        assert_eq!(RunTable::HistorySegment.column_family(), ColumnFamily::Flow);
+        assert_eq!(
+            RunTable::HistorySegmentValue.column_family(),
+            ColumnFamily::Flow
+        );
     }
 
     #[test]

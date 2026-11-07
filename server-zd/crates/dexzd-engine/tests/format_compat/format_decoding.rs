@@ -17,10 +17,11 @@ use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeIndexRegistry, AttributeRecord, AttributeSyncOutboxRecord,
     ChannelMessageRecord, ChannelMetaRecord, ChannelWaiterRecord, CheckpointRecord, ClusterObject,
     FlowCommand, FlowDirectoryRecord, HardDeleteObjectRecord, HistoryRecord, HistoryRowMetadata,
-    InboxDedupRecord, LocalStoreKind, LockRecord, LogRecord, Manifest, NodeMeta, OutboxRecord,
-    PartitionMeta, PermissionSetRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord,
-    SnapshotManifest, StepCounterRecord, StepExecutionRecord, SubFlowResultRecord, TimerRecord,
-    ValueBirthRecord, ValueGarbageRecord, ValueRecord, log_record,
+    HistorySegmentRecord, HistorySegmentValueRecord, InboxDedupRecord, LocalStoreKind, LockRecord,
+    LogRecord, Manifest, NodeMeta, OutboxRecord, PartitionMeta, PermissionSetRecord,
+    RequestDedupRecord, RunRecord, SearchDocumentRecord, SnapshotManifest, StepCounterRecord,
+    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    ValueRecord, log_record,
 };
 use prost::Message;
 use xxhash_rust::xxh3::xxh3_64;
@@ -256,6 +257,8 @@ fn decode_run_row(table: RunTable, value: &[u8], describe: &dyn Fn() -> String) 
         RunTable::HistoryRowMetadata => decode_as::<HistoryRowMetadata>(value, describe),
         RunTable::Checkpoint => decode_as::<CheckpointRecord>(value, describe),
         RunTable::SearchDocument => decode_as::<SearchDocumentRecord>(value, describe),
+        RunTable::HistorySegment => decode_as::<HistorySegmentRecord>(value, describe),
+        RunTable::HistorySegmentValue => decode_as::<HistorySegmentValueRecord>(value, describe),
         // Holder and dedup order rows carry no message.
         RunTable::ValueHolder | RunTable::RequestDedupOrder => {}
     }

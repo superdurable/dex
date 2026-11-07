@@ -40,6 +40,38 @@ another partition than the one it was routed to is rejected with
 INVALID_ARGUMENT and writes nothing. A command that keeps the mode writes
 nothing.
 
+## History segments
+
+A run that starts while its partition offloads history keeps an open history
+segment in its `RunRecord`. Each command that records history adds its history
+record, checkpoint, and superseded value bytes to it. At the end of the command,
+apply seals `[open first seq, command seq]` when the segment reached the run's
+`history_segment_target_bytes` (4 MiB when zero), when 10,000 values were
+superseded inside it, or when the command closed the run. Sealing writes a SEALED
+`HistorySegment` row, one `HistorySegmentValue` row per value then in table G
+with a superseded seq inside the range, and the run's `HistoryUploadPending`
+index row, and emits `HistorySegmentSealed`. A value revived later keeps its row,
+so the segment's content never changes. Runs that started while offload was off
+keep no segment state. While the partition does not offload, apply seals nothing,
+and each command of a run with segment state moves the open segment past itself.
+The seqs and events of those commands belong to no segment, and their local rows
+follow window pruning, so a segment opened after offload is turned on again never
+spans rows that pruning may have deleted.
+
+`HistorySegmentUploadedCommand` records no history, takes no run seq, and is not
+bound to an attempt. It marks the run's oldest SEALED segment, the first one
+after the uploaded seq U, UPLOADED and sets U to its last seq. It deletes the
+pending index row once no SEALED segment remains. An acknowledgment that names
+another segment replies OK and writes nothing; one whose checksum is not 16
+bytes or whose object size is zero is rejected with INVALID_ARGUMENT.
+
+Window pruning deletes history records, checkpoints, and superseded values only
+at or below U while the partition offloads history and, whatever the mode, while
+the run has a SEALED segment. So turning offload off never deletes sealed content
+before its acknowledgment; once every SEALED segment is acknowledged, pruning
+returns to the window rule. Segment rows count as history bytes, never toward the
+run state limit. Run purge deletes the pending index row with the run.
+
 ## Value and storage accounting
 
 Each run tracks encoded Flow and History row bytes, including keys. Live and superseded value bytes use the encoded value sizes in birth records; garbage rows identify the superseded portion. Apply updates these totals from each command's writes and deletes.

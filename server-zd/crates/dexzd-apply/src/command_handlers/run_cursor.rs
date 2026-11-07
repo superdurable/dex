@@ -17,6 +17,7 @@ use crate::command_handlers::{
     CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 use crate::history;
+use crate::history_offload::segment_seal::seal_history_segment_if_due;
 use crate::projections::history_event_links::{
     HistoryEventIndex, PendingHistoryEvents, StepEventLink, resolve_step_event_links,
     with_recorded_event_ids,
@@ -80,6 +81,24 @@ impl RunCursor {
         transaction: &FlowTransaction<'_>,
         scope: &CommandScope<'_>,
     ) -> Result<Result<Self, CommandReply>, ApplyError> {
+        Ok(Self::open_record(transaction, scope)?
+            .map(|(rows, record)| Self::with_record(rows, record)))
+    }
+
+    /// Opens the run for a command that records no history and takes no run seq; its cursor
+    /// seq is zero and its record keeps `next_run_seq`. Replies as [`Self::open`] does.
+    pub(crate) fn open_without_seq(
+        transaction: &FlowTransaction<'_>,
+        scope: &CommandScope<'_>,
+    ) -> Result<Result<Self, CommandReply>, ApplyError> {
+        Ok(Self::open_record(transaction, scope)?
+            .map(|(rows, record)| Self::with_seq(rows, record, 0)))
+    }
+
+    fn open_record(
+        transaction: &FlowTransaction<'_>,
+        scope: &CommandScope<'_>,
+    ) -> Result<Result<(RunRows, RunRecord), CommandReply>, ApplyError> {
         let Ok(run_id) = RunId::from_slice(&scope.command.run_id) else {
             return Err(ApplyError::InvariantViolation {
                 detail: "a committed run command has no 16-byte run ID".to_owned(),
@@ -106,7 +125,7 @@ impl RunCursor {
                 ),
             )));
         }
-        Ok(Ok(Self::with_record(rows, record)))
+        Ok(Ok((rows, record)))
     }
 
     /// Continues the TimeTravel command at `seq` for one input it reapplies.
@@ -238,6 +257,12 @@ impl RunCursor {
         }
         self.record.commands_since_checkpoint += 1;
         let last_event_id = events.last().map(|event| event.event_id);
+        let has_closed_run = events.iter().any(|event| {
+            matches!(
+                event.payload,
+                Some(flow_history_event::Payload::FlowClosed(_))
+            )
+        });
         let pending_step_methods = history::pending_step_methods(transaction, &self)?;
         self.rows.put_history_record(
             transaction,
@@ -258,6 +283,7 @@ impl RunCursor {
         );
         search_document::refresh_search_document(transaction, &self, scope)?;
         history::after_command(transaction, &mut self, window_events)?;
+        seal_history_segment_if_due(transaction, &mut self, scope.now_micros, has_closed_run)?;
         self.rows.put_run_record(transaction, &self.record);
         if scope.is_replay {
             reconcile_run_storage(transaction, &mut self)?;

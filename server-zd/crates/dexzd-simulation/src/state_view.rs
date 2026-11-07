@@ -13,7 +13,8 @@ use dexzd_keyspace::dispatch_queue_keys::{
 };
 use dexzd_keyspace::row_keys::{
     AttributeSyncPendingIndexEntry, HARD_DELETE_CURRENT_OBJECT, TimerIndexEntry,
-    decode_attribute_sync_pending_index_key, decode_timer_index_key, partition_index_range,
+    decode_attribute_sync_pending_index_key, decode_flow_run_after_prefix, decode_timer_index_key,
+    history_offload_mode_key, partition_index_range,
 };
 use dexzd_keyspace::{
     ColumnFamily, FLOW_DIRECTORY_KEY_TAG, FlowHash, IndexKind, PartitionId, RunId, RunTable,
@@ -22,9 +23,9 @@ use dexzd_keyspace::{
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributeSyncOutboxRecord, ChannelMessageRecord,
     ChannelMetaRecord, DispatchQueueRecord, FlowDirectoryRecord, HardDeleteObjectRecord,
-    HistoryRecord, HistoryRowMetadata, LockRecord, RequestDedupRecord, RunRecord,
-    SearchDocumentRecord, StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord,
-    ValueGarbageRecord,
+    HistoryOffloadModeRecord, HistoryRecord, HistoryRowMetadata, HistorySegmentRecord,
+    HistorySegmentValueRecord, LockRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord,
+    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -46,6 +47,10 @@ pub struct FlowView {
     pub search_order_keys: BTreeMap<RunId, BTreeSet<Vec<u8>>>,
     /// DispatchQueue index rows of this Flow in its partition.
     pub dispatch_queue_index: Vec<(DispatchQueueEntry, DispatchQueueRecord)>,
+    /// Runs of this Flow with a HistoryUploadPending index row in its partition.
+    pub history_upload_pending_runs: BTreeSet<RunId>,
+    /// True when the Flow's partition offloads history.
+    pub is_history_offload_enabled: bool,
     /// The partition and Flow hash the view was read for.
     pub location: Option<(PartitionId, FlowHash)>,
 }
@@ -111,6 +116,10 @@ pub struct RunView {
     pub attribute_sync_entries: BTreeMap<(String, String), AttributeSyncOutboxRecord>,
     /// The run's search document, when it has one.
     pub search_document: Option<SearchDocumentRecord>,
+    /// History segments by first seq.
+    pub history_segments: BTreeMap<u64, HistorySegmentRecord>,
+    /// Superseded value rows of history segments, by segment first seq and value.
+    pub history_segment_values: BTreeMap<(u64, ValueId), HistorySegmentValueRecord>,
 }
 
 /// A row the view could not decode; redecoding normally rejects these first.
@@ -233,6 +242,40 @@ impl FlowView {
                 view.dispatch_queue_index.push((entry, record));
             }
         }
+        let (start, end) = partition_index_range(partition, IndexKind::HistoryUploadPending);
+        let upload_pending_rows = dexzd_apply::FlowStateReader::scan(
+            state,
+            ColumnFamily::PartitionIndex,
+            &start,
+            &end,
+            usize::MAX,
+        )
+        .map_err(|error| StateViewError {
+            what: "HistoryUploadPending index",
+            key_hex: hex(&start),
+            detail: error.to_string(),
+        })?;
+        for (key, _) in &upload_pending_rows {
+            let (row_flow_hash, run_id) = decode_flow_run_after_prefix(key, start.len())
+                .filter(|_| key.len() == start.len() + 24)
+                .ok_or_else(|| view_error(key, "HistoryUploadPending index", "malformed key"))?;
+            if row_flow_hash == flow_hash {
+                view.history_upload_pending_runs.insert(run_id);
+            }
+        }
+        let mode_key = history_offload_mode_key(partition);
+        view.is_history_offload_enabled =
+            dexzd_apply::FlowStateReader::get(state, ColumnFamily::PartitionIndex, &mode_key)
+                .map_err(|error| StateViewError {
+                    what: "history offload mode",
+                    key_hex: hex(&mode_key),
+                    detail: error.to_string(),
+                })?
+                .map(|value| {
+                    decode::<HistoryOffloadModeRecord>(&mode_key, &value, "history offload mode")
+                })
+                .transpose()?
+                .is_some_and(|mode| mode.enabled);
         view.location = Some((partition, flow_hash));
         Ok(view)
     }
@@ -350,6 +393,28 @@ impl FlowView {
                 run.attribute_sync_entries.insert(
                     (record.store_name.clone(), record.attribute_key.clone()),
                     record,
+                );
+            }
+            RunTable::HistorySegment => {
+                run.history_segments.insert(
+                    u64_from_suffix(key, suffix)?,
+                    decode(key, value, "history segment")?,
+                );
+            }
+            RunTable::HistorySegmentValue => {
+                if suffix.len() != 20 {
+                    return Err(view_error(
+                        key,
+                        "history segment value",
+                        "key suffix is not 20 bytes",
+                    ));
+                }
+                run.history_segment_values.insert(
+                    (
+                        u64_from_suffix(key, &suffix[..8])?,
+                        value_id_from_suffix(key, &suffix[8..])?,
+                    ),
+                    decode(key, value, "history segment value")?,
                 );
             }
             RunTable::StepCounter

@@ -251,6 +251,38 @@ pub fn checkpoint_key(flow_hash: FlowHash, run_id: RunId, attempt: u32, seq: u64
     run_key(flow_hash, run_id, RunTable::Checkpoint, &suffix)
 }
 
+/// Key of a history segment, by its first seq.
+pub fn history_segment_key(flow_hash: FlowHash, run_id: RunId, first_seq: u64) -> Vec<u8> {
+    run_key(
+        flow_hash,
+        run_id,
+        RunTable::HistorySegment,
+        &first_seq.to_be_bytes(),
+    )
+}
+
+/// Prefix of the superseded value rows of the history segment that starts at `first_seq`.
+pub fn history_segment_value_prefix(flow_hash: FlowHash, run_id: RunId, first_seq: u64) -> Vec<u8> {
+    run_key(
+        flow_hash,
+        run_id,
+        RunTable::HistorySegmentValue,
+        &first_seq.to_be_bytes(),
+    )
+}
+
+/// Key of one superseded value of the history segment that starts at `first_seq`.
+pub fn history_segment_value_key(
+    flow_hash: FlowHash,
+    run_id: RunId,
+    first_seq: u64,
+    value_id: ValueId,
+) -> Vec<u8> {
+    let mut key = history_segment_value_prefix(flow_hash, run_id, first_seq);
+    key.extend_from_slice(&value_id.to_key_suffix());
+    key
+}
+
 fn flow_run_suffix(flow_hash: FlowHash, run_id: RunId) -> Vec<u8> {
     let mut suffix = flow_hash.to_be_bytes().to_vec();
     suffix.extend_from_slice(run_id.as_bytes());
@@ -438,6 +470,19 @@ pub fn search_projection_mode_key(partition: PartitionId) -> Vec<u8> {
 /// Key of a partition's HistoryOffloadModeRecord; an absent record means disabled.
 pub fn history_offload_mode_key(partition: PartitionId) -> Vec<u8> {
     partition_index_prefix(partition, IndexKind::HistoryOffloadMode)
+}
+
+/// Key of a run's HistoryUploadPending index row: Flow hash, run ID.
+pub fn history_upload_pending_index_key(
+    partition: PartitionId,
+    flow_hash: FlowHash,
+    run_id: RunId,
+) -> Vec<u8> {
+    partition_index_key(
+        partition,
+        IndexKind::HistoryUploadPending,
+        &flow_run_suffix(flow_hash, run_id),
+    )
 }
 
 /// Attribute Sync pending index key: length-prefixed store name, Flow hash, run ID.
@@ -631,14 +676,17 @@ mod tests {
     use super::{
         SearchOrderPosition, attribute_sync_outbox_key, attribute_sync_outbox_store_prefix,
         attribute_sync_pending_index_key, attribute_sync_pending_store_prefix, channel_name_prefix,
-        decode_attribute_sync_pending_index_key, decode_search_order_identity,
-        decode_search_outbox_key, decode_timer_index_key, history_offload_mode_key,
-        ordered_timestamp_bytes, partition_index_range, prefix_range, search_order_index_key,
-        search_order_index_prefix, search_outbox_key, search_outbox_range_after,
-        search_outbox_range_through, search_projection_mode_key, timer_index_key,
-        timestamp_from_ordered_bytes,
+        decode_attribute_sync_pending_index_key, decode_flow_run_after_prefix,
+        decode_search_order_identity, decode_search_outbox_key, decode_timer_index_key,
+        history_offload_mode_key, history_segment_key, history_segment_value_key,
+        history_segment_value_prefix, history_upload_pending_index_key, ordered_timestamp_bytes,
+        partition_index_range, prefix_range, search_order_index_key, search_order_index_prefix,
+        search_outbox_key, search_outbox_range_after, search_outbox_range_through,
+        search_projection_mode_key, timer_index_key, timestamp_from_ordered_bytes,
     };
-    use crate::{FlowHash, IndexKind, PartitionId, RunId, TenantId};
+    use crate::{
+        FlowHash, IndexKind, PartitionId, RunId, RunTable, TenantId, ValueId, parse_run_key,
+    };
 
     #[test]
     fn search_order_keys_sort_in_default_order() {
@@ -791,6 +839,51 @@ mod tests {
         let (start, end) = partition_index_range(PartitionId(6), IndexKind::HistoryOffloadMode);
         assert!(!(start <= key && key < end));
         assert_ne!(key, search_projection_mode_key(partition));
+    }
+
+    #[test]
+    fn history_segment_keys_order_by_first_seq_then_value_id() {
+        let flow_hash = FlowHash(11);
+        let run_id = RunId([4; 16]);
+        let segment = history_segment_key(flow_hash, run_id, 300);
+        let parsed = parse_run_key(&segment).unwrap();
+        assert_eq!(parsed.table, RunTable::HistorySegment);
+        assert_eq!(parsed.suffix, 300_u64.to_be_bytes());
+        assert!(segment < history_segment_key(flow_hash, run_id, 301));
+        let value = |first_seq, run_seq, index_in_command| {
+            history_segment_value_key(
+                flow_hash,
+                run_id,
+                first_seq,
+                ValueId {
+                    run_seq,
+                    index_in_command,
+                },
+            )
+        };
+        let first = value(300, 5, 1);
+        assert_eq!(
+            parse_run_key(&first).unwrap().table,
+            RunTable::HistorySegmentValue
+        );
+        assert!(first < value(300, 6, 0));
+        assert!(value(300, u64::MAX, u32::MAX) < value(301, 0, 0));
+        let (start, end) = prefix_range(&history_segment_value_prefix(flow_hash, run_id, 300));
+        assert!(start <= first && first < end);
+        assert!(value(301, 0, 0) >= end);
+    }
+
+    #[test]
+    fn history_upload_pending_keys_name_their_run_inside_their_partition_index() {
+        let partition = PartitionId(5);
+        let key = history_upload_pending_index_key(partition, FlowHash(9), RunId([2; 16]));
+        let (start, end) = partition_index_range(partition, IndexKind::HistoryUploadPending);
+        assert!(start <= key && key < end);
+        assert_eq!(key.len(), 3 + 24);
+        assert_eq!(
+            decode_flow_run_after_prefix(&key, 3),
+            Some((FlowHash(9), RunId([2; 16])))
+        );
     }
 
     #[test]

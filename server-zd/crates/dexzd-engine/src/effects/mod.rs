@@ -158,6 +158,7 @@ impl Default for EffectsConfig {
                 max_run_state_bytes: 1024 * 1024 * 1024,
                 max_active_step_executions: 10_000,
                 max_child_flow_result_bytes: 16 * 1024 * 1024,
+                history_segment_target_bytes: 4 * 1024 * 1024,
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
             heads_resync_interval: Duration::from_secs(5 * 60),
@@ -832,6 +833,8 @@ impl EffectRouter {
             }
             // A speculative change may roll back; only its committed copy counts.
             ApplyEffect::DispatchQueueChanged { .. } => {}
+            // No uploader runs yet; the pending index row keeps the segment findable.
+            ApplyEffect::HistorySegmentSealed { .. } => {}
             effect if !is_committed => {
                 tracing::debug!(?effect, "ignoring a speculative external effect");
             }

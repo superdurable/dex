@@ -29,6 +29,7 @@ use crate::command_handlers::flow_close::{FlowClosing, close_flow_immediately};
 use crate::command_handlers::flow_data::apply_attribute_writes;
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
+use crate::history_offload::segment_seal::open_first_history_segment;
 use crate::projections::history_event_links::StepEventLink;
 use crate::projections::history_events;
 use crate::state_access::{FlowTransaction, RunRows, read_flow_directory, write_flow_directory};
@@ -166,6 +167,7 @@ pub(crate) fn start_run(
         ..RunRecord::default()
     };
     let mut cursor = RunCursor::for_new_run(rows, record);
+    open_first_history_segment(transaction, &mut cursor)?;
     rows.put_attempt_record(
         transaction,
         &AttemptRecord {

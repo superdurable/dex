@@ -71,6 +71,11 @@ Then the node took a snapshot. After the snapshot:
   restores running attempts as pending reopens it; it starts again and completes.
 - `search-flow`: the search projection of its partition is enabled, an Attribute write queues
   a search outbox entry, and a SearchOutboxAck deletes it.
+- Runs that start in partitions 0 and 1 after history offload is enabled keep history segment
+  state, and each seals its open segment when it closes.
+- `history-flow-3`, in partition 1: a replaced Attribute supersedes a value, the stop seals the
+  run's only history segment with that value listed, and a HistorySegmentUploaded
+  acknowledgment marks the segment uploaded and removes the run's pending index row.
 - Partition 0 disables history offload, which deletes its mode record.
 
 Every `FlowCommand` kind of behavior version 1 appears in the log. Hand-out commands outside

@@ -107,6 +107,10 @@ fn usage_after_changes(
                         history_delta += row_delta
                             + record_size::<HistoryRowMetadata>(change, "history metadata")?;
                     }
+                    // Segment rows describe history, so the run state limit never counts them.
+                    RunTable::HistorySegment | RunTable::HistorySegmentValue => {
+                        history_delta += row_delta;
+                    }
                     _ => state_delta += row_delta,
                 }
             }

@@ -13,12 +13,14 @@ use dexzd_protocol::dexzd::v1::ValueGarbageRecord;
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::{WindowAdvanceTarget, advance_window, prune_window_history};
+use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 use crate::values::{projected_superseded_value_bytes, reconcile_run_storage};
 
 const GARBAGE_ROWS_PER_CALL: usize = 128;
 
-/// Collects at most 128 values whose last holder disappeared before the window start.
+/// Collects at most 128 values whose last holder disappeared before the window start, and only
+/// within the run's uploaded seqs while the partition offloads or the run has a SEALED segment.
 pub(crate) fn prune_garbage(
     transaction: &mut FlowTransaction<'_>,
     cursor: &RunCursor,
@@ -34,6 +36,7 @@ pub(crate) fn prune_garbage(
         GARBAGE_ROWS_PER_CALL,
         "value garbage",
     )?;
+    let delete_before_seq = window_start_seq.min(first_seq_kept_until_upload(transaction, cursor)?);
     let mut collected = 0;
     for (garbage_key, _) in garbage {
         let suffix = &garbage_key[prefix.len()..];
@@ -47,7 +50,7 @@ pub(crate) fn prune_garbage(
                 .try_into()
                 .expect("the garbage key suffix has at least eight bytes"),
         );
-        if lost_last_holder_seq >= window_start_seq {
+        if lost_last_holder_seq >= delete_before_seq {
             break;
         }
         let value_id = ValueId {

@@ -23,8 +23,9 @@ use prost::Message;
 use crate::invalid_client_inputs::{check_invalid_client_input_rejected, invalid_client_input};
 use crate::invariants::{
     CheckerMemory, CloseBarrierCounts, InvariantViolation, WindowPointState, check_close_barrier,
-    check_flow, check_fresh_snapshot, check_outbox_writes, check_window_value_content,
-    remember_ack, remember_window_points,
+    check_deletions_were_uploaded, check_flow, check_fresh_snapshot, check_outbox_writes,
+    check_sealed_segment_encodings, check_window_value_content, remember_ack,
+    remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunSelection};
@@ -171,6 +172,18 @@ impl ApplyChecker {
             .commit_redecoded(&outcome.writes)
             .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
         let view = self.view(&command.flow_id, RunSelection::Only(&touched_runs))?;
+        if !view.is_history_offload_enabled {
+            let gap_runs = view.runs.iter().filter(|(_, run)| {
+                run.is_complete
+                    && run
+                        .record
+                        .as_ref()
+                        .is_some_and(|record| record.history_open_segment_first_seq != 0)
+            });
+            self.memory
+                .history_offload_gap_runs
+                .extend(gap_runs.map(|(run_id, _)| *run_id));
+        }
         let close_barrier_counts = check_close_barrier(
             command,
             is_applied,
@@ -201,6 +214,15 @@ impl ApplyChecker {
             &self.state,
             context.flow_hash,
         )?;
+        check_deletions_were_uploaded(&command.flow_id, &outcome.writes, &view)?;
+        check_sealed_segment_encodings(
+            &command.flow_id,
+            &view,
+            context.flow_hash,
+            &self.state,
+            &self.redecoded_state,
+            &mut self.memory.sealed_segment_encodings,
+        )?;
         Ok(outcome)
     }
 
@@ -222,6 +244,11 @@ impl ApplyChecker {
     /// Every run whose pending close an admitted transactional RPC held at some point.
     pub(crate) fn ever_rpc_held_runs(&self) -> &BTreeSet<RunId> {
         &self.ever_rpc_held_runs
+    }
+
+    /// Runs with segment state that applied a command while their partition did not offload.
+    pub(crate) fn history_offload_gap_runs(&self) -> &BTreeSet<RunId> {
+        &self.memory.history_offload_gap_runs
     }
 
     /// Returns the window points `run_id` retained right after the checker applied its first
