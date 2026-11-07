@@ -25,8 +25,8 @@ use std::time::Duration;
 use dexzd_clock::{SystemWallClock, WallClock};
 use dexzd_cluster_metadata::{LeaseValidityDeadline, read_node_lease};
 use dexzd_engine::{
-    CommandApplier, DeterministicCommandApplier, HotStandby, HotStandbyConfig,
-    HotStandbyDependencies, LocalStoreCloseWaiter,
+    BlockingWorkPlacement, CommandApplier, DeterministicCommandApplier, HistorySegmentReader,
+    HotStandby, HotStandbyConfig, HotStandbyDependencies, LocalStoreCloseWaiter,
 };
 use dexzd_metrics::{NodeMetrics, NodeRole, TakeoverStandbyMode};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -70,6 +70,8 @@ pub(super) struct ProcessParts {
     pub(super) clock: Arc<dyn WallClock>,
     pub(super) applier: Arc<dyn CommandApplier>,
     pub(super) id_source: Arc<LeaseHolderRecordingIdSource>,
+    /// Reads uploaded history; one per process, since it owns the disk read cache.
+    pub(super) history_segment_reader: Arc<HistorySegmentReader>,
     /// Spreads this process's hot standby restarts apart from other processes'.
     pub(super) restart_jitter_seed: u64,
 }
@@ -139,12 +141,19 @@ impl NodeLifecycle {
                 return Ok(None);
             }
         };
+        let history_segment_reader = Arc::new(HistorySegmentReader::new(
+            &components.history_reads,
+            object_stores.primary.clone(),
+            metrics.clone(),
+            BlockingWorkPlacement::BlockingThreadPool,
+        ));
         let process = ProcessParts {
             config: config.clone(),
             components,
             metrics,
             lease_validity_deadline,
             object_stores,
+            history_segment_reader,
             clock: Arc::new(SystemWallClock),
             applier: Arc::new(DeterministicCommandApplier),
             id_source: Arc::new(LeaseHolderRecordingIdSource::default()),

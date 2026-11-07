@@ -41,6 +41,7 @@ aws-sdk-s3 = { version = "1.155", default-features = false, features = ["behavio
 base64 = "0.22"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
+dex-blob-cache = { path = "../sdk-rust/crates/dex-blob-cache" }
 dexzd-api = { path = "crates/dexzd-api" }
 dexzd-apply = { path = "crates/dexzd-apply" }
 dexzd-attribute-store = { path = "crates/dexzd-attribute-store" }

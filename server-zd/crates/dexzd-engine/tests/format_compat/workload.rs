@@ -2225,6 +2225,12 @@ mod load_blobs_purge_tests {
                 hard_delete_uploader: ports,
                 time_travel_history: Arc::new(dexzd_engine::LocalTimeTravelHistory),
                 clock: clock.clone(),
+                history_segment_reader: Arc::new(dexzd_engine::HistorySegmentReader::new(
+                    &dexzd_engine::HistoryReadsConfig::default(),
+                    object_store.clone(),
+                    Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+                    dexzd_engine::BlockingWorkPlacement::BlockingThreadPool,
+                )),
                 id_source: ids.clone(),
             },
         );

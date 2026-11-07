@@ -35,10 +35,10 @@ use std::path::PathBuf;
 pub use api_requests::{ApiLatency, ApiRequests, GrpcCode, RpcClass, classify_rpc};
 pub use commit_latency::CommitLatency;
 pub use fixed_labels::{
-    AttributeSyncFailureKind, AttributeSyncWriteFailures, HistoryUploadOutcome,
-    HistoryUploadOutcomes, HotStandbyMetricState, HotStandbyStateGauges, ObjectErrorCounters,
-    OutcomeCounters, RoleGauges, TakeoverCounters, TakeoverDurations, TakeoverStandbyMode,
-    TakeoverStoreSource,
+    AttributeSyncFailureKind, AttributeSyncWriteFailures, HistoryReadKind, HistoryReadSource,
+    HistoryReads, HistoryUploadOutcome, HistoryUploadOutcomes, HotStandbyMetricState,
+    HotStandbyStateGauges, ObjectErrorCounters, OutcomeCounters, RoleGauges, TakeoverCounters,
+    TakeoverDurations, TakeoverStandbyMode, TakeoverStoreSource,
 };
 pub use histogram::AtomicHistogram;
 use histogram::{FLOW_LATENCY_BOUNDS, SCHEDULE_LATENCY_BOUNDS};
@@ -189,6 +189,8 @@ pub struct NodeMetrics {
     pub history_upload_bytes: Counter,
     /// Existing history segment objects whose content checksum differed from committed state.
     pub history_upload_checksum_mismatches: Counter,
+    /// History reads by kind and by where they found their data.
+    pub history_reads: HistoryReads,
     /// Runs or index rows that the history upload rescan could not read and skipped.
     pub history_upload_rescan_errors: Counter,
     /// Hot standby state, with one series for each closed state.
@@ -598,6 +600,11 @@ impl NodeMetrics {
             metrics.history_upload_checksum_mismatches.clone(),
         );
         registry.register(
+            "dexzd_history_reads",
+            "History reads by kind and by where they found their data.",
+            metrics.history_reads.clone(),
+        );
+        registry.register(
             "dexzd_history_upload_rescan_errors",
             "Runs or index rows that the history upload rescan could not read and skipped.",
             metrics.history_upload_rescan_errors.clone(),
@@ -714,6 +721,7 @@ impl NodeMetrics {
             history_uploads: HistoryUploadOutcomes::default(),
             history_upload_bytes: Counter::default(),
             history_upload_checksum_mismatches: Counter::default(),
+            history_reads: HistoryReads::default(),
             history_upload_rescan_errors: Counter::default(),
             hot_standby_states: HotStandbyStateGauges::default(),
             hot_standby_lag_batches: Gauge::default(),

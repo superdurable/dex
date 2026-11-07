@@ -288,6 +288,101 @@ impl EncodeMetric for HistoryUploadOutcomes {
     }
 }
 
+/// What a history read returned; see [`HistoryReads`].
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum HistoryReadKind {
+    /// A GetHistoryEvents page.
+    Page,
+    /// A LoadBlobs value.
+    Blob,
+}
+
+label_value!(HistoryReadKind { Page => "page", Blob => "blob" });
+
+/// Where a history read found its data; see [`HistoryReads`].
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum HistoryReadSource {
+    /// Local rows only.
+    Local,
+    /// The node's disk read cache.
+    Cache,
+    /// Object storage.
+    ObjectStore,
+}
+
+label_value!(HistoryReadSource { Local => "local", Cache => "cache", ObjectStore => "object_store" });
+
+impl HistoryReadSource {
+    const ALL: [Self; 3] = [Self::Local, Self::Cache, Self::ObjectStore];
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+struct HistoryReadLabel {
+    kind: HistoryReadKind,
+    source: HistoryReadSource,
+}
+
+/// Fixed counters of history reads, by kind and source.
+///
+/// A local-only read counts once as `local`; each segment part read counts as its source.
+#[derive(Clone, Debug)]
+pub struct HistoryReads {
+    values: Arc<[Counter; 6]>,
+}
+
+impl Default for HistoryReads {
+    fn default() -> Self {
+        Self {
+            values: Arc::new(std::array::from_fn(|_| Counter::default())),
+        }
+    }
+}
+
+impl HistoryReads {
+    /// Records one read of `kind` from `source`.
+    pub fn record(&self, kind: HistoryReadKind, source: HistoryReadSource) {
+        self.values[Self::index(kind, source)].inc();
+    }
+
+    /// Returns the reads recorded with `kind` and `source`.
+    pub fn count(&self, kind: HistoryReadKind, source: HistoryReadSource) -> u64 {
+        self.values[Self::index(kind, source)].get()
+    }
+
+    const fn index(kind: HistoryReadKind, source: HistoryReadSource) -> usize {
+        let kind_index = match kind {
+            HistoryReadKind::Page => 0,
+            HistoryReadKind::Blob => 3,
+        };
+        let source_index = match source {
+            HistoryReadSource::Local => 0,
+            HistoryReadSource::Cache => 1,
+            HistoryReadSource::ObjectStore => 2,
+        };
+        kind_index + source_index
+    }
+}
+
+impl EncodeMetric for HistoryReads {
+    fn encode(&self, mut encoder: MetricEncoder) -> Result<(), std::fmt::Error> {
+        for kind in [HistoryReadKind::Page, HistoryReadKind::Blob] {
+            for source in HistoryReadSource::ALL {
+                encoder
+                    .encode_family(&HistoryReadLabel { kind, source })?
+                    .encode_counter::<NoLabelSet, _, u64>(
+                        &self.values[Self::index(kind, source)].get(),
+                        None,
+                    )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn metric_type(&self) -> MetricType {
+        MetricType::Counter
+    }
+}
+
 /// What this process does as a hot standby.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum HotStandbyMetricState {

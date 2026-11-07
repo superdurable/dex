@@ -196,6 +196,7 @@ Every label value is from a closed set. No series has a Flow, Flow type, partiti
 | `dexzd_history_upload_bytes_total` | counter | — | Bytes of the history segment objects this node created or replaced |
 | `dexzd_history_upload_checksum_mismatches_total` | counter | — | Existing history segment objects whose content differed from committed state and were replaced |
 | `dexzd_history_upload_rescan_errors_total` | counter | — | Runs or index rows that the history upload rescan could not read; the log names each and the rescan continues |
+| `dexzd_history_reads_total` | counter | `kind`: page, blob; `source`: local, cache, object_store | History reads: a page that only local rows served, or each uploaded segment part read from the disk read cache or object storage |
 | `dexzd_search_initial_load_documents_total` | counter | — | Documents written by initial SQL visibility loads |
 
 Worker polling uses a persistent stream, so there is no empty poll outcome. The stream event metric counts each task delivery and each stream close.
@@ -749,7 +750,11 @@ The `dex-server-zd` image is published for `linux/amd64` and `linux/arm64`. Its 
 `/usr/local/bin/dex-server-zd`. By default it runs `serve --config /etc/dex-server-zd/config.yaml`;
 mount a production config at that path. The image includes
 `/etc/dex-server-zd/dex-server-zd.example.yaml` as a reference, not as its active config.
-Mount a writable directory for `localStorage.directory` and set that directory in the config.
+Mount a writable volume at a parent directory and set `localStorage.directory` to a subdirectory
+of it, so that the history read cache, `<localStorage.directory>-history-read-cache` by default,
+shares the volume. If you mount `localStorage.directory` itself, point `history.readCacheDirectory`
+into a writable volume, or the cache is lost on restart; a cache that cannot be created logs one
+warning and is disabled.
 The process runs as UID 10001 and GID 10001. Make the data volume writable by that identity,
 for example by setting Kubernetes `fsGroup: 10001` or changing the directory ownership to
 `10001:10001`.

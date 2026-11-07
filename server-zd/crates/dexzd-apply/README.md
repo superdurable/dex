@@ -104,6 +104,27 @@ closing command and then keeps the rest local until purge; a time travel that
 reopens it continues the migration. Turning offload off ends a migration, and the
 unsealed rest joins the gap of commands applied while offload is off.
 
+## History segment reads
+
+`get_history_events_from_segments` runs the GetHistoryEvents read model over a
+`HistorySource` that takes each seq from where the segment catalog says: a seq
+that an UPLOADED segment covers comes only from that segment's records, which
+the caller loaded from object storage into `LoadedHistorySegments`, and every
+other seq comes from local rows. So the local genesis copy is never read once it
+is uploaded, and commands that belong to no segment still read locally. Records
+that window pruning removed locally, below the first HistoryRecord metadata row
+after genesis, stay hidden in the segments too. When the read reaches an uploaded
+segment that is not loaded, it returns `NeedsSegments` instead of a page; the
+caller fetches them and reads again with a new committed view. A caller out of
+fetch rounds asks instead for the shorter page of the events before the first
+unloaded segment, whose next page token continues at it. The source starts
+a page's search from a binary search of local history metadata, so a page loads
+only the segments that hold its events. Catalog lookups seek by seq with one-row scans and skip
+pruned seqs, so a long run of expired rows is never scanned; a read that examines 4096 catalog
+rows ends its page there. Each fetch round names at most 16 MiB of objects, required segments
+first, and one larger required object only alone. A page holds at most 1000 events, and a token
+added to a shorter page never pushes it over the response limit.
+
 ## Value and storage accounting
 
 Each run tracks encoded Flow and History row bytes, including keys. Live and superseded value bytes use the encoded value sizes in birth records; garbage rows identify the superseded portion. Apply updates these totals from each command's writes and deletes.

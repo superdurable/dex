@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 async-trait.workspace = true
 bytes.workspace = true
+dex-blob-cache.workspace = true
 dexzd-apply.workspace = true
 dexzd-clock.workspace = true
 dexzd-cluster-metadata.workspace = true

@@ -410,6 +410,54 @@ def check_lints(workspace, metadata, registry, root):
     return findings
 
 
+def check_external_path_dependency(
+    workspace, registry, root, relative, name, dependency
+):
+    """Requires a path dependency outside the workspace to be listed in the workspace's
+    external_path_crates table, which names the workspace that owns it."""
+    path = dependency.get("path")
+    if not path or Path(path).resolve().is_relative_to(workspace.resolve()):
+        return []
+    dependency_name = dependency["name"]
+    owner = registry.get("external_path_crates", {}).get(dependency_name)
+    if owner is None:
+        return [
+            Violation(
+                relative,
+                1,
+                "R6",
+                f"{name} depends on {dependency_name} outside its workspace; list it in external_path_crates",
+            )
+        ]
+    if not Path(path).resolve().is_relative_to((root / owner).resolve()):
+        return [
+            Violation(
+                relative,
+                1,
+                "R6",
+                f"external path crate {dependency_name} is not inside workspace {owner}",
+            )
+        ]
+    return []
+
+
+def check_external_path_crates(registries, registry_path, root):
+    """Requires every listed external path crate to be registered in its owner's layers."""
+    findings = []
+    for workspace, registry in sorted(registries.items()):
+        for crate, owner in sorted(registry.get("external_path_crates", {}).items()):
+            if crate not in registries.get(owner, {}).get("layers", {}):
+                findings.append(
+                    Violation(
+                        str(registry_path.relative_to(root)),
+                        1,
+                        "R6",
+                        f"{workspace} lists external path crate {crate}, which {owner} does not register",
+                    )
+                )
+    return findings
+
+
 def check_workspace(workspace, metadata, registry, root):
     findings = check_lints(workspace, metadata, registry, root)
     members = set(metadata["workspace_members"])
@@ -439,6 +487,11 @@ def check_workspace(workspace, metadata, registry, root):
             )
         for dependency in package["dependencies"]:
             dependency_name = dependency["name"]
+            findings.extend(
+                check_external_path_dependency(
+                    workspace, registry, root, relative, name, dependency
+                )
+            )
             if (
                 dependency_name in package_names
                 and name in layers
@@ -620,6 +673,7 @@ def run(root, baseline_path):
         findings.extend(
             check_workspace(workspace, metadata, registries.get(relative, {}), root)
         )
+    findings.extend(check_external_path_crates(registries, registry_path, root))
     for workspace in registries.keys() - {
         str(path.relative_to(root)) for path in workspaces
     }:

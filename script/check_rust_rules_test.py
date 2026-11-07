@@ -230,6 +230,46 @@ class RustRulesTest(unittest.TestCase):
             },
         )
 
+    def test_r6_external_path_dependencies(self):
+        self.write(
+            "shared/Cargo.toml",
+            '[workspace]\nmembers = ["cache"]\nresolver = "3"\n',
+        )
+        self.write(
+            "shared/cache/Cargo.toml",
+            '[package]\nname = "cache"\nversion = "0.1.0"\nedition = "2024"\n',
+        )
+        self.write("shared/cache/src/lib.rs", "")
+        manifest = self.root / "engine/Cargo.toml"
+        manifest.write_text(
+            manifest.read_text() + '\n[dependencies]\ncache = { path = "../shared/cache" }\n'
+        )
+        metadata = RULES.discover_workspaces(self.root)[self.workspace]
+        registry = {"layers": {"engine": 0}}
+        unlisted = RULES.check_workspace(self.workspace, metadata, registry, self.root)
+        self.assertIn("external_path_crates", " ".join(item.message for item in unlisted))
+        registry["external_path_crates"] = {"cache": "elsewhere"}
+        misplaced = RULES.check_workspace(self.workspace, metadata, registry, self.root)
+        self.assertIn("not inside workspace", " ".join(item.message for item in misplaced))
+        registry["external_path_crates"] = {"cache": "shared"}
+        listed = RULES.check_workspace(self.workspace, metadata, registry, self.root)
+        self.assertFalse(
+            [item for item in listed if "external" in item.message], listed
+        )
+        registry_path = self.root / "script/rust-crate-layers.json"
+        self.assertTrue(
+            RULES.check_external_path_crates(
+                {"engine": registry, "shared": {"layers": {}}}, registry_path, self.root
+            )
+        )
+        self.assertFalse(
+            RULES.check_external_path_crates(
+                {"engine": registry, "shared": {"layers": {"cache": 0}}},
+                registry_path,
+                self.root,
+            )
+        )
+
     def test_r7_environment(self):
         self.write(
             "engine/src/settings.rs", 'fn setting() { std::env::var("SETTING"); }\n'

@@ -37,6 +37,17 @@ fn valid_config() -> Config {
 #[test]
 fn example_declares_every_default_key_and_value() {
     let sample = include_str!("../../../../config/dex-server-zd.example.yaml");
+    let parsed_directory = Config::parse_yaml("history:\n  readCacheDirectory: /cache/history\n")
+        .expect("parse the history read cache directory");
+    let mut with_directory = valid_config();
+    with_directory.history.read_cache_directory = parsed_directory.history.read_cache_directory;
+    assert_eq!(
+        ComponentConfigs::from_config(&with_directory, false)
+            .expect("component config")
+            .history_reads
+            .read_cache_directory,
+        Some(std::path::PathBuf::from("/cache/history"))
+    );
     let parsed = Config::parse_yaml(sample).expect("sample YAML must parse");
     assert_eq!(parsed, Config::default());
     let declared: serde_yaml_ng::Value =
@@ -171,6 +182,103 @@ fn history_upload_concurrency_reaches_the_effect_runner() {
     let components =
         ComponentConfigs::from_config(&configuration, false).expect("component config");
     assert_eq!(components.effects.history_upload_concurrency, 3);
+}
+
+#[test]
+fn history_read_settings_reach_the_segment_reader() {
+    let defaults = Config::default();
+    assert_eq!(defaults.history.read_cache_max_bytes, 1 << 30);
+    assert_eq!(defaults.history.object_read_concurrency, 32);
+    let mut configuration = valid_config();
+    let reads = ComponentConfigs::from_config(&configuration, false)
+        .expect("component config")
+        .history_reads;
+    assert_eq!(reads.read_cache_max_bytes, 1 << 30);
+    assert_eq!(reads.object_read_concurrency, 32);
+    assert_eq!(
+        reads.read_cache_directory,
+        Some(
+            configuration
+                .local_storage
+                .directory
+                .with_file_name(format!(
+                    "{}-history-read-cache",
+                    configuration
+                        .local_storage
+                        .directory
+                        .file_name()
+                        .expect("the test store directory has a name")
+                        .to_string_lossy()
+                ))
+        )
+    );
+    let parsed =
+        Config::parse_yaml("history:\n  readCacheMaxBytes: 0\n  objectReadConcurrency: 4\n")
+            .expect("parse the history read settings");
+    configuration.history.read_cache_max_bytes = parsed.history.read_cache_max_bytes;
+    configuration.history.object_read_concurrency = parsed.history.object_read_concurrency;
+    configuration
+        .validate()
+        .expect("valid history read settings");
+    let reads = ComponentConfigs::from_config(&configuration, false)
+        .expect("component config")
+        .history_reads;
+    assert_eq!(reads.read_cache_max_bytes, 0);
+    assert_eq!(reads.object_read_concurrency, 4);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_read_cache_directory_inside_the_local_store_is_rejected_through_any_alias() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let store = root.path().join("store");
+    std::fs::create_dir_all(&store).expect("the store directory is created");
+    let alias = root.path().join("alias");
+    std::os::unix::fs::symlink(&store, &alias).expect("the alias links to the store");
+    let is_rejected = |local_storage_directory: PathBuf, read_cache_directory: PathBuf| {
+        let mut configuration = valid_config();
+        configuration.local_storage.directory = local_storage_directory;
+        configuration.history.read_cache_directory = Some(read_cache_directory);
+        matches!(
+            configuration.validate(),
+            Err(ConfigError::Invalid {
+                field: "history.readCacheDirectory",
+                ..
+            })
+        )
+    };
+    assert!(
+        is_rejected(store.clone(), alias.join("cache")),
+        "a symlink alias"
+    );
+    assert!(
+        is_rejected(store.clone(), root.path().join("other/../store/cache")),
+        "parent components"
+    );
+    assert!(
+        is_rejected(store.clone(), root.path().join("missing/../alias/cache")),
+        "parent components after a missing directory, through a symlink"
+    );
+    assert!(
+        is_rejected(store.clone(), root.path().join("elsewhere/../outside")),
+        "any parent component, even one that would resolve outside the store"
+    );
+    assert!(
+        is_rejected(alias.clone(), store.join("not-yet-created/cache")),
+        "a local store named through a symlink"
+    );
+    let current = std::env::current_dir().expect("a current directory");
+    assert!(
+        is_rejected(
+            PathBuf::from("relative-store-for-validation"),
+            current.join("relative-store-for-validation/cache"),
+        ),
+        "a relative local store and an absolute cache"
+    );
+    assert!(
+        !is_rejected(store.clone(), root.path().join("store-history-read-cache")),
+        "a sibling with the store's name as a prefix is accepted"
+    );
 }
 
 #[test]
@@ -1331,6 +1439,19 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("history.uploadConcurrency", |config| {
             config.history.upload_concurrency = 1025
+        }),
+        ("history.objectReadConcurrency", |config| {
+            config.history.object_read_concurrency = 0
+        }),
+        ("history.objectReadConcurrency", |config| {
+            config.history.object_read_concurrency = 1025
+        }),
+        ("history.readCacheDirectory", |config| {
+            config.history.read_cache_directory =
+                Some(config.local_storage.directory.join("history-read-cache"));
+        }),
+        ("history.readCacheDirectory", |config| {
+            config.history.read_cache_directory = Some(config.local_storage.directory.clone());
         }),
         ("values.maxValueBytes", |config| {
             config.values.max_value_bytes = 0

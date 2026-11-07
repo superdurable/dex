@@ -17,6 +17,7 @@ mod flow_controls;
 mod hard_delete_closed;
 mod harness;
 mod history_paging;
+mod history_segment_reads;
 mod history_uploads;
 mod queued_state;
 mod queued_time_travel;

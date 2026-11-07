@@ -55,10 +55,10 @@ pub use flow_coordination::{
     CommittedFlowCommand, FlowAddress, FlowCommandCommitter, FlowCoordinationConfig,
     FlowCoordinationEffectSink, FlowCoordinationError, FlowCoordinatorDependencies,
     FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
-    HardDeleteValueReader, HardDeleteValueUploader, LocalTimeTravelHistory, PendingInvocation,
-    ProposalResult, RpcInvokeError, RpcWorkerInvoker, StepQueueStatus, TimeTravelHistoryError,
-    TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation, WorkerRpcResult,
-    default_run_settings, grpc_code,
+    HardDeleteValueReader, HardDeleteValueUploader, HistoryReadsConfig, HistorySegmentReader,
+    LocalTimeTravelHistory, PendingInvocation, ProposalResult, RpcInvokeError, RpcWorkerInvoker,
+    StepQueueStatus, TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory,
+    WorkerRpcInvocation, WorkerRpcResult, default_run_settings, grpc_code,
 };
 #[cfg(feature = "test-util")]
 pub use hot_standby::HotStandbyProbeForTest;
