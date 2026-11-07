@@ -21,9 +21,11 @@ use dexzd_apply::{
     apply_flow_command,
 };
 use dexzd_keyspace::row_keys::{
-    flow_list_index_key, run_named_key, run_singleton_key, tenant_run_index_key,
+    flow_list_index_key, prefix_range, run_named_key, run_singleton_key, tenant_run_index_key,
 };
-use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId};
+use dexzd_keyspace::{
+    ColumnFamily, IndexKind, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix,
+};
 use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, ActiveStepPhase, AttributeMatch,
     AttributeMatchOperator, AttributeWrite, ChannelMessage, CloseDecision, CloseDecisionType,
@@ -119,6 +121,7 @@ struct Harness {
     flow_id: String,
     run_id: RunId,
     now_micros: i64,
+    is_transactional_rpc_in_flight: bool,
 }
 
 impl Harness {
@@ -138,6 +141,7 @@ impl Harness {
             flow_id: flow_id.to_owned(),
             run_id,
             now_micros: 1_800_000_000_000_000,
+            is_transactional_rpc_in_flight: false,
         }
     }
 
@@ -155,6 +159,7 @@ impl Harness {
             proposed_at_micros: self.now_micros,
             tenant_id: 0,
             command: Some(body),
+            is_transactional_rpc_in_flight: self.is_transactional_rpc_in_flight,
             ..FlowCommand::default()
         };
         let outcome =
@@ -2077,6 +2082,251 @@ fn a_step_canceled_by_terminate_close_ends_without_completion() {
         )
         .unwrap(),
         StepCompletionState::EndedWithoutCompletion
+    );
+}
+
+/// Fails every History column family read, as when history rows are no longer local.
+struct NoHistoryReader<'state> {
+    state: &'state MemoryState,
+}
+
+impl FlowStateReader for NoHistoryReader<'_> {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        assert_ne!(
+            column_family,
+            ColumnFamily::History,
+            "a History row was read"
+        );
+        self.state.get(column_family, key)
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        assert_ne!(
+            column_family,
+            ColumnFamily::History,
+            "History rows were scanned"
+        );
+        self.state.scan(column_family, start, end, limit)
+    }
+}
+
+impl Harness {
+    fn step_row(&self, step_execution_id: &str) -> StepExecutionRecord {
+        let key = run_named_key(
+            self.context.flow_hash,
+            self.run_id,
+            RunTable::StepExecution,
+            step_execution_id,
+        );
+        let bytes = self
+            .state
+            .rows
+            .get(&(ColumnFamily::Flow, key))
+            .expect("Step row exists");
+        StepExecutionRecord::decode(bytes.as_slice()).expect("valid Step row")
+    }
+
+    /// Clears the flow close marker of every Step row, as rows written before it existed.
+    fn strip_flow_close_markers(&mut self) {
+        let prefix = run_table_prefix(self.context.flow_hash, self.run_id, RunTable::StepExecution);
+        let (start, end) = prefix_range(&prefix);
+        for (_, bytes) in self
+            .state
+            .rows
+            .range_mut((ColumnFamily::Flow, start)..(ColumnFamily::Flow, end))
+        {
+            let mut step = StepExecutionRecord::decode(bytes.as_slice()).expect("valid Step row");
+            step.is_canceled_by_flow_close = None;
+            *bytes = step.encode_to_vec();
+        }
+    }
+
+    fn remove_history_rows(&mut self) {
+        self.state
+            .rows
+            .retain(|(column_family, _), _| *column_family != ColumnFamily::History);
+    }
+
+    fn completion_of(&self, reader: &dyn FlowStateReader, step_type: &str) -> StepCompletionState {
+        step_completion_state(reader, self.context.flow_hash, self.run_id, step_type, 1)
+            .expect("the Step completion state reads")
+    }
+
+    fn run_record(&self) -> RunRecord {
+        let key = run_singleton_key(self.context.flow_hash, self.run_id, RunTable::RunRecord);
+        RunRecord::decode(self.state.rows[&(ColumnFamily::Flow, key)].as_slice())
+            .expect("valid run row")
+    }
+
+    /// Starts CancelStep, WaitingStep, and DecidingStep; DecidingStep cancels CancelStep, then
+    /// StopFlow terminates the Flow while WaitingStep waits.
+    fn cancel_by_decision_then_terminate(&mut self) {
+        self.start(
+            FlowStartOptions::default(),
+            Some(StepOptions {
+                skip_wait_for: true,
+                ..StepOptions::default()
+            }),
+        );
+        self.start_attempt(StepMethod::Execute);
+        self.complete_execute(StepDecision {
+            next_steps: step_movements(&["CancelStep", "WaitingStep"], "DecidingStep"),
+            ..StepDecision::default()
+        });
+        self.start_attempt_for("DecidingStep-1", StepMethod::Execute);
+        self.complete_execute_for(
+            "DecidingStep-1",
+            StepDecision {
+                cancel_step_types: vec!["CancelStep".to_owned()],
+                ..StepDecision::default()
+            },
+        );
+        self.stop_with(StopType::Terminate);
+    }
+}
+
+/// Moves to each waiting Step type and to `executing_step_type`, which skips WaitFor.
+fn step_movements(waiting_step_types: &[&str], executing_step_type: &str) -> Vec<StepMovement> {
+    let mut movements: Vec<StepMovement> = waiting_step_types
+        .iter()
+        .map(|step_type| StepMovement {
+            step_type: (*step_type).to_owned(),
+            ..StepMovement::default()
+        })
+        .collect();
+    movements.push(StepMovement {
+        step_type: executing_step_type.to_owned(),
+        step_options: Some(StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        }),
+        ..StepMovement::default()
+    });
+    movements
+}
+
+#[test]
+fn step_waits_on_a_terminated_flow_read_the_flow_close_marker_without_history() {
+    let mut harness = Harness::new();
+    harness.cancel_by_decision_then_terminate();
+    assert_eq!(
+        harness.step_row("CancelStep-1").is_canceled_by_flow_close,
+        Some(false)
+    );
+    assert_eq!(
+        harness.step_row("WaitingStep-1").is_canceled_by_flow_close,
+        Some(true)
+    );
+    assert_eq!(
+        harness.step_row("DecidingStep-1").is_canceled_by_flow_close,
+        None
+    );
+    harness.remove_history_rows();
+    let reader = NoHistoryReader {
+        state: &harness.state,
+    };
+    assert_eq!(
+        harness.completion_of(&reader, "CancelStep"),
+        StepCompletionState::Completed
+    );
+    assert_eq!(
+        harness.completion_of(&reader, "WaitingStep"),
+        StepCompletionState::EndedWithoutCompletion
+    );
+    assert_eq!(
+        harness.completion_of(&reader, "DecidingStep"),
+        StepCompletionState::Completed
+    );
+}
+
+#[test]
+fn canceled_step_rows_without_the_marker_read_history_or_infer_from_the_close() {
+    let mut harness = Harness::new();
+    harness.cancel_by_decision_then_terminate();
+    harness.strip_flow_close_markers();
+    assert_eq!(
+        harness.completion_of(&harness.state, "CancelStep"),
+        StepCompletionState::Completed,
+        "the retained record of the cancel has no FlowClosed"
+    );
+    assert_eq!(
+        harness.completion_of(&harness.state, "WaitingStep"),
+        StepCompletionState::EndedWithoutCompletion
+    );
+    harness.remove_history_rows();
+    assert_eq!(
+        harness.completion_of(&harness.state, "CancelStep"),
+        StepCompletionState::EndedWithoutCompletion,
+        "without the record, a canceled Step of a terminated Flow ended without completion"
+    );
+    assert_eq!(
+        harness.completion_of(&harness.state, "WaitingStep"),
+        StepCompletionState::EndedWithoutCompletion
+    );
+}
+
+#[test]
+fn a_step_canceled_by_a_pending_close_stays_completed_after_terminate() {
+    let mut harness = Harness::new();
+    harness.start(
+        FlowStartOptions::default(),
+        Some(StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        }),
+    );
+    harness.start_attempt(StepMethod::Execute);
+    harness.complete_execute(StepDecision {
+        next_steps: step_movements(&["WaitingStep"], "ClosingStep"),
+        ..StepDecision::default()
+    });
+    harness.start_attempt_for("ClosingStep-1", StepMethod::Execute);
+    harness.is_transactional_rpc_in_flight = true;
+    harness.complete_execute_for(
+        "ClosingStep-1",
+        StepDecision {
+            close_decision: Some(CloseDecision {
+                close_decision_type: CloseDecisionType::ForceComplete as i32,
+                ..CloseDecision::default()
+            }),
+            ..StepDecision::default()
+        },
+    );
+    harness.is_transactional_rpc_in_flight = false;
+    assert!(
+        harness.run_record().pending_close.is_some(),
+        "the natural close is pending"
+    );
+    assert_eq!(
+        harness.step_row("WaitingStep-1").is_canceled_by_flow_close,
+        Some(false)
+    );
+    harness.stop_with(StopType::Terminate);
+    assert_eq!(harness.run_record().status, FlowStatus::Terminated as i32);
+    assert_eq!(
+        harness.step_row("WaitingStep-1").is_canceled_by_flow_close,
+        Some(false)
+    );
+    assert_eq!(
+        harness.completion_of(&harness.state, "WaitingStep"),
+        StepCompletionState::Completed,
+        "the record that canceled it has no FlowClosed"
+    );
+    harness.strip_flow_close_markers();
+    assert_eq!(
+        harness.completion_of(&harness.state, "WaitingStep"),
+        StepCompletionState::Completed,
+        "the history read agrees with the marker"
     );
 }
 

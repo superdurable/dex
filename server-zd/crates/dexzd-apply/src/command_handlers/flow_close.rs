@@ -393,8 +393,23 @@ fn record_close(
         active_work_index_key(partition, cursor.rows.flow_hash, cursor.run_id()),
     );
     history_events::record_flow_closed(cursor, results, closing.history_message);
+    mark_steps_canceled_by_close(transaction, cursor)?;
     crate::cross_flow::report_child_closed(transaction, cursor, scope)?;
     cursor.wake(WaitableChange::FlowClosed);
+    Ok(())
+}
+
+/// Marks the Steps this command canceled, so Step waits need not read the FlowClosed record.
+fn mark_steps_canceled_by_close(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &RunCursor,
+) -> Result<(), ApplyError> {
+    for (_, mut step) in cursor.rows.step_executions(transaction)? {
+        if step.phase == StepExecutionPhase::Canceled as i32 && step.completed_seq == cursor.seq {
+            step.is_canceled_by_flow_close = Some(true);
+            cursor.rows.put_step_execution(transaction, &step);
+        }
+    }
     Ok(())
 }
 

@@ -14,6 +14,7 @@ use dexzd_keyspace::row_keys::{
 use dexzd_keyspace::{
     ColumnFamily, FlowHash, RunId, RunTable, TenantId, flow_directory_key, run_table_prefix,
 };
+use dexzd_protocol::dex::flow_history_event;
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, FlowDirectoryRecord,
     HistoryRecord, HistoryRowMetadata, LockRecord, RequestDedupRecord, RunRecord,
@@ -446,6 +447,23 @@ impl RunRows {
                 attempt: record.attempt,
                 timestamp_micros: record.timestamp_micros,
                 last_assigned_event_id,
+                pending_step_methods: record.pending_step_methods.clone(),
+                max_event_id: record
+                    .events
+                    .iter()
+                    .map(|event| event.event_id)
+                    .max()
+                    .unwrap_or(0),
+                flow_closed_message: record
+                    .events
+                    .iter()
+                    .filter_map(|event| match &event.payload {
+                        Some(flow_history_event::Payload::FlowClosed(closed)) => {
+                            Some(closed.error_message.clone())
+                        }
+                        _ => None,
+                    })
+                    .next_back(),
             },
         );
     }

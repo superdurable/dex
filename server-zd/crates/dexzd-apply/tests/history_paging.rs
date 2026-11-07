@@ -11,19 +11,24 @@
 use std::cell::Cell;
 use std::collections::BTreeMap;
 
-use dexzd_apply::read_model::{ReadModelError, get_history_events};
+use dexzd_apply::read_model::{
+    ReadModelError, get_history_events, is_history_event_available,
+    is_history_event_available_from_records_for_test,
+};
 use dexzd_apply::{
     ApplyContext, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     apply_flow_command,
 };
 use dexzd_keyspace::row_keys::{
-    attempt_record_key, history_record_key, prefix_range, run_named_key, run_singleton_key,
+    attempt_record_key, history_record_key, history_row_metadata_key, prefix_range, run_named_key,
+    run_singleton_key,
 };
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_protocol::dex::{
     ChannelMessage, DeleteChannelMessageRequest, FlowHistoryEvent, FlowResetType,
     FlowTimeoutPolicy, HistoryEventIdRange, PublishToChannelRequest, ResetFlowRequest,
-    StartFlowRequest, StepOptions, StopFlowRequest, StopType, Value, WorkerTarget, value,
+    StartFlowRequest, StepOptions, StopFlowRequest, StopType, Value, WaitForHistoryEventResponse,
+    WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, ChannelMessageDeleteCommand, ChannelPublishCommand, CommandReply, FlowCommand,
@@ -810,6 +815,7 @@ fn paging_each_time_travel_attempt_matches_its_lineage() {
     }
     assert_eq!(harness.attempt_record(3).parent_attempt, 1);
     assert_eq!(harness.attempt_record(4).parent_attempt, 2);
+    harness.assert_history_event_waits_match_oracle("forks of older attempts");
 
     let records = harness.history_records();
     let attempts: Vec<u32> = records.iter().map(|record| record.attempt).collect();
@@ -992,4 +998,205 @@ fn runs_pruned_before_the_watermark_scan_until_newer_rows_are_pruned() {
         }
     }
     assert!(is_restored, "pruning a newer row restores the watermark");
+}
+
+impl Harness {
+    fn stop_with(&mut self, stop_type: StopType) {
+        let outcome = self.apply(Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                stop_type: stop_type as i32,
+                ..StopFlowRequest::default()
+            }),
+        }));
+        assert!(
+            is_ok(&outcome.reply),
+            "StopFlow applies: {:?}",
+            outcome.reply
+        );
+    }
+
+    /// Answers WaitForHistoryEvent for every event ID with the metadata implementation, which
+    /// must not read History rows, and returns each answer with the record oracle's.
+    fn history_event_waits(
+        &self,
+    ) -> Vec<(WaitForHistoryEventResponse, WaitForHistoryEventResponse)> {
+        let reader = CountingReader::new(&self.state);
+        let next_event_id = self.run_record().next_event_id;
+        (1..=next_event_id + 1)
+            .map(|wanted_event_id| {
+                let actual = is_history_event_available(
+                    &reader,
+                    self.context.flow_hash,
+                    self.run_id,
+                    wanted_event_id,
+                )
+                .expect("the metadata answer reads");
+                assert_eq!(
+                    reader.take_history_reads().calls,
+                    0,
+                    "the metadata answer for event {wanted_event_id} read History rows"
+                );
+                let expected = is_history_event_available_from_records_for_test(
+                    &self.state,
+                    self.context.flow_hash,
+                    self.run_id,
+                    wanted_event_id,
+                )
+                .expect("the record oracle reads");
+                (actual, expected)
+            })
+            .collect()
+    }
+
+    fn assert_history_event_waits_match_oracle(&self, scenario: &str) {
+        for (index, (actual, expected)) in self.history_event_waits().into_iter().enumerate() {
+            assert_eq!(actual, expected, "{scenario}: event ID {}", index + 1);
+        }
+    }
+
+    /// Requires every History record's metadata to carry the fields derived from the record.
+    fn assert_history_metadata_matches_records(&self) {
+        for record in self.history_records() {
+            let key = history_row_metadata_key(
+                self.context.flow_hash,
+                self.run_id,
+                record.seq,
+                RunTable::HistoryRecord,
+                0,
+            );
+            let bytes = self
+                .state
+                .rows
+                .get(&(ColumnFamily::Flow, key))
+                .expect("every History record has metadata");
+            let metadata = HistoryRowMetadata::decode(bytes.as_slice()).expect("metadata decodes");
+            let max_event_id = record.events.iter().map(|event| event.event_id).max();
+            let flow_closed_message = record
+                .events
+                .iter()
+                .filter_map(|event| match &event.payload {
+                    Some(flow_history_event::Payload::FlowClosed(closed)) => {
+                        Some(closed.error_message.clone())
+                    }
+                    _ => None,
+                })
+                .next_back();
+            assert_eq!(
+                metadata.pending_step_methods, record.pending_step_methods,
+                "seq {}",
+                record.seq
+            );
+            assert_eq!(
+                metadata.max_event_id,
+                max_event_id.unwrap_or(0),
+                "seq {}",
+                record.seq
+            );
+            assert_eq!(
+                metadata.flow_closed_message, flow_closed_message,
+                "seq {}",
+                record.seq
+            );
+            assert!(
+                metadata.last_assigned_event_id >= max_event_id.unwrap_or(1),
+                "seq {}",
+                record.seq
+            );
+        }
+    }
+}
+
+/// A small deterministic generator for the scenario mix.
+struct ScenarioRandom(u64);
+
+impl ScenarioRandom {
+    fn below(&mut self, bound: u64) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (self.0 >> 33) % bound
+    }
+}
+
+#[test]
+fn history_event_waits_match_the_record_oracle_through_pruning_and_time_travel() {
+    let mut scenarios = 0;
+    for seed in 1..=12_u64 {
+        let mut random = ScenarioRandom(seed);
+        let window_events = [6, 20, 1_000_000][usize::try_from(seed % 3).expect("small index")];
+        let checkpoint_max_commands = [5, 10_000][usize::try_from(seed % 2).expect("small index")];
+        let mut harness = Harness::new(settings(window_events, checkpoint_max_commands));
+        // Recent semantic points of any attempt: (attempt, timestamp).
+        let mut recent_points: Vec<(u32, i64)> = Vec::new();
+        let mut attempt = 1;
+        let mut travels = 0;
+        for step in 0..120 {
+            if random.below(10) == 0 && !recent_points.is_empty() {
+                let index =
+                    usize::try_from(random.below(recent_points.len() as u64)).expect("small index");
+                let (target_attempt, timestamp_micros) = recent_points[index];
+                attempt = harness.travel_to(target_attempt, timestamp_micros);
+                travels += 1;
+                recent_points.clear();
+            } else {
+                let hole_rows = usize::try_from(random.below(4)).expect("small count");
+                let round_start_micros = harness.now_micros + 1;
+                harness.append_round(hole_rows);
+                recent_points.push((attempt, round_start_micros));
+                // Keeps targets well inside the smallest window.
+                if recent_points.len() > 2 {
+                    recent_points.remove(0);
+                }
+            }
+            if step % 10 == 9 {
+                harness
+                    .assert_history_event_waits_match_oracle(&format!("seed {seed} step {step}"));
+            }
+        }
+        match seed % 4 {
+            0 => harness.stop(),
+            1 => harness.stop_with(StopType::Terminate),
+            _ => {}
+        }
+        harness.assert_history_event_waits_match_oracle(&format!("seed {seed} at the end"));
+        harness.assert_history_metadata_matches_records();
+        assert!(travels > 0, "seed {seed} time traveled");
+        if window_events < 1_000 {
+            assert!(
+                harness.run_record().max_pruned_event_id > 1,
+                "seed {seed} pruned events"
+            );
+        }
+        scenarios += 1;
+    }
+    assert_eq!(scenarios, 12);
+}
+
+#[test]
+fn history_event_waits_without_event_id_metadata_report_a_lower_bound() {
+    let mut harness = Harness::new(settings(20, 5));
+    for round in 0..30 {
+        harness.append_round(round % 3);
+    }
+    let fork_time = harness.now_micros;
+    harness.append_round(1);
+    harness.travel_to(1, fork_time);
+    for _ in 0..5 {
+        harness.append_round(1);
+    }
+    harness.assert_history_event_waits_match_oracle("before stripping");
+    harness.strip_pruning_watermark();
+    for (index, (actual, expected)) in harness.history_event_waits().into_iter().enumerate() {
+        let wanted_event_id = i64::try_from(index).expect("small index") + 1;
+        assert_eq!(actual.event_available, expected.event_available);
+        assert_eq!(actual.flow_status, expected.flow_status);
+        assert!(
+            actual.available_internal_event_id <= expected.available_internal_event_id,
+            "event ID {wanted_event_id}: {actual:?} exceeds {expected:?}"
+        );
+        if actual.event_available {
+            assert!(actual.available_internal_event_id >= wanted_event_id);
+        }
+    }
 }

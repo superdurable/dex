@@ -17,7 +17,13 @@ serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
 
+[features]
+# Exposes test-only oracles to integration tests and dependent crates' tests.
+test-util = []
+
 [dev-dependencies]
+# Enables test-util for this crate's own integration tests.
+dexzd-apply = { workspace = true, features = ["test-util"] }
 uuid.workspace = true
 
 [lints]
