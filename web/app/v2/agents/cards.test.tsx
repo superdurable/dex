@@ -105,7 +105,7 @@ describe('toolCallDetail', () => {
   const now = Date.parse('2026-11-07T22:10:00Z');
   it('reads queued, running, and skipped differently', () => {
     expect(toolCallDetail(call({ state: 'queued', stepType: 'CallTool', pendingReason: 'worker', since: '2026-11-07T22:00:00Z', attempt: 1 }), now))
-      .toBe('Approved. No Worker has taken this Step for 10m 0s. It has not run.');
+      .toBe('Approved. Waiting for a Worker for 10m 0s. It has not run.');
     expect(toolCallDetail(call({ state: 'running', attempt: 2, maxAttempts: 3, requiresApproval: false }), now))
       .toBe('A Worker is running it. Attempt 2 of 3.');
     expect(toolCallDetail(call({ state: 'skipped', requiresApproval: false }), now)).toBe('It did not run.');

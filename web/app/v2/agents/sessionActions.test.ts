@@ -27,8 +27,6 @@ const resolveAction: FlowV2Action = {
 const openContext: SessionControlContext = {
   isFlowOpen: true,
   workQueuePermissions: ['support-agent.operate'],
-  activeSteps: [],
-  now: Date.parse('2026-11-07T22:10:00Z'),
 };
 
 function respond(body: unknown, status = 200) {
@@ -66,9 +64,17 @@ describe('invokeSessionAction', () => {
     await expect(invokeSessionAction(steer, respond({ invoked: true, output: false }))).resolves.toMatchObject({ kind: 'refused' });
   });
 
+  it('says no Worker is connected when the RPC dispatch finds none', async () => {
+    const fetcher = respond({ error: 'resolve_interrupt failed', grpcCode: 14 }, 502);
+    await expect(invokeSessionAction(request, fetcher)).resolves.toEqual({
+      kind: 'failed',
+      message: 'No Worker is connected to run this. Try again when Workers are back.',
+    });
+  });
+
   it('keeps other failures as failures', () => {
-    expect(classifyActionFailure('resolve_interrupt', new DexAPIError('no Worker took the RPC', 502, 14)))
-      .toEqual({ kind: 'failed', message: 'no Worker took the RPC' });
+    expect(classifyActionFailure('resolve_interrupt', new DexAPIError('worker RPC deadline exceeded', 408, 4)))
+      .toEqual({ kind: 'failed', message: 'worker RPC deadline exceeded' });
   });
 });
 
@@ -92,15 +98,4 @@ describe('actionBlockedReason', () => {
       .toBe('Choose Working as support-agent.operate to act.');
   });
 
-  it('disables RPC Actions when a Step has waited for a Worker too long', () => {
-    const waiting = {
-      stepExecutionId: 'CallTool-1', fromStepExecutionId: '', stepType: 'CallTool', phase: 'Active' as const,
-      stepExecutionLocals: [], timers: [],
-      executeInvocation: { phase: 1, pendingReason: 1, pendingSinceTime: '2026-11-07T22:05:00Z' },
-    };
-    expect(actionBlockedReason('resolve_interrupt', resolveAction, { ...openContext, activeSteps: [waiting] }))
-      .toBe("No Worker has taken this session's work for 5m 0s. Actions run on a Worker, so they cannot run now.");
-    const brief = { ...waiting, executeInvocation: { ...waiting.executeInvocation, pendingSinceTime: '2026-11-07T22:09:58Z' } };
-    expect(actionBlockedReason('resolve_interrupt', resolveAction, { ...openContext, activeSteps: [brief] })).toBeNull();
-  });
 });

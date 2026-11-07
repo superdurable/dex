@@ -51,7 +51,7 @@ export const TOOL_CALL_RECOVERY_STEP_TYPES: readonly string[] = ['RecordToolFail
 export const APPROVAL_STEP_TYPE = 'AwaitToolApproval';
 export const QUESTION_STEP_TYPE = 'AwaitQuestionAnswer';
 
-/** The error prefix of a tool call record whose tool did not run. */
+/** Temporary: marks a skipped call until write ordering records a dedicated skipped marker. */
 export const TOOL_CALL_NOT_RUN_PREFIX = 'the tool did not run, so it is safe to call again';
 
 export interface AgentSessionSchema {

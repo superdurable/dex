@@ -66,8 +66,6 @@ export function SessionView({
   const controlContext: SessionControlContext = {
     isFlowOpen: isOpenFlowStatusCode(session.summary.flowStatusCode),
     workQueuePermissions,
-    activeSteps: session.activeSteps,
-    now,
   };
   const invoke = (action: AgentSessionSchema['resolveInterrupt'], input: Record<string, unknown>) => {
     if (!action) return Promise.resolve<SessionActionOutcome>({ kind: 'failed', message: SESSION_COPY.closed });

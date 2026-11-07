@@ -78,9 +78,7 @@ export const SESSION_COPY = {
   workAs(permission: string): string {
     return `Work as ${permission}`;
   },
-  workersDown(waited: string): string {
-    return `No Worker has taken this session's work for ${waited}. Actions run on a Worker, so they cannot run now.`;
-  },
+  noWorker: 'No Worker is connected to run this. Try again when Workers are back.',
   goReduced:
     'This session runs on Go Workers, which have no questions, steering, or stopping. The view shows messages, tool calls, approvals, and usage.',
 
@@ -122,8 +120,8 @@ export const SESSION_COPY = {
     const notRun = ranBefore ? 'An earlier attempt failed.' : 'It has not run.';
     const wait = waited ? ` for ${waited}` : '';
     if (reason === 'locks') return `Waiting for locks${wait}. ${notRun}`;
-    if (reason === 'supporting_worker') return `No connected Worker supports this Step type${wait}. ${notRun}`;
-    return `No Worker has taken this Step${wait}. ${notRun}`;
+    if (reason === 'supporting_worker') return `Waiting for a Worker that supports this Step type${wait}. ${notRun}`;
+    return `Waiting for a Worker${wait}. ${notRun}`;
   },
   startingDetail: 'No Step is active for it right now.',
   recordingDetail(stepType: string): string {

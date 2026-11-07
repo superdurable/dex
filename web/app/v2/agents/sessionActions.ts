@@ -8,8 +8,6 @@
 
 import type { FlowV2Action } from '@superdurable/flow-definition-renderer';
 import { DexAPIError, definitionRevisionHeaders, readResponseJSON } from '@/lib/http';
-import { formatElapsedDuration } from '@/lib/timeline';
-import type { ActiveStepExecution } from '@/lib/types';
 import { SESSION_COPY } from './copy';
 import { SESSION_RPC } from './sessionSchema';
 
@@ -31,6 +29,7 @@ export interface SessionActionRequest {
 }
 
 const GRPC_ABORTED = 10;
+const GRPC_UNAVAILABLE = 14;
 const RPCS_ANSWERING_ONE_INTERRUPT: readonly string[] = [SESSION_RPC.resolveInterrupt, SESSION_RPC.answerQuestion];
 
 /** Invokes one session Action through POST /api/v2/actions and says what happened. */
@@ -70,6 +69,8 @@ export function classifyActionFailure(rpcName: string, error: unknown): SessionA
   const isLockConflict = (error instanceof DexAPIError && error.grpcCode === GRPC_ABORTED)
     || /lock/i.test(message);
   if (isLockConflict && RPCS_ANSWERING_ONE_INTERRUPT.includes(rpcName)) return { kind: 'already_handled' };
+  // The Server answers UNAVAILABLE when an RPC dispatch finds no Worker or loses it.
+  if (error instanceof DexAPIError && error.grpcCode === GRPC_UNAVAILABLE) return { kind: 'failed', message: SESSION_COPY.noWorker };
   return { kind: 'failed', message };
 }
 
@@ -86,16 +87,9 @@ export function resolveInterruptInput(interruptId: string, approved: boolean, re
 export interface SessionControlContext {
   isFlowOpen: boolean;
   workQueuePermissions: readonly string[];
-  activeSteps: readonly ActiveStepExecution[];
-  now: number;
 }
 
-/** A pending attempt that waited this long for a Worker means Workers are down. */
-export const WORKER_DOWN_AFTER_MS = 15_000;
-
-const WAITING_FOR_WORKER = new Set<unknown>([1, 'STEP_METHOD_PENDING_REASON_WAITING_FOR_WORKER']);
-
-/** Why a session Action, which is an RPC and needs a Worker, cannot run now; null when it can. */
+/** Why a session Action cannot run now, or null when it can. The Step queue never blocks it. */
 export function actionBlockedReason(
   rpcName: string,
   action: FlowV2Action | undefined,
@@ -106,19 +100,5 @@ export function actionBlockedReason(
   if (!context.workQueuePermissions.includes(action.requiredPermission)) {
     return SESSION_COPY.chooseWorkingAs(action.requiredPermission);
   }
-  const waited = longestWorkerWaitMs(context.activeSteps, context.now);
-  if (waited >= WORKER_DOWN_AFTER_MS) return SESSION_COPY.workersDown(formatElapsedDuration(waited));
   return null;
-}
-
-function longestWorkerWaitMs(activeSteps: readonly ActiveStepExecution[], now: number): number {
-  let longest = 0;
-  for (const step of activeSteps) {
-    for (const invocation of [step.waitForInvocation, step.executeInvocation]) {
-      if (!invocation || !WAITING_FOR_WORKER.has(invocation.pendingReason)) continue;
-      const since = Date.parse(String(invocation.pendingSinceTime ?? ''));
-      if (Number.isFinite(since)) longest = Math.max(longest, now - since);
-    }
-  }
-  return longest;
 }

@@ -325,7 +325,7 @@ The header shows the session status, the active turn, and the token usage from *
 | --- | --- |
 | **waiting for approval** | The call waits for **resolve_interrupt**. The card has **Approve** and **Reject**. A rejection can carry a reason, which the model sees. |
 | **waiting for an answer** | A question waits for **answer_question**. The card offers its choices, free text when allowed, and **Decline**. |
-| **queued for a Worker** | The call's Step is pending. The card names the pending reason and how long it waited. On the first attempt it says the call has not run. |
+| **queued for a Worker** | The call's Step is pending. The card names the pending reason and how long it waited. On the first attempt it says the call has not run. This is information only. |
 | **running** | A Worker runs the call. The card shows **Attempt n of m** from the Step's retry policy. |
 | **retrying** | An attempt failed, and the next one starts after a backoff. |
 | **recording the result** | The Step's attempts ended without a result, and a recovery Step is pending. The call may have run. |
@@ -351,11 +351,12 @@ Every control is an Action and goes through **POST /api/v2/actions** with its ow
 A control is disabled, with the reason, when:
 
 - the Flow Definition Graph declares no such Action;
-- the session is closed;
-- **Working as** does not include the Action's permission;
-- an active session Step has waited more than 15 seconds for a Worker. Actions are RPCs, and RPCs need a Worker.
+- the session is closed; or
+- **Working as** does not include the Action's permission.
 
 **Stop turn** is also disabled while no turn runs, or when the turn does not accept steering or stopping.
+
+A queued tool call does not disable the controls. A Step waits for a Worker whenever every Step task slot is busy, while RPCs use the Worker's [reserved RPC capacity](/reference/server/workers#reserved-rpc-capacity). So the controls stay enabled when the Step queue is backed up, which is when most approvals wait. If an Action's RPC finds no connected Worker, or loses its Worker, **POST /api/v2/actions** answers **502** with **grpcCode** 14, and the card reads "No Worker is connected to run this. Try again when Workers are back." Other failures show the route's error text.
 
 When **resolve_interrupt** or **answer_question** returns false, or fails on a lock conflict, another operator or a deadline answered the call first. The card says **Already handled** and the tab reloads from committed state.
 
