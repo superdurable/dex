@@ -21,6 +21,9 @@ import (
 // gRPC's own default receive limit, which these tests exceed.
 const grpcDefaultReceiveLimitBytes = 4 << 20
 
+// Three texts of this size exceed the server's default 32 MiB send limit together.
+const aboveServerLimitTextBytes = 12 << 20
+
 var (
 	messageSizeTextNames = []string{"a", "b", "c"}
 	messageSizeTexts     = map[string]dex.Attribute[string]{
@@ -51,6 +54,7 @@ func (flow messageSizeFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.EchoText, nil),
 		dex.DefineRPC(flow.GenerateText, nil),
+		dex.DefineRPC(flow.WriteText, nil),
 	}
 }
 
@@ -77,6 +81,17 @@ func (messageSizeFlow) GenerateText(
 		return nil, err
 	}
 	if err := messageSizeGenerated.Publish(ctx, input.Name); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// WriteText sets a text without publishing, so the read Step stays waiting.
+func (messageSizeFlow) WriteText(
+	ctx dex.Context,
+	input messageSizeTextInput,
+) (*dex.RPCResult[dex.None], error) {
+	if err := messageSizeTexts[input.Name].Set(ctx, strings.Repeat(input.Name, input.Bytes)); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -138,6 +153,30 @@ func TestMessageSizeDefaultLimitCarriesValuesAboveGrpcDefault(t *testing.T) {
 	require.ErrorAs(t, err, &tooLarge)
 	require.Equal(t, flowID, tooLarge.FlowID)
 	require.NotEmpty(t, tooLarge.BlobID)
+}
+
+func TestMessageSizeDefaultClientSplitsBatchAboveServerSendLimit(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "message-size-above-server-limit")
+	_, err := integClient.StartFlow(ctx, messageSizeFlow{}, flowID, nil, dex.StartFlowOptions{})
+	require.NoError(t, err)
+	for _, name := range messageSizeTextNames {
+		require.NoError(t, integClient.InvokeRPC(ctx, flowID, messageSizeFlow{}.WriteText,
+			messageSizeTextInput{Name: name, Bytes: aboveServerLimitTextBytes}, nil))
+	}
+
+	texts := make(map[string]*string, len(messageSizeTextNames))
+	reads := make([]dex.AttributeRead, 0, len(messageSizeTextNames))
+	for _, name := range messageSizeTextNames {
+		texts[name] = new(string)
+		reads = append(reads, dex.ReadAttribute(messageSizeTexts[name], texts[name]))
+	}
+	_, err = newMessageSizeClient(t, 0).GetAttributes(ctx, flowID, reads...)
+	require.NoError(t, err)
+	for _, name := range messageSizeTextNames {
+		require.Equal(t, strings.Repeat(name, aboveServerLimitTextBytes), *texts[name])
+	}
+	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 }
 
 func requireMessageSizeOutputs(t *testing.T, result dex.FlowResult, textBytes map[string]int) {
