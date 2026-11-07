@@ -159,6 +159,46 @@ pub(crate) fn check_open_segment_transitions(
 
 /// Checks the run's segment chain, uploaded seq, pending index row, and value lists.
 ///
+/// History reads show no seq between genesis and the run's window pruning frontier, so no
+/// HistoryRecord metadata stays there: offload never moves the frontier, only pruning does.
+pub(crate) fn check_window_frontier(
+    context: &RunContext<'_>,
+    run: &RunView,
+) -> Result<(), InvariantViolation> {
+    let Some(record) = &run.record else {
+        return Ok(());
+    };
+    let Some(genesis_seq) = run.attempts.get(&1).map(|attempt| attempt.start_seq) else {
+        return Ok(());
+    };
+    let pruned_through_seq = record.history_window_pruned_through_seq;
+    let stale = if pruned_through_seq > genesis_seq {
+        run.history_record_metadata
+            .range(genesis_seq + 1..=pruned_through_seq)
+            .next()
+    } else {
+        None
+    };
+    if let Some((seq, _)) = stale {
+        return Err(violation(
+            "H14-window-frontier",
+            context,
+            format!("record {seq} keeps metadata below the window frontier {pruned_through_seq}"),
+        ));
+    }
+    if pruned_through_seq >= record.window_start_seq && record.window_start_seq > 1 {
+        return Err(violation(
+            "H14-window-frontier",
+            context,
+            format!(
+                "the window frontier {pruned_through_seq} passed the window start {}",
+                record.window_start_seq
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Segments are contiguous in seqs and events, except across exactly the seqs and events that
 /// `gaps` recorded for commands applied while offload was off.
 pub(crate) fn check_segment_chain(

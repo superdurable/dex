@@ -250,13 +250,7 @@ impl<'view, 'reader> SegmentedHistorySource<'view, 'reader> {
         let first_window_seq = if uploaded_through_seq == 0 {
             genesis_seq.saturating_add(1)
         } else {
-            first_record_metadata(
-                transaction,
-                rows,
-                genesis_seq.saturating_add(1),
-                record.next_run_seq,
-            )?
-            .map_or(record.next_run_seq, |(seq, _)| seq)
+            first_window_seq_after_pruning(transaction, rows, record, genesis_seq)?
         };
         Ok(Self {
             local: LocalHistorySource::new(transaction, rows),
@@ -700,6 +694,29 @@ fn segment_event_count(segment: &HistorySegmentRecord) -> u64 {
             .saturating_add(1),
     )
     .unwrap_or(0)
+}
+
+/// Returns the first seq after genesis that window pruning kept.
+///
+/// Offload deletes the metadata of records without events, so only runs that have not recorded
+/// `history_window_pruned_through_seq` fall back to the first kept HistoryRecord metadata row.
+pub(crate) fn first_window_seq_after_pruning(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+    record: &RunRecord,
+    genesis_seq: u64,
+) -> Result<u64, ApplyError> {
+    let after_genesis = genesis_seq.saturating_add(1);
+    if record.history_window_pruned_through_seq > 0 {
+        return Ok(record
+            .history_window_pruned_through_seq
+            .saturating_add(1)
+            .max(after_genesis));
+    }
+    Ok(
+        first_record_metadata(transaction, rows, after_genesis, record.next_run_seq)?
+            .map_or(record.next_run_seq, |(seq, _)| seq),
+    )
 }
 
 /// Returns the seq and metadata of the first HistoryRecord metadata row in `[seq, end)`.

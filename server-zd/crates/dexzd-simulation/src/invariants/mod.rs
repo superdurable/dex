@@ -162,6 +162,7 @@ pub fn check_flow(
             view,
             memory.history_offload_gaps.get(run_id),
         )?;
+        history_segment_invariants::check_window_frontier(&context, run)?;
     }
     Ok(())
 }

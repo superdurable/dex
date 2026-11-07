@@ -27,7 +27,7 @@ use dexzd_protocol::dexzd::v1::{
     CommandErrorReply, FlowCommand, HistorySegmentRecord, ValueRecord, command_reply, flow_command,
 };
 use dexzd_request_validation::{ClientRequest, validate_client_request};
-use futures::future::{BoxFuture, join_all};
+use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
 use prost::Message;
 
@@ -49,10 +49,6 @@ const FIRST_RECOMPUTATION_BACKOFF: Duration = Duration::from_millis(100);
 /// Committed view rounds one computation runs at most. A round that reaches unloaded segments
 /// fetches every segment its reads go on to need, so a computation takes about three.
 const MAX_HISTORY_READ_ROUNDS: usize = 16;
-
-/// Committed view rounds one computation spends at most fetching offloaded values. A round
-/// reports every offloaded value it read; replays that reach one stop there, so they take more.
-const MAX_OFFLOADED_VALUE_ROUNDS: usize = 16;
 
 /// How one committed view round of a computation ended.
 enum ComputationRound {
@@ -240,7 +236,6 @@ impl FlowCoordinatorRegistry {
             TimeTravelSegmentReads::new(self.inner.config.time_travel_replay_memory_bytes);
         let mut first_view = Some(view);
         let mut segment_rounds = 0;
-        let mut value_rounds = 0;
         loop {
             let view = match first_view.take() {
                 Some(view) => view,
@@ -267,19 +262,20 @@ impl FlowCoordinatorRegistry {
                     self.load_time_travel_segments(flow, run_id, &needed, &mut reads)
                         .await?;
                 }
+                // Each such round must fetch something new; the memory budget bounds them all.
                 ComputationRound::NeedsValues(needed) => {
-                    value_rounds += 1;
-                    if value_rounds > MAX_OFFLOADED_VALUE_ROUNDS {
-                        return Err(FlowCoordinationError::Unavailable {
+                    let is_progress = self
+                        .load_offloaded_values(flow, run_id, needed, &mut reads)
+                        .await?;
+                    if !is_progress {
+                        return Err(FlowCoordinationError::Internal {
                             detail: format!(
-                                "the time travel of flow {} read offloaded values in \
-                                 {MAX_OFFLOADED_VALUE_ROUNDS} rounds without finishing; retry",
+                                "the time travel of flow {} asked again for offloaded values it \
+                                 already fetched",
                                 flow.flow_id
                             ),
                         });
                     }
-                    self.load_offloaded_values(flow, run_id, needed, &mut reads)
-                        .await?;
                 }
             }
         }
@@ -350,29 +346,33 @@ impl FlowCoordinatorRegistry {
     }
 
     /// Fetches the `needed` offloaded values from the disk read cache, or else with one ranged
-    /// read per segment, and adds them to `reads`; values read from object storage go to the
-    /// cache.
+    /// read per segment, at most `history.objectReadConcurrency` at once, and adds each to
+    /// `reads` as it arrives; values read from object storage go to the cache. Every value is
+    /// charged against the replay memory budget.
     ///
-    /// A segment whose object is missing twice fails the computation; once, the next view
-    /// explains it. Returns `RESOURCE_EXHAUSTED` once the fetched data exceeds the replay
-    /// memory budget, and `UNAVAILABLE` when object storage fails.
+    /// Returns whether it added a value or noted a missing object. A segment whose object is
+    /// missing twice fails the computation; once, the next view explains it. Returns
+    /// `RESOURCE_EXHAUSTED` once the fetched data exceeds the replay memory budget, which drops
+    /// the reads still running, and `UNAVAILABLE` when object storage fails.
     async fn load_offloaded_values(
         &self,
         flow: &FlowAddress,
         run_id: RunId,
         needed: Vec<(ValueId, HistorySegmentRecord)>,
         reads: &mut TimeTravelSegmentReads,
-    ) -> Result<(), FlowCoordinationError> {
+    ) -> Result<bool, FlowCoordinationError> {
         let context = self.flow_context(flow);
         let reader = &self.inner.dependencies.history_segment_reader;
         let purpose = SegmentReadPurpose::TimeTravel;
         let mut values = LoadedOffloadedValues::clone(&reads.values);
+        let known_values = values.len();
         let mut by_segment: BTreeMap<(u64, u64), (HistorySegmentRecord, Vec<ValueId>)> =
             BTreeMap::new();
         for (value_id, segment) in needed {
             let reference = ValueReference { run_id, value_id }.to_string();
             if let Some(row) = reader.cached_value_row(&reference, &segment, purpose).await {
                 if let Some(value) = decode_value_row(&row) {
+                    reads.charge(flow, row.len())?;
                     values.insert(value_id, value);
                     continue;
                 }
@@ -384,21 +384,28 @@ impl FlowCoordinatorRegistry {
                 .1
                 .push(value_id);
         }
-        let value_reads = by_segment.values().map(|(segment, value_ids)| {
-            reader.read_value_rows(
-                SegmentLocation {
-                    tenant_id: flow.tenant_id,
-                    flow_hash: context.flow_hash,
-                    run_id,
-                    segment,
-                },
-                value_ids,
-                purpose,
-            )
-        });
-        let results = join_all(value_reads).await;
-        for ((segment, _), result) in by_segment.values().zip(results) {
-            let read = result.map_err(|error| segment_read_error(flow, error))?;
+        let value_reads: Vec<BoxFuture<'_, _>> = by_segment
+            .values()
+            .map(|(segment, value_ids)| {
+                reader
+                    .read_value_rows(
+                        SegmentLocation {
+                            tenant_id: flow.tenant_id,
+                            flow_hash: context.flow_hash,
+                            run_id,
+                            segment,
+                        },
+                        value_ids,
+                        purpose,
+                    )
+                    .map(move |read| (segment, read))
+                    .boxed()
+            })
+            .collect();
+        let mut fetched =
+            futures::stream::iter(value_reads).buffer_unordered(reader.object_read_concurrency());
+        while let Some((segment, read)) = fetched.next().await {
+            let read = read.map_err(|error| segment_read_error(flow, error))?;
             let Some(rows) = reads.admit(flow, segment, read, |rows| {
                 rows.iter().map(|(_, row)| row.len()).sum()
             })?
@@ -423,10 +430,11 @@ impl FlowCoordinatorRegistry {
                 values.insert(value_id, value);
             }
         }
+        let is_progress = values.len() > known_values || !reads.newly_missing_objects.is_empty();
         reads.values = Arc::new(values);
         let newly_missing = std::mem::take(&mut reads.newly_missing_objects);
         reads.missing_objects.extend(newly_missing);
-        Ok(())
+        Ok(is_progress)
     }
 
     /// Fetches the `needed` segments, at most `history.objectReadConcurrency` at once, and adds
@@ -593,7 +601,15 @@ impl TimeTravelSegmentReads {
                 ),
             });
         };
-        let bytes = u64::try_from(bytes_of(&part)).unwrap_or(u64::MAX);
+        self.charge(flow, bytes_of(&part))?;
+        Ok(Some(part))
+    }
+
+    /// Charges `bytes` of fetched data against the replay memory budget.
+    ///
+    /// Returns `RESOURCE_EXHAUSTED` once the fetched data exceeds it.
+    fn charge(&mut self, flow: &FlowAddress, bytes: usize) -> Result<(), FlowCoordinationError> {
+        let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
         self.loaded_bytes = self.loaded_bytes.saturating_add(bytes);
         if self.loaded_bytes > self.max_loaded_bytes {
             return Err(FlowCoordinationError::rejected(
@@ -607,7 +623,7 @@ impl TimeTravelSegmentReads {
                 ),
             ));
         }
-        Ok(Some(part))
+        Ok(())
     }
 }
 

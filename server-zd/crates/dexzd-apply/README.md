@@ -93,6 +93,12 @@ events, pending method calls, or a close loses its metadata at once, so a long
 heartbeat-only Step does not grow metadata; rows written before those fields
 existed keep it.
 
+Because deletion leaves gaps in that metadata, reads of uploaded history do not
+take the window's lower end from the first metadata row. Window pruning records
+the last seq it deleted in `history_window_pruned_through_seq`, and reads show
+the seqs after it. A run that has not recorded it gets it from its first kept
+metadata row before deletion starts.
+
 A superseded value goes once its segment lists it and 10 minutes have passed
 since `superseded_at_micros`, by command time, which each command stamps on the
 garbage rows it adds. Its value row and garbage row are deleted, and its birth

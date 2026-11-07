@@ -93,7 +93,7 @@ pub(crate) fn apply_time_travel(
 #[cfg(feature = "test-util")]
 pub use owner_staging::{
     StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
-    stage_time_travel_for_test, stage_time_travel_from_sources_for_test,
+    stage_computed_time_travel_for_test, stage_time_travel_for_test,
 };
 
 /// Test entry point that stages a TimeTravel the way an owner does.
@@ -172,38 +172,20 @@ mod owner_staging {
             RunId::from_slice(&command.run_id).map_err(|error| ApplyError::InvariantViolation {
                 detail: format!("a TimeTravel command has an invalid run ID: {error}"),
             })?;
+        let Some(Command::TimeTravel(time_travel)) = &command.command else {
+            return Err(ApplyError::InvariantViolation {
+                detail: "only a TimeTravel command can be staged".to_owned(),
+            });
+        };
+        let reset = time_travel.request.clone().unwrap_or_default();
         let history = StateHistorySource::new(state, *context, run_id);
-        stage_time_travel_from_sources_for_test(
+        let computation = compute_time_travel(
             context,
             &TimeTravelComputationSources {
                 state,
                 history: &history,
                 offloaded_values: &NoOffloadedValues,
             },
-            command,
-        )
-    }
-
-    /// Like [`stage_time_travel_for_test`], but reads history and offloaded values from
-    /// `sources`, as an owner whose run offloaded history does.
-    pub fn stage_time_travel_from_sources_for_test(
-        context: &ApplyContext,
-        sources: &TimeTravelComputationSources<'_>,
-        command: &FlowCommand,
-    ) -> Result<Result<StagedTimeTravelForTest, CommandReply>, ApplyError> {
-        let Some(Command::TimeTravel(time_travel)) = &command.command else {
-            return Err(ApplyError::InvariantViolation {
-                detail: "only a TimeTravel command can be staged".to_owned(),
-            });
-        };
-        let run_id =
-            RunId::from_slice(&command.run_id).map_err(|error| ApplyError::InvariantViolation {
-                detail: format!("a TimeTravel command has an invalid run ID: {error}"),
-            })?;
-        let reset = time_travel.request.clone().unwrap_or_default();
-        let computation = compute_time_travel(
-            context,
-            sources,
             &TimeTravelComputationRequest {
                 run_id,
                 reset: &reset,
@@ -211,6 +193,23 @@ mod owner_staging {
                 replay_memory_budget_bytes: u64::MAX,
             },
         )?;
+        stage_computed_time_travel_for_test(command, computation)
+    }
+
+    /// Stages `computation`, which an owner computed for the unstaged TimeTravel `command`, as
+    /// [`stage_time_travel_for_test`] does.
+    ///
+    /// Returns the reply that rejects the request, or an error when `command` is not a
+    /// TimeTravel or the result cannot be staged.
+    pub fn stage_computed_time_travel_for_test(
+        command: &FlowCommand,
+        computation: TimeTravelComputation,
+    ) -> Result<Result<StagedTimeTravelForTest, CommandReply>, ApplyError> {
+        let Some(Command::TimeTravel(time_travel)) = &command.command else {
+            return Err(ApplyError::InvariantViolation {
+                detail: "only a TimeTravel command can be staged".to_owned(),
+            });
+        };
         let computed = match computation {
             TimeTravelComputation::Computed(computed) => *computed,
             TimeTravelComputation::Rejected(reply) => return Ok(Err(reply)),

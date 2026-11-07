@@ -30,6 +30,7 @@ use crate::history::{genesis_seq, metadata_identity};
 use crate::history_offload::offload_mode::is_history_offload_enabled;
 use crate::history_offload::segment_catalog::{CatalogPosition, SegmentCatalog, is_uploaded};
 use crate::history_offload::segment_seal::garbage_identity;
+use crate::history_offload::segmented_history::first_window_seq_after_pruning;
 use crate::state_access::{FlowTransaction, RunRows};
 
 /// How long a superseded value stays local after the command that superseded it, by command
@@ -57,6 +58,12 @@ pub(crate) fn delete_uploaded_history(
         return Ok(());
     }
     let genesis = genesis_seq(transaction, cursor.rows)?;
+    if cursor.record.history_window_pruned_through_seq == 0 {
+        // Pin the window start before record metadata goes, as readers otherwise find it there.
+        let first_window_seq =
+            first_window_seq_after_pruning(transaction, cursor.rows, &cursor.record, genesis)?;
+        cursor.record.history_window_pruned_through_seq = first_window_seq - 1;
+    }
     delete_uploaded_rows(transaction, cursor, genesis)?;
     offload_uploaded_values(transaction, cursor, now_micros)
 }

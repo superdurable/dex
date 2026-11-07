@@ -16,9 +16,12 @@ use dexzd_apply::read_model::{
     OffloadedValueLocation, SegmentedHistoryPage, get_history_events_from_segments,
     locate_offloaded_value, read_history_segment_content,
 };
+use dexzd_apply::values::NoOffloadedValues;
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, LoadedHistorySegments,
-    StateReadError, StateRow, StateWrite, apply_flow_command,
+    SegmentCheckpoint, SegmentedTimeTravelComputation, StateReadError, StateRow, StateWrite,
+    TimeTravelComputation, TimeTravelComputationRequest, apply_flow_command,
+    compute_time_travel_from_segments,
 };
 use dexzd_history_segment::{HistorySegmentContent, encode_history_segment};
 use dexzd_keyspace::row_keys::{
@@ -29,19 +32,23 @@ use dexzd_keyspace::{
     run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowConfig, FlowTimeoutPolicy, SetAttributesRequest, StartFlowRequest,
-    UpdateFlowConfigRequest, Value, WorkerTarget, value,
+    AttributeWrite, FlowConfig, FlowResetType, FlowTimeoutPolicy, ResetFlowRequest,
+    SetAttributesRequest, StartFlowRequest, StepOptions, UpdateFlowConfigRequest, Value,
+    WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand,
     FlowConfigUpdateCommand, FlowStartCommand, HistoryRecord, HistoryRowMetadata,
     HistorySegmentRecord, HistorySegmentUploadedCommand, RunRecord, RunSettings, RunStorageUsage,
-    SetHistoryOffloadModeCommand, ValueBirthRecord, ValueGarbageRecord, command_reply,
-    flow_command::Command, stored_value,
+    SetHistoryOffloadModeCommand, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
+    StepInvocationKey, StepMethod, TimeTravelStagedChunk, ValueBirthRecord, ValueGarbageRecord,
+    command_reply, flow_command::Command, step_attempt_heartbeat_command, stored_value,
 };
 use prost::Message;
 
 const SECOND: i64 = 1_000_000;
+const START_STEP: &str = "ChargeStep";
+const START_STEP_EXECUTION: &str = "ChargeStep-1";
 /// The grace period of superseded values, by command time.
 const GRACE: i64 = 10 * 60 * SECOND;
 
@@ -194,14 +201,39 @@ impl Harness {
     }
 
     fn start(&mut self, settings: RunSettings) {
-        let outcome = self.apply(Command::FlowStart(FlowStartCommand {
-            new_run_id: vec![9; 16],
-            request: Some(StartFlowRequest {
+        self.start_with_request(
+            settings,
+            StartFlowRequest {
                 flow_id: self.flow_id.clone(),
                 flow_type: "LocalDeletionFlow".to_owned(),
                 request_id: "start-1".to_owned(),
                 ..StartFlowRequest::default()
-            }),
+            },
+        );
+    }
+
+    /// Starts a run whose start Step's Execute is pending at once.
+    fn start_with_step(&mut self, settings: RunSettings) {
+        self.start_with_request(
+            settings,
+            StartFlowRequest {
+                flow_id: self.flow_id.clone(),
+                flow_type: "LocalDeletionFlow".to_owned(),
+                start_step_type: START_STEP.to_owned(),
+                step_options: Some(StepOptions {
+                    skip_wait_for: true,
+                    ..StepOptions::default()
+                }),
+                request_id: "start-1".to_owned(),
+                ..StartFlowRequest::default()
+            },
+        );
+    }
+
+    fn start_with_request(&mut self, settings: RunSettings, request: StartFlowRequest) {
+        let outcome = self.apply(Command::FlowStart(FlowStartCommand {
+            new_run_id: vec![9; 16],
+            request: Some(request),
             settings: Some(settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
             worker_target: Some(WorkerTarget { is_pull_mode: true }),
@@ -497,6 +529,73 @@ impl Harness {
             ),
             "recorded {recorded:?}, recount {recount:?}"
         );
+    }
+
+    /// Returns the history uploaded segments hold, loaded as an owner fetches it.
+    fn loaded_segments(&self) -> LoadedHistorySegments {
+        let mut loaded = LoadedHistorySegments::default();
+        for (segment, content) in self.uploaded.values() {
+            let records: Vec<HistoryRecord> = content
+                .records
+                .iter()
+                .map(|row| HistoryRecord::decode(row.row.as_slice()).expect("record decodes"))
+                .collect();
+            loaded
+                .insert(segment, records.into())
+                .expect("uploaded records are in order");
+            let checkpoints: Vec<SegmentCheckpoint> = content
+                .checkpoints
+                .iter()
+                .map(|row| SegmentCheckpoint {
+                    attempt: row.attempt,
+                    seq: row.seq,
+                    record: dexzd_protocol::dexzd::v1::CheckpointRecord::decode(row.row.as_slice())
+                        .expect("checkpoint decodes"),
+                })
+                .collect();
+            loaded
+                .insert_checkpoints(segment, checkpoints.into())
+                .expect("uploaded checkpoints are in order");
+        }
+        loaded
+    }
+
+    /// Computes `request` with the production time travel over `state` and every uploaded
+    /// segment, and returns the staged chunks without their target.
+    fn staged_result(
+        &self,
+        state: &MemoryState,
+        request: &ResetFlowRequest,
+    ) -> Vec<TimeTravelStagedChunk> {
+        let computation = compute_time_travel_from_segments(
+            &self.context,
+            state,
+            &self.loaded_segments(),
+            &NoOffloadedValues,
+            &TimeTravelComputationRequest {
+                run_id: self.run(),
+                reset: request,
+                now_micros: self.now_micros,
+                replay_memory_budget_bytes: u64::MAX,
+            },
+        )
+        .expect("the computation runs");
+        let SegmentedTimeTravelComputation::Computed(TimeTravelComputation::Computed(computed)) =
+            computation
+        else {
+            panic!("the computation has every segment and succeeds: {computation:?}");
+        };
+        computed
+            .stage_commands(b"staging")
+            .expect("the result stages")
+            .into_iter()
+            .map(|command| {
+                let mut chunk = TimeTravelStagedChunk::decode(command.chunk.as_slice())
+                    .expect("the chunk decodes");
+                chunk.target = None;
+                chunk
+            })
+            .collect()
     }
 
     /// Event IDs of the first page, read as the engine does: uploaded seqs from their objects.
@@ -1007,4 +1106,107 @@ fn local_storage_stays_flat_over_a_thousand_rewrites_of_a_large_attribute() {
         "metadata stays within the window"
     );
     harness.assert_storage_recounts();
+}
+
+// Offload deletes the metadata of records without events; the window start must not move past
+// the kept checkpoint, or a replay from it skips such records.
+#[test]
+fn a_replay_from_the_kept_checkpoint_reads_records_whose_metadata_offload_deleted() {
+    let mut harness = Harness::new();
+    harness.set_offload_mode(true);
+    harness.start_with_step(RunSettings {
+        history_window_events: 3,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 7,
+        ..settings(1)
+    });
+    for round in 0..6 {
+        harness.set_attribute("before", format!("small-{round}"));
+    }
+    let invocation = StepInvocationKey {
+        step_execution_id: START_STEP_EXECUTION.to_owned(),
+        method: StepMethod::Execute as i32,
+    };
+    let started = harness.apply(Command::StepAttemptStarted(StepAttemptStartedCommand {
+        invocation: Some(invocation.clone()),
+        attempt: 1,
+        task_id: vec![7; 16],
+        pull_routing: None,
+    }));
+    assert!(is_ok(&started.reply), "{:?}", started.reply);
+    let checkpoint_seq = harness.run_record().next_run_seq - 1;
+    let heartbeat = harness.apply(Command::StepAttemptHeartbeat(StepAttemptHeartbeatCommand {
+        invocation: Some(invocation),
+        attempt: 1,
+        checkpoint: Some(step_attempt_heartbeat_command::Checkpoint::Value(Value {
+            kind: Some(value::Kind::StringValue("progress".to_owned())),
+        })),
+        task_id: vec![7; 16],
+    }));
+    assert!(is_ok(&heartbeat.reply), "{:?}", heartbeat.reply);
+    for round in 0..4 {
+        harness.set_attribute("after", format!("small-{round}"));
+    }
+    let record = harness.run_record();
+    let window_start_seq = record.window_start_seq;
+    let checkpoint_seqs = harness.attempt_record(1).checkpoint_seqs;
+    let kept_checkpoint_seq = checkpoint_seqs
+        .iter()
+        .copied()
+        .filter(|seq| *seq <= window_start_seq)
+        .max();
+    assert!(window_start_seq > checkpoint_seq + 1, "{record:?}");
+    assert_eq!(
+        kept_checkpoint_seq,
+        Some(checkpoint_seq),
+        "the window rebuilds from the checkpoint of the eventless start: {checkpoint_seqs:?}"
+    );
+    let target_time =
+        harness.metadata()[&(window_start_seq, RunTable::HistoryRecord as u8, 0)].timestamp_micros;
+    let request = ResetFlowRequest {
+        flow_id: harness.flow_id.clone(),
+        reset_type: FlowResetType::HistoryEventTime as i32,
+        reason: "frontier".to_owned(),
+        skip_writes_reapply: true,
+        history_event_time: (i128::from(target_time) * 1000).to_string(),
+        ..ResetFlowRequest::default()
+    };
+    let expected = harness.staged_result(&harness.state.clone(), &request);
+
+    harness.ack_all();
+    harness.bookkeep();
+    harness.ack_all();
+    let record = harness.run_record();
+    assert_eq!(record.history_window_pruned_through_seq, checkpoint_seq - 1);
+    let metadata = harness.metadata();
+    for seq in [checkpoint_seq, checkpoint_seq + 1] {
+        assert!(
+            !metadata.contains_key(&(seq, RunTable::HistoryRecord as u8, 0)),
+            "offload deleted the metadata of eventless record {seq}"
+        );
+    }
+    assert!(
+        harness
+            .stored_record_seqs()
+            .iter()
+            .all(|seq| *seq == 1 || *seq > record.history_uploaded_through_seq)
+    );
+    let actual = harness.staged_result(&harness.state.clone(), &request);
+    assert_eq!(
+        actual, expected,
+        "the replay reads the eventless records after the checkpoint"
+    );
+
+    // Reads show every event from the kept checkpoint on, and none of the pruned ones.
+    let mut expected_event_ids = BTreeSet::from([1]);
+    for (_, content) in harness.uploaded.values() {
+        for row in &content.records {
+            let record = HistoryRecord::decode(row.row.as_slice()).expect("record decodes");
+            if record.seq >= checkpoint_seq {
+                expected_event_ids.extend(record.events.iter().map(|event| event.event_id));
+            }
+        }
+    }
+    let event_ids: BTreeSet<i64> = harness.history_event_ids().into_iter().collect();
+    assert_eq!(event_ids, expected_event_ids);
 }

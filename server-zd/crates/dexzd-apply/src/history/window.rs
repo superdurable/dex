@@ -285,7 +285,8 @@ fn find_new_window_start(
 /// Deletes history records and checkpoints older than the checkpoint that rebuilds W.
 ///
 /// Their metadata rows go too, and they alone advance `max_pruned_event_id`. A row that offload
-/// already deleted leaves only its metadata row to delete.
+/// already deleted leaves only its metadata row to delete. Moves the run's
+/// `history_window_pruned_through_seq` past what is deleted.
 ///
 /// Rows after the run's uploaded seq stay while the partition offloads history or the run has a
 /// SEALED segment.
@@ -348,6 +349,15 @@ pub(crate) fn prune_window_history(
     )?;
     let mut deleted_checkpoints = BTreeMap::<u32, BTreeSet<u64>>::new();
     let count = page.len();
+    // Record rows sort before checkpoint rows, so every record through the last row is deleted.
+    let pruned_through_seq = match page.last() {
+        Some((key, _)) if count == HISTORY_ROWS_PER_COMMAND => metadata_identity(key, &prefix)?.0,
+        _ => keep_from - 1,
+    };
+    cursor.record.history_window_pruned_through_seq = cursor
+        .record
+        .history_window_pruned_through_seq
+        .max(pruned_through_seq);
     let mut identities = Vec::with_capacity(count);
     let mut max_pruned_event_id = cursor.record.max_pruned_event_id;
     for (key, metadata) in &page {

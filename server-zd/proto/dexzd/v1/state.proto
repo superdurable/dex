@@ -184,6 +184,10 @@ message RunRecord {
   // Last superseded seq through which the values of uploaded segments were offloaded or passed
   // over; zero before the first offload.
   uint64 history_values_offloaded_through_seq = 68;
+  // Last seq after genesis through which window pruning deleted history; reads of uploaded
+  // history show no seq between genesis and it. Zero in runs that have not recorded it, whose
+  // readers take the seq before the first kept HistoryRecord metadata row instead.
+  uint64 history_window_pruned_through_seq = 69;
 }
 
 // A staged TimeTravel result of a run; see TimeTravelStageCommand.

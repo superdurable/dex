@@ -10,9 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::diagnostics::time_travel_target_close;
 use dexzd_apply::{
-    ApplyContext, ApplyOutcome, StateWrite, TimeTravelComputationSources, apply_flow_command,
-    apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
-    stage_time_travel_from_sources_for_test,
+    ApplyContext, ApplyOutcome, StateWrite, apply_flow_command, apply_staged_time_travel_for_test,
+    is_unstaged_time_travel_for_test, stage_computed_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{run_singleton_key, value_row_key};
 use dexzd_keyspace::{
@@ -35,7 +34,7 @@ use crate::invariants::{
     remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
-use crate::offloaded_history::OffloadedRunHistory;
+use crate::offloaded_history::compute_offloaded_time_travel;
 use crate::state_view::{FlowView, RunSelection};
 
 /// Key of the keyed partition hash; any fixed value keeps runs reproducible.
@@ -155,29 +154,17 @@ impl ApplyChecker {
             return self.apply_and_check_staged(command);
         }
         let context = self.context(&command.flow_id);
-        let run_id = RunId::from_slice(&command.run_id)
-            .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
-        let history = OffloadedRunHistory::open(
+        let computed = compute_offloaded_time_travel(
             &self.state,
             context,
-            run_id,
+            command,
             &self.memory.sealed_segment_encodings,
         )
         .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
-        let staged = stage_time_travel_from_sources_for_test(
-            &context,
-            &TimeTravelComputationSources {
-                state: &self.state,
-                history: &history,
-                offloaded_values: &history,
-            },
-            command,
-        )
-        .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
-        let has_served_objects = history.has_served_objects();
-        drop(history);
+        let staged = stage_computed_time_travel_for_test(command, computed.computation)
+            .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
         let mut violation = None;
-        let is_computed_from_objects = staged.is_ok() && has_served_objects;
+        let is_computed_from_objects = staged.is_ok() && computed.has_read_objects;
         let outcome = apply_staged_time_travel_for_test(staged, |staged_command| {
             match self.apply_and_check_staged(&staged_command) {
                 Ok(outcome) => outcome,

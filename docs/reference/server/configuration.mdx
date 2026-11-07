@@ -438,7 +438,8 @@ uploaded segment. Values of one request that share a segment take one object
 storage read. A value that the window passed is not returned, as before. A read
 that object storage fails, or whose uploaded segment object is missing, fails
 with UNAVAILABLE. A ResetFlow whose target state holds such a value reads it
-from object storage in the same way.
+from object storage in the same way. Such values, whether read from the cache or
+from object storage, count against **history.timeTravelReplayMemoryBytes**.
 
 Changed in 0.1.22: while history offload is on, a LoadBlobs request names at
 most 1000 values. A request with more entries fails with INVALID_ARGUMENT when

@@ -30,7 +30,7 @@ pub use time_travel::{
 #[cfg(feature = "test-util")]
 pub use time_travel::{
     StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
-    stage_time_travel_for_test, stage_time_travel_from_sources_for_test,
+    stage_computed_time_travel_for_test, stage_time_travel_for_test,
 };
 pub(crate) use time_travel::{apply_time_travel, apply_time_travel_stage, delete_idle_staging};
 pub(crate) use window::{

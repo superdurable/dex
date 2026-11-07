@@ -998,6 +998,8 @@ fn a_record_pruned_apart_from_its_checkpoint_metadata_stays_hidden() {
     let mut record = harness.run_record();
     record.max_pruned_event_id = split_metadata.last_assigned_event_id;
     record.window_start_seq = split_seq + 1;
+    // Such a batch moves the frontier through its last record.
+    record.history_window_pruned_through_seq = split_seq;
     let record_key =
         dexzd_keyspace::row_keys::run_singleton_key(flow_hash, run_id, RunTable::RunRecord);
     harness
@@ -1299,6 +1301,7 @@ fn reads_skip_a_long_expired_prefix_and_sparse_rows_without_scanning_them() {
     let mut record = harness.run_record();
     record.max_pruned_event_id = last_pruned.last_assigned_event_id;
     record.window_start_seq = expired_through + 1;
+    record.history_window_pruned_through_seq = expired_through;
     harness.state.rows.insert(
         (
             ColumnFamily::Flow,
