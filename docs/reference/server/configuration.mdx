@@ -179,16 +179,20 @@ you expose it. Set **metrics.listen** in the overrides to enable
 
 **dev** and **local** default **snapshot.logDeletionDelay** to 1 hour.
 **serve** defaults it to 24 hours. An explicit value in the overrides always
-wins, and it must be greater than zero. After a snapshot covers a log object or
-replaces an older snapshot, that object waits this long before it is deleted.
-A longer delay keeps older snapshots and their log for fallback and lets a
-stopped node catch up from the log, at the cost of disk space. The delay must
-also exceed the longest snapshot upload. Changed in 0.1.21: before, **dev**
-and **local** also defaulted to 24 hours.
+wins, and it must be greater than zero. A log object is deleted once a snapshot
+that covers it is this old. The age counts from the snapshot's creation time,
+before its upload finishes. A snapshot beyond **snapshot.retainedCount** is
+deleted once the newer snapshot that displaced it is this old. A longer delay
+keeps older snapshots and their log for fallback and lets a stopped node catch
+up from the log, at the cost of disk space. The delay must also exceed the
+longest snapshot upload. Changed in 0.1.21: before, **dev** and **local** also
+defaulted to 24 hours.
 
-The embedded object store shares the disk with the local store. Plan for about
-two to three times the data written during **snapshot.logDeletionDelay**, plus
-the size of **store**.
+The embedded object store shares the disk with the local store. Plan for the
+size of **store**, plus the object store: the snapshots that
+**snapshot.retainedCount** keeps, and the log and displaced snapshots written
+during **snapshot.logDeletionDelay**. Together, the object store can reach two
+to three times the data written during the delay.
 
 A Flow that rewrites a large value on every Step needs more disk. Its history
 records wait for a newer [checkpoint](#history-checkpoints) before they can be
