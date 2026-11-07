@@ -444,19 +444,23 @@ func (h *handler) loadBlobs(response http.ResponseWriter, request *http.Request)
 		}
 		entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: body.FlowID, BlobValue: value})
 	}
-	result, err := h.client.LoadBlobs(request.Context(), &dexpb.LoadBlobsRequest{Entries: entries})
+	values, unavailable, err := loadBlobValues(request.Context(), h.client, entries)
 	if err != nil {
 		writeGRPCErrorMessage(response, err, "Value blob unavailable")
 		return
 	}
-	mapped := make(map[string]interface{}, len(result.GetValues()))
+	result := loadBlobsResponse{Values: make(map[string]interface{}, len(values))}
 	for _, reference := range body.Values {
-		value, exists := result.GetValues()[reference.ID]
-		if exists {
-			mapped[blobCacheKey(reference)] = dexValue(value)
+		if value, exists := values[reference.ID]; exists {
+			result.Values[blobCacheKey(reference)] = dexValue(value)
+		} else if reason, isUnavailable := unavailable[reference.ID]; isUnavailable {
+			if result.Unavailable == nil {
+				result.Unavailable = make(map[string]string)
+			}
+			result.Unavailable[blobCacheKey(reference)] = reason
 		}
 	}
-	writeJSON(response, http.StatusOK, loadBlobsResponse{Values: mapped})
+	writeJSON(response, http.StatusOK, result)
 }
 
 func blobCacheKey(reference blobReference) string {

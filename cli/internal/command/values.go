@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -94,14 +95,19 @@ func hydrateBlobReferences(
 		}
 		entries = append(entries, &dexpb.LoadBlobRequestEntry{FlowId: flowID, BlobValue: value})
 	}
-	response, err := client.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Entries: entries})
+	values, unavailable, err := loadBlobValues(ctx, client, entries)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("stored values unavailable: %v", err)}
 	}
 	replacements := make(map[string]any, len(references))
+	var warnings []string
 	missing := 0
 	for key, reference := range references {
-		value, found := response.GetValues()[reference.id]
+		value, found := values[reference.id]
+		if reason, isUnavailable := unavailable[reference.id]; isUnavailable {
+			warnings = append(warnings, fmt.Sprintf("stored value %s unavailable: %s", reference.id, reason))
+			continue
+		}
 		if !found {
 			missing++
 			continue
@@ -114,9 +120,10 @@ func hydrateBlobReferences(
 		replacements[key] = naturalValue(raw, nil, false)
 	}
 	if missing > 0 {
-		return replacements, []string{fmt.Sprintf("%d stored value(s) unavailable", missing)}
+		warnings = append(warnings, fmt.Sprintf("%d stored value(s) unavailable", missing))
 	}
-	return replacements, nil
+	sort.Strings(warnings)
+	return replacements, warnings
 }
 
 func naturalValue(value any, replacements map[string]any, unavailableWhenMissing bool) any {

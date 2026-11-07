@@ -26,11 +26,13 @@ use crate::command_handlers::flow_close::{
     finalize_pending_close_if_ready, is_terminal_cleanup_in_progress,
 };
 use crate::command_handlers::flow_data::{
-    apply_attribute_writes, apply_channel_deletions, apply_channel_publications,
+    EffectValueReferences, apply_attribute_writes, apply_channel_deletions,
+    apply_channel_publications,
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor, flow_not_found_reply};
 use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::projections::history_event_links::StepEventLink;
+use crate::projections::history_events::reference_effect_values;
 use crate::state_access::FlowTransaction;
 use crate::steps::{
     NewStepExecution, cancel_steps_by_type, create_step_execution, wait_conditions,
@@ -99,7 +101,7 @@ pub(crate) fn apply_rpc_committed(
             ),
         )));
     }
-    if let Err(rejection) = apply_attribute_writes(
+    let attribute_references = match apply_attribute_writes(
         transaction,
         &mut cursor,
         &response.upsert_attributes,
@@ -108,20 +110,26 @@ pub(crate) fn apply_rpc_committed(
         scope,
         true,
     )? {
-        return Ok(HandlerResult::from(rejection));
-    }
+        Ok(references) => references,
+        Err(rejection) => return Ok(HandlerResult::from(rejection)),
+    };
     apply_channel_deletions(transaction, &mut cursor, &response.delete_from_channel)?;
-    let changed_channels =
+    let published =
         match apply_channel_publications(transaction, &mut cursor, &response.publish_to_channel)? {
-            Ok(channels) => channels,
+            Ok(published) => published,
             Err(rejection) => return Ok(reject_value(rejection)),
         };
     wait_conditions::on_channels_changed(
         transaction,
         &mut cursor,
         scope.now_micros,
-        &changed_channels,
+        &published.changed_channels,
     )?;
+    let effect_references = EffectValueReferences {
+        attributes: attribute_references,
+        publications: published.value_references,
+        ..EffectValueReferences::default()
+    };
     // InvokeRPC admits no transactional call during cleanup; earlier ones commit, as in Go.
     // As in the Go Server, an RPC result starts no Step during terminal cleanup.
     let mut started_step_execution_ids = Vec::new();
@@ -177,6 +185,14 @@ pub(crate) fn apply_rpc_committed(
     if let Err(rejection) = validate_ephemeral_response_values(transaction, &cursor, response)? {
         return Ok(reject_value(rejection));
     }
+    let mut upsert_attributes = response.upsert_attributes.clone();
+    let mut publish_to_channel = response.publish_to_channel.clone();
+    reference_effect_values(
+        effect_references,
+        &mut upsert_attributes,
+        &mut publish_to_channel,
+        &mut [],
+    );
     let rpc_event = cursor.add_event(flow_history_event::Payload::RpcExecutionCompleted(
         RpcExecutionCompletedEvent {
             rpc_name: request.rpc_name.clone(),
@@ -191,9 +207,9 @@ pub(crate) fn apply_rpc_committed(
                 None
             },
             step_decision: response.step_decision.clone(),
-            upsert_attributes: response.upsert_attributes.clone(),
+            upsert_attributes,
             record_events: response.record_events.clone(),
-            publish_to_channel: response.publish_to_channel.clone(),
+            publish_to_channel,
             delete_from_channel: response.delete_from_channel.clone(),
             served_by_app_worker_id: command.app_worker_id.clone(),
             ..RpcExecutionCompletedEvent::default()

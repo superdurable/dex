@@ -930,15 +930,17 @@ pub(crate) fn apply_method_completed(
                 permission_mappings: response.action_permission_mappings.as_ref(),
                 hard_delete_objects: &command.hard_delete_objects,
             };
-            if let Err(rejection) = crate::command_handlers::flow_data::apply_method_effects(
+            let references = match crate::command_handlers::flow_data::apply_method_effects(
                 transaction,
                 cursor,
                 &mut step,
                 &effects,
                 scope,
             )? {
-                return Ok(rejection.into());
-            }
+                Ok(references) => references,
+                Err(rejection) => return Ok(rejection.into()),
+            };
+            history_events::reference_method_completed_values(cursor, completed_event, references);
             step.wait_for_pull_routing = command.pull_routing.clone();
             cursor.link_step_event(
                 completed_event,
@@ -961,15 +963,17 @@ pub(crate) fn apply_method_completed(
                 permission_mappings: response.action_permission_mappings.as_ref(),
                 hard_delete_objects: &command.hard_delete_objects,
             };
-            if let Err(rejection) = crate::command_handlers::flow_data::apply_method_effects(
+            let references = match crate::command_handlers::flow_data::apply_method_effects(
                 transaction,
                 cursor,
                 &mut step,
                 &effects,
                 scope,
             )? {
-                return Ok(rejection.into());
-            }
+                Ok(references) => references,
+                Err(rejection) => return Ok(rejection.into()),
+            };
+            history_events::reference_method_completed_values(cursor, completed_event, references);
             apply_step_decision(
                 transaction,
                 cursor,

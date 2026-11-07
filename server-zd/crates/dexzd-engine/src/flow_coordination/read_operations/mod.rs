@@ -289,6 +289,7 @@ impl FlowCoordinatorRegistry {
             self.flow_context(&flow),
             &flow,
             &request,
+            self.inner.config.max_history_events_response_bytes,
         )
     }
 

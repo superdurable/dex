@@ -171,6 +171,14 @@ impl RunCursor {
         self.events.push(payload)
     }
 
+    /// Returns the payload of an event this command added and has not recorded yet.
+    pub(crate) fn event_payload_mut(
+        &mut self,
+        event: HistoryEventIndex,
+    ) -> &mut flow_history_event::Payload {
+        self.events.payload_mut(event)
+    }
+
     /// Stores `event`'s ID on a Step execution once the command records its events.
     pub(crate) fn link_step_event(&mut self, event: HistoryEventIndex, link: StepEventLink) {
         self.events.link(event, link);

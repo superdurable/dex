@@ -16,10 +16,15 @@ use std::sync::Arc;
 
 use dexzd_apply::FlowStateReader;
 use dexzd_engine::SystemEngineIdSource;
-use dexzd_keyspace::{ColumnFamily, RunTable, parse_run_key};
-use dexzd_protocol::dex::{FlowStatus, flow_history_event};
+use dexzd_keyspace::row_keys::value_row_key;
+use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueReference, parse_run_key};
+use dexzd_protocol::dex::flow_started_or_continued_history_event::StartOrContinue;
+use dexzd_protocol::dex::{
+    AttributeWrite, ChannelMessage, FlowStatus, Kv, Value, flow_history_event, value,
+};
 use dexzd_protocol::dexzd::v1::{
     CheckpointRecord, HistoryRecord, RunRecord, StepExecutionRecord, StepInvocationPhase,
+    ValueRecord,
 };
 use prost::Message;
 
@@ -144,7 +149,12 @@ fn matches_without_new_fields(
             checkpoint.encode_to_vec()
         }
         (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
-            history_without_scheduled_time(value)
+            history_without_scheduled_time(&history_with_inline_effect_values(
+                value,
+                parsed.flow_hash,
+                parsed.run_id,
+                stored,
+            ))
         }
         (name, RunTable::RunRecord) if name == ColumnFamily::Flow.name() => {
             let Some(recorded_run) = recorded_run_records.get(hex_key) else {
@@ -158,6 +168,100 @@ fn matches_without_new_fields(
         _ => return false,
     };
     dumped_value(&cleared) == recorded_value
+}
+
+/// Resolves the effect value references that newer binaries write into history events, as the
+/// older binary recorded the complete values.
+fn history_with_inline_effect_values(
+    value: &[u8],
+    flow_hash: FlowHash,
+    run_id: RunId,
+    stored: &StoredRows,
+) -> Vec<u8> {
+    let mut record = HistoryRecord::decode(value).expect("history rows decode");
+    for event in &mut record.events {
+        let effect_values: Vec<&mut Option<Value>> = match event.payload.as_mut() {
+            Some(flow_history_event::Payload::StepWaitForCompleted(completed)) => completed
+                .output
+                .as_mut()
+                .map(|output| {
+                    effect_value_slots(
+                        &mut output.upsert_attributes,
+                        &mut output.publish_to_channel,
+                        &mut output.upsert_step_execution_locals,
+                    )
+                })
+                .unwrap_or_default(),
+            Some(flow_history_event::Payload::StepExecuteCompleted(completed)) => completed
+                .output
+                .as_mut()
+                .map(|output| {
+                    effect_value_slots(
+                        &mut output.upsert_attributes,
+                        &mut output.publish_to_channel,
+                        &mut output.upsert_step_execution_locals,
+                    )
+                })
+                .unwrap_or_default(),
+            Some(flow_history_event::Payload::RpcExecutionCompleted(completed)) => {
+                effect_value_slots(
+                    &mut completed.upsert_attributes,
+                    &mut completed.publish_to_channel,
+                    &mut [],
+                )
+            }
+            Some(flow_history_event::Payload::ChannelExternalPublish(publish)) => {
+                effect_value_slots(&mut [], &mut publish.messages, &mut [])
+            }
+            Some(flow_history_event::Payload::FlowStartedOrContinued(started)) => {
+                match started.start_or_continue.as_mut() {
+                    Some(StartOrContinue::InitialStart(start)) => {
+                        effect_value_slots(&mut [], &mut [], &mut start.initial_attributes)
+                    }
+                    _ => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        };
+        for slot in effect_values {
+            let Some(reference) = slot.as_ref().and_then(value_reference_text) else {
+                continue;
+            };
+            let reference: ValueReference = reference.parse().expect("history references parse");
+            assert_eq!(reference.run_id, run_id, "history references its own run");
+            let key = value_row_key(flow_hash, run_id, RunTable::Value, reference.value_id);
+            let row = stored
+                .get(&(ColumnFamily::Value.name().to_owned(), key))
+                .expect("a referenced value is stored");
+            *slot = ValueRecord::decode(row.as_slice())
+                .expect("value rows decode")
+                .value;
+        }
+    }
+    record.encode_to_vec()
+}
+
+fn effect_value_slots<'event>(
+    writes: &'event mut [AttributeWrite],
+    messages: &'event mut [ChannelMessage],
+    key_values: &'event mut [Kv],
+) -> Vec<&'event mut Option<Value>> {
+    writes
+        .iter_mut()
+        .map(|write| &mut write.value)
+        .chain(messages.iter_mut().map(|message| &mut message.value))
+        .chain(key_values.iter_mut().map(|key_value| &mut key_value.value))
+        .collect()
+}
+
+fn value_reference_text(value: &Value) -> Option<&str> {
+    match value.kind.as_ref() {
+        Some(
+            value::Kind::InternalBlobIdForStringValue(reference)
+            | value::Kind::InternalBlobIdForObjValue(reference),
+        ) => Some(reference),
+        _ => None,
+    }
 }
 
 /// Clears the Step method event field that newer binaries add to history.
@@ -281,7 +385,11 @@ async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (Stat
     let state = dump_committed_state(view).await;
     let stored = tokio::task::spawn_blocking(move || {
         let mut stored = StoredRows::new();
-        for column_family in [ColumnFamily::Flow, ColumnFamily::History] {
+        for column_family in [
+            ColumnFamily::Flow,
+            ColumnFamily::History,
+            ColumnFamily::Value,
+        ] {
             let rows = row_view
                 .scan(column_family, &[], &[0xff; 64], usize::MAX)
                 .expect("scan committed rows");

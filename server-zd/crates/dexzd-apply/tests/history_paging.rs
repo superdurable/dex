@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use dexzd_apply::read_model::{
     ReadModelError, get_history_events, is_history_event_available,
-    is_history_event_available_from_records_for_test,
+    is_history_event_available_from_records_for_test, load_blobs,
 };
 use dexzd_apply::{
     ApplyContext, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
@@ -26,9 +26,9 @@ use dexzd_keyspace::row_keys::{
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_protocol::dex::{
     ChannelMessage, DeleteChannelMessageRequest, FlowHistoryEvent, FlowResetType,
-    FlowTimeoutPolicy, HistoryEventIdRange, PublishToChannelRequest, ResetFlowRequest,
-    StartFlowRequest, StepOptions, StopFlowRequest, StopType, Value, WaitForHistoryEventResponse,
-    WorkerTarget, flow_history_event, value,
+    FlowTimeoutPolicy, HistoryEventIdRange, LoadBlobRequestEntry, PublishToChannelRequest,
+    ResetFlowRequest, StartFlowRequest, StepOptions, StopFlowRequest, StopType, Value,
+    WaitForHistoryEventResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, ChannelMessageDeleteCommand, ChannelPublishCommand, CommandReply, FlowCommand,
@@ -482,6 +482,7 @@ impl Harness {
                 page_size,
                 &token,
                 i32::try_from(run_attempt).expect("small attempt"),
+                usize::MAX,
             )
             .expect("the history page reads");
             stats.max_reads_per_page = stats.max_reads_per_page.max(reader.take_history_reads());
@@ -571,6 +572,7 @@ fn assert_single_event_reads_match_reference(
             1,
             &[],
             0,
+            usize::MAX,
         )
         .expect("the history page reads");
         let expected = harness.reference_page(&records, *start_event_id, 1, &[], 0);
@@ -747,6 +749,7 @@ fn a_non_increasing_event_id_in_the_lineage_is_an_invariant_violation() {
         0,
         &[],
         0,
+        usize::MAX,
     );
     assert!(
         matches!(
@@ -866,6 +869,7 @@ impl Harness {
             1,
             &[],
             0,
+            usize::MAX,
         )
         .expect("the history page reads");
         assert!(
@@ -1200,4 +1204,232 @@ fn history_event_waits_without_event_id_metadata_report_a_lower_bound() {
             assert!(actual.available_internal_event_id >= wanted_event_id);
         }
     }
+}
+
+/// Bytes an event adds to an encoded GetHistoryEvents response.
+fn response_event_bytes(event: &FlowHistoryEvent) -> usize {
+    prost::encoding::message::encoded_len(1, event)
+}
+
+#[test]
+fn a_byte_limit_ends_pages_early_and_the_token_loop_reaches_every_event() {
+    let mut harness = Harness::new(settings(1_000_000, 10_000));
+    for round in 0..40 {
+        harness.append_round(usize::from(round % 3 == 0));
+    }
+    let all_events: Vec<FlowHistoryEvent> = harness
+        .history_records()
+        .into_iter()
+        .flat_map(|record| record.events)
+        .collect();
+    let largest_event_bytes = all_events
+        .iter()
+        .map(response_event_bytes)
+        .max()
+        .expect("the run has events");
+    let max_response_bytes = 64 + 3 * largest_event_bytes;
+
+    let mut read_event_ids = Vec::new();
+    let mut start_event_id = 0;
+    let mut token = Vec::new();
+    let mut pages = 0;
+    loop {
+        let response = get_history_events(
+            &harness.state,
+            harness.context.flow_hash,
+            harness.run_id,
+            start_event_id,
+            0,
+            &token,
+            0,
+            max_response_bytes,
+        )
+        .expect("a page within the byte limit reads");
+        pages += 1;
+        assert!(!response.events.is_empty(), "every page holds an event");
+        assert!(
+            response.encoded_len() <= max_response_bytes,
+            "page {pages} is {} bytes, over the {max_response_bytes}-byte limit",
+            response.encoded_len()
+        );
+        read_event_ids.extend(response.events.iter().map(|event| event.event_id));
+        if response.next_page_token.is_empty() {
+            break;
+        }
+        let one_more_event = get_history_events(
+            &harness.state,
+            harness.context.flow_hash,
+            harness.run_id,
+            start_event_id,
+            i32::try_from(response.events.len() + 1).expect("small page"),
+            &token,
+            0,
+            usize::MAX,
+        )
+        .expect("an unlimited page reads");
+        assert!(
+            one_more_event.encoded_len() > max_response_bytes,
+            "page {pages} stopped before event {} although it fit",
+            all_events[read_event_ids.len()].event_id
+        );
+        let last_event_id = response.events.last().expect("non-empty page").event_id;
+        assert_eq!(
+            response.next_page_token,
+            last_event_id.to_be_bytes().to_vec()
+        );
+        start_event_id = response.next_internal_event_id;
+        token = response.next_page_token;
+    }
+    let expected_event_ids: Vec<i64> = all_events.iter().map(|event| event.event_id).collect();
+    assert_eq!(read_event_ids, expected_event_ids);
+    assert!(pages > 1, "the byte limit split the history into pages");
+}
+
+#[test]
+fn an_event_alone_over_the_byte_limit_is_reported_by_its_id() {
+    let mut harness = Harness::new(settings(1_000_000, 10_000));
+    harness.append_round(0);
+    let events: Vec<FlowHistoryEvent> = harness
+        .history_records()
+        .into_iter()
+        .flat_map(|record| record.events)
+        .collect();
+    let first_event_bytes = response_event_bytes(&events[0]);
+    let single_event_response_bytes = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        1,
+        &[],
+        0,
+        usize::MAX,
+    )
+    .expect("an unlimited page reads")
+    .encoded_len();
+
+    let exactly_fitting = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+        single_event_response_bytes,
+    )
+    .expect("a response exactly at the limit reads");
+    assert_eq!(exactly_fitting.events.len(), 1);
+    assert_eq!(exactly_fitting.encoded_len(), single_event_response_bytes);
+    assert!(!exactly_fitting.next_page_token.is_empty());
+
+    let max_response_bytes = single_event_response_bytes - 1;
+    let result = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+        max_response_bytes,
+    );
+    match result {
+        Err(ReadModelError::HistoryEventTooLarge {
+            event_id,
+            size_bytes,
+            max_response_bytes: reported_limit,
+        }) => {
+            assert_eq!(event_id, events[0].event_id);
+            assert_eq!(size_bytes, single_event_response_bytes);
+            assert_eq!(reported_limit, max_response_bytes);
+        }
+        other => panic!("an oversized first event is reported, got {other:?}"),
+    }
+
+    let later_event = events
+        .iter()
+        .find(|event| response_event_bytes(event) < first_event_bytes)
+        .expect("a later event is smaller than FlowStart");
+    let response = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        later_event.event_id,
+        0,
+        &[],
+        0,
+        max_response_bytes,
+    )
+    .expect("a page starting after the oversized event reads");
+    assert_eq!(
+        response.events.first().map(|event| event.event_id),
+        Some(later_event.event_id)
+    );
+}
+
+#[test]
+fn a_published_value_above_the_inline_threshold_is_a_reference_in_history() {
+    let mut harness = Harness::new(settings(1_000_000, 10_000));
+    let large_message = string_value(&"m".repeat(4096));
+    let small_message = string_value("small");
+    let published = harness.apply(Command::ChannelPublish(ChannelPublishCommand {
+        request: Some(PublishToChannelRequest {
+            messages: vec![
+                ChannelMessage {
+                    channel_name: "orders".to_owned(),
+                    value: Some(large_message.clone()),
+                    message_id: "large".to_owned(),
+                },
+                ChannelMessage {
+                    channel_name: "orders".to_owned(),
+                    value: Some(small_message.clone()),
+                    message_id: "small".to_owned(),
+                },
+            ],
+            ..PublishToChannelRequest::default()
+        }),
+    }));
+    assert!(is_ok(&published.reply), "PublishToChannel applies");
+
+    let page = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+        usize::MAX,
+    )
+    .expect("history reads");
+    let messages = page
+        .events
+        .iter()
+        .find_map(|event| match event.payload.as_ref() {
+            Some(flow_history_event::Payload::ChannelExternalPublish(publish)) => {
+                Some(&publish.messages)
+            }
+            _ => None,
+        })
+        .expect("the publish is in history");
+    let large_reference = messages[0].value.clone().expect("the message has a value");
+    let Some(value::Kind::InternalBlobIdForStringValue(reference)) = large_reference.kind.clone()
+    else {
+        panic!("the large message is a reference, got {large_reference:?}");
+    };
+    assert_eq!(messages[1].value.as_ref(), Some(&small_message));
+
+    let hasher = PartitionHasher::new(&[7; 16], 1024).expect("valid partition hasher");
+    let loaded = load_blobs(
+        &harness.state,
+        &hasher,
+        TenantId::DEFAULT,
+        &[LoadBlobRequestEntry {
+            flow_id: "order-1".to_owned(),
+            blob_value: Some(large_reference),
+        }],
+    )
+    .expect("LoadBlobs reads");
+    assert_eq!(loaded.values.get(&reference), Some(&large_message));
 }

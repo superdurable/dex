@@ -308,6 +308,7 @@ pub fn is_history_event_available_from_records_for_test(
         1,
         &[],
         0,
+        usize::MAX,
     )?;
     let available_id = page.events.first().map_or(0, |event| event.event_id);
     Ok(WaitForHistoryEventResponse {

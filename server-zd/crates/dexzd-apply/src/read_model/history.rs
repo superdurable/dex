@@ -13,6 +13,7 @@ use dexzd_keyspace::row_keys::{history_record_key, prefix_range};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{FlowHistoryEvent, GetHistoryEventsResponse, HistoryEventIdRange};
 use dexzd_protocol::dexzd::v1::HistoryRecord;
+use prost::Message;
 
 use crate::history::genesis_seq;
 use crate::read_model::{ReadModelError, RunView};
@@ -24,7 +25,19 @@ const MAX_HISTORY_SCAN_ROWS: usize = 256;
 /// FlowStart records the first event of every run, so window pruning removes IDs from 2.
 const FIRST_PRUNABLE_EVENT_ID: i64 = 2;
 
+/// Field number of `events` in `GetHistoryEventsResponse`.
+const EVENTS_FIELD_NUMBER: u32 = 1;
+
 /// Reads one page of events from an attempt's lineage, using event IDs as cursors.
+///
+/// The page ends early when one more event would make the encoded response larger than
+/// `max_response_bytes`. It still holds at least one event, and its next page token continues
+/// after its last event. Returns `HistoryEventTooLarge` when the first event alone exceeds
+/// the limit.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Mirrors the GetHistoryEvents request fields plus the response size limit."
+)]
 pub fn get_history_events(
     reader: &dyn FlowStateReader,
     flow_hash: FlowHash,
@@ -33,6 +46,7 @@ pub fn get_history_events(
     page_size: i32,
     next_page_token: &[u8],
     run_attempt: i32,
+    max_response_bytes: usize,
 ) -> Result<GetHistoryEventsResponse, ReadModelError> {
     if start_event_id < 0 || page_size < 0 || run_attempt < 0 {
         return Err(ReadModelError::InvalidRequest {
@@ -68,11 +82,29 @@ pub fn get_history_events(
         usize::try_from(page_size).unwrap_or(usize::MAX)
     };
     let history = HistoryRecordRows::new(&view);
-    let mut events =
-        history.collect_lineage_events(&lineage, first_event_id, size.saturating_add(1))?;
+    let mut events = history.collect_lineage_events(
+        &lineage,
+        first_event_id,
+        size.saturating_add(1),
+        max_response_bytes,
+    )?;
     events.sort_by_key(|event| event.event_id);
-    let has_more = events.len() > size;
-    events.truncate(size);
+    let pruned_event_id_range = pruned_event_id_range(&view)?;
+    let page_len = events_within_limit(
+        &events,
+        size,
+        max_response_bytes,
+        pruned_event_id_range.as_ref(),
+    )
+    .map_err(
+        |(event_id, size_bytes)| ReadModelError::HistoryEventTooLarge {
+            event_id,
+            size_bytes,
+            max_response_bytes,
+        },
+    )?;
+    let has_more = events.len() > page_len;
+    events.truncate(page_len);
     let next_internal_event_id = events
         .last()
         .map_or(first_event_id, |event| event.event_id.saturating_add(1));
@@ -83,13 +115,67 @@ pub fn get_history_events(
     } else {
         Vec::new()
     };
-    let pruned_event_id_range = pruned_event_id_range(&view)?;
     Ok(GetHistoryEventsResponse {
         events,
         next_page_token,
         next_internal_event_id,
         pruned_event_id_range,
     })
+}
+
+/// Returns how many of the first `page_size` events fit in a response of at most
+/// `max_response_bytes`, counting the page token, next event ID, and pruned range.
+///
+/// Returns the ID of the first event and the size of a response holding only it when that
+/// response does not fit.
+fn events_within_limit(
+    events: &[FlowHistoryEvent],
+    page_size: usize,
+    max_response_bytes: usize,
+    pruned_event_id_range: Option<&HistoryEventIdRange>,
+) -> Result<usize, (i64, usize)> {
+    let mut event_bytes = 0_usize;
+    for (index, event) in events.iter().take(page_size).enumerate() {
+        event_bytes = event_bytes.saturating_add(encoded_event_bytes(event));
+        let has_more = index + 1 < events.len();
+        let response_bytes = event_bytes.saturating_add(non_event_response_bytes(
+            event,
+            has_more,
+            pruned_event_id_range,
+        ));
+        if response_bytes > max_response_bytes {
+            return if index == 0 {
+                Err((event.event_id, response_bytes))
+            } else {
+                Ok(index)
+            };
+        }
+    }
+    Ok(events.len().min(page_size))
+}
+
+/// Encoded size of the response fields other than `events` for a page ending at `last_event`.
+fn non_event_response_bytes(
+    last_event: &FlowHistoryEvent,
+    has_more: bool,
+    pruned_event_id_range: Option<&HistoryEventIdRange>,
+) -> usize {
+    GetHistoryEventsResponse {
+        events: Vec::new(),
+        next_page_token: if has_more {
+            last_event.event_id.to_be_bytes().to_vec()
+        } else {
+            Vec::new()
+        },
+        next_internal_event_id: last_event.event_id.saturating_add(1),
+        pruned_event_id_range: pruned_event_id_range.copied(),
+    }
+    .encoded_len()
+}
+
+/// Bytes the event adds to an encoded response, including its field tag and length prefix.
+fn encoded_event_bytes(event: &FlowHistoryEvent) -> usize {
+    prost::encoding::message::encoded_len(EVENTS_FIELD_NUMBER, event)
 }
 
 /// Returns each attempt of `selected_attempt`'s lineage with the last seq it contributes.
@@ -187,12 +273,14 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
     /// Returns lineage events at or after `first_event_id` in event ID order.
     ///
     /// Returns every such event when fewer than `event_limit` exist, and otherwise at least
-    /// `event_limit` of the smallest ones.
+    /// `event_limit` of the smallest ones. Stops earlier once the events exceed `byte_budget`;
+    /// the result then ends with at least one event past the budget.
     fn collect_lineage_events(
         &self,
         lineage: &BTreeMap<u32, u64>,
         first_event_id: i64,
         event_limit: usize,
+        byte_budget: usize,
     ) -> Result<Vec<FlowHistoryEvent>, ReadModelError> {
         if first_event_id >= self.view.record.next_event_id {
             return Ok(Vec::new());
@@ -201,11 +289,12 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
             return Ok(Vec::new());
         };
         let mut events = Vec::new();
+        let mut event_bytes = 0_usize;
         let mut last_event_id = 0_i64;
         for segment in self.lineage_segments(lineage)? {
             let mut next_seq = segment.start.max(seek.first_record_seq);
             let mut chunk_rows = event_limit.clamp(1, MAX_HISTORY_SCAN_ROWS);
-            while events.len() < event_limit {
+            while events.len() < event_limit && event_bytes <= byte_budget {
                 next_seq = seek.eventless_ranges.skip_from(next_seq);
                 if next_seq >= segment.end {
                     break;
@@ -243,21 +332,29 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
                                 event.run_attempt =
                                     i32::try_from(record.attempt).unwrap_or(i32::MAX);
                             }
+                            event_bytes = event_bytes.saturating_add(encoded_event_bytes(&event));
                             events.push(event);
                         }
                     }
-                    if events.len() >= event_limit {
+                    if events.len() >= event_limit || event_bytes > byte_budget {
                         break;
                     }
                 }
-                let remaining = event_limit.saturating_sub(events.len());
+                let remaining =
+                    event_limit
+                        .saturating_sub(events.len())
+                        .min(events_left_in_budget(
+                            events.len(),
+                            event_bytes,
+                            byte_budget,
+                        ));
                 chunk_rows = if events.len() == collected_before {
                     chunk_rows.saturating_mul(2).min(MAX_HISTORY_SCAN_ROWS)
                 } else {
                     remaining.clamp(1, MAX_HISTORY_SCAN_ROWS)
                 };
             }
-            if events.len() >= event_limit {
+            if events.len() >= event_limit || event_bytes > byte_budget {
                 break;
             }
         }
@@ -399,6 +496,16 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
                 })
             })
     }
+}
+
+/// Estimates how many more events fit in `byte_budget` from the average event size so far, plus
+/// one that shows whether the page ends there.
+fn events_left_in_budget(event_count: usize, event_bytes: usize, byte_budget: usize) -> usize {
+    if event_count == 0 {
+        return usize::MAX;
+    }
+    let average_event_bytes = (event_bytes / event_count).max(1);
+    (byte_budget.saturating_sub(event_bytes) / average_event_bytes).saturating_add(1)
 }
 
 /// Returns the event IDs that window pruning removed, or `None` when it removed none.

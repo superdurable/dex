@@ -27,11 +27,12 @@ use crate::command_handlers::flow_close::{
     FlowClosing, close_flow_immediately, is_terminal_cleanup_in_progress,
 };
 use crate::command_handlers::flow_data::{
-    apply_attribute_writes, apply_channel_deletions, apply_channel_publications,
-    find_pending_message,
+    EffectValueReferences, apply_attribute_writes, apply_channel_deletions,
+    apply_channel_publications, find_pending_message,
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
+use crate::projections::history_events::reference_effect_values;
 use crate::state_access::FlowTransaction;
 use crate::steps::wait_conditions;
 use crate::values::is_null_value;
@@ -154,7 +155,7 @@ pub(crate) fn apply_attributes_set(
     {
         return Ok(HandlerResult::Rejected(closed_flow_reply(scope.flow_id())));
     }
-    if let Err(rejection) = apply_attribute_writes(
+    let attribute_references = match apply_attribute_writes(
         transaction,
         &mut cursor,
         &request.attributes,
@@ -163,11 +164,22 @@ pub(crate) fn apply_attributes_set(
         scope,
         !is_closed,
     )? {
-        return Ok(HandlerResult::from(rejection));
-    }
+        Ok(references) => references,
+        Err(rejection) => return Ok(HandlerResult::from(rejection)),
+    };
+    let mut upsert_attributes = request.attributes.clone();
+    reference_effect_values(
+        EffectValueReferences {
+            attributes: attribute_references,
+            ..EffectValueReferences::default()
+        },
+        &mut upsert_attributes,
+        &mut [],
+        &mut [],
+    );
     cursor.add_event(flow_history_event::Payload::RpcExecutionCompleted(
         RpcExecutionCompletedEvent {
-            upsert_attributes: request.attributes.clone(),
+            upsert_attributes,
             is_set_attribute_api: true,
             ..RpcExecutionCompletedEvent::default()
         },
@@ -200,8 +212,8 @@ pub(crate) fn apply_channel_publish(
     if !is_running(&cursor) {
         return Ok(HandlerResult::Rejected(closed_flow_reply(scope.flow_id())));
     }
-    let channels = match apply_channel_publications(transaction, &mut cursor, &request.messages)? {
-        Ok(channels) => channels,
+    let published = match apply_channel_publications(transaction, &mut cursor, &request.messages)? {
+        Ok(published) => published,
         Err(rejection) => {
             return Ok(HandlerResult::Rejected(error_reply(
                 grpc_code::INVALID_ARGUMENT,
@@ -210,12 +222,25 @@ pub(crate) fn apply_channel_publish(
             )));
         }
     };
-    cursor.add_event(flow_history_event::Payload::ChannelExternalPublish(
-        ChannelExternalPublishEvent {
-            messages: request.messages.clone(),
+    let mut messages = request.messages;
+    reference_effect_values(
+        EffectValueReferences {
+            publications: published.value_references,
+            ..EffectValueReferences::default()
         },
+        &mut [],
+        &mut messages,
+        &mut [],
+    );
+    cursor.add_event(flow_history_event::Payload::ChannelExternalPublish(
+        ChannelExternalPublishEvent { messages },
     ));
-    wait_conditions::on_channels_changed(transaction, &mut cursor, scope.now_micros, &channels)?;
+    wait_conditions::on_channels_changed(
+        transaction,
+        &mut cursor,
+        scope.now_micros,
+        &published.changed_channels,
+    )?;
     Ok(HandlerResult::Applied(cursor.finish(
         transaction,
         scope,

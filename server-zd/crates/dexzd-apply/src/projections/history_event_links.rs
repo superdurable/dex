@@ -53,6 +53,15 @@ impl PendingHistoryEvents {
         self.links.push((event, link));
     }
 
+    pub(crate) fn payload_mut(
+        &mut self,
+        HistoryEventIndex(index): HistoryEventIndex,
+    ) -> &mut flow_history_event::Payload {
+        self.payloads
+            .get_mut(index)
+            .expect("a history event index comes from push on the same events")
+    }
+
     /// Appends `other` after these events, keeping its links on the same events.
     pub(crate) fn append(&mut self, other: Self) {
         let offset = self.payloads.len();

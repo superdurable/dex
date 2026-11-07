@@ -54,6 +54,8 @@ type loadBlobsRequest struct {
 
 type loadBlobsResponse struct {
 	Values map[string]interface{} `json:"values"`
+	// Unavailable maps the cache key of each value that is too large to load to the reason.
+	Unavailable map[string]string `json:"unavailable,omitempty"`
 }
 
 type flowSummary struct {

@@ -9,12 +9,13 @@
 //! History events projected while applying commands (plan section 9.9).
 
 use dexzd_protocol::dex::{
-    FlowClosedHistoryEvent, FlowExecutionId, FlowInitialStart, FlowStartedOrContinuedHistoryEvent,
-    Kv, PendingStepMethodPhase, RetryPolicy, StepCompletionOutput, StepExecuteCompletedEvent,
-    StepExecuteCompletedOutput, StepExecuteFailedEvent, StepMethodEventContext,
-    StepMethodEventInput, StepMethodFailedOutput, StepMethodFailure, StepMethodOptions,
-    StepMethodPendingEvent, StepWaitForCompletedEvent, StepWaitForCompletedOutput,
-    StepWaitForFailedEvent, flow_history_event, flow_started_or_continued_history_event,
+    AttributeWrite, ChannelMessage, FlowClosedHistoryEvent, FlowExecutionId, FlowInitialStart,
+    FlowStartedOrContinuedHistoryEvent, Kv, PendingStepMethodPhase, RetryPolicy,
+    StepCompletionOutput, StepExecuteCompletedEvent, StepExecuteCompletedOutput,
+    StepExecuteFailedEvent, StepMethodEventContext, StepMethodEventInput, StepMethodFailedOutput,
+    StepMethodFailure, StepMethodOptions, StepMethodPendingEvent, StepWaitForCompletedEvent,
+    StepWaitForCompletedOutput, StepWaitForFailedEvent, Value, flow_history_event,
+    flow_started_or_continued_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
     StartFlowReply, StepExecutionRecord, StepInvocationPhase, StepInvocationRecord, StepMethod,
@@ -22,6 +23,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 use crate::ApplyError;
+use crate::command_handlers::flow_data::EffectValueReferences;
 use crate::command_handlers::run_cursor::{RunCursor, timestamp};
 use crate::projections::history_event_links::HistoryEventIndex;
 use crate::state_access::FlowTransaction;
@@ -35,13 +37,16 @@ use crate::values::wire_value;
 const DEFAULT_METHOD_TIMEOUT_SECONDS: i32 = 2 * 60 * 60;
 const DEFAULT_HEARTBEAT_TIMEOUT_SECONDS: i32 = 60;
 
+/// Records FlowStart. `attribute_references` holds the wire reference of each initial Attribute
+/// value stored in the value table, in write order.
 pub(crate) fn record_flow_started(
     cursor: &mut RunCursor,
     request: &dexzd_protocol::dex::StartFlowRequest,
     flow_config: &dexzd_protocol::dex::FlowConfig,
+    attribute_references: Vec<Option<Value>>,
 ) -> HistoryEventIndex {
     let options = request.flow_start_options.clone().unwrap_or_default();
-    let initial_attributes = options
+    let mut initial_attributes: Vec<Kv> = options
         .attributes
         .iter()
         .map(|write| Kv {
@@ -49,6 +54,12 @@ pub(crate) fn record_flow_started(
             value: write.value.clone(),
         })
         .collect();
+    reference_values(
+        initial_attributes
+            .iter_mut()
+            .map(|attribute| &mut attribute.value),
+        attribute_references,
+    );
     let event = FlowStartedOrContinuedHistoryEvent {
         flow_execution_id: Some(FlowExecutionId {
             flow_id: request.flow_id.clone(),
@@ -331,6 +342,70 @@ pub(crate) fn record_method_completed(
         None => return Ok(None),
     };
     Ok(Some(cursor.add_event(payload)))
+}
+
+/// Replaces the output values of a recorded `step_wait_for_completed` or
+/// `step_execute_completed` with the references of the values its effects stored.
+pub(crate) fn reference_method_completed_values(
+    cursor: &mut RunCursor,
+    event: HistoryEventIndex,
+    references: EffectValueReferences,
+) {
+    match cursor.event_payload_mut(event) {
+        flow_history_event::Payload::StepWaitForCompleted(StepWaitForCompletedEvent {
+            output: Some(output),
+            ..
+        }) => reference_effect_values(
+            references,
+            &mut output.upsert_attributes,
+            &mut output.publish_to_channel,
+            &mut output.upsert_step_execution_locals,
+        ),
+        flow_history_event::Payload::StepExecuteCompleted(StepExecuteCompletedEvent {
+            output: Some(output),
+            ..
+        }) => reference_effect_values(
+            references,
+            &mut output.upsert_attributes,
+            &mut output.publish_to_channel,
+            &mut output.upsert_step_execution_locals,
+        ),
+        _ => {}
+    }
+}
+
+/// Replaces each effect value in an event with its reference when apply stored it in the value
+/// table, so events stay small as their inputs do.
+pub(crate) fn reference_effect_values(
+    references: EffectValueReferences,
+    writes: &mut [AttributeWrite],
+    messages: &mut [ChannelMessage],
+    locals: &mut [Kv],
+) {
+    reference_values(
+        writes.iter_mut().map(|write| &mut write.value),
+        references.attributes,
+    );
+    reference_values(
+        messages.iter_mut().map(|message| &mut message.value),
+        references.publications,
+    );
+    reference_values(
+        locals.iter_mut().map(|local| &mut local.value),
+        references.locals,
+    );
+}
+
+/// Replaces each value whose position in `references` holds a reference with that reference.
+fn reference_values<'value>(
+    values: impl Iterator<Item = &'value mut Option<Value>>,
+    references: Vec<Option<Value>>,
+) {
+    for (value, reference) in values.zip(references) {
+        if let Some(reference) = reference {
+            *value = Some(reference);
+        }
+    }
 }
 
 /// Records `step_wait_for_failed` or `step_execute_failed` and returns the recorded event.

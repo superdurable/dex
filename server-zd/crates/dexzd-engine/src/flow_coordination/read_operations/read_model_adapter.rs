@@ -11,8 +11,8 @@
 use dexzd_apply::read_model::{ReadModelError, get_flow_state, get_history_events};
 use dexzd_apply::{ApplyContext, FlowStateReader};
 use dexzd_protocol::dex::{
-    GetFlowStateRequest, GetFlowStateResponse, GetHistoryEventsRequest, GetHistoryEventsResponse,
-    Kv, StepCompletionOutput, StepMethodPendingReason, Value,
+    ErrorSubStatus, GetFlowStateRequest, GetFlowStateResponse, GetHistoryEventsRequest,
+    GetHistoryEventsResponse, Kv, StepCompletionOutput, StepMethodPendingReason, Value,
 };
 
 use dexzd_keyspace::row_keys::run_named_key;
@@ -22,7 +22,7 @@ use dexzd_protocol::dexzd::v1::StepExecutionRecord;
 use crate::flow_coordination::read_operations::state_rows::{
     decode_row, hydrate_value_reference, read_run,
 };
-use crate::flow_coordination::{FlowAddress, FlowCoordinationError, StepQueueStatus};
+use crate::flow_coordination::{FlowAddress, FlowCoordinationError, StepQueueStatus, grpc_code};
 
 /// Returns the Flow state projected by apply's read model, with value references replaced by
 /// their values when `is_hydrating`. `is_rpc_lock_held` reports the live locks of admitted
@@ -108,13 +108,15 @@ fn invocation_lock_keys(
 
 /// Returns history events projected by apply's read model.
 ///
-/// Returns `NOT_FOUND` + `FLOW_NOT_EXISTS` when the run does not exist, and `INVALID_ARGUMENT`
-/// for a negative position or a malformed page token.
+/// Returns `NOT_FOUND` + `FLOW_NOT_EXISTS` when the run does not exist, `INVALID_ARGUMENT`
+/// for a negative position or a malformed page token, and `RESOURCE_EXHAUSTED` when the first
+/// event alone exceeds `max_response_bytes`.
 pub(crate) fn read_history_events(
     state: &dyn FlowStateReader,
     context: ApplyContext,
     flow: &FlowAddress,
     request: &GetHistoryEventsRequest,
+    max_response_bytes: usize,
 ) -> Result<GetHistoryEventsResponse, FlowCoordinationError> {
     let run = read_run(state, context, flow, &request.run_id)?;
     get_history_events(
@@ -125,6 +127,7 @@ pub(crate) fn read_history_events(
         request.estimate_page_size,
         &request.next_page_token,
         request.run_attempt,
+        max_response_bytes,
     )
     .map_err(|error| read_model_error(flow, error))
 }
@@ -183,5 +186,10 @@ fn read_model_error(flow: &FlowAddress, error: ReadModelError) -> FlowCoordinati
                 detail: error.to_string(),
             }
         }
+        error @ ReadModelError::HistoryEventTooLarge { .. } => FlowCoordinationError::rejected(
+            grpc_code::RESOURCE_EXHAUSTED,
+            ErrorSubStatus::Uncategorized,
+            error.to_string(),
+        ),
     }
 }
