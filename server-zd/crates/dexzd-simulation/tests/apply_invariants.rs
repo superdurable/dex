@@ -201,13 +201,13 @@ fn regression_seed_cases() -> Vec<(u64, usize)> {
 /// A model change that moves these trajectories would silently drop the regressions they
 /// reproduce; keep new commands in a separate stream instead.
 const REGRESSION_MAIN_COMMAND_DIGESTS: &[(u64, usize, u128)] = &[
-    (1592590336, 1000, 0x4fb6408e5e32919ad0567b5eed0cc872),
-    (476371529, 488, 0x838f5ba3e0a5356ad35de3feff79ff99),
-    (161503589, 1000, 0xa0684ec415cb310ece0515713d408b0f),
-    (879068896, 1000, 0x8c0b6b1491fd0397842baeca3b9b2745),
-    (4200525811, 1000, 0x522ddc406868c11b874c16a005508739),
-    (10906685018, 1000, 0x15d90c44d1efee98606154f91fdbf8a2),
-    (2204788261, 1000, 0x91dfe62ca78c3335086f17473a88ccda),
+    (1592590336, 1000, 0x58796a41816eaa3817a24814b551e3af),
+    (476371529, 488, 0x109a9ffcc3fe7c0260f7ecc357329572),
+    (161503589, 1000, 0x6445fbc89bf0167a38b4a8c2271968c8),
+    (879068896, 1000, 0xcbef7a91b10ace0118c2bc361d4ed919),
+    (4200525811, 1000, 0x2096fb918ad5dedc18139c1d60a63e55),
+    (10906685018, 1000, 0xc974a195c9d758af8d64cf1cc190faa2),
+    (2204788261, 1000, 0xecb935089cd7e33f4d1614ad50c846d6),
     (476371563, 580, 0x556ef4870181627f6cd2e95a145dec13),
 ];
 
@@ -644,8 +644,8 @@ fn value_reclamation_follows_the_last_retained_semantic_point() {
         let mut command = generator.next_command(&checker).expect("state decodes");
         if let Some(Command::FlowStart(start)) = command.command.as_mut() {
             let settings = start.settings.as_mut().expect("generated run settings");
-            settings.history_window_semantic_events = 2;
-            settings.history_prune_chunk_semantic_events = 1;
+            settings.history_window_events = 2;
+            settings.history_prune_chunk_events = 1;
         }
         checker
             .apply_and_check(&command)

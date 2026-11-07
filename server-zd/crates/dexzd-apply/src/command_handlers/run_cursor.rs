@@ -230,6 +230,9 @@ impl RunCursor {
             &mut events,
             scope.now_micros,
         )?;
+        let window_event_count_before = self.window_event_count();
+        let window_events = window_events_of(&events, kind);
+        self.record.window_event_count = Some(window_event_count_before + window_events);
         if kind.is_semantic {
             self.record.semantic_event_count += 1;
         }
@@ -251,9 +254,10 @@ impl RunCursor {
                 reapplied_inputs: std::mem::take(&mut self.reapplied_inputs),
             },
             self.record.next_event_id - 1,
+            window_event_count_before,
         );
         search_document::refresh_search_document(transaction, &self, scope)?;
-        history::after_command(transaction, &mut self, kind)?;
+        history::after_command(transaction, &mut self, window_events)?;
         self.rows.put_run_record(transaction, &self.record);
         if scope.is_replay {
             reconcile_run_storage(transaction, &mut self)?;
@@ -269,6 +273,19 @@ impl RunCursor {
             run_id: Some(self.rows.run_id),
             replayed: None,
         })
+    }
+
+    /// Returns the run's window event count, starting it for a run recorded before the window
+    /// counted events.
+    ///
+    /// Such a run counts each of its older records as one event when it is semantic, so its
+    /// semantic counters become its window counters.
+    fn window_event_count(&mut self) -> u64 {
+        if let Some(count) = self.record.window_event_count {
+            return count;
+        }
+        self.record.pruned_window_event_count = self.record.pruned_semantic_event_count;
+        self.record.semantic_event_count
     }
 
     /// Saves the run record only; history, counters, and pruning belong to the recorded command.
@@ -310,6 +327,16 @@ impl RunCursor {
     }
 }
 
+/// Window events of one history record: its event count, or one for a semantic record without
+/// events, so that every semantic command moves the window.
+fn window_events_of(events: &[FlowHistoryEvent], kind: HistoryKind) -> u64 {
+    if events.is_empty() {
+        u64::from(kind.is_semantic)
+    } else {
+        u64::try_from(events.len()).expect("a history record's event count fits in a u64")
+    }
+}
+
 pub(crate) fn flow_not_found_reply(flow_id: &str) -> CommandReply {
     error_reply(
         grpc_code::NOT_FOUND,
@@ -322,5 +349,33 @@ pub(crate) fn timestamp(micros: i64) -> prost_types::Timestamp {
     prost_types::Timestamp {
         seconds: micros.div_euclid(1_000_000),
         nanos: i32::try_from(micros.rem_euclid(1_000_000) * 1000).unwrap_or(0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dexzd_protocol::dex::{FlowHistoryEvent, TimeTravelForkHistoryEvent, flow_history_event};
+
+    use super::{HistoryKind, window_events_of};
+
+    fn events(count: usize) -> Vec<FlowHistoryEvent> {
+        (0..count)
+            .map(|_| FlowHistoryEvent {
+                payload: Some(flow_history_event::Payload::TimeTravelFork(
+                    TimeTravelForkHistoryEvent::default(),
+                )),
+                ..FlowHistoryEvent::default()
+            })
+            .collect()
+    }
+
+    // No bookkeeping command records events yet, so apply tests cannot reach this rule.
+    #[test]
+    fn records_count_their_events_and_semantic_records_without_events_count_one() {
+        assert_eq!(window_events_of(&events(3), HistoryKind::BOOKKEEPING), 3);
+        assert_eq!(window_events_of(&[], HistoryKind::BOOKKEEPING), 0);
+        assert_eq!(window_events_of(&[], HistoryKind::SEMANTIC), 1);
+        assert_eq!(window_events_of(&[], HistoryKind::EXTERNAL_INPUT), 1);
+        assert_eq!(window_events_of(&events(2), HistoryKind::SEMANTIC), 2);
     }
 }

@@ -17,9 +17,10 @@ use dexzd_apply::read_model::get_history_events;
 use dexzd_keyspace::VALUE_REFERENCE_PREFIX;
 
 use dexzd_protocol::dex::{
-    AttributeWrite, CloseDecision, CloseDecisionType, FlowStatus, FlowTimeoutPolicy,
+    AttributeWrite, CloseDecision, CloseDecisionType, FlowConfig, FlowStatus, FlowTimeoutPolicy,
     InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, PullRouting, PullRoutingSource,
-    StartFlowRequest, StepDecision, StepOptions, StopFlowRequest, Value, flow_history_event, value,
+    StartFlowRequest, StepDecision, StepOptions, StopFlowRequest, SubFlowCondition, SubFlowOptions,
+    Value, WaitingCondition, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, FlowStopCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
@@ -594,6 +595,55 @@ async fn invalid_worker_responses_fail_the_attempt_and_retry() {
     assert_eq!(
         failures[0].2,
         "upsert_attributes[0].value: worker response must not contain internal_blob_id arms"
+    );
+    assert!(
+        harness
+            .flow_effect_operations
+            .commands_matching(is_method_completed)
+            .is_empty()
+    );
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_out_of_range_sub_flow_window_fails_the_attempt_as_a_retryable_invalid_response() {
+    let harness = EffectHarness::new();
+    harness.rebuild_all_partitions().await;
+    harness.start_flow(start_request("order-1"), settings());
+    let dispatch = harness.dispatcher.next_dispatch().await;
+    dispatch.complete_wait_for(InvokeWaitForMethodResponse {
+        waiting_condition: Some(WaitingCondition {
+            waiting_condition_type: 1,
+            sub_flow_conditions: vec![SubFlowCondition {
+                condition_id: "child".to_owned(),
+                sub_flow_type: "ChildFlow".to_owned(),
+                start_step_type: "ChildStep".to_owned(),
+                options: Some(SubFlowOptions {
+                    flow_config_override: Some(FlowConfig {
+                        history_window_events: Some(100_001),
+                        ..FlowConfig::default()
+                    }),
+                    ..SubFlowOptions::default()
+                }),
+                ..SubFlowCondition::default()
+            }],
+            ..WaitingCondition::default()
+        }),
+        ..InvokeWaitForMethodResponse::default()
+    });
+    harness.settle().await;
+    let failures = failures(&harness);
+    assert_eq!(
+        failures[0].0,
+        StepAttemptFailureKind::InvalidResponse as i32
+    );
+    assert!(!failures[0].1, "the Step's retry policy decides the retry");
+    assert!(
+        failures[0]
+            .2
+            .contains("history_window_events must be between 1 and 100000"),
+        "{}",
+        failures[0].2
     );
     assert!(
         harness

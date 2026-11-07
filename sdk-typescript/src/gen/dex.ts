@@ -729,7 +729,40 @@ export interface FlowConfig {
     | WorkerTarget
     | undefined;
   /** Present empty disables future synchronization; non-empty selects Server-configured stores. */
-  attributeStoreNames?: AttributeStoreNames | undefined;
+  attributeStoreNames?:
+    | AttributeStoreNames
+    | undefined;
+  /**
+   * Approximate number of the newest history events that the run keeps for history reads and
+   * Time Travel.
+   *
+   * Use it to keep more history for a run that you inspect or travel back in often, or less
+   * history for a run that writes many events and needs less disk. Leave it unset to use the
+   * server's history.windowEvents setting, which defaults to 10000.
+   *
+   * The window counts history events. A command that changes the Flow but records no event
+   * counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+   * prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+   * server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+   * Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+   * value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+   * always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+   * commands inside the window.
+   *
+   * Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+   * with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+   * keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+   * value can be changed but not cleared back to the server default. A child Flow inherits it
+   * from its parent unless its own override sets it.
+   *
+   * The value must be positive and at most the server's history.maxWindowEvents setting, which
+   * defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+   * A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+   * Step attempt fails and is retried under the Step's retry policy.
+   *
+   * Since server-zd 0.1.21.
+   */
+  historyWindowEvents?: number | undefined;
 }
 
 export interface AttributeStoreNames {
@@ -4537,6 +4570,7 @@ function createBaseFlowConfig(): FlowConfig {
     stepDurability: undefined,
     workerTarget: undefined,
     attributeStoreNames: undefined,
+    historyWindowEvents: undefined,
   };
 }
 
@@ -4559,6 +4593,9 @@ export const FlowConfig: MessageFns<FlowConfig> = {
     }
     if (message.attributeStoreNames !== undefined) {
       AttributeStoreNames.encode(message.attributeStoreNames, writer.uint32(50).fork()).join();
+    }
+    if (message.historyWindowEvents !== undefined) {
+      writer.uint32(56).int32(message.historyWindowEvents);
     }
     return writer;
   },
@@ -4618,6 +4655,14 @@ export const FlowConfig: MessageFns<FlowConfig> = {
           message.attributeStoreNames = AttributeStoreNames.decode(reader, reader.uint32());
           continue;
         }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.historyWindowEvents = reader.int32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4642,6 +4687,7 @@ export const FlowConfig: MessageFns<FlowConfig> = {
     message.attributeStoreNames = (object.attributeStoreNames !== undefined && object.attributeStoreNames !== null)
       ? AttributeStoreNames.fromPartial(object.attributeStoreNames)
       : undefined;
+    message.historyWindowEvents = object.historyWindowEvents ?? undefined;
     return message;
   },
 };

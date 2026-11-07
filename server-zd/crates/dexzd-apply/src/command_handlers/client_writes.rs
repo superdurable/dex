@@ -395,6 +395,9 @@ pub(crate) fn apply_flow_config_update(
     if update.attribute_store_names.is_some() {
         config.attribute_store_names = update.attribute_store_names;
     }
+    if update.history_window_events.is_some() {
+        config.history_window_events = update.history_window_events;
+    }
     Ok(HandlerResult::Applied(cursor.finish(
         transaction,
         scope,

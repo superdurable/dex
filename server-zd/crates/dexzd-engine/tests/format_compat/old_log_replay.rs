@@ -291,11 +291,21 @@ fn history_without_scheduled_time(value: &[u8]) -> Vec<u8> {
 }
 
 /// Decodes a run record without its byte counters: storage usage and checkpoint byte counts.
+///
+/// It also clears the window event counters, which the older binary did not write. A run that
+/// counts events counts at least one per semantic record.
 fn run_record_without_storage(value: &[u8]) -> RunRecord {
     let mut run = RunRecord::decode(value).expect("run record rows decode");
     run.storage = None;
     run.row_write_bytes_since_checkpoint = 0;
     run.last_checkpoint_state_bytes = 0;
+    if let Some(window_event_count) = run.window_event_count {
+        assert!(window_event_count >= run.semantic_event_count);
+        assert!(run.pruned_window_event_count >= run.pruned_semantic_event_count);
+        assert!(run.pruned_window_event_count <= window_event_count);
+    }
+    run.window_event_count = None;
+    run.pruned_window_event_count = 0;
     run
 }
 

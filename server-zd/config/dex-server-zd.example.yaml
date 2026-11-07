@@ -70,8 +70,12 @@ recovery:
   readAheadBatches: 64
   readAheadBytes: 67108864
 history:
-  windowSemanticEvents: 10000
+  # Approximate history events kept per run; FlowConfig.history_window_events overrides it per run.
+  windowEvents: 10000
+  # Largest number of history events pruned at once.
   pruneChunkSize: 1000
+  # Largest window that FlowConfig.history_window_events may set.
+  maxWindowEvents: 100000
   # Attempt-scoped row bytes written since the last checkpoint that trigger a new one.
   checkpointRowWriteBytesThreshold: 1048576
   # Commands of any kind since the last checkpoint that trigger a new one.

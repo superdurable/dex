@@ -45,8 +45,8 @@ fn request_id(rng: &mut ChaCha8Rng, prefix: &str) -> String {
 
 pub(crate) fn run_settings() -> RunSettings {
     RunSettings {
-        history_window_semantic_events: 3,
-        history_prune_chunk_semantic_events: 2,
+        history_window_events: 3,
+        history_prune_chunk_events: 2,
         // A generous cap keeps retained points available for pinned snapshot and replay coverage.
         max_retained_superseded_bytes: 256 << 20,
         retention_after_close_micros: 60 * SECOND,

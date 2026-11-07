@@ -162,6 +162,7 @@ pub(crate) fn start_run(
         timeout_handler_options: options.timeout_handler_options.clone(),
         parent: start.parent.clone(),
         window_start_seq: 1,
+        window_event_count: Some(0),
         ..RunRecord::default()
     };
     let mut cursor = RunCursor::for_new_run(rows, record);

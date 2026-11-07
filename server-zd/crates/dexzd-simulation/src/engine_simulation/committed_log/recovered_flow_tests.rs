@@ -49,8 +49,8 @@ fn a_store_behind_an_old_epoch_frame_is_checked_with_the_window_points_of_its_po
             .expect("committed state decodes");
         if let Some(Command::FlowStart(start)) = command.command.as_mut() {
             let settings = start.settings.as_mut().expect("generated run settings");
-            settings.history_window_semantic_events = 2;
-            settings.history_prune_chunk_semantic_events = 1;
+            settings.history_window_events = 2;
+            settings.history_prune_chunk_events = 1;
         }
         let outcome = engine
             .apply_and_check(&command)

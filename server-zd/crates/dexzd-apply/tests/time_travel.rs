@@ -481,8 +481,8 @@ impl Harness {
 
 fn settings() -> RunSettings {
     RunSettings {
-        history_window_semantic_events: 10_000,
-        history_prune_chunk_semantic_events: 1000,
+        history_window_events: 10_000,
+        history_prune_chunk_events: 1000,
         max_retained_superseded_bytes: 256 << 20,
         retention_after_close_micros: 7 * 24 * 3600 * SECOND,
         wire_inline_threshold_bytes: 100,
@@ -1067,8 +1067,8 @@ fn a_stopped_point_closes_immediately_after_a_reset() {
 #[test]
 fn pruned_termination_history_keeps_its_message_after_reset() {
     let mut harness = Harness::with_settings(RunSettings {
-        history_window_semantic_events: 4,
-        history_prune_chunk_semantic_events: 2,
+        history_window_events: 4,
+        history_prune_chunk_events: 2,
         checkpoint_command_threshold: 2,
         ..settings()
     });
@@ -1358,8 +1358,8 @@ fn retry_snapshot_rebuild_from_running_checkpoint_crosses_collected_values() {
 fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running_attempt: bool) {
     let mut harness = Harness::with_settings(RunSettings {
         checkpoint_command_threshold: 20,
-        history_window_semantic_events: 2,
-        history_prune_chunk_semantic_events: 1,
+        history_window_events: 2,
+        history_prune_chunk_events: 1,
         ..settings()
     });
     harness.start(StartFlowRequest {
@@ -1927,8 +1927,8 @@ fn diagnostic_hash_detects_a_broken_time_travel_rebuild() {
 #[test]
 fn the_window_prunes_history_and_rejects_points_outside_it() {
     let mut harness = Harness::with_settings(RunSettings {
-        history_window_semantic_events: 4,
-        history_prune_chunk_semantic_events: 2,
+        history_window_events: 4,
+        history_prune_chunk_events: 2,
         checkpoint_command_threshold: 3,
         ..settings()
     });
@@ -2307,8 +2307,8 @@ fn the_fork_point_includes_reapplied_input() {
 #[test]
 fn only_beginning_targets_genesis_outside_the_window() {
     let mut harness = Harness::with_settings(RunSettings {
-        history_window_semantic_events: 4,
-        history_prune_chunk_semantic_events: 2,
+        history_window_events: 4,
+        history_prune_chunk_events: 2,
         checkpoint_command_threshold: 3,
         ..settings()
     });
@@ -2537,8 +2537,8 @@ fn an_unexpected_reapply_rejection_is_an_invariant_violation() {
 #[test]
 fn a_restored_large_value_survives_window_pruning() {
     let mut harness = Harness::with_settings(RunSettings {
-        history_window_semantic_events: 4,
-        history_prune_chunk_semantic_events: 2,
+        history_window_events: 4,
+        history_prune_chunk_events: 2,
         checkpoint_command_threshold: 3,
         ..settings()
     });
@@ -3261,8 +3261,8 @@ fn assert_permission_rebuild_with_collected_value(
 ) {
     let mut harness = Harness::with_settings(RunSettings {
         checkpoint_command_threshold: 4,
-        history_window_semantic_events: 2,
-        history_prune_chunk_semantic_events: 1,
+        history_window_events: 2,
+        history_prune_chunk_events: 1,
         ..settings()
     });
     let initial_permission = if let Some(permission) = initial_mapping_permission {
@@ -3849,8 +3849,8 @@ fn a_reapplied_rpc_links_its_steps_to_the_reapplied_event() {
 #[test]
 fn history_reads_report_the_event_ids_the_window_pruned() {
     let mut harness = Harness::with_settings(RunSettings {
-        history_window_semantic_events: 4,
-        history_prune_chunk_semantic_events: 2,
+        history_window_events: 4,
+        history_prune_chunk_events: 2,
         checkpoint_command_threshold: 3,
         ..settings()
     });

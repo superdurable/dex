@@ -528,10 +528,10 @@ struct PagingStats {
     events: Vec<FlowHistoryEvent>,
 }
 
-fn settings(history_window_semantic_events: u32, checkpoint_command_threshold: u32) -> RunSettings {
+fn settings(history_window_events: u32, checkpoint_command_threshold: u32) -> RunSettings {
     RunSettings {
-        history_window_semantic_events,
-        history_prune_chunk_semantic_events: (history_window_semantic_events / 10).max(1),
+        history_window_events,
+        history_prune_chunk_events: (history_window_events / 10).max(1),
         max_retained_superseded_bytes: 256 << 20,
         retention_after_close_micros: 7 * 24 * 3600 * SECOND,
         wire_inline_threshold_bytes: 100,

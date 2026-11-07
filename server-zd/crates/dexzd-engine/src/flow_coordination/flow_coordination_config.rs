@@ -93,8 +93,8 @@ impl Default for FlowCoordinationConfig {
 /// Returns the documented defaults of every `RunSettings` field.
 pub fn default_run_settings() -> RunSettings {
     RunSettings {
-        history_window_semantic_events: 10_000,
-        history_prune_chunk_semantic_events: 1_000,
+        history_window_events: 10_000,
+        history_prune_chunk_events: 1_000,
         max_retained_superseded_bytes: 256 * 1024 * 1024,
         retention_after_close_micros: 7 * 24 * 60 * 60 * 1_000_000,
         wire_inline_threshold_bytes: 100,

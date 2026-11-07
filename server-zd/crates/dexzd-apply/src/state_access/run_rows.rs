@@ -421,11 +421,14 @@ impl RunRows {
     }
 
     /// Writes the record and its metadata; `last_assigned_event_id` is the run's newest event ID.
+    ///
+    /// `window_event_count_before` is the run's window event count before this record.
     pub(crate) fn put_history_record(
         &self,
         transaction: &mut FlowTransaction<'_>,
         record: &HistoryRecord,
         last_assigned_event_id: i64,
+        window_event_count_before: u64,
     ) {
         let key = history_record_key(self.flow_hash, self.run_id, record.seq);
         let row_size_bytes = u64::try_from(key.len() + record.encoded_len())
@@ -464,6 +467,7 @@ impl RunRows {
                         _ => None,
                     })
                     .next_back(),
+                window_event_count_before: Some(window_event_count_before),
             },
         );
     }

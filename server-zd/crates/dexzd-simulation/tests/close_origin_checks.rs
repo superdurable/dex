@@ -100,8 +100,8 @@ fn start_without_attribute_stores() -> Command {
             ..StartFlowRequest::default()
         }),
         settings: Some(RunSettings {
-            history_window_semantic_events: 100,
-            history_prune_chunk_semantic_events: 10,
+            history_window_events: 100,
+            history_prune_chunk_events: 10,
             max_retained_superseded_bytes: 256 << 20,
             retention_after_close_micros: 60 * SECOND,
             wire_inline_threshold_bytes: 100,

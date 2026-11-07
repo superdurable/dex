@@ -200,7 +200,7 @@ A session can stay open for months. These server-zd
 | --- | --- | --- |
 | **limits.maxFlowStateBytes** | 64 MiB | The active state of one session: its current state, including the Attribute and Channel values it holds. History and the superseded values that history keeps for time travel do not count. |
 | **values.maxValueBytes** | 16 MiB | The largest single value, such as one message, one tool call record, or one framework run state |
-| **history.windowSemanticEvents** | About 10,000 events | The Flow history kept for each run. Older events are pruned. |
+| **history.windowEvents** | About 10,000 events | The Flow history kept for each run. Older events are pruned. |
 | **retention.closedFlowDuration** | 7 days | How long a stopped session stays readable |
 
 Each run records these values when it starts. A new value applies only to

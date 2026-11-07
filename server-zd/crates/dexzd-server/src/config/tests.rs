@@ -283,6 +283,92 @@ fn a_null_checkpoint_key_is_rejected_by_name() {
     }
 }
 
+#[test]
+fn history_window_settings_default_and_reach_run_settings_and_validation() {
+    let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    let default_run_settings = defaults.flow_coordination.run_settings;
+    assert_eq!(default_run_settings.history_window_events, 10_000);
+    assert_eq!(default_run_settings.history_prune_chunk_events, 1_000);
+    assert_eq!(defaults.validation().max_history_window_events, 100_000);
+    assert_eq!(
+        defaults.effects.child_run_settings.history_window_events,
+        10_000
+    );
+    let parsed = Config::parse_yaml(
+        "history:\n  windowEvents: 2000\n  pruneChunkSize: 50\n  maxWindowEvents: 5000\n",
+    )
+    .expect("parse history window settings");
+    assert!(parsed.history.deprecated_keys().is_empty());
+    let mut configuration = valid_config();
+    configuration.history = parsed.history;
+    configuration.validate().expect("valid history window");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    let run_settings = components.flow_coordination.run_settings;
+    assert_eq!(run_settings.history_window_events, 2000);
+    assert_eq!(run_settings.history_prune_chunk_events, 50);
+    assert_eq!(components.validation().max_history_window_events, 5000);
+    // The per-run maximum does not limit the server window.
+    let mut configuration = valid_config();
+    configuration.history.window_events = 200_000;
+    configuration.history.max_window_events = 1000;
+    configuration
+        .validate()
+        .expect("a server window above the per-run maximum stays valid");
+}
+
+#[test]
+fn the_deprecated_window_key_applies_and_logs_a_startup_warning() {
+    let parsed = Config::parse_yaml("history:\n  windowSemanticEvents: 2000\n")
+        .expect("the deprecated window key still parses");
+    assert_eq!(parsed.history.window_events, 2000);
+    let deprecated_keys: Vec<_> = parsed
+        .history
+        .deprecated_keys()
+        .iter()
+        .map(|key| (key.deprecated_key, key.replacement_key))
+        .collect();
+    assert_eq!(
+        deprecated_keys,
+        [("history.windowSemanticEvents", "history.windowEvents")]
+    );
+    let log = captured_warnings(&parsed);
+    assert!(
+        log.contains("configuration uses a deprecated key")
+            && log.contains("deprecated_key=\"history.windowSemanticEvents\"")
+            && log.contains("replacement_key=\"history.windowEvents\""),
+        "{log}"
+    );
+}
+
+#[test]
+fn the_window_key_set_under_both_names_or_null_is_rejected() {
+    for yaml in [
+        "history:\n  windowEvents: 2000\n  windowSemanticEvents: 2000\n",
+        "history:\n  windowEvents: 2000\n  windowSemanticEvents: null\n",
+        "history:\n  windowEvents: null\n  windowSemanticEvents: 2000\n",
+    ] {
+        let error = Config::parse_yaml(yaml).expect_err("both names of one key must fail");
+        assert!(matches!(error, ConfigError::Yaml { .. }), "{error}");
+        assert!(
+            error.to_string().contains("history.windowSemanticEvents")
+                && error.to_string().contains("both set"),
+            "{error}"
+        );
+    }
+    for key in ["windowEvents", "windowSemanticEvents"] {
+        let error = Config::parse_yaml(&format!("history:\n  {key}: null\n"))
+            .expect_err("a null window key must fail");
+        assert!(matches!(error, ConfigError::Yaml { .. }), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("history.{key} is null")),
+            "{error}"
+        );
+    }
+}
+
 /// Returns what the deprecated-key startup check logs for `configuration`.
 fn captured_warnings(configuration: &Config) -> String {
     let buffer = Arc::new(Mutex::new(Vec::new()));
@@ -1126,11 +1212,14 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         ("recovery.startupReadRetryBudget", |config| {
             config.recovery.startup_read_retry_budget = Duration::ZERO
         }),
-        ("history.windowSemanticEvents", |config| {
-            config.history.window_semantic_events = 0
+        ("history.windowEvents", |config| {
+            config.history.window_events = 0
         }),
         ("history.pruneChunkSize", |config| {
             config.history.prune_chunk_size = 10_001
+        }),
+        ("history.maxWindowEvents", |config| {
+            config.history.max_window_events = 0
         }),
         ("history.checkpointRowWriteBytesThreshold", |config| {
             config.history.checkpoint_row_write_bytes_threshold = 0

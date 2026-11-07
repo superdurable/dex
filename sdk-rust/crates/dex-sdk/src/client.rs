@@ -1405,6 +1405,8 @@ pub(crate) fn map_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlo
                     names: names.clone(),
                 })
         }),
+        // The SDK exposes no history window option yet; the server default applies.
+        history_window_events: None,
     })
 }
 

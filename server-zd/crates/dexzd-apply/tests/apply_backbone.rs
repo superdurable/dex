@@ -570,8 +570,8 @@ fn value_id_from_suffix(suffix: &[u8]) -> (u64, u32) {
 
 fn settings() -> RunSettings {
     RunSettings {
-        history_window_semantic_events: 10_000,
-        history_prune_chunk_semantic_events: 1000,
+        history_window_events: 10_000,
+        history_prune_chunk_events: 1000,
         max_retained_superseded_bytes: 256 << 20,
         retention_after_close_micros: 7 * 24 * 3600 * SECOND,
         wire_inline_threshold_bytes: 100,
@@ -1596,8 +1596,8 @@ fn long_history_window_work_is_bounded_and_resumes_across_commands() {
     let mut harness = Harness::new("order-1");
     let mut run_settings = settings();
     run_settings.max_retained_superseded_bytes = 0;
-    run_settings.history_window_semantic_events = 250;
-    run_settings.history_prune_chunk_semantic_events = 1;
+    run_settings.history_window_events = 250;
+    run_settings.history_prune_chunk_events = 1;
     run_settings.checkpoint_command_threshold = 1;
     harness.start_with_settings(start_request("request-1"), run_settings);
     let first_reference = harness.value_reference(2, 0);
@@ -1722,8 +1722,8 @@ fn long_history_window_work_is_bounded_and_resumes_across_commands() {
 fn reapplied_external_input_keeps_history_metadata_and_window_counts() {
     let mut harness = Harness::new("order-1");
     let mut run_settings = settings();
-    run_settings.history_window_semantic_events = 2;
-    run_settings.history_prune_chunk_semantic_events = 1;
+    run_settings.history_window_events = 2;
+    run_settings.history_prune_chunk_events = 1;
     harness.start_with_settings(start_request("request-1"), run_settings);
     harness.set_attribute("status", string_value("first"), "set-1");
     harness.set_attribute("status", string_value("second"), "set-2");

@@ -77,10 +77,16 @@ message FlowCommand {
 // Limits and defaults that the owner resolved from configuration when the run started.
 // Apply never reads configuration, so these travel in the command and live in the RunRecord.
 message RunSettings {
-  // Number of semantic events in the time travel window (default 10000).
-  uint32 history_window_semantic_events = 1;
-  // Semantic events pruned at once when the window overflows (default 1000).
-  uint32 history_prune_chunk_semantic_events = 2;
+  // Approximate number of history events in the time travel window (default 10000). A history
+  // record without events counts as one event when it is semantic. A run's
+  // FlowConfig.history_window_events overrides it. Runs that started before the window counted
+  // events recorded their semantic window size here, which now counts events. Zero never prunes.
+  uint32 history_window_events = 1;
+  // Largest number of history events pruned at once when the window overflows (default 1000).
+  // Apply prunes at most max(1, window / 10) events at once when that is smaller.
+  uint32 history_prune_chunk_events = 2;
+  // Renamed fields; these names must never be used again.
+  reserved "history_window_semantic_events", "history_prune_chunk_semantic_events";
   // Bytes of superseded values the window may retain before it shrinks (default 256 MiB).
   uint64 max_retained_superseded_bytes = 3;
   // Time after close before the run is deleted (default 7 days).

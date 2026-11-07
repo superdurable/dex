@@ -573,8 +573,8 @@ fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfil
         ..default_run_settings()
     };
     if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {
-        settings.history_window_semantic_events = 4;
-        settings.history_prune_chunk_semantic_events = 1;
+        settings.history_window_events = 4;
+        settings.history_prune_chunk_events = 1;
     }
     settings
 }

@@ -14,6 +14,7 @@ mod format_decoding;
 mod generator;
 mod golden_replay;
 mod old_log_replay;
+mod older_run_window;
 mod recording;
 mod scripted_clock;
 mod seeded_id_source;

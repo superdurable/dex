@@ -68,6 +68,7 @@ impl ComponentConfigs {
             has_blob_store: true,
             keyword_value_limit: (config.search.backend == crate::config::SearchBackend::Postgres)
                 .then(dexzd_request_validation::KeywordValueLimit::postgres),
+            max_history_window_events: config.history.max_window_events,
             ..ValidationConfig::default()
         };
         let available_cpus = available_cpu_count();
@@ -84,8 +85,8 @@ impl ComponentConfigs {
             "resolved CPU-based performance settings"
         );
         let mut run_settings = default_run_settings();
-        run_settings.history_window_semantic_events = config.history.window_semantic_events;
-        run_settings.history_prune_chunk_semantic_events = config.history.prune_chunk_size;
+        run_settings.history_window_events = config.history.window_events;
+        run_settings.history_prune_chunk_events = config.history.prune_chunk_size;
         run_settings.max_retained_superseded_bytes = config.history.max_retained_superseded_bytes;
         run_settings.retention_after_close_micros = duration_micros(
             "retention.closedFlowDuration",

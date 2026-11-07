@@ -148,6 +148,13 @@ message RunRecord {
   PendingFlowClose pending_close = 56;
   // Largest event ID deleted by window pruning; 1 means none deleted, 0 means unknown and reads scan.
   int64 max_pruned_event_id = 57;
+  // Window events recorded so far: each history record adds its event count, or one when it is
+  // semantic without events. Unset in runs recorded before the window counted events; their next
+  // command starts it at semantic_event_count.
+  optional uint64 window_event_count = 58;
+  // Window events of the records before the window start; the window holds window_event_count
+  // minus this.
+  uint64 pruned_window_event_count = 59;
 }
 
 // A natural close waiting for the run's Attribute Sync outbox; its Steps are canceled already.
@@ -205,6 +212,9 @@ message HistoryRowMetadata {
   int64 max_event_id = 8;
   // Error message of the record's FlowClosed event; unset without one and in older rows.
   optional string flow_closed_message = 9;
+  // RunRecord.window_event_count before this record was written. Unset for checkpoints and rows
+  // written before the window counted events; such a row counts one event when it is semantic.
+  optional uint64 window_event_count_before = 10;
 }
 
 // Row of RunTable::AttemptRecord, keyed by attempt (4 bytes big-endian).

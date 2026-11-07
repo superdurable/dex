@@ -172,7 +172,7 @@ fn decode_snapshot_files(
 }
 
 /// Splits a `DEXZDMEM1` memory snapshot into its rows.
-fn memory_snapshot_rows(body: &[u8]) -> Vec<(ColumnFamily, Vec<u8>, Vec<u8>)> {
+pub(crate) fn memory_snapshot_rows(body: &[u8]) -> Vec<(ColumnFamily, Vec<u8>, Vec<u8>)> {
     let mut cursor = body
         .strip_prefix(MEMORY_SNAPSHOT_MAGIC)
         .expect("memory snapshot starts with its magic");

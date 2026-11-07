@@ -3936,6 +3936,35 @@ type FlowConfig struct {
 	WorkerTarget                 *WorkerTarget   `protobuf:"bytes,5,opt,name=worker_target,json=workerTarget,proto3" json:"worker_target,omitempty"`
 	// Present empty disables future synchronization; non-empty selects Server-configured stores.
 	AttributeStoreNames *AttributeStoreNames `protobuf:"bytes,6,opt,name=attribute_store_names,json=attributeStoreNames,proto3,oneof" json:"attribute_store_names,omitempty"`
+	// Approximate number of the newest history events that the run keeps for history reads and
+	// Time Travel.
+	//
+	// Use it to keep more history for a run that you inspect or travel back in often, or less
+	// history for a run that writes many events and needs less disk. Leave it unset to use the
+	// server's history.windowEvents setting, which defaults to 10000.
+	//
+	// The window counts history events. A command that changes the Flow but records no event
+	// counts as one event. When the run holds more than this many events plus one prune chunk, Dex
+	// prunes the oldest events until about this many remain. The prune chunk is the smaller of the
+	// server's history.pruneChunkSize setting and one tenth of this window, and at least one.
+	// Pruning stops only between commands, so a run keeps slightly more or fewer events than the
+	// value. The first event of the run is always kept, and ResetFlow to the beginning of the run
+	// always works. GetHistoryEvents no longer returns pruned events, and Time Travel targets only
+	// commands inside the window.
+	//
+	// Set it at start through FlowStartOptions.flow_config_override, or change it on a running Flow
+	// with UpdateFlowConfig. A smaller value takes effect at the run's next pruning. A larger value
+	// keeps more of the events recorded afterwards; pruned events never come back. Once set, the
+	// value can be changed but not cleared back to the server default. A child Flow inherits it
+	// from its parent unless its own override sets it.
+	//
+	// The value must be positive and at most the server's history.maxWindowEvents setting, which
+	// defaults to 100000. StartFlow and UpdateFlowConfig reject other values with INVALID_ARGUMENT.
+	// A Step result that starts a SubFlow with such an override is an invalid Worker response: the
+	// Step attempt fails and is retried under the Step's retry policy.
+	//
+	// Since server-zd 0.1.21.
+	HistoryWindowEvents *int32 `protobuf:"varint,7,opt,name=history_window_events,json=historyWindowEvents,proto3,oneof" json:"history_window_events,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -4010,6 +4039,13 @@ func (x *FlowConfig) GetAttributeStoreNames() *AttributeStoreNames {
 		return x.AttributeStoreNames
 	}
 	return nil
+}
+
+func (x *FlowConfig) GetHistoryWindowEvents() int32 {
+	if x != nil && x.HistoryWindowEvents != nil {
+		return *x.HistoryWindowEvents
+	}
+	return 0
 }
 
 type AttributeStoreNames struct {
@@ -12736,7 +12772,7 @@ const file_dex_proto_rawDesc = "" +
 	"attributes\x12A\n" +
 	"\x14flow_config_override\x18\x05 \x01(\v2\x0f.dex.FlowConfigR\x12flowConfigOverride\x12_\n" +
 	"\x1cflow_already_started_options\x18\x06 \x01(\v2\x1e.dex.FlowAlreadyStartedOptionsR\x19flowAlreadyStartedOptions\x12V\n" +
-	"\x17timeout_handler_options\x18\a \x01(\v2\x1e.dex.FlowTimeoutHandlerOptionsR\x15timeoutHandlerOptions\"\xcf\x04\n" +
+	"\x17timeout_handler_options\x18\a \x01(\v2\x1e.dex.FlowTimeoutHandlerOptionsR\x15timeoutHandlerOptions\"\xa2\x05\n" +
 	"\n" +
 	"FlowConfig\x12U\n" +
 	"\x17active_step_search_mode\x18\x01 \x01(\x0e2\x19.dex.ActiveStepSearchModeH\x00R\x14activeStepSearchMode\x88\x01\x01\x12>\n" +
@@ -12744,12 +12780,14 @@ const file_dex_proto_rawDesc = "" +
 	"\"continue_as_new_page_size_in_bytes\x18\x03 \x01(\x05H\x02R\x1ccontinueAsNewPageSizeInBytes\x88\x01\x01\x12A\n" +
 	"\x0fstep_durability\x18\x04 \x01(\x0e2\x13.dex.StepDurabilityH\x03R\x0estepDurability\x88\x01\x01\x126\n" +
 	"\rworker_target\x18\x05 \x01(\v2\x11.dex.WorkerTargetR\fworkerTarget\x12Q\n" +
-	"\x15attribute_store_names\x18\x06 \x01(\v2\x18.dex.AttributeStoreNamesH\x04R\x13attributeStoreNames\x88\x01\x01B\x1a\n" +
+	"\x15attribute_store_names\x18\x06 \x01(\v2\x18.dex.AttributeStoreNamesH\x04R\x13attributeStoreNames\x88\x01\x01\x127\n" +
+	"\x15history_window_events\x18\a \x01(\x05H\x05R\x13historyWindowEvents\x88\x01\x01B\x1a\n" +
 	"\x18_active_step_search_modeB\x1c\n" +
 	"\x1a_continue_as_new_thresholdB%\n" +
 	"#_continue_as_new_page_size_in_bytesB\x12\n" +
 	"\x10_step_durabilityB\x18\n" +
-	"\x16_attribute_store_names\"+\n" +
+	"\x16_attribute_store_namesB\x18\n" +
+	"\x16_history_window_events\"+\n" +
 	"\x13AttributeStoreNames\x12\x14\n" +
 	"\x05names\x18\x01 \x03(\tR\x05names\"Z\n" +
 	"\fWorkerTarget\x12 \n" +

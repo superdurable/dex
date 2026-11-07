@@ -423,6 +423,43 @@ field `last_assigned_event_id`. Log objects, the workload, and the fixture READM
 unchanged. Before each regeneration, the previous fixture decoded with the new protobuf types.
 Adding `last_assigned_event_id` and `RunRecord.max_pruned_event_id` moved no simulation pin.
 
+### Event-counted window digest changes
+
+The history window now counts history events instead of semantic commands, and a small window
+prunes at most a tenth of itself at once. The apply model's window of 3 now prunes one event at
+a time instead of two semantic commands, so time travel targets and later generated commands
+move. Seven of the eight apply pins moved; `476371563` did not. No engine pin moved.
+
+| Apply seed | Previous digest | Event-window digest |
+| --- | --- | --- |
+| `1592590336` | `0x4fb6408e5e32919ad0567b5eed0cc872` | `0x58796a41816eaa3817a24814b551e3af` |
+| `476371529` | `0x838f5ba3e0a5356ad35de3feff79ff99` | `0x109a9ffcc3fe7c0260f7ecc357329572` |
+| `161503589` | `0xa0684ec415cb310ece0515713d408b0f` | `0x6445fbc89bf0167a38b4a8c2271968c8` |
+| `879068896` | `0x8c0b6b1491fd0397842baeca3b9b2745` | `0xcbef7a91b10ace0118c2bc361d4ed919` |
+| `4200525811` | `0x522ddc406868c11b874c16a005508739` | `0x2096fb918ad5dedc18139c1d60a63e55` |
+| `10906685018` | `0x15d90c44d1efee98606154f91fdbf8a2` | `0xc974a195c9d758af8d64cf1cc190faa2` |
+| `2204788261` | `0x91dfe62ca78c3335086f17473a88ccda` | `0xecb935089cd7e33f4d1614ad50c846d6` |
+
+The moved seeds were checked against the mutations in the table above, one at a time, with
+1,000 commands each:
+
+| Mutation | Seed | Detector after the change |
+| --- | --- | --- |
+| `immediate-reclaim.patch` | `1592590336` | `I1-window-value-reference`, command 99. |
+| `retry-fresh-snapshot.patch` | `1592590336` | `S5-retained-snapshot`, command 50. |
+| `retry-fresh-snapshot.patch` | `161503589` | `S5-retained-snapshot`, command 26. |
+| Remove the history-rebuild return from `mark_attribute_sync_entries`. | `879068896` | `apply-error`: synced Attribute has no live value, command 265. |
+| Remove `\|\| scope.is_replay` from both request-deduplication guards. | `879068896` | `apply-error`: replayed command rejected, command 265. |
+
+Dropping the model's run-attempt stamps from invocation commands and from redelivered results
+did not make `2204788261` fail before or after this change, so that seed is a historical case
+here too. The same mutation found no failure in 128 other seeds of 1,000 commands.
+
+The v1 format pin changes from `e345cf25eaaa7b81f4ab41ac8b3ba446` to
+`f416b131c12698176fe51a081f397d04`. The regenerated snapshot store, its manifest, and
+`state.txt` carry the run window counters and the history row metadata field
+`window_event_count_before`. Log objects, the workload, and the fixture README are unchanged.
+
 ### Running
 
 ```bash
