@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { after, afterEach, before, describe, test } from "node:test";
 
@@ -151,6 +152,28 @@ describe("Stepwise agent sessions survive a Worker killed with SIGKILL", () => {
       'answer: {"status":"answered","answer":"teal"}',
     );
     assert.equal(readLoggedModelCalls(markerDirectory, token).length, 2);
+  });
+
+  test("a Step that comes due after a Worker kill waits and runs as attempt 1", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const token = newToken();
+    const sessionId = `stepwise-kill-queued-${token}`;
+    await sessions.startSession(sessionId, `wait 3 ${token}`);
+    await sessions.waitForToolCall(sessionId, "call-1-0-durable_wait", (toolCall) => toolCall.status === "waiting_for_timer");
+
+    await firstWorker.kill();
+    // The Timer fires with no Worker, so the Step that follows it stays queued.
+    await delay(4_000);
+    await startWorker(markerDirectory);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.deepEqual(
+      (await readStepHistory(engine.serverAddress, sessionId))
+        .filter((entry) => entry.stepType === "AwaitTimer" && entry.eventType === executeCompletedEvent)
+        .map((entry) => entry.finalAttempt),
+      [1],
+    );
   });
 
   test("a durable_wait Timer survives a Worker restart and fires once", async () => {

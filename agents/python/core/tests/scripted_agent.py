@@ -14,6 +14,8 @@ from the user message:
 * ``say <text>`` answers ``said: <text>``.
 * ``recall`` answers with every earlier user message, proving history replay.
 * ``stall <gate>`` writes a text delta, waits at a ``FileGate``, then answers.
+* ``block <gate> <seconds>`` marks a ``FileGate``, blocks the event loop on the first run, then
+  answers.
 * ``fail`` raises on every attempt.
 * ``call <tool> <json>`` asks for one tool call; join several with
   `` && call ``. The second model call summarizes the results.
@@ -32,8 +34,10 @@ The released 0.1.0 Worker imports this module too, so it uses only the 0.1.0
 API unless ``SCRIPTED_AGENT_BUILT_IN_TOOLS`` enables built-in tools or
 ``SCRIPTED_AGENT_MESSAGE_WINDOW`` sets ``<window size>,<chunk size>``.
 
-Every tool accepts ``"gate"``, which waits at that ``FileGate`` first, and
-``"fail_attempts"``, which raises on attempts up to that number.
+Every tool accepts ``"gate"``, which waits at that ``FileGate`` first,
+``"fail_attempts"``, which raises on attempts up to that number, and
+``"blocking_gate"``, which marks that ``FileGate`` and blocks the event loop for
+``"blocking_seconds"``, 600 by default, on the first run.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import timedelta
@@ -123,6 +128,10 @@ class ScriptedRunner(AgentFrameworkRunner):
                 if message.role is MessageRole.USER and message.turn_id != turn.turn_id
             ]
             return _answer(command, "history: " + " | ".join(earlier))
+        if command.startswith("block "):
+            _, gate_name, seconds = command.split(" ")
+            self._block_event_loop_once(gate_name, float(seconds))
+            return _answer(command, f"blocked at {gate_name}")
         if command.startswith("stall "):
             await self._wait_at_gate(turn, command.removeprefix("stall "))
             return _answer(command, f"stalled at {command.removeprefix('stall ')}")
@@ -150,6 +159,10 @@ class ScriptedRunner(AgentFrameworkRunner):
             f"{record.tool_name} {call.idempotency_key} attempt {call.attempt}"
         )
         arguments = json.loads(record.arguments)
+        if "blocking_gate" in arguments:
+            self._block_event_loop_once(
+                str(arguments["blocking_gate"]), float(arguments.get("blocking_seconds", 600))
+            )
         if "gate" in arguments:
             gate = FileGate(self._state_dir, str(arguments["gate"]))
             gate.mark_reached()
@@ -264,6 +277,14 @@ class ScriptedRunner(AgentFrameworkRunner):
             ],
             usage=MODEL_CALL_USAGE,
         )
+
+    def _block_event_loop_once(self, gate_name: str, seconds: float) -> None:
+        gate = FileGate(self._state_dir, gate_name)
+        is_first_run = gate.reached_count() == 0
+        gate.mark_reached()
+        if is_first_run:
+            # Every queued frame, the first heartbeat included, stays in the Worker meanwhile.
+            time.sleep(seconds)
 
     async def _wait_at_gate(self, turn: AgentTurnContext, gate_name: str) -> None:
         turn.events.write_text_delta(f"thinking before {gate_name}")

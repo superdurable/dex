@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from dex import FlowConfig, StartFlowOptions, Step, StepDurability
 
 from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT, AgentEvent, AgentEventType, MessageRole
@@ -76,6 +77,96 @@ async def test_worker_killed_during_a_single_attempt_write_records_outcome_unkno
     assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
 
 
+async def test_worker_killed_before_the_first_heartbeat_runs_a_single_attempt_tool_once(
+    harness: ScriptedAgentHarness,
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call slow_write {"message": "ledger", "blocking_gate": "window-gate"}'
+    )
+    gate = harness.gate("window-gate")
+    await gate.wait_until_reached()
+
+    worker.kill()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == f"slow_write: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert harness.invocations.count("slow_write") == 1
+    assert gate.reached_count() == 1
+    assert "RecordToolOutcomeUnknown" in await harness.executed_step_types(session_id)
+    events = await harness.agent_events(session_id)
+    # This event precedes the heartbeat in the Worker's queue, so neither reached Dex.
+    assert AgentEventType.TOOL_CALL_STARTED not in [event.type for event in events]
+    finished = [
+        json.loads(event.payload)["status"]
+        for event in events
+        if event.type == AgentEventType.TOOL_CALL_FINISHED
+    ]
+    assert finished == ["outcome_unknown"]
+
+
+async def test_worker_killed_before_the_first_heartbeat_retries_an_idempotent_write(
+    harness: ScriptedAgentHarness,
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, 'call charge {"amount": 9, "blocking_gate": "window-gate"}'
+    )
+    await harness.gate("window-gate").wait_until_reached()
+
+    worker.kill()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    key = f"{session_id}/turn-1/turn-1-call-0"
+    assert snapshot.messages[-1].text == f"charge: charged 9 with key {key}"
+    assert harness.idempotency_keys.names() == [
+        f"charge {key} attempt 1",
+        f"charge {key} attempt 2",
+    ]
+
+
+async def test_worker_killed_before_any_model_output_reruns_the_model_call(
+    harness: ScriptedAgentHarness,
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "block window-gate 600")
+    gate = harness.gate("window-gate")
+    await gate.wait_until_reached()
+
+    worker.kill()
+    await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "blocked at window-gate"
+    assert gate.reached_count() == 2
+    assert harness.invocations.count("model:turn-1:1") == 2
+    history = await harness.stack.read_step_history(session_id)
+    assert [entry.final_attempt for entry in history if entry.step_type == "RunModel"] == [2]
+
+
+async def test_worker_killed_while_a_session_is_idle_leaves_the_next_message_to_the_next_worker(
+    harness: ScriptedAgentHarness,
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, "say first")
+    await harness.wait_for_turns(session_id, 1)
+
+    worker.kill()
+    await harness.stack.start_worker()
+
+    assert await harness.sessions.send_user_message(session_id, "say second")
+    snapshot = await harness.wait_for_turns(session_id, 2)
+    assert snapshot.messages[-1].text == "said: second"
+    assert harness.invocations.count("model:turn-1:1") == 1
+    assert harness.invocations.count("model:turn-2:1") == 1
+
+
 async def test_worker_killed_during_an_idempotent_write_retries_with_the_same_key(
     harness: ScriptedAgentHarness,
 ) -> None:
@@ -98,6 +189,52 @@ async def test_worker_killed_during_an_idempotent_write_retries_with_the_same_ke
         f"charge {key} attempt 1",
         f"charge {key} attempt 2",
     ]
+
+
+@pytest.mark.parametrize(
+    ("command", "invocation", "final_text", "status"),
+    [
+        (
+            'call lookup {"query": "q", "gate": "every-gate"}',
+            "lookup",
+            "lookup: The tool call failed: ",
+            "failed",
+        ),
+        (
+            'call charge {"amount": 9, "gate": "every-gate"}',
+            "charge",
+            f"charge: {OUTCOME_UNKNOWN_TOOL_RESULT}",
+            "outcome_unknown",
+        ),
+    ],
+    ids=["read", "write"],
+)
+async def test_worker_killed_on_every_attempt_records_the_last_attempt_outcome(
+    harness: ScriptedAgentHarness, command: str, invocation: str, final_text: str, status: str
+) -> None:
+    worker = await harness.stack.start_worker()
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(session_id, command)
+    gate = harness.gate("every-gate")
+
+    for attempt in (1, 2, 3):
+
+        async def has_reached(count: int = attempt) -> bool:
+            return gate.reached_count() >= count
+
+        await wait_until(f"attempt {attempt} at the gate", has_reached)
+        worker.kill()
+        worker = await harness.stack.start_worker()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+
+    assert (snapshot.messages[-1].text or "").startswith(final_text)
+    assert harness.invocations.count(invocation) == 3
+    finished = [
+        json.loads(event.payload)["status"]
+        for event in await harness.agent_events(session_id)
+        if event.type == AgentEventType.TOOL_CALL_FINISHED
+    ]
+    assert finished == [status]
 
 
 async def test_worker_killed_during_an_approved_single_attempt_write_records_outcome_unknown(
