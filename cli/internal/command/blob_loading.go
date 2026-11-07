@@ -69,8 +69,7 @@ func loadBlobBatch(
 	return loadBlobBatch(ctx, client, entries[half:], values, unavailable)
 }
 
-// grpcMessageSizeDiagnostics are the texts that gRPC libraries put in a message size rejection:
-// grpc-go send and receive limits ("larger than max") and tonic limits ("message length too large").
+// Known grpc-go and tonic size diagnostics exclude unrelated transport failures using the same status codes.
 var grpcMessageSizeDiagnostics = []string{"larger than max", "message length too large"}
 
 // isGRPCMessageSizeError reports a gRPC message size rejection: RESOURCE_EXHAUSTED or
