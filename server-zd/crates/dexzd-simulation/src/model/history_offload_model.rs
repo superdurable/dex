@@ -6,13 +6,18 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The uploader of the history offload stream: it acknowledges sealed history segments, and
-//! sometimes repeats or skips ahead as a stale owner would.
+//! The uploader of the history offload stream: it acknowledges sealed history segments, records
+//! deleted objects of expired ones, and sometimes repeats or skips ahead as a stale owner would.
+//! A client of the stream turns runs' delete switches on and off.
 
+use dexzd_apply::is_expired_history_object_deletion_enabled;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_history_segment::encode_history_segment;
 use dexzd_keyspace::{FlowHash, RunId};
-use dexzd_protocol::dexzd::v1::{HistorySegmentRecord, HistorySegmentUploadedCommand};
+use dexzd_protocol::dexzd::v1::{
+    HistorySegmentObjectsDeletedCommand, HistorySegmentRecord, HistorySegmentState,
+    HistorySegmentUploadedCommand,
+};
 
 use super::Proposal;
 use crate::apply_checker::ApplyChecker;
@@ -100,4 +105,55 @@ fn encoded_acknowledgment<'view>(
             object_size_bytes: encoded.bytes.len() as u64,
         },
     })
+}
+
+/// Returns the deletions the owner may record for the view's runs whose delete switch is on: the
+/// oldest EXPIRED segments, which apply accepts, one that skips the oldest, and a repeat of a
+/// name already deleted. Also
+/// returns a switch of the latest run's delete switch to its other value, except while the run
+/// migrates, so that switching leaves migrations to the stream's other commands.
+pub(super) fn expired_object_proposals<'view>(view: &FlowView) -> Vec<(u32, Proposal<'view>)> {
+    let mut proposals = Vec::new();
+    let latest_run_id = view.latest_run().map(|(run_id, _)| run_id);
+    for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
+        let Some(record) = run.record.as_ref().filter(|record| !record.is_purging) else {
+            continue;
+        };
+        let is_switchable = record.history_open_segment_first_seq != 0
+            && record.history_migration_started_seq == 0
+            && latest_run_id == Some(*run_id);
+        if is_switchable {
+            proposals.push((
+                1,
+                Proposal::SetExpiredObjectDeletion {
+                    run_id: *run_id,
+                    is_enabled: !is_expired_history_object_deletion_enabled(record),
+                },
+            ));
+        }
+        // The owner deletes objects only while the run's delete switch is on.
+        if !is_expired_history_object_deletion_enabled(record) {
+            continue;
+        }
+        let expired: Vec<u64> = run
+            .history_segments
+            .values()
+            .filter(|segment| segment.state == HistorySegmentState::Expired as i32)
+            .map(|segment| segment.first_seq)
+            .collect();
+        let delete = |first_seqs: Vec<u64>| Proposal::RecordDeletedHistoryObjects {
+            run_id: *run_id,
+            deleted: HistorySegmentObjectsDeletedCommand { first_seqs },
+        };
+        if !expired.is_empty() {
+            proposals.push((2, delete(expired.iter().copied().take(3).collect())));
+        }
+        if expired.len() > 1 {
+            proposals.push((1, delete(expired[1..].to_vec())));
+        }
+        if record.history_objects_deleted_through_seq > 0 {
+            proposals.push((1, delete(vec![1])));
+        }
+    }
+    proposals
 }

@@ -85,6 +85,9 @@ history:
   timeTravelReplayMemoryBytes: 1073741824
   # Experimental: keep false until the release notes announce history offload.
   offloadEnabled: false
+  # Delete objects of history segments the window passed; dev and local default to true.
+  # FlowConfig.delete_expired_history_objects overrides it per run.
+  deleteExpiredObjects: false
   segmentTargetBytes: 4194304
   uploadConcurrency: 16
   # Disk read cache of uploaded history in <localStorage.directory>-history-read-cache; 0 disables it.

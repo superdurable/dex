@@ -14,6 +14,7 @@ mod deadline_tests;
 mod dispatch_tests;
 mod handout_tests;
 mod hard_delete_tests;
+mod history_expiry_tests;
 mod history_migration_upload_tests;
 mod history_upload_tests;
 mod keyword_index_tests;
@@ -1710,6 +1711,7 @@ pub(super) fn settings() -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
+        delete_expired_history_objects: false,
     }
 }
 

@@ -134,6 +134,7 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "AttributeSyncAck",
         "SetHistoryOffloadMode",
         "HistorySegmentUploaded",
+        "HistorySegmentObjectsDeleted",
     ] {
         assert!(
             total.applied(kind) > 0,
@@ -172,6 +173,13 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
             .get("HistorySegmentUploaded")
             .is_some_and(|count| *count > 0),
         "the seed set never proposed a stale history segment acknowledgment: {total:#?}"
+    );
+    assert!(
+        total
+            .rejected_by_kind
+            .get("HistorySegmentObjectsDeleted")
+            .is_some_and(|count| *count > 0),
+        "the seed set never proposed a stale record of deleted history objects: {total:#?}"
     );
     assert!(
         total.close_barrier.held_by_rpcs > 0 && total.close_barrier.finalized_after_rpcs > 0,

@@ -277,6 +277,15 @@ pub struct HistoryConfig {
     /// whose stored mode differs, so turning it off again takes effect at the next start.
     #[serde(rename = "offloadEnabled")]
     pub is_offload_enabled: bool,
+    /// Defaults to false for `serve` and true for `dev` and `local`; whether the lease holder
+    /// deletes the object of a history segment once the window has passed the whole segment.
+    ///
+    /// A run's `FlowConfig.delete_expired_history_objects` overrides it. When false, such objects
+    /// stay in object storage until the run is deleted after its retention, though no read
+    /// returns them. Deletion starts about one hour after the window passes the segment.
+    /// Recorded in RunRecord at FlowStart; changes affect only later runs.
+    #[serde(rename = "deleteExpiredObjects")]
+    pub should_delete_expired_objects: bool,
     /// Defaults to 4 MiB; from 1 byte to 256 MiB. While history offload is on, a run seals its
     /// open history segment for upload once the segment's history records, checkpoints, and
     /// superseded values reach this many bytes. Recorded in RunRecord at FlowStart; changes
@@ -328,6 +337,7 @@ impl Default for HistoryConfig {
             max_retained_superseded_bytes: 256 * 1024 * 1024,
             time_travel_replay_memory_bytes: 1024 * 1024 * 1024,
             is_offload_enabled: false,
+            should_delete_expired_objects: false,
             segment_target_bytes: 4 * 1024 * 1024,
             upload_concurrency: 16,
             read_cache_max_bytes: 1 << 30,
@@ -382,6 +392,8 @@ struct HistoryConfigSource {
     time_travel_replay_memory_bytes: u64,
     #[serde(rename = "offloadEnabled")]
     is_offload_enabled: bool,
+    #[serde(rename = "deleteExpiredObjects")]
+    should_delete_expired_objects: bool,
     segment_target_bytes: u64,
     upload_concurrency: u32,
     read_cache_max_bytes: u64,
@@ -416,6 +428,7 @@ impl Default for HistoryConfigSource {
             max_retained_superseded_bytes: defaults.max_retained_superseded_bytes,
             time_travel_replay_memory_bytes: defaults.time_travel_replay_memory_bytes,
             is_offload_enabled: defaults.is_offload_enabled,
+            should_delete_expired_objects: defaults.should_delete_expired_objects,
             segment_target_bytes: defaults.segment_target_bytes,
             upload_concurrency: defaults.upload_concurrency,
             read_cache_max_bytes: defaults.read_cache_max_bytes,
@@ -461,6 +474,7 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             max_retained_superseded_bytes: source.max_retained_superseded_bytes,
             time_travel_replay_memory_bytes: source.time_travel_replay_memory_bytes,
             is_offload_enabled: source.is_offload_enabled,
+            should_delete_expired_objects: source.should_delete_expired_objects,
             segment_target_bytes: source.segment_target_bytes,
             upload_concurrency: source.upload_concurrency,
             read_cache_max_bytes: source.read_cache_max_bytes,

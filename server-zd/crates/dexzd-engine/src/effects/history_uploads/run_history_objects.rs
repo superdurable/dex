@@ -43,7 +43,7 @@ pub(crate) async fn delete_run_history_objects(
     let Some(catalog_keys) = history_catalog_keys(context, flow, run)? else {
         return Ok(());
     };
-    // A write the store already accepted can still land later; a future orphan sweep removes it.
+    // A write the store already accepted can still land later; the orphan sweep removes it.
     if !sleep_until_stopped(context, HISTORY_WRITE_SETTLE).await {
         return Err(EffectError::Stopped);
     }
@@ -117,7 +117,7 @@ async fn sweep_run_prefix(
     }
 }
 
-async fn delete_keys(
+pub(super) async fn delete_keys(
     context: &EffectContext,
     run: RunLocation,
     keys: &[String],
@@ -165,7 +165,7 @@ async fn wait_after_failure(
 }
 
 /// Sleeps for `delay`; returns false when the node stopped first.
-async fn sleep_until_stopped(context: &EffectContext, delay: Duration) -> bool {
+pub(super) async fn sleep_until_stopped(context: &EffectContext, delay: Duration) -> bool {
     // Biased for reproducible simulation; shutdown fires once.
     tokio::select! {
         biased;

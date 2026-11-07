@@ -87,6 +87,13 @@ grows. Add a lifecycle rule that expires noncurrent versions. A noncurrent
 version of a hard-delete Attribute value also keeps the deleted value until the
 version expires.
 
+Do not add a rule that expires current objects under **PREFIX/history/**. The
+server reads uploaded run history there for as long as the history window covers
+it, and a lifecycle rule cannot tell which objects the window still needs. A read
+of a missing object fails with UNAVAILABLE. To delete old history objects, turn on
+**history.deleteExpiredObjects** or a run's **delete_expired_history_objects**;
+see [History offload](/reference/server/configuration#history-offload).
+
 Add a rule that aborts incomplete multipart uploads after 1 to 7 days, whether or
 not versioning is on. A crash can leave an incomplete upload behind. A
 prefix-confined role cannot list or clean up those uploads.

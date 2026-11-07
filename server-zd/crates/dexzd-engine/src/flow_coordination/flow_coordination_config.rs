@@ -118,5 +118,6 @@ pub fn default_run_settings() -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 * 1024 * 1024,
         history_segment_target_bytes: 4 * 1024 * 1024,
+        delete_expired_history_objects: false,
     }
 }

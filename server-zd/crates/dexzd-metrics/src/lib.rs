@@ -195,6 +195,10 @@ pub struct NodeMetrics {
     pub history_value_revivals: Counter,
     /// Runs or index rows that the history upload rescan could not read and skipped.
     pub history_upload_rescan_errors: Counter,
+    /// Objects of expired history segments this node deleted.
+    pub history_expired_objects_deleted: Counter,
+    /// History objects of runs that no longer exist that this node's orphan sweep deleted.
+    pub history_orphan_objects_deleted: Counter,
     /// Hot standby state, with one series for each closed state.
     pub hot_standby_states: HotStandbyStateGauges,
     /// Log batches the hot standby has yet to apply, as of its last listing.
@@ -617,6 +621,16 @@ impl NodeMetrics {
             metrics.history_upload_rescan_errors.clone(),
         );
         registry.register(
+            "dexzd_history_expired_objects_deleted",
+            "Objects of expired history segments this node deleted.",
+            metrics.history_expired_objects_deleted.clone(),
+        );
+        registry.register(
+            "dexzd_history_orphan_objects_deleted",
+            "History objects of runs that no longer exist that this node's orphan sweep deleted.",
+            metrics.history_orphan_objects_deleted.clone(),
+        );
+        registry.register(
             "dexzd_hot_standby_state",
             "Hot standby state of this process.",
             metrics.hot_standby_states.clone(),
@@ -731,6 +745,8 @@ impl NodeMetrics {
             history_reads: HistoryReads::default(),
             history_value_revivals: Counter::default(),
             history_upload_rescan_errors: Counter::default(),
+            history_expired_objects_deleted: Counter::default(),
+            history_orphan_objects_deleted: Counter::default(),
             hot_standby_states: HotStandbyStateGauges::default(),
             hot_standby_lag_batches: Gauge::default(),
             hot_standby_lag_seconds: Gauge::default(),

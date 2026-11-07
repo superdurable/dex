@@ -124,6 +124,35 @@ NOT_FOUND. `offloaded_command_references` lists the
 offloaded values that a Worker result, Client write, or RPC result references,
 using the same values apply resolves as references.
 
+## Segment expiry
+
+After window pruning, each command of a run with segment state marks EXPIRED, in
+seq order, the UPLOADED segments that start after genesis and end at or before
+`history_window_pruned_through_seq`, stamps `expired_at_micros` with its proposal
+time, and moves `history_expired_through_seq` to the last one. No read uses an
+EXPIRED segment: the window shows no seq inside it, and the read paths treat only
+UPLOADED segments as uploaded. The segment that holds genesis never expires, since
+reads of seqs at or below U, genesis included, use uploaded objects. Expiry deletes the segment's `HistorySegmentValue`
+rows and the birth record of each listed value that is still offloaded, names the
+listed superseded seq, and has no value row. Time Travel or a revival restored any
+other such value, or a later segment lists it, so its birth record stays. One
+command expires at most 256 segments and deletes at most 10,000 listed values; a
+segment that lists more expires alone, since its seal wrote as many rows in one
+command. Expiry does not depend on the offload mode or on the delete switch.
+
+The delete switch is the run's `FlowConfig.delete_expired_history_objects`, or
+else the `RunSettings.delete_expired_history_objects` the run recorded at start.
+The `HistoryObjectDeletePending` index row exists exactly while the switch is on
+and an EXPIRED segment remains, which is while `history_expired_through_seq` is
+greater than `history_objects_deleted_through_seq`. Expiry with the switch on
+emits `HistorySegmentsExpired`; turning the switch on with UpdateFlowConfig writes
+the row and emits it for the backlog, and turning it off deletes the row.
+`HistorySegmentObjectsDeletedCommand` records no history, takes no run seq, and is
+not bound to an attempt. It deletes each named catalog row while that row is the
+oldest EXPIRED one, so objects are recorded deleted oldest first, and it stops at
+the first name that is not. A command that deletes nothing replies OK without
+writes. Purge deletes the index row with the run's other index rows.
+
 ## History migration
 
 A run that started while its partition did not offload history has no segment

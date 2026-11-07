@@ -678,6 +678,9 @@ pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_co
     if override_config.history_window_events.is_some() {
         effective.history_window_events = override_config.history_window_events;
     }
+    if override_config.delete_expired_history_objects.is_some() {
+        effective.delete_expired_history_objects = override_config.delete_expired_history_objects;
+    }
 }
 
 pub(crate) fn validate_and_canonicalize_pull_worker_target(

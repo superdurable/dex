@@ -324,6 +324,7 @@ fn effect_size_bytes(effect: &ApplyEffect) -> usize {
         ApplyEffect::TimerArmed { .. }
         | ApplyEffect::RunPurgeRequested { .. }
         | ApplyEffect::HistorySegmentSealed { .. }
+        | ApplyEffect::HistorySegmentsExpired { .. }
         | ApplyEffect::PendingCloseHeldByRpcs { .. }
         | ApplyEffect::WakeWaiters { .. } => 0,
     };

@@ -1554,3 +1554,32 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
         100_000
     );
 }
+
+#[test]
+fn the_start_override_sets_the_delete_switch_of_the_effective_config() {
+    let config = config();
+    for is_enabled in [true, false] {
+        let effective = dexzd_request_validation::validate_start_flow_request(
+            &dex::StartFlowRequest {
+                flow_start_options: Some(FlowStartOptions {
+                    flow_config_override: Some(FlowConfig {
+                        delete_expired_history_objects: Some(is_enabled),
+                        ..FlowConfig::default()
+                    }),
+                    ..FlowStartOptions::default()
+                }),
+                ..start_request()
+            },
+            &config,
+        )
+        .expect("any delete switch is valid");
+        assert_eq!(effective.delete_expired_history_objects, Some(is_enabled));
+    }
+    let effective =
+        dexzd_request_validation::validate_start_flow_request(&start_request(), &config)
+            .expect("a start without an override is valid");
+    assert_eq!(
+        effective.delete_expired_history_objects, None,
+        "without an override the run keeps the server default"
+    );
+}

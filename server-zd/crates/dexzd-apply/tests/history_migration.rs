@@ -643,6 +643,7 @@ fn legacy_settings() -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 1_500,
+        delete_expired_history_objects: false,
     }
 }
 
@@ -1203,7 +1204,30 @@ fn assert_gap_is_skipped(
         assert!(round < 20, "a segment seals after offload is on again");
     }
     let segments = harness.segments();
-    assert_eq!(&segments[..before_gap.len()], before_gap);
+    // The window may pass earlier segments, which then expire; nothing else about them changes.
+    let unexpired = |segments: &[HistorySegmentRecord]| -> Vec<HistorySegmentRecord> {
+        segments
+            .iter()
+            .map(|segment| {
+                if segment.state != HistorySegmentState::Expired as i32 {
+                    return segment.clone();
+                }
+                assert!(
+                    segment.expired_at_micros > 0,
+                    "{segment:?} records its expiry"
+                );
+                HistorySegmentRecord {
+                    state: HistorySegmentState::Uploaded as i32,
+                    expired_at_micros: 0,
+                    ..segment.clone()
+                }
+            })
+            .collect()
+    };
+    assert_eq!(
+        unexpired(&segments[..before_gap.len()]),
+        unexpired(before_gap)
+    );
     let reopened = &segments[before_gap.len()];
     assert_eq!(reopened.first_seq, gap.end() + 1);
     assert_eq!(reopened.first_event_id, gap_last_event_id + 1);

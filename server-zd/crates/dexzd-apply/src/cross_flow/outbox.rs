@@ -200,6 +200,9 @@ fn effective_flow_config(
         if overrides.history_window_events.is_some() {
             effective.history_window_events = overrides.history_window_events;
         }
+        if overrides.delete_expired_history_objects.is_some() {
+            effective.delete_expired_history_objects = overrides.delete_expired_history_objects;
+        }
     }
     effective
 }

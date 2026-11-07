@@ -14,6 +14,7 @@ use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::{WindowAdvanceTarget, advance_window, prune_window_history};
 use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::segment_expiry::expire_passed_history_segments;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 use crate::values::{projected_superseded_value_bytes, reconcile_run_storage};
@@ -93,14 +94,17 @@ pub(crate) fn superseded_bytes_over_cap(cursor: &RunCursor) -> u64 {
 /// Advances the semantic window toward its byte cap while retaining the current point.
 ///
 /// While the partition offloads history, superseded values leave local disk once uploaded, so
-/// the cap moves nothing; garbage and window history are still pruned.
+/// the cap moves nothing; garbage and window history are still pruned. Segments that pruning
+/// passed then expire; `now_micros` is the command's proposal time.
 pub(crate) fn enforce_superseded_byte_cap(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
+    now_micros: i64,
 ) -> Result<(), ApplyError> {
     prune_garbage(transaction, cursor, cursor.record.window_start_seq)?;
     if is_history_offload_enabled(transaction)? {
         prune_window_history(transaction, cursor)?;
+        expire_passed_history_segments(transaction, cursor, now_micros)?;
         return reconcile_run_storage(transaction, cursor);
     }
     let superseded_bytes = projected_superseded_value_bytes(transaction, cursor)?;
@@ -120,6 +124,7 @@ pub(crate) fn enforce_superseded_byte_cap(
         )?;
     }
     prune_window_history(transaction, cursor)?;
+    expire_passed_history_segments(transaction, cursor, now_micros)?;
     reconcile_run_storage(transaction, cursor)?;
     Ok(())
 }

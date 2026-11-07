@@ -31,13 +31,14 @@ use dexzd_object_store::{
     ObjectStoreOperation, ObjectStoreResult, WriteCondition, WriteOutcome,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowTimeoutPolicy, GetFlowSummaryRequest, GetHistoryEventsRequest,
-    GetHistoryEventsResponse, SetAttributesRequest, StartFlowRequest, Value, WorkerTarget, value,
+    AttributeWrite, FlowConfig, FlowTimeoutPolicy, GetFlowSummaryRequest, GetHistoryEventsRequest,
+    GetHistoryEventsResponse, SetAttributesRequest, StartFlowRequest, UpdateFlowConfigRequest,
+    Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributesSetCommand, FlowCommand, FlowStartCommand, HistoryRecord, HistoryRowMetadata,
-    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, RunRecord,
-    RunSettings, SetHistoryOffloadModeCommand, command_reply, flow_command::Command,
+    AttributesSetCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, HistoryRecord,
+    HistoryRowMetadata, HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand,
+    RunRecord, RunSettings, SetHistoryOffloadModeCommand, command_reply, flow_command::Command,
 };
 use prost::Message;
 use tokio::sync::watch;
@@ -461,6 +462,46 @@ impl OffloadedRun {
     }
 }
 
+impl OffloadedRun {
+    /// Shrinks the run's window to `events`, so later pruning passes older segments.
+    fn shrink_window(&mut self, events: i32) {
+        let outcome = self.apply(Command::FlowConfigUpdate(FlowConfigUpdateCommand {
+            request: Some(UpdateFlowConfigRequest {
+                flow_id: FLOW_ID.to_owned(),
+                flow_config: Some(FlowConfig {
+                    history_window_events: Some(events),
+                    ..FlowConfig::default()
+                }),
+                ..UpdateFlowConfigRequest::default()
+            }),
+        }));
+        assert!(
+            matches!(outcome.reply.reply, Some(command_reply::Reply::Ok(_))),
+            "{:?}",
+            outcome.reply
+        );
+    }
+
+    /// Writes and uploads until the segments that start at `first_seqs` are all EXPIRED.
+    async fn write_until_expired(&mut self, first_seqs: &[u64]) {
+        for _ in 0..100 {
+            let segments = self.segments();
+            let is_expired = first_seqs.iter().all(|first_seq| {
+                segments.iter().any(|segment| {
+                    segment.first_seq == *first_seq
+                        && segment.state == HistorySegmentState::Expired as i32
+                })
+            });
+            if is_expired {
+                return;
+            }
+            self.write_rounds(1);
+            self.upload_all().await;
+        }
+        panic!("segments {first_seqs:?} never expired");
+    }
+}
+
 fn every_command_seals_settings() -> RunSettings {
     RunSettings {
         history_segment_target_bytes: 1,
@@ -671,6 +712,86 @@ async fn a_segment_pruned_while_it_is_read_reads_as_pruned() {
     for event in &page.events {
         assert!(event.event_id > pruned.end_event_id, "{event:?} is pruned");
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expired_segments_are_never_read_even_from_a_warm_read_cache() {
+    let mut run = OffloadedRun::start(RunSettings {
+        history_window_events: 1000,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 2,
+        ..every_command_seals_settings()
+    });
+    for _ in 0..8 {
+        run.write_rounds(1);
+        run.upload_all().await;
+    }
+    let directory = tempfile::tempdir().expect("a cache directory");
+    let harness = run.harness(run.reader(
+        &cache_config(directory.path(), 1 << 30),
+        Arc::new(NodeMetrics::unregistered()),
+    ));
+    let warm = harness
+        .registry
+        .get_history_events(TENANT, history_request(0, 1000))
+        .await
+        .expect("the whole history reads");
+    let first_uploaded: Vec<HistorySegmentRecord> = run
+        .uploaded_segments()
+        .into_iter()
+        .skip(1)
+        .take(3)
+        .collect();
+    for segment in &first_uploaded {
+        assert!(
+            warm.events
+                .iter()
+                .any(|event| event.event_id == segment.first_event_id),
+            "the warm read returned the events of {segment:?}"
+        );
+    }
+
+    // A smaller window expires those segments; with deletion off their objects stay.
+    run.shrink_window(2);
+    let first_seqs: Vec<u64> = first_uploaded
+        .iter()
+        .map(|segment| segment.first_seq)
+        .collect();
+    run.write_until_expired(&first_seqs).await;
+    for segment in &first_uploaded {
+        assert!(
+            run.objects
+                .inner
+                .get(&run.object_key(segment))
+                .await
+                .expect("the store reads")
+                .is_some(),
+            "the object of {segment:?} stays"
+        );
+    }
+    let page = harness
+        .registry
+        .get_history_events(TENANT, history_request(0, 1000))
+        .await
+        .expect("the history reads after the expiry");
+    for event in &page.events {
+        assert!(
+            event.event_id == 1
+                || first_uploaded.iter().all(|segment| {
+                    !(segment.first_event_id..=segment.last_event_id).contains(&event.event_id)
+                }),
+            "{event:?} belongs to an expired segment"
+        );
+    }
+    let pruned = page
+        .pruned_event_id_range
+        .expect("the window pruned the expired events");
+    let last_expired_event_id = first_uploaded
+        .iter()
+        .map(|segment| segment.last_event_id)
+        .max()
+        .expect("expired segments");
+    assert!(pruned.end_event_id >= last_expired_event_id, "{pruned:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

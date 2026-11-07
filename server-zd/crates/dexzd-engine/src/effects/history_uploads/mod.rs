@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! History offload on the leader: uploads sealed history segments and acknowledges them in seq
-//! order, rescans the upload backlog, and deletes a purged run's segment objects.
+//! order, rescans the upload backlog, deletes the objects of expired segments and of a purged
+//! run, and sweeps objects of runs that no longer exist.
 //!
 //! Apply decides each segment's range and content, so every owner of a partition writes the same
 //! object at the same key. A repeated upload therefore finds an object with an equal content
@@ -16,6 +17,8 @@
 //!
 //! Every object storage call ends when the node stops, so no history request outlives its owner.
 
+mod expired_object_deletion;
+mod orphan_sweep;
 mod run_history_objects;
 mod segment_upload;
 mod upload_rescan;
@@ -24,6 +27,8 @@ use std::future::Future;
 
 use dexzd_object_store::ObjectStoreResult;
 
+pub(crate) use expired_object_deletion::delete_expired_history_objects;
+pub(crate) use orphan_sweep::run_history_orphan_sweep;
 pub(crate) use run_history_objects::delete_run_history_objects;
 pub(crate) use segment_upload::upload_sealed_history_segments;
 pub(crate) use upload_rescan::run_history_upload_rescan;

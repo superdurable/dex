@@ -732,6 +732,7 @@ fn child_flow_inherits_parent_effective_config_and_applies_its_override() {
         step_durability: Some(StepDurability::Sync as i32),
         worker_target: Some(pull_worker()),
         history_window_events: Some(500),
+        delete_expired_history_objects: Some(true),
         ..FlowConfig::default()
     };
     harness.start_parent_with_config(parent_config.clone());
@@ -751,6 +752,7 @@ fn child_flow_inherits_parent_effective_config_and_applies_its_override() {
             flow_config_override: Some(FlowConfig {
                 active_step_search_mode: Some(ActiveStepSearchMode::EnabledForAll as i32),
                 continue_as_new_threshold: Some(25),
+                delete_expired_history_objects: Some(false),
                 ..FlowConfig::default()
             }),
             ..SubFlowOptions::default()
@@ -767,6 +769,7 @@ fn child_flow_inherits_parent_effective_config_and_applies_its_override() {
         step_durability: Some(StepDurability::Sync as i32),
         worker_target: Some(pull_worker()),
         history_window_events: Some(500),
+        delete_expired_history_objects: Some(false),
         ..FlowConfig::default()
     };
     let Some(outbox_record::Payload::ChildStart(message)) = start.payload.as_ref() else {

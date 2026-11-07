@@ -175,6 +175,13 @@ pub enum ApplyEffect {
         /// Run whose segment was sealed.
         run_id: RunId,
     },
+    /// The run has EXPIRED history segments whose objects the owner deletes; its
+    /// HistoryObjectDeletePending index row names the run until none remains or its delete switch
+    /// turns off. Only the committed copy counts, since a speculative one may roll back.
+    HistorySegmentsExpired {
+        /// Run whose segments expired.
+        run_id: RunId,
+    },
     /// The command wrote or removed DispatchQueue rows. Only the committed copy counts, since
     /// a speculative one may roll back.
     DispatchQueueChanged {
