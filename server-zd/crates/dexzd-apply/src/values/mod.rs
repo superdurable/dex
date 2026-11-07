@@ -13,6 +13,7 @@
 //! set becomes empty moves to table G and is deleted when the time travel window passes it.
 
 mod garbage;
+mod offloaded_values;
 mod storage_accounting;
 mod time_travel;
 mod value_holder;
@@ -20,11 +21,12 @@ mod value_holder;
 pub(crate) use garbage::enforce_superseded_byte_cap;
 #[expect(unused_imports, reason = "Available to window maintenance handlers.")]
 pub(crate) use garbage::{prune_garbage, superseded_bytes_over_cap};
+pub use offloaded_values::{NoOffloadedValues, OffloadedValues};
 pub(crate) use storage_accounting::{
     active_run_storage_bytes, active_run_storage_bytes_without_attempts, is_run_over_state_budget,
     projected_superseded_value_bytes, reconcile_run_storage,
 };
-pub(crate) use time_travel::rewrite_holders_for_time_travel;
+pub(crate) use time_travel::{held_table_values, rewrite_holders_for_time_travel};
 pub(crate) use value_holder::ValueHolder;
 
 use dexzd_keyspace::row_keys::{prefix_range, value_garbage_key, value_holder_key, value_row_key};
@@ -485,6 +487,57 @@ fn is_referenceable(value: &Value) -> bool {
 fn parse_own_reference(text: &str, rows: RunRows) -> Option<ValueReference> {
     let reference: ValueReference = text.parse().ok()?;
     (reference.run_id == rows.run_id).then_some(reference)
+}
+
+/// Whether the run stores value `value_id`: its birth record and value row both exist.
+pub(crate) fn is_stored_value(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+    value_id: ValueId,
+) -> Result<bool, ApplyError> {
+    Ok(value_birth(transaction, rows, value_id)?.is_some())
+}
+
+/// Stores `value` again over its birth record `birth`, unheld and superseded at `seq`, until a
+/// holder revives it.
+///
+/// The caller checks that `value` has the size `birth` records.
+pub(crate) fn restore_unheld_value(
+    transaction: &mut FlowTransaction<'_>,
+    rows: RunRows,
+    value_id: ValueId,
+    birth: &ValueBirthRecord,
+    value: Value,
+    seq: u64,
+) {
+    if birth.garbage_seq != 0 {
+        // The value moves to the garbage row at `seq`, so its earlier one goes.
+        transaction.delete(
+            ColumnFamily::Flow,
+            value_garbage_key(rows.flow_hash, rows.run_id, birth.garbage_seq, value_id),
+        );
+    }
+    transaction.put_message(
+        ColumnFamily::Value,
+        value_row_key(rows.flow_hash, rows.run_id, RunTable::Value, value_id),
+        &ValueRecord { value: Some(value) },
+    );
+    transaction.put_message(
+        ColumnFamily::Flow,
+        value_row_key(rows.flow_hash, rows.run_id, RunTable::ValueBirth, value_id),
+        &ValueBirthRecord {
+            size_bytes: birth.size_bytes,
+            written_seq: birth.written_seq,
+            garbage_seq: seq,
+        },
+    );
+    transaction.put_message(
+        ColumnFamily::Flow,
+        value_garbage_key(rows.flow_hash, rows.run_id, seq, value_id),
+        &ValueGarbageRecord {
+            size_bytes: birth.size_bytes,
+        },
+    );
 }
 
 fn value_birth(

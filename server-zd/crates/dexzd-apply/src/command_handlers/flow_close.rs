@@ -66,6 +66,7 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::StepMethodCompleted(_)
         | Command::StepAttemptReturned(_)
         | Command::StepAttemptQueued(_)
+        | Command::TimeTravelStage(_)
         | Command::RpcCommitted(_)
         | Command::TimersFired(_)
         | Command::TimerSkip(_)

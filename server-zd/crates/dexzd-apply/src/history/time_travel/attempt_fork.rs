@@ -6,15 +6,15 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! TimeTravel (plan section 8.4): forks attempt n+1 from a point and reapplies later input.
+//! The fork of a TimeTravel: replaces the attempt state with the result's and reapplies its input.
 
 use std::collections::BTreeSet;
 
 use dexzd_keyspace::row_keys::{active_work_index_key, retention_index_key, timer_index_key};
 use dexzd_keyspace::{ColumnFamily, RunTable};
 use dexzd_protocol::dex::{
-    ErrorSubStatus, FlowErrorType, FlowStatus, StepAttemptProgress, TimeTravelForkHistoryEvent,
-    flow_history_event,
+    ErrorSubStatus, FlowErrorType, FlowStatus, ResetFlowRequest, StepAttemptProgress,
+    TimeTravelForkHistoryEvent, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, CheckpointRunStatus, CommandErrorReply, CommandReply,
@@ -24,7 +24,8 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
-use crate::command_handlers::command_replies::{TERMINAL_CLEANUP_MESSAGE, error_reply, grpc_code};
+use super::TimeTravelResult;
+use crate::command_handlers::command_replies::{TERMINAL_CLEANUP_MESSAGE, grpc_code};
 use crate::command_handlers::flow_close::{
     FlowClosing, close_flow, close_flow_immediately, finalize_pending_close_if_ready,
     update_directory_status,
@@ -34,15 +35,13 @@ use crate::command_handlers::{CommandScope, HandlerResult, ReplayedCommandCounte
 use crate::history::attempt_scope::{
     AttemptRow, decode_timer_id, hex, holder_rows, read_attempt_rows, run_status_of, set_run_status,
 };
-use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage, LocalHistorySource};
 use crate::history::replay_state::{TransactionReader, absorb_writes};
-use crate::history::reset_target::{TravelTarget, resolve_target};
-use crate::history::state_rebuild::rebuild_attempt_state;
+use crate::history::reset_target::TravelTarget;
 use crate::projections::attribute_sync::{
     has_attribute_store_names, mark_attribute_sync_entries, pending_attribute_sync_keys,
 };
 use crate::projections::history_event_links::PendingHistoryEvents;
-use crate::state_access::{FlowTransaction, read_flow_directory};
+use crate::state_access::FlowTransaction;
 use crate::steps::dispatch_queue::remove_dispatch_queue_row;
 use crate::steps::{
     arm_timer, configured_method_timeout_seconds, disarm_timer, merge_furthest_attempt_progress,
@@ -50,87 +49,35 @@ use crate::steps::{
 use crate::values::ValueIdAllocator;
 use crate::{ApplyEffect, ApplyError, BehaviorVersion, WaitableChange};
 
-pub(crate) fn apply_time_travel(
+/// Forks attempt n+1 from the result's target point and reapplies the result's input.
+pub(super) fn fork_attempt(
     transaction: &mut FlowTransaction<'_>,
     mut cursor: RunCursor,
     scope: &CommandScope<'_>,
     command: &TimeTravelCommand,
+    request: &ResetFlowRequest,
+    result: TimeTravelResult,
 ) -> Result<HandlerResult, ApplyError> {
-    let request = command.request.clone().unwrap_or_default();
     let previous_attempt = cursor.attempt();
-    let selected_attempt = match u32::try_from(request.run_attempt) {
-        Ok(0) => previous_attempt,
-        Ok(attempt) if attempt <= previous_attempt => attempt,
-        _ => {
-            return Ok(HandlerResult::Rejected(error_reply(
-                grpc_code::INVALID_ARGUMENT,
-                ErrorSubStatus::Uncategorized,
-                format!(
-                    "run attempt {} does not exist; the run has attempts 1 to {previous_attempt}",
-                    request.run_attempt
+    let TimeTravelResult {
+        target,
+        run_status: restored_status,
+        rows: restored_rows,
+        reapplied_inputs,
+        ..
+    } = result;
+    let reapplied_inputs = reapplied_inputs
+        .into_iter()
+        .map(|input| {
+            input.command.ok_or_else(|| ApplyError::InvariantViolation {
+                detail: format!(
+                    "reapplied input of run seq {} has no command",
+                    input.run_seq
                 ),
-            )));
-        }
-    };
-    let directory = read_flow_directory(transaction, scope.tenant_id, scope.flow_id())?;
-    let is_latest_run = directory
-        .runs
-        .last()
-        .is_some_and(|run| run.run_id == cursor.run_id().as_bytes());
-    if !is_latest_run {
-        // ID reuse decisions read only the latest run, so an older run must stay closed.
-        return Ok(HandlerResult::Rejected(error_reply(
-            grpc_code::FAILED_PRECONDITION,
-            ErrorSubStatus::Uncategorized,
-            format!(
-                "only the latest run of Flow {} can time travel",
-                scope.flow_id()
-            ),
-        )));
-    }
-    let lineage = Lineage::of_attempt(transaction, cursor.rows, selected_attempt)?;
-    let history = LocalHistorySource::new(transaction, cursor.rows);
-    let target = match resolve_target(
-        transaction,
-        &history,
-        cursor.rows,
-        &cursor.record,
-        scope.now_micros,
-        &request,
-        &lineage,
-    )? {
-        Ok(target) => target,
-        Err(reply) => return Ok(HandlerResult::Rejected(reply)),
-    };
-    let is_reapplying = !request.skip_writes_reapply;
-    if is_reapplying && cursor.record.max_pruned_external_input_seq > target.point.seq {
-        return Ok(HandlerResult::Rejected(error_reply(
-            grpc_code::FAILED_PRECONDITION,
-            ErrorSubStatus::Uncategorized,
-            format!(
-                "external input after the target point left the time travel window (run seq {}), \
-                 so it cannot be reapplied; set skip_writes_reapply to travel without reapplying \
-                 writes",
-                cursor.record.max_pruned_external_input_seq
-            ),
-        )));
-    }
-    let reapplied_inputs = if is_reapplying {
-        collect_external_inputs(&history, &lineage, target.point.seq)?
-    } else {
-        Vec::new()
-    };
-    let rebuilt = match rebuild_attempt_state(
-        transaction,
-        &history,
-        cursor.rows,
-        &cursor.record,
-        target.point,
-    )? {
-        Ok(rebuilt) => rebuilt,
-        Err(reply) => return Ok(HandlerResult::Rejected(reply)),
-    };
-    let restored_closing = restored_closing(&rebuilt.run_status, &target)?;
+            })
+        })
+        .collect::<Result<Vec<FlowCommand>, _>>()?;
+    let restored_closing = restored_closing(&restored_status, &target)?;
     let previous_rows = read_attempt_rows(transaction, cursor.rows)?;
     let pending_sync_keys = pending_attribute_sync_keys(transaction, cursor.rows)?;
     let previous_status = run_status_of(&cursor.record);
@@ -150,7 +97,7 @@ pub(crate) fn apply_time_travel(
         },
     );
     cursor.record.current_attempt = new_attempt;
-    set_run_status(&mut cursor.record, &rebuilt.run_status);
+    set_run_status(&mut cursor.record, &restored_status);
     cursor.is_starting_attempt = true;
     replace_attempt_rows(
         transaction,
@@ -158,7 +105,7 @@ pub(crate) fn apply_time_travel(
         scope,
         command.should_restore_running_as_pending,
         &previous_rows,
-        rebuilt.rows,
+        restored_rows,
     )?;
     prepare_run_lifecycle(transaction, &mut cursor, scope, was_running)?;
     let restored_rows = read_attempt_rows(transaction, cursor.rows)?;
@@ -240,45 +187,6 @@ pub(crate) fn apply_time_travel(
     };
     let output = cursor.finish(transaction, scope, reply, kind)?;
     Ok(HandlerResult::Applied(output))
-}
-
-/// External input of the lineage after `target_seq`, in seq order. StopFlow is never input.
-///
-/// A TimeTravel record contributes the input it reapplied.
-fn collect_external_inputs(
-    history: &dyn HistorySource,
-    lineage: &Lineage,
-    target_seq: u64,
-) -> Result<Vec<FlowCommand>, ApplyError> {
-    let mut inputs = Vec::new();
-    for record in history.history_records(target_seq + 1..=u64::MAX, HISTORY_PAGE_RECORDS) {
-        let record = record?;
-        if !record.is_external_input || !lineage.contains(record.attempt, record.seq) {
-            continue;
-        }
-        let Some(command) = record.command else {
-            continue;
-        };
-        if matches!(command.command, Some(Command::TimeTravel(_))) {
-            inputs.extend(record.reapplied_inputs);
-        } else if is_reapplied_input(&command) {
-            inputs.push(command);
-        }
-    }
-    Ok(inputs)
-}
-
-fn is_reapplied_input(command: &FlowCommand) -> bool {
-    matches!(
-        command.command,
-        Some(
-            Command::AttributesSet(_)
-                | Command::ChannelPublish(_)
-                | Command::ChannelMessageDelete(_)
-                | Command::RpcCommitted(_)
-                | Command::TimerSkip(_)
-        )
-    )
 }
 
 /// Tells Workers to stop every attempt the previous attempt state was running.

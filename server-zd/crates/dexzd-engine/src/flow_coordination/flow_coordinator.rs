@@ -24,6 +24,8 @@ pub(crate) struct FlowCoordinator {
     settled_count: watch::Sender<u64>,
     /// Admitted transactional and locking RPCs that have not ended; raised under the state lock.
     transactional_rpcs: watch::Sender<u32>,
+    /// Held for one whole ResetFlow, so time travels of the Flow never drop each other's staging.
+    time_travel_turn: tokio::sync::Mutex<()>,
 }
 
 pub(crate) struct FlowCoordinatorState {
@@ -47,7 +49,13 @@ impl FlowCoordinator {
             }),
             settled_count: watch::Sender::new(0),
             transactional_rpcs: watch::Sender::new(0),
+            time_travel_turn: tokio::sync::Mutex::new(()),
         }
+    }
+
+    /// Waits until no other ResetFlow of the Flow runs; the guard keeps the turn.
+    pub(crate) async fn lock_time_travel_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.time_travel_turn.lock().await
     }
 
     pub(crate) fn lock_state(&self) -> MutexGuard<'_, FlowCoordinatorState> {

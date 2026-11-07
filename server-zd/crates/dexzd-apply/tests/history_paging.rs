@@ -17,7 +17,8 @@ use dexzd_apply::read_model::{
 };
 use dexzd_apply::{
     ApplyContext, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
-    apply_flow_command,
+    apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{
     attempt_record_key, history_record_key, history_row_metadata_key, prefix_range, run_named_key,
@@ -244,6 +245,18 @@ impl Harness {
             command: Some(body),
             ..FlowCommand::default()
         };
+        self.apply_command(command)
+    }
+
+    /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
+    fn apply_command(&mut self, command: FlowCommand) -> ApplyOutcome {
+        if is_unstaged_time_travel_for_test(&command) {
+            let staged = stage_time_travel_for_test(&self.context, &self.state, &command)
+                .expect("time travel computes");
+            return apply_staged_time_travel_for_test(staged, |staged_command| {
+                self.apply_command(staged_command)
+            });
+        }
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("the command applies");
         self.state.commit(&outcome);
@@ -319,6 +332,10 @@ impl Harness {
     /// Time travels to `timestamp_micros` of `run_attempt` and returns the new attempt.
     fn travel_to(&mut self, run_attempt: u32, timestamp_micros: i64) -> u32 {
         let outcome = self.apply(Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "order-1".to_owned(),

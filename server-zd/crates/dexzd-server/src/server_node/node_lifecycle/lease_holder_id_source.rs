@@ -59,6 +59,10 @@ impl EngineIdSource for LeaseHolderRecordingIdSource {
         self.system.dispatch_task_id()
     }
 
+    fn time_travel_staging_id(&self) -> Uuid {
+        self.system.time_travel_staging_id()
+    }
+
     fn store_lineage_id(&self) -> Uuid {
         self.system.store_lineage_id()
     }

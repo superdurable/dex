@@ -143,6 +143,9 @@ fn apply_in_scope(
                 uploaded,
             )?
         }
+        Command::TimeTravelStage(stage) => {
+            crate::history::apply_time_travel_stage(&mut transaction, scope, stage)?
+        }
         Command::FlowStart(start) => flow_start::apply_flow_start(&mut transaction, scope, start)?,
         Command::InboxMessage(message) => {
             crate::cross_flow::apply_inbox_message(&mut transaction, scope, message)?
@@ -301,6 +304,8 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         Command::SetHistoryOffloadMode(_) => false,
         // An upload acknowledgment changes only history segment state, outside the limit.
         Command::HistorySegmentUploaded(_) => false,
+        // Staged time travel results live outside run storage.
+        Command::TimeTravelStage(_) => false,
         _ => false,
     }
 }
@@ -433,6 +438,7 @@ pub(crate) fn apply_run_command(
         | Command::SearchOutboxAck(_)
         | Command::StepAttemptQueued(_)
         | Command::HistorySegmentUploaded(_)
+        | Command::TimeTravelStage(_)
         | Command::InboxMessage(_)
         | Command::RunPurge(_) => Err(ApplyError::InvariantViolation {
             detail: "cross-Flow or partition command routed to the wrong handler".to_owned(),

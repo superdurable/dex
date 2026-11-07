@@ -9,12 +9,13 @@
 //! End-to-end tests of the apply backbone over an in-memory state.
 
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::values::load_for_wire;
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
-    apply_flow_command,
+    apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{
     hard_delete_current_key, hard_delete_pending_key, history_record_key, history_row_metadata_key,
@@ -55,8 +56,10 @@ mod dispatch_queue;
 mod retry_snapshots;
 #[path = "apply_backbone/run_state_limit.rs"]
 mod run_state_limit;
+#[path = "apply_backbone/time_travel_staging.rs"]
+mod time_travel_staging;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct MemoryState {
     rows: BTreeMap<(ColumnFamily, Vec<u8>), Vec<u8>>,
 }
@@ -167,6 +170,9 @@ struct Harness {
     run_id: Vec<u8>,
     /// False while a test simulates storage totals that an older binary wrote.
     is_storage_recount_checked: bool,
+    /// Superseded values whose value row a test removed, as offloading does; their birth and
+    /// garbage rows stay.
+    offloaded_value_ids: BTreeSet<(u64, u32)>,
 }
 
 const SECOND: i64 = 1_000_000;
@@ -185,6 +191,7 @@ impl Harness {
             flow_id: flow_id.to_owned(),
             run_id: Vec::new(),
             is_storage_recount_checked: true,
+            offloaded_value_ids: BTreeSet::new(),
         }
     }
 
@@ -210,6 +217,18 @@ impl Harness {
 
     fn apply(&mut self, body: Command) -> ApplyOutcome {
         let command = self.command(body);
+        self.apply_command(command)
+    }
+
+    /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
+    fn apply_command(&mut self, command: FlowCommand) -> ApplyOutcome {
+        if is_unstaged_time_travel_for_test(&command) {
+            let staged = stage_time_travel_for_test(&self.context, &self.state, &command)
+                .expect("time travel computes");
+            return apply_staged_time_travel_for_test(staged, |staged_command| {
+                self.apply_command(staged_command)
+            });
+        }
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         let again =
@@ -468,7 +487,10 @@ impl Harness {
             }
         }
         for (id, birth) in &births {
-            assert!(value_rows.contains_key(id), "B row needs a value row");
+            assert!(
+                value_rows.contains_key(id) || self.offloaded_value_ids.contains(id),
+                "B row needs a value row unless its value was offloaded"
+            );
             let holder_count = holders.remove(id).unwrap_or_default();
             let garbage_seq = garbage.remove(id);
             assert!(
@@ -481,7 +503,17 @@ impl Harness {
         }
         assert!(holders.is_empty(), "holder without B row");
         assert!(garbage.is_empty(), "G row without B row");
-        assert_eq!(value_rows.len(), births.len(), "value row without B row");
+        assert!(
+            value_rows.keys().all(|id| births.contains_key(id)),
+            "value row without B row"
+        );
+        for id in births.keys().filter(|id| !value_rows.contains_key(id)) {
+            let birth = &births[id];
+            assert!(
+                birth.garbage_seq > 0,
+                "only a superseded value is offloaded: {id:?}"
+            );
+        }
     }
 
     fn start_attempt(
@@ -1729,6 +1761,10 @@ fn reapplied_external_input_keeps_history_metadata_and_window_counts() {
     harness.set_attribute("status", string_value("first"), "set-1");
     harness.set_attribute("status", string_value("second"), "set-2");
     let outcome = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "order-1".to_owned(),

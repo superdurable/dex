@@ -370,6 +370,10 @@ fn time_travel_removes_queued_rows_and_restored_attempts_are_pending_since_the_t
     harness.queue("ChargeStep-1", StepMethod::Execute);
     assert_eq!(harness.dispatch_queue_rows().len(), 1);
     let travel = harness.apply(Command::TimeTravel(TimeTravelCommand {
+        staging_id: Vec::new(),
+        computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: true,
         request: Some(ResetFlowRequest {
             reset_type: FlowResetType::Beginning as i32,

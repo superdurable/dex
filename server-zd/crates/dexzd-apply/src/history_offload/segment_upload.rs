@@ -89,6 +89,7 @@ pub(crate) fn apply_history_segment_uploaded(
             history_upload_pending_index_key(partition, rows.flow_hash, rows.run_id),
         );
     }
+    crate::history::delete_idle_staging(transaction, &mut cursor, scope.now_micros);
     reconcile_run_storage(transaction, &mut cursor)?;
     Ok(HandlerResult::Applied(HandlerOutput {
         reply: ok_reply(),

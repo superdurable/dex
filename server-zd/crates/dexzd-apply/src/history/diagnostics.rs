@@ -18,10 +18,14 @@ use prost::Message;
 use super::attempt_scope::{AttemptRow, decode_timer_id, read_attempt_rows, run_status_of};
 use super::lineage::{Lineage, LocalHistorySource, genesis_seq};
 use super::reset_target::resolve_target;
-use super::state_rebuild::{HistoryPoint, RebuiltAttempt, rebuild_attempt_state};
+use super::state_rebuild::{
+    HistoryPoint, RebuiltAttempt, ReplayMemoryBudget, ReplayResources, rebuild_attempt_state,
+};
+use super::time_travel::staged_attempt_state;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::{FlowTransaction, RunRows};
+use crate::values::NoOffloadedValues;
 use crate::{ApplyContext, ApplyError, BehaviorVersion, FlowStateReader};
 
 const FNV_128_OFFSET_BASIS: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
@@ -95,6 +99,9 @@ pub enum TimeTravelTargetClose {
 }
 
 /// Hashes a TimeTravel target's reconstructed state; returns `None` when no valid target exists or permission projection bytes were collected.
+///
+/// A staged TimeTravel hashes the result its owner staged; an unstaged one rebuilds it from
+/// local history.
 pub fn time_travel_target_hash(
     context: &ApplyContext,
     state: &dyn FlowStateReader,
@@ -138,6 +145,8 @@ pub fn time_travel_target_close(
 
 /// Resolves the command's TimeTravel target and rebuilds the attempt state there.
 ///
+/// A staged TimeTravel reads the target and state from the complete staging it names instead.
+///
 /// Returns the run's cursor, the target point, and the rebuilt state, or `None` when the command
 /// is not a TimeTravel with a valid target or permission projection bytes were collected.
 fn rebuild_time_travel_target(
@@ -154,6 +163,10 @@ fn rebuild_time_travel_target(
     let Ok(cursor) = RunCursor::open(transaction, &scope)? else {
         return Ok(None);
     };
+    if !time_travel.staging_id.is_empty() {
+        let staged = staged_attempt_state(transaction, &cursor, &time_travel.staging_id)?;
+        return Ok(staged.map(|(point, rebuilt)| (cursor, point, rebuilt)));
+    }
     let request = time_travel.request.clone().unwrap_or_default();
     let selected_attempt = match u32::try_from(request.run_attempt) {
         Ok(0) => cursor.record.current_attempt,
@@ -180,6 +193,10 @@ fn rebuild_time_travel_target(
         cursor.rows,
         &cursor.record,
         target.point,
+        ReplayResources {
+            offloaded_values: &NoOffloadedValues,
+            memory_budget: &ReplayMemoryBudget::unlimited(),
+        },
     )?
     else {
         return Ok(None);

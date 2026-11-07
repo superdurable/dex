@@ -228,6 +228,7 @@ impl ComponentConfigs {
             max_worker_rpc_request_bytes: grpc_max_message_bytes,
             max_history_events_response_bytes: grpc_max_message_bytes,
             hydrate_value_references: config.values.hydrate_before_dispatch,
+            time_travel_replay_memory_bytes: config.history.time_travel_replay_memory_bytes,
             run_settings,
             validation: validation.clone(),
             ..FlowCoordinationConfig::default()

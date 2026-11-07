@@ -12,7 +12,8 @@ publish.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
 dexzd-api.workspace = true
-dexzd-apply.workspace = true
+# The apply checker stages time travel the way an owner does, through the test-util entry point.
+dexzd-apply = { workspace = true, features = ["test-util"] }
 dexzd-clock.workspace = true
 dexzd-cluster-metadata.workspace = true
 dexzd-engine = { workspace = true, features = ["test-util"] }

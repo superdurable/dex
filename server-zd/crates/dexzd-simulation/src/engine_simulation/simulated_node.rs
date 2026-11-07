@@ -319,7 +319,7 @@ impl NodeProcess {
                     hard_delete_objects: hard_delete_objects.clone(),
                     history_object_store: factory_history_store,
                     partition_hasher: partition_hasher.clone(),
-                    clock: factory_clock,
+                    clock: factory_clock.clone(),
                     validation_config: ValidationConfig::default(),
                     stream_store,
                     id_source: services.id_source.clone(),
@@ -337,6 +337,8 @@ impl NodeProcess {
                     step_queue_status: worker_port,
                     hard_delete_reader: Arc::new(hard_delete_objects.clone()),
                     hard_delete_uploader: Arc::new(hard_delete_objects),
+                    time_travel_history: Arc::new(dexzd_engine::LocalTimeTravelHistory),
+                    clock: factory_clock,
                     id_source: services.id_source,
                 },
             );
@@ -559,6 +561,7 @@ fn flow_coordination_config(settings: RunSettings) -> FlowCoordinationConfig {
         long_poll_default_wait: Duration::from_secs(5),
         long_poll_max_wait: Duration::from_secs(10),
         rpc_default_timeout: Duration::from_secs(5),
+        blocking_work: BlockingWorkPlacement::CallingTaskForTest,
         run_settings: settings,
         ..FlowCoordinationConfig::default()
     }

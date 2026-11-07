@@ -9,14 +9,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::diagnostics::time_travel_target_close;
-use dexzd_apply::{ApplyContext, ApplyOutcome, StateWrite, apply_flow_command};
+use dexzd_apply::{
+    ApplyContext, ApplyOutcome, StateWrite, apply_flow_command, apply_staged_time_travel_for_test,
+    is_unstaged_time_travel_for_test, stage_time_travel_for_test,
+};
 use dexzd_keyspace::row_keys::{run_singleton_key, value_row_key};
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, ValueId, parse_run_key,
 };
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, MethodSnapshotRecord, RunRecord, StepInvocationKey, ValueRecord, command_reply,
-    flow_command::Command, inbox_message_command, stored_value,
+    CommandErrorReply, CommandReply, FlowCommand, MethodSnapshotRecord, RunRecord,
+    StepInvocationKey, ValueRecord, command_reply, flow_command::Command, inbox_message_command,
+    stored_value,
 };
 use prost::Message;
 
@@ -134,8 +138,41 @@ impl ApplyChecker {
     /// Applies `command` three times (A2), rejects invalid client inputs, commits the writes,
     /// and checks the Flow's invariants.
     ///
+    /// An unstaged TimeTravel is staged first, as an owner does; each resulting command is
+    /// applied and checked.
+    ///
     /// Returns the outcome, or the first violated invariant.
     pub fn apply_and_check(
+        &mut self,
+        command: &FlowCommand,
+    ) -> Result<ApplyOutcome, InvariantViolation> {
+        if !is_unstaged_time_travel_for_test(command) {
+            return self.apply_and_check_staged(command);
+        }
+        let context = self.context(&command.flow_id);
+        let staged = stage_time_travel_for_test(&context, &self.state, command)
+            .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
+        let mut violation = None;
+        let outcome = apply_staged_time_travel_for_test(staged, |staged_command| {
+            match self.apply_and_check_staged(&staged_command) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    violation = Some(error);
+                    // An error reply stops the staged sequence at the violation.
+                    ApplyOutcome::rejected(CommandReply {
+                        reply: Some(command_reply::Reply::Error(CommandErrorReply::default())),
+                    })
+                }
+            }
+        });
+        match violation {
+            Some(violation) => Err(violation),
+            None => Ok(outcome),
+        }
+    }
+
+    /// [`Self::apply_and_check`] for a command that needs no staging.
+    fn apply_and_check_staged(
         &mut self,
         command: &FlowCommand,
     ) -> Result<ApplyOutcome, InvariantViolation> {

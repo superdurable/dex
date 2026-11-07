@@ -431,6 +431,10 @@ fn time_travel_restores_retry_snapshot_pins_and_releases_abandoned_snapshots() {
             let outcome = fixture
                 .harness
                 .apply(Command::TimeTravel(TimeTravelCommand {
+                    staging_id: Vec::new(),
+                    computed_through_seq: 0,
+                    target_run_attempt: 0,
+                    target_run_seq: 0,
                     should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: fixture.harness.flow_id.clone(),
@@ -453,6 +457,10 @@ fn time_travel_restores_retry_snapshot_pins_and_releases_abandoned_snapshots() {
             let outcome = fixture
                 .harness
                 .apply(Command::TimeTravel(TimeTravelCommand {
+                    staging_id: Vec::new(),
+                    computed_through_seq: 0,
+                    target_run_attempt: 0,
+                    target_run_seq: 0,
                     should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: fixture.harness.flow_id.clone(),

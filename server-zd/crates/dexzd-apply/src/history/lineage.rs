@@ -14,12 +14,13 @@ use std::collections::VecDeque;
 use std::ops::RangeInclusive;
 
 use dexzd_keyspace::row_keys::{checkpoint_key, history_record_key, prefix_range};
-use dexzd_keyspace::{ColumnFamily, RunTable, run_table_prefix};
+use dexzd_keyspace::{ColumnFamily, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dexzd::v1::{AttemptRecord, CheckpointRecord, HistoryRecord};
 
-use crate::ApplyError;
 use crate::history::attempt_scope::hex;
+use crate::history::replay_state::TransactionReader;
 use crate::state_access::{FlowTransaction, RunRows};
+use crate::{ApplyContext, ApplyError, FlowStateReader};
 
 /// History records read per batch by time travel's history scans.
 pub(crate) const HISTORY_PAGE_RECORDS: usize = 64;
@@ -106,13 +107,18 @@ pub type HistoryRecords<'source> =
 
 /// The [`HistorySource`] over the History rows that a transaction reads.
 pub(crate) struct LocalHistorySource<'transaction, 'reader> {
-    transaction: &'transaction FlowTransaction<'reader>,
+    reader: TransactionReader<'transaction, 'reader>,
+    context: ApplyContext,
     rows: RunRows,
 }
 
 impl<'transaction, 'reader> LocalHistorySource<'transaction, 'reader> {
     pub(crate) fn new(transaction: &'transaction FlowTransaction<'reader>, rows: RunRows) -> Self {
-        Self { transaction, rows }
+        Self {
+            reader: TransactionReader::new(transaction),
+            context: transaction.context(),
+            rows,
+        }
     }
 }
 
@@ -122,27 +128,83 @@ impl HistorySource for LocalHistorySource<'_, '_> {
         seqs: RangeInclusive<u64>,
         batch_records: usize,
     ) -> HistoryRecords<'_> {
-        Box::new(LocalHistoryRecords {
-            source: self,
-            next_seq: (!seqs.is_empty()).then_some(*seqs.start()),
-            last_seq: *seqs.end(),
-            batch_records: batch_records.max(1),
-            batch: VecDeque::new(),
-        })
+        stored_history_records(&self.reader, self.context, self.rows, seqs, batch_records)
     }
 
     fn checkpoint(&self, attempt: u32, seq: u64) -> Result<Option<CheckpointRecord>, ApplyError> {
-        self.transaction.get_message(
-            ColumnFamily::History,
-            &checkpoint_key(self.rows.flow_hash, self.rows.run_id, attempt, seq),
-            "checkpoint",
-        )
+        stored_checkpoint(&self.reader, self.context, self.rows, attempt, seq)
     }
 }
 
+/// The [`HistorySource`] over the History rows of one run that a state reader shows.
+pub struct StateHistorySource<'state> {
+    state: &'state dyn FlowStateReader,
+    context: ApplyContext,
+    rows: RunRows,
+}
+
+impl<'state> StateHistorySource<'state> {
+    /// Returns the source of run `run_id` of the Flow that `context` names.
+    pub fn new(state: &'state dyn FlowStateReader, context: ApplyContext, run_id: RunId) -> Self {
+        Self {
+            state,
+            context,
+            rows: RunRows::new(context.flow_hash, run_id),
+        }
+    }
+}
+
+impl HistorySource for StateHistorySource<'_> {
+    fn history_records(
+        &self,
+        seqs: RangeInclusive<u64>,
+        batch_records: usize,
+    ) -> HistoryRecords<'_> {
+        stored_history_records(self.state, self.context, self.rows, seqs, batch_records)
+    }
+
+    fn checkpoint(&self, attempt: u32, seq: u64) -> Result<Option<CheckpointRecord>, ApplyError> {
+        stored_checkpoint(self.state, self.context, self.rows, attempt, seq)
+    }
+}
+
+fn stored_history_records(
+    state: &dyn FlowStateReader,
+    context: ApplyContext,
+    rows: RunRows,
+    seqs: RangeInclusive<u64>,
+    batch_records: usize,
+) -> HistoryRecords<'_> {
+    Box::new(LocalHistoryRecords {
+        state,
+        context,
+        rows,
+        next_seq: (!seqs.is_empty()).then_some(*seqs.start()),
+        last_seq: *seqs.end(),
+        batch_records: batch_records.max(1),
+        batch: VecDeque::new(),
+    })
+}
+
+fn stored_checkpoint(
+    state: &dyn FlowStateReader,
+    context: ApplyContext,
+    rows: RunRows,
+    attempt: u32,
+    seq: u64,
+) -> Result<Option<CheckpointRecord>, ApplyError> {
+    FlowTransaction::new(state, context).get_message(
+        ColumnFamily::History,
+        &checkpoint_key(rows.flow_hash, rows.run_id, attempt, seq),
+        "checkpoint",
+    )
+}
+
 /// Reads local History rows in bounded batches as the caller consumes them.
-struct LocalHistoryRecords<'source, 'transaction, 'reader> {
-    source: &'source LocalHistorySource<'transaction, 'reader>,
+struct LocalHistoryRecords<'state> {
+    state: &'state dyn FlowStateReader,
+    context: ApplyContext,
+    rows: RunRows,
     /// Seq where the next batch starts, or `None` when no rows remain.
     next_seq: Option<u64>,
     last_seq: u64,
@@ -150,7 +212,7 @@ struct LocalHistoryRecords<'source, 'transaction, 'reader> {
     batch: VecDeque<HistoryRecord>,
 }
 
-impl Iterator for LocalHistoryRecords<'_, '_, '_> {
+impl Iterator for LocalHistoryRecords<'_> {
     type Item = Result<HistoryRecord, ApplyError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -166,23 +228,24 @@ impl Iterator for LocalHistoryRecords<'_, '_, '_> {
     }
 }
 
-impl LocalHistoryRecords<'_, '_, '_> {
+impl LocalHistoryRecords<'_> {
     /// Reads the batch starting at `next_seq`, checking each key against its record's seq.
     fn read_batch(&mut self, next_seq: u64) -> Result<(), ApplyError> {
-        let rows = self.source.rows;
+        let rows = self.rows;
         let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::HistoryRecord);
         let start = history_record_key(rows.flow_hash, rows.run_id, next_seq);
         let end = match self.last_seq.checked_add(1) {
             Some(end_seq) => history_record_key(rows.flow_hash, rows.run_id, end_seq),
             None => prefix_range(&prefix).1,
         };
-        let page: Vec<(Vec<u8>, HistoryRecord)> = self.source.transaction.scan_messages(
-            ColumnFamily::History,
-            &start,
-            &end,
-            self.batch_records,
-            "history record",
-        )?;
+        let page: Vec<(Vec<u8>, HistoryRecord)> = FlowTransaction::new(self.state, self.context)
+            .scan_messages(
+                ColumnFamily::History,
+                &start,
+                &end,
+                self.batch_records,
+                "history record",
+            )?;
         let is_last_batch = page.len() < self.batch_records;
         self.next_seq = None;
         for (key, record) in page {

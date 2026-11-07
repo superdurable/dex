@@ -565,19 +565,17 @@ async fn time_travel_during_the_migration_of_a_recorded_run_is_correct() {
     workload.apply_legacy_round(&run, LEGACY_ROUNDS + 2).await;
 
     let travel = workload
-        .commit(
+        .time_travel(
             &run,
-            Command::TimeTravel(TimeTravelCommand {
-                should_restore_running_as_pending: false,
-                request: Some(ResetFlowRequest {
-                    flow_id: run.flow_id.clone(),
-                    reset_type: FlowResetType::HistoryEventTime as i32,
-                    reason: "travel during the migration".to_owned(),
-                    skip_writes_reapply: true,
-                    history_event_time: (i128::from(target_timestamp_micros) * 1000).to_string(),
-                    ..ResetFlowRequest::default()
-                }),
-            }),
+            ResetFlowRequest {
+                flow_id: run.flow_id.clone(),
+                reset_type: FlowResetType::HistoryEventTime as i32,
+                reason: "travel during the migration".to_owned(),
+                skip_writes_reapply: true,
+                history_event_time: (i128::from(target_timestamp_micros) * 1000).to_string(),
+                ..ResetFlowRequest::default()
+            },
+            false,
         )
         .await;
     assert!(

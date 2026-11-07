@@ -320,6 +320,13 @@ Each run records these values when it starts. A new value applies only to runs
 that start after the node restarts with it. Runs that already started keep
 their recorded values.
 
+The lease holder computes each time travel. It restores the checkpoint, replays
+the commands after it in memory, and then commits the result.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| **history.timeTravelReplayMemoryBytes** | 1073741824 (1 GiB) | Most bytes that one time travel holds in memory while it computes its result: the commands it replays from the checkpoint to its target, the restored state and its values, the external input it reapplies, and the staged result. A ResetFlow that needs more fails with RESOURCE_EXHAUSTED and changes nothing. Choose a later target point, travel without reapplying writes, or raise this value. Must be positive. A new value applies to ResetFlow requests after the node restarts with it. Since 0.1.21. |
+
 Changed in 0.1.21: **history.checkpointCommandThreshold** was renamed from
 **history.checkpointCommandInterval**, and its default changed from 10000 to
 1000. **history.checkpointRowWriteBytesThreshold** was renamed from

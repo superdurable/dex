@@ -261,6 +261,15 @@ pub struct HistoryConfig {
     /// Defaults to 256 MiB per run; cap on superseded values retained for reconstruction within the window.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub max_retained_superseded_bytes: u64,
+    /// Defaults to 1 GiB; most bytes that one Time Travel computation holds in memory: the
+    /// writes it replays from the checkpoint before its target, the rebuilt state and its
+    /// values, the external input it reapplies, and the staged result.
+    ///
+    /// The lease holder computes each Time Travel and replays up to
+    /// `checkpoint_command_threshold` commands. A ResetFlow whose computation needs more fails
+    /// with RESOURCE_EXHAUSTED; choose a later target point, skip reapplying writes, or raise
+    /// this value. Must be positive. Changes apply to later ResetFlow requests.
+    pub time_travel_replay_memory_bytes: u64,
     /// Defaults to false; experimental switch that offloads run history to object storage.
     /// Do not enable it until the release notes announce the feature: enabling it early can grow
     /// local disk or fail Steps. At start, the lease holder commits this value to every partition
@@ -298,6 +307,7 @@ impl Default for HistoryConfig {
             checkpoint_row_write_bytes_threshold: 1024 * 1024,
             checkpoint_command_threshold: 1_000,
             max_retained_superseded_bytes: 256 * 1024 * 1024,
+            time_travel_replay_memory_bytes: 1024 * 1024 * 1024,
             is_offload_enabled: false,
             segment_target_bytes: 4 * 1024 * 1024,
             upload_concurrency: 16,
@@ -347,6 +357,7 @@ struct HistoryConfigSource {
     #[serde(deserialize_with = "deserialize_present_key")]
     checkpoint_command_interval: PresentKey<u32>,
     max_retained_superseded_bytes: u64,
+    time_travel_replay_memory_bytes: u64,
     #[serde(rename = "offloadEnabled")]
     is_offload_enabled: bool,
     segment_target_bytes: u64,
@@ -378,6 +389,7 @@ impl Default for HistoryConfigSource {
             checkpoint_command_threshold: None,
             checkpoint_command_interval: None,
             max_retained_superseded_bytes: defaults.max_retained_superseded_bytes,
+            time_travel_replay_memory_bytes: defaults.time_travel_replay_memory_bytes,
             is_offload_enabled: defaults.is_offload_enabled,
             segment_target_bytes: defaults.segment_target_bytes,
             upload_concurrency: defaults.upload_concurrency,
@@ -419,6 +431,7 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             checkpoint_row_write_bytes_threshold,
             checkpoint_command_threshold,
             max_retained_superseded_bytes: source.max_retained_superseded_bytes,
+            time_travel_replay_memory_bytes: source.time_travel_replay_memory_bytes,
             is_offload_enabled: source.is_offload_enabled,
             segment_target_bytes: source.segment_target_bytes,
             upload_concurrency: source.upload_concurrency,

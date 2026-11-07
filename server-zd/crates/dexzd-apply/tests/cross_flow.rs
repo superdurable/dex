@@ -12,7 +12,8 @@ use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_h
 use dexzd_apply::read_model::{get_search_document, search_order_index_keys_of_document};
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
-    apply_flow_command,
+    apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
+    stage_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{
     attempt_record_key, checkpoint_key, flow_list_index_key, hard_delete_pending_key,
@@ -156,6 +157,18 @@ impl Harness {
             is_transactional_rpc_in_flight: false,
             command: Some(body),
         };
+        self.apply_command(context, command)
+    }
+
+    /// Applies `command`; an unstaged TimeTravel is computed and staged first, as an owner does.
+    fn apply_command(&mut self, context: ApplyContext, command: FlowCommand) -> ApplyOutcome {
+        if is_unstaged_time_travel_for_test(&command) {
+            let staged = stage_time_travel_for_test(&context, &self.state, &command)
+                .expect("time travel computes");
+            return apply_staged_time_travel_for_test(staged, |staged_command| {
+                self.apply_command(context, staged_command)
+            });
+        }
         let outcome = apply_flow_command(&context, &self.state, &command).expect("apply succeeds");
         let repeated = apply_flow_command(&context, &self.state, &command).expect("apply repeats");
         assert_eq!(outcome.writes, repeated.writes, "writes are deterministic");
@@ -874,6 +887,10 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             "parent",
             &PARENT_RUN,
             Command::TimeTravel(TimeTravelCommand {
+                staging_id: Vec::new(),
+                computed_through_seq: 0,
+                target_run_attempt: 0,
+                target_run_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::Beginning as i32,
@@ -990,6 +1007,10 @@ fn time_travel_replays_child_starts_after_their_referenced_values_are_collected(
             "parent",
             &PARENT_RUN,
             Command::TimeTravel(TimeTravelCommand {
+                staging_id: Vec::new(),
+                computed_through_seq: 0,
+                target_run_attempt: 0,
+                target_run_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     reset_type: FlowResetType::HistoryEventTime as i32,
@@ -2409,6 +2430,10 @@ fn a_graceful_completion_after_a_restored_child_result_waits_for_remarked_attrib
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
@@ -2543,6 +2568,10 @@ impl Harness {
             proposed_at_micros: self.now_micros + 1000,
             command_id: [1; 16].to_vec(),
             command: Some(Command::TimeTravel(TimeTravelCommand {
+                staging_id: Vec::new(),
+                computed_through_seq: 0,
+                target_run_attempt: 0,
+                target_run_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     flow_id: "parent".to_owned(),
@@ -2619,6 +2648,10 @@ impl Harness {
                 CHILD_ID,
                 &FIRST_CHILD_RUN,
                 Command::TimeTravel(TimeTravelCommand {
+                    staging_id: Vec::new(),
+                    computed_through_seq: 0,
+                    target_run_attempt: 0,
+                    target_run_seq: 0,
                     should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: CHILD_ID.to_owned(),
@@ -2768,6 +2801,10 @@ fn time_travel_replays_a_stale_child_report_that_an_older_binary_recorded() {
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
@@ -2840,6 +2877,10 @@ fn resetting_a_child_to_its_closed_point_reports_the_new_attempt_once() {
             CHILD_ID,
             &FIRST_CHILD_RUN,
             Command::TimeTravel(TimeTravelCommand {
+                staging_id: Vec::new(),
+                computed_through_seq: 0,
+                target_run_attempt: 0,
+                target_run_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(ResetFlowRequest {
                     flow_id: CHILD_ID.to_owned(),
@@ -2958,6 +2999,10 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),
@@ -3033,6 +3078,10 @@ fn travel_to_a_wait_whose_child_result_was_received(skip_writes_reapply: bool) {
         "parent",
         &PARENT_RUN,
         Command::TimeTravel(TimeTravelCommand {
+            staging_id: Vec::new(),
+            computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: "parent".to_owned(),

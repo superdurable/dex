@@ -62,6 +62,7 @@ message FlowCommand {
     TimersFiredCommand timers_fired = 50;
     TimerSkipCommand timer_skip = 51;
     TimeTravelCommand time_travel = 60;
+    TimeTravelStageCommand time_travel_stage = 61;
     InboxMessageCommand inbox_message = 70;
     OutboxAckCommand outbox_ack = 71;
     AttributeSyncAckCommand attribute_sync_ack = 72;
@@ -363,6 +364,29 @@ message TimeTravelCommand {
   // When true, a restored running attempt becomes pending with the same attempt number.
   // Older logs leave it false and restore it as running.
   bool should_restore_running_as_pending = 2;
+  // ID of the staged result this command applies. Empty in older logs: apply computes the
+  // result from local history.
+  bytes staging_id = 3;
+  // Last run seq that the staged result covers. Apply reapplies the external input recorded
+  // after it.
+  uint64 computed_through_seq = 4;
+  // Target point of the staged result: its run attempt and run seq. Apply checks them against
+  // the staging.
+  uint32 target_run_attempt = 5;
+  uint64 target_run_seq = 6;
+}
+
+// One chunk of a TimeTravel result the owner computed. It records no history and takes no run seq.
+//
+// Chunk 0 starts a staging and drops any other; later chunks follow in order.
+message TimeTravelStageCommand {
+  // ID of the staging, unique per computation; the TimeTravel command names it.
+  bytes staging_id = 1;
+  uint32 chunk_index = 2;
+  // True for the last chunk; the staging is then complete.
+  bool is_last_chunk = 3;
+  // Encoded TimeTravelStagedChunk (state.proto), which also becomes the staging row's value.
+  bytes chunk = 4;
 }
 
 // Identifies the Flow run that sent or receives a cross-Flow message.

@@ -331,6 +331,11 @@ async fn publish_replaces_message_ids_and_skips_empty_lists() {
 #[tokio::test(start_paused = true)]
 async fn reset_returns_the_unchanged_run_id() {
     let harness = FlowCoordinationHarness::new();
+    // The owner computes the result from committed state, which only real apply writes.
+    harness
+        .applier
+        .uses_real_apply
+        .store(true, Ordering::SeqCst);
     let run_id = start_flow(&harness, "order-1").await.unwrap();
     let response = harness
         .drive(harness.registry.reset_flow(
