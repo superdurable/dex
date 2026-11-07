@@ -31,7 +31,7 @@ from dex_agents.built_in_tools import (
     BuiltInTool,
     BuiltInToolDefinition,
 )
-from dex_agents.client import AgentSessionClient
+from dex_agents.client import AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE, AgentSessionClient
 from dex_agents.compaction import (
     CompactionPolicy,
     ContextCompactionRunner,
@@ -190,6 +190,7 @@ __all__ = [
     "AGENT_MESSAGE_CHUNKS",
     "AGENT_MESSAGE_INDEX",
     "AGENT_PLAN",
+    "AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE",
     "AGENT_STATE",
     "AGENT_TOOL_CALLS",
     "AGENT_TRACE_CONTEXT",

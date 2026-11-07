@@ -22,7 +22,7 @@ import type {
   PendingUserMessage,
   SessionSettings,
 } from "../agent-session-values.js";
-import { validateSessionSettings } from "../agent-session-settings.js";
+import { startAgentSession } from "../agent-session-start.js";
 import { pollUntil } from "./polling.js";
 
 const lockConflictRetryTimeoutMs = 30_000;
@@ -79,10 +79,7 @@ export class AgentSessionTestClient {
     startFlowOptions: StartFlowOptions = {},
     sessionSettings: SessionSettings | null = null,
   ): Promise<void> {
-    if (sessionSettings !== null) {
-      validateSessionSettings(sessionSettings);
-    }
-    await this.client.startFlow(this.flow, sessionId, { initialMessage, sessionSettings }, startFlowOptions);
+    await startAgentSession(this.client, this.flow, sessionId, { initialMessage, sessionSettings }, startFlowOptions);
   }
 
   /**

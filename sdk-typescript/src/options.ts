@@ -171,6 +171,18 @@ export const ActiveStepSearchMode = Object.freeze({
   DEFAULT: "default",
   /** Indexes every active Step. */
   ALL: "all",
+  /**
+   * Indexes only active Steps that define `waitFor`.
+   *
+   * @since 1.39.0
+   */
+  WITH_WAIT_FOR: "with_wait_for",
+  /**
+   * Does not index active Steps.
+   *
+   * @since 1.39.0
+   */
+  DISABLED: "disabled",
 } as const);
 
 /** Represents a value from {@link ActiveStepSearchMode}. */

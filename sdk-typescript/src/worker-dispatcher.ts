@@ -26,7 +26,6 @@ import {
   FlowTimeoutHandlerOptions as ProtoFlowTimeoutHandlerOptions,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowConfig as ProtoFlowConfig,
-  ActiveStepSearchMode as ProtoActiveStepSearchMode,
   StepDurability as ProtoStepDurability,
   IndexType as ProtoIndexType,
   WaitForMethodFailurePolicy,
@@ -66,9 +65,9 @@ import {
   requireHardDeleteAttributeWriteSupport,
   requireHardDeleteOnNullValueKind,
 } from "./attribute-hard-delete.js";
+import { mapActiveStepSearchMode } from "./active-step-search.js";
 import { mapAttributeStoreNames, mapAttributeStoreSync } from "./attribute-store-sync.js";
 import {
-  ActiveStepSearchMode,
   FlowTimeoutPolicy,
   type FlowConfig,
   type FlowTimeoutHandlerOptions,
@@ -1092,12 +1091,7 @@ function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability
 
 function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
   return ProtoFlowConfig.create({
-    activeStepSearchMode:
-      config?.activeStepSearchMode === ActiveStepSearchMode.ALL
-        ? ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
-        : config?.activeStepSearchMode === undefined
-          ? undefined
-          : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
+    activeStepSearchMode: mapActiveStepSearchMode(config),
     attributeStoreNames: mapAttributeStoreNames(config),
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,

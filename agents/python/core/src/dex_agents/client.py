@@ -12,11 +12,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
 from dex import (
+    ActiveStepSearchMode,
     AsyncClient,
+    FlowConfig,
     FlowNotActiveOrNotFoundError,
     RpcLockConflictError,
     StartFlowOptions,
@@ -47,6 +50,21 @@ from dex_agents.values import (
 )
 
 _LOCK_CONFLICT_RETRY_INTERVAL_SECONDS = 0.05
+
+
+#: The search mode ``AgentSessionClient.start_session`` gives a new session.
+#:
+#: It indexes the Steps that wait, such as ``AwaitToolApproval``,
+#: ``AwaitQuestionAnswer``, and ``AwaitUserMessage``, and leaves out Steps that
+#: run straight away, such as ``RunModel``. So a session's search entry changes
+#: when it enters or leaves a wait, not on every Step.
+#:
+#: Pass it in ``FlowConfig`` to ``AsyncClient.start_flow``, to a SubFlow's
+#: ``config_override``, or to ``AsyncClient.update_flow_config`` for a running
+#: session.
+#:
+#: .. versionadded:: 0.3.0
+AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE = ActiveStepSearchMode.WITH_WAIT_FOR
 
 
 class AgentSessionClient:
@@ -106,15 +124,32 @@ class AgentSessionClient:
     ) -> str:
         """Start one agent session.
 
+        The session is searchable by the Steps it waits in: ``ActiveStepTypes =
+        "AwaitToolApproval"`` finds it while a tool call waits for a person.
+        This sets ``FlowConfig.active_step_search_mode`` to
+        ``AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE`` unless ``options`` sets that
+        field. Set it to ``ActiveStepSearchMode.DISABLED`` to opt out.
+
+        ``AsyncClient.start_flow`` does not apply this default, so pass
+        ``AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE`` there yourself. A session
+        started as a SubFlow inherits its parent's mode unless its
+        ``config_override`` sets one. To turn the search on for a session that
+        is already running, call ``AsyncClient.update_flow_config``.
+
         Example:
             >>> await sessions.start_session(
             ...     "session-42", "Hello", session_settings={"model": "gpt-5-mini"})
+            >>> page = await client.search_flows('ActiveStepTypes = "AwaitToolApproval"', 50)
+
+        .. versionchanged:: 0.3.0
+            New sessions are searchable by active Step type.
 
         Args:
             session_id: Flow ID of the new session.
             initial_message: Optional first user message.
             options: Start options, such as a Request ID for an idempotent start.
-                ``None`` uses ``StartFlowOptions()``.
+                ``None`` uses ``StartFlowOptions()``. ``config_override`` keeps
+                every field it sets.
             session_settings: The session's settings, which every turn's
                 ``AgentTurnContext.session_settings`` carries until
                 ``update_session_settings`` replaces them. ``None``, the
@@ -136,7 +171,7 @@ class AgentSessionClient:
             AgentSessionStartInput(
                 initial_message=initial_message, session_settings=session_settings
             ),
-            options or StartFlowOptions(),
+            _with_active_step_search(options or StartFlowOptions()),
         )
 
     async def update_session_settings(
@@ -482,3 +517,15 @@ class AgentSessionClient:
         return await self._client.read_stream(
             session_id, self._flow.agent_events, resume_token, timeout
         )
+
+
+def _with_active_step_search(options: StartFlowOptions) -> StartFlowOptions:
+    config = options.config_override or FlowConfig()
+    if config.active_step_search_mode is not None:
+        return options
+    return replace(
+        options,
+        config_override=replace(
+            config, active_step_search_mode=AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE
+        ),
+    )

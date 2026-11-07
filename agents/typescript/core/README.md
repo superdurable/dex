@@ -77,7 +77,7 @@ agents packages share one version line; see the
 
 ```ts
 import { Client, Registry, Worker, openBlobCache } from "@superdurable/dex";
-import { createAgentSessionFlow } from "@superdurable/dex-agents";
+import { createAgentSessionFlow, startAgentSession } from "@superdurable/dex-agents";
 
 const flow = createAgentSessionFlow(new MyFrameworkRunner(agent), "SupportAgent", {
   toolPolicies: { search_orders: { effect: "read" } },
@@ -90,7 +90,7 @@ await worker.start();
 await worker.waitPullRegistered({ timeoutMs: 10_000 });
 const client = new Client(registry, blobCache, { serverAddress: "127.0.0.1:8801" });
 
-await client.startFlow(flow, "session-42", { initialMessage: "Where is order 42?" });
+await startAgentSession(client, flow, "session-42", { initialMessage: "Where is order 42?" });
 const snapshot = await client.invokeRPC(flow.getAgentSnapshot, "session-42");
 for (const interrupt of snapshot.pendingInterrupts) {
   await client.invokeRPC(flow.resolveInterrupt, "session-42", {
@@ -556,7 +556,7 @@ const flow = createStepwiseAgentSessionFlow(
 );
 
 validateSessionSettings({ model: "gpt-5" });
-await client.startFlow(flow, sessionId, { initialMessage: "Hello", sessionSettings: { model: "gpt-5" } });
+await startAgentSession(client, flow, sessionId, { initialMessage: "Hello", sessionSettings: { model: "gpt-5" } });
 await client.invokeRPC(flow.updateSessionSettings, sessionId, { sessionSettings: { model: "gpt-5-mini" } });
 ```
 
@@ -977,6 +977,21 @@ Write `reasoning_delta` only for provider-authored reasoning summaries. Give
 adapter-specific events a prefix, such as `"vercel_ai.step_finished"`. The
 writer coalesces consecutive deltas of one type for up to 100 ms or 1,024
 characters, and drops writes after the handler returns.
+
+## Finding sessions that need a person
+
+`startAgentSession` makes a session searchable by the Steps it waits in, so one query finds every session waiting
+for a person, across agents:
+
+```ts
+await startAgentSession(client, flow, "session-42", { initialMessage: "Refund order 7" });
+const waiting = await client.searchFlows('ActiveStepTypes = "AwaitToolApproval"', 50);
+```
+
+`AwaitQuestionAnswer` finds questions the same way. A session leaves the search when it moves on. `Client.startFlow`
+does not turn this on; pass `configOverride: { activeStepSearchMode: agentSessionActiveStepSearchMode }` there, or use
+`Client.updateFlowConfig` for a running session. See
+[Find sessions that need a person](https://docs.superdurable.io/agent-frameworks/deploy-agents#find-sessions).
 
 ## Flow shape
 

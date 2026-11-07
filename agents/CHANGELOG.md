@@ -6,6 +6,25 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Sessions are searchable by the Step they wait in
+
+- Python core: `AgentSessionClient.start_session` sets
+  `FlowConfig.active_step_search_mode` to the new
+  `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` (`WITH_WAIT_FOR`), so
+  `ActiveStepTypes = "AwaitToolApproval"` and `"AwaitQuestionAnswer"` find a
+  session while it waits and drop it when it moves on. A mode set in
+  `options.config_override` wins, including `DISABLED`.
+- TypeScript core: the new `startAgentSession(client, flow, sessionId, input,
+  options)` does the same, with the new `agentSessionActiveStepSearchMode`. Until
+  this core supports a Dex SDK with `ActiveStepSearchMode.WITH_WAIT_FOR`, the
+  value is `ActiveStepSearchMode.DEFAULT`, which the server treats the same way.
+  `AgentSessionTestClient.startSession` calls it.
+- `Client.startFlow` and `AsyncClient.start_flow` are unchanged, so a session they
+  start stays out of this search. So do sessions started on 0.2.0, until
+  `UpdateFlowConfig` turns it on. No stored value changes.
+- Go core: unchanged.
+- See [Find sessions that need a person](../docs/content/agent-frameworks/deploy-agents.mdx).
+
 ### A session at the state limit fails, with the reason
 
 - Python and TypeScript cores: when a Step fails on

@@ -18,11 +18,11 @@ import {
   requireHardDeleteOnNullValueKind,
   requireNotHardDeleteOnNull,
 } from "./attribute-hard-delete.js";
+import { mapActiveStepSearchMode } from "./active-step-search.js";
 import { mapAttributeStoreNames, mapAttributeStoreSync } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import {
-  ActiveStepSearchMode as ProtoActiveStepSearchMode,
   FlowErrorType as ProtoFlowErrorType,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowResetStepMethod as ProtoFlowResetStepMethod,
@@ -86,7 +86,6 @@ import {
 } from "./flow-result.js";
 import { translateServiceError } from "./grpc-status.js";
 import {
-  ActiveStepSearchMode,
   FlowTimeoutPolicy,
   IdReusePolicy,
   TimeTravelStepMethod,
@@ -1688,12 +1687,7 @@ function mapFlowConfig(
   config: FlowConfig | undefined,
 ): ProtoFlowConfig {
   return {
-    activeStepSearchMode:
-      config?.activeStepSearchMode === undefined
-        ? undefined
-        : config.activeStepSearchMode === ActiveStepSearchMode.ALL
-          ? ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
-          : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
+    activeStepSearchMode: mapActiveStepSearchMode(config),
     attributeStoreNames: mapAttributeStoreNames(config),
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,

@@ -900,6 +900,23 @@ optional `interrupt_deadline`, `built_in_tools`, `max_durable_wait`, and
 `plan_mode_enabled`. A tool
 whose policy requires approval runs only after `AwaitToolApproval` approves it.
 
+## Finding sessions that need a person
+
+`AgentSessionClient.start_session` makes a session searchable by the Steps it
+waits in, so one query finds every session waiting for a person, across agents:
+
+```python
+await sessions.start_session("session-42", "Refund order 7")
+waiting = await client.search_flows('ActiveStepTypes = "AwaitToolApproval"', 50)
+```
+
+`AwaitQuestionAnswer` finds questions the same way. A session leaves the search
+when it moves on. Set `active_step_search_mode` in the start options to choose
+another mode, such as `ActiveStepSearchMode.DISABLED`. `AsyncClient.start_flow`
+does not turn this on; pass `AGENT_SESSION_ACTIVE_STEP_SEARCH_MODE` in its
+`config_override`, or call `update_flow_config` for a running session. See
+[Find sessions that need a person](https://docs.superdurable.io/agent-frameworks/deploy-agents#find-sessions).
+
 ## Flow shape
 
 ```text
