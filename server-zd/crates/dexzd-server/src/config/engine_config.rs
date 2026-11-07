@@ -278,7 +278,15 @@ impl Default for RetentionConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct LimitsConfig {
-    /// Defaults to 64 MiB; largest materialized state for one Flow, including current Attributes and Channels.
+    /// Defaults to 64 MiB; largest active state of one Flow run.
+    ///
+    /// Active state is the run's current rows plus the values they hold: Attributes, Channel
+    /// messages, Step executions with their inputs, locals, and attempt snapshots, timers, locks,
+    /// request deduplication rows, and outbox rows. It also counts a small bookkeeping row for
+    /// each stored value, superseded ones included. History records, checkpoints, and the bytes
+    /// of superseded values are not counted.
+    /// A command that grows active state and leaves it above this limit is rejected, or fails its
+    /// Step attempt without retry. Each run records it at start.
     pub max_flow_state_bytes: u64,
     /// Defaults to 10000; largest pending message count in one Channel.
     pub max_channel_messages: u32,

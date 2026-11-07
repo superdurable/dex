@@ -21,8 +21,8 @@ pub(crate) use garbage::enforce_superseded_byte_cap;
 #[expect(unused_imports, reason = "Available to window maintenance handlers.")]
 pub(crate) use garbage::{prune_garbage, superseded_bytes_over_cap};
 pub(crate) use storage_accounting::{
-    active_run_storage_bytes_without_attempts, is_run_over_state_budget,
-    projected_superseded_value_bytes, reconcile_run_storage, total_run_storage_bytes,
+    active_run_storage_bytes, active_run_storage_bytes_without_attempts, is_run_over_state_budget,
+    projected_superseded_value_bytes, reconcile_run_storage,
 };
 pub(crate) use time_travel::rewrite_holders_for_time_travel;
 pub(crate) use value_holder::ValueHolder;
