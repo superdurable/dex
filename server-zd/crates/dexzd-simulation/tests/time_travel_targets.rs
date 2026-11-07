@@ -18,7 +18,7 @@ use std::ops::RangeInclusive;
 use dexzd_apply::diagnostics::{
     TargetResolutionForTest, TimeTravelTargetForTest, resolve_time_travel_target_for_test,
 };
-use dexzd_apply::read_model::{get_history_events, get_history_events_from_source};
+use dexzd_apply::read_model::{ReadModelError, get_history_events, get_history_events_from_source};
 use dexzd_apply::{
     ApplyContext, ApplyError, BoundedRowSeek, FlowStateReader, HistoryRecords, HistorySource,
     StateReadError, StateRow, StateWrite,
@@ -263,6 +263,7 @@ impl CheckedFlow<'_> {
                 local_without_history.is_err(),
                 "{site}: a local read of run {run_id} passed without History rows"
             );
+            self.compare_oversized_first_event(run_id, &history, &state_without_history, coverage);
             let attempts = [
                 0,
                 1,
@@ -282,6 +283,61 @@ impl CheckedFlow<'_> {
                 }
             }
         }
+    }
+
+    /// Requires a limit one byte under the first event's response to reject it the same way
+    /// locally and through `history`.
+    fn compare_oversized_first_event(
+        &self,
+        run_id: RunId,
+        history: &MemoryHistorySource,
+        state_without_history: &WithoutHistoryColumn<'_>,
+        coverage: &mut Coverage,
+    ) {
+        let site = self.site;
+        let flow_hash = self.checker.context(self.flow_id).flow_hash;
+        let state = self.checker.state();
+        let single_event = get_history_events(state, flow_hash, run_id, 0, 1, &[], 0, usize::MAX)
+            .unwrap_or_else(|error| panic!("{site}: an unlimited page of run {run_id}: {error}"));
+        let Some(first_event_id) = single_event.events.first().map(|event| event.event_id) else {
+            panic!("{site}: run {run_id} has no history event");
+        };
+        let single_event_response_bytes = single_event.encoded_len();
+        let max_response_bytes = single_event_response_bytes - 1;
+        let local = get_history_events(state, flow_hash, run_id, 0, 0, &[], 0, max_response_bytes);
+        let from_source = get_history_events_from_source(
+            state_without_history,
+            history,
+            flow_hash,
+            run_id,
+            0,
+            0,
+            &[],
+            0,
+            max_response_bytes,
+        );
+        for (read, result) in [("local", &local), ("sourced", &from_source)] {
+            assert!(
+                matches!(
+                    result,
+                    Err(ReadModelError::HistoryEventTooLarge {
+                        event_id,
+                        size_bytes,
+                        max_response_bytes: reported_limit,
+                    }) if *event_id == first_event_id
+                        && *size_bytes == single_event_response_bytes
+                        && *reported_limit == max_response_bytes
+                ),
+                "{site}: the {read} read of run {run_id} under {max_response_bytes} bytes \
+                 returned {result:?}"
+            );
+        }
+        assert_eq!(
+            format!("{from_source:?}"),
+            format!("{local:?}"),
+            "{site}: run {run_id} rejects its first event differently through a history source"
+        );
+        coverage.compared_history_page_errors += 1;
     }
 
     /// Pages through `page` locally and through `history`, requiring identical pages or errors.
@@ -334,7 +390,11 @@ impl CheckedFlow<'_> {
                     }
                     local
                 }
-                (Err(local), Err(from_source)) => {
+                // Only a finite byte limit may reject a page, and only for one oversized event.
+                (
+                    Err(local @ ReadModelError::HistoryEventTooLarge { .. }),
+                    Err(from_source @ ReadModelError::HistoryEventTooLarge { .. }),
+                ) if page.max_response_bytes != usize::MAX => {
                     assert_eq!(
                         format!("{from_source:?}"),
                         format!("{local:?}"),
@@ -807,6 +867,10 @@ impl Coverage {
             (
                 self.pages_ended_by_response_bytes,
                 "history page ended by the response byte limit",
+            ),
+            (
+                self.compared_history_page_errors,
+                "oversized history event rejected through a source",
             ),
         ] {
             assert!(count > 0, "no {what} was exercised: {self:#?}");
