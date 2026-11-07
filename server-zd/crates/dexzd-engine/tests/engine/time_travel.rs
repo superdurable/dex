@@ -946,8 +946,8 @@ async fn input_committed_during_the_computation_is_reapplied() {
 }
 
 /// Every target type restores the point its first apply recorded when the target's history and
-/// checkpoints exist only in uploaded segments, and when the target is local but its checkpoint
-/// is uploaded.
+/// checkpoints exist only in uploaded segments, and when the target is local after uploaded
+/// history.
 #[tokio::test(start_paused = true)]
 async fn targets_whose_history_exists_only_in_uploaded_segments_restore_their_recorded_points() {
     let cluster = TestCluster::new();
@@ -1004,7 +1004,7 @@ async fn targets_whose_history_exists_only_in_uploaded_segments_restore_their_re
         );
     }
 
-    // A local target whose replay starts from an uploaded checkpoint.
+    // A local target after uploaded history.
     travel.offload_sealed_history(run_id).await;
     travel.set_attribute("tail", string_value("local")).await;
     let tail_seq = travel.run_record(run_id).next_run_seq - 1;
