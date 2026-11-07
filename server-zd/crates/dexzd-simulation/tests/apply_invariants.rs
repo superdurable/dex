@@ -599,6 +599,8 @@ fn pinned_snapshot_value_survives_window_advance_and_final_holder_release() {
                 travel.command = Some(Command::TimeTravel(TimeTravelCommand {
                     staging_id: Vec::new(),
                     computed_through_seq: 0,
+                    target_run_attempt: 0,
+                    target_run_seq: 0,
                     should_restore_running_as_pending: false,
                     request: Some(ResetFlowRequest {
                         flow_id: command.flow_id.clone(),

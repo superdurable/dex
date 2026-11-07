@@ -48,9 +48,9 @@ use dexzd_protocol::dexzd::v1::{
     StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
     StepAttemptQueuedCommand, StepAttemptReturnReason, StepAttemptReturnedCommand,
     StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, TimeTravelCommand, TimerRecord, TimerSkipCommand,
-    TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
-    step_attempt_heartbeat_command, step_method_completed_command, timer_id,
+    StepMethodCompletedCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand, command_reply,
+    flow_command::Command, inbox_message_command, outbox_record, step_attempt_heartbeat_command,
+    step_method_completed_command, timer_id,
 };
 use dexzd_request_validation::{ValidationConfig, validate_start_flow_request};
 use prost::Message;
@@ -1850,12 +1850,9 @@ impl Workload<'_> {
         self.commit_expecting_attempt(
             run,
             computed.run_attempt(),
-            Command::TimeTravel(TimeTravelCommand {
-                request: Some(request),
-                should_restore_running_as_pending,
-                staging_id,
-                computed_through_seq: computed.computed_through_seq(),
-            }),
+            Command::TimeTravel(
+                computed.time_travel_command(&staging_id, should_restore_running_as_pending),
+            ),
         )
         .await
     }

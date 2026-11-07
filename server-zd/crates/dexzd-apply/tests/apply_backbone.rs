@@ -9,7 +9,7 @@
 //! End-to-end tests of the apply backbone over an in-memory state.
 
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::values::load_for_wire;
 use dexzd_apply::{
@@ -170,6 +170,9 @@ struct Harness {
     run_id: Vec<u8>,
     /// False while a test simulates storage totals that an older binary wrote.
     is_storage_recount_checked: bool,
+    /// Superseded values whose value row a test removed, as offloading does; their birth and
+    /// garbage rows stay.
+    offloaded_value_ids: BTreeSet<(u64, u32)>,
 }
 
 const SECOND: i64 = 1_000_000;
@@ -188,6 +191,7 @@ impl Harness {
             flow_id: flow_id.to_owned(),
             run_id: Vec::new(),
             is_storage_recount_checked: true,
+            offloaded_value_ids: BTreeSet::new(),
         }
     }
 
@@ -483,7 +487,10 @@ impl Harness {
             }
         }
         for (id, birth) in &births {
-            assert!(value_rows.contains_key(id), "B row needs a value row");
+            assert!(
+                value_rows.contains_key(id) || self.offloaded_value_ids.contains(id),
+                "B row needs a value row unless its value was offloaded"
+            );
             let holder_count = holders.remove(id).unwrap_or_default();
             let garbage_seq = garbage.remove(id);
             assert!(
@@ -496,7 +503,17 @@ impl Harness {
         }
         assert!(holders.is_empty(), "holder without B row");
         assert!(garbage.is_empty(), "G row without B row");
-        assert_eq!(value_rows.len(), births.len(), "value row without B row");
+        assert!(
+            value_rows.keys().all(|id| births.contains_key(id)),
+            "value row without B row"
+        );
+        for id in births.keys().filter(|id| !value_rows.contains_key(id)) {
+            let birth = &births[id];
+            assert!(
+                birth.garbage_seq > 0,
+                "only a superseded value is offloaded: {id:?}"
+            );
+        }
     }
 
     fn start_attempt(
@@ -1746,6 +1763,8 @@ fn reapplied_external_input_keeps_history_metadata_and_window_counts() {
     let outcome = harness.apply(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             flow_id: "order-1".to_owned(),

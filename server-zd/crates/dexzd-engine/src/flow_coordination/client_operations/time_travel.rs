@@ -19,13 +19,11 @@ use dexzd_apply::{
 };
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest, ResetFlowResponse};
-use dexzd_protocol::dexzd::v1::{
-    CommandErrorReply, FlowCommand, TimeTravelCommand, command_reply, flow_command,
-};
+use dexzd_protocol::dexzd::v1::{CommandErrorReply, FlowCommand, command_reply, flow_command};
 use dexzd_request_validation::{ClientRequest, validate_client_request};
 
 use crate::flow_coordination::client_operations::{unexpected_reply, unstamped_flow_command};
-use crate::flow_coordination::read_operations::state_rows::resolve_command_run;
+use crate::flow_coordination::read_operations::state_rows::{read_run, resolve_command_run};
 use crate::flow_coordination::{
     FlowAddress, FlowCoordinationError, FlowCoordinatorRegistry, grpc_code,
 };
@@ -120,16 +118,14 @@ impl FlowCoordinatorRegistry {
                 .await?;
             match reply {
                 command_reply::Reply::Ok(_) => {}
-                command_reply::Reply::Error(error) => return stale_or_error(&error),
+                command_reply::Reply::Error(error) => {
+                    return self.stale_or_error(flow, run_id, expected_run_attempt, &error);
+                }
                 other => return Err(unexpected_reply("TimeTravelStage", &other)),
             }
         }
-        let time_travel = flow_command::Command::TimeTravel(TimeTravelCommand {
-            request: Some(request.clone()),
-            should_restore_running_as_pending: true,
-            staging_id,
-            computed_through_seq: computed.computed_through_seq(),
-        });
+        let time_travel =
+            flow_command::Command::TimeTravel(computed.time_travel_command(&staging_id, true));
         let reply = self
             .propose_attempt_command(flow, run_id, expected_run_attempt, time_travel)
             .await?;
@@ -142,8 +138,58 @@ impl FlowCoordinatorRegistry {
                     })?,
                 }))
             }
-            command_reply::Reply::Error(error) => stale_or_error(&error),
+            command_reply::Reply::Error(error) => {
+                self.stale_or_error(flow, run_id, expected_run_attempt, &error)
+            }
             other => Err(unexpected_reply("ResetFlow", &other)),
+        }
+    }
+
+    /// Classifies a rejection of a Stage or TimeTravel proposed at `expected_run_attempt`.
+    ///
+    /// ABORTED means stale. So does FAILED_PRECONDITION when the run's attempt changed: a
+    /// concurrent time travel committed first.
+    ///
+    /// Returns [`TimeTravelOutcome::Stale`] for a result to compute again, and any other
+    /// rejection as an error.
+    fn stale_or_error(
+        &self,
+        flow: &FlowAddress,
+        run_id: RunId,
+        expected_run_attempt: u32,
+        error: &CommandErrorReply,
+    ) -> Result<TimeTravelOutcome, FlowCoordinationError> {
+        let rejection = FlowCoordinationError::from_reply(error);
+        let is_stale = match error.grpc_code {
+            grpc_code::ABORTED => true,
+            grpc_code::FAILED_PRECONDITION => {
+                self.current_run_attempt(flow, run_id)? != Some(expected_run_attempt)
+            }
+            _ => false,
+        };
+        if is_stale {
+            Ok(TimeTravelOutcome::Stale(rejection))
+        } else {
+            Err(rejection)
+        }
+    }
+
+    /// Returns the committed current attempt of run `run_id`, or `None` when it is gone.
+    fn current_run_attempt(
+        &self,
+        flow: &FlowAddress,
+        run_id: RunId,
+    ) -> Result<Option<u32>, FlowCoordinationError> {
+        let view = self.inner.dependencies.committer.committed_view()?;
+        match read_run(
+            view.as_ref(),
+            self.flow_context(flow),
+            flow,
+            &run_id.to_string(),
+        ) {
+            Ok(run) => Ok(Some(run.record.current_attempt)),
+            Err(error) if error.grpc_code() == grpc_code::NOT_FOUND => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
@@ -231,15 +277,5 @@ impl FlowCoordinatorRegistry {
             .ok_or_else(|| FlowCoordinationError::Internal {
                 detail: "apply returned an empty reply".to_owned(),
             })
-    }
-}
-
-/// Returns ABORTED as a stale result to compute again, and any other rejection as an error.
-fn stale_or_error(error: &CommandErrorReply) -> Result<TimeTravelOutcome, FlowCoordinationError> {
-    let rejection = FlowCoordinationError::from_reply(error);
-    if error.grpc_code == grpc_code::ABORTED {
-        Ok(TimeTravelOutcome::Stale(rejection))
-    } else {
-        Err(rejection)
     }
 }

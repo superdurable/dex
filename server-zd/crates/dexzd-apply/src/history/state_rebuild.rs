@@ -8,6 +8,7 @@
 
 //! Rebuilds S' (plan section 8.4 step 2): a checkpoint, then the attempt's commands replayed.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use dexzd_keyspace::{ValueId, ValueReference};
@@ -16,6 +17,7 @@ use dexzd_protocol::dexzd::v1::{
     CheckpointRecord, CheckpointRunStatus, CommandReply, FlowCommand, HistoryRecord, RunRecord,
     StoredValueId, TimeTravelStagedValue, TimersFiredCommand, flow_command::Command,
 };
+use prost::Message;
 
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::history::attempt_scope::{
@@ -47,8 +49,57 @@ pub(crate) struct RebuiltAttempt {
 pub(crate) struct ReplayResources<'resources> {
     /// Values the store no longer holds.
     pub(crate) offloaded_values: &'resources dyn OffloadedValues,
-    /// Largest number of key and value bytes the replayed writes may hold in memory.
-    pub(crate) memory_budget_bytes: u64,
+    /// Memory the whole time travel computation may hold.
+    pub(crate) memory_budget: &'resources ReplayMemoryBudget,
+}
+
+/// Memory one time travel computation may hold.
+///
+/// The computation reserves bytes before each allocation it keeps; transient replay writes
+/// must fit beside the reservations.
+pub(crate) struct ReplayMemoryBudget {
+    limit_bytes: u64,
+    reserved_bytes: Cell<u64>,
+}
+
+impl ReplayMemoryBudget {
+    pub(crate) fn new(limit_bytes: u64) -> Self {
+        Self {
+            limit_bytes,
+            reserved_bytes: Cell::new(0),
+        }
+    }
+
+    /// Returns a budget no computation exceeds, for apply's own computations.
+    pub(crate) fn unlimited() -> Self {
+        Self::new(u64::MAX)
+    }
+
+    /// Reserves `bytes` for an allocation the computation keeps.
+    ///
+    /// Returns false, reserving nothing, when the reservations would exceed the limit.
+    pub(crate) fn reserve(&self, bytes: u64) -> bool {
+        let reserved_bytes = self.reserved_bytes.get().saturating_add(bytes);
+        if reserved_bytes > self.limit_bytes {
+            return false;
+        }
+        self.reserved_bytes.set(reserved_bytes);
+        true
+    }
+
+    /// Whether `transient_bytes` fit beside the reservations, without reserving them.
+    pub(crate) fn fits(&self, transient_bytes: u64) -> bool {
+        self.reserved_bytes.get().saturating_add(transient_bytes) <= self.limit_bytes
+    }
+
+    pub(crate) fn limit_bytes(&self) -> u64 {
+        self.limit_bytes
+    }
+}
+
+/// Returns an encoded length as the byte count a budget reserves.
+pub(crate) fn encoded_bytes(length: usize) -> u64 {
+    u64::try_from(length).unwrap_or(u64::MAX)
 }
 
 /// Rebuilds the attempt state at `point` on top of what `transaction` reads.
@@ -86,6 +137,18 @@ pub(crate) fn rebuild_attempt_state(
                 point.attempt
             ),
         })?;
+    let memory_budget = resources.memory_budget;
+    let exceeded = |held: &str| {
+        Ok(Err(replay_memory_exceeded_reply(
+            point,
+            memory_budget.limit_bytes(),
+            held,
+        )))
+    };
+    let checkpoint_held = format!("the checkpoint at run seq {checkpoint_seq}");
+    if !memory_budget.reserve(encoded_bytes(checkpoint.encoded_len())) {
+        return exceeded(&checkpoint_held);
+    }
     let checkpoint_rows = checkpoint
         .rows
         .iter()
@@ -107,13 +170,9 @@ pub(crate) fn rebuild_attempt_state(
         &replay_record,
     );
     let context = transaction.context();
-    let over_budget = |replay_state: &ReplayState<'_>| {
-        (replay_state.overlay_bytes() > resources.memory_budget_bytes).then(|| {
-            replay_memory_exceeded_reply(checkpoint_seq, point, resources.memory_budget_bytes)
-        })
-    };
-    if let Some(reply) = over_budget(&replay_state) {
-        return Ok(Err(reply));
+    let replay_held = format!("the replay from its checkpoint at run seq {checkpoint_seq}");
+    if !memory_budget.fits(replay_state.overlay_bytes()) {
+        return exceeded(&replay_held);
     }
     for history_record in
         history.history_records(checkpoint_seq + 1..=point.seq, HISTORY_PAGE_RECORDS)
@@ -125,9 +184,15 @@ pub(crate) fn rebuild_attempt_state(
         if let Err(reply) = replay_command(&mut replay_state, &context, &history_record)? {
             return Ok(Err(reply));
         }
-        if let Some(reply) = over_budget(&replay_state) {
-            return Ok(Err(reply));
+        if !memory_budget.fits(replay_state.overlay_bytes()) {
+            return exceeded(&replay_held);
         }
+    }
+    // The rebuilt rows copy at most the replayed writes, which stay alive beside them.
+    if !memory_budget.reserve(replay_state.overlay_bytes())
+        || !memory_budget.fits(replay_state.overlay_bytes())
+    {
+        return exceeded(&replay_held);
     }
     let replay_transaction = FlowTransaction::new(&replay_state, context);
     let rebuilt_rows = read_attempt_rows(&replay_transaction, rows)?;
@@ -136,8 +201,9 @@ pub(crate) fn rebuild_attempt_state(
     let unstored_values = match unstored_values(
         transaction,
         &replay_state,
-        resources.offloaded_values,
+        resources,
         rows,
+        point,
         newly_held,
     )? {
         Ok(values) => values,
@@ -167,15 +233,16 @@ pub(crate) fn newly_held_values(
 }
 
 /// Returns the values of `value_ids` that the transaction's store lacks, read from replayed
-/// writes or offloaded values.
+/// writes or offloaded values. Each value reserves its recorded size before it is read.
 ///
 /// Returns a rejection naming the first value that neither has: a rebuild must never restore a
-/// stand-in in its place.
+/// stand-in in its place. Returns a rejection when the values exceed the memory budget.
 fn unstored_values(
     transaction: &FlowTransaction<'_>,
     replay_state: &ReplayState<'_>,
-    offloaded_values: &dyn OffloadedValues,
+    resources: ReplayResources<'_>,
     rows: RunRows,
+    point: HistoryPoint,
     value_ids: BTreeMap<ValueId, u64>,
 ) -> Result<Result<Vec<TimeTravelStagedValue>, CommandReply>, ApplyError> {
     let mut unstored = Vec::new();
@@ -183,9 +250,18 @@ fn unstored_values(
         if is_stored_value(transaction, rows, value_id)? {
             continue;
         }
+        if !resources.memory_budget.reserve(size_bytes) {
+            return Ok(Err(replay_memory_exceeded_reply(
+                point,
+                resources.memory_budget.limit_bytes(),
+                "the values the restored state holds",
+            )));
+        }
         let value = match replay_state.replayed_value(value_id)? {
             Some(value) => Some(value),
-            None => offloaded_values.offloaded_value(rows.run_id, value_id)?,
+            None => resources
+                .offloaded_values
+                .offloaded_value(rows.run_id, value_id)?,
         };
         let Some(value) = value else {
             return Ok(Err(unavailable_value_reply(rows, value_id)));
@@ -195,7 +271,6 @@ fn unstored_values(
                 run_seq: value_id.run_seq,
                 index_in_command: value_id.index_in_command,
             }),
-            size_bytes,
             value: Some(value),
         });
     }
@@ -217,18 +292,20 @@ fn unavailable_value_reply(rows: RunRows, value_id: ValueId) -> CommandReply {
     )
 }
 
-fn replay_memory_exceeded_reply(
-    checkpoint_seq: u64,
+/// Returns the RESOURCE_EXHAUSTED reply of a computation for the target `point` that could not
+/// hold `held` within `memory_budget_bytes`.
+pub(crate) fn replay_memory_exceeded_reply(
     point: HistoryPoint,
     memory_budget_bytes: u64,
+    held: &str,
 ) -> CommandReply {
     error_reply(
         grpc_code::RESOURCE_EXHAUSTED,
         ErrorSubStatus::Uncategorized,
         format!(
-            "time travel needs more than {memory_budget_bytes} bytes of memory to replay run \
-             attempt {} from its checkpoint at run seq {checkpoint_seq} to the target at run seq \
-             {}; choose a later target point or raise history.timeTravelReplayMemoryBytes",
+            "time travel to run attempt {} at run seq {} needs more than {memory_budget_bytes} \
+             bytes of memory to hold {held}; choose a later target point, travel without \
+             reapplying writes, or raise history.timeTravelReplayMemoryBytes",
             point.attempt, point.seq
         ),
     )

@@ -410,6 +410,8 @@ impl Harness {
         let outcome = self.apply(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
         }));
@@ -1067,6 +1069,8 @@ fn rebuilt_cleanup_points_equal_their_recorded_states() {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(reset_to_time(*timestamp)),
         }));
@@ -1307,6 +1311,8 @@ fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
             let command = harness.command(Command::TimeTravel(TimeTravelCommand {
                 staging_id: Vec::new(),
                 computed_through_seq: 0,
+                target_run_attempt: 0,
+                target_run_seq: 0,
                 should_restore_running_as_pending: false,
                 request: Some(reset_to_time(*timestamp)),
             }));
@@ -1472,6 +1478,8 @@ fn a_reapplied_flow_timeout_skip_waits_for_remarked_attributes() {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 2,
@@ -1530,6 +1538,8 @@ fn a_reapplied_flow_timeout_skip_closes_when_reapplied_writes_leave_nothing_to_s
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(ResetFlowRequest {
             run_attempt: 2,

@@ -17,7 +17,7 @@ mod staged_result;
 mod staging;
 
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRunStatus, FlowCommand, TimeTravelCommand, TimeTravelStagedValue,
+    CheckpointRunStatus, TimeTravelCommand, TimeTravelStagedInput, TimeTravelStagedValue,
 };
 
 pub use result_computation::{
@@ -32,7 +32,7 @@ use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::history::attempt_scope::AttemptRow;
 use crate::history::lineage::LocalHistorySource;
 use crate::history::reset_target::TravelTarget;
-use crate::history::state_rebuild::ReplayResources;
+use crate::history::state_rebuild::{ReplayMemoryBudget, ReplayResources};
 use crate::state_access::FlowTransaction;
 use crate::values::NoOffloadedValues;
 
@@ -46,8 +46,8 @@ pub(crate) struct TimeTravelResult {
     pub(crate) rows: Vec<AttemptRow>,
     /// Values `rows` hold that the run's store lacked when the result was computed.
     pub(crate) unstored_values: Vec<TimeTravelStagedValue>,
-    /// External input after the target point, in seq order.
-    pub(crate) reapplied_inputs: Vec<FlowCommand>,
+    /// External input after the target point, in (run seq, index in record) order.
+    pub(crate) reapplied_inputs: Vec<TimeTravelStagedInput>,
 }
 
 pub(crate) fn apply_time_travel(
@@ -60,6 +60,7 @@ pub(crate) fn apply_time_travel(
     let result = if command.staging_id.is_empty() {
         // Binaries before staging logged TimeTravel without a result; their history is local.
         let history = LocalHistorySource::new(transaction, cursor.rows);
+        let memory_budget = ReplayMemoryBudget::unlimited();
         result_computation::compute_result(
             transaction,
             &history,
@@ -70,11 +71,11 @@ pub(crate) fn apply_time_travel(
             cursor.seq.saturating_sub(1),
             ReplayResources {
                 offloaded_values: &NoOffloadedValues,
-                memory_budget_bytes: u64::MAX,
+                memory_budget: &memory_budget,
             },
         )?
     } else {
-        staged_result::read_staged_result(transaction, &cursor, command, &request)?
+        staged_result::read_staged_result(transaction, &cursor, scope, command, &request)?
     };
     let result = match result {
         Ok(result) => result,
@@ -204,13 +205,10 @@ mod owner_staging {
             .into_iter()
             .map(Command::TimeTravelStage)
             .collect();
-        bodies.push(Command::TimeTravel(
-            dexzd_protocol::dexzd::v1::TimeTravelCommand {
-                staging_id,
-                computed_through_seq: computed.computed_through_seq(),
-                ..time_travel.clone()
-            },
-        ));
+        bodies.push(Command::TimeTravel(computed.time_travel_command(
+            &staging_id,
+            time_travel.should_restore_running_as_pending,
+        )));
         let expected_run_attempt = if command.expected_run_attempt == 0 {
             computed.run_attempt()
         } else {

@@ -479,6 +479,8 @@ impl Harness {
         self.apply(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
         }))
@@ -949,6 +951,8 @@ fn a_closed_point_closes_each_new_attempt_with_retention_and_history() {
         let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
@@ -1496,6 +1500,8 @@ fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running
     let travel = harness.command(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -1857,6 +1863,8 @@ fn rebuilt_states_equal_the_recorded_states_at_every_point() {
         let diagnostic_command = harness.command(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 run_attempt: 1,
@@ -1903,6 +1911,8 @@ fn diagnostic_hash_detects_a_broken_time_travel_rebuild() {
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset(FlowResetType::Beginning)),
     }));
@@ -2547,6 +2557,8 @@ fn an_unexpected_reapply_rejection_is_an_invariant_violation() {
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reapplying(reset(FlowResetType::Beginning))),
     }));
@@ -3251,6 +3263,8 @@ fn permission_rebuild_skips_unread_inputs_when_invalid_wait_for_closes_the_flow(
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -3412,6 +3426,8 @@ fn assert_permission_rebuild_with_collected_value(
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -3610,6 +3626,8 @@ fn permission_rebuild_preserves_accumulated_grants_and_reapplies_new_grants() {
     let command = harness.command(Command::TimeTravel(TimeTravelCommand {
         staging_id: Vec::new(),
         computed_through_seq: 0,
+        target_run_attempt: 0,
+        target_run_seq: 0,
         should_restore_running_as_pending: false,
         request: Some(reset_to_time(target_time)),
     }));
@@ -4358,6 +4376,8 @@ fn time_travel_over_older_metadata_selects_the_same_point_from_records() {
         let command = harness.command(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(request),
         }));

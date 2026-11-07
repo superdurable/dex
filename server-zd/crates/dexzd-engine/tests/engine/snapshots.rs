@@ -153,6 +153,8 @@ async fn submit_time_travel(
         command: Some(Command::TimeTravel(TimeTravelCommand {
             staging_id: Vec::new(),
             computed_through_seq: 0,
+            target_run_attempt: 0,
+            target_run_seq: 0,
             should_restore_running_as_pending: false,
             request: Some(ResetFlowRequest {
                 flow_id: flow_id.to_owned(),

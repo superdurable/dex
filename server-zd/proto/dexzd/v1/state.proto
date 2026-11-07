@@ -661,12 +661,12 @@ message TimeTravelStagedChunk {
   repeated CheckpointRow rows = 2;
   // Values the rows hold that the run's local store did not hold when the owner computed them.
   repeated TimeTravelStagedValue values = 3;
-  // External input after the target point through the command's computed_through_seq, in seq
-  // order.
-  repeated FlowCommand reapplied_inputs = 4;
+  // External input after the target point through the command's computed_through_seq, in
+  // (run_seq, index_in_record) order.
+  repeated TimeTravelStagedInput reapplied_inputs = 4;
 }
 
-// The point a staged TimeTravel result returns to.
+// The point a staged TimeTravel result returns to, and what the result was computed for.
 message TimeTravelStagedTarget {
   // Attempt whose lineage the request selected.
   uint32 selected_run_attempt = 1;
@@ -679,13 +679,29 @@ message TimeTravelStagedTarget {
   optional string close_history_message = 5;
   // Attempt-scoped run status at the target point.
   CheckpointRunStatus run_status = 6;
+  // ResetFlow request the result answers; the TimeTravel command carries the same request.
+  dex.ResetFlowRequest request = 7;
+  // Run attempt when the owner computed the result; the TimeTravel command expects it.
+  uint32 expected_run_attempt = 8;
+  // Last run seq the result covers; the TimeTravel command names the same seq.
+  uint64 computed_through_seq = 9;
 }
 
 // A value that a staged TimeTravel result needs and the run's local store no longer held.
+//
+// Apply restores it only over the run's birth record of the value, whose size must match.
 message TimeTravelStagedValue {
   StoredValueId value_id = 1;
-  uint64 size_bytes = 2;
-  dex.Value value = 3;
+  dex.Value value = 2;
+}
+
+// One external input a staged TimeTravel result reapplies.
+message TimeTravelStagedInput {
+  // Run seq of the history record that holds the input.
+  uint64 run_seq = 1;
+  // Position among that record's inputs; a TimeTravel record holds several.
+  uint32 index_in_record = 2;
+  FlowCommand command = 3;
 }
 
 // ---------------------------------------------------------------------------------------------

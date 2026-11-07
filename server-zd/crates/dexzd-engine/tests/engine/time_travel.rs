@@ -31,9 +31,7 @@ use dexzd_engine::{
     TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation,
     WorkerRpcResult, grpc_code,
 };
-use dexzd_keyspace::row_keys::{
-    history_record_key, run_singleton_key, value_garbage_key, value_row_key,
-};
+use dexzd_keyspace::row_keys::{history_record_key, run_singleton_key, value_row_key};
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, ValueId,
 };
@@ -63,6 +61,9 @@ const START_STEP_EXECUTION: &str = "ChargeStep-1";
 struct TravelNode {
     node: EngineNode,
     registry: FlowCoordinatorRegistry,
+    /// Registries beside `registry` over the same committer; each serializes only its own
+    /// ResetFlows.
+    other_registries: Vec<FlowCoordinatorRegistry>,
     store: Arc<RestoredLocalStore>,
     hasher: PartitionHasher,
     recording: Arc<RecordingCommandAndEffectHooks>,
@@ -74,6 +75,16 @@ impl TravelNode {
         cluster: &TestCluster,
         local_store: LocalStoreConfig,
         opener: Arc<dyn TimeTravelHistoryOpener>,
+        flow_coordination: FlowCoordinationConfig,
+    ) -> Self {
+        Self::start_with_registries(cluster, local_store, vec![opener], flow_coordination).await
+    }
+
+    /// Starts a node with one registry per opener of `openers`; the first is `registry`.
+    async fn start_with_registries(
+        cluster: &TestCluster,
+        local_store: LocalStoreConfig,
+        openers: Vec<Arc<dyn TimeTravelHistoryOpener>>,
         flow_coordination: FlowCoordinationConfig,
     ) -> Self {
         let mut config = cluster.config(local_store);
@@ -95,30 +106,35 @@ impl TravelNode {
             },
             move |services: EngineServices| {
                 let ports = Arc::new(UnusedPorts);
-                let registry = FlowCoordinatorRegistry::new(
-                    &flow_coordination,
-                    FlowCoordinatorDependencies {
-                        hasher: services.partition_hasher.clone(),
-                        committer: Arc::new(services.committer.clone()),
-                        applier: Arc::new(DeterministicCommandApplier),
-                        effects: ports.clone(),
-                        rpc_invoker: ports.clone(),
-                        step_queue_status: ports.clone(),
-                        hard_delete_reader: ports.clone(),
-                        hard_delete_uploader: ports,
-                        time_travel_history: opener,
-                        clock,
-                        id_source: services.id_source.clone(),
-                    },
-                );
+                let registries: Vec<FlowCoordinatorRegistry> = openers
+                    .into_iter()
+                    .map(|opener| {
+                        FlowCoordinatorRegistry::new(
+                            &flow_coordination,
+                            FlowCoordinatorDependencies {
+                                hasher: services.partition_hasher.clone(),
+                                committer: Arc::new(services.committer.clone()),
+                                applier: Arc::new(DeterministicCommandApplier),
+                                effects: ports.clone(),
+                                rpc_invoker: ports.clone(),
+                                step_queue_status: ports.clone(),
+                                hard_delete_reader: ports.clone(),
+                                hard_delete_uploader: ports.clone(),
+                                time_travel_history: opener,
+                                clock: clock.clone(),
+                                id_source: services.id_source.clone(),
+                            },
+                        )
+                    })
+                    .collect();
                 *captured_for_factory.lock().expect("capture lock") = Some((
-                    registry.clone(),
+                    registries.clone(),
                     services.local_store,
                     services.partition_hasher,
                 ));
                 EngineCommandAndEffectHooks {
                     committed_commands: Arc::new(ForwardingSink {
-                        registry,
+                        registries,
                         recording: Arc::clone(&recording_for_factory),
                     }),
                     rebuilder: recording_for_factory,
@@ -127,14 +143,17 @@ impl TravelNode {
         )
         .await
         .expect("the node starts");
-        let (registry, store, hasher) = captured
+        let (registries, store, hasher) = captured
             .lock()
             .expect("capture lock")
             .take()
             .expect("services captured");
+        let mut registries = registries.into_iter();
+        let registry = registries.next().expect("a node has at least one registry");
         Self {
             node,
             registry,
+            other_registries: registries.collect(),
             store,
             hasher,
             recording,
@@ -296,8 +315,9 @@ impl TravelNode {
         record
     }
 
-    /// Removes every row of a superseded value from the local store and returns the value.
-    fn remove_superseded_value(&self, run_id: RunId, value_id: ValueId) -> Value {
+    /// Removes a superseded value's value row, as offloading does, keeping its birth and
+    /// garbage rows; returns the value.
+    fn offload_superseded_value(&self, run_id: RunId, value_id: ValueId) -> Value {
         let flow_hash = self.context().flow_hash;
         let view = self.view();
         let birth_key = value_row_key(flow_hash, run_id, RunTable::ValueBirth, value_id);
@@ -324,11 +344,6 @@ impl TravelNode {
         .expect("the row holds a value");
         let mut batch = WriteBatch::new();
         batch.delete(ColumnFamily::Value, value_key);
-        batch.delete(ColumnFamily::Flow, birth_key);
-        batch.delete(
-            ColumnFamily::Flow,
-            value_garbage_key(flow_hash, run_id, birth.garbage_seq, value_id),
-        );
         self.store.write(batch).expect("the value is removed");
         value
     }
@@ -338,12 +353,13 @@ impl TravelNode {
         let Self {
             node,
             registry,
+            other_registries,
             store,
             recording,
             ..
         } = self;
         node.shutdown().await.expect("lease released");
-        drop((registry, store, recording));
+        drop((registry, other_registries, store, recording));
     }
 
     fn assert_every_travel_verified(&self, expected: u64) {
@@ -366,14 +382,16 @@ impl TravelNode {
 
 /// Forwards committed commands to the registry, as the server does, and records them.
 struct ForwardingSink {
-    registry: FlowCoordinatorRegistry,
+    registries: Vec<FlowCoordinatorRegistry>,
     recording: Arc<RecordingCommandAndEffectHooks>,
 }
 
 impl CommittedCommandSink for ForwardingSink {
     fn apply_committed(&self, committed: CommittedFlowCommand) {
         self.recording.apply_committed(committed.clone());
-        self.registry.apply_committed(committed);
+        for registry in &self.registries {
+            registry.apply_committed(committed.clone());
+        }
     }
 
     fn finish_frame(&self, partition: PartitionId, position: &LogPosition) {
@@ -879,7 +897,7 @@ async fn a_value_offloaded_during_the_computation_is_staged_on_the_next_one() {
     let resetting = travel.reset(reset_to_time(target_time));
     let offload = async {
         opened.notified().await;
-        let value = travel.remove_superseded_value(run_id, old_value);
+        let value = travel.offload_superseded_value(run_id, old_value);
         history
             .removed_values
             .lock()
@@ -980,6 +998,93 @@ async fn concurrent_resets_of_one_run_are_serialized() {
     );
     assert_eq!(travel.run_record(run_id).current_attempt, 3);
     travel.assert_every_travel_verified(2);
+    travel.shutdown().await;
+}
+
+/// Two registries do not serialize their ResetFlows; the one computed at the older attempt is
+/// rejected, then computes again.
+#[tokio::test(start_paused = true)]
+async fn competing_resets_from_two_registries_compute_again_after_the_attempt_changes() {
+    let cluster = TestCluster::new();
+    let competing = Arc::new(ScriptedHistory::default());
+    let travel = TravelNode::start_with_registries(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        vec![local_opener(), competing.clone()],
+        FlowCoordinationConfig::default(),
+    )
+    .await;
+    let run_id = travel.start_flow(None).await;
+    travel.set_attribute("status", string_value("paid")).await;
+    let (opened, release) = competing.gate_next_open();
+    let competing_reset = travel.other_registries[0]
+        .reset_flow(TenantId::DEFAULT, reset(FlowResetType::Beginning, true));
+    let first_reset = async {
+        opened.notified().await;
+        let attempt = travel.reset(reset(FlowResetType::Beginning, false)).await;
+        release.notify_one();
+        attempt
+    };
+    let (competing_outcome, first_outcome) = tokio::join!(competing_reset, first_reset);
+    assert_eq!(first_outcome.expect("the first reset applies"), 2);
+    assert_eq!(
+        competing_outcome
+            .expect("the competing reset computes again and applies")
+            .run_attempt,
+        3
+    );
+    assert_eq!(
+        *competing.seen_attempts.lock().expect("attempt lock"),
+        vec![1, 2],
+        "the competing reset computed again on the first reset's attempt"
+    );
+    assert_eq!(travel.run_record(run_id).current_attempt, 3);
+    travel.assert_every_travel_verified(2);
+    travel.shutdown().await;
+}
+
+/// A Beginning reset replays a small checkpoint, but its large reapplied writes exceed the
+/// budget, so it stages nothing.
+#[tokio::test(start_paused = true)]
+async fn a_beginning_reset_that_holds_more_input_than_its_budget_fails_explicitly() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        local_opener(),
+        FlowCoordinationConfig {
+            time_travel_replay_memory_bytes: 256 << 10,
+            ..FlowCoordinationConfig::default()
+        },
+    )
+    .await;
+    let run_id = travel.start_flow(None).await;
+    for index in 0..8 {
+        travel
+            .set_attribute(
+                &format!("document-{index}"),
+                string_value(&"d".repeat(64 << 10)),
+            )
+            .await;
+    }
+    let error = travel
+        .reset(reset(FlowResetType::Beginning, true))
+        .await
+        .expect_err("eight 64 KiB writes do not fit in a 256 KiB budget");
+    assert_eq!(error.grpc_code(), grpc_code::RESOURCE_EXHAUSTED, "{error}");
+    let message = error.to_string();
+    assert!(
+        message.contains("external input")
+            && message.contains("history.timeTravelReplayMemoryBytes"),
+        "{message}"
+    );
+    assert_eq!(travel.committed_count(is_stage), 0, "nothing is staged");
+    let attempt = travel
+        .reset(reset(FlowResetType::Beginning, false))
+        .await
+        .expect("a reset that reapplies no writes fits");
+    assert_eq!(attempt, 2);
+    assert_eq!(travel.run_record(run_id).current_attempt, 2);
     travel.shutdown().await;
 }
 

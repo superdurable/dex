@@ -17,7 +17,8 @@ use dexzd_apply::{
 };
 use dexzd_keyspace::row_keys::{time_travel_staging_key, value_garbage_key};
 use dexzd_protocol::dexzd::v1::{
-    TimeTravelStageCommand, TimeTravelStagedChunk, TimeTravelStagedTarget,
+    CheckpointRunStatus, StoredValueId, TimeTravelStageCommand, TimeTravelStagedChunk,
+    TimeTravelStagedTarget, TimeTravelStagedValue,
 };
 
 /// Rows of these tables hold the attempt state and its values.
@@ -119,13 +120,70 @@ impl Harness {
         let Some(Command::TimeTravel(time_travel)) = &travel.command else {
             panic!("not a TimeTravel");
         };
-        let mut command = self.command(Command::TimeTravel(TimeTravelCommand {
-            staging_id: staging_id.to_vec(),
-            computed_through_seq: computed.computed_through_seq(),
-            ..time_travel.clone()
-        }));
-        command.expected_run_attempt = computed.run_attempt();
+        let body =
+            computed.time_travel_command(staging_id, time_travel.should_restore_running_as_pending);
+        self.apply_time_travel_at(body, computed.run_attempt())
+    }
+
+    /// Applies the TimeTravel `body` at `expected_run_attempt`.
+    fn apply_time_travel_at(
+        &mut self,
+        body: TimeTravelCommand,
+        expected_run_attempt: u32,
+    ) -> ApplyOutcome {
+        let mut command = self.command(Command::TimeTravel(body));
+        command.expected_run_attempt = expected_run_attempt;
         self.apply_command(command)
+    }
+
+    /// Applies the Stage commands `stages` at `expected_run_attempt` and returns each outcome.
+    fn apply_stages_at(
+        &mut self,
+        stages: Vec<TimeTravelStageCommand>,
+        expected_run_attempt: u32,
+    ) -> Vec<ApplyOutcome> {
+        stages
+            .into_iter()
+            .map(|stage| {
+                let mut command = self.command(Command::TimeTravelStage(stage));
+                command.expected_run_attempt = expected_run_attempt;
+                self.apply_command(command)
+            })
+            .collect()
+    }
+
+    /// Returns a well-formed chunk of staging `staging_id` for the run as it is now; chunk 0
+    /// carries a target at the run's first seq.
+    fn stage_chunk(
+        &self,
+        staging_id: &[u8],
+        chunk_index: u32,
+        is_last_chunk: bool,
+    ) -> TimeTravelStageCommand {
+        let record = self.run_record();
+        let target = TimeTravelStagedTarget {
+            selected_run_attempt: record.current_attempt,
+            run_attempt: record.current_attempt,
+            run_seq: 1,
+            run_status: Some(CheckpointRunStatus {
+                status: FlowStatus::Running as i32,
+                ..CheckpointRunStatus::default()
+            }),
+            request: Some(reset_to(FlowResetType::Beginning, false)),
+            expected_run_attempt: record.current_attempt,
+            computed_through_seq: record.next_run_seq - 1,
+            ..TimeTravelStagedTarget::default()
+        };
+        let chunk = TimeTravelStagedChunk {
+            target: (chunk_index == 0).then_some(target),
+            ..TimeTravelStagedChunk::default()
+        };
+        TimeTravelStageCommand {
+            staging_id: staging_id.to_vec(),
+            chunk_index,
+            is_last_chunk,
+            chunk: chunk.encode_to_vec(),
+        }
     }
 
     /// Returns a harness over a copy of this state.
@@ -137,6 +195,7 @@ impl Harness {
             flow_id: self.flow_id.clone(),
             run_id: self.run_id.clone(),
             is_storage_recount_checked: self.is_storage_recount_checked,
+            offloaded_value_ids: self.offloaded_value_ids.clone(),
         }
     }
 
@@ -194,14 +253,38 @@ impl Harness {
             .collect()
     }
 
-    /// Removes every row of a superseded value from the local store and returns the value.
-    fn remove_superseded_value(&mut self, value_id: ValueId) -> Value {
+    /// Removes a superseded value's value row, as offloading does, keeping its birth and
+    /// garbage rows; returns the value.
+    fn offload_superseded_value(&mut self, value_id: ValueId) -> Value {
+        let run_id = self.harness_run_id();
+        let flow_hash = self.context.flow_hash;
+        assert!(
+            self.value_birth(value_id).garbage_seq > 0,
+            "only a superseded value leaves the store"
+        );
+        let value_row = self
+            .state
+            .rows
+            .remove(&(
+                ColumnFamily::Value,
+                value_row_key(flow_hash, run_id, RunTable::Value, value_id),
+            ))
+            .expect("the value row exists");
+        self.offloaded_value_ids
+            .insert((value_id.run_seq, value_id.index_in_command));
+        dexzd_protocol::dexzd::v1::ValueRecord::decode(value_row.as_slice())
+            .expect("the value row decodes")
+            .value
+            .expect("the value row holds a value")
+    }
+
+    /// Removes every row of a superseded value, its birth row too, as window pruning does.
+    fn prune_superseded_value(&mut self, value_id: ValueId) {
         let run_id = self.harness_run_id();
         let flow_hash = self.context.flow_hash;
         let garbage_seq = self.value_birth(value_id).garbage_seq;
         assert!(garbage_seq > 0, "only a superseded value leaves the store");
-        let value_row = self
-            .state
+        self.state
             .rows
             .remove(&(
                 ColumnFamily::Value,
@@ -218,10 +301,6 @@ impl Harness {
                 .expect("the value's row exists");
         }
         self.restate_storage_totals();
-        dexzd_protocol::dexzd::v1::ValueRecord::decode(value_row.as_slice())
-            .expect("the value row decodes")
-            .value
-            .expect("the value row holds a value")
     }
 
     /// Removes the history record at `seq` from the local store.
@@ -329,6 +408,7 @@ fn an_unstaged_log_record_restores_what_its_staged_result_restores() {
         flow_id: harness.flow_id.clone(),
         run_id: harness.run_id.clone(),
         is_storage_recount_checked: true,
+        offloaded_value_ids: BTreeSet::new(),
     }
     .restored_rows();
     assert_eq!(harness.restored_rows(), unstaged_rows);
@@ -411,7 +491,7 @@ fn a_value_missing_from_the_staged_result_is_rejected_by_id_then_restored() {
     let mut removed = RemovedValues::default();
     removed
         .values
-        .insert(old_value, harness.remove_superseded_value(old_value));
+        .insert(old_value, harness.offload_superseded_value(old_value));
     let rejected = harness.apply_staged(&travel, &first, b"first-staging");
     assert!(is_error(&rejected.reply, ABORTED), "{:?}", rejected.reply);
     let old_reference = harness.value_reference(old_value.run_seq, old_value.index_in_command);
@@ -467,7 +547,7 @@ fn a_value_no_source_holds_aborts_the_computation() {
     let mut removed = RemovedValues::default();
     removed
         .values
-        .insert(old_value, harness.remove_superseded_value(old_value));
+        .insert(old_value, harness.offload_superseded_value(old_value));
     let travel = harness.travel_command(reset_to_time(harness.history_timestamp(target_seq)));
     let TimeTravelComputation::Rejected(abort) =
         harness.compute_travel(&travel, &NoOffloadedValues, u64::MAX)
@@ -586,19 +666,6 @@ fn a_replay_over_its_memory_budget_is_rejected() {
     ));
 }
 
-fn stage_chunk(staging_id: &[u8], chunk_index: u32, is_last_chunk: bool) -> TimeTravelStageCommand {
-    let chunk = TimeTravelStagedChunk {
-        target: (chunk_index == 0).then(TimeTravelStagedTarget::default),
-        ..TimeTravelStagedChunk::default()
-    };
-    TimeTravelStageCommand {
-        staging_id: staging_id.to_vec(),
-        chunk_index,
-        is_last_chunk,
-        chunk: chunk.encode_to_vec(),
-    }
-}
-
 /// Chunks of one staging arrive in order; a new staging drops the old one; a TimeTravel needs
 /// its complete staging.
 #[test]
@@ -606,7 +673,7 @@ fn staging_chunks_follow_in_order_and_a_new_staging_replaces_the_old() {
     let mut harness = Harness::new("order-1");
     harness.start(start_request("start"));
     let next_seq = harness.run_record().next_run_seq;
-    let accepted = harness.apply_stage(stage_chunk(b"first", 0, false));
+    let accepted = harness.apply_stage(harness.stage_chunk(b"first", 0, false));
     assert!(matches!(
         accepted.reply.reply,
         Some(command_reply::Reply::Ok(_))
@@ -617,15 +684,15 @@ fn staging_chunks_follow_in_order_and_a_new_staging_replaces_the_old() {
         "staging takes no seq"
     );
     assert_eq!(harness.staging_chunk_indexes(), vec![0]);
-    let out_of_order = harness.apply_stage(stage_chunk(b"first", 2, true));
+    let out_of_order = harness.apply_stage(harness.stage_chunk(b"first", 2, true));
     assert!(
         is_error(&out_of_order.reply, ABORTED),
         "{:?}",
         out_of_order.reply
     );
-    let unknown = harness.apply_stage(stage_chunk(b"other", 1, true));
+    let unknown = harness.apply_stage(harness.stage_chunk(b"other", 1, true));
     assert!(is_error(&unknown.reply, ABORTED), "{:?}", unknown.reply);
-    let mut missing_target = stage_chunk(b"first", 1, true);
+    let mut missing_target = harness.stage_chunk(b"first", 1, true);
     missing_target.chunk = TimeTravelStagedChunk {
         target: Some(TimeTravelStagedTarget::default()),
         ..TimeTravelStagedChunk::default()
@@ -635,7 +702,7 @@ fn staging_chunks_follow_in_order_and_a_new_staging_replaces_the_old() {
         &harness.apply_stage(missing_target).reply,
         INVALID_ARGUMENT
     ));
-    let mut undecodable = stage_chunk(b"first", 1, true);
+    let mut undecodable = harness.stage_chunk(b"first", 1, true);
     undecodable.chunk = vec![0xff, 0xff, 0xff];
     assert!(is_error(
         &harness.apply_stage(undecodable).reply,
@@ -656,13 +723,13 @@ fn staging_chunks_follow_in_order_and_a_new_staging_replaces_the_old() {
     assert!(error_message(&incomplete.reply).contains("is not complete"));
     assert!(
         harness
-            .apply_stage(stage_chunk(b"first", 1, false))
+            .apply_stage(harness.stage_chunk(b"first", 1, false))
             .writes
             .len()
             > 1
     );
     assert_eq!(harness.staging_chunk_indexes(), vec![0, 1]);
-    let replacing = harness.apply_stage(stage_chunk(b"second", 0, true));
+    let replacing = harness.apply_stage(harness.stage_chunk(b"second", 0, true));
     assert!(matches!(
         replacing.reply.reply,
         Some(command_reply::Reply::Ok(_))
@@ -675,7 +742,7 @@ fn staging_chunks_follow_in_order_and_a_new_staging_replaces_the_old() {
     assert_eq!(staging.staging_id, b"second".to_vec());
     assert!(staging.is_complete);
     assert_eq!(staging.chunk_count, 1);
-    let after_complete = harness.apply_stage(stage_chunk(b"second", 1, true));
+    let after_complete = harness.apply_stage(harness.stage_chunk(b"second", 1, true));
     assert!(is_error(&after_complete.reply, ABORTED));
 }
 
@@ -685,7 +752,7 @@ fn staging_chunks_follow_in_order_and_a_new_staging_replaces_the_old() {
 fn an_abandoned_staging_is_deleted_after_ten_idle_minutes() {
     let mut harness = Harness::new("order-1");
     harness.start(start_request("start"));
-    harness.apply_stage(stage_chunk(b"abandoned", 0, false));
+    harness.apply_stage(harness.stage_chunk(b"abandoned", 0, false));
     harness.now_micros += 9 * MINUTE;
     harness.set_attribute("note", string_value("9 minutes"), "set-9");
     assert_eq!(harness.staging_chunk_indexes(), vec![0]);
@@ -701,7 +768,7 @@ fn an_abandoned_staging_is_deleted_after_ten_idle_minutes() {
 fn run_purge_deletes_the_staging() {
     let mut harness = Harness::new("order-1");
     harness.start(start_request("start"));
-    harness.apply_stage(stage_chunk(b"abandoned", 0, false));
+    harness.apply_stage(harness.stage_chunk(b"abandoned", 0, false));
     harness.apply(Command::FlowStop(FlowStopCommand {
         request: Some(StopFlowRequest {
             flow_id: "order-1".to_owned(),
@@ -730,3 +797,6 @@ fn run_purge_deletes_the_staging() {
             .contains_key(&(ColumnFamily::Value, staging_key))
     );
 }
+
+#[path = "time_travel_staging/staged_result_checks.rs"]
+mod staged_result_checks;

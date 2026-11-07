@@ -18,7 +18,9 @@ use prost::Message;
 use super::attempt_scope::{AttemptRow, decode_timer_id, read_attempt_rows, run_status_of};
 use super::lineage::{Lineage, LocalHistorySource, genesis_seq};
 use super::reset_target::resolve_target;
-use super::state_rebuild::{HistoryPoint, RebuiltAttempt, ReplayResources, rebuild_attempt_state};
+use super::state_rebuild::{
+    HistoryPoint, RebuiltAttempt, ReplayMemoryBudget, ReplayResources, rebuild_attempt_state,
+};
 use super::time_travel::staged_attempt_state;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
@@ -193,7 +195,7 @@ fn rebuild_time_travel_target(
         target.point,
         ReplayResources {
             offloaded_values: &NoOffloadedValues,
-            memory_budget_bytes: u64::MAX,
+            memory_budget: &ReplayMemoryBudget::unlimited(),
         },
     )?
     else {

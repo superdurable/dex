@@ -66,6 +66,17 @@ pub(super) fn fork_attempt(
         reapplied_inputs,
         ..
     } = result;
+    let reapplied_inputs = reapplied_inputs
+        .into_iter()
+        .map(|input| {
+            input.command.ok_or_else(|| ApplyError::InvariantViolation {
+                detail: format!(
+                    "reapplied input of run seq {} has no command",
+                    input.run_seq
+                ),
+            })
+        })
+        .collect::<Result<Vec<FlowCommand>, _>>()?;
     let restored_closing = restored_closing(&restored_status, &target)?;
     let previous_rows = read_attempt_rows(transaction, cursor.rows)?;
     let pending_sync_keys = pending_attribute_sync_keys(transaction, cursor.rows)?;

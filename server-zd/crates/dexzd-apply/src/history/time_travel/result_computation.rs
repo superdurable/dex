@@ -15,16 +15,21 @@ use std::ops::RangeInclusive;
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_protocol::dex::{ErrorSubStatus, ResetFlowRequest};
 use dexzd_protocol::dexzd::v1::{
-    CommandReply, FlowCommand, RunRecord, TimeTravelStageCommand, flow_command::Command,
+    CommandReply, FlowCommand, RunRecord, TimeTravelCommand, TimeTravelStageCommand,
+    TimeTravelStagedInput, flow_command::Command,
 };
+use prost::Message;
 
 use super::TimeTravelResult;
-use super::staging::staged_chunks;
+use super::staging::{staged_chunks, staged_result_bytes};
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::command_handlers::run_cursor::flow_not_found_reply;
 use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, Lineage};
 use crate::history::reset_target::resolve_target;
-use crate::history::state_rebuild::{ReplayResources, rebuild_attempt_state};
+use crate::history::state_rebuild::{
+    ReplayMemoryBudget, ReplayResources, encoded_bytes, rebuild_attempt_state,
+    replay_memory_exceeded_reply,
+};
 use crate::state_access::{FlowTransaction, RunRows, read_flow_directory};
 use crate::values::OffloadedValues;
 use crate::{ApplyContext, ApplyError, FlowStateReader};
@@ -47,7 +52,8 @@ pub struct TimeTravelComputationRequest<'request> {
     pub reset: &'request ResetFlowRequest,
     /// The owner's current time, which HistoryEventTime targets are checked against.
     pub now_micros: i64,
-    /// Largest number of key and value bytes the replayed writes may hold in memory.
+    /// Largest number of bytes the computation may hold in memory, for replay, rows, values,
+    /// input, and staging.
     pub replay_memory_budget_bytes: u64,
 }
 
@@ -63,6 +69,7 @@ pub enum TimeTravelComputation {
 /// A computed TimeTravel result and the run state it was computed from.
 #[derive(Debug)]
 pub struct ComputedTimeTravel {
+    request: ResetFlowRequest,
     run_attempt: u32,
     computed_through_seq: u64,
     result: TimeTravelResult,
@@ -82,14 +89,39 @@ impl ComputedTimeTravel {
 
     /// Returns the TimeTravelStage commands that stage the result under `staging_id`.
     ///
-    /// Each chunk holds at most 8 MiB of entries, or one larger entry.
+    /// Chunks hold at most 8 MiB of entries or one larger entry; chunk 0 binds the TimeTravel.
     ///
     /// Returns [`StagedEntryTooLarge`] when an entry cannot fit in one log record.
     pub fn stage_commands(
         &self,
         staging_id: &[u8],
     ) -> Result<Vec<TimeTravelStageCommand>, StagedEntryTooLarge> {
-        staged_chunks(staging_id, &self.result)
+        staged_chunks(
+            staging_id,
+            &self.result,
+            &self.request,
+            self.run_attempt,
+            self.computed_through_seq,
+        )
+    }
+
+    /// Returns the TimeTravel command that applies the result staged under `staging_id`.
+    ///
+    /// Apply checks its request, seq, and target point against the staging. Propose it at
+    /// [`Self::run_attempt`].
+    pub fn time_travel_command(
+        &self,
+        staging_id: &[u8],
+        should_restore_running_as_pending: bool,
+    ) -> TimeTravelCommand {
+        TimeTravelCommand {
+            request: Some(self.request.clone()),
+            should_restore_running_as_pending,
+            staging_id: staging_id.to_vec(),
+            computed_through_seq: self.computed_through_seq,
+            target_run_attempt: self.result.target.point.attempt,
+            target_run_seq: self.result.target.point.seq,
+        }
     }
 
     /// Returns the IDs of the values the result stages because the store lacked them.
@@ -147,11 +179,12 @@ pub fn compute_time_travel(
         )));
     }
     let computed_through_seq = record.next_run_seq.saturating_sub(1);
+    let memory_budget = ReplayMemoryBudget::new(request.replay_memory_budget_bytes);
     let resources = ReplayResources {
         offloaded_values: sources.offloaded_values,
-        memory_budget_bytes: request.replay_memory_budget_bytes,
+        memory_budget: &memory_budget,
     };
-    let result = compute_result(
+    let result = match compute_result(
         &transaction,
         sources.history,
         rows,
@@ -160,15 +193,28 @@ pub fn compute_time_travel(
         request.now_micros,
         computed_through_seq,
         resources,
-    )?;
-    Ok(match result {
-        Ok(result) => TimeTravelComputation::Computed(Box::new(ComputedTimeTravel {
+    )? {
+        Ok(result) => result,
+        Err(reply) => return Ok(TimeTravelComputation::Rejected(reply)),
+    };
+    // Staging encodes every entry once more.
+    if !memory_budget.reserve(staged_result_bytes(&result)) {
+        return Ok(TimeTravelComputation::Rejected(
+            replay_memory_exceeded_reply(
+                result.target.point,
+                memory_budget.limit_bytes(),
+                "the staged result",
+            ),
+        ));
+    }
+    Ok(TimeTravelComputation::Computed(Box::new(
+        ComputedTimeTravel {
+            request: request.reset.clone(),
             run_attempt: record.current_attempt,
             computed_through_seq,
             result,
-        })),
-        Err(reply) => TimeTravelComputation::Rejected(reply),
-    })
+        },
+    )))
 }
 
 /// Computes the result of `request` through `computed_through_seq` on the state `transaction`
@@ -210,19 +256,31 @@ pub(super) fn compute_result(
         return Ok(Err(reply));
     }
     let reapplied_inputs = if is_reapplying {
-        collect_external_inputs(
+        match collect_external_inputs(
             history,
             &lineage,
             target.point.seq + 1..=computed_through_seq,
             record.window_start_seq,
-        )?
-        .map_err(|missing_seq| ApplyError::InvariantViolation {
-            detail: format!(
-                "history of run {} has no record at run seq {missing_seq}, between the time \
-                 travel target and run seq {computed_through_seq}",
-                rows.run_id
-            ),
-        })?
+            resources.memory_budget,
+        )? {
+            Ok(inputs) => inputs,
+            Err(InputCollectionFailure::MemoryExceeded) => {
+                return Ok(Err(replay_memory_exceeded_reply(
+                    target.point,
+                    resources.memory_budget.limit_bytes(),
+                    "the external input reapplied after the target",
+                )));
+            }
+            Err(InputCollectionFailure::MissingRecord(missing_seq)) => {
+                return Err(ApplyError::InvariantViolation {
+                    detail: format!(
+                        "history of run {} has no record at run seq {missing_seq}, between the \
+                         time travel target and run seq {computed_through_seq}",
+                        rows.run_id
+                    ),
+                });
+            }
+        }
     } else {
         Vec::new()
     };
@@ -306,21 +364,33 @@ pub(super) fn pruned_input_rejection(
     })
 }
 
-/// External input of the lineage with seq in `seqs`, in seq order. StopFlow is never input.
+/// Why [`collect_external_inputs`] collected no input.
+pub(super) enum InputCollectionFailure {
+    /// `history` lacks the record at this seq, which is at or after the window start.
+    MissingRecord(u64),
+    /// Holding the input would exceed the computation's memory budget.
+    MemoryExceeded,
+}
+
+/// External input of the lineage with seq in `seqs`, in (run seq, index) order. StopFlow is
+/// never input.
 ///
-/// A TimeTravel record contributes the input it reapplied.
+/// A TimeTravel record contributes the input it reapplied. Each input reserves its bytes in
+/// `memory_budget` first.
 ///
 /// Every seq from the window start `window_start_seq` on has a record; pruning removed earlier
 /// ones.
 ///
-/// Returns `Err(seq)` with the first seq of `seqs` from the window start on whose record
-/// `history` lacks. Returns an error when a record cannot be read.
+/// Returns [`InputCollectionFailure::MissingRecord`] with the first seq of `seqs` from the
+/// window start on whose record `history` lacks, or [`InputCollectionFailure::MemoryExceeded`].
+/// Returns an error when a record cannot be read.
 pub(super) fn collect_external_inputs(
     history: &dyn HistorySource,
     lineage: &Lineage,
     seqs: RangeInclusive<u64>,
     window_start_seq: u64,
-) -> Result<Result<Vec<FlowCommand>, u64>, ApplyError> {
+    memory_budget: &ReplayMemoryBudget,
+) -> Result<Result<Vec<TimeTravelStagedInput>, InputCollectionFailure>, ApplyError> {
     let mut inputs = Vec::new();
     let mut expected_seq = (*seqs.start()).max(window_start_seq);
     let last_seq = *seqs.end();
@@ -328,7 +398,7 @@ pub(super) fn collect_external_inputs(
         let record = record?;
         if record.seq >= window_start_seq {
             if record.seq != expected_seq {
-                return Ok(Err(expected_seq));
+                return Ok(Err(InputCollectionFailure::MissingRecord(expected_seq)));
             }
             expected_seq += 1;
         }
@@ -338,19 +408,36 @@ pub(super) fn collect_external_inputs(
         let Some(command) = record.command else {
             continue;
         };
-        if matches!(command.command, Some(Command::TimeTravel(_))) {
-            inputs.extend(record.reapplied_inputs);
+        let record_inputs = if matches!(command.command, Some(Command::TimeTravel(_))) {
+            record.reapplied_inputs
         } else if is_reapplied_input(&command) {
-            inputs.push(command);
+            vec![command]
+        } else {
+            continue;
+        };
+        for (index, input) in record_inputs.into_iter().enumerate() {
+            if !memory_budget.reserve(encoded_bytes(input.encoded_len())) {
+                return Ok(Err(InputCollectionFailure::MemoryExceeded));
+            }
+            let index_in_record =
+                u32::try_from(index).map_err(|_| ApplyError::InvariantViolation {
+                    detail: format!("history record {} holds over 2^32 inputs", record.seq),
+                })?;
+            inputs.push(TimeTravelStagedInput {
+                run_seq: record.seq,
+                index_in_record,
+                command: Some(input),
+            });
         }
     }
     if expected_seq <= last_seq {
-        return Ok(Err(expected_seq));
+        return Ok(Err(InputCollectionFailure::MissingRecord(expected_seq)));
     }
     Ok(Ok(inputs))
 }
 
-fn is_reapplied_input(command: &FlowCommand) -> bool {
+/// Whether `command` is a kind of external input that a time travel reapplies.
+pub(super) fn is_reapplied_input(command: &FlowCommand) -> bool {
     matches!(
         command.command,
         Some(

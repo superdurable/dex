@@ -370,6 +370,10 @@ message TimeTravelCommand {
   // Last run seq that the staged result covers. Apply reapplies the external input recorded
   // after it.
   uint64 computed_through_seq = 4;
+  // Target point of the staged result: its run attempt and run seq. Apply checks them against
+  // the staging.
+  uint32 target_run_attempt = 5;
+  uint64 target_run_seq = 6;
 }
 
 // One chunk of a TimeTravel result the owner computed. It records no history and takes no run seq.

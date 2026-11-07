@@ -261,13 +261,14 @@ pub struct HistoryConfig {
     /// Defaults to 256 MiB per run; cap on superseded values retained for reconstruction within the window.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub max_retained_superseded_bytes: u64,
-    /// Defaults to 1 GiB; most key and value bytes that one Time Travel holds in memory while
-    /// it replays history from the checkpoint before its target.
+    /// Defaults to 1 GiB; most bytes that one Time Travel computation holds in memory: the
+    /// writes it replays from the checkpoint before its target, the rebuilt state and its
+    /// values, the external input it reapplies, and the staged result.
     ///
     /// The lease holder computes each Time Travel and replays up to
-    /// `checkpoint_command_threshold` commands. A ResetFlow whose replay needs more fails with
-    /// RESOURCE_EXHAUSTED; choose a later target point or raise this value. Must be positive.
-    /// Changes apply to later ResetFlow requests.
+    /// `checkpoint_command_threshold` commands. A ResetFlow whose computation needs more fails
+    /// with RESOURCE_EXHAUSTED; choose a later target point, skip reapplying writes, or raise
+    /// this value. Must be positive. Changes apply to later ResetFlow requests.
     pub time_travel_replay_memory_bytes: u64,
     /// Defaults to false; experimental switch that offloads run history to object storage.
     /// Do not enable it until the release notes announce the feature: enabling it early can grow

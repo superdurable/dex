@@ -8,25 +8,29 @@
 
 //! Staged TimeTravel results: the TimeTravelStage command, its chunk rows, and their cleanup.
 
-use dexzd_keyspace::ColumnFamily;
+use std::collections::BTreeSet;
+
 use dexzd_keyspace::row_keys::time_travel_staging_key;
-use dexzd_protocol::dex::ErrorSubStatus;
+use dexzd_keyspace::{ColumnFamily, RunTable};
+use dexzd_protocol::dex::{ErrorSubStatus, FlowStatus, ResetFlowRequest};
 use dexzd_protocol::dexzd::v1::{
-    CommandReply, TimeTravelStageCommand, TimeTravelStagedChunk, TimeTravelStagedTarget,
-    TimeTravelStagingState,
+    AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, ChannelWaiterRecord, CheckpointRow,
+    CommandReply, LockRecord, RunRecord, StepCounterRecord, StepExecutionRecord,
+    TimeTravelStageCommand, TimeTravelStagedChunk, TimeTravelStagedTarget, TimeTravelStagingState,
+    TimerRecord,
 };
 use prost::Message;
 
 use super::TimeTravelResult;
-use super::result_computation::StagedEntryTooLarge;
+use super::result_computation::{StagedEntryTooLarge, is_reapplied_input};
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::{CommandScope, HandlerOutput, HandlerResult};
-use crate::history::attempt_scope::{AttemptRow, hex};
-use crate::history::state_rebuild::{HistoryPoint, RebuiltAttempt};
+use crate::history::attempt_scope::{ATTEMPT_SCOPED_TABLES, AttemptRow, hex, holder_rows};
+use crate::history::state_rebuild::{HistoryPoint, RebuiltAttempt, encoded_bytes};
 use crate::state_access::{FlowTransaction, RunRows};
-use crate::values::reconcile_run_storage;
+use crate::values::{held_table_values, reconcile_run_storage};
 
 /// Chunks stop growing past this size, far below the 32 MiB log record limit, unless one entry
 /// is larger.
@@ -40,6 +44,9 @@ const MAX_STAGE_CHUNK_BYTES: usize = 32 * 1024 * 1024 - 64 * 1024;
 const IDLE_STAGING_MICROS: i64 = 10 * 60 * 1_000_000;
 
 /// Applies one TimeTravelStage chunk. It records no history and takes no run seq.
+///
+/// A malformed chunk is rejected before anything is stored, so a later TimeTravel never reads
+/// one.
 pub(crate) fn apply_time_travel_stage(
     transaction: &mut FlowTransaction<'_>,
     scope: &CommandScope<'_>,
@@ -49,7 +56,7 @@ pub(crate) fn apply_time_travel_stage(
         Ok(cursor) => cursor,
         Err(reply) => return Ok(HandlerResult::Rejected(reply)),
     };
-    if let Err(reply) = validate_stage_command(command) {
+    if let Err(reply) = validate_stage_command(command, &cursor.record) {
         return Ok(HandlerResult::Rejected(reply));
     }
     let staging = match cursor.record.time_travel_staging.take() {
@@ -106,27 +113,164 @@ pub(crate) fn apply_time_travel_stage(
     }))
 }
 
-/// Rejects a chunk that does not decode, and a target outside chunk 0 or missing from it.
-fn validate_stage_command(command: &TimeTravelStageCommand) -> Result<(), CommandReply> {
-    let invalid = |detail: String| {
-        error_reply(
-            grpc_code::INVALID_ARGUMENT,
-            ErrorSubStatus::Uncategorized,
-            format!("invalid time travel staging chunk: {detail}"),
-        )
-    };
+/// Checks a chunk before storing it: it decodes, only chunk 0 has a target, and entries are
+/// well formed.
+///
+/// Returns ABORTED when the run attempt changed since the computation, and INVALID_ARGUMENT for
+/// a malformed chunk.
+fn validate_stage_command(
+    command: &TimeTravelStageCommand,
+    record: &RunRecord,
+) -> Result<(), CommandReply> {
     if command.staging_id.is_empty() {
-        return Err(invalid("the staging ID is empty".to_owned()));
+        return Err(invalid_staging_reply("the staging ID is empty"));
     }
-    let chunk = TimeTravelStagedChunk::decode(command.chunk.as_slice())
-        .map_err(|error| invalid(format!("the chunk does not decode: {error}")))?;
+    let chunk = TimeTravelStagedChunk::decode(command.chunk.as_slice()).map_err(|error| {
+        invalid_staging_reply(&format!(
+            "chunk {} does not decode: {error}",
+            command.chunk_index
+        ))
+    })?;
     if chunk.target.is_some() != (command.chunk_index == 0) {
-        return Err(invalid(format!(
+        return Err(invalid_staging_reply(&format!(
             "chunk {} must carry the target exactly when it is chunk 0",
             command.chunk_index
         )));
     }
+    if let Some(target) = &chunk.target {
+        validate_staged_target(target, record)?;
+    }
+    validate_staged_entries(&chunk).map_err(|detail| {
+        invalid_staging_reply(&format!("chunk {}: {detail}", command.chunk_index))
+    })
+}
+
+/// Checks the target of chunk 0 against the run it stages for.
+fn validate_staged_target(
+    target: &TimeTravelStagedTarget,
+    record: &RunRecord,
+) -> Result<(), CommandReply> {
+    if target.expected_run_attempt != record.current_attempt {
+        return Err(error_reply(
+            grpc_code::ABORTED,
+            ErrorSubStatus::Uncategorized,
+            format!(
+                "the time travel result was computed at run attempt {}, but the run is at run \
+                 attempt {}",
+                target.expected_run_attempt, record.current_attempt
+            ),
+        ));
+    }
+    let invalid = |detail: String| Err(invalid_staging_reply(&format!("the target {detail}")));
+    if target.request.is_none() {
+        return invalid("has no request".to_owned());
+    }
+    let last_seq = record.next_run_seq.saturating_sub(1);
+    if target.selected_run_attempt == 0 || target.selected_run_attempt > record.current_attempt {
+        return invalid(format!(
+            "selects run attempt {} of attempts 1 to {}",
+            target.selected_run_attempt, record.current_attempt
+        ));
+    }
+    if target.run_attempt == 0 || target.run_attempt > target.selected_run_attempt {
+        return invalid(format!(
+            "point is in run attempt {}, outside the lineage of run attempt {}",
+            target.run_attempt, target.selected_run_attempt
+        ));
+    }
+    if target.run_seq == 0
+        || target.run_seq > target.computed_through_seq
+        || target.computed_through_seq > last_seq
+    {
+        return invalid(format!(
+            "point at run seq {} and computed seq {} do not fit the run's seqs 1 to {last_seq}",
+            target.run_seq, target.computed_through_seq
+        ));
+    }
+    let Some(run_status) = &target.run_status else {
+        return invalid("has no run status".to_owned());
+    };
+    let is_known_status = FlowStatus::try_from(run_status.status)
+        .is_ok_and(|status| status != FlowStatus::Unspecified);
+    if !is_known_status {
+        return invalid(format!("has run status {}", run_status.status));
+    }
+    held_table_values(&holder_rows(&[], run_status))
+        .map_err(|error| invalid_staging_reply(&format!("run status is malformed: {error}")))?;
     Ok(())
+}
+
+/// Checks the rows, values, and inputs of one chunk.
+///
+/// Returns what is malformed.
+fn validate_staged_entries(chunk: &TimeTravelStagedChunk) -> Result<(), String> {
+    for row in &chunk.rows {
+        validate_staged_row(row)?;
+    }
+    held_table_values(&chunk.rows).map_err(|error| format!("a row is malformed: {error}"))?;
+    let mut value_ids = BTreeSet::new();
+    for value in &chunk.values {
+        let (Some(value_id), Some(_)) = (value.value_id, &value.value) else {
+            return Err("a staged value has no ID or no value".to_owned());
+        };
+        if !value_ids.insert((value_id.run_seq, value_id.index_in_command)) {
+            return Err(format!(
+                "value ({}, {}) is staged twice",
+                value_id.run_seq, value_id.index_in_command
+            ));
+        }
+    }
+    let mut previous_position = None;
+    for input in &chunk.reapplied_inputs {
+        if !input.command.as_ref().is_some_and(is_reapplied_input) {
+            return Err(format!(
+                "the input of run seq {} is not a reapplied kind of command",
+                input.run_seq
+            ));
+        }
+        let position = (input.run_seq, input.index_in_record);
+        if input.run_seq == 0 || previous_position.is_some_and(|previous| previous >= position) {
+            return Err(format!(
+                "the input at run seq {} index {} is out of order",
+                input.run_seq, input.index_in_record
+            ));
+        }
+        previous_position = Some(position);
+    }
+    Ok(())
+}
+
+/// Checks that `row` belongs to an attempt-scoped table, has a key, and decodes as its record.
+fn validate_staged_row(row: &CheckpointRow) -> Result<(), String> {
+    let table = u8::try_from(row.table)
+        .ok()
+        .and_then(|byte| RunTable::from_byte(byte).ok())
+        .filter(|table| ATTEMPT_SCOPED_TABLES.contains(table))
+        .ok_or_else(|| format!("a row has table {} outside the attempt", row.table))?;
+    if row.key_suffix.is_empty() {
+        return Err(format!("a {table:?} row has no key"));
+    }
+    let value = row.value.as_slice();
+    let decoded = match table {
+        RunTable::Attribute => AttributeRecord::decode(value).map(drop),
+        RunTable::ChannelMessage => ChannelMessageRecord::decode(value).map(drop),
+        RunTable::ChannelMeta => ChannelMetaRecord::decode(value).map(drop),
+        RunTable::StepExecution => StepExecutionRecord::decode(value).map(drop),
+        RunTable::StepCounter => StepCounterRecord::decode(value).map(drop),
+        RunTable::LockTable => LockRecord::decode(value).map(drop),
+        RunTable::Waiter => ChannelWaiterRecord::decode(value).map(drop),
+        RunTable::Timer => TimerRecord::decode(value).map(drop),
+        other => return Err(format!("a row has table {other:?} outside the attempt")),
+    };
+    decoded.map_err(|error| format!("a {table:?} row does not decode: {error}"))
+}
+
+fn invalid_staging_reply(detail: &str) -> CommandReply {
+    error_reply(
+        grpc_code::INVALID_ARGUMENT,
+        ErrorSubStatus::Uncategorized,
+        format!("invalid time travel staging chunk: {detail}"),
+    )
 }
 
 fn out_of_order_chunk_reply(
@@ -272,12 +416,37 @@ fn delete_staging_rows(
     }
 }
 
+/// Returns the encoded bytes of the entries that staging `result` writes into its chunks.
+pub(super) fn staged_result_bytes(result: &TimeTravelResult) -> u64 {
+    let rows = result
+        .rows
+        .iter()
+        .map(|row| entry_bytes(row.to_checkpoint_row().encoded_len()));
+    let values = result
+        .unstored_values
+        .iter()
+        .map(|value| entry_bytes(value.encoded_len()));
+    let inputs = result
+        .reapplied_inputs
+        .iter()
+        .map(|input| entry_bytes(input.encoded_len()));
+    rows.chain(values)
+        .chain(inputs)
+        .map(encoded_bytes)
+        .fold(0, u64::saturating_add)
+}
+
 /// Splits `result` into the TimeTravelStage commands that stage it under `staging_id`.
+///
+/// Chunk 0 records `request`, `expected_run_attempt`, and `computed_through_seq`.
 ///
 /// Returns [`StagedEntryTooLarge`] when an entry cannot fit in one command.
 pub(super) fn staged_chunks(
     staging_id: &[u8],
     result: &TimeTravelResult,
+    request: &ResetFlowRequest,
+    expected_run_attempt: u32,
+    computed_through_seq: u64,
 ) -> Result<Vec<TimeTravelStageCommand>, StagedEntryTooLarge> {
     let target = TimeTravelStagedTarget {
         selected_run_attempt: result.selected_attempt,
@@ -286,9 +455,12 @@ pub(super) fn staged_chunks(
         last_event_id: result.target.last_event_id,
         close_history_message: result.target.close_history_message.clone(),
         run_status: Some(result.run_status.clone()),
+        request: Some(request.clone()),
+        expected_run_attempt,
+        computed_through_seq,
     };
     let mut builder = ChunkBuilder {
-        chunks: Vec::new(),
+        encoded_chunks: Vec::new(),
         current: TimeTravelStagedChunk::default(),
         current_bytes: entry_bytes(target.encoded_len()),
     };
@@ -307,23 +479,24 @@ pub(super) fn staged_chunks(
             chunk.reapplied_inputs.push(input.clone());
         })?;
     }
-    let chunks = builder.finish();
-    let chunk_count = chunks.len();
-    Ok(chunks
+    let encoded_chunks = builder.finish();
+    let chunk_count = encoded_chunks.len();
+    Ok(encoded_chunks
         .into_iter()
         .enumerate()
         .map(|(chunk_index, chunk)| TimeTravelStageCommand {
             staging_id: staging_id.to_vec(),
             chunk_index: u32::try_from(chunk_index).expect("a staging has fewer than 2^32 chunks"),
             is_last_chunk: chunk_index + 1 == chunk_count,
-            chunk: chunk.encode_to_vec(),
+            chunk,
         })
         .collect())
 }
 
-/// Packs entries into chunks of about [`STAGE_CHUNK_TARGET_BYTES`], in order.
+/// Packs entries into chunks of about [`STAGE_CHUNK_TARGET_BYTES`], in order, and encodes each
+/// chunk once it is full.
 struct ChunkBuilder {
-    chunks: Vec<TimeTravelStagedChunk>,
+    encoded_chunks: Vec<Vec<u8>>,
     current: TimeTravelStagedChunk,
     current_bytes: usize,
 }
@@ -344,7 +517,8 @@ impl ChunkBuilder {
             });
         }
         if self.current_bytes > 0 && self.current_bytes + size_bytes > STAGE_CHUNK_TARGET_BYTES {
-            self.chunks.push(std::mem::take(&mut self.current));
+            let full = std::mem::take(&mut self.current);
+            self.encoded_chunks.push(full.encode_to_vec());
             self.current_bytes = 0;
         }
         push(&mut self.current);
@@ -352,9 +526,9 @@ impl ChunkBuilder {
         Ok(())
     }
 
-    fn finish(mut self) -> Vec<TimeTravelStagedChunk> {
-        self.chunks.push(self.current);
-        self.chunks
+    fn finish(mut self) -> Vec<Vec<u8>> {
+        self.encoded_chunks.push(self.current.encode_to_vec());
+        self.encoded_chunks
     }
 }
 

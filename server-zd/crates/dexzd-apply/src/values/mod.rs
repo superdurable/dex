@@ -498,33 +498,23 @@ pub(crate) fn is_stored_value(
     Ok(value_birth(transaction, rows, value_id)?.is_some())
 }
 
-/// Stores `value` again without holders, superseded at `seq`; a later holder revives it, or
-/// pruning deletes it.
+/// Stores `value` again over its birth record `birth`, unheld and superseded at `seq`, until a
+/// holder revives it.
 ///
-/// Returns an error when the value's remaining birth row does not decode.
+/// The caller checks that `value` has the size `birth` records.
 pub(crate) fn restore_unheld_value(
     transaction: &mut FlowTransaction<'_>,
     rows: RunRows,
     value_id: ValueId,
-    size_bytes: u64,
+    birth: &ValueBirthRecord,
     value: Value,
     seq: u64,
-) -> Result<(), ApplyError> {
-    let birth_key = value_row_key(rows.flow_hash, rows.run_id, RunTable::ValueBirth, value_id);
-    let remaining_birth: Option<ValueBirthRecord> =
-        transaction.get_message(ColumnFamily::Flow, &birth_key, "value birth")?;
-    if let Some(remaining_birth) = remaining_birth
-        && remaining_birth.garbage_seq != 0
-    {
+) {
+    if birth.garbage_seq != 0 {
         // The value moves to the garbage row at `seq`, so its earlier one goes.
         transaction.delete(
             ColumnFamily::Flow,
-            value_garbage_key(
-                rows.flow_hash,
-                rows.run_id,
-                remaining_birth.garbage_seq,
-                value_id,
-            ),
+            value_garbage_key(rows.flow_hash, rows.run_id, birth.garbage_seq, value_id),
         );
     }
     transaction.put_message(
@@ -534,19 +524,20 @@ pub(crate) fn restore_unheld_value(
     );
     transaction.put_message(
         ColumnFamily::Flow,
-        birth_key,
+        value_row_key(rows.flow_hash, rows.run_id, RunTable::ValueBirth, value_id),
         &ValueBirthRecord {
-            size_bytes,
-            written_seq: value_id.run_seq,
+            size_bytes: birth.size_bytes,
+            written_seq: birth.written_seq,
             garbage_seq: seq,
         },
     );
     transaction.put_message(
         ColumnFamily::Flow,
         value_garbage_key(rows.flow_hash, rows.run_id, seq, value_id),
-        &ValueGarbageRecord { size_bytes },
+        &ValueGarbageRecord {
+            size_bytes: birth.size_bytes,
+        },
     );
-    Ok(())
 }
 
 fn value_birth(

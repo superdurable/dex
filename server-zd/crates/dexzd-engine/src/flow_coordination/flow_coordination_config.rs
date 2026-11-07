@@ -63,9 +63,10 @@ pub struct FlowCoordinationConfig {
     /// output. GetHistoryEvents still returns references, as the Go Server does, and LoadBlobs
     /// resolves them. Hard-delete references in GetFlowState stay references in both modes.
     pub hydrate_value_references: bool,
-    /// Largest number of key and value bytes that one time travel's replay holds in memory.
+    /// Largest number of bytes that one time travel computation holds in memory: its replayed
+    /// writes, the rebuilt rows and values, the reapplied external input, and the staged result.
     /// Default 1 GiB, from `history.timeTravelReplayMemoryBytes`. ResetFlow fails with
-    /// `RESOURCE_EXHAUSTED` when replaying from the checkpoint to the target needs more.
+    /// `RESOURCE_EXHAUSTED` when the computation needs more.
     pub time_travel_replay_memory_bytes: u64,
     /// Where time travel computations read history and replay it. Default
     /// [`BlockingWorkPlacement::BlockingThreadPool`].
