@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
@@ -68,13 +69,25 @@ func loadBlobBatch(
 	return loadBlobBatch(ctx, client, entries[half:], values, unavailable)
 }
 
-// isGRPCMessageSizeError reports a gRPC message size rejection, which carries no Dex error
-// details. The receiver's limit yields RESOURCE_EXHAUSTED, and the server's send limit yields
-// OUT_OF_RANGE.
+// grpcMessageSizeDiagnostics are the texts that gRPC libraries put in a message size rejection:
+// grpc-go send and receive limits ("larger than max") and tonic limits ("message length too large").
+var grpcMessageSizeDiagnostics = []string{"larger than max", "message length too large"}
+
+// isGRPCMessageSizeError reports a gRPC message size rejection: RESOURCE_EXHAUSTED or
+// OUT_OF_RANGE without Dex error details, whose message is a known size diagnostic. Other
+// detail-free RESOURCE_EXHAUSTED errors, such as HTTP/2 flow control resets, do not match.
 func isGRPCMessageSizeError(err error) bool {
 	rpcStatus, ok := status.FromError(err)
 	if !ok || len(rpcStatus.Details()) > 0 {
 		return false
 	}
-	return rpcStatus.Code() == codes.ResourceExhausted || rpcStatus.Code() == codes.OutOfRange
+	if rpcStatus.Code() != codes.ResourceExhausted && rpcStatus.Code() != codes.OutOfRange {
+		return false
+	}
+	for _, diagnostic := range grpcMessageSizeDiagnostics {
+		if strings.Contains(rpcStatus.Message(), diagnostic) {
+			return true
+		}
+	}
+	return false
 }

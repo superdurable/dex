@@ -31,7 +31,7 @@ type sizeLimitedBlobClient struct {
 	mutex            sync.Mutex
 	blobs            map[string]*dexpb.Value
 	maxResponseBytes int
-	tooLargeCode     codes.Code
+	tooLarge         func(size int) error
 	failure          error
 	batches          [][]string
 }
@@ -57,7 +57,7 @@ func (client *sizeLimitedBlobClient) LoadBlobs(
 		return nil, client.failure
 	}
 	if size := proto.Size(response); size > client.maxResponseBytes {
-		return nil, status.Errorf(client.tooLargeCode, "message of %d bytes exceeds the limit", size)
+		return nil, client.tooLarge(size)
 	}
 	return response, nil
 }
@@ -85,8 +85,20 @@ func postLoadBlobs(t *testing.T, client dexpb.FlowServiceClient, ids ...string) 
 }
 
 func TestLoadBlobsSplitsBatchesLargerThanTheMessageLimit(t *testing.T) {
-	for _, tooLargeCode := range []codes.Code{codes.ResourceExhausted, codes.OutOfRange} {
-		t.Run(tooLargeCode.String(), func(t *testing.T) {
+	sizeErrors := map[string]func(size int) error{
+		"grpc-go receive limit": func(size int) error {
+			return status.Errorf(codes.ResourceExhausted, "grpc: received message larger than max (%d vs. 1000)", size)
+		},
+		"grpc-go send limit": func(size int) error {
+			return status.Errorf(codes.ResourceExhausted, "trying to send message larger than max (%d vs. 1000)", size)
+		},
+		"tonic send limit": func(size int) error {
+			return status.Errorf(codes.OutOfRange,
+				"Error, encoded message length too large: found %d bytes, the limit is: 1000 bytes", size)
+		},
+	}
+	for name, tooLarge := range sizeErrors {
+		t.Run(name, func(t *testing.T) {
 			client := &sizeLimitedBlobClient{
 				blobs: map[string]*dexpb.Value{
 					"input":       textBlob(300),
@@ -95,7 +107,7 @@ func TestLoadBlobsSplitsBatchesLargerThanTheMessageLimit(t *testing.T) {
 					"oversized":   textBlob(2000),
 				},
 				maxResponseBytes: 1000,
-				tooLargeCode:     tooLargeCode,
+				tooLarge:         tooLarge,
 			}
 			recorder := postLoadBlobs(t, client, "input", "attribute", "publication", "oversized")
 			if recorder.Code != http.StatusOK {
@@ -137,17 +149,42 @@ func TestLoadBlobsSplitsBatchesLargerThanTheMessageLimit(t *testing.T) {
 	}
 }
 
-func TestLoadBlobsReportsErrorsOtherThanMessageSize(t *testing.T) {
-	client := &sizeLimitedBlobClient{
-		blobs:            map[string]*dexpb.Value{"input": textBlob(10)},
-		maxResponseBytes: 1000,
-		failure:          status.Error(codes.Unavailable, "server unavailable"),
+func TestLoadBlobsReturnsErrorsOtherThanMessageSizeWithoutSplitting(t *testing.T) {
+	dexDetailError, err := status.New(
+		codes.ResourceExhausted,
+		"grpc: received message larger than max (2000 vs. 1000)",
+	).WithDetails(&dexpb.ServiceErrorResponse{Detail: "rate limited"})
+	if err != nil {
+		t.Fatalf("attach details: %v", err)
 	}
-	recorder := postLoadBlobs(t, client, "input")
-	if recorder.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	failures := map[string]error{
+		"server unavailable": status.Error(codes.Unavailable, "server unavailable"),
+		"HTTP/2 flow control reset": status.Error(codes.ResourceExhausted,
+			"stream terminated by RST_STREAM with error code: FLOW_CONTROL_ERROR"),
+		"Dex error with details": dexDetailError.Err(),
 	}
-	if len(client.batches) != 1 {
-		t.Errorf("batches = %v, want one call without splitting", client.batches)
+	for name, failure := range failures {
+		t.Run(name, func(t *testing.T) {
+			client := &sizeLimitedBlobClient{
+				blobs:            map[string]*dexpb.Value{"input": textBlob(10), "other": textBlob(10)},
+				maxResponseBytes: 1000,
+				failure:          failure,
+			}
+			recorder := postLoadBlobs(t, client, "input", "other")
+			if recorder.Code != http.StatusBadGateway {
+				t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+			}
+			var result errorResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			wantCode := int32(status.Code(failure))
+			if result.GRPCCode == nil || *result.GRPCCode != wantCode {
+				t.Errorf("gRPC code = %v, want %d", result.GRPCCode, wantCode)
+			}
+			if len(client.batches) != 1 {
+				t.Errorf("batches = %v, want one call without splitting", client.batches)
+			}
+		})
 	}
 }

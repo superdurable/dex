@@ -25,7 +25,7 @@ type sizeLimitedBlobClient struct {
 	dexpb.FlowServiceClient
 	blobs            map[string]*dexpb.Value
 	maxResponseBytes int
-	tooLargeCode     codes.Code
+	tooLarge         func(size int) error
 	failure          error
 	batchSizes       []int
 }
@@ -47,7 +47,7 @@ func (client *sizeLimitedBlobClient) LoadBlobs(
 		}
 	}
 	if size := proto.Size(response); size > client.maxResponseBytes {
-		return nil, status.Errorf(client.tooLargeCode, "message of %d bytes exceeds the limit", size)
+		return nil, client.tooLarge(size)
 	}
 	return response, nil
 }
@@ -66,8 +66,20 @@ func stringBlobReferences(ids ...string) map[string]blobReference {
 }
 
 func TestHydrateBlobReferencesSplitsBatchesLargerThanTheMessageLimit(t *testing.T) {
-	for _, tooLargeCode := range []codes.Code{codes.ResourceExhausted, codes.OutOfRange} {
-		t.Run(tooLargeCode.String(), func(t *testing.T) {
+	sizeErrors := map[string]func(size int) error{
+		"grpc-go receive limit": func(size int) error {
+			return status.Errorf(codes.ResourceExhausted, "grpc: received message larger than max (%d vs. 1000)", size)
+		},
+		"grpc-go send limit": func(size int) error {
+			return status.Errorf(codes.ResourceExhausted, "trying to send message larger than max (%d vs. 1000)", size)
+		},
+		"tonic send limit": func(size int) error {
+			return status.Errorf(codes.OutOfRange,
+				"Error, encoded message length too large: found %d bytes, the limit is: 1000 bytes", size)
+		},
+	}
+	for name, tooLarge := range sizeErrors {
+		t.Run(name, func(t *testing.T) {
 			client := &sizeLimitedBlobClient{
 				blobs: map[string]*dexpb.Value{
 					"input":       textBlob(300),
@@ -76,7 +88,7 @@ func TestHydrateBlobReferencesSplitsBatchesLargerThanTheMessageLimit(t *testing.
 					"oversized":   textBlob(2000),
 				},
 				maxResponseBytes: 1000,
-				tooLargeCode:     tooLargeCode,
+				tooLarge:         tooLarge,
 			}
 			references := stringBlobReferences("input", "attribute", "publication", "oversized")
 			replacements, warnings := hydrateBlobReferences(
@@ -109,19 +121,37 @@ func TestHydrateBlobReferencesSplitsBatchesLargerThanTheMessageLimit(t *testing.
 	}
 }
 
-func TestHydrateBlobReferencesReportsErrorsOtherThanMessageSize(t *testing.T) {
-	client := &sizeLimitedBlobClient{
-		blobs:            map[string]*dexpb.Value{"input": textBlob(10)},
-		maxResponseBytes: 1000,
-		failure:          status.Error(codes.Unavailable, "server unavailable"),
+func TestHydrateBlobReferencesReturnsErrorsOtherThanMessageSizeWithoutSplitting(t *testing.T) {
+	dexDetailError, err := status.New(
+		codes.ResourceExhausted,
+		"grpc: received message larger than max (2000 vs. 1000)",
+	).WithDetails(&dexpb.ServiceErrorResponse{Detail: "rate limited"})
+	if err != nil {
+		t.Fatalf("attach details: %v", err)
 	}
-	_, warnings := hydrateBlobReferences(
-		context.Background(), client, "flow-1", stringBlobReferences("input"),
-	)
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "server unavailable") {
-		t.Errorf("warnings = %v", warnings)
+	failures := map[string]error{
+		"server unavailable": status.Error(codes.Unavailable, "server unavailable"),
+		"HTTP/2 flow control reset": status.Error(codes.ResourceExhausted,
+			"stream terminated by RST_STREAM with error code: FLOW_CONTROL_ERROR"),
+		"Dex error with details": dexDetailError.Err(),
 	}
-	if len(client.batchSizes) != 1 {
-		t.Errorf("batches = %v, want one call without splitting", client.batchSizes)
+	for name, failure := range failures {
+		t.Run(name, func(t *testing.T) {
+			client := &sizeLimitedBlobClient{
+				blobs:            map[string]*dexpb.Value{"input": textBlob(10), "other": textBlob(10)},
+				maxResponseBytes: 1000,
+				failure:          failure,
+			}
+			_, warnings := hydrateBlobReferences(
+				context.Background(), client, "flow-1", stringBlobReferences("input", "other"),
+			)
+			wantWarning := "stored values unavailable: " + failure.Error()
+			if len(warnings) != 1 || warnings[0] != wantWarning {
+				t.Errorf("warnings = %v, want [%s]", warnings, wantWarning)
+			}
+			if len(client.batchSizes) != 1 {
+				t.Errorf("batches = %v, want one call without splitting", client.batchSizes)
+			}
+		})
 	}
 }
