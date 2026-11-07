@@ -12,7 +12,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use dexzd_apply::read_model::{get_history_events, resolve_run_id};
+use dexzd_apply::LoadedHistorySegments;
+use dexzd_apply::read_model::{
+    SegmentedHistoryPage, get_history_events, get_history_events_from_segments, resolve_run_id,
+};
 use dexzd_keyspace::{ValueId, run_prefix};
 use dexzd_protocol::dex::{FlowStatus, GetHistoryEventsResponse};
 use dexzd_protocol::dexzd::v1::{AttributeRecord, HistoryRecord, RunRecord, stored_value};
@@ -209,6 +212,56 @@ impl Workload<'_> {
         .expect("the read task completes")
     }
 
+    /// Reads the first page as the engine does: seqs of `uploaded` segments from their content,
+    /// the rest locally.
+    async fn history_events_with_uploads(
+        &self,
+        run: &FlowRun,
+        uploaded: &[(HistorySegmentRecord, HistorySegmentContent)],
+    ) -> GetHistoryEventsResponse {
+        let flow_hash = self.context(&run.flow_id).flow_hash;
+        let run_id = run.run_id;
+        let mut loaded = LoadedHistorySegments::default();
+        for (segment, content) in uploaded {
+            let records: Vec<HistoryRecord> = content
+                .records
+                .iter()
+                .map(|row| HistoryRecord::decode(row.row.as_slice()).expect("record decodes"))
+                .collect();
+            loaded
+                .insert(segment, records.into())
+                .expect("uploaded records are in order");
+        }
+        let view = self
+            .node
+            .committer()
+            .committed_view()
+            .expect("open a committed view");
+        tokio::task::spawn_blocking(move || {
+            match get_history_events_from_segments(
+                &view,
+                flow_hash,
+                run_id,
+                0,
+                1000,
+                &[],
+                0,
+                usize::MAX,
+                &loaded,
+                false,
+            )
+            .expect("history reads")
+            {
+                SegmentedHistoryPage::Page(page) => page,
+                SegmentedHistoryPage::NeedsSegments(needed) => {
+                    panic!("every uploaded segment is loaded, yet the read needs {needed:?}")
+                }
+            }
+        })
+        .await
+        .expect("the read task completes")
+    }
+
     async fn segment_content(&self, run: &FlowRun, first_seq: u64) -> HistorySegmentContent {
         let flow_hash = self.context(&run.flow_id).flow_hash;
         let run_id = run.run_id;
@@ -227,7 +280,13 @@ impl Workload<'_> {
     }
 
     /// Acknowledges every SEALED segment oldest first, as the uploader would.
-    async fn acknowledge_sealed_segments(&self, run: &FlowRun) {
+    ///
+    /// Returns each acknowledged segment with the content its object holds.
+    async fn acknowledge_sealed_segments(
+        &self,
+        run: &FlowRun,
+    ) -> Vec<(HistorySegmentRecord, HistorySegmentContent)> {
+        let mut uploaded = Vec::new();
         loop {
             let uploaded_through_seq = self.run_record_of(run).await.history_uploaded_through_seq;
             let Some(segment) = self
@@ -236,7 +295,7 @@ impl Workload<'_> {
                 .into_iter()
                 .find(|segment| segment.last_seq > uploaded_through_seq)
             else {
-                return;
+                return uploaded;
             };
             let content = self.segment_content(run, segment.first_seq).await;
             let encoded = encode_history_segment(&content).expect("the segment encodes");
@@ -250,6 +309,7 @@ impl Workload<'_> {
                 }),
             )
             .await;
+            uploaded.push((segment, content));
         }
     }
 
@@ -462,9 +522,9 @@ async fn a_recorded_running_run_migrates_one_segment_per_command_once_offload_is
         assert!(held.iter().all(|seq| !pruned_seqs.contains(seq)));
     }
     assert_eq!(segments[0].first_seq, 1);
-    workload.acknowledge_sealed_segments(&run).await;
+    let uploaded = workload.acknowledge_sealed_segments(&run).await;
 
-    let after = workload.history_events(&run).await;
+    let after = workload.history_events_with_uploads(&run, &uploaded).await;
     assert_eq!(
         after.pruned_event_id_range,
         Some(pruned_range),

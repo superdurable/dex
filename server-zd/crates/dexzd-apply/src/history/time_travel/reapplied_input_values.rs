@@ -60,6 +60,7 @@ pub(super) fn unstored_input_values(
         })
         .collect();
     let mut values = Vec::new();
+    let mut first_unavailable = None;
     for value_id in reapplied_input_value_ids(inputs, rows) {
         if staged_ids.contains(&value_id) || is_stored_value(transaction, rows, value_id)? {
             continue;
@@ -80,11 +81,13 @@ pub(super) fn unstored_input_values(
                 "the values the reapplied external input references",
             )));
         }
+        // Every value is asked for, so an owner learns all it must fetch at once.
         let Some(value) = resources
             .offloaded_values
             .offloaded_value(rows.run_id, value_id)?
         else {
-            return Ok(Err(unavailable_input_value_reply(rows, value_id)));
+            first_unavailable.get_or_insert(value_id);
+            continue;
         };
         values.push(TimeTravelStagedValue {
             value_id: Some(StoredValueId {
@@ -93,6 +96,9 @@ pub(super) fn unstored_input_values(
             }),
             value: Some(value),
         });
+    }
+    if let Some(value_id) = first_unavailable {
+        return Ok(Err(unavailable_input_value_reply(rows, value_id)));
     }
     Ok(Ok(values))
 }

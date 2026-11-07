@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dexzd_apply::diagnostics::time_travel_target_close;
 use dexzd_apply::{
     ApplyContext, ApplyOutcome, StateWrite, apply_flow_command, apply_staged_time_travel_for_test,
-    is_unstaged_time_travel_for_test, stage_time_travel_for_test,
+    is_unstaged_time_travel_for_test, stage_computed_time_travel_for_test,
 };
 use dexzd_keyspace::row_keys::{run_singleton_key, value_row_key};
 use dexzd_keyspace::{
@@ -27,12 +27,14 @@ use prost::Message;
 use crate::invalid_client_inputs::{check_invalid_client_input_rejected, invalid_client_input};
 use crate::invariants::{
     CheckerMemory, CloseBarrierCounts, HistoryMigrationCounts, InvariantViolation,
-    OffloadGapsByRun, WindowPointState, check_close_barrier, check_deletions_were_uploaded,
-    check_flow, check_fresh_snapshot, check_history_migration, check_open_segment_transitions,
-    check_outbox_writes, check_sealed_segment_encodings, check_window_value_content, remember_ack,
+    LocalOffloadCounts, OffloadGapsByRun, WindowPointState, check_close_barrier,
+    check_deletions_were_uploaded, check_flow, check_fresh_snapshot, check_history_migration,
+    check_open_segment_transitions, check_outbox_writes, check_sealed_segment_encodings,
+    check_value_offloads, check_window_value_content, collect_value_offloads, remember_ack,
     remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
+use crate::offloaded_history::compute_offloaded_time_travel;
 use crate::state_view::{FlowView, RunSelection};
 
 /// Key of the keyed partition hash; any fixed value keeps runs reproducible.
@@ -57,6 +59,7 @@ pub struct ApplyChecker {
     /// Every run an admitted transactional RPC ever held, for checks of recovered stores.
     ever_rpc_held_runs: BTreeSet<RunId>,
     history_migration_counts: HistoryMigrationCounts,
+    local_offload_counts: LocalOffloadCounts,
 }
 
 /// When the checker retained one window point, in applied command counts.
@@ -100,6 +103,7 @@ impl ApplyChecker {
             history_offload_off_time_travels: 0,
             ever_rpc_held_runs: BTreeSet::new(),
             history_migration_counts: HistoryMigrationCounts::default(),
+            local_offload_counts: LocalOffloadCounts::default(),
         }
     }
 
@@ -150,9 +154,17 @@ impl ApplyChecker {
             return self.apply_and_check_staged(command);
         }
         let context = self.context(&command.flow_id);
-        let staged = stage_time_travel_for_test(&context, &self.state, command)
+        let computed = compute_offloaded_time_travel(
+            &self.state,
+            context,
+            command,
+            &self.memory.sealed_segment_encodings,
+        )
+        .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
+        let staged = stage_computed_time_travel_for_test(command, computed.computation)
             .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
         let mut violation = None;
+        let is_computed_from_objects = staged.is_ok() && computed.has_read_objects;
         let outcome = apply_staged_time_travel_for_test(staged, |staged_command| {
             match self.apply_and_check_staged(&staged_command) {
                 Ok(outcome) => outcome,
@@ -167,7 +179,16 @@ impl ApplyChecker {
         });
         match violation {
             Some(violation) => Err(violation),
-            None => Ok(outcome),
+            None => {
+                let is_applied = matches!(
+                    outcome.reply.reply,
+                    Some(command_reply::Reply::TimeTravel(_))
+                );
+                if is_computed_from_objects && is_applied {
+                    self.local_offload_counts.time_travels_from_uploaded_history += 1;
+                }
+                Ok(outcome)
+            }
         }
     }
 
@@ -208,6 +229,8 @@ impl ApplyChecker {
             None
         };
         let retained_snapshot = self.retained_snapshot(command)?;
+        let value_offloads =
+            collect_value_offloads(command, &outcome.writes, &self.state, context.flow_hash)?;
         self.state.commit(&outcome.writes);
         self.applied_commands += 1;
         self.redecoded_state
@@ -253,7 +276,15 @@ impl ApplyChecker {
             &self.state,
             context.flow_hash,
         )?;
-        check_deletions_were_uploaded(&command.flow_id, &outcome.writes, &view)?;
+        self.local_offload_counts.rows_deleted +=
+            check_deletions_were_uploaded(&command.flow_id, &outcome.writes, &view)?;
+        self.local_offload_counts.values_offloaded += value_offloads.len();
+        check_value_offloads(
+            &command.flow_id,
+            &value_offloads,
+            &view,
+            &self.memory.sealed_segment_encodings,
+        )?;
         check_sealed_segment_encodings(
             &command.flow_id,
             &view,
@@ -298,6 +329,11 @@ impl ApplyChecker {
     /// TimeTravel commands applied to a run with segment state while offload was off.
     pub fn history_offload_off_time_travels(&self) -> usize {
         self.history_offload_off_time_travels
+    }
+
+    /// Local history that offload deleted, and time travels computed from uploaded history.
+    pub fn local_offload_counts(&self) -> LocalOffloadCounts {
+        self.local_offload_counts
     }
 
     /// Returns the window points `run_id` retained right after the checker applied its first

@@ -15,7 +15,9 @@ use prost::Message;
 use xxhash_rust::xxh3::xxh3_128;
 
 use crate::apply_checker::ApplyChecker;
-use crate::invariants::{CloseBarrierCounts, HistoryMigrationCounts, InvariantViolation};
+use crate::invariants::{
+    CloseBarrierCounts, HistoryMigrationCounts, InvariantViolation, LocalOffloadCounts,
+};
 use crate::model::{ClosedErasePhase, CommandGenerator};
 
 /// Replays allowed while shrinking one failure.
@@ -51,6 +53,8 @@ pub struct SimulationSummary {
     pub history_offload_off_time_travels: usize,
     /// History migrations of runs that predate their segment state.
     pub history_migrations: HistoryMigrationCounts,
+    /// Local history that offload deleted, and time travels computed from uploaded history.
+    pub local_offload: LocalOffloadCounts,
 }
 
 impl SimulationSummary {
@@ -69,6 +73,7 @@ impl SimulationSummary {
         self.history_segments_sealed += other.history_segments_sealed;
         self.history_offload_off_time_travels += other.history_offload_off_time_travels;
         self.history_migrations.merge(&other.history_migrations);
+        self.local_offload.merge(&other.local_offload);
         for (kind, count) in &other.applied_by_kind {
             *self.applied_by_kind.entry(kind).or_default() += count;
         }
@@ -237,6 +242,7 @@ pub fn run_seed(
     summary.close_barrier = checker.close_barrier_counts();
     summary.history_offload_off_time_travels = checker.history_offload_off_time_travels();
     summary.history_migrations = checker.history_migration_counts();
+    summary.local_offload = checker.local_offload_counts();
     summary.final_row_count = checker.state().row_count();
     Ok(summary)
 }

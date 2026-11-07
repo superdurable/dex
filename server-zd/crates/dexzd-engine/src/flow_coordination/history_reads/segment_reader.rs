@@ -6,7 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Fetches the records of an uploaded history segment through the header and read caches.
+//! Fetches the records and values of an uploaded history segment through the header and read
+//! caches.
 
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
@@ -15,9 +16,9 @@ use bytes::Bytes;
 use dexzd_apply::SegmentCheckpoint;
 use dexzd_history_segment::{
     HistorySegmentCodecError, HistorySegmentLayout, decode_checkpoints_block,
-    decode_history_segment_header, decode_records_block, history_segment_object_key,
+    decode_history_segment_header, decode_records_block, decode_value, history_segment_object_key,
 };
-use dexzd_keyspace::{FlowHash, RunId, TenantId};
+use dexzd_keyspace::{FlowHash, RunId, TenantId, ValueId};
 use dexzd_metrics::{HistoryReadKind, HistoryReadSource, NodeMetrics};
 use dexzd_object_store::{ByteRange, ObjectContent, ObjectStore, ObjectStoreError};
 use dexzd_protocol::dexzd::v1::{CheckpointRecord, HistoryRecord, HistorySegmentRecord};
@@ -55,11 +56,13 @@ pub(crate) enum HistorySegmentReadError {
 
 /// Who reads a segment, which decides the history read metric it counts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SegmentReadPurpose {
+pub(crate) enum SegmentReadPurpose {
     /// A GetHistoryEvents page.
     Page,
     /// A time travel computation, which history read metrics do not count.
     TimeTravel,
+    /// A LoadBlobs read of offloaded values.
+    Blob,
 }
 
 /// Names one uploaded segment of a run by its catalog row.
@@ -255,8 +258,121 @@ impl HistorySegmentReader {
         Ok(Some(records.into()))
     }
 
+    /// Returns the stored value rows of `value_ids`, which the segment's catalog row says its
+    /// object holds, for LoadBlobs or a time travel, as `purpose` says. One ranged read takes
+    /// the span that holds them all.
+    ///
+    /// Returns `None` when the object does not exist, as after the run was purged. Returns an
+    /// error when object storage fails, or the object differs from the catalog row or lacks a
+    /// value.
+    pub(crate) async fn read_value_rows(
+        &self,
+        location: SegmentLocation<'_>,
+        value_ids: &[ValueId],
+        purpose: SegmentReadPurpose,
+    ) -> Result<Option<Vec<(ValueId, Vec<u8>)>>, HistorySegmentReadError> {
+        let (key, checksum) = segment_identity(location)?;
+        let mismatch = |detail: String| HistorySegmentReadError::Mismatch {
+            key: key.clone(),
+            detail,
+        };
+        let Some(layout) = self
+            .header(&key, &checksum, location.segment.object_size_bytes, purpose)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let mut frames = Vec::with_capacity(value_ids.len());
+        for value_id in value_ids {
+            let (Some(entry), Some(range)) =
+                (layout.find_value(*value_id), layout.value_range(*value_id))
+            else {
+                return Err(mismatch(format!(
+                    "the object holds no value {}/{}",
+                    value_id.run_seq, value_id.index_in_command
+                )));
+            };
+            frames.push((*value_id, entry, range));
+        }
+        let span_start = frames.iter().map(|(_, _, range)| range.start).min();
+        let span_end = frames.iter().map(|(_, _, range)| range.end).max();
+        let (Some(span_start), Some(span_end)) = (span_start, span_end) else {
+            return Ok(Some(Vec::new()));
+        };
+        let Some(content) = self.read_range(&key, span_start..span_end).await? else {
+            return Ok(None);
+        };
+        let expected_bytes = span_end - span_start;
+        if u64::try_from(content.bytes.len()).ok() != Some(expected_bytes) {
+            return Err(mismatch(format!(
+                "the value read returned {} of {expected_bytes} bytes",
+                content.bytes.len()
+            )));
+        }
+        let mut rows = Vec::with_capacity(frames.len());
+        for (value_id, entry, range) in frames {
+            let start = usize::try_from(range.start - span_start).expect("inside the read span");
+            let end = usize::try_from(range.end - span_start).expect("inside the read span");
+            let row = decode_value(entry, &content.bytes[start..end])
+                .map_err(|error| mismatch(error.to_string()))?;
+            self.record_segment_read(purpose, HistoryReadSource::ObjectStore);
+            rows.push((value_id, row.row));
+        }
+        Ok(Some(rows))
+    }
+
+    /// Returns the stored value row that the disk read cache keeps for value reference
+    /// `reference_text` in `segment`, or `None` on a miss; hard-delete references always miss.
+    /// A hit counts as `purpose` says.
+    pub(crate) async fn cached_value_row(
+        &self,
+        reference_text: &str,
+        segment: &HistorySegmentRecord,
+        purpose: SegmentReadPurpose,
+    ) -> Option<Vec<u8>> {
+        let cache_key =
+            HistoryReadCacheKey::offloaded_value(reference_text, &segment.content_checksum)?;
+        let row = self.read_cache.get(&cache_key).await?;
+        self.record_segment_read(purpose, HistoryReadSource::Cache);
+        Some(row)
+    }
+
+    /// Keeps a stored value row of value reference `reference_text` in `segment` in the disk
+    /// read cache; a hard-delete reference is never kept.
+    pub(crate) async fn cache_value_row(
+        &self,
+        reference_text: &str,
+        segment: &HistorySegmentRecord,
+        row: Vec<u8>,
+    ) {
+        if let Some(cache_key) =
+            HistoryReadCacheKey::offloaded_value(reference_text, &segment.content_checksum)
+        {
+            self.read_cache.put(&cache_key, Bytes::from(row)).await;
+        }
+    }
+
+    /// Removes the cached value row of `reference_text` in `segment`, as after it failed to
+    /// decode.
+    pub(crate) async fn forget_cached_value_row(
+        &self,
+        reference_text: &str,
+        segment: &HistorySegmentRecord,
+    ) {
+        if let Some(cache_key) =
+            HistoryReadCacheKey::offloaded_value(reference_text, &segment.content_checksum)
+        {
+            self.read_cache.remove(&cache_key).await;
+        }
+    }
+
+    /// Counts a LoadBlobs value that local rows served.
+    pub(crate) fn record_local_blob(&self) {
+        self.record(HistoryReadKind::Blob, HistoryReadSource::Local);
+    }
+
     /// Returns the decoded header of the object, from memory, the disk cache, or object
-    /// storage, or `None` when the object does not exist.
+    /// storage, or `None` when the object does not exist. Reads count as `kind`.
     async fn header(
         &self,
         key: &str,
@@ -423,15 +539,19 @@ impl HistorySegmentReader {
     }
 
     fn record_segment_read(&self, purpose: SegmentReadPurpose, source: HistoryReadSource) {
-        if purpose == SegmentReadPurpose::Page {
-            self.record_read(source);
+        match purpose {
+            SegmentReadPurpose::Page => self.record_read(source),
+            SegmentReadPurpose::Blob => self.record(HistoryReadKind::Blob, source),
+            SegmentReadPurpose::TimeTravel => {}
         }
     }
 
     fn record_read(&self, source: HistoryReadSource) {
-        self.metrics
-            .history_reads
-            .record(HistoryReadKind::Page, source);
+        self.record(HistoryReadKind::Page, source);
+    }
+
+    fn record(&self, kind: HistoryReadKind, source: HistoryReadSource) {
+        self.metrics.history_reads.record(kind, source);
     }
 }
 

@@ -21,6 +21,7 @@ mod invalid_client_inputs;
 mod invariants;
 mod memory_state;
 mod model;
+mod offloaded_history;
 mod row_decoding;
 mod state_view;
 
@@ -39,7 +40,7 @@ pub use invalid_client_inputs::{
 };
 pub use invariants::{
     CheckerMemory, CloseBarrierCounts, GUARDED_ATTRIBUTE_KEYS, HistoryMigrationCounts,
-    InvariantViolation, check_flow, check_fresh_snapshot,
+    InvariantViolation, LocalOffloadCounts, check_flow, check_fresh_snapshot,
 };
 pub use memory_state::MemoryFlowState;
 pub use model::{

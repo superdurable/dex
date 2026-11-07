@@ -668,3 +668,32 @@ async fn flow_state_and_history_are_read_through_the_read_model() {
         .unwrap_err();
     assert_eq!(missing_history.grpc_code(), grpc_code::NOT_FOUND);
 }
+
+/// LoadBlobs keeps taking any number of entries in a partition that never offloaded history;
+/// the 1000-entry limit applies only while offload is on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn load_blobs_takes_more_than_a_thousand_entries_while_offload_is_off() {
+    let harness = FlowCoordinationHarness::new();
+    let run_id = start_flow(&harness, "order-1").await.unwrap();
+    let value_id = ValueId {
+        run_seq: 4,
+        index_in_command: 1,
+    };
+    seed_table_value(&harness, run_id, value_id, string_value("large"));
+    let reference = ValueReference { run_id, value_id }.to_string();
+    let entries = vec![
+        LoadBlobRequestEntry {
+            flow_id: "order-1".to_owned(),
+            blob_value: Some(Value {
+                kind: Some(value::Kind::InternalBlobIdForObjValue(reference.clone())),
+            }),
+        };
+        1001
+    ];
+    let response = harness
+        .registry
+        .load_blobs(TENANT, LoadBlobsRequest { entries })
+        .await
+        .expect("1001 entries load while offload is off");
+    assert_eq!(response.values[&reference], string_value("large"));
+}

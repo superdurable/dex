@@ -10,6 +10,7 @@
 //! repeated uploads after a restart or restore, replaced objects, object storage outages,
 //! retention, and purges.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -268,6 +269,23 @@ fn committed_content(
     .expect("the segment exists")
 }
 
+/// Contents of the run's SEALED segments by first seq, read before their upload lets offload
+/// delete the local rows.
+fn sealed_contents(
+    harness: &EffectHarness,
+    flow_id: &str,
+    run_id: RunId,
+) -> BTreeMap<u64, HistorySegmentContent> {
+    segments(harness, flow_id, run_id)
+        .into_iter()
+        .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+        .map(|segment| {
+            let content = committed_content(harness, flow_id, run_id, segment.first_seq);
+            (segment.first_seq, content)
+        })
+        .collect()
+}
+
 async fn stored_object(harness: &EffectHarness, key: &str) -> Option<Bytes> {
     harness
         .durable
@@ -332,8 +350,13 @@ async fn wait_until_uploaded(harness: &EffectHarness, flow_id: &str, run_id: Run
 }
 
 /// Checks the run's uploaded chain: contiguous segments, U at the last one, and one object per
-/// segment whose content and checksum match committed state.
-async fn assert_uploaded_chain(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
+/// segment whose content and checksum match `sealed`, the committed content when it sealed.
+async fn assert_uploaded_chain(
+    harness: &EffectHarness,
+    flow_id: &str,
+    run_id: RunId,
+    sealed: &BTreeMap<u64, HistorySegmentContent>,
+) {
     let segments = segments(harness, flow_id, run_id);
     for pair in segments.windows(2) {
         assert_eq!(pair[1].first_seq, pair[0].last_seq + 1, "{segments:?}");
@@ -353,7 +376,10 @@ async fn assert_uploaded_chain(harness: &EffectHarness, flow_id: &str, run_id: R
         let object = stored_object(harness, &key)
             .await
             .unwrap_or_else(|| panic!("{key} exists"));
-        let content = committed_content(harness, flow_id, run_id, segment.first_seq);
+        let content = sealed
+            .get(&segment.first_seq)
+            .unwrap_or_else(|| panic!("segment {segment:?} was read when it sealed"))
+            .clone();
         assert_eq!(
             decode_history_segment(&object).expect("the object decodes"),
             content
@@ -383,9 +409,10 @@ async fn sealed_segments_upload_and_are_acknowledged_in_seq_order() {
         },
     );
     close_run(&harness, "order-1", run_id);
+    let sealed = sealed_contents(&harness, "order-1", run_id);
 
     wait_until_uploaded(&harness, "order-1", run_id).await;
-    assert_uploaded_chain(&harness, "order-1", run_id).await;
+    assert_uploaded_chain(&harness, "order-1", run_id, &sealed).await;
     let segments = segments(&harness, "order-1", run_id);
     assert!(segments.len() >= 2, "every command sealed: {segments:?}");
     let acknowledgments = acknowledgments(&harness);
@@ -429,6 +456,7 @@ async fn a_restarted_owner_reuploads_an_unacknowledged_segment_and_acknowledges_
     enable_history_offload(&first);
     let run_id = first.start_flow(start_request("order-1"), settings());
     close_run(&first, "order-1", run_id);
+    let sealed = sealed_contents(&first, "order-1", run_id);
     // No later proposal commits, so the owner stops between the upload and its acknowledgment.
     first
         .flow_effect_operations
@@ -458,7 +486,7 @@ async fn a_restarted_owner_reuploads_an_unacknowledged_segment_and_acknowledges_
     second.rebuild_all_partitions().await;
     wait_until_uploaded(&second, "order-1", run_id).await;
 
-    assert_uploaded_chain(&second, "order-1", run_id).await;
+    assert_uploaded_chain(&second, "order-1", run_id, &sealed).await;
     let uploads = &second.metrics.history_uploads;
     assert_eq!(uploads.count(HistoryUploadOutcome::AlreadyPresent), 1);
     assert_eq!(uploads.count(HistoryUploadOutcome::Created), 0);
@@ -486,9 +514,10 @@ async fn an_unknown_write_outcome_is_retried_and_finds_the_written_object() {
     enable_history_offload(&harness);
     let run_id = harness.start_flow(start_request("order-1"), settings());
     close_run(&harness, "order-1", run_id);
+    let sealed = sealed_contents(&harness, "order-1", run_id);
 
     wait_until_uploaded(&harness, "order-1", run_id).await;
-    assert_uploaded_chain(&harness, "order-1", run_id).await;
+    assert_uploaded_chain(&harness, "order-1", run_id, &sealed).await;
     let uploads = &harness.metrics.history_uploads;
     assert_eq!(uploads.count(HistoryUploadOutcome::Failed), 1);
     assert_eq!(uploads.count(HistoryUploadOutcome::AlreadyPresent), 1);
@@ -507,6 +536,7 @@ async fn assert_seeded_object_is_replaced(
     let upload_slots = hold_upload_slots(&harness).await;
     let run_id = harness.start_flow(start_request("order-1"), settings());
     close_run(&harness, "order-1", run_id);
+    let sealed = sealed_contents(&harness, "order-1", run_id);
     let segment = segments(&harness, "order-1", run_id)
         .pop()
         .expect("the close sealed a segment");
@@ -525,7 +555,7 @@ async fn assert_seeded_object_is_replaced(
     drop(upload_slots);
 
     wait_until_uploaded(&harness, "order-1", run_id).await;
-    assert_uploaded_chain(&harness, "order-1", run_id).await;
+    assert_uploaded_chain(&harness, "order-1", run_id, &sealed).await;
     let uploads = &harness.metrics.history_uploads;
     assert_eq!(uploads.count(HistoryUploadOutcome::Replaced), 1);
     assert_eq!(uploads.count(HistoryUploadOutcome::Created), 0);
@@ -563,10 +593,12 @@ async fn an_object_store_outage_grows_the_backlog_without_blocking_commands_then
     enable_history_offload(&harness);
     let flow_ids = ["order-1", "order-2", "order-3"];
     let mut run_ids = Vec::new();
+    let mut sealed = Vec::new();
     for flow_id in flow_ids {
         let run_id = harness.start_flow(start_request(flow_id), settings());
         close_run(&harness, flow_id, run_id);
         run_ids.push(run_id);
+        sealed.push(sealed_contents(&harness, flow_id, run_id));
     }
     tokio::time::sleep(RESCAN_INTERVAL * 3).await;
     harness.settle().await;
@@ -605,9 +637,9 @@ async fn an_object_store_outage_grows_the_backlog_without_blocking_commands_then
     assert!(backlog.bytes() > bytes_before);
 
     faults.set(HistoryWriteFaults::PROCEED);
-    for (flow_id, run_id) in flow_ids.iter().zip(&run_ids) {
+    for ((flow_id, run_id), sealed) in flow_ids.iter().zip(&run_ids).zip(&sealed) {
         wait_until_uploaded(&harness, flow_id, *run_id).await;
-        assert_uploaded_chain(&harness, flow_id, *run_id).await;
+        assert_uploaded_chain(&harness, flow_id, *run_id, sealed).await;
     }
     wait_until_uploaded(&harness, "order-late", late_run).await;
     wait_until(&harness, "the backlog gauges drain", || {
@@ -784,6 +816,11 @@ async fn a_node_restored_from_a_snapshot_before_the_acknowledgments_finishes_the
             run_id
         })
         .collect();
+    let sealed: Vec<_> = flow_ids
+        .iter()
+        .zip(&run_ids)
+        .map(|(flow_id, run_id)| sealed_contents(&first, flow_id, *run_id))
+        .collect();
     let snapshot = first.flow_effect_operations.committed_snapshot();
     drop(upload_slots);
     for (flow_id, run_id) in flow_ids.iter().zip(&run_ids) {
@@ -803,9 +840,9 @@ async fn a_node_restored_from_a_snapshot_before_the_acknowledgments_finishes_the
         assert!(is_upload_pending(&second, flow_id, *run_id));
     }
     second.rebuild_all_partitions().await;
-    for (flow_id, run_id) in flow_ids.iter().zip(&run_ids) {
+    for ((flow_id, run_id), sealed) in flow_ids.iter().zip(&run_ids).zip(&sealed) {
         wait_until_uploaded(&second, flow_id, *run_id).await;
-        assert_uploaded_chain(&second, flow_id, *run_id).await;
+        assert_uploaded_chain(&second, flow_id, *run_id, sealed).await;
     }
     assert_eq!(
         second
@@ -1064,6 +1101,7 @@ async fn a_permanent_upload_rejection_waits_for_the_rescan_and_acknowledges_noth
     enable_history_offload(&harness);
     let run_id = harness.start_flow(start_request("order-1"), settings());
     close_run(&harness, "order-1", run_id);
+    let sealed = sealed_contents(&harness, "order-1", run_id);
     let puts = || {
         harness
             .durable
@@ -1094,7 +1132,7 @@ async fn a_permanent_upload_rejection_waits_for_the_rescan_and_acknowledges_noth
 
     faults.set(HistoryWriteFaults::PROCEED);
     wait_until_uploaded(&harness, "order-1", run_id).await;
-    assert_uploaded_chain(&harness, "order-1", run_id).await;
+    assert_uploaded_chain(&harness, "order-1", run_id, &sealed).await;
     harness.shutdown().await;
 }
 
@@ -1165,6 +1203,7 @@ async fn a_run_the_rescan_cannot_read_never_hides_the_other_runs_of_its_partitio
     close_run(&harness, &broken_flow, broken_run);
     let healthy_run = harness.start_flow(start_request(healthy_flow), settings());
     close_run(&harness, healthy_flow, healthy_run);
+    let sealed = sealed_contents(&harness, healthy_flow, healthy_run);
     wait_until(&harness, "both uploads were rejected", || {
         harness
             .durable
@@ -1194,7 +1233,7 @@ async fn a_run_the_rescan_cannot_read_never_hides_the_other_runs_of_its_partitio
     faults.set(HistoryWriteFaults::PROCEED);
 
     wait_until_uploaded(&harness, healthy_flow, healthy_run).await;
-    assert_uploaded_chain(&harness, healthy_flow, healthy_run).await;
+    assert_uploaded_chain(&harness, healthy_flow, healthy_run, &sealed).await;
     assert!(harness.metrics.history_upload_rescan_errors.get() >= 1);
     assert!(is_upload_pending(&harness, &broken_flow, broken_run));
     harness.shutdown().await;

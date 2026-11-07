@@ -56,7 +56,7 @@ pub use flow_coordination::{
     FlowCoordinationEffectSink, FlowCoordinationError, FlowCoordinatorDependencies,
     FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
     HardDeleteValueReader, HardDeleteValueUploader, HistoryReadsConfig, HistorySegmentReader,
-    PendingInvocation, ProposalResult, RpcInvokeError, RpcWorkerInvoker,
+    LoadedOffloadedValues, PendingInvocation, ProposalResult, RpcInvokeError, RpcWorkerInvoker,
     SegmentedTimeTravelHistory, StepQueueStatus, TimeTravelHistoryError, TimeTravelHistoryOpener,
     TimeTravelRunHistory, WorkerRpcInvocation, WorkerRpcResult, default_run_settings, grpc_code,
 };

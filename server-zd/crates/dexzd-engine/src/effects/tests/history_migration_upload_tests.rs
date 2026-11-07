@@ -8,13 +8,14 @@
 
 //! Uploads of history that a run recorded before its partition offloaded history.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use dexzd_apply::FlowStateReader;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_history_segment::{
-    decode_history_segment, encode_history_segment, history_run_object_key_prefix,
-    history_segment_object_key,
+    HistorySegmentContent, decode_history_segment, encode_history_segment,
+    history_run_object_key_prefix, history_segment_object_key,
 };
 use dexzd_keyspace::row_keys::prefix_range;
 use dexzd_keyspace::{ColumnFamily, RunId, RunTable, TenantId, run_table_prefix};
@@ -71,6 +72,7 @@ async fn a_run_started_while_offload_was_off_uploads_all_its_history_once_offloa
     }
     assert!(commands >= 2, "the recorded history took several commands");
     stop_run(&harness, run_id);
+    let sealed = sealed_contents(&harness, run_id);
 
     wait_until(&harness, "every segment is uploaded", || {
         let record = harness.run_record(FLOW_ID, run_id);
@@ -80,13 +82,39 @@ async fn a_run_started_while_offload_was_off_uploads_all_its_history_once_offloa
         }) && record.history_uploaded_through_seq == record.next_run_seq - 1
     })
     .await;
-    assert_uploaded_chain_from_the_first_seq(&harness, run_id).await;
+    assert_uploaded_chain_from_the_first_seq(&harness, run_id, &sealed).await;
     harness.shutdown().await;
 }
 
+/// Contents of the run's SEALED segments by first seq, read before their upload lets offload
+/// delete the local rows.
+fn sealed_contents(harness: &EffectHarness, run_id: RunId) -> BTreeMap<u64, HistorySegmentContent> {
+    let run = harness.run_location(FLOW_ID, run_id);
+    segments(harness, run_id)
+        .into_iter()
+        .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+        .map(|segment| {
+            let content = read_history_segment_content(
+                &harness.flow_effect_operations.snapshot(),
+                run.flow_hash,
+                run_id,
+                segment.first_seq,
+            )
+            .expect("the segment content reads")
+            .expect("the segment exists");
+            (segment.first_seq, content)
+        })
+        .collect()
+}
+
 /// Requires contiguous segments from seq 1 and event 1, each stored as one object whose content
-/// and checksum match committed state, and no other object of the run.
-async fn assert_uploaded_chain_from_the_first_seq(harness: &EffectHarness, run_id: RunId) {
+/// and checksum match `sealed`, the committed content when it sealed, and no other object of the
+/// run.
+async fn assert_uploaded_chain_from_the_first_seq(
+    harness: &EffectHarness,
+    run_id: RunId,
+    sealed: &BTreeMap<u64, HistorySegmentContent>,
+) {
     let run = harness.run_location(FLOW_ID, run_id);
     let mut next_seq = 1;
     let mut next_event_id = 1;
@@ -114,14 +142,10 @@ async fn assert_uploaded_chain_from_the_first_seq(harness: &EffectHarness, run_i
             .expect("the in-memory store reads")
             .unwrap_or_else(|| panic!("{key} exists"))
             .bytes;
-        let content = read_history_segment_content(
-            &harness.flow_effect_operations.snapshot(),
-            run.flow_hash,
-            run_id,
-            segment.first_seq,
-        )
-        .expect("the segment content reads")
-        .expect("the segment exists");
+        let content = sealed
+            .get(&segment.first_seq)
+            .unwrap_or_else(|| panic!("segment {segment:?} was read when it sealed"))
+            .clone();
         assert_eq!(
             decode_history_segment(&object).expect("the object decodes"),
             content

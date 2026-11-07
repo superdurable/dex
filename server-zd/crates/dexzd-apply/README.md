@@ -75,6 +75,39 @@ run state limit. Run purge deletes the pending index row with the run. Retention
 segment, as it does for an unacknowledged outbox message, so purging never
 abandons an upload.
 
+## Local history deletion
+
+While the partition offloads history, each acknowledgment and each later command
+of the run deletes the local rows of UPLOADED segments, within per-command
+limits; `history_local_rows_deleted_through_seq` and
+`history_values_offloaded_through_seq` record how far it got. Seqs that no
+UPLOADED segment covers, such as commands applied while offload was off and the
+unsealed rest of an abandoned migration, keep their rows, which follow window
+pruning. Turning offload off stops the deletion.
+
+History records and checkpoints go; genesis keeps its record and checkpoint.
+Their metadata stays, with a zero `row_size_bytes`, so time travel targets,
+history reads, and the window keep working until window pruning deletes the
+metadata and the checkpoint seqs. Only a record that is neither semantic nor holds
+events, pending method calls, or a close loses its metadata at once, so a long
+heartbeat-only Step does not grow metadata; rows written before those fields
+existed keep it.
+
+Because deletion leaves gaps in that metadata, reads of uploaded history do not
+take the window's lower end from the first metadata row. Window pruning records
+the last seq it deleted in `history_window_pruned_through_seq`, and reads show
+the seqs after it. A run that has not recorded it gets it from its first kept
+metadata row before deletion starts.
+
+A superseded value goes once its segment lists it and 10 minutes have passed
+since `superseded_at_micros`, by command time, which each command stamps on the
+garbage rows it adds. Its value row and garbage row are deleted, and its birth
+record stays with `is_offloaded`, so LoadBlobs finds the segment that covers
+`garbage_seq`. `value_birth` sees no value row, so a reference to an offloaded
+value is unknown, as one outside the window is. The pass stops at the first value
+still in its grace period. While offload is on, the superseded value byte cap
+moves nothing.
+
 ## History migration
 
 A run that started while its partition did not offload history has no segment
@@ -136,14 +169,16 @@ on a new committed view.
 
 A reapplied external input can name a value by reference. The computation
 stages each such value that the store lacks, read from the offloaded values, and
-fails with `FAILED_PRECONDITION` when no source has it. Before it forks, apply
+fails with `FAILED_PRECONDITION` when no source has it. It asks for every such value, and
+every value the restored state holds, before it fails, so an owner learns all the offloaded
+values it must fetch from one computation. Before it forks, apply
 checks that the store holds every such value, after it restored the staged ones.
 A missing one rejects the TimeTravel with `ABORTED` and its value reference, and
 the transaction is discarded, so the owner computes again.
 
 ## Value and storage accounting
 
-Each run tracks encoded Flow and History row bytes, including keys. Live and superseded value bytes use the encoded value sizes in birth records; garbage rows identify the superseded portion. Apply updates these totals from each command's writes and deletes.
+Each run tracks encoded Flow and History row bytes, including keys. Live and superseded value bytes use the encoded value sizes in birth records; garbage rows identify the superseded portion. Apply updates these totals from each command's writes and deletes. A birth record of an offloaded value counts as history bytes with a zero value size, so offloading changes neither live nor state bytes.
 
 The run state limit covers active state: Flow state rows and live values. Superseded values and history bytes are tracked separately and never count toward it. A client value write that grows active state beyond the limit returns `RESOURCE_EXHAUSTED` without writes. A Worker result that does so becomes a non-retryable attempt failure. Attempt starts, timers, stop, and purge can proceed when the run is full. The superseded-value cap advances the time travel window through semantic points and collects values only after their last-holder sequence leaves it. The current semantic point always remains available, so a command can temporarily leave superseded bytes over the cap.
 

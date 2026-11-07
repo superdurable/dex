@@ -28,14 +28,15 @@ use dexzd_engine::{
     EngineServices, FlowAddress, FlowCoordinationConfig, FlowCoordinationEffectSink,
     FlowCoordinationError, FlowCoordinationHardDeleteUploads, FlowCoordinatorDependencies,
     FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
-    HardDeleteValueReader, HardDeleteValueUploader, LocalStoreConfig, RpcInvokeError,
-    RpcWorkerInvoker, SegmentedTimeTravelHistory, StepQueueStatus, SystemEngineIdSource,
-    TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation,
-    WorkerRpcResult, grpc_code,
+    HardDeleteValueReader, HardDeleteValueUploader, LoadedOffloadedValues, LocalStoreConfig,
+    RpcInvokeError, RpcWorkerInvoker, SegmentedTimeTravelHistory, StepQueueStatus,
+    SystemEngineIdSource, TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory,
+    WorkerRpcInvocation, WorkerRpcResult, grpc_code,
 };
 use dexzd_history_segment::{encode_history_segment, history_segment_object_key};
 use dexzd_keyspace::row_keys::{
-    checkpoint_key, history_record_key, prefix_range, run_singleton_key, value_row_key,
+    attempt_record_key, checkpoint_key, history_record_key, prefix_range, run_singleton_key,
+    value_row_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, ValueId, ValueReference,
@@ -43,14 +44,15 @@ use dexzd_keyspace::{
 };
 use dexzd_object_store::{InMemoryObjectStore, ObjectStore, ObjectStoreOperation, WriteCondition};
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowConfig, FlowResetStepMethod, FlowResetType, FlowStartOptions,
+    ActionPermissionMapping, ActionPermissionMappings, AttributeWrite, FlowConfig,
+    FlowResetStepMethod, FlowResetType, FlowStartOptions, LoadBlobRequestEntry, LoadBlobsRequest,
     ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepOptions, Value, WorkerTarget,
     value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeRecord, AttributesSetCommand, FlowCommand, HardDeleteObjectReference, HistoryRecord,
-    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, LogPosition,
-    RunRecord, RunSettings, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
+    AttemptRecord, AttributeRecord, AttributesSetCommand, FlowCommand, HardDeleteObjectReference,
+    HistoryRecord, HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand,
+    LogPosition, RunRecord, RunSettings, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
     StepInvocationKey, StepMethod, ValueBirthRecord, ValueRecord, flow_command::Command,
     step_attempt_heartbeat_command, stored_value,
 };
@@ -86,7 +88,32 @@ impl TravelNode {
         opener: Arc<dyn TimeTravelHistoryOpener>,
         flow_coordination: FlowCoordinationConfig,
     ) -> Self {
-        Self::start_with_registries(cluster, local_store, vec![opener], flow_coordination).await
+        Self::start_with_registries(
+            cluster,
+            local_store,
+            vec![opener],
+            flow_coordination,
+            dexzd_engine::HistoryReadsConfig::default(),
+        )
+        .await
+    }
+
+    /// Starts a node whose history segment reads use `history_reads`.
+    async fn start_with_history_reads(
+        cluster: &TestCluster,
+        local_store: LocalStoreConfig,
+        opener: Arc<dyn TimeTravelHistoryOpener>,
+        flow_coordination: FlowCoordinationConfig,
+        history_reads: dexzd_engine::HistoryReadsConfig,
+    ) -> Self {
+        Self::start_with_registries(
+            cluster,
+            local_store,
+            vec![opener],
+            flow_coordination,
+            history_reads,
+        )
+        .await
     }
 
     /// Starts a node with one registry per opener of `openers`; the first is `registry`.
@@ -95,6 +122,7 @@ impl TravelNode {
         local_store: LocalStoreConfig,
         openers: Vec<Arc<dyn TimeTravelHistoryOpener>>,
         flow_coordination: FlowCoordinationConfig,
+        history_reads: dexzd_engine::HistoryReadsConfig,
     ) -> Self {
         let mut config = cluster.config(local_store);
         config.commit.debug_replay_checks = true;
@@ -134,7 +162,7 @@ impl TravelNode {
                                 clock: clock.clone(),
                                 history_segment_reader: Arc::new(
                                     dexzd_engine::HistorySegmentReader::new(
-                                        &dexzd_engine::HistoryReadsConfig::default(),
+                                        &history_reads,
                                         history_object_store.clone(),
                                         Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
                                         dexzd_engine::BlockingWorkPlacement::BlockingThreadPool,
@@ -591,6 +619,7 @@ impl TimeTravelHistoryOpener for ScriptedHistory {
         context: ApplyContext,
         run_id: RunId,
         segments: Arc<LoadedHistorySegments>,
+        _values: Arc<LoadedOffloadedValues>,
     ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>> {
         Box::pin(async move {
             self.opens.fetch_add(1, Ordering::SeqCst);
@@ -1306,6 +1335,7 @@ async fn competing_resets_from_two_registries_compute_again_after_the_attempt_ch
         LocalStoreConfig::InMemory,
         vec![segmented_opener(), competing.clone()],
         FlowCoordinationConfig::default(),
+        dexzd_engine::HistoryReadsConfig::default(),
     )
     .await;
     let run_id = travel.start_flow(None).await;
@@ -1575,4 +1605,497 @@ async fn a_restored_snapshot_keeps_the_staging_for_its_time_travel() {
         "the target predates the restored snapshot, so it has no recorded hash"
     );
     second.shutdown().await;
+}
+
+/// A value that offload deleted locally after its grace period comes from its uploaded segment:
+/// time travel to a point that held it reads it from object storage and stores it again.
+#[tokio::test(start_paused = true)]
+async fn a_value_offloaded_after_its_grace_period_is_staged_from_object_storage() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel.set_attribute("note", string_value("0")).await;
+    let target_seq = travel.run_record(run_id).next_run_seq - 1;
+    let target_time = travel.history_record(run_id, target_seq).timestamp_micros;
+    travel
+        .set_attribute("report", string_value(&"n".repeat(400)))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+
+    let flow_hash = travel.context().flow_hash;
+    let birth_key = value_row_key(flow_hash, run_id, RunTable::ValueBirth, old_value);
+    let value_key = value_row_key(flow_hash, run_id, RunTable::Value, old_value);
+    let birth = |view: &dyn FlowStateReader| {
+        ValueBirthRecord::decode(
+            view.get(ColumnFamily::Flow, &birth_key)
+                .expect("the birth reads")
+                .expect("the birth row stays")
+                .as_slice(),
+        )
+        .expect("the birth decodes")
+    };
+    assert!(
+        birth(&travel.view()).is_offloaded,
+        "the old report is offloaded"
+    );
+    assert!(
+        travel
+            .view()
+            .get(ColumnFamily::Value, &value_key)
+            .expect("the value reads")
+            .is_none()
+    );
+
+    let reads_before = travel.history_object_reads();
+    let attempt = travel
+        .reset(reset_to_time(target_time))
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, 2);
+    assert!(
+        travel.history_object_reads() > reads_before,
+        "the computation read the value from object storage"
+    );
+    let restored = travel
+        .attribute(run_id, "report")
+        .expect("the report is restored");
+    assert_eq!(table_value_id(&restored), old_value);
+    assert!(
+        travel
+            .view()
+            .get(ColumnFamily::Value, &value_key)
+            .expect("the value reads")
+            .is_some(),
+        "the staged value is stored again"
+    );
+    assert!(!birth(&travel.view()).is_offloaded);
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
+}
+
+/// What [`offload_a_referenced_report`] built.
+struct ReferencedReport {
+    value: ValueId,
+    /// Time of the command after the report, which wrote a checkpoint.
+    checkpointed_time: i64,
+    /// Time of the command that copied the report by reference.
+    copied_time: i64,
+}
+
+/// Writes a large report, a note whose command writes a checkpoint, and a copy that references
+/// the report by value reference. Supersedes both, then uploads and lets the grace period pass,
+/// so offload deletes the report locally.
+async fn offload_a_referenced_report(
+    cluster: &TestCluster,
+    travel: &TravelNode,
+    run_id: RunId,
+) -> ReferencedReport {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel.set_attribute("note", string_value("0")).await;
+    let checkpointed_seq = travel.run_record(run_id).next_run_seq - 1;
+    let reference = ValueReference {
+        run_id,
+        value_id: value,
+    }
+    .to_string();
+    // Request validation admits no reference, so the input is committed as apply accepts it.
+    travel
+        .commit(
+            run_id,
+            Command::AttributesSet(AttributesSetCommand {
+                request: Some(SetAttributesRequest {
+                    flow_id: FLOW_ID.to_owned(),
+                    attributes: vec![AttributeWrite {
+                        key: "copy".to_owned(),
+                        value: Some(Value {
+                            kind: Some(value::Kind::InternalBlobIdForStringValue(reference)),
+                        }),
+                        ..AttributeWrite::default()
+                    }],
+                    request_id: "copy-report".to_owned(),
+                    ..SetAttributesRequest::default()
+                }),
+                hard_delete_objects: Vec::new(),
+                request_fingerprint: b"copy-report".to_vec(),
+            }),
+        )
+        .await;
+    let copied_seq = travel.run_record(run_id).next_run_seq - 1;
+    let checkpointed_time = travel
+        .history_record(run_id, checkpointed_seq)
+        .timestamp_micros;
+    let copied_time = travel.history_record(run_id, copied_seq).timestamp_micros;
+    let checkpoint_seqs = attempt_checkpoint_seqs(travel, run_id);
+    assert!(
+        checkpoint_seqs.contains(&checkpointed_seq) && !checkpoint_seqs.contains(&copied_seq),
+        "the replay to the copy starts at the checkpoint before it: {checkpoint_seqs:?}"
+    );
+    travel.set_attribute("report", string_value("new")).await;
+    travel.set_attribute("copy", string_value("new")).await;
+    travel.offload_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+    assert!(
+        value_birth(travel, run_id, value).is_offloaded,
+        "the report is offloaded"
+    );
+    ReferencedReport {
+        value,
+        checkpointed_time,
+        copied_time,
+    }
+}
+
+fn attempt_checkpoint_seqs(travel: &TravelNode, run_id: RunId) -> Vec<u64> {
+    let key = attempt_record_key(travel.context().flow_hash, run_id, 1);
+    AttemptRecord::decode(
+        travel
+            .view()
+            .get(ColumnFamily::Flow, &key)
+            .expect("the attempt record reads")
+            .expect("attempt 1 exists")
+            .as_slice(),
+    )
+    .expect("the attempt record decodes")
+    .checkpoint_seqs
+}
+
+fn value_birth(travel: &TravelNode, run_id: RunId, value_id: ValueId) -> ValueBirthRecord {
+    let key = value_row_key(
+        travel.context().flow_hash,
+        run_id,
+        RunTable::ValueBirth,
+        value_id,
+    );
+    ValueBirthRecord::decode(
+        travel
+            .view()
+            .get(ColumnFamily::Flow, &key)
+            .expect("the birth reads")
+            .expect("the birth row stays")
+            .as_slice(),
+    )
+    .expect("the birth decodes")
+}
+
+fn is_value_stored(travel: &TravelNode, run_id: RunId, value_id: ValueId) -> bool {
+    let key = value_row_key(
+        travel.context().flow_hash,
+        run_id,
+        RunTable::Value,
+        value_id,
+    );
+    travel
+        .view()
+        .get(ColumnFamily::Value, &key)
+        .expect("the value reads")
+        .is_some()
+}
+
+/// A replayed command that references an offloaded value stops the computation, which reports
+/// the value; the owner fetches it from object storage and the next computation restores it.
+#[tokio::test(start_paused = true)]
+async fn an_offloaded_value_that_the_replay_reads_is_fetched_from_object_storage() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    let report = offload_a_referenced_report(&cluster, &travel, run_id).await;
+    assert!(!is_value_stored(&travel, run_id, report.value));
+
+    let reads_before = travel.history_object_reads();
+    let attempt = travel
+        .reset(reset_to_time(report.copied_time))
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, 2);
+    assert!(travel.history_object_reads() > reads_before);
+    for key in ["report", "copy"] {
+        let restored = travel
+            .attribute(run_id, key)
+            .expect("the Attribute is restored");
+        assert_eq!(table_value_id(&restored), report.value, "{key}");
+    }
+    assert!(is_value_stored(&travel, run_id, report.value));
+    assert!(!value_birth(&travel, run_id, report.value).is_offloaded);
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
+}
+
+/// Reapplied input that references an offloaded value: the computation reports the value, and
+/// the owner fetches it from object storage before staging it with the input.
+#[tokio::test(start_paused = true)]
+async fn an_offloaded_value_that_reapplied_input_references_is_fetched_from_object_storage() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    let report = offload_a_referenced_report(&cluster, &travel, run_id).await;
+
+    let attempt = travel
+        .reset(ResetFlowRequest {
+            history_event_time: (i128::from(report.checkpointed_time) * 1000).to_string(),
+            ..reset(FlowResetType::HistoryEventTime, true)
+        })
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, 2);
+    // The reapplied copy held the report again, and the reapplied rewrites superseded it.
+    assert!(is_value_stored(&travel, run_id, report.value));
+    let birth = value_birth(&travel, run_id, report.value);
+    assert!(!birth.is_offloaded && birth.garbage_seq > 0, "{birth:?}");
+    for key in ["report", "copy"] {
+        let attribute = travel.attribute(run_id, key).expect("the Attribute exists");
+        assert_ne!(
+            attribute.value.and_then(|stored| stored.kind),
+            None,
+            "{key} holds the reapplied rewrite"
+        );
+    }
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
+}
+
+/// Replayed permission mappings that each read a different offloaded Attribute value stop the
+/// replay at every one, so a computation discovers them one round at a time, more of them than
+/// any fixed number of rounds; each round fetches the value the replay stopped at.
+#[tokio::test(start_paused = true)]
+async fn a_replay_that_discovers_many_offloaded_values_one_by_one_finishes() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    const CHAIN: usize = 20;
+    let cluster = TestCluster::new();
+    let config = offloading_config();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        FlowCoordinationConfig {
+            run_settings: RunSettings {
+                checkpoint_command_threshold: 60,
+                ..config.run_settings
+            },
+            ..config
+        },
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    let mut roles = Vec::with_capacity(CHAIN);
+    for index in 0..CHAIN {
+        let key = format!("role-{index}");
+        let text = format!("{index}-").repeat(200);
+        travel.set_attribute(&key, string_value(&text)).await;
+        let value_id = table_value_id(&travel.attribute(run_id, &key).expect("the role"));
+        roles.push((key, text, value_id));
+    }
+    // Pad to the next checkpoint, so the replay to the mappings starts before every mapping.
+    while !attempt_checkpoint_seqs(&travel, run_id)
+        .contains(&(travel.run_record(run_id).next_run_seq - 1))
+    {
+        travel.set_attribute("pad", string_value("pad")).await;
+    }
+    let checkpoint_seq = travel.run_record(run_id).next_run_seq - 1;
+    for (index, (key, text, _)) in roles.iter().enumerate() {
+        travel
+            .commit(
+                run_id,
+                Command::AttributesSet(AttributesSetCommand {
+                    request: Some(SetAttributesRequest {
+                        flow_id: FLOW_ID.to_owned(),
+                        attributes: vec![AttributeWrite {
+                            key: "trigger".to_owned(),
+                            value: Some(string_value(&index.to_string())),
+                            ..AttributeWrite::default()
+                        }],
+                        request_id: format!("grant-{index}"),
+                        action_permission_mappings: Some(ActionPermissionMappings {
+                            mappings: vec![ActionPermissionMapping {
+                                attribute_key: key.clone(),
+                                equal_values: vec![string_value(text)],
+                                required_permission: format!("permission-{index}"),
+                            }],
+                        }),
+                        ..SetAttributesRequest::default()
+                    }),
+                    hard_delete_objects: Vec::new(),
+                    request_fingerprint: format!("grant-{index}").into_bytes(),
+                }),
+            )
+            .await;
+    }
+    let target_seq = travel.run_record(run_id).next_run_seq - 1;
+    let target_time = travel.history_record(run_id, target_seq).timestamp_micros;
+    assert!(
+        attempt_checkpoint_seqs(&travel, run_id)
+            .iter()
+            .all(|seq| *seq <= checkpoint_seq || *seq > target_seq),
+        "no checkpoint between the mappings"
+    );
+    for (key, _, _) in &roles {
+        travel.set_attribute(key, string_value("new")).await;
+    }
+    travel.offload_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+    for (_, _, value_id) in &roles {
+        assert!(value_birth(&travel, run_id, *value_id).is_offloaded);
+    }
+
+    let attempt = travel
+        .reset(reset_to_time(target_time))
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, 2);
+    for (key, _, value_id) in &roles {
+        let restored = travel.attribute(run_id, key).expect("the role is restored");
+        assert_eq!(table_value_id(&restored), *value_id, "{key}");
+        assert!(is_value_stored(&travel, run_id, *value_id));
+    }
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
+}
+
+/// An offloaded value that the disk read cache serves counts against the replay memory budget,
+/// as one read from object storage does. The replay reads one segment whose records the
+/// computation does not hold, so only the fetched data exceeds the budget.
+#[tokio::test(start_paused = true)]
+async fn a_cached_offloaded_value_counts_against_the_replay_memory_budget() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    let cache = tempfile::tempdir().expect("temporary directory");
+    let cluster = TestCluster::new();
+    let config = offloading_config();
+    let travel = TravelNode::start_with_history_reads(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        FlowCoordinationConfig {
+            time_travel_replay_memory_bytes: 512 << 10,
+            run_settings: RunSettings {
+                history_segment_target_bytes: 512 << 10,
+                ..config.run_settings
+            },
+            ..config
+        },
+        dexzd_engine::HistoryReadsConfig {
+            read_cache_directory: Some(cache.path().join("history-read-cache")),
+            ..dexzd_engine::HistoryReadsConfig::default()
+        },
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    // Live to the end, these stay local; only their records go to the segment.
+    for index in 0..2 {
+        travel
+            .set_attribute(
+                &format!("filler-{index}"),
+                string_value(&format!("{index}").repeat(32 << 10)),
+            )
+            .await;
+    }
+    travel
+        .set_attribute("report", string_value(&"o".repeat(128 << 10)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    while !attempt_checkpoint_seqs(&travel, run_id)
+        .contains(&(travel.run_record(run_id).next_run_seq - 1))
+    {
+        travel.set_attribute("pad", string_value("pad")).await;
+    }
+    travel.set_attribute("note", string_value("0")).await;
+    let target_seq = travel.run_record(run_id).next_run_seq - 1;
+    let target_time = travel.history_record(run_id, target_seq).timestamp_micros;
+    travel.set_attribute("report", string_value("new")).await;
+    travel
+        .set_attribute("tail", string_value(&"t".repeat(256 << 10)))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+    assert!(value_birth(&travel, run_id, old_value).is_offloaded);
+    let segments = travel.segments(run_id);
+    assert!(
+        segments
+            .iter()
+            .any(|segment| segment.first_seq <= 2 && segment.last_seq >= target_seq),
+        "one segment holds the fillers and the target: {segments:?}"
+    );
+    // LoadBlobs reads the value from its segment and caches it under the key time travel reads.
+    let reference = ValueReference {
+        run_id,
+        value_id: old_value,
+    }
+    .to_string();
+    let loaded = travel
+        .registry
+        .load_blobs(
+            TenantId::DEFAULT,
+            LoadBlobsRequest {
+                entries: vec![LoadBlobRequestEntry {
+                    flow_id: FLOW_ID.to_owned(),
+                    blob_value: Some(Value {
+                        kind: Some(value::Kind::InternalBlobIdForStringValue(reference.clone())),
+                    }),
+                }],
+            },
+        )
+        .await
+        .expect("LoadBlobs reads the offloaded value");
+    assert!(loaded.values.contains_key(&reference), "{loaded:?}");
+
+    let error = travel
+        .reset(reset_to_time(target_time))
+        .await
+        .expect_err("the fetched records and the cached value exceed the budget");
+    assert_eq!(error.grpc_code(), grpc_code::RESOURCE_EXHAUSTED, "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("the history it reads from object storage"),
+        "the cached value counts with the fetched records: {error}"
+    );
+    assert_eq!(travel.committed_count(is_stage), 0, "nothing is staged");
+    travel.shutdown().await;
 }

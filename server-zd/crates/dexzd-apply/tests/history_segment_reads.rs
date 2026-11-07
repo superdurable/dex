@@ -390,6 +390,56 @@ impl Harness {
         }
     }
 
+    /// Returns the local rows plus every record that offload deleted after its upload, as the
+    /// run stored them before: records of acknowledged segments whose metadata stays, or that
+    /// hold no events. Records that window pruning deleted stay deleted.
+    fn full_history_state(&self) -> MemoryState {
+        let flow_hash = self.context.flow_hash;
+        let run_id = self.run();
+        let mut state = self.state.clone();
+        for (_, records) in self.objects.values() {
+            for record in records.iter() {
+                let row_key = (
+                    ColumnFamily::History,
+                    history_record_key(flow_hash, run_id, record.seq),
+                );
+                let metadata_key = (
+                    ColumnFamily::Flow,
+                    history_row_metadata_key(
+                        flow_hash,
+                        run_id,
+                        record.seq,
+                        RunTable::HistoryRecord,
+                        0,
+                    ),
+                );
+                let is_kept = state.rows.contains_key(&metadata_key) || record.events.is_empty();
+                if is_kept && !state.rows.contains_key(&row_key) {
+                    state.rows.insert(row_key, record.encode_to_vec());
+                }
+            }
+        }
+        state
+    }
+
+    /// Stores the records of `segment` locally again, as a segment that was never uploaded keeps
+    /// them.
+    fn restore_local_records(&mut self, segment: &HistorySegmentRecord) {
+        let flow_hash = self.context.flow_hash;
+        let run_id = self.run();
+        let (_, records) = &self.objects[&segment.first_seq];
+        for record in records.iter() {
+            self.state.rows.insert(
+                (
+                    ColumnFamily::History,
+                    history_record_key(flow_hash, run_id, record.seq),
+                ),
+                record.encode_to_vec(),
+            );
+        }
+    }
+
+    /// Reads a page from the run's whole stored history, before offload deleted any of it.
     fn local_page(
         &self,
         start_event_id: i64,
@@ -398,7 +448,7 @@ impl Harness {
         attempt: i32,
     ) -> GetHistoryEventsResponse {
         get_history_events(
-            &self.state,
+            &self.full_history_state(),
             self.context.flow_hash,
             self.run(),
             start_event_id,
@@ -948,6 +998,8 @@ fn a_record_pruned_apart_from_its_checkpoint_metadata_stays_hidden() {
     let mut record = harness.run_record();
     record.max_pruned_event_id = split_metadata.last_assigned_event_id;
     record.window_start_seq = split_seq + 1;
+    // Such a batch moves the frontier through its last record.
+    record.history_window_pruned_through_seq = split_seq;
     let record_key =
         dexzd_keyspace::row_keys::run_singleton_key(flow_hash, run_id, RunTable::RunRecord);
     harness
@@ -1206,11 +1258,13 @@ fn reads_skip_a_long_expired_prefix_and_sparse_rows_without_scanning_them() {
                 (ColumnFamily::Flow, segment_key(segment.first_seq)),
                 row.encode_to_vec(),
             );
+            harness.restore_local_records(segment);
         } else if index % 50 == 0 {
             harness
                 .state
                 .rows
                 .remove(&(ColumnFamily::Flow, segment_key(segment.first_seq)));
+            harness.restore_local_records(segment);
         }
     }
     // The window pruned every expired segment's records, but never genesis.
@@ -1247,6 +1301,7 @@ fn reads_skip_a_long_expired_prefix_and_sparse_rows_without_scanning_them() {
     let mut record = harness.run_record();
     record.max_pruned_event_id = last_pruned.last_assigned_event_id;
     record.window_start_seq = expired_through + 1;
+    record.history_window_pruned_through_seq = expired_through;
     harness.state.rows.insert(
         (
             ColumnFamily::Flow,

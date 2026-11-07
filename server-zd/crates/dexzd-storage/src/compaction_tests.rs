@@ -284,3 +284,89 @@ fn single_deletes_hide_rows_and_bounded_seeks_give_up_on_tombstone_runs() {
         }
     );
 }
+
+/// Returns the bytes of the table files in `directory`.
+fn table_file_bytes(directory: &Path) -> u64 {
+    std::fs::read_dir(directory)
+        .expect("store directory lists")
+        .filter_map(|entry| {
+            let entry = entry.expect("store directory entry reads");
+            let is_table = entry.file_name().to_string_lossy().ends_with(".sst");
+            // RocksDB may delete a file after it was listed.
+            is_table.then(|| entry.metadata().map_or(0, |metadata| metadata.len()))
+        })
+        .sum()
+}
+
+/// Bytes that resist compression, so table files keep their size.
+fn noise(seed: u64, length: usize) -> Vec<u8> {
+    let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    (0..length)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state.to_le_bytes()[0]
+        })
+        .collect()
+}
+
+// One flushed file of offload deletions stays below the L0 file count trigger; only its
+// deletion count gets it compacted, together with the rows it deletes.
+#[test]
+fn a_file_of_history_and_value_deletions_compacts_without_a_manual_compaction() {
+    const ROWS: u64 = 6_000;
+    let directory = tempfile::tempdir().expect("temporary directory exists");
+    let path = directory.path().join("db");
+    let store = RocksDbLocalStore::open(&path, RocksDbStoreOptions::default()).expect("opens");
+    for (column_family, offset) in [(ColumnFamily::History, 0), (ColumnFamily::Value, ROWS)] {
+        let mut batch = WriteBatch::new();
+        for row in 0..ROWS {
+            batch.put(
+                column_family,
+                row.to_be_bytes().to_vec(),
+                noise(offset + row, 1024),
+            );
+        }
+        store.write(batch).expect("rows write");
+        store.flush_for_test(column_family).expect("rows flush");
+    }
+    store
+        .start_background_compaction()
+        .expect("compaction starts");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while store.is_compacting_for_test() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let written_bytes = table_file_bytes(&path);
+    assert!(written_bytes > 8 << 20, "{written_bytes} table file bytes");
+
+    for column_family in [ColumnFamily::History, ColumnFamily::Value] {
+        let mut batch = WriteBatch::new();
+        for row in 0..ROWS {
+            batch.delete(column_family, row.to_be_bytes().to_vec());
+        }
+        store.write(batch).expect("deletions write");
+        store
+            .flush_for_test(column_family)
+            .expect("deletions flush");
+    }
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut remaining_bytes = table_file_bytes(&path);
+    while remaining_bytes * 8 > written_bytes && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+        remaining_bytes = table_file_bytes(&path);
+    }
+    assert!(
+        remaining_bytes * 8 <= written_bytes,
+        "the deletions compacted away the rows: {remaining_bytes} of {written_bytes} bytes left"
+    );
+    for column_family in [ColumnFamily::History, ColumnFamily::Value] {
+        assert!(
+            store
+                .scan(column_family, None, None, crate::ScanDirection::Forward, 1)
+                .expect("the column family scans")
+                .is_empty()
+        );
+    }
+}

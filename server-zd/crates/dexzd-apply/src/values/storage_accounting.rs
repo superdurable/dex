@@ -94,8 +94,14 @@ fn usage_after_changes(
                         - row_size(change.previous.as_ref(), &change.key)
                 };
                 match parsed.table {
+                    // An offloaded value's birth row only locates history, so it counts as history.
                     RunTable::ValueBirth => {
-                        state_delta += row_delta;
+                        let (previous_state, previous_history) =
+                            birth_row_size(change.previous.as_ref(), &change.key)?;
+                        let (current_state, current_history) =
+                            birth_row_size(change.current.as_ref(), &change.key)?;
+                        state_delta += current_state - previous_state;
+                        history_delta += current_history - previous_history;
                         birth_delta += record_size::<ValueBirthRecord>(change, "value birth")?;
                     }
                     RunTable::ValueGarbage => {
@@ -212,6 +218,19 @@ fn row_size(value: Option<&Vec<u8>>, key: &[u8]) -> i128 {
     value.map_or(0, |value| (key.len() + value.len()) as i128)
 }
 
+/// Returns the state and history bytes of a birth row; an offloaded one counts as history.
+fn birth_row_size(value: Option<&Vec<u8>>, key: &[u8]) -> Result<(i128, i128), ApplyError> {
+    let Some(bytes) = value else {
+        return Ok((0, 0));
+    };
+    let size = row_size(Some(bytes), key);
+    if decode_record::<ValueBirthRecord>(bytes, "value birth")?.is_offloaded {
+        Ok((0, size))
+    } else {
+        Ok((size, 0))
+    }
+}
+
 fn accounted_outbox_row_size(value: Option<&Vec<u8>>, key: &[u8]) -> Result<i128, ApplyError> {
     let Some(bytes) = value else {
         return Ok(0);
@@ -228,8 +247,13 @@ trait SizedValueRecord: Message + Default {
 }
 
 impl SizedValueRecord for ValueBirthRecord {
+    /// An offloaded value no longer takes local bytes, and it has no garbage row to offset.
     fn size_bytes(&self) -> u64 {
-        self.size_bytes
+        if self.is_offloaded {
+            0
+        } else {
+            self.size_bytes
+        }
     }
 }
 
@@ -306,7 +330,7 @@ pub(crate) fn active_run_storage_bytes_without_attempts(usage: &RunStorageUsage)
 /// It is the bytes of the current state rows plus the values they hold. History records,
 /// checkpoints, and superseded values are not counted. The state rows still include the small
 /// ValueBirth row of each table value and the ValueGarbage row of each superseded value, so
-/// existing runs need no recount.
+/// existing runs need no recount. Birth rows of offloaded values count as history instead.
 pub(crate) fn active_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
     usage.state_row_bytes.saturating_add(usage.live_value_bytes)
 }

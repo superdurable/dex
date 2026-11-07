@@ -8,6 +8,7 @@
 
 //! GetHistoryEvents over uploaded segments with the real apply: views, races, and caches.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,8 +18,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use dexzd_apply::read_model::{get_history_events, read_history_segment_content};
 use dexzd_apply::{ApplyContext, ApplyOutcome, apply_flow_command};
-use dexzd_history_segment::{encode_history_segment, history_segment_object_key};
-use dexzd_keyspace::row_keys::{history_record_key, prefix_range, run_singleton_key};
+use dexzd_history_segment::{
+    HistorySegmentContent, encode_history_segment, history_segment_object_key,
+};
+use dexzd_keyspace::row_keys::{
+    history_record_key, history_row_metadata_key, prefix_range, run_singleton_key,
+};
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, run_table_prefix};
 use dexzd_metrics::{HistoryReadKind, HistoryReadSource, NodeMetrics};
 use dexzd_object_store::{
@@ -30,15 +35,15 @@ use dexzd_protocol::dex::{
     GetHistoryEventsResponse, SetAttributesRequest, StartFlowRequest, Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributesSetCommand, FlowCommand, FlowStartCommand, HistoryRowMetadata, HistorySegmentRecord,
-    HistorySegmentState, HistorySegmentUploadedCommand, RunRecord, RunSettings,
-    SetHistoryOffloadModeCommand, command_reply, flow_command::Command,
+    AttributesSetCommand, FlowCommand, FlowStartCommand, HistoryRecord, HistoryRowMetadata,
+    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, RunRecord,
+    RunSettings, SetHistoryOffloadModeCommand, command_reply, flow_command::Command,
 };
 use prost::Message;
 use tokio::sync::watch;
 
 use super::fixtures::TENANT;
-use super::test_support::{FlowCoordinationHarness, MemoryStore};
+use super::test_support::{FlowCoordinationHarness, MemoryStore, MemoryView};
 use crate::BlockingWorkPlacement;
 use crate::flow_coordination::history_reads::SegmentLocation;
 use crate::flow_coordination::{
@@ -152,6 +157,8 @@ struct OffloadedRun {
     run_id: RunId,
     now_micros: i64,
     request_count: u32,
+    /// Content of each acknowledged segment by first seq, as its object holds it.
+    uploaded: BTreeMap<u64, HistorySegmentContent>,
 }
 
 impl OffloadedRun {
@@ -169,6 +176,7 @@ impl OffloadedRun {
             run_id: RunId([0; 16]),
             now_micros: 1_800_000_000_000_000,
             request_count: 0,
+            uploaded: BTreeMap::new(),
         };
         run.apply(Command::SetHistoryOffloadMode(
             SetHistoryOffloadModeCommand {
@@ -265,6 +273,7 @@ impl OffloadedRun {
             .expect("the segment exists");
             let encoded = encode_history_segment(&content).expect("the content encodes");
             let size = encoded.bytes.len() as u64;
+            self.uploaded.insert(segment.first_seq, content);
             self.objects
                 .inner
                 .put(
@@ -377,9 +386,41 @@ impl OffloadedRun {
         )
     }
 
+    /// Returns the committed rows plus every record that offload deleted after its upload:
+    /// records of acknowledged segments whose metadata stays, or that hold no events. Records
+    /// that window pruning deleted stay deleted.
+    fn full_history_view(&self) -> MemoryView {
+        let mut rows = self.store.rows();
+        for content in self.uploaded.values() {
+            for row in &content.records {
+                let row_key = (
+                    ColumnFamily::History,
+                    history_record_key(self.context.flow_hash, self.run_id, row.seq),
+                );
+                let metadata_key = (
+                    ColumnFamily::Flow,
+                    history_row_metadata_key(
+                        self.context.flow_hash,
+                        self.run_id,
+                        row.seq,
+                        RunTable::HistoryRecord,
+                        0,
+                    ),
+                );
+                let record = HistoryRecord::decode(row.row.as_slice()).expect("record decodes");
+                let is_kept = rows.contains_key(&metadata_key) || record.events.is_empty();
+                if is_kept && !rows.contains_key(&row_key) {
+                    rows.insert(row_key, row.row.clone());
+                }
+            }
+        }
+        MemoryView::from_rows(rows)
+    }
+
+    /// Reads a page from the run's whole stored history, before offload deleted any of it.
     fn local_page(&self, start_event_id: i64, page_size: i32) -> GetHistoryEventsResponse {
         get_history_events(
-            &self.store.view(),
+            &self.full_history_view(),
             self.context.flow_hash,
             self.run_id,
             start_event_id,
@@ -941,3 +982,5 @@ async fn a_read_cache_that_cannot_be_created_disables_itself() {
     );
     assert!(occupied.is_file(), "the reader leaves the path alone");
 }
+
+mod load_blob_read_tests;

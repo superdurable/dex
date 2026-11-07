@@ -22,6 +22,7 @@ use dexzd_protocol::dexzd::v1::{HistoryRowMetadata, RunRecord};
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::lineage::{genesis_seq, required_attempt_record};
+use crate::history_offload::offload_mode::is_history_offload_enabled;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 
@@ -104,8 +105,10 @@ pub(crate) fn advance_window_if_full(
         return Ok(());
     }
     let settings = cursor.record.settings.unwrap_or_default();
-    if crate::values::projected_superseded_value_bytes(transaction, cursor)?
-        > settings.max_retained_superseded_bytes
+    // Offloaded superseded values leave local disk, so the cap applies only while offload is off.
+    if !is_history_offload_enabled(transaction)?
+        && crate::values::projected_superseded_value_bytes(transaction, cursor)?
+            > settings.max_retained_superseded_bytes
     {
         return Ok(());
     }
@@ -281,7 +284,9 @@ fn find_new_window_start(
 
 /// Deletes history records and checkpoints older than the checkpoint that rebuilds W.
 ///
-/// Their metadata rows go too, and they alone advance `max_pruned_event_id`.
+/// Their metadata rows go too, and they alone advance `max_pruned_event_id`. A row that offload
+/// already deleted leaves only its metadata row to delete. Moves the run's
+/// `history_window_pruned_through_seq` past what is deleted.
 ///
 /// Rows after the run's uploaded seq stay while the partition offloads history or the run has a
 /// SEALED segment.
@@ -344,6 +349,15 @@ pub(crate) fn prune_window_history(
     )?;
     let mut deleted_checkpoints = BTreeMap::<u32, BTreeSet<u64>>::new();
     let count = page.len();
+    // Record rows sort before checkpoint rows, so every record through the last row is deleted.
+    let pruned_through_seq = match page.last() {
+        Some((key, _)) if count == HISTORY_ROWS_PER_COMMAND => metadata_identity(key, &prefix)?.0,
+        _ => keep_from - 1,
+    };
+    cursor.record.history_window_pruned_through_seq = cursor
+        .record
+        .history_window_pruned_through_seq
+        .max(pruned_through_seq);
     let mut identities = Vec::with_capacity(count);
     let mut max_pruned_event_id = cursor.record.max_pruned_event_id;
     for (key, metadata) in &page {
@@ -356,21 +370,34 @@ pub(crate) fn prune_window_history(
                 0
             };
         }
-        identities.push((key, seq, history_table, attempt));
+        // Offload deleted the row of uploaded history and zeroed its size; only metadata remains.
+        identities.push((
+            key,
+            seq,
+            history_table,
+            attempt,
+            metadata.row_size_bytes > 0,
+        ));
     }
     cursor.record.max_pruned_event_id = max_pruned_event_id;
-    for (metadata_key, seq, history_table, attempt) in identities {
+    for (metadata_key, seq, history_table, attempt, has_row) in identities {
         transaction.delete(ColumnFamily::Flow, metadata_key.clone());
         match history_table {
-            RunTable::HistoryRecord => transaction.delete(
-                ColumnFamily::History,
-                history_record_key(rows.flow_hash, rows.run_id, seq),
-            ),
+            RunTable::HistoryRecord => {
+                if has_row {
+                    transaction.delete(
+                        ColumnFamily::History,
+                        history_record_key(rows.flow_hash, rows.run_id, seq),
+                    );
+                }
+            }
             RunTable::Checkpoint => {
-                transaction.delete(
-                    ColumnFamily::History,
-                    checkpoint_key(rows.flow_hash, rows.run_id, attempt, seq),
-                );
+                if has_row {
+                    transaction.delete(
+                        ColumnFamily::History,
+                        checkpoint_key(rows.flow_hash, rows.run_id, attempt, seq),
+                    );
+                }
                 deleted_checkpoints.entry(attempt).or_default().insert(seq);
             }
             _ => {

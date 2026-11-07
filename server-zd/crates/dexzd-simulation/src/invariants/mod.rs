@@ -31,9 +31,11 @@ pub(crate) use attribute_sync_invariants::{
 };
 pub use history_migration_invariants::HistoryMigrationCounts;
 pub(crate) use history_migration_invariants::check_history_migration;
+pub use history_segment_invariants::LocalOffloadCounts;
 pub(crate) use history_segment_invariants::{
-    OffloadGapsByRun, check_deletions_were_uploaded, check_open_segment_transitions,
-    check_sealed_segment_encodings,
+    OffloadGapsByRun, SealedSegmentEncodings, check_deletions_were_uploaded,
+    check_open_segment_transitions, check_sealed_segment_encodings, check_value_offloads,
+    collect_value_offloads,
 };
 pub use lock_invariants::check_fresh_snapshot;
 pub(crate) use value_invariants::remember_window_points;
@@ -53,6 +55,7 @@ pub(crate) fn check_window_value_content(
             memory.window_points.get(run_id),
             state,
             flow_hash,
+            &memory.sealed_segment_encodings,
         )?;
     }
     Ok(())
@@ -94,7 +97,8 @@ pub struct CheckerMemory {
     pub(crate) attribute_sync_acks: attribute_sync_invariants::AttributeSyncAcks,
     /// Runs whose pending close without outbox entries an admitted transactional RPC holds.
     pub(crate) rpc_held_runs: BTreeSet<RunId>,
-    /// Encoding of each SEALED history segment when the checker first saw it.
+    /// Encoding of each history segment when the checker first saw it SEALED, kept after its
+    /// upload as its object.
     pub(crate) sealed_segment_encodings: history_segment_invariants::SealedSegmentEncodings,
     /// The seqs and events that commands applied while offload was off took out of each run's
     /// segment chain.
@@ -158,6 +162,7 @@ pub fn check_flow(
             view,
             memory.history_offload_gaps.get(run_id),
         )?;
+        history_segment_invariants::check_window_frontier(&context, run)?;
     }
     Ok(())
 }

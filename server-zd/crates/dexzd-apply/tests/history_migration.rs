@@ -10,11 +10,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dexzd_apply::read_model::{get_history_events, read_history_segment_content};
+use dexzd_apply::read_model::{
+    SegmentedHistoryPage, get_history_events_from_segments, read_history_segment_content,
+};
 use dexzd_apply::{
-    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
-    apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
-    stage_time_travel_for_test,
+    ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, LoadedHistorySegments,
+    StateReadError, StateRow, StateWrite, apply_flow_command, apply_staged_time_travel_for_test,
+    is_unstaged_time_travel_for_test, stage_time_travel_for_test,
 };
 use dexzd_history_segment::{
     HistorySegmentContent, decode_history_segment, encode_history_segment,
@@ -119,6 +121,8 @@ struct Harness {
     run_id: Vec<u8>,
     settings: RunSettings,
     request_count: u32,
+    /// Content of each acknowledged segment by first seq, as its uploaded object holds it.
+    uploaded: BTreeMap<u64, HistorySegmentContent>,
 }
 
 impl Harness {
@@ -137,6 +141,7 @@ impl Harness {
             run_id: Vec::new(),
             settings,
             request_count: 0,
+            uploaded: BTreeMap::new(),
         }
     }
 
@@ -343,8 +348,9 @@ impl Harness {
             .segments()
             .into_iter()
             .find(|segment| segment.last_seq > uploaded_through_seq)?;
-        let encoded = encode_history_segment(&self.segment_content(segment.first_seq))
-            .expect("the content encodes");
+        let content = self.segment_content(segment.first_seq);
+        let encoded = encode_history_segment(&content).expect("the content encodes");
+        self.uploaded.insert(segment.first_seq, content);
         let outcome = self.apply(Command::HistorySegmentUploaded(
             HistorySegmentUploadedCommand {
                 first_seq: segment.first_seq,
@@ -436,18 +442,41 @@ impl Harness {
             .collect()
     }
 
-    /// Event IDs of the history records stored locally.
+    /// Event IDs of the history records that window pruning kept, from local rows or, once
+    /// offload deleted them, from their uploaded segment.
     fn stored_event_ids(&self) -> BTreeSet<i64> {
-        self.stored_record_seqs()
+        let metadata_prefix = run_table_prefix(
+            self.context.flow_hash,
+            self.run(),
+            RunTable::HistoryRowMetadata,
+        );
+        let (start, end) = prefix_range(&metadata_prefix);
+        let kept_record_seqs: BTreeSet<u64> = self
+            .state
+            .rows
+            .range((ColumnFamily::Flow, start)..(ColumnFamily::Flow, end))
+            .map(|((_, key), _)| &key[metadata_prefix.len()..])
+            .filter(|suffix| suffix[8] == RunTable::HistoryRecord as u8)
+            .map(|suffix| u64::from_be_bytes(suffix[..8].try_into().expect("eight-byte seq")))
+            .collect();
+        kept_record_seqs
             .into_iter()
             .flat_map(|seq| {
                 let key = history_record_key(self.context.flow_hash, self.run(), seq);
                 let record: HistoryRecord = self
                     .get(ColumnFamily::History, &key)
-                    .expect("the record is stored");
+                    .or_else(|| self.uploaded_record(seq))
+                    .unwrap_or_else(|| panic!("record {seq} is stored locally or uploaded"));
                 record.events.into_iter().map(|event| event.event_id)
             })
             .collect()
+    }
+
+    /// The record at `seq` in the uploaded segment that covers it, if any.
+    fn uploaded_record(&self, seq: u64) -> Option<HistoryRecord> {
+        let (_, content) = self.uploaded.range(..=seq).next_back()?;
+        let row = content.records.iter().find(|row| row.seq == seq)?;
+        Some(HistoryRecord::decode(row.row.as_slice()).expect("the uploaded record decodes"))
     }
 
     fn segments(&self) -> Vec<HistorySegmentRecord> {
@@ -534,8 +563,23 @@ impl Harness {
         }
     }
 
+    /// Reads the first page as the engine does: uploaded seqs from their objects, the rest
+    /// locally.
     fn history_page(&self) -> GetHistoryEventsResponse {
-        get_history_events(
+        let mut loaded = LoadedHistorySegments::default();
+        for segment in self.segments() {
+            if let Some(content) = self.uploaded.get(&segment.first_seq) {
+                let records: Vec<HistoryRecord> = content
+                    .records
+                    .iter()
+                    .map(|row| HistoryRecord::decode(row.row.as_slice()).expect("record decodes"))
+                    .collect();
+                loaded
+                    .insert(&segment, records.into())
+                    .expect("uploaded records are in order");
+            }
+        }
+        match get_history_events_from_segments(
             &self.state,
             self.context.flow_hash,
             self.run(),
@@ -544,8 +588,16 @@ impl Harness {
             &[],
             0,
             usize::MAX,
+            &loaded,
+            false,
         )
         .expect("history reads")
+        {
+            SegmentedHistoryPage::Page(page) => page,
+            SegmentedHistoryPage::NeedsSegments(needed) => {
+                panic!("every uploaded segment is loaded, yet the read needs {needed:?}")
+            }
+        }
     }
 
     /// Clears the event ID fields of every history record's metadata, as rows of binaries

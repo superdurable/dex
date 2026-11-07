@@ -14,16 +14,18 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hasher;
 
+use dexzd_history_segment::decode_history_segment;
 use dexzd_keyspace::row_keys::{length_prefixed_name, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId};
 use dexzd_protocol::dexzd::v1::{
-    StepExecutionPhase, StoredStepCompletionOutput, StoredValue, ValueRecord, command_reply,
-    stored_value,
+    HistorySegmentRecord, HistorySegmentState, StepExecutionPhase, StoredStepCompletionOutput,
+    StoredValue, ValueBirthRecord, ValueRecord, command_reply, stored_value,
 };
 use prost::Message;
 
 use crate::invariants::{
-    CheckerMemory, InvariantViolation, RunContext, WindowPointState, WindowValueReference,
+    CheckerMemory, InvariantViolation, RunContext, SealedSegmentEncodings, WindowPointState,
+    WindowValueReference,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::row_decoding::hex;
@@ -33,6 +35,7 @@ const HOLDERS: &str = "I1-value-holders";
 const GARBAGE: &str = "I1-value-garbage";
 const REFERENCE: &str = "I1-value-reference";
 const WINDOW_REFERENCE: &str = "I1-window-value-reference";
+const OFFLOADED: &str = "H10-offloaded-value";
 const HARD_DELETE: &str = "hard-delete-object";
 
 /// RequestKind::InvokeRpc in `dexzd-keyspace`.
@@ -201,8 +204,9 @@ fn check_window_references(
             })?;
         for reference in &point.references {
             let birth = run.value_births.get(&reference.value_id);
-            if !run.value_rows.contains(&reference.value_id)
-                || !birth.is_some_and(|birth| birth.size_bytes == reference.size_bytes)
+            let is_readable = run.value_rows.contains(&reference.value_id)
+                || birth.is_some_and(|birth| birth.is_offloaded);
+            if !is_readable || !birth.is_some_and(|birth| birth.size_bytes == reference.size_bytes)
             {
                 return Err(InvariantViolation::new(
                     WINDOW_REFERENCE,
@@ -226,6 +230,7 @@ pub(crate) fn check_window_value_content(
     window_points: Option<&BTreeMap<u64, WindowPointState>>,
     state: &MemoryFlowState,
     flow_hash: FlowHash,
+    objects: &SealedSegmentEncodings,
 ) -> Result<(), InvariantViolation> {
     let window_start = run
         .record
@@ -244,8 +249,23 @@ pub(crate) fn check_window_value_content(
                 )
             })?;
         for reference in &point.references {
-            let (content_size, content_hash) =
-                read_window_value_content(context, *seq, reference.value_id, state, flow_hash)?;
+            let offloaded_birth = run
+                .value_births
+                .get(&reference.value_id)
+                .filter(|birth| birth.is_offloaded);
+            let (content_size, content_hash) = match offloaded_birth {
+                Some(birth) => read_offloaded_value_content(
+                    context,
+                    run,
+                    *seq,
+                    reference.value_id,
+                    birth,
+                    objects,
+                )?,
+                None => {
+                    read_window_value_content(context, *seq, reference.value_id, state, flow_hash)?
+                }
+            };
             let birth_size = run
                 .value_births
                 .get(&reference.value_id)
@@ -295,6 +315,54 @@ fn read_window_value_content(
             format!("{context} semantic point {seq} value {value_id:?} has no content"),
         )
     })?;
+    let mut hasher = DefaultHasher::new();
+    hasher.write(bytes);
+    Ok((
+        u64::try_from(value.encoded_len()).unwrap_or(u64::MAX),
+        hasher.finish(),
+    ))
+}
+
+/// Reads an offloaded value's content from the object of the UPLOADED segment that holds it.
+fn read_offloaded_value_content(
+    context: &RunContext<'_>,
+    run: &RunView,
+    seq: u64,
+    value_id: ValueId,
+    birth: &ValueBirthRecord,
+    objects: &SealedSegmentEncodings,
+) -> Result<(u64, u64), InvariantViolation> {
+    let missing = |detail: String| {
+        InvariantViolation::new(
+            WINDOW_REFERENCE,
+            format!("{context} semantic point {seq} offloaded value {value_id:?} {detail}"),
+        )
+    };
+    let segment = covering_uploaded_segment(run, birth.garbage_seq)
+        .ok_or_else(|| missing("has no UPLOADED segment".to_owned()))?;
+    let object = objects
+        .get(&(*context.run_id, segment.first_seq))
+        .ok_or_else(|| missing(format!("has no object for segment {}", segment.first_seq)))?;
+    let row = offloaded_value_row(object, value_id)
+        .map_err(|detail| missing(format!("is unreadable: {detail}")))?;
+    value_row_content(&row).map_err(|detail| missing(format!("cannot decode: {detail}")))
+}
+
+/// Returns the stored value row of `value_id` in a segment object.
+pub(crate) fn offloaded_value_row(object: &[u8], value_id: ValueId) -> Result<Vec<u8>, String> {
+    decode_history_segment(object)
+        .map_err(|error| error.to_string())?
+        .values
+        .into_iter()
+        .find(|row| row.value_id == value_id)
+        .map(|row| row.row)
+        .ok_or_else(|| "the object does not hold it".to_owned())
+}
+
+/// Returns the encoded value size and the hash of the stored row, as the window points record.
+fn value_row_content(bytes: &[u8]) -> Result<(u64, u64), String> {
+    let record = ValueRecord::decode(bytes).map_err(|error| error.to_string())?;
+    let value = record.value.ok_or_else(|| "it has no content".to_owned())?;
     let mut hasher = DefaultHasher::new();
     hasher.write(bytes);
     Ok((
@@ -359,6 +427,10 @@ fn check_garbage(context: &RunContext<'_>, run: &RunView) -> Result<(), Invarian
         }
     }
     for (value_id, birth) in &run.value_births {
+        if birth.is_offloaded {
+            check_offloaded_birth(context, run, value_id, birth, &garbage_by_value)?;
+            continue;
+        }
         if !run.value_rows.contains(value_id) {
             return Err(InvariantViolation::new(
                 GARBAGE,
@@ -394,6 +466,46 @@ fn check_garbage(context: &RunContext<'_>, run: &RunView) -> Result<(), Invarian
         }
     }
     Ok(())
+}
+
+/// An offloaded value has no value row, holder, or garbage row, and an UPLOADED segment whose
+/// range holds its superseded seq lists it, so that segment's object holds it.
+fn check_offloaded_birth(
+    context: &RunContext<'_>,
+    run: &RunView,
+    value_id: &ValueId,
+    birth: &ValueBirthRecord,
+    garbage_by_value: &BTreeMap<ValueId, Vec<u64>>,
+) -> Result<(), InvariantViolation> {
+    let has_local_rows = run.value_rows.contains(value_id)
+        || run.value_holders.contains_key(value_id)
+        || garbage_by_value.contains_key(value_id);
+    let segment = covering_uploaded_segment(run, birth.garbage_seq);
+    let is_listed = segment.is_some_and(|segment| {
+        run.history_segment_values
+            .get(&(segment.first_seq, *value_id))
+            .is_some_and(|row| row.size_bytes == birth.size_bytes)
+    });
+    if has_local_rows || birth.garbage_seq == 0 || !is_listed {
+        return Err(InvariantViolation::new(
+            OFFLOADED,
+            format!(
+                "{context} offloaded value {value_id:?} (birth {birth:?}) keeps local rows:                  {has_local_rows}, or no UPLOADED segment lists it: segment {segment:?}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Returns the UPLOADED segment whose range holds `seq`.
+pub(crate) fn covering_uploaded_segment(run: &RunView, seq: u64) -> Option<&HistorySegmentRecord> {
+    run.history_segments
+        .range(..=seq)
+        .next_back()
+        .map(|(_, segment)| segment)
+        .filter(|segment| {
+            seq <= segment.last_seq && segment.state == HistorySegmentState::Uploaded as i32
+        })
 }
 
 #[derive(Default)]
@@ -608,9 +720,15 @@ mod retained_point_tests {
         };
         let key = value_row_key(flow_hash, run_id, RunTable::Value, value_id);
         let mut state = MemoryFlowState::default();
-        let missing_violation =
-            check_window_value_content(&context, &run, Some(&points), &state, flow_hash)
-                .expect_err("retained point must reject a missing value row");
+        let missing_violation = check_window_value_content(
+            &context,
+            &run,
+            Some(&points),
+            &state,
+            flow_hash,
+            &BTreeMap::new(),
+        )
+        .expect_err("retained point must reject a missing value row");
         assert_eq!(missing_violation.invariant, WINDOW_REFERENCE);
         for invalid_record in [
             ValueRecord { value: None },
@@ -625,9 +743,15 @@ mod retained_point_tests {
                 key: key.clone(),
                 value: invalid_record.encode_to_vec(),
             }]);
-            let violation =
-                check_window_value_content(&context, &run, Some(&points), &state, flow_hash)
-                    .expect_err("retained point must have readable value bytes");
+            let violation = check_window_value_content(
+                &context,
+                &run,
+                Some(&points),
+                &state,
+                flow_hash,
+                &BTreeMap::new(),
+            )
+            .expect_err("retained point must have readable value bytes");
             assert_eq!(violation.invariant, WINDOW_REFERENCE);
         }
         let replacement = ValueRecord {
@@ -644,17 +768,30 @@ mod retained_point_tests {
             key: key.clone(),
             value: replacement.encode_to_vec(),
         }]);
-        let violation =
-            check_window_value_content(&context, &run, Some(&points), &state, flow_hash)
-                .expect_err("equal-size replacement must not match the retained value");
+        let violation = check_window_value_content(
+            &context,
+            &run,
+            Some(&points),
+            &state,
+            flow_hash,
+            &BTreeMap::new(),
+        )
+        .expect_err("equal-size replacement must not match the retained value");
         assert_eq!(violation.invariant, WINDOW_REFERENCE);
         state.commit(&[StateWrite::Put {
             column_family: ColumnFamily::Value,
             key,
             value: original_bytes,
         }]);
-        check_window_value_content(&context, &run, Some(&points), &state, flow_hash)
-            .expect("matching value content is readable");
+        check_window_value_content(
+            &context,
+            &run,
+            Some(&points),
+            &state,
+            flow_hash,
+            &BTreeMap::new(),
+        )
+        .expect("matching value content is readable");
     }
 }
 
@@ -717,6 +854,7 @@ mod tests {
                 size_bytes: 500,
                 written_seq: 3,
                 garbage_seq: 0,
+                is_offloaded: false,
             },
         );
         run.value_rows.insert(value_id);

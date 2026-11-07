@@ -15,7 +15,7 @@ mod segment_reader;
 use std::path::PathBuf;
 
 pub use segment_reader::HistorySegmentReader;
-pub(crate) use segment_reader::{HistorySegmentReadError, SegmentLocation};
+pub(crate) use segment_reader::{HistorySegmentReadError, SegmentLocation, SegmentReadPurpose};
 
 /// Configuration section of history segment reads.
 #[derive(Debug, Clone)]
