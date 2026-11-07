@@ -285,11 +285,27 @@ const CHECKPOINT_COMMAND_THRESHOLD_RENAME: DeprecatedConfigKey = DeprecatedConfi
 struct HistoryConfigSource {
     window_semantic_events: u32,
     prune_chunk_size: u32,
-    checkpoint_row_write_bytes_threshold: Option<u64>,
-    checkpoint_min_written_bytes: Option<u64>,
-    checkpoint_command_threshold: Option<u32>,
-    checkpoint_command_interval: Option<u32>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_row_write_bytes_threshold: PresentKey<u64>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_min_written_bytes: PresentKey<u64>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_command_threshold: PresentKey<u32>,
+    #[serde(deserialize_with = "deserialize_present_key")]
+    checkpoint_command_interval: PresentKey<u32>,
     max_retained_superseded_bytes: u64,
+}
+
+/// A key's YAML value: `None` when the key is absent, `Some(None)` when it is an explicit null.
+type PresentKey<T> = Option<Option<T>>;
+
+/// Marks a key that appears in the YAML as present, even when its value is null.
+fn deserialize_present_key<'de, D, T>(deserializer: D) -> Result<PresentKey<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 impl Default for HistoryConfigSource {
@@ -339,9 +355,10 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
 }
 
 /// Returns the value of a renamed key, read from its new or deprecated name but not both.
+/// A present key with a null value is an error, as for every other numeric key.
 fn read_renamed_key<T>(
-    replacement_value: Option<T>,
-    deprecated_value: Option<T>,
+    replacement_value: PresentKey<T>,
+    deprecated_value: PresentKey<T>,
     rename: DeprecatedConfigKey,
     deprecated_keys: &mut Vec<DeprecatedConfigKey>,
 ) -> Result<Option<T>, String> {
@@ -350,12 +367,20 @@ fn read_renamed_key<T>(
             "{} and its deprecated name {} are both set; keep only {}",
             rename.replacement_key, rename.deprecated_key, rename.replacement_key
         )),
-        (None, Some(value)) => {
+        (None, Some(deprecated_value)) => {
+            let value = deprecated_value.ok_or_else(|| null_key_error(rename.deprecated_key))?;
             deprecated_keys.push(rename);
             Ok(Some(value))
         }
-        (replacement_value, None) => Ok(replacement_value),
+        (Some(replacement_value), None) => replacement_value
+            .map(Some)
+            .ok_or_else(|| null_key_error(rename.replacement_key)),
+        (None, None) => Ok(None),
     }
+}
+
+fn null_key_error(key: &str) -> String {
+    format!("{key} is null; set a positive number or remove the key")
 }
 
 /// Controls value size limits, wire references, and local BlobDB placement.

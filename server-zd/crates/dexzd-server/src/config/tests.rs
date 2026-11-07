@@ -237,10 +237,49 @@ fn a_checkpoint_key_set_under_both_names_is_rejected() {
             "history:\n  checkpointCommandThreshold: 250\n  checkpointCommandInterval: 250\n",
             "history.checkpointCommandInterval",
         ),
+        (
+            "history:\n  checkpointCommandThreshold: 250\n  checkpointCommandInterval: null\n",
+            "history.checkpointCommandInterval",
+        ),
+        (
+            "history:\n  checkpointCommandThreshold: null\n  checkpointCommandInterval: 250\n",
+            "history.checkpointCommandInterval",
+        ),
+        (
+            "history:\n  checkpointRowWriteBytesThreshold: 4096\n  checkpointMinWrittenBytes: null\n",
+            "history.checkpointMinWrittenBytes",
+        ),
+        (
+            "history:\n  checkpointRowWriteBytesThreshold: null\n  checkpointMinWrittenBytes: 4096\n",
+            "history.checkpointMinWrittenBytes",
+        ),
     ] {
         let error = Config::parse_yaml(yaml).expect_err("both names of one key must fail");
         assert!(matches!(error, ConfigError::Yaml { .. }), "{error}");
-        assert!(error.to_string().contains(deprecated_key), "{error}");
+        assert!(
+            error.to_string().contains(deprecated_key) && error.to_string().contains("both set"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn a_null_checkpoint_key_is_rejected_by_name() {
+    for key in [
+        "checkpointRowWriteBytesThreshold",
+        "checkpointMinWrittenBytes",
+        "checkpointCommandThreshold",
+        "checkpointCommandInterval",
+    ] {
+        let error = Config::parse_yaml(&format!("history:\n  {key}: null\n"))
+            .expect_err("a null checkpoint key must fail");
+        assert!(matches!(error, ConfigError::Yaml { .. }), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("history.{key} is null")),
+            "{error}"
+        );
     }
 }
 
