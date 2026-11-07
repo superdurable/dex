@@ -1092,6 +1092,9 @@ export class ToolCallFailureRecordingStep implements Step<string> {
 
   public execute(context: Context, toolCallId: string): StepDecision {
     const transitions = this.transitions;
+    if (isStateLimitFailure(context.recoveryError)) {
+      return recordFailedSession(transitions, context, readRecoveryDetail(context));
+    }
     const toolCall = transitions.readToolCall(context, toolCallId);
     if (isFinalToolCallStatus(toolCall.status)) {
       return deadEnd();
@@ -1283,6 +1286,12 @@ export class ApplyTurnControlStep implements Step<void> {
   }
 }
 
+// server-zd reports a Step whose commit would pass limits.maxFlowStateBytes with this type and text:
+// "run state of <X> bytes exceeds the maximum of <Y> bytes", or "active run state of ..." since the limit
+// counts only active state.
+const stateLimitErrorType = "ValueTooLarge";
+const stateLimitErrorText = "run state of ";
+
 /** Ends a failed turn; it is the failure route of `RunModel` and `CompactContext`, so it takes either's input. */
 export class RecordTurnFailureStep implements Step<CompactContextInput | undefined> {
   public readonly inputCodec = turnFailureRouteInputCodec;
@@ -1308,6 +1317,9 @@ export class RecordTurnFailureStep implements Step<CompactContextInput | undefin
 
   public execute(context: Context): StepDecision {
     const transitions = this.transitions;
+    if (isStateLimitFailure(context.recoveryError)) {
+      return recordFailedSession(transitions, context, readRecoveryDetail(context));
+    }
     const state = transitions.readAgentState(context);
     const toolCalls = transitions.readTurnToolCalls(context, state.activeTurnId);
     const finalToolCalls = toolCalls.filter((toolCall) => isFinalToolCallStatus(toolCall.status));
@@ -1324,6 +1336,40 @@ export class RecordTurnFailureStep implements Step<CompactContextInput | undefin
       readRecoveryDetail(context),
     );
   }
+}
+
+/** Reports whether a Step failed because its commit would exceed the Flow's state limit. */
+export function isStateLimitFailure(recoveryError: RecoveryErrorInfo | undefined): boolean {
+  // The Server gives this failure no code of its own; a value over its own limit shares the type.
+  return recoveryError?.errorType === stateLimitErrorType && recoveryError.detail.includes(stateLimitErrorText);
+}
+
+/**
+ * Ends a session whose Flow reached the state limit, in one commit with the Flow's close. This commit is checked
+ * against the same limit, so it stores no turn messages and keeps the turn's tool call records. When it does not
+ * fit, Dex fails the Flow with the same text and `AgentState` stays as it was; see `agent-session-failure.ts`.
+ */
+function recordFailedSession(
+  transitions: AgentSessionTransitions,
+  context: Context,
+  error: string,
+): StepDecision {
+  const persistence = transitions.persistence;
+  const state = transitions.readAgentState(context);
+  persistence.frameworkRunState.delete(context);
+  if (transitions.readPendingInterrupts(context).length > 0) {
+    persistence.pendingInterrupts.set(context, []);
+  }
+  transitions.writeAgentState(context, {
+    ...state,
+    status: "failed",
+    turnCount: state.turnCount + (state.activeTurnId === null ? 0 : 1),
+    activeTurnId: null,
+    lastTurnError: error,
+    acceptsTurnControl: false,
+  });
+  transitions.writeEvents(context, state.activeTurnId, (events) => events.writeEvent("turn_failed", { error }));
+  return forceFail(error);
 }
 
 /**

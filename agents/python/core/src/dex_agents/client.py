@@ -15,8 +15,19 @@ from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 
-from dex import AsyncClient, RpcLockConflictError, StartFlowOptions, StreamMessage
+from dex import (
+    AsyncClient,
+    FlowNotActiveOrNotFoundError,
+    RpcLockConflictError,
+    StartFlowOptions,
+    StreamMessage,
+)
 
+from dex_agents.session_failure import (
+    AgentSessionFailedError,
+    read_agent_snapshot,
+    read_session_failure,
+)
 from dex_agents.session_flow import AgentSessionFlow
 from dex_agents.session_settings import validate_session_settings
 from dex_agents.values import (
@@ -175,12 +186,19 @@ class AgentSessionClient:
             ``plan_mode`` message when plan mode is not enabled.
 
         Raises:
+            AgentSessionFailedError: If the session failed. ``reason`` says why.
             FlowNotActiveOrNotFoundError: If the session is not running.
+            DexServiceError: With ``RESOURCE_EXHAUSTED`` when the message does
+                not fit under ``limits.maxFlowStateBytes``. Nothing was queued,
+                and the session stays as it was.
         """
-        return await self._client.invoke_rpc(
-            self._flow.send_user_message,
+        return await self._raise_session_failure(
             session_id,
-            AgentUserMessage(text=text, plan_mode=plan_mode),
+            self._client.invoke_rpc(
+                self._flow.send_user_message,
+                session_id,
+                AgentUserMessage(text=text, plan_mode=plan_mode),
+            ),
         )
 
     async def execute_plan(self, session_id: str, revision: int) -> bool:
@@ -251,12 +269,16 @@ class AgentSessionClient:
             ChannelMessageNotFoundError: If the session consumed the queued
                 message while the call ran; nothing changed, so reload the
                 snapshot.
+            AgentSessionFailedError: If the session failed. ``reason`` says why.
             FlowNotActiveOrNotFoundError: If the session is not running.
         """
-        return await self._client.invoke_rpc(
-            self._flow.steer_user_message,
+        return await self._raise_session_failure(
             session_id,
-            SteerUserMessageRequest(message_id=message_id, text=text),
+            self._client.invoke_rpc(
+                self._flow.steer_user_message,
+                session_id,
+                SteerUserMessageRequest(message_id=message_id, text=text),
+            ),
         )
 
     async def delete_queued_message(self, session_id: str, message_id: str) -> bool:
@@ -378,6 +400,15 @@ class AgentSessionClient:
             lambda: self._client.invoke_rpc(self._flow.answer_question, session_id, request)
         )
 
+    async def _raise_session_failure(self, session_id: str, call: Awaitable[bool]) -> bool:
+        try:
+            return await call
+        except FlowNotActiveOrNotFoundError as error:
+            reason = await read_session_failure(self._client, session_id)
+            if reason is None:
+                raise
+            raise AgentSessionFailedError(session_id, reason, error) from error
+
     async def _retry_lock_conflicts(self, invoke: Callable[[], Awaitable[bool]]) -> bool:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._lock_conflict_retry_timeout.total_seconds()
@@ -396,9 +427,11 @@ class AgentSessionClient:
             session_id: Running or retained closed session.
 
         Returns:
-            The snapshot from ``get_agent_snapshot``.
+            The snapshot from ``get_agent_snapshot``. When the session's Flow
+            failed, it has status ``FAILED`` and the Flow's reason, even if the
+            session had no room left to store them.
         """
-        return await self._client.invoke_rpc(self._flow.get_agent_snapshot, session_id)
+        return await read_agent_snapshot(self._client, self._flow, session_id)
 
     async def list_agent_messages(
         self,

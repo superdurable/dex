@@ -11,6 +11,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { FlowNotFoundError, type AttributeRead, type Client } from "@superdurable/dex";
 
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
+import { readSessionFailure } from "../agent-session-failure.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import { messageSequenceKey } from "../agent-session-persistence.js";
 import { findMessageChunkRange } from "../agent-session-transitions.js";
@@ -82,6 +83,11 @@ export class AgentSessionRecordReader {
       }
       throw error;
     }
+  }
+
+  /** Returns why the session's Flow failed, or `undefined` when it did not. */
+  public readFlowFailure(): Promise<string | undefined> {
+    return readSessionFailure(this.client, this.flowId);
   }
 
   /**

@@ -15,12 +15,15 @@
  *   approval, and `ResumeTurn` waits for their results.
  * - `compacting_context`: `CompactContext` summarizes earlier messages before the turn's next model
  *   call. Only a session with {@link AgentSessionOptions.compaction} reaches it.
+ * - `failed`: the session ended and takes no more messages. Its Flow closed failed, and
+ *   {@link AgentState.lastTurnError} holds the reason.
  */
 export type AgentSessionStatus =
   | "waiting_for_user_message"
   | "running_model"
   | "running_tools"
-  | "compacting_context";
+  | "compacting_context"
+  | "failed";
 
 /**
  * Kind of a turn, stored in {@link AgentState.interactionMode} when the turn starts, for the runner to choose
@@ -155,7 +158,10 @@ export interface AgentState {
   readonly activeTurnId: string | null;
   /** Sequence assigned to the next stored message; starts at 1. Wire field: `next_message_sequence`. */
   readonly nextMessageSequence: number;
-  /** Error text of the most recent failed turn, or `null`. Wire field: `last_turn_error`. */
+  /**
+   * Error text of the most recent failed turn, or `null`. With status `failed`, the reason the session ended.
+   * Wire field: `last_turn_error`.
+   */
   readonly lastTurnError: string | null;
   /**
    * Kind of the active turn, or of the last turn between turns; the session sets it when a turn starts.

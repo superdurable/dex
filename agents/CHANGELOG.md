@@ -4,6 +4,44 @@ All eleven Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## Unreleased
+
+### A session at the state limit fails, with the reason
+
+- Python and TypeScript cores: when a Step fails on
+  `limits.maxFlowStateBytes`, the session ends. `RecordTurnFailure`,
+  `RecordToolFailure`, and `RecordToolOutcomeUnknown` recognize the recovery
+  error (`ValueTooLarge` with the text `run state of <X> bytes exceeds the
+  maximum of <Y> bytes`, or `active run state of ...` from a server that counts
+  only active state), set the new `AgentState.status` value `failed` with that
+  text in `last_turn_error`, and close the Flow `FAILED` with the same text in
+  the same commit. A session no longer goes on to pay for model calls whose
+  answers cannot be stored. A value over `values.maxValueBytes` still fails only
+  its turn.
+- That commit is checked against the same limit, and it can fail too. The Flow
+  then closes `FAILED` with the text anyway and `AgentState` keeps its last
+  value, which is also what happens for a Step with no failure route, such as
+  `AwaitUserMessage`. `AgentSessionClient.get_agent_snapshot` and the new
+  `read_agent_snapshot` (`readAgentSnapshot`) read the Flow's close, so they
+  report `failed` and the reason for any session that stored a state, for one
+  more call to Dex. A session that fails before it stores a state keeps a
+  snapshot with no state. The `get_agent_snapshot` RPC alone reads only what was
+  stored.
+- UI streams: the event SSE generators end once the Flow failed and every event
+  was sent, instead of sending keep-alives forever. A TypeScript UI message
+  stream that finds the Flow failed ends with an `error` part with the reason
+  and `finishReason` `error`. `AgentSessionUIMessages` has a new `failure` field.
+- New messages are refused. `AgentSessionClient.send_user_message` and
+  `steer_user_message`, and the new `sendAgentUserMessage`, raise the new
+  `AgentSessionFailedError`, a `FlowNotActiveOrNotFoundError` with `reason`. A
+  direct RPC call still gets `FlowNotActiveOrNotFoundError`.
+- Queued messages never run. They stay readable in
+  `AgentSnapshot.queued_messages` until retention deletes the session.
+- Go core: reads `failed` and keeps its behavior. It does not end a session at
+  the limit yet.
+- See [Upgrade agent code while sessions wait](../docs/content/agent-frameworks/deploy-agents.mdx)
+  for the order of a rolling deploy.
+
 ## 0.2.0 (2026-11-05)
 
 ### Tool calls that never ran

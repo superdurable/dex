@@ -230,6 +230,11 @@ BLANK_TOOL_TASK_ID = "the tool started a task without a task ID"
 INVALID_TOOL_TASK_POLL_INTERVAL = "the tool task's poll interval is not a number"
 # Longest wait between two polls of a tool task; a longer interval is shortened to it.
 _MAXIMUM_TOOL_TASK_POLL_INTERVAL_SECONDS = 86_400
+# server-zd reports a Step whose commit would pass limits.maxFlowStateBytes with this type and
+# text: "run state of <X> bytes exceeds the maximum of <Y> bytes", or "active run state of ..."
+# since the limit counts only active state.
+STATE_LIMIT_ERROR_TYPE = "ValueTooLarge"
+STATE_LIMIT_ERROR_TEXT = "run state of "
 SNAPSHOT_MESSAGE_LIMIT = 200
 MESSAGE_PAGE_LIMIT = 200
 # Keeps liveness well inside the shortest heartbeat timeout, one minute.
@@ -2155,6 +2160,8 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         tool_call_id: str,
         status: ToolCallStatus,
     ) -> StepDecision:
+        if _is_state_limit_failure(context.recovery_error):
+            return self._fail_session(context, _recovery_detail(context))
         tool_call = AGENT_TOOL_CALLS.get(context, tool_call_id)
         if tool_call.status.is_final:
             return dead_end()
@@ -2380,11 +2387,38 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
 
     def _fail_active_turn(self, context: AsyncContext) -> StepDecision:
+        if _is_state_limit_failure(context.recovery_error):
+            return self._fail_session(context, _recovery_detail(context))
         state = _require_agent_state(context)
         turn_id = _require_active_turn_id(state)
         tool_calls = _turn_tool_calls(context, turn_id)
         events = self._event_writer(context, turn_id)
         return self._fail_turn(context, state, tool_calls, events, _recovery_detail(context))
+
+    def _fail_session(self, context: AsyncContext, error: str) -> StepDecision:
+        """End a session whose Flow reached the state limit, in one commit with the Flow's close."""
+        # This commit is checked against the same limit, so it stores no turn messages and keeps
+        # the turn's tool call records. When it does not fit, Dex fails the Flow with the same
+        # text and AgentState stays as it was; see dex_agents.session_failure.
+        state = _require_agent_state(context)
+        if FRAMEWORK_RUN_STATE.get(context) is not None:
+            FRAMEWORK_RUN_STATE.delete(context)
+        if _pending_interrupts(context):
+            PENDING_INTERRUPTS.set(context, [])
+        AGENT_STATE.set(
+            context,
+            replace(
+                state,
+                status=AgentSessionStatus.FAILED,
+                turn_count=state.turn_count + (0 if state.active_turn_id is None else 1),
+                active_turn_id=None,
+                accepts_turn_control=False,
+                last_turn_error=error,
+            ),
+        )
+        events = self._event_writer(context, state.active_turn_id)
+        events.write_event(AgentEventType.TURN_FAILED, {"error": error})
+        return force_fail(error)
 
     def _fail_turn(
         self,
@@ -3762,6 +3796,16 @@ def _recovery_error_detail(error: RecoveryErrorInfo | None) -> str:
     if error is None:
         return "unknown failure"
     return error.detail or error.error_type
+
+
+def _is_state_limit_failure(error: RecoveryErrorInfo | None) -> bool:
+    """Report whether a Step failed because its commit would exceed the Flow's state limit."""
+    # The Server gives this failure no code of its own; a value over its own limit shares the type.
+    return (
+        error is not None
+        and error.error_type == STATE_LIMIT_ERROR_TYPE
+        and STATE_LIMIT_ERROR_TEXT in error.detail
+    )
 
 
 def _recovered_tool_call(

@@ -40,6 +40,12 @@
       "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"compacting_context\",\"turn_count\":1}"
     },
     {
+      "name": "status-failed",
+      "description": "Status failed.",
+      "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"failed\",\"turn_count\":1}",
+      "canonical": "{\"accepts_turn_control\":false,\"active_turn_id\":\"turn-2\",\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":3,\"status\":\"failed\",\"turn_count\":1}"
+    },
+    {
       "name": "interaction-mode-chat",
       "description": "Interaction mode chat.",
       "wire": "{\"accepts_turn_control\":false,\"active_turn_id\":null,\"interaction_mode\":\"chat\",\"last_turn_error\":null,\"next_message_sequence\":1,\"status\":\"running_model\",\"turn_count\":0}",

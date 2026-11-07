@@ -35,12 +35,15 @@ class AgentSessionStatus(StrEnum):
         COMPACTING_CONTEXT: ``CompactContext`` summarizes earlier messages
             before the turn's next model call. Only a session with
             ``AgentSessionOptions.compaction`` reaches it.
+        FAILED: The session ended and takes no more messages. Its Flow closed
+            ``FAILED``, and ``AgentState.last_turn_error`` holds the reason.
     """
 
     WAITING_FOR_USER_MESSAGE = "waiting_for_user_message"
     RUNNING_MODEL = "running_model"
     RUNNING_TOOLS = "running_tools"
     COMPACTING_CONTEXT = "compacting_context"
+    FAILED = "failed"
 
 
 class MessageRole(StrEnum):
@@ -287,7 +290,8 @@ class AgentState:
         next_message_sequence: Sequence the next stored message receives.
             Sequences start at 1 and have no gaps.
         last_turn_error: Recovery error text of the last finished turn when it
-            failed, or ``None`` when it completed.
+            failed, or ``None`` when it completed. With status ``FAILED``, the
+            reason the session ended.
         interaction_mode: Kind of the active turn, or of the last turn between
             turns. The session sets it when a turn starts. Defaults to
             ``CHAT``; ``None``, as an explicit JSON ``null`` decodes, also
