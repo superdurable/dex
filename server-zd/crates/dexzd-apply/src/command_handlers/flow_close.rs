@@ -72,6 +72,7 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::OutboxAck(_)
         | Command::SearchOutboxAck(_)
         | Command::SetSearchProjectionMode(_)
+        | Command::SetHistoryOffloadMode(_)
         | Command::AttributeSyncAck(_)
         | Command::PendingCloseCheck(_)
         | Command::HardDeleteObjectsDeleted(_)

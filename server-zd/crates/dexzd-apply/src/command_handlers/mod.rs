@@ -127,6 +127,12 @@ fn apply_in_scope(
                 ack,
             )?
         }
+        Command::SetHistoryOffloadMode(mode) => {
+            crate::history_offload::offload_mode::apply_history_offload_mode(
+                &mut transaction,
+                mode,
+            )?
+        }
         Command::StepAttemptQueued(queued) => {
             crate::steps::dispatch_queue::apply_attempt_queued(&mut transaction, scope, queued)?
         }
@@ -284,6 +290,8 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         Command::StepAttemptReturned(_) => false,
         // A queued attempt writes only its DispatchQueue row, outside run storage.
         Command::StepAttemptQueued(_) => false,
+        // A partition mode writes only its partition index row, outside run storage.
+        Command::SetHistoryOffloadMode(_) => false,
         _ => false,
     }
 }
@@ -412,6 +420,7 @@ pub(crate) fn apply_run_command(
             rpc_committed::apply_rpc_committed(transaction, cursor, scope, command)
         }
         Command::SetSearchProjectionMode(_)
+        | Command::SetHistoryOffloadMode(_)
         | Command::SearchOutboxAck(_)
         | Command::StepAttemptQueued(_)
         | Command::InboxMessage(_)

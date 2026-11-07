@@ -20,6 +20,7 @@ mod command_handlers;
 mod cross_flow;
 mod hard_delete_admission;
 mod history;
+mod history_offload;
 mod projections;
 pub mod read_model;
 mod state_access;

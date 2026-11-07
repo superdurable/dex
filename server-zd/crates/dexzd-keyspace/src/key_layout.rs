@@ -241,11 +241,13 @@ pub enum IndexKind {
     /// pending_since(8) ‖ flow_hash(8) ‖ run_id(16) ‖ method(1) ‖ attempt(4) ‖ step_execution_id`:
     /// pending Step attempts that no Worker took at once; see `dispatch_queue_keys`.
     DispatchQueue = 0x0d,
+    /// No suffix: the partition's HistoryOffloadModeRecord; absent means disabled.
+    HistoryOffloadMode = 0x0e,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -259,6 +261,7 @@ impl IndexKind {
         Self::SearchOutbox,
         Self::SearchProjectionMode,
         Self::DispatchQueue,
+        Self::HistoryOffloadMode,
     ];
 }
 
@@ -421,7 +424,7 @@ mod tests {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
         assert_eq!(bytes, (1..=26).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=13).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=14).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
     }

@@ -10,6 +10,7 @@
 
 mod commit_path;
 mod harness;
+mod history_offload_mode;
 mod hot_standby;
 mod hot_standby_faults;
 mod hot_standby_takeover;

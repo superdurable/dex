@@ -29,7 +29,7 @@ use crate::testdata_tree::{
 };
 
 /// Digest of every file of each version, README included. Regenerate v1 before 1.0; afterward versions are immutable: add `v<N+1>`.
-const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "b4398cca52dcab470ab58855a7441a9d")];
+const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "bfbb44fcd520f90e6be2c17a06b289ed")];
 /// The restoring node starts this long after the last recorded command.
 pub(crate) const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
 
@@ -307,6 +307,7 @@ const ALL_COMMAND_KINDS: &[&str] = &[
     "PendingCloseCheck",
     "SearchOutboxAck",
     "SetSearchProjectionMode",
+    "SetHistoryOffloadMode",
     "HardDeleteObjectsDeleted",
     "RunPurge",
 ];
@@ -340,6 +341,7 @@ fn command_kind(command: &FlowCommand) -> &'static str {
         Command::PendingCloseCheck(_) => "PendingCloseCheck",
         Command::SearchOutboxAck(_) => "SearchOutboxAck",
         Command::SetSearchProjectionMode(_) => "SetSearchProjectionMode",
+        Command::SetHistoryOffloadMode(_) => "SetHistoryOffloadMode",
         Command::HardDeleteObjectsDeleted(_) => "HardDeleteObjectsDeleted",
         Command::RunPurge(_) => "RunPurge",
     }

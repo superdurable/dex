@@ -13,6 +13,7 @@ mod client_deadline;
 mod grpc_server;
 mod lease_validity_watchdog;
 mod node_lifecycle;
+mod partition_mode;
 mod public_api_authentication;
 mod search_projection;
 #[cfg(test)]
@@ -66,9 +67,7 @@ use node_lifecycle::{
     AdministrationRequest, HeldNodeLease, LifecycleActiveNodeAdministration, NodeLifecycle,
     ProcessParts, StepDownRequest,
 };
-use search_projection::{
-    SearchProjection, SearchProjectionModeRebuilder, SearchProjectionStart, SqlVisibilitySearch,
-};
+use search_projection::{SearchProjection, SearchProjectionStart, SqlVisibilitySearch};
 
 /// Part of the budget for open calls, so the engine still stops cleanly after a stuck call.
 const GRPC_DRAIN_BUDGET: Duration = Duration::from_secs(4);
@@ -507,12 +506,13 @@ impl ServerNode {
                     attribute_sync_waker: attribute_sync_waker.clone(),
                 },
             );
-            let mode_rebuilder = SearchProjectionModeRebuilder::new(
+            let mode_rebuilder = partition_mode::partition_mode_rebuilder(
                 Arc::new(effect_runner.clone()),
-                services.committer.clone(),
-                metrics.clone(),
-                partition_hasher.clone(),
+                &services.committer,
+                &metrics,
+                &partition_hasher,
                 is_search_projection_enabled,
+                config.history.is_offload_enabled,
             );
             let registry = FlowCoordinatorRegistry::new(
                 &components.flow_coordination,
