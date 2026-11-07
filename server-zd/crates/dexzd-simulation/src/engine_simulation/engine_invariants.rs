@@ -253,6 +253,10 @@ fn recovered_memory(
         attribute_sync_acks: shadow.attribute_sync_acks().clone(),
         // A recovered store may predate the release of a hold that the shadow saw.
         rpc_held_runs: shadow.ever_rpc_held_runs().clone(),
+        // Recovered-store checks never compare encodings across commands.
+        sealed_segment_encodings: Default::default(),
+        // A recovered store keeps the segment gaps of every command the shadow applied.
+        history_offload_gaps: shadow.history_offload_gaps().clone(),
     }
 }
 

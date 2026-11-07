@@ -570,6 +570,8 @@ fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfil
         max_child_flow_result_bytes: 0,
         // The earlier default keeps the pinned canonical command bytes of the regression seeds.
         checkpoint_command_threshold: 10_000,
+        // Zero (the 4 MiB default) keeps the pinned canonical command bytes as well.
+        history_segment_target_bytes: 0,
         ..default_run_settings()
     };
     if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {

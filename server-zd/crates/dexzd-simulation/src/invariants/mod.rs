@@ -11,6 +11,7 @@
 mod attribute_sync_invariants;
 mod directory_invariants;
 mod dispatch_queue_invariants;
+mod history_segment_invariants;
 mod lock_invariants;
 mod search_order_invariants;
 mod value_invariants;
@@ -26,6 +27,10 @@ use crate::state_view::FlowView;
 pub use attribute_sync_invariants::CloseBarrierCounts;
 pub(crate) use attribute_sync_invariants::{
     AttributeSyncAcks, check_close_barrier, check_outbox_writes, remember_ack,
+};
+pub(crate) use history_segment_invariants::{
+    OffloadGapsByRun, check_deletions_were_uploaded, check_open_segment_transitions,
+    check_sealed_segment_encodings,
 };
 pub use lock_invariants::check_fresh_snapshot;
 pub(crate) use value_invariants::remember_window_points;
@@ -86,6 +91,11 @@ pub struct CheckerMemory {
     pub(crate) attribute_sync_acks: attribute_sync_invariants::AttributeSyncAcks,
     /// Runs whose pending close without outbox entries an admitted transactional RPC holds.
     pub(crate) rpc_held_runs: BTreeSet<RunId>,
+    /// Encoding of each SEALED history segment when the checker first saw it.
+    pub(crate) sealed_segment_encodings: history_segment_invariants::SealedSegmentEncodings,
+    /// The seqs and events that commands applied while offload was off took out of each run's
+    /// segment chain.
+    pub(crate) history_offload_gaps: history_segment_invariants::OffloadGapsByRun,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +147,12 @@ pub fn check_flow(
             &context,
             run,
             memory.rpc_held_runs.contains(run_id),
+        )?;
+        history_segment_invariants::check_segment_chain(
+            &context,
+            run,
+            view,
+            memory.history_offload_gaps.get(run_id),
         )?;
     }
     Ok(())

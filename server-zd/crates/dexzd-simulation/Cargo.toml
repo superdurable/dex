@@ -16,6 +16,7 @@ dexzd-apply.workspace = true
 dexzd-clock.workspace = true
 dexzd-cluster-metadata.workspace = true
 dexzd-engine = { workspace = true, features = ["test-util"] }
+dexzd-history-segment.workspace = true
 dexzd-keyspace.workspace = true
 dexzd-log.workspace = true
 dexzd-metrics.workspace = true

@@ -172,6 +172,15 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
                 ),
             });
         }
+        // An upload acknowledgment never records history.
+        Command::HistorySegmentUploaded(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a HistorySegmentUploaded command",
+                    history_record.seq
+                ),
+            });
+        }
         // A partition command belongs to no run, so it never records history.
         Command::SetHistoryOffloadMode(_) => {
             return Err(ApplyError::InvariantViolation {

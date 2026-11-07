@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use bytes::Bytes;
+use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_apply::{ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, WaitableChange};
 use dexzd_clock::WallClock;
 use dexzd_engine::{
@@ -14,6 +15,7 @@ use dexzd_engine::{
     decode_hard_delete_value, default_run_settings, encode_hard_delete_value,
     hard_delete_placeholder_value,
 };
+use dexzd_history_segment::encode_history_segment;
 use dexzd_keyspace::row_keys::{decode_search_outbox_key, partition_index_range, prefix_range};
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, PartitionHasher, PartitionId, RunId, RunTable, TenantId,
@@ -34,13 +36,14 @@ use dexzd_protocol::dex::{
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
-    HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, InboxMessageCommand,
-    OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
-    RunSettings, SearchOutboxAckCommand, SetHistoryOffloadModeCommand,
-    SetSearchProjectionModeCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
-    StepAttemptHeartbeatCommand, StepAttemptQueuedCommand, StepAttemptReturnReason,
-    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey,
-    StepMethod, StepMethodCompletedCommand, TimeTravelCommand, TimerRecord, TimerSkipCommand,
+    HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, HistorySegmentRecord,
+    HistorySegmentUploadedCommand, InboxMessageCommand, OutboxAckCommand, OutboxRecord,
+    PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand, RunSettings,
+    SearchOutboxAckCommand, SetHistoryOffloadModeCommand, SetSearchProjectionModeCommand,
+    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
+    StepAttemptQueuedCommand, StepAttemptReturnReason, StepAttemptReturnedCommand,
+    StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, TimeTravelCommand, TimerRecord, TimerSkipCommand,
     TimersFiredCommand, command_reply, flow_command::Command, inbox_message_command, outbox_record,
     step_attempt_heartbeat_command, step_method_completed_command, timer_id,
 };
@@ -128,8 +131,90 @@ impl Workload<'_> {
         self.queued_attempts_wait_in_the_dispatch_queue().await;
         self.travel_restores_a_running_attempt_as_pending().await;
         self.search_projection_acknowledges_its_outbox().await;
+        self.history_segment_is_sealed_at_close_and_acknowledged()
+            .await;
         self.set_history_offload_modes(&[PartitionId(0)], false)
             .await;
+    }
+
+    /// `history-flow`, in partition 1, which offloads history: a replaced Attribute supersedes a
+    /// value, the stop seals the run's only segment, and an upload acknowledgment marks it
+    /// uploaded.
+    async fn history_segment_is_sealed_at_close_and_acknowledged(&self) {
+        let flow_id = (0..)
+            .map(|index| format!("history-flow-{index}"))
+            .find(|flow_id| self.context(flow_id).partition == PartitionId(1))
+            .expect("some Flow ID hashes to partition 1");
+        let run = self
+            .start_flow(
+                StartFlowRequest {
+                    flow_id: flow_id.clone(),
+                    flow_type: "HistoryFlow".to_owned(),
+                    request_id: "start-history-flow".to_owned(),
+                    ..StartFlowRequest::default()
+                },
+                default_run_settings(),
+            )
+            .await;
+        self.set_attributes(
+            &run,
+            vec![attribute("notes", string_value(LONG_PROFILE_TEXT))],
+            "set-notes-1",
+        )
+        .await;
+        self.set_attributes(
+            &run,
+            vec![attribute(
+                "notes",
+                string_value(&format!("{LONG_PROFILE_TEXT} Call ahead.")),
+            )],
+            "set-notes-2",
+        )
+        .await;
+        self.commit(
+            &run,
+            Command::FlowStop(FlowStopCommand {
+                request: Some(StopFlowRequest {
+                    flow_id: flow_id.clone(),
+                    reason: "history sealed".to_owned(),
+                    stop_type: StopType::Cancel as i32,
+                    ..StopFlowRequest::default()
+                }),
+            }),
+        )
+        .await;
+        let segments = self
+            .run_rows::<HistorySegmentRecord>(&run, RunTable::HistorySegment)
+            .await;
+        assert_eq!(segments.len(), 1, "the stop sealed one segment");
+        let segment = segments[0].clone();
+        let view = self
+            .node
+            .committer()
+            .committed_view()
+            .expect("open a committed view");
+        let flow_hash = self.context(&flow_id).flow_hash;
+        let run_id = run.run_id;
+        let first_seq = segment.first_seq;
+        let content = tokio::task::spawn_blocking(move || {
+            read_history_segment_content(&view, flow_hash, run_id, first_seq)
+                .expect("the segment content reads")
+                .expect("the sealed segment exists")
+        })
+        .await
+        .expect("the read task completes");
+        assert_eq!(content.values.len(), 1, "the replaced value is listed");
+        let encoded = encode_history_segment(&content).expect("the segment encodes");
+        self.commit(
+            &run,
+            Command::HistorySegmentUploaded(HistorySegmentUploadedCommand {
+                first_seq: segment.first_seq,
+                last_seq: segment.last_seq,
+                content_checksum: encoded.content_checksum.to_vec(),
+                object_size_bytes: encoded.bytes.len() as u64,
+            }),
+        )
+        .await;
     }
 
     /// Sets the history offload mode of each partition in `partitions`.

@@ -155,6 +155,17 @@ message RunRecord {
   // Window events of the records before the window start; the window holds window_event_count
   // minus this.
   uint64 pruned_window_event_count = 59;
+  // First seq of the open history segment; zero means the run has no segment state, as in runs
+  // that started while their partition did not offload history.
+  uint64 history_open_segment_first_seq = 60;
+  // Bytes of history records, checkpoints, and superseded values in the open segment.
+  uint64 history_open_segment_bytes = 61;
+  // Values superseded inside the open segment.
+  uint64 history_open_segment_superseded_value_count = 62;
+  // Last seq of the newest uploaded history segment (U); zero before the first upload.
+  uint64 history_uploaded_through_seq = 63;
+  // First event ID the open history segment can hold: the run's next event ID when it opened.
+  int64 history_open_segment_first_event_id = 66;
 }
 
 // A natural close waiting for the run's Attribute Sync outbox; its Steps are canceled already.
@@ -670,4 +681,41 @@ message SearchProjectionModeRecord {
 message HistoryOffloadModeRecord {
   // The partition offloads run history to object storage while enabled.
   bool enabled = 1;
+}
+
+// State of a row of RunTable::HistorySegment.
+enum HistorySegmentState {
+  HISTORY_SEGMENT_STATE_UNSPECIFIED = 0;
+  // Sealed by apply and waiting for upload; the HistoryUploadPending index names its run.
+  HISTORY_SEGMENT_STATE_SEALED = 1;
+  // Its object exists in object storage, and last_seq is at most the run's uploaded seq.
+  HISTORY_SEGMENT_STATE_UPLOADED = 2;
+}
+
+// Row of RunTable::HistorySegment, keyed by first_seq (8 bytes big-endian): the contiguous seq
+// range [first_seq, last_seq] of one run's history that apply sealed for upload.
+message HistorySegmentRecord {
+  uint64 first_seq = 1;
+  uint64 last_seq = 2;
+  // Event IDs assigned inside the seq range; the range is empty when first_event_id is larger.
+  int64 first_event_id = 3;
+  int64 last_event_id = 4;
+  HistorySegmentState state = 5;
+  // Proposal time of the command that sealed the segment.
+  int64 sealed_at_micros = 6;
+  // Number of the segment's RunTable::HistorySegmentValue rows.
+  uint64 superseded_value_count = 7;
+  // Set by the upload acknowledgment: xxh3-128 of the object's uncompressed content.
+  bytes content_checksum = 8;
+  // Set by the upload acknowledgment: size of the uploaded object.
+  uint64 object_size_bytes = 9;
+}
+
+// Row of RunTable::HistorySegmentValue, keyed by the segment's first_seq (8 bytes big-endian)
+// and the value ID: a value that was superseded inside the segment when apply sealed it. A later
+// revival of the value leaves the row unchanged.
+message HistorySegmentValueRecord {
+  // Seq at which the value lost its last holder; inside the segment's seq range.
+  uint64 superseded_seq = 1;
+  uint64 size_bytes = 2;
 }

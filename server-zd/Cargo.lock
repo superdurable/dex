@@ -1120,6 +1120,7 @@ name = "dexzd-apply"
 version = "0.1.0"
 dependencies = [
  "dexzd-apply",
+ "dexzd-history-segment",
  "dexzd-keyspace",
  "dexzd-protocol",
  "prost",
@@ -1203,6 +1204,7 @@ dependencies = [
  "dexzd-clock",
  "dexzd-cluster-metadata",
  "dexzd-engine",
+ "dexzd-history-segment",
  "dexzd-keyspace",
  "dexzd-log",
  "dexzd-metrics",
@@ -1224,6 +1226,18 @@ dependencies = [
  "tracing",
  "uuid",
  "xxhash-rust",
+]
+
+[[package]]
+name = "dexzd-history-segment"
+version = "0.1.0"
+dependencies = [
+ "dexzd-keyspace",
+ "dexzd-protocol",
+ "prost",
+ "thiserror",
+ "xxhash-rust",
+ "zstd",
 ]
 
 [[package]]
@@ -1418,6 +1432,7 @@ dependencies = [
  "dexzd-clock",
  "dexzd-cluster-metadata",
  "dexzd-engine",
+ "dexzd-history-segment",
  "dexzd-keyspace",
  "dexzd-log",
  "dexzd-metrics",

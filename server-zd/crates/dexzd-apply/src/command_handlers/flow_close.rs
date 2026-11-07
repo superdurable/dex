@@ -76,6 +76,7 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::AttributeSyncAck(_)
         | Command::PendingCloseCheck(_)
         | Command::HardDeleteObjectsDeleted(_)
+        | Command::HistorySegmentUploaded(_)
         | Command::RunPurge(_) => TransactionalRpcHold::MayClose,
     }
 }

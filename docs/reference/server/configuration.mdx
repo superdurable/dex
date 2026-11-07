@@ -337,6 +337,7 @@ disk or fail Steps.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | **history.offloadEnabled** | false | Experimental. Whether partitions offload run history to object storage. |
+| **history.segmentTargetBytes** | 4194304 (4 MiB) | Experimental. Since 0.1.21. Bytes of history records, checkpoints, and superseded values after which a run seals its open history segment for upload. From 1 byte to 268435456 (256 MiB). |
 
 The setting applies to every partition, not to each run. When a node takes the
 lease, it records the value in every partition whose recorded value differs,
@@ -344,6 +345,18 @@ before the partitions resume work. Turning the switch off takes effect at the
 next start in the same way. A partition that has stopped applying commands keeps
 its previous value. The node then logs an error and increments
 **dexzd_history_offload_mode_skipped_partitions_total**.
+
+While offload is on, each run that starts in that partition divides its history
+into segments. A segment is sealed when it reaches **history.segmentTargetBytes**,
+when 10,000 values were superseded inside it, or when the run closes. Window
+pruning then deletes local history only after its segment is uploaded. Each run
+records **history.segmentTargetBytes** when it starts, so a new value applies only
+to runs that start after the node restarts with it.
+
+Turning offload off stops sealing. History of segments sealed earlier stays on
+local disk until each segment is uploaded; then pruning returns to the window
+rule. Commands applied while offload is off belong to no segment, so turning it
+on again starts a new segment after them.
 
 ## Limits {#limits}
 

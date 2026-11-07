@@ -106,6 +106,7 @@ impl ComponentConfigs {
         run_settings.max_run_state_bytes = config.limits.max_flow_state_bytes;
         run_settings.max_active_step_executions = config.limits.max_concurrent_steps_per_flow;
         run_settings.max_child_flow_result_bytes = config.limits.max_child_flow_result_bytes;
+        run_settings.history_segment_target_bytes = config.history.segment_target_bytes;
         let engine_node = EngineNodeConfig {
             node: NodeConfig {
                 node_id: config.cluster.node_id.clone(),
@@ -240,9 +241,10 @@ impl ComponentConfigs {
                 "limits.maxBlockingStateReads",
                 u64::from(config.limits.max_blocking_state_reads),
             )?,
-            // Children keep built-in settings; only this newer limit follows configuration.
+            // Children keep built-in settings; only these newer settings follow configuration.
             child_run_settings: RunSettings {
                 max_child_flow_result_bytes: config.limits.max_child_flow_result_bytes,
+                history_segment_target_bytes: config.history.segment_target_bytes,
                 ..EffectsConfig::default().child_run_settings
             },
             heads_resync_interval: config.matching.heads_resync_interval,

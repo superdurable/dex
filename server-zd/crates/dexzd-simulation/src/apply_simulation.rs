@@ -45,6 +45,10 @@ pub struct SimulationSummary {
     pub permission_mapping_commands: usize,
     /// Natural closes deferred for the Attribute Sync outbox, and pending closes finalized.
     pub close_barrier: CloseBarrierCounts,
+    /// History segments sealed by applied commands.
+    pub history_segments_sealed: usize,
+    /// TimeTravel commands applied to a run with segment state while offload was off.
+    pub history_offload_off_time_travels: usize,
 }
 
 impl SimulationSummary {
@@ -60,6 +64,8 @@ impl SimulationSummary {
         self.closed_run_erases += other.closed_run_erases;
         self.closed_run_erase_replays += other.closed_run_erase_replays;
         self.permission_mapping_commands += other.permission_mapping_commands;
+        self.history_segments_sealed += other.history_segments_sealed;
+        self.history_offload_off_time_travels += other.history_offload_off_time_travels;
         for (kind, count) in &other.applied_by_kind {
             *self.applied_by_kind.entry(kind).or_default() += count;
         }
@@ -129,6 +135,7 @@ pub fn run_seed(
     let mut side_streams = [
         CommandGenerator::attribute_sync_stream(seed),
         CommandGenerator::step_failure_stream(seed),
+        CommandGenerator::history_offload_stream(seed),
     ];
     let mut closed_erase_stream = CommandGenerator::closed_erase_stream(seed);
     let mut summary = SimulationSummary::default();
@@ -225,6 +232,7 @@ pub fn run_seed(
     }
     summary.size_rejections = checker.size_rejections().clone();
     summary.close_barrier = checker.close_barrier_counts();
+    summary.history_offload_off_time_travels = checker.history_offload_off_time_travels();
     summary.final_row_count = checker.state().row_count();
     Ok(summary)
 }
@@ -245,6 +253,16 @@ fn apply_and_count(
     *counts.entry(kind).or_default() += 1;
     summary.commands += 1;
     let is_applied = !outcome.writes.is_empty() && !is_error_reply;
+    summary.history_segments_sealed += outcome
+        .effects
+        .iter()
+        .filter(|effect| {
+            matches!(
+                effect,
+                dexzd_apply::ApplyEffect::HistorySegmentSealed { .. }
+            )
+        })
+        .count();
     if is_applied
         && let Some(Command::AttributesSet(command)) = &command.command
         && command.request.as_ref().is_some_and(|request| {
@@ -357,6 +375,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::SetHistoryOffloadMode(_)) => "SetHistoryOffloadMode",
         Some(Command::HardDeleteObjectsDeleted(_)) => "HardDeleteObjectsDeleted",
         Some(Command::RunPurge(_)) => "RunPurge",
+        Some(Command::HistorySegmentUploaded(_)) => "HistorySegmentUploaded",
     }
 }
 

@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 const INTERNAL_PROTO_FILES: &[&str] = &[
     "dexzd/v1/command.proto",
+    "dexzd/v1/history_segment.proto",
     "dexzd/v1/log.proto",
     "dexzd/v1/metadata.proto",
     "dexzd/v1/snapshot.proto",

@@ -7,6 +7,7 @@ members = [
     "crates/dexzd-cluster-metadata",
     "crates/dexzd-e2e-tests",
     "crates/dexzd-engine",
+    "crates/dexzd-history-segment",
     "crates/dexzd-keyspace",
     "crates/dexzd-log",
     "crates/dexzd-metrics",
@@ -46,6 +47,7 @@ dexzd-attribute-store = { path = "crates/dexzd-attribute-store" }
 dexzd-clock = { path = "crates/dexzd-clock" }
 dexzd-cluster-metadata = { path = "crates/dexzd-cluster-metadata" }
 dexzd-engine = { path = "crates/dexzd-engine" }
+dexzd-history-segment = { path = "crates/dexzd-history-segment" }
 dexzd-keyspace = { path = "crates/dexzd-keyspace" }
 dexzd-log = { path = "crates/dexzd-log" }
 dexzd-metrics = { path = "crates/dexzd-metrics" }

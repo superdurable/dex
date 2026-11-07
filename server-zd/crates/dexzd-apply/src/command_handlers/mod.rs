@@ -136,6 +136,13 @@ fn apply_in_scope(
         Command::StepAttemptQueued(queued) => {
             crate::steps::dispatch_queue::apply_attempt_queued(&mut transaction, scope, queued)?
         }
+        Command::HistorySegmentUploaded(uploaded) => {
+            crate::history_offload::segment_upload::apply_history_segment_uploaded(
+                &mut transaction,
+                scope,
+                uploaded,
+            )?
+        }
         Command::FlowStart(start) => flow_start::apply_flow_start(&mut transaction, scope, start)?,
         Command::InboxMessage(message) => {
             crate::cross_flow::apply_inbox_message(&mut transaction, scope, message)?
@@ -292,6 +299,8 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         Command::StepAttemptQueued(_) => false,
         // A partition mode writes only its partition index row, outside run storage.
         Command::SetHistoryOffloadMode(_) => false,
+        // An upload acknowledgment changes only history segment state, outside the limit.
+        Command::HistorySegmentUploaded(_) => false,
         _ => false,
     }
 }
@@ -423,6 +432,7 @@ pub(crate) fn apply_run_command(
         | Command::SetHistoryOffloadMode(_)
         | Command::SearchOutboxAck(_)
         | Command::StepAttemptQueued(_)
+        | Command::HistorySegmentUploaded(_)
         | Command::InboxMessage(_)
         | Command::RunPurge(_) => Err(ApplyError::InvariantViolation {
             detail: "cross-Flow or partition command routed to the wrong handler".to_owned(),

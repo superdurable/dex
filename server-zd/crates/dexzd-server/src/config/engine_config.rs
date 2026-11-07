@@ -267,6 +267,11 @@ pub struct HistoryConfig {
     /// whose stored mode differs, so turning it off again takes effect at the next start.
     #[serde(rename = "offloadEnabled")]
     pub is_offload_enabled: bool,
+    /// Defaults to 4 MiB; from 1 byte to 256 MiB. While history offload is on, a run seals its
+    /// open history segment for upload once the segment's history records, checkpoints, and
+    /// superseded values reach this many bytes. Recorded in RunRecord at FlowStart; changes
+    /// affect only later runs.
+    pub segment_target_bytes: u64,
     /// Deprecated keys that the parsed YAML used; never serialized.
     #[serde(skip)]
     deprecated_keys: Vec<DeprecatedConfigKey>,
@@ -289,6 +294,7 @@ impl Default for HistoryConfig {
             checkpoint_command_threshold: 1_000,
             max_retained_superseded_bytes: 256 * 1024 * 1024,
             is_offload_enabled: false,
+            segment_target_bytes: 4 * 1024 * 1024,
             deprecated_keys: Vec::new(),
         }
     }
@@ -337,6 +343,7 @@ struct HistoryConfigSource {
     max_retained_superseded_bytes: u64,
     #[serde(rename = "offloadEnabled")]
     is_offload_enabled: bool,
+    segment_target_bytes: u64,
 }
 
 /// A key's YAML value: `None` when the key is absent, `Some(None)` when it is an explicit null.
@@ -365,6 +372,7 @@ impl Default for HistoryConfigSource {
             checkpoint_command_interval: None,
             max_retained_superseded_bytes: defaults.max_retained_superseded_bytes,
             is_offload_enabled: defaults.is_offload_enabled,
+            segment_target_bytes: defaults.segment_target_bytes,
         }
     }
 }
@@ -404,6 +412,7 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             checkpoint_command_threshold,
             max_retained_superseded_bytes: source.max_retained_superseded_bytes,
             is_offload_enabled: source.is_offload_enabled,
+            segment_target_bytes: source.segment_target_bytes,
             deprecated_keys,
         })
     }

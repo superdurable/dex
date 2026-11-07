@@ -1,0 +1,85 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Sustainable Use License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+
+// Persistent format of server-zd history segment objects.
+// Compatibility: additive changes only; never renumber, reuse, or retype a field.
+syntax = "proto3";
+
+package dexzd.v1;
+
+// Header of one history segment object, stored at
+// history/<tenant:016x>/<flow_hash:016x>/<run_id>/<first_seq:020>-<last_seq:020>.
+//
+// Object layout (all integers little-endian):
+//   magic "DEXZDHIS" (8 bytes) | format_version u16 | header_length u32 |
+//   header_xxh3_64 u64 (of the header bytes) | HistorySegmentHeader bytes |
+//   body: records block | checkpoints block | values block |
+//   trailer: xxh3-128 of every preceding byte (16 bytes).
+// Block and value offsets are relative to the first body byte, so a ranged reader needs only the
+// prefix and the header to locate any block or value.
+//
+// The records block is the zstd-compressed concatenation of entries
+//   seq u64 | length u32 | the HistoryRecord row bytes exactly as stored,
+// in ascending seq order. The checkpoints block holds entries
+//   seq u64 | attempt u32 | length u32 | the CheckpointRecord row bytes exactly as stored,
+// in ascending (seq, attempt) order. The values block holds each superseded ValueRecord row,
+// zstd-compressed on its own, in ascending value ID order. An empty block or value has length
+// zero, no zstd frame, and a zero xxh3-64.
+//
+// The format has no limit beyond its field widths: each row is below 4 GiB, as every RocksDB
+// value is, the header is below 4 GiB, and offsets are 64-bit.
+//
+// The content checksum is the xxh3-128 of the canonical uncompressed content:
+//   run_id (16 bytes) | first_seq u64 | last_seq u64 | first_event_id i64 | last_event_id i64 |
+//   "R" | record_count u64 | records block length u64 | uncompressed records block |
+//   "C" | checkpoint_count u64 | checkpoints block length u64 | uncompressed checkpoints block |
+//   "V" | value_count u64 |
+//   per value: run_seq u64 | index_in_command u32 | length u32 | ValueRecord row bytes.
+// It depends only on the stored rows, never on the zstd version or level.
+message HistorySegmentHeader {
+  // 16-byte run ID of the history.
+  bytes run_id = 1;
+  uint64 first_seq = 2;
+  uint64 last_seq = 3;
+  // Event IDs assigned inside the seq range; the range is empty when first_event_id is larger.
+  int64 first_event_id = 4;
+  int64 last_event_id = 5;
+  HistorySegmentBlock records = 6;
+  uint32 record_count = 7;
+  HistorySegmentBlock checkpoints = 8;
+  uint32 checkpoint_count = 9;
+  // The values block as a whole; each value also has its own entry.
+  HistorySegmentBlock values = 10;
+  // One entry per superseded value, in ascending (run_seq, index_in_command) order.
+  repeated HistorySegmentValueEntry value_entries = 11;
+  // xxh3-128 of the canonical uncompressed content, 16 bytes big-endian.
+  bytes content_checksum = 12;
+}
+
+// Location of one block inside the body.
+message HistorySegmentBlock {
+  uint64 offset = 1;
+  // Stored (compressed) length; zero for an empty block.
+  uint64 length = 2;
+  uint64 uncompressed_length = 3;
+  // xxh3-64 of the stored bytes.
+  uint64 xxh3_64 = 4;
+}
+
+// Location of one superseded value inside the values block.
+message HistorySegmentValueEntry {
+  uint64 run_seq = 1;
+  uint32 index_in_command = 2;
+  // Offset inside the body.
+  uint64 offset = 3;
+  // Stored (compressed) length.
+  uint64 length = 4;
+  uint64 uncompressed_length = 5;
+  // xxh3-64 of the stored bytes.
+  uint64 xxh3_64 = 6;
+}

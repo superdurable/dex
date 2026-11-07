@@ -83,6 +83,7 @@ history:
   maxRetainedSupersededBytes: 268435456
   # Experimental: keep false until the release notes announce history offload.
   offloadEnabled: false
+  segmentTargetBytes: 4194304
 values:
   wireInlineThresholdBytes: 100
   maxValueBytes: 16777216

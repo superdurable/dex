@@ -125,6 +125,33 @@ fn blocking_state_read_limit_parses_defaults_and_rejects_zero() {
 }
 
 #[test]
+fn history_segment_target_bytes_reaches_run_and_child_settings() {
+    let parsed = Config::parse_yaml("history:\n  segmentTargetBytes: 65536\n")
+        .expect("parse the history segment target");
+    let mut configuration = valid_config();
+    configuration.history.segment_target_bytes = parsed.history.segment_target_bytes;
+    configuration
+        .validate()
+        .expect("a valid history segment target");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(
+        components
+            .flow_coordination
+            .run_settings
+            .history_segment_target_bytes,
+        65536
+    );
+    assert_eq!(
+        components
+            .effects
+            .child_run_settings
+            .history_segment_target_bytes,
+        65536
+    );
+}
+
+#[test]
 fn run_limits_and_the_child_result_limit_reach_run_settings() {
     assert_eq!(
         Config::default().limits.max_child_flow_result_bytes,
@@ -147,6 +174,8 @@ fn run_limits_and_the_child_result_limit_reach_run_settings() {
     assert_eq!(run_settings.max_child_flow_result_bytes, 2048);
     let child_run_settings = components.effects.child_run_settings;
     assert_eq!(child_run_settings.max_child_flow_result_bytes, 2048);
+    assert_eq!(child_run_settings.history_segment_target_bytes, 4 << 20);
+    assert_eq!(run_settings.history_segment_target_bytes, 4 << 20);
     assert_eq!(
         child_run_settings.max_run_state_bytes,
         EffectsConfig::default()
@@ -1229,6 +1258,12 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("history.maxRetainedSupersededBytes", |config| {
             config.history.max_retained_superseded_bytes = 1
+        }),
+        ("history.segmentTargetBytes", |config| {
+            config.history.segment_target_bytes = 0
+        }),
+        ("history.segmentTargetBytes", |config| {
+            config.history.segment_target_bytes = 256 * 1024 * 1024 + 1
         }),
         ("values.maxValueBytes", |config| {
             config.values.max_value_bytes = 0

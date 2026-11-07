@@ -42,6 +42,7 @@
       "dexzd-postgres-connection": 0,
       "dexzd-attribute-store": 1,
       "dexzd-clock": 1,
+      "dexzd-history-segment": 1,
       "dexzd-keyspace": 1,
       "dexzd-object-store": 1,
       "dexzd-visibility-query": 1,

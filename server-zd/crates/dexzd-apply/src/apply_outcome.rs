@@ -168,6 +168,13 @@ pub enum ApplyEffect {
         /// Run to purge.
         run_id: RunId,
     },
+    /// The command sealed a history segment of the run; its HistoryUploadPending index row
+    /// names the run until no sealed segment remains. Only the committed copy counts, since a
+    /// speculative one may roll back.
+    HistorySegmentSealed {
+        /// Run whose segment was sealed.
+        run_id: RunId,
+    },
     /// The command wrote or removed DispatchQueue rows. Only the committed copy counts, since
     /// a speculative one may roll back.
     DispatchQueueChanged {

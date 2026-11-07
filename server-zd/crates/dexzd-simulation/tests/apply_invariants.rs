@@ -18,7 +18,8 @@ use dexzd_protocol::dexzd::v1::{
     StoredValue, TimeTravelCommand, command_reply, flow_command::Command, stored_value,
 };
 use dexzd_simulation::{
-    ApplyChecker, CommandGenerator, INVALID_CLIENT_INPUT_CLASSES, RunSelection, SimulationFailure,
+    ATTRIBUTE_SYNC_FLOW_ID, ApplyChecker, CommandGenerator, FLOW_IDS, HISTORY_OFFLOAD_FLOW_IDS,
+    INVALID_CLIENT_INPUT_CLASSES, RunSelection, STEP_FAILURE_FLOW_IDS, SimulationFailure,
     SimulationSummary, run_seed,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -131,12 +132,29 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "StepMethodCompleted",
         "TimersFired",
         "AttributeSyncAck",
+        "SetHistoryOffloadMode",
+        "HistorySegmentUploaded",
     ] {
         assert!(
             total.applied(kind) > 0,
             "the seed set never applied a {kind} command: {total:#?}"
         );
     }
+    assert!(
+        total.history_segments_sealed > 0,
+        "the seed set never sealed a history segment: {total:#?}"
+    );
+    assert!(
+        total.history_offload_off_time_travels > 0,
+        "the seed set never time traveled a run while its partition did not offload: {total:#?}"
+    );
+    assert!(
+        total
+            .rejected_by_kind
+            .get("HistorySegmentUploaded")
+            .is_some_and(|count| *count > 0),
+        "the seed set never proposed a stale history segment acknowledgment: {total:#?}"
+    );
     assert!(
         total.close_barrier.held_by_rpcs > 0 && total.close_barrier.finalized_after_rpcs > 0,
         "the seed set never held and released a close for a transactional RPC: {total:#?}"
@@ -243,6 +261,31 @@ fn regression_seeds_keep_their_main_command_trajectories() {
         moved_trajectories.is_empty(),
         "regression seeds changed their main-stream commands, so they may no longer reproduce \
          their regressions: {moved_trajectories:#?}"
+    );
+}
+
+/// The history offload stream turns on its partitions' offload mode, which would change other
+/// streams' sealing and pruning, so no other stream's Flow may share those partitions.
+#[test]
+fn history_offload_flows_have_partitions_of_their_own() {
+    let checker = ApplyChecker::new();
+    let partition_of = |flow_id: &str| checker.context(flow_id).partition;
+    let mut other_flow_ids: Vec<&str> = FLOW_IDS.to_vec();
+    other_flow_ids.push(ATTRIBUTE_SYNC_FLOW_ID);
+    other_flow_ids.extend_from_slice(STEP_FAILURE_FLOW_IDS);
+    other_flow_ids.push("closed-erase-simulation");
+    let other_partitions: BTreeSet<_> = other_flow_ids
+        .iter()
+        .map(|flow_id| partition_of(flow_id))
+        .collect();
+    let offload_partitions: BTreeSet<_> = HISTORY_OFFLOAD_FLOW_IDS
+        .iter()
+        .map(|flow_id| partition_of(flow_id))
+        .collect();
+    assert_eq!(offload_partitions.len(), HISTORY_OFFLOAD_FLOW_IDS.len());
+    assert!(
+        offload_partitions.is_disjoint(&other_partitions),
+        "offload partitions {offload_partitions:?} overlap {other_partitions:?}"
     );
 }
 

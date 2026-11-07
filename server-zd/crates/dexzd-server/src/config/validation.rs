@@ -16,6 +16,8 @@ use super::{Config, ConfigError, CredentialSource, SearchBackend};
 
 /// Largest encoded log record that the commit log accepts.
 const MAX_LOG_RECORD_BYTES: u64 = 32 * 1024 * 1024;
+/// Bounds the memory a reader needs to decompress one segment's records block.
+const MAX_HISTORY_SEGMENT_TARGET_BYTES: u64 = 256 * 1024 * 1024;
 
 impl Config {
     /// Checks cross-section limits and reports the first failing camelCase YAML field path.
@@ -262,6 +264,11 @@ impl Config {
             self.history.max_retained_superseded_bytes >= self.values.max_value_bytes,
             "history.maxRetainedSupersededBytes",
             "must hold at least one maximum-sized value",
+        )?;
+        ensure(
+            (1..=MAX_HISTORY_SEGMENT_TARGET_BYTES).contains(&self.history.segment_target_bytes),
+            "history.segmentTargetBytes",
+            "must be positive and at most 256 MiB",
         )?;
         ensure(
             self.retention.closed_flow_duration > Duration::ZERO,

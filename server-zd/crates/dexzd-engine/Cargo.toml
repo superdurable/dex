@@ -42,6 +42,7 @@ test-util = []
 [dev-dependencies]
 # Enables test-util for this crate's own integration tests.
 dexzd-engine = { workspace = true, features = ["test-util"] }
+dexzd-history-segment.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

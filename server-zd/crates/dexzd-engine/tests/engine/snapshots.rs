@@ -111,6 +111,7 @@ async fn commit_flow_start(node: &EngineNode, hasher: &PartitionHasher, flow_id:
                 max_run_state_bytes: 1 << 30,
                 max_active_step_executions: 10_000,
                 max_child_flow_result_bytes: 16 << 20,
+                history_segment_target_bytes: 4 << 20,
             }),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
             worker_target: Some(WorkerTarget { is_pull_mode: true }),

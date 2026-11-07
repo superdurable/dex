@@ -35,6 +35,7 @@ Worker timeouts, and retry limits.
 | `dexzd-metrics` | Fixed, process-local OpenMetrics registry and recording handles |
 | `dexzd-object-store` | Object storage interface, S3 implementation, fault-injecting test implementation |
 | `dexzd-visibility-query` | Visibility query parser and type checker |
+| `dexzd-history-segment` | Object format of history segments: encoder and ranged decoders |
 | `dexzd-log` | Command log batches and the conditional-write commit protocol |
 | `dexzd-cluster-metadata` | Cluster object, partition manifest, node leases |
 | `dexzd-apply` | Deterministic state machine that applies commands |
