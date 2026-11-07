@@ -35,7 +35,8 @@ use dexzd_engine::{
 };
 use dexzd_history_segment::{encode_history_segment, history_segment_object_key};
 use dexzd_keyspace::row_keys::{
-    checkpoint_key, history_record_key, prefix_range, run_singleton_key, value_row_key,
+    attempt_record_key, checkpoint_key, history_record_key, prefix_range, run_singleton_key,
+    value_row_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, PartitionId, RunId, RunTable, TenantId, ValueId, ValueReference,
@@ -48,9 +49,9 @@ use dexzd_protocol::dex::{
     value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributeRecord, AttributesSetCommand, FlowCommand, HardDeleteObjectReference, HistoryRecord,
-    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, LogPosition,
-    RunRecord, RunSettings, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
+    AttemptRecord, AttributeRecord, AttributesSetCommand, FlowCommand, HardDeleteObjectReference,
+    HistoryRecord, HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand,
+    LogPosition, RunRecord, RunSettings, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
     StepInvocationKey, StepMethod, ValueBirthRecord, ValueRecord, flow_command::Command,
     step_attempt_heartbeat_command, stored_value,
 };
@@ -1657,6 +1658,208 @@ async fn a_value_offloaded_after_its_grace_period_is_staged_from_object_storage(
         "the staged value is stored again"
     );
     assert!(!birth(&travel.view()).is_offloaded);
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
+}
+
+/// What [`offload_a_referenced_report`] built.
+struct ReferencedReport {
+    value: ValueId,
+    /// Time of the command after the report, which wrote a checkpoint.
+    checkpointed_time: i64,
+    /// Time of the command that copied the report by reference.
+    copied_time: i64,
+}
+
+/// Writes a large report, a note whose command writes a checkpoint, and a copy that references
+/// the report by value reference. Supersedes both, then uploads and lets the grace period pass,
+/// so offload deletes the report locally.
+async fn offload_a_referenced_report(
+    cluster: &TestCluster,
+    travel: &TravelNode,
+    run_id: RunId,
+) -> ReferencedReport {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel.set_attribute("note", string_value("0")).await;
+    let checkpointed_seq = travel.run_record(run_id).next_run_seq - 1;
+    let reference = ValueReference {
+        run_id,
+        value_id: value,
+    }
+    .to_string();
+    // Request validation admits no reference, so the input is committed as apply accepts it.
+    travel
+        .commit(
+            run_id,
+            Command::AttributesSet(AttributesSetCommand {
+                request: Some(SetAttributesRequest {
+                    flow_id: FLOW_ID.to_owned(),
+                    attributes: vec![AttributeWrite {
+                        key: "copy".to_owned(),
+                        value: Some(Value {
+                            kind: Some(value::Kind::InternalBlobIdForStringValue(reference)),
+                        }),
+                        ..AttributeWrite::default()
+                    }],
+                    request_id: "copy-report".to_owned(),
+                    ..SetAttributesRequest::default()
+                }),
+                hard_delete_objects: Vec::new(),
+                request_fingerprint: b"copy-report".to_vec(),
+            }),
+        )
+        .await;
+    let copied_seq = travel.run_record(run_id).next_run_seq - 1;
+    let checkpointed_time = travel
+        .history_record(run_id, checkpointed_seq)
+        .timestamp_micros;
+    let copied_time = travel.history_record(run_id, copied_seq).timestamp_micros;
+    let checkpoint_seqs = attempt_checkpoint_seqs(travel, run_id);
+    assert!(
+        checkpoint_seqs.contains(&checkpointed_seq) && !checkpoint_seqs.contains(&copied_seq),
+        "the replay to the copy starts at the checkpoint before it: {checkpoint_seqs:?}"
+    );
+    travel.set_attribute("report", string_value("new")).await;
+    travel.set_attribute("copy", string_value("new")).await;
+    travel.offload_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+    assert!(
+        value_birth(travel, run_id, value).is_offloaded,
+        "the report is offloaded"
+    );
+    ReferencedReport {
+        value,
+        checkpointed_time,
+        copied_time,
+    }
+}
+
+fn attempt_checkpoint_seqs(travel: &TravelNode, run_id: RunId) -> Vec<u64> {
+    let key = attempt_record_key(travel.context().flow_hash, run_id, 1);
+    AttemptRecord::decode(
+        travel
+            .view()
+            .get(ColumnFamily::Flow, &key)
+            .expect("the attempt record reads")
+            .expect("attempt 1 exists")
+            .as_slice(),
+    )
+    .expect("the attempt record decodes")
+    .checkpoint_seqs
+}
+
+fn value_birth(travel: &TravelNode, run_id: RunId, value_id: ValueId) -> ValueBirthRecord {
+    let key = value_row_key(
+        travel.context().flow_hash,
+        run_id,
+        RunTable::ValueBirth,
+        value_id,
+    );
+    ValueBirthRecord::decode(
+        travel
+            .view()
+            .get(ColumnFamily::Flow, &key)
+            .expect("the birth reads")
+            .expect("the birth row stays")
+            .as_slice(),
+    )
+    .expect("the birth decodes")
+}
+
+fn is_value_stored(travel: &TravelNode, run_id: RunId, value_id: ValueId) -> bool {
+    let key = value_row_key(
+        travel.context().flow_hash,
+        run_id,
+        RunTable::Value,
+        value_id,
+    );
+    travel
+        .view()
+        .get(ColumnFamily::Value, &key)
+        .expect("the value reads")
+        .is_some()
+}
+
+/// A replayed command that references an offloaded value stops the computation, which reports
+/// the value; the owner fetches it from object storage and the next computation restores it.
+#[tokio::test(start_paused = true)]
+async fn an_offloaded_value_that_the_replay_reads_is_fetched_from_object_storage() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    let report = offload_a_referenced_report(&cluster, &travel, run_id).await;
+    assert!(!is_value_stored(&travel, run_id, report.value));
+
+    let reads_before = travel.history_object_reads();
+    let attempt = travel
+        .reset(reset_to_time(report.copied_time))
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, 2);
+    assert!(travel.history_object_reads() > reads_before);
+    for key in ["report", "copy"] {
+        let restored = travel
+            .attribute(run_id, key)
+            .expect("the Attribute is restored");
+        assert_eq!(table_value_id(&restored), report.value, "{key}");
+    }
+    assert!(is_value_stored(&travel, run_id, report.value));
+    assert!(!value_birth(&travel, run_id, report.value).is_offloaded);
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
+}
+
+/// Reapplied input that references an offloaded value: the computation reports the value, and
+/// the owner fetches it from object storage before staging it with the input.
+#[tokio::test(start_paused = true)]
+async fn an_offloaded_value_that_reapplied_input_references_is_fetched_from_object_storage() {
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    let report = offload_a_referenced_report(&cluster, &travel, run_id).await;
+
+    let attempt = travel
+        .reset(ResetFlowRequest {
+            history_event_time: (i128::from(report.checkpointed_time) * 1000).to_string(),
+            ..reset(FlowResetType::HistoryEventTime, true)
+        })
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, 2);
+    // The reapplied copy held the report again, and the reapplied rewrites superseded it.
+    assert!(is_value_stored(&travel, run_id, report.value));
+    let birth = value_birth(&travel, run_id, report.value);
+    assert!(!birth.is_offloaded && birth.garbage_seq > 0, "{birth:?}");
+    for key in ["report", "copy"] {
+        let attribute = travel.attribute(run_id, key).expect("the Attribute exists");
+        assert_ne!(
+            attribute.value.and_then(|stored| stored.kind),
+            None,
+            "{key} holds the reapplied rewrite"
+        );
+    }
     travel.assert_every_travel_verified(1);
     travel.shutdown().await;
 }

@@ -163,7 +163,9 @@ on a new committed view.
 
 A reapplied external input can name a value by reference. The computation
 stages each such value that the store lacks, read from the offloaded values, and
-fails with `FAILED_PRECONDITION` when no source has it. Before it forks, apply
+fails with `FAILED_PRECONDITION` when no source has it. It asks for every such value, and
+every value the restored state holds, before it fails, so an owner learns all the offloaded
+values it must fetch from one computation. Before it forks, apply
 checks that the store holds every such value, after it restored the staged ones.
 A missing one rejects the TimeTravel with `ABORTED` and its value reference, and
 the transaction is discarded, so the owner computes again.
