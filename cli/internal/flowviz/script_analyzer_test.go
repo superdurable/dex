@@ -121,6 +121,246 @@ func TestScriptMalformedManifestIsBlocking(t *testing.T) {
 	}
 }
 
+// A package published before agent tools has no operation input metadata and must keep analyzing.
+func TestScriptManifestWithoutToolMetadataAnalyzes(t *testing.T) {
+	for _, language := range []string{"python", "typescript"} {
+		t.Run(language, func(t *testing.T) {
+			sourcePath := scriptFixture(t, language)
+			manifest := readScriptManifest(t, sourcePath, language)
+			for _, factory := range manifest["factories"].([]any) {
+				for _, name := range []string{"inputType", "inputSchema", "description", "agent"} {
+					require.NotContains(t, factory, name)
+				}
+			}
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+	}
+}
+
+func TestScriptManifestToolMetadataLeavesGraphUnchanged(t *testing.T) {
+	for _, language := range []string{"python", "typescript"} {
+		t.Run(language, func(t *testing.T) {
+			sourcePath := scriptFixture(t, language)
+			before, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2, Lint: LintApplication})
+			require.NoError(t, err)
+			require.True(t, before.Valid, "%+v", before.Diagnostics)
+			manifest := readScriptManifest(t, sourcePath, language)
+			factory := manifest["factories"].([]any)[0].(map[string]any)
+			for name, value := range validScriptToolMetadata() {
+				factory[name] = value
+			}
+			writeScriptManifest(t, sourcePath, language, manifest)
+			after, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2, Lint: LintApplication})
+			require.NoError(t, err)
+			require.True(t, after.Valid, "%+v", after.Diagnostics)
+			require.Empty(t, after.Diagnostics)
+			beforeJSON, err := MarshalJSON(before)
+			require.NoError(t, err)
+			afterJSON, err := MarshalJSON(after)
+			require.NoError(t, err)
+			require.JSONEq(t, string(beforeJSON), string(afterJSON))
+		})
+	}
+}
+
+func TestScriptManifestInvalidToolMetadataIsBlocking(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		factoryIndex int
+		change       func(factory map[string]any)
+		message      string
+	}{
+		"schema without type":      {0, func(factory map[string]any) { factory["inputSchema"] = map[string]any{} }, "inputSchema must be a JSON Schema object"},
+		"schema is not an object":  {0, func(factory map[string]any) { factory["inputSchema"] = map[string]any{"type": "string"} }, "inputSchema must be a JSON Schema object"},
+		"schema is null":           {0, func(factory map[string]any) { factory["inputSchema"] = nil }, "inputSchema must be a JSON Schema object"},
+		"type without schema":      {0, func(factory map[string]any) { delete(factory, "inputSchema") }, "inputType and inputSchema must appear together"},
+		"schema without type name": {0, func(factory map[string]any) { delete(factory, "inputType") }, "inputType and inputSchema must appear together"},
+		"agent without schema": {0, func(factory map[string]any) {
+			delete(factory, "inputType")
+			delete(factory, "inputSchema")
+		}, "agent requires inputType and inputSchema"},
+		"agent without exposed": {0, func(factory map[string]any) { factory["agent"] = map[string]any{"approval": "recommended"} }, "agent requires exposed"},
+		"unknown approval":      {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "approval": "always"} }, `agent.approval "always"`},
+		"approval without exposed": {0, func(factory map[string]any) {
+			factory["agent"] = map[string]any{"exposed": false, "approval": "recommended"}
+		}, "agent.approval requires agent.exposed"},
+		"Trigger factory":        {1, func(map[string]any) {}, "Trigger factory must not declare"},
+		"blank type":             {0, func(factory map[string]any) { factory["inputType"] = "" }, "inputType must be a non-empty string"},
+		"null type":              {0, func(factory map[string]any) { factory["inputType"] = nil }, "inputType must be a non-empty string"},
+		"blank description":      {0, func(factory map[string]any) { factory["description"] = "" }, "description must be a non-empty string"},
+		"null description":       {0, func(factory map[string]any) { factory["description"] = nil }, "description must be a non-empty string"},
+		"null agent":             {0, func(factory map[string]any) { factory["agent"] = nil }, "agent must be an object"},
+		"blank approval":         {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "approval": ""} }, `agent.approval "" must be recommended`},
+		"null approval":          {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "approval": nil} }, "agent.approval null must be recommended"},
+		"unknown retry":          {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": "always"} }, `agent.retry "always" must be safe`},
+		"blank retry":            {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": ""} }, `agent.retry "" must be safe`},
+		"null retry":             {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": nil} }, "agent.retry null must be safe"},
+		"retry without exposed":  {2, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": false, "retry": "safe"} }, "agent.retry requires agent.exposed"},
+		"retry on a query":       {0, func(factory map[string]any) { factory["agent"] = map[string]any{"exposed": true, "retry": "safe"} }, "agent.retry is only for mutations"},
+		"blank field on Trigger": {1, func(factory map[string]any) { clearToolMetadata(factory); factory["description"] = "" }, "Trigger factory must not declare"},
+		"null agent on Trigger":  {1, func(factory map[string]any) { clearToolMetadata(factory); factory["agent"] = nil }, "Trigger factory must not declare"},
+	} {
+		for _, language := range []string{"python", "typescript"} {
+			t.Run(language+"/"+name, func(t *testing.T) {
+				sourcePath := scriptFixture(t, language)
+				manifest := readScriptManifest(t, sourcePath, language)
+				factories := manifest["factories"].([]any)
+				if testCase.factoryIndex == 2 {
+					factories = append(factories, scriptMutationFactory(factories[0].(map[string]any)))
+					manifest["factories"] = factories
+				}
+				factory := factories[testCase.factoryIndex].(map[string]any)
+				for metadataName, value := range validScriptToolMetadata() {
+					factory[metadataName] = value
+				}
+				testCase.change(factory)
+				writeScriptManifest(t, sourcePath, language, manifest)
+				graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+				require.NoError(t, err)
+				require.False(t, graph.Valid)
+				require.Contains(t, diagnosticCodes(graph), "connector_manifest")
+				for _, diagnostic := range graph.Diagnostics {
+					if diagnostic.Code == "connector_manifest" {
+						require.Contains(t, diagnostic.Message, testCase.message)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestScriptManifestAcceptsRetrySafeOnMutation(t *testing.T) {
+	for _, language := range []string{"python", "typescript"} {
+		t.Run(language, func(t *testing.T) {
+			sourcePath := scriptFixture(t, language)
+			manifest := readScriptManifest(t, sourcePath, language)
+			factories := manifest["factories"].([]any)
+			mutation := scriptMutationFactory(factories[0].(map[string]any))
+			for name, value := range validScriptToolMetadata() {
+				mutation[name] = value
+			}
+			mutation["agent"] = map[string]any{"exposed": true, "retry": "safe"}
+			manifest["factories"] = append(factories, mutation)
+			writeScriptManifest(t, sourcePath, language, manifest)
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+	}
+}
+
+func TestScriptManifestIgnoresUnknownFieldOnlyInsideAgent(t *testing.T) {
+	for _, language := range []string{"python", "typescript"} {
+		t.Run(language+"/inside agent", func(t *testing.T) {
+			sourcePath := scriptFixture(t, language)
+			manifest := readScriptManifest(t, sourcePath, language)
+			factory := manifest["factories"].([]any)[0].(map[string]any)
+			for name, value := range validScriptToolMetadata() {
+				factory[name] = value
+			}
+			factory["agent"].(map[string]any)["futureField"] = map[string]any{"nested": true}
+			writeScriptManifest(t, sourcePath, language, manifest)
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+		})
+		for name, change := range map[string]func(manifest map[string]any){
+			"manifest": func(manifest map[string]any) { manifest["futureField"] = true },
+			"package":  func(manifest map[string]any) { manifest["package"].(map[string]any)["futureField"] = true },
+			"factory": func(manifest map[string]any) {
+				manifest["factories"].([]any)[0].(map[string]any)["futureField"] = true
+			},
+			"branch": func(manifest map[string]any) {
+				factory := manifest["factories"].([]any)[0].(map[string]any)
+				factory["branches"].([]any)[0].(map[string]any)["futureField"] = true
+			},
+		} {
+			t.Run(language+"/"+name, func(t *testing.T) {
+				sourcePath := scriptFixture(t, language)
+				manifest := readScriptManifest(t, sourcePath, language)
+				change(manifest)
+				writeScriptManifest(t, sourcePath, language, manifest)
+				graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+				require.NoError(t, err)
+				require.False(t, graph.Valid)
+				require.Contains(t, diagnosticCodes(graph), "connector_manifest")
+				for _, diagnostic := range graph.Diagnostics {
+					if diagnostic.Code == "connector_manifest" {
+						require.Contains(t, diagnostic.Message, `unknown field "futureField"`)
+					}
+				}
+			})
+		}
+	}
+}
+
+// The schema file is the published contract; the decoder alone would accept a field it omits.
+func TestConnectorManifestSchemaDeclaresToolMetadata(t *testing.T) {
+	contents, err := os.ReadFile("dex-connector.schema.json")
+	require.NoError(t, err)
+	var document struct {
+		Definitions map[string]struct {
+			Properties           map[string]any `json:"properties"`
+			AdditionalProperties any            `json:"additionalProperties"`
+		} `json:"$defs"`
+	}
+	require.NoError(t, json.Unmarshal(contents, &document))
+	for name := range validScriptToolMetadata() {
+		require.Contains(t, document.Definitions["factory"].Properties, name)
+	}
+	require.Contains(t, document.Definitions["agent"].Properties, "exposed")
+	require.Contains(t, document.Definitions["agent"].Properties, "approval")
+	require.Equal(t, false, document.Definitions["agent"].AdditionalProperties, "authors still get an error for a typo")
+	require.Equal(t, map[string]any{"enum": []any{"safe"}, "description": document.Definitions["agent"].Properties["retry"].(map[string]any)["description"]}, document.Definitions["agent"].Properties["retry"])
+}
+
+func scriptMutationFactory(query map[string]any) map[string]any {
+	mutation := make(map[string]any, len(query))
+	for name, value := range query {
+		mutation[name] = value
+	}
+	mutation["name"] = "create_write_for_tool_metadata"
+	mutation["kind"] = "mutation"
+	return mutation
+}
+
+func clearToolMetadata(factory map[string]any) {
+	for name := range validScriptToolMetadata() {
+		delete(factory, name)
+	}
+}
+
+func validScriptToolMetadata() map[string]any {
+	return map[string]any{
+		"inputType": "LookupInput",
+		"inputSchema": map[string]any{
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []any{"recordId"},
+			"properties":           map[string]any{"recordId": map[string]any{"type": "string"}},
+		},
+		"description": "Look up one record by ID.",
+		"agent":       map[string]any{"exposed": true, "approval": "recommended"},
+	}
+}
+
+func readScriptManifest(t *testing.T, sourcePath string, language string) map[string]any {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.Join(scriptFixturePackage(sourcePath, language), "dex-connector.json"))
+	require.NoError(t, err)
+	var manifest map[string]any
+	require.NoError(t, json.Unmarshal(contents, &manifest))
+	return manifest
+}
+
+func writeScriptManifest(t *testing.T, sourcePath string, language string, manifest map[string]any) {
+	t.Helper()
+	contents, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(scriptFixturePackage(sourcePath, language), "dex-connector.json"), contents, 0o644))
+}
+
 func TestScriptConnectorTargetsMustBeStatic(t *testing.T) {
 	for _, language := range []string{"python", "typescript"} {
 		t.Run(language, func(t *testing.T) {
