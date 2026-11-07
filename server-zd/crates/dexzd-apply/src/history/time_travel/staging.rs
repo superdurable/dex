@@ -17,7 +17,7 @@ use dexzd_protocol::dexzd::v1::{
     AttributeRecord, ChannelMessageRecord, ChannelMetaRecord, ChannelWaiterRecord, CheckpointRow,
     CommandReply, LockRecord, RunRecord, StepCounterRecord, StepExecutionRecord,
     TimeTravelStageCommand, TimeTravelStagedChunk, TimeTravelStagedTarget, TimeTravelStagingState,
-    TimerRecord,
+    TimerId, TimerRecord,
 };
 use prost::Message;
 
@@ -250,6 +250,9 @@ fn validate_staged_row(row: &CheckpointRow) -> Result<(), String> {
     if row.key_suffix.is_empty() {
         return Err(format!("a {table:?} row has no key"));
     }
+    if !is_staged_row_key(table, &row.key_suffix) {
+        return Err(format!("a {table:?} row has a malformed key"));
+    }
     let value = row.value.as_slice();
     let decoded = match table {
         RunTable::Attribute => AttributeRecord::decode(value).map(drop),
@@ -263,6 +266,30 @@ fn validate_staged_row(row: &CheckpointRow) -> Result<(), String> {
         other => return Err(format!("a row has table {other:?} outside the attempt")),
     };
     decoded.map_err(|error| format!("a {table:?} row does not decode: {error}"))
+}
+
+/// Whether `key` has the key suffix layout of `table`.
+fn is_staged_row_key(table: RunTable, key: &[u8]) -> bool {
+    match table {
+        RunTable::Attribute
+        | RunTable::ChannelMeta
+        | RunTable::StepExecution
+        | RunTable::StepCounter
+        | RunTable::LockTable => std::str::from_utf8(key).is_ok(),
+        RunTable::ChannelMessage => after_channel_name(key).is_some_and(|seq| seq.len() == 8),
+        RunTable::Waiter => after_channel_name(key)
+            .is_some_and(|step_execution_id| std::str::from_utf8(step_execution_id).is_ok()),
+        RunTable::Timer => TimerId::decode(key).is_ok(),
+        _ => false,
+    }
+}
+
+/// Returns the bytes after the length-prefixed UTF-8 Channel name that starts `key`.
+fn after_channel_name(key: &[u8]) -> Option<&[u8]> {
+    let (length, rest) = key.split_first_chunk::<2>()?;
+    let (channel_name, rest) = rest.split_at_checked(usize::from(u16::from_be_bytes(*length)))?;
+    std::str::from_utf8(channel_name).ok()?;
+    Some(rest)
 }
 
 fn invalid_staging_reply(detail: &str) -> CommandReply {

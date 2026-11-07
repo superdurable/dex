@@ -86,6 +86,50 @@ impl AttemptRow {
     }
 }
 
+/// Passes attempt-scoped rows to `visit` in pages of at most `page_rows`, in key order; false
+/// stops the scan.
+///
+/// Returns whether every page was visited, or the first read or `visit` error.
+pub(crate) fn visit_attempt_row_pages(
+    transaction: &FlowTransaction<'_>,
+    rows: RunRows,
+    page_rows: usize,
+    mut visit: impl FnMut(&[AttemptRow]) -> Result<bool, ApplyError>,
+) -> Result<bool, ApplyError> {
+    for table in ATTEMPT_SCOPED_TABLES {
+        let prefix = run_table_prefix(rows.flow_hash, rows.run_id, table);
+        let (mut start, end) = prefix_range(&prefix);
+        loop {
+            let scanned = transaction.scan(ColumnFamily::Flow, &start, &end, page_rows)?;
+            let Some((last_key, _)) = scanned.last() else {
+                break;
+            };
+            start = last_key.clone();
+            start.push(0);
+            let is_last_page = scanned.len() < page_rows;
+            let mut page = Vec::with_capacity(scanned.len());
+            for (key, value) in scanned {
+                let key_suffix = key[prefix.len()..].to_vec();
+                if table == RunTable::Timer && decode_timer_id(&key_suffix)?.run_attempt == 0 {
+                    continue;
+                }
+                page.push(AttemptRow {
+                    table,
+                    key_suffix,
+                    value,
+                });
+            }
+            if !visit(&page)? {
+                return Ok(false);
+            }
+            if is_last_page {
+                break;
+            }
+        }
+    }
+    Ok(true)
+}
+
 /// Reads every attempt-scoped row of the run in (table, key) order, including buffered writes.
 pub(crate) fn read_attempt_rows(
     transaction: &FlowTransaction<'_>,

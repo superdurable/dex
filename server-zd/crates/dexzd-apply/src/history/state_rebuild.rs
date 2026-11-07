@@ -14,14 +14,15 @@ use std::collections::BTreeMap;
 use dexzd_keyspace::{ValueId, ValueReference};
 use dexzd_protocol::dex::{ErrorSubStatus, flow_history_event};
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, CheckpointRunStatus, CommandReply, FlowCommand, HistoryRecord, RunRecord,
-    StoredValueId, TimeTravelStagedValue, TimersFiredCommand, flow_command::Command,
+    CheckpointRecord, CheckpointRow, CheckpointRunStatus, CommandReply, FlowCommand, HistoryRecord,
+    RunRecord, StoredValueId, TimeTravelStagedValue, TimersFiredCommand, flow_command::Command,
 };
 use prost::Message;
 
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::history::attempt_scope::{
     AttemptRow, holder_rows, read_attempt_rows, run_status_of, set_run_status,
+    visit_attempt_row_pages,
 };
 use crate::history::lineage::{HISTORY_PAGE_RECORDS, HistorySource, required_attempt_record};
 use crate::history::replay_state::{ReplayState, TransactionReader};
@@ -197,7 +198,20 @@ pub(crate) fn rebuild_attempt_state(
     let replay_transaction = FlowTransaction::new(&replay_state, context);
     let rebuilt_rows = read_attempt_rows(&replay_transaction, rows)?;
     let run_status = run_status_of(&replay_state.run_record()?);
-    let newly_held = newly_held_values(transaction, rows, record, &rebuilt_rows, &run_status)?;
+    let Some(newly_held) = newly_held_values(
+        transaction,
+        rows,
+        record,
+        &rebuilt_rows,
+        &run_status,
+        HeldValueScan {
+            memory_budget,
+            live_bytes: replay_state.overlay_bytes(),
+        },
+    )?
+    else {
+        return exceeded("the values the current attempt state holds");
+    };
     let unstored_values = match unstored_values(
         transaction,
         &replay_state,
@@ -216,20 +230,100 @@ pub(crate) fn rebuild_attempt_state(
     }))
 }
 
+/// Rows of the current attempt that one page of the holder scan reads.
+const HOLDER_SCAN_PAGE_ROWS: usize = 64;
+
+/// Bytes one held value entry is charged: its ID, size, and map node.
+const HELD_VALUE_ENTRY_BYTES: u64 = 64;
+
+/// The memory a held value scan may use.
+#[derive(Clone, Copy)]
+pub(crate) struct HeldValueScan<'budget> {
+    /// Charged for each held value entry and checked for each page of rows.
+    pub(crate) memory_budget: &'budget ReplayMemoryBudget,
+    /// Unreserved bytes alive beside the scan, such as the replayed writes.
+    pub(crate) live_bytes: u64,
+}
+
 /// Returns the value-table values, with their sizes, that the restored attempt state holds and
 /// the run's current attempt state does not: restoring it holds them anew.
+///
+/// It reads the current attempt a page at a time and charges each held value to the budget.
+///
+/// Returns `None` when the scan exceeds `scan`'s memory budget, or an error when a row is
+/// corrupt.
 pub(crate) fn newly_held_values(
     transaction: &FlowTransaction<'_>,
     rows: RunRows,
     record: &RunRecord,
     restored_rows: &[AttemptRow],
     restored_status: &CheckpointRunStatus,
-) -> Result<BTreeMap<ValueId, u64>, ApplyError> {
-    let current_rows = read_attempt_rows(transaction, rows)?;
-    let current = held_table_values(&holder_rows(&current_rows, &run_status_of(record)))?;
-    let mut restored = held_table_values(&holder_rows(restored_rows, restored_status))?;
-    restored.retain(|value_id, _| !current.contains_key(value_id));
-    Ok(restored)
+    scan: HeldValueScan<'_>,
+) -> Result<Option<BTreeMap<ValueId, u64>>, ApplyError> {
+    let mut current = HeldValues::new(scan.memory_budget);
+    if !current.add(&holder_rows(&[], &run_status_of(record)))? {
+        return Ok(None);
+    }
+    let is_scanned = visit_attempt_row_pages(transaction, rows, HOLDER_SCAN_PAGE_ROWS, |page| {
+        let page_bytes = page
+            .iter()
+            .map(|row| encoded_bytes(row.key_suffix.len() + row.value.len()))
+            .fold(0, u64::saturating_add);
+        // The page and its checkpoint-row copy are alive together.
+        let transient_bytes = scan.live_bytes.saturating_add(page_bytes.saturating_mul(2));
+        if !scan.memory_budget.fits(transient_bytes) {
+            return Ok(false);
+        }
+        let page_rows: Vec<CheckpointRow> =
+            page.iter().map(AttemptRow::to_checkpoint_row).collect();
+        current.add(&page_rows)
+    })?;
+    if !is_scanned {
+        return Ok(None);
+    }
+    let mut restored = HeldValues::new(scan.memory_budget);
+    if !restored.add(&holder_rows(&[], restored_status))? {
+        return Ok(None);
+    }
+    for row in restored_rows {
+        if !restored.add(&[row.to_checkpoint_row()])? {
+            return Ok(None);
+        }
+    }
+    let mut newly_held = restored.values;
+    newly_held.retain(|value_id, _| !current.values.contains_key(value_id));
+    Ok(Some(newly_held))
+}
+
+/// Value-table values that rows hold, each charged to a memory budget once.
+struct HeldValues<'budget> {
+    memory_budget: &'budget ReplayMemoryBudget,
+    values: BTreeMap<ValueId, u64>,
+}
+
+impl<'budget> HeldValues<'budget> {
+    fn new(memory_budget: &'budget ReplayMemoryBudget) -> Self {
+        Self {
+            memory_budget,
+            values: BTreeMap::new(),
+        }
+    }
+
+    /// Adds the values `rows` hold.
+    ///
+    /// Returns false when a new entry does not fit in the budget, or an error for a corrupt row.
+    fn add(&mut self, rows: &[CheckpointRow]) -> Result<bool, ApplyError> {
+        for (value_id, size_bytes) in held_table_values(rows)? {
+            if self.values.contains_key(&value_id) {
+                continue;
+            }
+            if !self.memory_budget.reserve(HELD_VALUE_ENTRY_BYTES) {
+                return Ok(false);
+            }
+            self.values.insert(value_id, size_bytes);
+        }
+        Ok(true)
+    }
 }
 
 /// Returns the values of `value_ids` that the transaction's store lacks, read from replayed

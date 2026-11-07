@@ -173,6 +173,24 @@ fn a_malformed_stage_chunk_is_rejected_before_it_is_stored() {
             }),
         ),
         (
+            "Timer row has a malformed key",
+            restaged(&stages, b"m-timer-key", |chunks| {
+                let row = &mut chunks[0].rows[0];
+                row.table = u32::from(RunTable::Timer as u8);
+                row.key_suffix = vec![0xff];
+                row.value = dexzd_protocol::dexzd::v1::TimerRecord::default().encode_to_vec();
+            }),
+        ),
+        (
+            "ChannelMessage row has a malformed key",
+            restaged(&stages, b"m-message-key", |chunks| {
+                let row = &mut chunks[0].rows[0];
+                row.table = u32::from(RunTable::ChannelMessage as u8);
+                row.key_suffix = vec![0x00, 0x05, b'a'];
+                row.value = Vec::new();
+            }),
+        ),
+        (
             "does not decode",
             restaged(&stages, b"m-row", |chunks| {
                 chunks[0].rows[0].value = vec![0xff, 0xff, 0xff];
@@ -390,6 +408,49 @@ fn a_beginning_reset_that_holds_more_input_than_its_budget_is_rejected() {
     ));
     assert!(matches!(
         harness.compute_travel(&reapplying, &NoOffloadedValues, 4 << 20),
+        TimeTravelComputation::Computed(_)
+    ));
+}
+
+/// A Beginning reset without reapplied writes still reads the current attempt; its many held
+/// values exceed the budget.
+#[test]
+fn a_reset_whose_current_attempt_holds_more_than_its_budget_is_rejected() {
+    let mut harness = Harness::new("order-1");
+    harness.start(start_request("start"));
+    let attributes = (0..600)
+        .map(|index| AttributeWrite {
+            key: format!("document-{index}"),
+            value: Some(large_text('d', 150)),
+            ..AttributeWrite::default()
+        })
+        .collect();
+    let set = harness.apply(Command::AttributesSet(AttributesSetCommand {
+        request: Some(SetAttributesRequest {
+            attributes,
+            request_id: "set-many".to_owned(),
+            ..SetAttributesRequest::default()
+        }),
+        hard_delete_objects: Vec::new(),
+        request_fingerprint: b"set-many".to_vec(),
+    }));
+    assert!(
+        !matches!(set.reply.reply, Some(command_reply::Reply::Error(_))),
+        "{:?}",
+        set.reply
+    );
+    let travel = harness.travel_command(reset_to(FlowResetType::Beginning, false));
+    let budget_bytes = 32 << 10;
+    let TimeTravelComputation::Rejected(reply) =
+        harness.compute_travel(&travel, &NoOffloadedValues, budget_bytes)
+    else {
+        panic!("600 held values do not fit in a 32 KiB budget");
+    };
+    assert!(is_error(&reply, RESOURCE_EXHAUSTED), "{reply:?}");
+    let message = error_message(&reply);
+    assert!(message.contains("current attempt state"), "{message}");
+    assert!(matches!(
+        harness.compute_travel(&travel, &NoOffloadedValues, 1 << 20),
         TimeTravelComputation::Computed(_)
     ));
 }

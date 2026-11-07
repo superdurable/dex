@@ -35,7 +35,7 @@ use crate::history::attempt_scope::AttemptRow;
 use crate::history::lineage::{Lineage, LocalHistorySource, genesis_seq};
 use crate::history::reset_target::TravelTarget;
 use crate::history::state_rebuild::{
-    HistoryPoint, ReplayMemoryBudget, encoded_bytes, newly_held_values,
+    HeldValueScan, HistoryPoint, ReplayMemoryBudget, encoded_bytes, newly_held_values,
 };
 use crate::state_access::FlowTransaction;
 use crate::values::{is_stored_value, restore_unheld_value};
@@ -266,7 +266,14 @@ pub(super) fn restore_held_values(
         &cursor.record,
         &result.rows,
         &result.run_status,
-    )?;
+        HeldValueScan {
+            memory_budget: &ReplayMemoryBudget::unlimited(),
+            live_bytes: 0,
+        },
+    )?
+    .ok_or_else(|| ApplyError::InvariantViolation {
+        detail: "an unlimited memory budget was exceeded".to_owned(),
+    })?;
     for value_id in newly_held.into_keys() {
         if !is_stored_value(transaction, rows, value_id)? {
             missing.push(
