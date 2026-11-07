@@ -129,7 +129,9 @@ server-zd 默认为每个 app Worker ID 允许 256 个 stream
 
 ### 长时间模型调用和超时 {#timeouts}
 
-这些 Step 选项由包设置，**AgentSessionOptions** 不能修改。
+这些 Step 选项由包设置。Python **AgentSessionOptions** 中的 **run_model_limit**，或 TypeScript
+中的 **runModelLimit**，可以修改 **RunModel** 的方法超时和 attempt 次数。其他选项
+**AgentSessionOptions** 不能修改。
 
 | Step | 方法超时 | Heartbeat 超时 | Attempt | 失败路由 |
 | --- | --- | --- | --- | --- |
@@ -143,9 +145,23 @@ runner 工作时，**RunModel**、**CompactContext** 和两种 tool Step 每 20 
 中，runner 和 tool 代码要保持非阻塞：在 event loop 上的阻塞调用也会让后台 heartbeat 停下来。
 
 一次模型调用必须在 15 分钟内完成。把 provider 或 framework 的请求超时设得比它短，这样慢
-调用会带着 provider 的错误失败，后续 attempt 也还能落在 30 分钟的重试窗口内。Claude Agent
-SDK session 在一个 **RunModel** 中运行整段轮次，所以这一段必须在 15 分钟内完成。Dex 如何
-发现丢失的 attempt，见 [Heartbeat](/reference/server/runtime-steps#heartbeat)。
+调用会带着 provider 的错误失败，后续 attempt 也还能落在 30 分钟的重试窗口内。Dex 如何发现
+丢失的 attempt，见 [Heartbeat](/reference/server/runtime-steps#heartbeat)。
+
+Claude Agent SDK session 在一个 **RunModel** 中运行整段轮次：多次模型调用和内联 tool call，
+直到 CLI 给出回答或推迟一个 tool call。默认情况下这一段必须在 15 分钟内完成。更长的段需要
+提高这个限制。所有 runner 都能用这个选项，但每个 **RunModel** 只做一次模型调用的 runner 很少
+需要它。
+
+- heartbeat 在这一段中持续发送，所以方法超时是唯一的上限。卡住的段会占用 Worker slot 直到
+  超时，所以不要设得比需要的更高。
+- 重试预算随限制一起变化。它等于方法超时乘以 attempt 次数减一，并且至少是方法超时的两倍，
+  这样超时的 attempt 仍然可以重试。Dex 只在 attempt 失败后才检查它。
+- 失败的段会整段重跑，并再次为其中的模型调用付费。如果这比一轮失败代价更高，把 attempt 次数
+  设为 1。
+- **CompactContext** 保持自己的限制，因为它只做一次模型调用。
+- 修改后的限制对 Worker 重启后调度的每个 **RunModel** 生效。进行中的 attempt 及其重试保持
+  原来的限制。
 
 ### 分开的 Worker 池 {#worker-pools}
 

@@ -240,6 +240,8 @@ MESSAGE_PAGE_LIMIT = 200
 # Keeps liveness well inside the shortest heartbeat timeout, one minute.
 BACKGROUND_HEARTBEAT_INTERVAL = timedelta(seconds=20)
 RECOVERY_RETRY = RetryPolicy(maximum_interval=timedelta(seconds=5))
+# Dex takes Step durations as a signed 32-bit number of seconds.
+MAX_STEP_DURATION_SECONDS = 2_147_483_647
 _MODEL_CALL_STEP_OPTIONS = StepOptions(
     execute_method_timeout=timedelta(minutes=15),
     heartbeat_timeout=timedelta(minutes=2),
@@ -260,6 +262,74 @@ _NO_PENDING_TOOL_QUESTION: dict[str, Any] = {
     "input_choices": [],
     "input_allows_free_text": True,
 }
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunModelLimit:
+    """Set how long one ``RunModel`` Step may run and how often it runs again.
+
+    The defaults fit one model call. A harness runner, such as the Claude Agent
+    SDK adapter, runs a whole turn segment in one ``RunModel``: several model
+    calls and inline tool calls. Raise ``method_timeout`` when a segment needs
+    longer than 15 minutes.
+
+    Background heartbeats continue through the Step, so a long silent call
+    stays within the heartbeat timeout and ``method_timeout`` is its only cap.
+    Dex ends an attempt at ``method_timeout`` and cancels its handler. The next
+    attempt reruns the whole segment and pays for it again, so consider
+    ``maximum_attempts=1`` for an expensive segment. A hung call holds its
+    Worker slot until ``method_timeout``, so do not set it higher than needed.
+
+    ``CompactContext`` keeps the defaults, because it makes one model call.
+
+    A changed limit applies to each ``RunModel`` scheduled after the Worker
+    restarts. An attempt in flight, and its retries, keep their limit.
+
+    Example:
+        >>> options = AgentSessionOptions(
+        ...     run_model_limit=RunModelLimit(
+        ...         method_timeout=timedelta(hours=1), maximum_attempts=2
+        ...     ),
+        ... )
+
+    .. versionadded:: 0.3.0
+
+    Attributes:
+        method_timeout: Longest one attempt may run, in whole seconds. Defaults
+            to 15 minutes.
+        maximum_attempts: Attempts, including the first. ``1`` disables
+            retries. Defaults to 3.
+
+    Raises:
+        ValueError: If ``method_timeout`` is not a whole number of seconds of at
+            least one, if ``maximum_attempts`` is not positive, or if
+            ``total_duration`` does not fit a signed 32-bit number of seconds.
+    """
+
+    method_timeout: timedelta = timedelta(minutes=15)
+    maximum_attempts: int = 3
+
+    def __post_init__(self) -> None:
+        if self.method_timeout < timedelta(seconds=1) or self.method_timeout.microseconds:
+            raise ValueError("method_timeout must be a whole number of seconds, at least one")
+        if self.maximum_attempts < 1:
+            raise ValueError("maximum_attempts must be positive")
+        if self.total_duration.total_seconds() > MAX_STEP_DURATION_SECONDS:
+            raise ValueError("method_timeout times maximum_attempts is too long for Dex")
+
+    @property
+    def total_duration(self) -> timedelta:
+        """Return the retry budget, which moves with the other two values.
+
+        Dex checks it only after an attempt fails, and never ends a running
+        attempt. So it must exceed ``method_timeout`` for a timed-out attempt to
+        retry at all.
+
+        Returns:
+            ``method_timeout`` times one less than ``maximum_attempts``, and at
+            least twice ``method_timeout``. The default limit gives 30 minutes.
+        """
+        return self.method_timeout * max(self.maximum_attempts - 1, 2)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -346,6 +416,9 @@ class AgentSessionOptions:
             so copy them out first if the application needs the full
             transcript. ``None`` keeps every message. Defaults to 1,000.
             Without ``compaction`` nothing is deleted.
+        run_model_limit: Method timeout and attempts of ``RunModel``, for a
+            runner whose ``RunModel`` takes longer than one model call. Defaults
+            to ``RunModelLimit()``: 15 minutes, 3 attempts in 30 minutes.
 
     Raises:
         ValueError: If ``event_stream_capacity_bytes`` or ``interrupt_deadline``
@@ -372,6 +445,7 @@ class AgentSessionOptions:
     message_chunk_size: int = DEFAULT_MESSAGE_CHUNK_SIZE
     message_chunk_max_bytes: int = DEFAULT_MESSAGE_CHUNK_MAX_BYTES
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT
+    run_model_limit: RunModelLimit = field(default_factory=RunModelLimit)
 
     def __post_init__(self) -> None:
         if self.message_chunk_size <= 0:
@@ -2692,8 +2766,13 @@ class RunModel(Step[TurnFailureRouteInput]):
 
     def get_step_options(self) -> StepOptions:
         # Movements add the chunks of the model input; see AgentSessionFlow._go_to_message_step.
+        limit = self._session._options.run_model_limit
         return replace(
             _MODEL_CALL_STEP_OPTIONS,
+            execute_method_timeout=limit.method_timeout,
+            execute_retry=RetryPolicy(
+                maximum_attempts=limit.maximum_attempts, total_duration=limit.total_duration
+            ),
             execute_load_attribute_maps=self._session._message_step_map_loads(),
         ).on_execute_failure_proceed_to(self._session._record_turn_failure)
 

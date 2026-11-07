@@ -128,6 +128,7 @@ from dex_agents.session_flow import (
     MISSING_TOOL_TASK_POLLER,
     AgentSessionFlow,
     AgentSessionOptions,
+    RunModelLimit,
 )
 from dex_agents.session_settings import (
     MAX_SESSION_SETTINGS_BYTES,
@@ -299,6 +300,7 @@ __all__ = [
     "QuestionAnswer",
     "QuestionResolution",
     "ResolveInterruptRequest",
+    "RunModelLimit",
     "SteerUserMessageRequest",
     "ToolCallCancellation",
     "ToolCallCancellationReason",

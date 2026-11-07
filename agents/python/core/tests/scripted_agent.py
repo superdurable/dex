@@ -76,6 +76,7 @@ from dex_agents.testing import FileGate, InvocationLog
 SCRIPTED_AGENT_FLOW_TYPE = "ScriptedAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SECONDS"
+RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_RUN_MODEL_LIMIT"
 BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
 MESSAGE_WINDOW_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_MESSAGE_WINDOW"
 INVOCATION_LOG_NAME = "invocations.log"
@@ -303,8 +304,18 @@ def build_scripted_agent_flow(
     interrupt_deadline: timedelta | None = None,
     built_in_tool_names: Sequence[str] = (),
     message_window: tuple[int, int] | None = None,
+    run_model_limit: tuple[int, int] | None = None,
 ) -> AgentSessionFlow:
     options: dict[str, Any] = {}
+    if run_model_limit is not None:
+        # Imported here, so the released 0.1.0 Worker can load this module.
+        from dex_agents import RunModelLimit
+
+        method_timeout_seconds, maximum_attempts = run_model_limit
+        options["run_model_limit"] = RunModelLimit(
+            method_timeout=timedelta(seconds=method_timeout_seconds),
+            maximum_attempts=maximum_attempts,
+        )
     if message_window is not None:
         options["message_window_size"], options["message_chunk_size"] = message_window
     if built_in_tool_names:
@@ -326,11 +337,14 @@ def build_scripted_agent_flow_from_environment() -> AgentSessionFlow:
     built_in_tool_names = os.environ.get(BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE, "")
     message_window = os.environ.get(MESSAGE_WINDOW_ENVIRONMENT_VARIABLE)
     window_size, chunk_size = (message_window or "0,0").split(",")
+    run_model_limit = os.environ.get(RUN_MODEL_LIMIT_ENVIRONMENT_VARIABLE)
+    method_timeout_seconds, maximum_attempts = (run_model_limit or "0,0").split(",")
     return build_scripted_agent_flow(
         Path(os.environ[STATE_DIR_ENVIRONMENT_VARIABLE]),
         None if deadline_seconds is None else timedelta(seconds=float(deadline_seconds)),
         [name for name in built_in_tool_names.split(",") if name],
         None if message_window is None else (int(window_size), int(chunk_size)),
+        None if run_model_limit is None else (int(method_timeout_seconds), int(maximum_attempts)),
     )
 
 

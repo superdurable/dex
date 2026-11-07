@@ -291,7 +291,12 @@ export class RunModelStep implements Step<void> {
 
   public getStepOptions(): StepOptions {
     // Each movement into RunModel adds the archive chunks of the model input.
-    return messageStepOptions(this.transitions.persistence, this.getStepType(), staticMessageChunkLoads(this.transitions));
+    return messageStepOptions(
+      this.transitions.persistence,
+      this.getStepType(),
+      staticMessageChunkLoads(this.transitions),
+      this.transitions.config.runModelLimit,
+    );
   }
 
   public async execute(context: AsyncContext): Promise<StepDecision> {
@@ -1251,7 +1256,12 @@ export class ApplyTurnControlStep implements Step<void> {
     // Each movement into ApplyTurnControl adds the archive chunks of the model input.
     // The lock keeps a turn from starting while cancel_turn decides about the last one.
     return {
-      ...messageStepOptions(this.transitions.persistence, this.getStepType(), staticMessageChunkLoads(this.transitions)),
+      ...messageStepOptions(
+        this.transitions.persistence,
+        this.getStepType(),
+        staticMessageChunkLoads(this.transitions),
+        this.transitions.config.runModelLimit,
+      ),
       executeLockAttributes: [this.transitions.persistence.turnCancellationRequest.lock()],
     };
   }

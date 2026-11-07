@@ -21,6 +21,7 @@ from dex_agents import (
     AgentSessionFlow,
     AgentSessionOptions,
     AgentTracingOptions,
+    RunModelLimit,
     ToolEffect,
     ToolPolicy,
 )
@@ -42,6 +43,7 @@ def claude_agent_session_flow(
     event_stream_capacity_bytes: int = DEFAULT_AGENT_EVENTS_CAPACITY_BYTES,
     custom_tool_server_name: str = DEFAULT_CUSTOM_TOOL_SERVER_NAME,
     tracing: AgentTracingOptions | None = None,
+    run_model_limit: RunModelLimit | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for one Claude Agent SDK agent.
 
@@ -115,6 +117,11 @@ def claude_agent_session_flow(
             and agent name. ``None``, the default, uses ``AgentTracingOptions()``:
             spans go to the global tracer provider when the OpenTelemetry API
             is installed.
+        run_model_limit: Method timeout and attempts of the ``RunModel`` Step
+            that runs one turn segment. A segment makes several model calls and
+            runs inline tools, so it can need longer than the default 15
+            minutes. A failed segment reruns whole. ``None``, the default, uses
+            ``RunModelLimit()``.
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``ClaudeAgentRunner``.
@@ -136,5 +143,6 @@ def claude_agent_session_flow(
             event_stream_capacity_bytes=event_stream_capacity_bytes,
             interrupt_deadline=interrupt_deadline,
             tracing=AgentTracingOptions() if tracing is None else tracing,
+            run_model_limit=RunModelLimit() if run_model_limit is None else run_model_limit,
         ),
     )

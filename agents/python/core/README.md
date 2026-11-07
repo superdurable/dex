@@ -724,7 +724,8 @@ A runner must:
 
 Any exception fails the attempt. `RunModel` retries up to three attempts
 within 30 minutes, rerunning only this one model call, then routes to
-`RecordTurnFailure`. Each attempt has a 15 minute timeout.
+`RecordTurnFailure`. Each attempt has a 15 minute timeout. `run_model_limit` in
+`AgentSessionOptions` changes it, with the attempts and the retry budget.
 
 When a failed turn already has final tool call records, `RecordTurnFailure`
 stores one note before it deletes them, built with `build_user_message`, so

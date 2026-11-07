@@ -397,7 +397,9 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
   must wait for approval.
 - A deferrable call inside a subagent is denied with a message that asks the
   model to call it from the main conversation.
-- A turn segment must finish within `RunModel`'s 15 minute timeout.
+- A turn segment must finish within `RunModel`'s method timeout, 15 minutes by
+  default. Set `run_model_limit` on `claude_agent_session_flow` to raise it. A
+  failed segment reruns whole.
 - Recorded custom tool results keep text only; other content becomes a
   placeholder such as `[image content omitted]`.
 - The adapter's PreToolUse matcher runs beside your own PreToolUse hooks. Your

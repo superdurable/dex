@@ -144,6 +144,7 @@ export {
   sessionSettingsSize,
   validateSessionSettings,
 } from "./agent-session-settings.js";
+export type { ResolvedRunModelLimit, RunModelLimit } from "./agent-session-step-options.js";
 export { AgentSessionFailedError, readAgentSnapshot, sendAgentUserMessage } from "./agent-session-failure.js";
 export { agentSessionActiveStepSearchMode, startAgentSession } from "./agent-session-start.js";
 export { invalidStartSessionSettingsReason } from "./agent-session-steps.js";

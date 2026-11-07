@@ -339,7 +339,8 @@ session and sends the failed prompt, the note, and its own prompt as three text 
   the main conversation.
 - The resume behavior above was observed with Claude Code CLI 2.1.316. Rerun the real-CLI tests when
   upgrading `@anthropic-ai/claude-agent-sdk`; a CLI without `--await-initialize` fails at startup.
-- A turn segment must finish within `RunModel`'s 15-minute timeout.
+- A turn segment must finish within `RunModel`'s method timeout, 15 minutes by default. Set `runModelLimit` in the
+  session options to raise it. A failed segment reruns whole.
 - Recorded custom tool results keep text only; other content becomes a placeholder such as
   `[image content omitted]`.
 - The adapter's PreToolUse matcher runs beside your own PreToolUse hooks. Do not return permission
