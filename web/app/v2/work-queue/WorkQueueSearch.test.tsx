@@ -136,7 +136,7 @@ async function openAdvanced() {
   return details;
 }
 
-const submit = () => fireEvent.click(screen.getByRole('button', { name: SEARCH_COPY.search }));
+const submit = async () => fireEvent.click(await screen.findByRole('button', { name: SEARCH_COPY.search }));
 const lastSearch = (searches: SearchBody[]) => searches[searches.length - 1];
 
 afterEach(() => {
@@ -151,7 +151,7 @@ describe('Work Queue search', () => {
     const advanced = await openAdvanced();
 
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'AwaitApproval' }));
-    submit();
+    await submit();
 
     await waitFor(() => expect(lastSearch(searches).filters).toContainEqual({
       field: 'activeStepTypes', operator: 'in', values: ['AwaitApproval'],
@@ -182,7 +182,7 @@ describe('Work Queue search', () => {
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'OrderFlow' }));
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'AwaitPacking' }));
     expect(searches.length).toBe(searchesBefore);
-    submit();
+    await submit();
 
     await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow', 'RefundFlow']));
     expect(searches.length).toBe(searchesBefore + 1);
@@ -197,7 +197,7 @@ describe('Work Queue search', () => {
     const advanced = await openAdvanced();
 
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'OrderFlow' }));
-    submit();
+    await submit();
 
     const orderRow = (await screen.findByText('West')).closest('button');
     expect(screen.getByText('Damaged item')).toBeTruthy();
@@ -221,7 +221,7 @@ describe('Work Queue search', () => {
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'OrderFlow' }));
     expect(within(advanced).queryByLabelText(SEARCH_COPY.attributeLabel)).toBeNull();
     expect(within(advanced).getByText(SEARCH_COPY.attributeNeedsOneFlowType)).toBeTruthy();
-    submit();
+    await submit();
 
     await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow', 'RefundFlow']));
     expect(lastSearch(searches).workQueuePermissions).toEqual(['refund.manage']);
@@ -237,7 +237,7 @@ describe('Work Queue search', () => {
     await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow']));
     const advanced = await openAdvanced();
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'PayFlow' }));
-    submit();
+    await submit();
     await waitFor(() => expect(lastSearch(searches).flowTypes).toEqual(['OrderFlow', 'PayFlow']));
 
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
@@ -282,7 +282,7 @@ describe('Work Queue search', () => {
     renderQueue();
     const advanced = await openAdvanced();
     fireEvent.click(within(advanced).getByRole('checkbox', { name: 'OrderFlow' }));
-    submit();
+    await submit();
     await waitFor(() => expect(lastSearch(searches).flowTypes).toHaveLength(2));
 
     fireEvent.change(screen.getByLabelText(SEARCH_COPY.flowTypeLabel), { target: { value: 'OrderFlow' } });
