@@ -85,7 +85,7 @@ const dexConnectorContributor = await readFile(
   join(root, 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
   'utf8',
 );
-const connector = await readFile(join(root, 'primitives', 'connector', 'index.html'), 'utf8');
+const connector = await readFile(join(root, 'primitives', 'components', 'connector', 'index.html'), 'utf8');
 const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const zhDexSkills = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
 const zhDexAppBuilder = await readFile(
@@ -100,7 +100,7 @@ const zhDexConnectorContributor = await readFile(
   join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
   'utf8',
 );
-const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html'), 'utf8');
+const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'components', 'connector', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 const dexSkillHostTabsSource = await readFile(join(docsRoot, 'src', 'components', 'DexSkillHostTabs.tsx'), 'utf8');
@@ -221,11 +221,15 @@ assert.match(home, /Build with AI/);
 assert.match(home, /href="\/build-with-ai\/dex-developer-skill\/">Overview<\/a>/);
 
 const primitivesPosition = home.indexOf('>Primitives<');
-const buildWithAIPosition = home.indexOf('>Build with AI<');
+const componentsPosition = home.indexOf('>Components<');
+const agentFrameworksPosition = home.indexOf('>Agent Frameworks<');
+const agentSkillsPosition = home.indexOf('>Agent Skills<');
 const designPatternsPosition = home.indexOf('>Design Patterns<');
 assert.ok(primitivesPosition >= 0);
-assert.ok(buildWithAIPosition > primitivesPosition);
-assert.ok(designPatternsPosition > buildWithAIPosition);
+assert.ok(componentsPosition > primitivesPosition);
+assert.ok(agentFrameworksPosition > componentsPosition);
+assert.ok(agentSkillsPosition > agentFrameworksPosition);
+assert.ok(designPatternsPosition > agentSkillsPosition);
 
 const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
 // The browser fills in the star count, so static HTML must hold neither the count nor its label.
@@ -376,14 +380,14 @@ assert.match(zhDexConnectorContributor, /Repository 与 Fork 工作流/);
 assert.match(zhDexConnectorContributor, /production\s+handoff 必须等待精确发布的 Connector version/);
 assert.match(zhDexConnectorContributor, /必须有 Go 实现/);
 assert.match(zhDexConnectorContributor, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/blob\/main\/AGENTS\.md/);
-assert.match(connector, /independent Dex primitive/);
+assert.match(connector, /Dex component/);
 assert.match(connector, /Connectors support Go, Python, and TypeScript/);
 assert.match(connector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
-assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/connector\/"/);
-assert.match(zhConnector, /独立 Dex primitive/);
+assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/components\/connector\/"/);
+assert.match(zhConnector, /Dex component/);
 assert.match(zhConnector, /Connector 支持 Go、Python 和 TypeScript/);
 assert.match(zhConnector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
-assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/connector\/"/);
+assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/components\/connector\/"/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
 
 await Promise.all([

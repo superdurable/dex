@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.1 - 2026-11-06
+
+- Classify Connector as a Component alongside the other Dex Components.
+
 ## 1.0.0 - 2026-11-06
 
 - Rewrite the Skills as the coding-agent version of the Dex stable layer. They cover the same scope as the docs Primitives, Components, and Design patterns: mental models, decision tables, rules and anti-patterns, design patterns with code skeletons, language idioms, and a self-check list. Each rule is complete without its links.

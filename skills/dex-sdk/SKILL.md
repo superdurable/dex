@@ -35,10 +35,9 @@ A **Flow** is one durable business execution with a stable Flow ID. It is a grap
 | [Stream](references/core/stream.md) | best-effort, resumable messages | progress only; never the record |
 | [Timer](references/core/timer.md) | durable delay Condition | business delays and deadlines; never for polling |
 | [SubFlow](references/core/subflow.md) | child Flow started from WaitFor | not in a first design; pass the evolution gate |
-| [Connector](references/core/connector.md) | released provider integration as Connector Steps and Triggers | credentials never enter Flow state |
 | [Client](references/core/client.md) | the application's boundary to Dex | start, invoke, read, wait; no direct state write |
 
-Components: [application (Worker and Client)](references/core/application.md), [server](references/core/server.md), [dexcli and local development](references/core/cli.md), [Dex Web](references/core/web.md), [External Attribute Sync](references/core/external-attribute-sync.md).
+Components include [Connector](references/core/connector.md), a released provider integration that supplies Connector Steps and Triggers; credentials never enter Flow state. Other Components: [application (Worker and Client)](references/core/application.md), [server](references/core/server.md), [dexcli and local development](references/core/cli.md), [Dex Web](references/core/web.md), [External Attribute Sync](references/core/external-attribute-sync.md).
 
 Choose the mechanism:
 

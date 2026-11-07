@@ -394,5 +394,13 @@
   {
     "from": "/zh-Hans/reference/cli/1.32.x/",
     "to": "/zh-Hans/reference/cli/"
+  },
+  {
+    "from": "/primitives/connector",
+    "to": "/primitives/components/connector"
+  },
+  {
+    "from": "/zh-Hans/primitives/connector",
+    "to": "/zh-Hans/primitives/components/connector"
   }
 ]
