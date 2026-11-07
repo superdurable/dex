@@ -36,6 +36,8 @@ tracing.workspace = true
 xxhash-rust.workspace = true
 
 [dev-dependencies]
+# Time travel target resolution tests compare apply's resolutions through its test-util oracles.
+dexzd-apply = { workspace = true, features = ["test-util"] }
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

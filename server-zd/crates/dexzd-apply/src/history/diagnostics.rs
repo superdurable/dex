@@ -16,7 +16,7 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use super::attempt_scope::{AttemptRow, decode_timer_id, read_attempt_rows, run_status_of};
-use super::lineage::{Lineage, genesis_seq};
+use super::lineage::{Lineage, LocalHistorySource, genesis_seq};
 use super::reset_target::resolve_target;
 use super::state_rebuild::{HistoryPoint, RebuiltAttempt, rebuild_attempt_state};
 use crate::command_handlers::CommandScope;
@@ -161,12 +161,26 @@ fn rebuild_time_travel_target(
         _ => return Ok(None),
     };
     let lineage = Lineage::of_attempt(transaction, cursor.rows, selected_attempt)?;
-    let Ok(target) = resolve_target(transaction, &cursor, scope.now_micros, &request, &lineage)?
+    let history = LocalHistorySource::new(transaction, cursor.rows);
+    let Ok(target) = resolve_target(
+        transaction,
+        &history,
+        cursor.rows,
+        &cursor.record,
+        scope.now_micros,
+        &request,
+        &lineage,
+    )?
     else {
         return Ok(None);
     };
-    let Ok(rebuilt) =
-        rebuild_attempt_state(transaction, cursor.rows, &cursor.record, target.point)?
+    let Ok(rebuilt) = rebuild_attempt_state(
+        transaction,
+        &history,
+        cursor.rows,
+        &cursor.record,
+        target.point,
+    )?
     else {
         return Ok(None);
     };
@@ -237,4 +251,164 @@ fn canonicalized_attempt_row(row: &AttemptRow) -> Result<(Vec<u8>, Vec<u8>), App
 fn append_bytes(encoded: &mut Vec<u8>, bytes: &[u8]) {
     encoded.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
     encoded.extend_from_slice(bytes);
+}
+
+#[cfg(feature = "test-util")]
+pub use target_resolution::{
+    TargetResolutionForTest, TimeTravelTargetForTest, resolve_time_travel_target_for_test,
+};
+
+/// Test entry points that compare the ways of resolving a TimeTravel target.
+#[cfg(feature = "test-util")]
+mod target_resolution {
+    use std::ops::RangeInclusive;
+
+    use dexzd_keyspace::RunId;
+    use dexzd_protocol::dex::ResetFlowRequest;
+    use dexzd_protocol::dexzd::v1::{CheckpointRecord, CommandReply};
+
+    use crate::history::lineage::{HistoryRecords, HistorySource, Lineage, LocalHistorySource};
+    use crate::history::reset_target::{
+        CandidateSource, resolve_target, resolve_target_from_records_for_test,
+        resolve_target_from_source_for_test,
+    };
+    use crate::state_access::{FlowTransaction, RunRows};
+    use crate::{ApplyContext, ApplyError, FlowStateReader};
+
+    /// Which target resolution [`resolve_time_travel_target_for_test`] runs.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum TargetResolutionForTest {
+        /// TimeTravel's resolution: metadata, or records when the run's metadata is older.
+        Apply,
+        /// TimeTravel's resolution with a history source that fails every read.
+        ApplyWithoutHistoryReads,
+        /// Candidates from metadata rows, even when the run's metadata is older.
+        Metadata,
+        /// Candidates from History records read through the local history source.
+        Records,
+        /// The resolution from before metadata-based selection, reading every window record.
+        RecordOracle,
+    }
+
+    /// A resolved TimeTravel target.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct TimeTravelTargetForTest {
+        /// Attempt of the target point.
+        pub run_attempt: u32,
+        /// Run seq of the target point.
+        pub run_seq: u64,
+        /// Largest event ID of the selected lineage's semantic points up to the target.
+        pub last_event_id: i64,
+        /// Message of the last FlowClosed event of those points.
+        pub close_history_message: Option<String>,
+    }
+
+    /// Resolves the target of `request` on run `run_id` the way `resolution` names.
+    ///
+    /// Returns the target or the rejection reply. Returns an error when state cannot be read,
+    /// or when the request names an attempt the run does not have.
+    pub fn resolve_time_travel_target_for_test(
+        context: &ApplyContext,
+        state: &dyn FlowStateReader,
+        run_id: RunId,
+        now_micros: i64,
+        request: &ResetFlowRequest,
+        resolution: TargetResolutionForTest,
+    ) -> Result<Result<TimeTravelTargetForTest, CommandReply>, ApplyError> {
+        let transaction = FlowTransaction::new(state, *context);
+        let rows = RunRows::new(context.flow_hash, run_id);
+        let record =
+            rows.run_record(&transaction)?
+                .ok_or_else(|| ApplyError::InvariantViolation {
+                    detail: format!("run {run_id} has no run record"),
+                })?;
+        let selected_attempt = match u32::try_from(request.run_attempt) {
+            Ok(0) => record.current_attempt,
+            Ok(attempt) if attempt <= record.current_attempt => attempt,
+            _ => {
+                return Err(ApplyError::InvariantViolation {
+                    detail: format!("run attempt {} does not exist", request.run_attempt),
+                });
+            }
+        };
+        let lineage = Lineage::of_attempt(&transaction, rows, selected_attempt)?;
+        let local_history = LocalHistorySource::new(&transaction, rows);
+        let target = match resolution {
+            TargetResolutionForTest::Apply => resolve_target(
+                &transaction,
+                &local_history,
+                rows,
+                &record,
+                now_micros,
+                request,
+                &lineage,
+            )?,
+            TargetResolutionForTest::ApplyWithoutHistoryReads => resolve_target(
+                &transaction,
+                &UnreadableHistorySource,
+                rows,
+                &record,
+                now_micros,
+                request,
+                &lineage,
+            )?,
+            TargetResolutionForTest::Metadata | TargetResolutionForTest::Records => {
+                let source = if resolution == TargetResolutionForTest::Metadata {
+                    CandidateSource::Metadata
+                } else {
+                    CandidateSource::Records
+                };
+                resolve_target_from_source_for_test(
+                    &transaction,
+                    &local_history,
+                    rows,
+                    &record,
+                    now_micros,
+                    request,
+                    &lineage,
+                    source,
+                )?
+            }
+            TargetResolutionForTest::RecordOracle => resolve_target_from_records_for_test(
+                &transaction,
+                &local_history,
+                rows,
+                &record,
+                now_micros,
+                request,
+                &lineage,
+            )?,
+        };
+        Ok(target.map(|target| TimeTravelTargetForTest {
+            run_attempt: target.point.attempt,
+            run_seq: target.point.seq,
+            last_event_id: target.last_event_id,
+            close_history_message: target.close_history_message,
+        }))
+    }
+
+    /// A history source whose every read fails, proving a resolution read no history.
+    struct UnreadableHistorySource;
+
+    impl HistorySource for UnreadableHistorySource {
+        fn history_records(
+            &self,
+            seqs: RangeInclusive<u64>,
+            _batch_records: usize,
+        ) -> HistoryRecords<'_> {
+            Box::new(std::iter::once(Err(ApplyError::InvariantViolation {
+                detail: format!("History records {seqs:?} were read"),
+            })))
+        }
+
+        fn checkpoint(
+            &self,
+            attempt: u32,
+            seq: u64,
+        ) -> Result<Option<CheckpointRecord>, ApplyError> {
+            Err(ApplyError::InvariantViolation {
+                detail: format!("checkpoint ({attempt}, {seq}) was read"),
+            })
+        }
+    }
 }

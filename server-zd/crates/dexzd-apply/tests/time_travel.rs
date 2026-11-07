@@ -4192,3 +4192,115 @@ fn a_rebuild_from_a_later_checkpoint_replays_the_deciding_command_to_the_same_ro
     assert_eq!(harness.attempt_record(attempt).parent_seq, decision_seq);
     assert_eq!(ship_steps(&harness.attempt_rows()), original);
 }
+
+/// Returns `harness`'s state with the target fields cleared from the History record metadata
+/// rows `should_strip` picks, as rows written before those fields existed lack them.
+fn with_older_target_metadata(
+    harness: &Harness,
+    should_strip: impl Fn(u64) -> bool,
+) -> MemoryState {
+    let prefix = dexzd_keyspace::run_table_prefix(
+        harness.context.flow_hash,
+        harness.run(),
+        RunTable::HistoryRowMetadata,
+    );
+    let mut state = harness.state.clone();
+    for ((column_family, key), value) in &mut state.rows {
+        let Some(suffix) = key.strip_prefix(prefix.as_slice()) else {
+            continue;
+        };
+        if *column_family != ColumnFamily::Flow
+            || suffix.get(8) != Some(&(RunTable::HistoryRecord as u8))
+            || !should_strip(u64::from_be_bytes(
+                suffix[..8]
+                    .try_into()
+                    .expect("a metadata key holds an eight-byte seq"),
+            ))
+        {
+            continue;
+        }
+        let mut metadata = dexzd_protocol::dexzd::v1::HistoryRowMetadata::decode(value.as_slice())
+            .expect("history metadata decodes");
+        metadata.pending_step_methods.clear();
+        metadata.max_event_id = 0;
+        metadata.flow_closed_message = None;
+        *value = metadata.encode_to_vec();
+    }
+    state
+}
+
+#[test]
+fn time_travel_over_older_metadata_selects_the_same_point_from_records() {
+    let mut harness = Harness::new();
+    let (execute_pending_seq, _) = run_charge_then_ship(&mut harness);
+    harness.apply(Command::FlowStop(FlowStopCommand {
+        request: Some(StopFlowRequest {
+            stop_type: StopType::Terminate as i32,
+            reason: "stopped before the travels".to_owned(),
+            ..StopFlowRequest::default()
+        }),
+    }));
+    let stop_time = harness
+        .history_record(harness.last_seq())
+        .unwrap()
+        .timestamp_micros;
+    // Attempt 2 forks from attempt 1, so later requests search a two-attempt lineage.
+    harness.travel_to(ResetFlowRequest {
+        step_execution_id: "ChargeStep-1".to_owned(),
+        step_method: FlowResetStepMethod::Execute as i32,
+        ..reset(FlowResetType::StepExecutionId)
+    });
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    harness.complete_execute("ChargeStep-1", 1, next_steps(&["PackStep"]));
+    let execute_pending_time = harness
+        .history_record(execute_pending_seq)
+        .unwrap()
+        .timestamp_micros;
+    let requests = [
+        reset(FlowResetType::Beginning),
+        ResetFlowRequest {
+            step_type: "PackStep".to_owned(),
+            ..reset(FlowResetType::StepType)
+        },
+        ResetFlowRequest {
+            step_type: "ShipStep".to_owned(),
+            run_attempt: 1,
+            ..reset(FlowResetType::StepType)
+        },
+        ResetFlowRequest {
+            step_execution_id: "ChargeStep-1".to_owned(),
+            step_method: FlowResetStepMethod::WaitFor as i32,
+            ..reset(FlowResetType::StepExecutionId)
+        },
+        reset_to_time(execute_pending_time),
+        // The stopped point carries a FlowClosed message into the fork.
+        ResetFlowRequest {
+            run_attempt: 1,
+            ..reset_to_time(stop_time)
+        },
+        ResetFlowRequest {
+            step_type: "MissingStep".to_owned(),
+            ..reset(FlowResetType::StepType)
+        },
+    ];
+    let genesis_seq = harness.attempt_record(1).start_seq;
+    let older_state = with_older_target_metadata(&harness, |_| true);
+    let older_genesis_state = with_older_target_metadata(&harness, |seq| seq == genesis_seq);
+    assert_ne!(
+        older_state.rows, harness.state.rows,
+        "stripping changed metadata rows"
+    );
+    for (index, request) in requests.into_iter().enumerate() {
+        let command = harness.command(Command::TimeTravel(TimeTravelCommand {
+            should_restore_running_as_pending: false,
+            request: Some(request),
+        }));
+        let expected = apply_flow_command(&harness.context, &harness.state, &command).unwrap();
+        for state in [&older_state, &older_genesis_state] {
+            let outcome = apply_flow_command(&harness.context, state, &command).unwrap();
+            assert_eq!(outcome.reply, expected.reply, "case {index}");
+            assert_eq!(outcome.writes, expected.writes, "case {index}");
+            assert_eq!(outcome.effects, expected.effects, "case {index}");
+        }
+    }
+}
