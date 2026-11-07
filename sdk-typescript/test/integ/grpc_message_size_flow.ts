@@ -79,3 +79,32 @@ export class LargeRpcFlow implements Flow<void> {
     return { output: String(input.length) };
   }
 }
+
+/** Three values whose sum exceeds the server's default 32 MiB send limit. */
+export const aboveServerLimitValueBytes = 12 * 1024 * 1024;
+
+export const aboveServerLimitValues = [
+  new Attribute("grpc-size-above-server-limit-0", stringCodec),
+  new Attribute("grpc-size-above-server-limit-1", stringCodec),
+  new Attribute("grpc-size-above-server-limit-2", stringCodec),
+] as const;
+
+export class AboveServerLimitFlow implements Flow<void> {
+  public getFlowType(): string {
+    return "AboveServerLimitFlow";
+  }
+
+  public getSteps() {
+    return StepList.empty();
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: aboveServerLimitValues };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: voidCodec })
+  public writeLargeValue(context: Context, input: string): RPCResult<void> {
+    aboveServerLimitValues[Number(input) as 0 | 1 | 2].set(context, input.repeat(aboveServerLimitValueBytes));
+    return { output: undefined };
+  }
+}

@@ -26,7 +26,15 @@ import {
   type Flow,
 } from "../../src/index.js";
 import { expectError, flowId } from "./environment.js";
-import { GrpcMessageSizeFlow, LargeRpcFlow, fiveMebibytes, grpcSizeValues } from "./grpc_message_size_flow.js";
+import {
+  AboveServerLimitFlow,
+  GrpcMessageSizeFlow,
+  LargeRpcFlow,
+  aboveServerLimitValueBytes,
+  aboveServerLimitValues,
+  fiveMebibytes,
+  grpcSizeValues,
+} from "./grpc_message_size_flow.js";
 
 const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
 const twoMebibytes = 2 * 1024 * 1024;
@@ -118,6 +126,27 @@ test("a Worker with an empty blob cache loads values over its limit through seve
     assert.equal(result.singleOutput(stringCodec), String(4 * twoMebibytes));
     assert.ok(calls.count >= 4, `expected several LoadBlobs calls, got ${calls.count}`);
   }));
+});
+
+test("a default Client splits a read above the server send limit", async () => {
+  const flow = new AboveServerLimitFlow();
+  const id = flowId("grpc-size-above-server-limit");
+  await withWorker(flow, 0, () => withClient(flow, 0, async (client) => {
+    await client.startFlow(flow, id, undefined);
+    for (const index of aboveServerLimitValues.keys()) {
+      await client.invokeRPC(flow.writeLargeValue, id, String(index));
+    }
+  }));
+  await withClient(flow, 0, async (client) => {
+    const [first, second, third] = aboveServerLimitValues;
+    const values = await client.getAttributes(id, first, second, third);
+    assert.deepEqual(
+      values.map((value) => value?.length),
+      aboveServerLimitValues.map(() => aboveServerLimitValueBytes),
+    );
+    assert.deepEqual(values.map((value) => value?.[0]), ["0", "1", "2"]);
+    await client.stopFlow(id);
+  });
 });
 
 test("a Client limit below one blob rejects with the named error", async () => {
