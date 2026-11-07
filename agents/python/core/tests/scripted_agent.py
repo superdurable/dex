@@ -76,6 +76,8 @@ from dex_agents.testing import FileGate, InvocationLog
 SCRIPTED_AGENT_FLOW_TYPE = "ScriptedAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_STATE_DIR"
 INTERRUPT_DEADLINE_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_INTERRUPT_DEADLINE_SECONDS"
+SPEND_LIMIT_ENVIRONMENT_VARIABLE = "TEST_AGENT_SPEND_LIMIT"
+SPEND_LIMIT_TIMEOUT_ENVIRONMENT_VARIABLE = "TEST_AGENT_SPEND_LIMIT_TIMEOUT_SECONDS"
 BUILT_IN_TOOLS_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_BUILT_IN_TOOLS"
 MESSAGE_WINDOW_ENVIRONMENT_VARIABLE = "SCRIPTED_AGENT_MESSAGE_WINDOW"
 INVOCATION_LOG_NAME = "invocations.log"
@@ -312,6 +314,17 @@ def build_scripted_agent_flow(
         from dex_agents import BuiltInTool
 
         options["built_in_tools"] = frozenset(BuiltInTool(name) for name in built_in_tool_names)
+    if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE):
+        # Imported here, so the released 0.1.0 Worker can load this module.
+        from dex_agents import session_flow
+        from tests.file_spend_limit import FileSpendLimit
+
+        options["spend_limit"] = FileSpendLimit(state_dir)
+        timeout_seconds = os.environ.get(SPEND_LIMIT_TIMEOUT_ENVIRONMENT_VARIABLE)
+        if timeout_seconds is not None:
+            vars(session_flow)["SPEND_LIMIT_CALL_TIMEOUT"] = timedelta(
+                seconds=float(timeout_seconds)
+            )
     return AgentSessionFlow(
         ScriptedRunner(state_dir),
         flow_type=SCRIPTED_AGENT_FLOW_TYPE,

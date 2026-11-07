@@ -8,6 +8,7 @@
 
 import type { BuiltInTool } from "../agent-built-in-tools.js";
 import type { CompactionPolicy } from "../agent-context-compaction.js";
+import type { ModelSpendLimit } from "../agent-session-spend-limit.js";
 import type { ToolPolicy } from "../agent-framework-runner.js";
 import type { AgentPlan, InteractionMode, SessionSettings, ToolEffect } from "../agent-session-values.js";
 import type { FunctionTool } from "./function-tool.js";
@@ -166,4 +167,11 @@ export interface AgentDefinition {
    * client's `estimateInputTokens`. Defaults to no compaction. See {@link CompactionPolicy}.
    */
   readonly compaction?: CompactionPolicy;
+  /**
+   * The application's spend limit, called before and after each model call. Defaults to no checks. See
+   * {@link ModelSpendLimit}.
+   *
+   * @since 0.3.0
+   */
+  readonly spendLimit?: ModelSpendLimit;
 }

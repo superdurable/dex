@@ -99,6 +99,7 @@ export function createMastraAgentSessionFlow(
     eventStreamCapacityBytes,
     interruptDeadlineMs,
     tracing,
+    spendLimit,
     ...runnerOptions
   } = options;
   const runner = new MastraAgentRunner(agent, {
@@ -111,5 +112,6 @@ export function createMastraAgentSessionFlow(
     ...(eventStreamCapacityBytes === undefined ? {} : { eventStreamCapacityBytes }),
     ...(interruptDeadlineMs === undefined ? {} : { interruptDeadlineMs }),
     ...(tracing === undefined ? {} : { tracing }),
+    ...(spendLimit === undefined ? {} : { spendLimit }),
   });
 }

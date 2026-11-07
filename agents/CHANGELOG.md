@@ -6,6 +6,27 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Spend limits
+
+- Python and TypeScript cores: the new `ModelSpendLimit` interface is an
+  application's spend limit. Pass it as `AgentSessionOptions.spend_limit`
+  (`spendLimit`), or on a Stepwise `AgentDefinition`. The session calls
+  `check_model_call` before each attempt of `RunModel` and `CompactContext`, and
+  `report_model_usage` when the attempt's model call returns. Without one, nothing
+  changes. Counters and limits belong to the application.
+- A refused call ends the turn. `AgentState.last_turn_error` starts with the new
+  `MODEL_CALL_REFUSED_ERROR_PREFIX` (`modelCallRefusedErrorPrefix`), then the reason.
+  The session keeps running and checks again on the next message.
+- A check that raises or takes longer than `SPEND_LIMIT_CALL_TIMEOUT`, 30 seconds,
+  fails closed: it fails the attempt, and the Step retries. A report that raises is
+  logged and dropped. `ModelUsageReport.report_id` is stable per attempt.
+- Python Claude Agent SDK adapter: `claude_agent_session_flow` takes `spend_limit`.
+  A harness is checked once per turn segment, and its usage arrives when the segment
+  ends.
+- No stored value changes. The conformance suite adds the refusal prefix.
+- Go core: unchanged. It does not check spend limits.
+- See [Spend limits](../docs/content/agent-frameworks/deploy-agents.mdx).
+
 ### A session at the state limit fails, with the reason
 
 - Python and TypeScript cores: when a Step fails on

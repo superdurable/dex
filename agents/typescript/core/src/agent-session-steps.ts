@@ -319,14 +319,22 @@ export class RunModelStep implements Step<void> {
       if (throughSequence !== null) {
         return this.startCompaction(context, state, turnContext.contextSummary ?? null, throughSequence);
       }
+      const refusal = await transitions.checkSpendLimit(context, state, turnId, this.getStepType());
+      if (refusal !== null) {
+        return refusal;
+      }
       return await transitions.tracer.traceModelCall(
         context,
         this.getStepType(),
         turnContext,
         async (modelCallSpan) => {
-          const outcome = await transitions.runWithHeartbeats(context, () =>
-            transitions.runner.runModelStep(turnContext),
-          );
+          const outcome = await transitions.runWithHeartbeats(context, async () => {
+            const result = await transitions.runner.runModelStep(turnContext);
+            if (result?.kind === "completed" || result?.kind === "tool_calls_requested") {
+              await transitions.reportModelUsage(context, turnId, this.getStepType(), result.usage);
+            }
+            return result;
+          });
           switch (outcome?.kind) {
             case "completed": {
               modelCallSpan.recordOutcome(outcome, appendedMessageKeys(state, outcome.newMessages));
@@ -687,6 +695,10 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
     if (!isContextCompactionRunner(runner)) {
       throw new TypeError("CompactContext needs a runner that implements the compaction methods");
     }
+    const refusal = await transitions.checkSpendLimit(context, state, turnId, this.getStepType());
+    if (refusal !== null) {
+      return refusal;
+    }
     const events = transitions.createEventWriter(context, turnId);
     try {
       events.writeEvent("compaction_started", { through_sequence: throughSequence });
@@ -734,8 +746,8 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
       throughSequence,
       messages,
       async (summarySpan) => {
-        const result = await transitions.runWithHeartbeats(context, () =>
-          runner.summarizeContext({
+        const result = await transitions.runWithHeartbeats(context, async () => {
+          const summaryResult = await runner.summarizeContext({
             flowId: context.flowId,
             turnId,
             attempt: context.attempt,
@@ -749,8 +761,12 @@ export class CompactContextStep implements Step<CompactContextInput | undefined>
             ...(policy === undefined ? {} : { inputTokenBudget: policy.contextWindowTokens }),
             sessionSettings: transitions.readTurnSessionSettings(context),
             heartbeat: () => transitions.recordHeartbeat(context),
-          }),
-        );
+          });
+          if (typeof summaryResult?.usage === "object") {
+            await transitions.reportModelUsage(context, turnId, this.getStepType(), summaryResult.usage);
+          }
+          return summaryResult;
+        });
         if (typeof result?.text !== "string" || result.text.trim() === "" || typeof result.usage !== "object") {
           throw new TypeError("summarizeContext must return summary text and usage");
         }
@@ -1327,14 +1343,10 @@ export class RecordTurnFailureStep implements Step<CompactContextInput | undefin
       state.activeTurnId === null
         ? null
         : transitions.buildUnfinishedTurnMessages(context, state, state.activeTurnId, finalToolCalls);
-    return recordFailedTurn(
-      transitions,
-      context,
-      state,
-      toolCalls,
-      unfinishedTurnMessages ?? [],
-      readRecoveryDetail(context),
-    );
+    // A refused model call moves here on purpose, with its reason already in the state.
+    const error =
+      context.recoveryError === undefined && state.lastTurnError ? state.lastTurnError : readRecoveryDetail(context);
+    return recordFailedTurn(transitions, context, state, toolCalls, unfinishedTurnMessages ?? [], error);
   }
 }
 

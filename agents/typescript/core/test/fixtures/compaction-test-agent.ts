@@ -13,6 +13,7 @@ import {
   createAgentSessionFlow,
   type AgentSessionFlow,
   type AgentSessionOptions,
+  type ModelSpendLimit,
   type AgentTracingOptions,
   type ContextSummaryRequest,
   type ContextSummaryResult,
@@ -148,6 +149,7 @@ export function createCompactionTestAgentFlow(
     builtInTools: ["write_todos"],
     compaction: { contextWindowTokens: windowTokens },
     ...(options.tracing === undefined ? {} : { tracing: options.tracing }),
+    ...(options.spendLimit === undefined ? {} : { spendLimit: options.spendLimit }),
     ...options.messageStorage,
   });
 }
@@ -156,6 +158,8 @@ export function createCompactionTestAgentFlow(
 export interface CompactionTestAgentOptions {
   readonly flowType?: string;
   readonly tracing?: AgentTracingOptions;
+  /** The session's spend limit. */
+  readonly spendLimit?: ModelSpendLimit;
   /** Metadata every summary result reports, for the `CompactContext` span. */
   readonly summaryModelCallMetadata?: ModelCallMetadata;
   /** Window, chunk, and retention options of the stored messages. */

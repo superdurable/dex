@@ -135,6 +135,14 @@ from dex_agents.session_settings import (
     session_settings_size,
     validate_session_settings,
 )
+from dex_agents.spend_limit import (
+    MODEL_CALL_REFUSED_ERROR_PREFIX,
+    SPEND_LIMIT_CALL_TIMEOUT,
+    ModelCallCheck,
+    ModelCallDecision,
+    ModelSpendLimit,
+    ModelUsageReport,
+)
 from dex_agents.tracing import AgentTracingOptions, GenAISemanticConventionsVersion
 from dex_agents.values import (
     AgentEvent,
@@ -213,6 +221,7 @@ __all__ = [
     "MESSAGE_ROLLOVER_MAX_BYTES_PER_COMMIT",
     "MESSAGE_ROLLOVER_MAX_CHUNKS_PER_COMMIT",
     "MISSING_TOOL_TASK_POLLER",
+    "MODEL_CALL_REFUSED_ERROR_PREFIX",
     "NO_PLAN_NOTE",
     "OUTCOME_UNKNOWN_TOOL_RESULT",
     "PENDING_INTERRUPTS",
@@ -225,6 +234,7 @@ __all__ = [
     "QUEUED_USER_MESSAGES",
     "SESSION_SETTINGS",
     "SESSION_SETTINGS_SIZE_TOLERANCE_BYTES",
+    "SPEND_LIMIT_CALL_TIMEOUT",
     "STEERED_USER_MESSAGES",
     "TOOL_CALL_CANCELLATIONS",
     "TOOL_CALL_CANCELLED_BY_STEERING_RESULT",
@@ -289,7 +299,11 @@ __all__ = [
     "InterruptKind",
     "ListAgentMessagesRequest",
     "MessageRole",
+    "ModelCallCheck",
+    "ModelCallDecision",
     "ModelCallMetadata",
+    "ModelSpendLimit",
+    "ModelUsageReport",
     "PendingUserMessage",
     "PlanExecutionRequest",
     "PlanModeRunner",

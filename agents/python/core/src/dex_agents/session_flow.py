@@ -163,6 +163,14 @@ from dex_agents.runner import (
     build_turn_failure_note,
 )
 from dex_agents.session_settings import check_stored_session_settings
+from dex_agents.spend_limit import (
+    MODEL_CALL_REFUSED_ERROR_PREFIX,
+    SPEND_LIMIT_CALL_TIMEOUT,
+    ModelCallCheck,
+    ModelCallDecision,
+    ModelSpendLimit,
+    ModelUsageReport,
+)
 from dex_agents.tracing import AgentTracingOptions
 from dex_agents.values import (
     AgentEvent,
@@ -346,6 +354,9 @@ class AgentSessionOptions:
             so copy them out first if the application needs the full
             transcript. ``None`` keeps every message. Defaults to 1,000.
             Without ``compaction`` nothing is deleted.
+        spend_limit: The application's ``ModelSpendLimit``, called before and
+            after each model call of ``RunModel`` and ``CompactContext``.
+            ``None``, the default, makes no checks.
 
     Raises:
         ValueError: If ``event_stream_capacity_bytes`` or ``interrupt_deadline``
@@ -372,6 +383,7 @@ class AgentSessionOptions:
     message_chunk_size: int = DEFAULT_MESSAGE_CHUNK_SIZE
     message_chunk_max_bytes: int = DEFAULT_MESSAGE_CHUNK_MAX_BYTES
     retained_message_limit: int | None = DEFAULT_RETAINED_MESSAGE_LIMIT
+    spend_limit: ModelSpendLimit | None = None
 
     def __post_init__(self) -> None:
         if self.message_chunk_size <= 0:
@@ -1236,11 +1248,15 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         through_sequence = self._compaction_cutoff_before_model_call(turn, state)
         if through_sequence is not None:
             return self._start_compaction(context, state, turn.context_summary, through_sequence)
-        with self._session_tracer.trace_model_call(
-            context, self._run_model.get_step_type(), turn
-        ) as model_call_span:
+        step_type = self._run_model.get_step_type()
+        refusal = await self._check_spend_limit(context, state, turn_id, step_type)
+        if refusal is not None:
+            return refusal
+        with self._session_tracer.trace_model_call(context, step_type, turn) as model_call_span:
             async with _background_heartbeats(context.heartbeat):
                 outcome = await self._runner.run_model_step(turn)
+                if isinstance(outcome, TurnCompleted | ToolCallsRequested):
+                    await self._report_model_usage(context, turn_id, step_type, outcome.usage)
             # The index keeps where the turn's replies start, so summarized ones still count.
             stored_turn_message_count = _count_stored_turn_replies(context, state, turn_id)
             if isinstance(outcome, TurnCompleted):
@@ -1258,6 +1274,62 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 model_call_span.record_outcome(outcome, [])
                 return self._start_tool_calls(context, state, tool_calls, outcome, events)
             raise TypeError("run_model_step must return TurnCompleted or ToolCallsRequested")
+
+    async def _check_spend_limit(
+        self, context: AsyncContext, state: AgentState, turn_id: str, step_type: str
+    ) -> StepDecision | None:
+        """Return the move that ends a refused turn, or None to call the model."""
+        spend_limit = self._options.spend_limit
+        if spend_limit is None:
+            return None
+        # A raise or a timeout fails this attempt, so no model call runs unchecked.
+        decision = await asyncio.wait_for(
+            spend_limit.check_model_call(
+                ModelCallCheck(
+                    flow_id=context.flow_id,
+                    turn_id=turn_id,
+                    step_type=step_type,
+                    attempt=context.attempt,
+                    session_settings=_turn_session_settings(context),
+                    session_usage=_agent_usage(context),
+                )
+            ),
+            SPEND_LIMIT_CALL_TIMEOUT.total_seconds(),
+        )
+        if not isinstance(decision, ModelCallDecision):
+            raise TypeError("check_model_call must return a ModelCallDecision")
+        if decision.is_allowed:
+            return None
+        # RecordTurnFailure loads what ending a turn needs, which CompactContext does not.
+        error = f"{MODEL_CALL_REFUSED_ERROR_PREFIX}: {decision.reason}"
+        AGENT_STATE.set(context, replace(state, last_turn_error=error))
+        return go_to(self._record_turn_failure, None)
+
+    async def _report_model_usage(
+        self, context: AsyncContext, turn_id: str, step_type: str, usage: AgentUsage
+    ) -> None:
+        spend_limit = self._options.spend_limit
+        if spend_limit is None:
+            return
+        report = ModelUsageReport(
+            report_id=f"{context.flow_id}/{turn_id}/{context.step_execution_id}/{context.attempt}",
+            flow_id=context.flow_id,
+            turn_id=turn_id,
+            step_type=step_type,
+            attempt=context.attempt,
+            session_settings=_turn_session_settings(context),
+            usage=usage,
+            session_usage=_agent_usage(context).combined_with(usage),
+        )
+        try:
+            await asyncio.wait_for(
+                spend_limit.report_model_usage(report), SPEND_LIMIT_CALL_TIMEOUT.total_seconds()
+            )
+        except Exception:
+            # The call is paid for: failing the attempt would pay for it again.
+            _LOGGER.warning(
+                "dex-agents: report_model_usage failed for %s", report.report_id, exc_info=True
+            )
 
     def _decide_before_model_call(self, context: AsyncContext, turn_id: str) -> StepDecision | None:
         """Return RunModel's move instead of a model call, or None to call the model."""
@@ -1380,6 +1452,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             )
         if not isinstance(self._runner, ContextCompactionRunner):
             raise TypeError("CompactContext needs a runner that implements ContextCompactionRunner")
+        step_type = self._compact_context.get_step_type()
+        refusal = await self._check_spend_limit(context, state, turn_id, step_type)
+        if refusal is not None:
+            return refusal
         events = self._event_writer(context, turn_id)
         events.write_event(
             AgentEventType.COMPACTION_STARTED, {"through_sequence": through_sequence}
@@ -1402,13 +1478,15 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         )
         with self._session_tracer.trace_context_summary(
             context,
-            self._compact_context.get_step_type(),
+            step_type,
             turn_id,
             through_sequence,
             request.messages,
         ) as summary_span:
             async with _background_heartbeats(context.heartbeat):
                 result = await self._runner.summarize_context(request)
+                if isinstance(result, ContextSummaryResult):
+                    await self._report_model_usage(context, turn_id, step_type, result.usage)
             if not isinstance(result, ContextSummaryResult) or not str(result.text).strip():
                 raise ValueError("summarize_context must return a ContextSummaryResult with text")
             summary_span.record_result(result)
@@ -2393,7 +2471,13 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         turn_id = _require_active_turn_id(state)
         tool_calls = _turn_tool_calls(context, turn_id)
         events = self._event_writer(context, turn_id)
-        return self._fail_turn(context, state, tool_calls, events, _recovery_detail(context))
+        # A refused model call moves here on purpose, with its reason already in the state.
+        error = (
+            state.last_turn_error
+            if context.recovery_error is None and state.last_turn_error
+            else _recovery_detail(context)
+        )
+        return self._fail_turn(context, state, tool_calls, events, error)
 
     def _fail_session(self, context: AsyncContext, error: str) -> StepDecision:
         """End a session whose Flow reached the state limit, in one commit with the Flow's close."""

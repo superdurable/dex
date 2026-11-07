@@ -144,6 +144,14 @@ export {
   sessionSettingsSize,
   validateSessionSettings,
 } from "./agent-session-settings.js";
+export {
+  modelCallRefusedErrorPrefix,
+  spendLimitCallTimeoutMs,
+  type ModelCallCheck,
+  type ModelCallDecision,
+  type ModelSpendLimit,
+  type ModelUsageReport,
+} from "./agent-session-spend-limit.js";
 export { AgentSessionFailedError, readAgentSnapshot, sendAgentUserMessage } from "./agent-session-failure.js";
 export { invalidStartSessionSettingsReason } from "./agent-session-steps.js";
 export {

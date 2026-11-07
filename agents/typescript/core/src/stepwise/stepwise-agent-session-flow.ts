@@ -56,6 +56,7 @@ export function createStepwiseAgentSessionFlow(
       ? {}
       : { eventStreamCapacityBytes: definition.eventStreamCapacityBytes }),
     ...(definition.compaction === undefined ? {} : { compaction: definition.compaction }),
+    ...(definition.spendLimit === undefined ? {} : { spendLimit: definition.spendLimit }),
   };
   return createAgentSessionFlow(runner, flowType, options);
 }
