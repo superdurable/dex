@@ -136,6 +136,88 @@ describe("agent sessions survive a Worker killed with SIGKILL", () => {
     );
   });
 
+  test("a Worker killed before the first heartbeat reaches Dex runs a single-attempt tool once", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `kill-window-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call blocking_write");
+    const gate = new FileGate(markerDirectory, "blocking_write");
+    await gate.waitUntilReached();
+
+    await firstWorker.kill();
+    await startWorker(markerDirectory);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    const snapshot = await sessions.getAgentSnapshot(sessionId);
+    assert.equal(snapshot.messages.at(-1)?.text, `blocking_write -> ${outcomeUnknownToolResult}`);
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "blocking_write.log")).names(), [
+      `${sessionId} turn-1-blocking_write attempt 1`,
+    ]);
+    assert.equal(gate.reachedCount(), 1);
+    const events = await sessions.listAgentEvents(sessionId);
+    // This event precedes the heartbeat in the Worker's queue, so neither reached Dex.
+    assert.equal(events.some((event) => event.type === "tool_call_started"), false);
+    assert.deepEqual(await finishedStatuses(sessionId), ["outcome_unknown"]);
+  });
+
+  test("a Worker killed before the first heartbeat reaches Dex retries an idempotent write", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `kill-window-retry-${randomUUID()}`;
+    await sessions.startSession(sessionId, "call blocking_refund");
+    await new FileGate(markerDirectory, "blocking_refund").waitUntilReached();
+
+    await firstWorker.kill();
+    await startWorker(markerDirectory);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.equal(
+      (await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text,
+      `blocking_refund -> blocking_refund done for ${sessionId}/turn-1/turn-1-blocking_refund`,
+    );
+    assert.deepEqual(new InvocationLog(join(markerDirectory, "blocking_refund.log")).names(), [
+      `${sessionId} turn-1-blocking_refund attempt 1`,
+      `${sessionId} turn-1-blocking_refund attempt 2`,
+    ]);
+  });
+
+  test("a Worker killed before any model output reruns the model call", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `kill-window-model-${randomUUID()}`;
+    await sessions.startSession(sessionId, "block");
+    const gate = new FileGate(markerDirectory, "turn");
+    await gate.waitUntilReached();
+
+    await firstWorker.kill();
+    await startWorker(markerDirectory);
+    await sessions.waitForCompletedTurns(sessionId, 1, { timeoutMs: 120_000 });
+
+    assert.equal((await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "echo: block");
+    assert.equal(gate.reachedCount(), 2);
+    assert.deepEqual(
+      (await readStepHistory(engine.serverAddress, sessionId))
+        .filter((entry) => entry.stepType === "RunModel")
+        .map((entry) => entry.finalAttempt),
+      [2],
+    );
+  });
+
+  test("a Worker killed while a session is idle leaves the next message to the next Worker", async () => {
+    const markerDirectory = newMarkerDirectory();
+    const firstWorker = await startWorker(markerDirectory);
+    const sessionId = `kill-idle-${randomUUID()}`;
+    await sessions.startSession(sessionId, "first");
+    await sessions.waitForCompletedTurns(sessionId, 1);
+
+    await firstWorker.kill();
+    await startWorker(markerDirectory);
+
+    assert.equal(await sessions.sendUserMessage(sessionId, "second"), true);
+    await sessions.waitForCompletedTurns(sessionId, 2, { timeoutMs: 120_000 });
+    assert.equal((await sessions.getAgentSnapshot(sessionId)).messages.at(-1)?.text, "echo: second");
+  });
+
   test("approval then a single-attempt write killed under an ASYNC step durability FlowConfig never reruns", async () => {
     const markerDirectory = newMarkerDirectory();
     const firstWorker = await startWorker(markerDirectory);

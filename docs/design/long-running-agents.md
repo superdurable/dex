@@ -949,12 +949,21 @@ needed. Among others:
 
 ### Crash matrix
 
-The crash matrix is a set of Worker SIGKILL tests in the core and adapter
-suites, not one published table. The kill cases cover model calls,
-single-attempt writes, approvals, questions, Timers, task polls, compaction, and
-`FinishTurnCancellation`. Each case checks that a crash repeats at most the one
-call that was running (a whole segment for a harness), that no write repeats,
-and that an interrupted write reaches the model as an unknown outcome.
+The crash matrix is published in the deploy guide:
+[Crashes and redeploys](../content/agent-frameworks/deploy-agents.mdx#worker-failures).
+It lists each Step, the moment it is interrupted, what happens, and which tests
+cover a Worker kill, a server restart, and a takeover. Each case checks that a
+crash repeats at most the one call that was running (a whole segment for a
+harness), that no write repeats, and that an interrupted write reaches the model
+as an unknown outcome.
+
+Worker kills are SIGKILL tests in the core and adapter suites. Server failures
+run in `agents/python/core/tests/test_server_failures.py` and
+`agents/typescript/core/test/fixtures/server-failure-suite.ts`, with the Worker
+running. A takeover runs two `dex-server-zd serve` nodes against the S3 emulator
+of a third `dex-server-zd dev` process, behind a TCP relay, so CI needs no
+container. The kill-in-window tests block the event loop in the tool, so the
+queued `tool_call_started` event and heartbeat never reach Dex (#1282).
 
 ### UI and tracing
 

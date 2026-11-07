@@ -36,6 +36,8 @@ import { FileGate, InvocationLog } from "../../src/testing/index.js";
 export const scriptedAgentFlowType = "ScriptedAgent";
 /** Environment variable naming the directory where scripted tools write marker files. */
 export const scriptedAgentMarkerDirectoryVariable = "SCRIPTED_AGENT_MARKER_DIRECTORY";
+/** Environment variable with the milliseconds a blocking call holds the event loop. Defaults to 600,000. */
+export const scriptedAgentBlockingMsVariable = "SCRIPTED_AGENT_BLOCKING_MS";
 
 /**
  * One framework-native item of the scripted framework, stored as `framework_item` JSON.
@@ -83,6 +85,7 @@ interface ScriptedRunState {
  * - `call ... then pause`: like `call`, but the model call after the tools waits at the `turn` FileGate.
  * - `slow`: the model call records its attempt in `turn.log`, then waits at the `turn` FileGate.
  * - `slow stream`: like `slow`, after streaming partial text tagged with the attempt.
+ * - `block`: the model call marks the `turn` FileGate and blocks the event loop on the first run.
  * - anything else: the model answers `echo: <text>`.
  *
  * Tools record `<flowId> <toolCallId> attempt <n>` in the `<tool>.log` InvocationLog on every real
@@ -92,6 +95,8 @@ interface ScriptedRunState {
  * `confirm_shipment` asks the user `Ship now?` through `ToolInputRequested`, then, once answered, logs
  * the answers in `confirm_shipment-answers.log` and waits at its FileGate. `confirm_return` asks
  * `Return now?` the same way without a gate, and `gated_confirm` waits at its FileGate before it asks.
+ *
+ * `blocking_write` and `blocking_refund` mark their FileGate and block the event loop on the first run.
  *
  * Task tools start a remote task, stored as a JSON file, and return `ToolTaskStarted`; `pollToolTask`
  * polls it. `task-runs.log` records `<flowId> create <toolCallId>` for every new task and
@@ -151,6 +156,9 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     if (turn.isResuming && userText.endsWith(" then fail")) {
       throw new Error(`scripted failure after the tool calls of ${turn.turnId}`);
     }
+    if (userText === "block") {
+      this.blockEventLoopOnce("turn");
+    }
     const isPausedModelCall =
       (!turn.isResuming && (userText === "slow" || userText === "slow stream")) ||
       (turn.isResuming && userText.endsWith(" then pause"));
@@ -189,6 +197,17 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     return { kind: "tool_calls_requested", frameworkRunState: JSON.stringify(runState), toolCalls, usage };
   }
 
+  private blockEventLoopOnce(gateName: string): void {
+    const gate = new FileGate(this.markerDirectory, gateName);
+    const isFirstRun = gate.reachedCount() === 0;
+    gate.markReached();
+    if (isFirstRun) {
+      // Every queued frame, the first heartbeat included, stays in the Worker meanwhile.
+      const blockingMs = Number(process.env[scriptedAgentBlockingMsVariable] ?? 600_000);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, blockingMs);
+    }
+  }
+
   public buildUnfinishedTurnMessages(): readonly FrameworkMessage[] {
     if (this.unfinishedTurnMessages === "malformed") {
       return [{ role: "narrator" } as unknown as FrameworkMessage];
@@ -203,6 +222,10 @@ export class ScriptedAgentRunner implements AgentFrameworkRunner<DeferredToolOut
     );
     this.invocationLog("tool-runs").record(`${call.flowId} ${toolCall.toolName}`);
     switch (toolCall.toolName) {
+      case "blocking_write":
+      case "blocking_refund":
+        this.blockEventLoopOnce(toolCall.toolName);
+        return { output: `${toolCall.toolName} done for ${call.idempotencyKey}` };
       case "get_weather":
         return { output: "sunny in Paris" };
       case "lookup_a":
@@ -509,6 +532,8 @@ export function createScriptedAgentFlow(
       lookup_b: { effect: "read" },
       check_stock: { effect: "read" },
       charge_card: { effect: "non_idempotent_write" },
+      blocking_write: { effect: "non_idempotent_write", requiresApproval: false },
+      blocking_refund: { effect: "idempotent_write" },
       confirm_shipment: { effect: "non_idempotent_write", requiresApproval: false },
       confirm_return: { effect: "non_idempotent_write", requiresApproval: false },
       gated_confirm: { effect: "non_idempotent_write", requiresApproval: false },

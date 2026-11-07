@@ -266,19 +266,67 @@ session 在模型请求调用时，用 Worker 的时钟计算截止时间。保�
 Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictError** 失败。重试是
 安全的。Python 的 **AgentSessionClient** 最多重试 5 秒。
 
-## Worker 被杀和重新部署 {#worker-failures}
+## 崩溃和重新部署 {#worker-failures}
 
 崩溃最多重跑当时正在运行的那一次调用。
 
-| Worker 停掉时正在运行 | 结果 |
-| --- | --- |
-| **RunModel** | 这次模型调用重新运行，30 分钟内最多 3 次 attempt，之后这一轮失败。如果 tool 已经运行过，history 中的一条说明会告诉下一轮的模型不要重复它们。 |
-| **CompactContext** | 只有摘要调用重新运行，30 分钟内最多 3 次 attempt。session 只保存一份摘要。如果所有 attempt 都失败，这一轮失败，下一条用户消息会再次压缩。 |
-| **CallTool**，读取或幂等写入 | 用同一个幂等键再次运行。最后一次 attempt 之后，读取记录 **failed**，写入记录 **outcome_unknown**。 |
-| **CallSingleAttemptTool** | 记录 **outcome_unknown**，不再运行。模型会看到结果未知。 |
-| 等待用户消息、审批或 tool 结果 | 不会重跑任何东西。等待发生在 Dex Server 中。 |
-| framework 无法推迟的 tool | tool 在 **RunModel** 内部运行，**RunModel** 重跑时它也会重复，属于至少一次。 |
-| Claude Agent SDK 的一段轮次 | 被推迟的自定义 tool 在各自的 **CallTool** 或 **CallSingleAttemptTool** Step 中运行，规则同上。模型调用、inline 读取 tool，以及 **Bash**、**Write**、**Edit**、**Task** 等 CLI tool 在 **RunModel** 内部运行，**RunModel** 重跑时会重复，属于至少一次。 |
+下表就是崩溃矩阵。每一行是一个 Step 和它被中断的时刻。最后三列列出针对三种故障的集成测试：
+
+- **Worker 被杀**：Worker 收到 SIGKILL，新的 Worker 启动。
+- **Server 重启**：Dex Server 节点收到 SIGKILL，并在原来的数据目录上重启。Worker 继续运行。
+- **接管**：active 节点收到 SIGKILL，hot standby 取得 lease。Worker 继续运行。
+
+每种语言都链接到包含该测试的文件。**未测试**表示这一格还没有测试覆盖，所以其中的文字是设计行为，
+不是已验证的结果。
+
+| Step | 中断时刻 | 结果 | Worker 被杀 | Server 重启 | 接管 |
+| --- | --- | --- | --- | --- | --- |
+| **RunModel** | 任何输出到达 Dex 之前 | 这次模型调用重新运行，30 分钟内最多 3 次 attempt，之后这一轮失败。如果 tool 已经运行过，history 中的一条说明会告诉下一轮的模型不要重复它们。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **RunModel** | 输出已到达 Dex 之后 | 同上。 | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool**，读取或幂等写入 | 第一个 heartbeat 到达 Dex 之前 | 用同一个幂等键再次运行。最后一次 attempt 之后，读取记录 **failed**，写入记录 **outcome_unknown**。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallTool** | tool 运行期间 | 同上。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallSingleAttemptTool** | 第一个 heartbeat 到达 Dex 之前 | 记录 **outcome_unknown**，不再运行。模型会看到结果未知。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CallSingleAttemptTool** | tool 运行期间 | 同上。 | [Python][py-kills], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **AwaitToolApproval** | 等待期间 | 不会重跑任何东西。等待发生在 Dex Server 中。之后的批准让 tool 运行一次。 | [Python][py-tools], [TypeScript][ts-kills], [Go][go-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **AwaitQuestionAnswer** | 等待期间 | 不会重跑任何东西。之后的回答让这一轮继续。 | [Python][py-stepwise], [TypeScript][ts-stepwise] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **AwaitTimer** | 等待期间 | 不会重跑任何东西。Timer 只触发一次。在中断期间到期的 Timer，会在 Dex Server 恢复后触发。 | [Python][py-stepwise], [TypeScript][ts-stepwise] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **PollToolTask** | 两次轮询之间 | 继续轮询同一个 task，不会启动第二个 task。 | [Python][py-tasks], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **PollToolTask** | 一次轮询期间 | 这次轮询重新运行，不会启动第二个 task。 | [Python][py-tasks], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| **CompactContext** | 摘要调用期间 | 只有摘要调用重新运行，30 分钟内最多 3 次 attempt。session 只保存一份摘要。如果所有 attempt 都失败，这一轮失败，下一条用户消息会再次压缩。 | [Python][py-compaction], [TypeScript][ts-compaction] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| 等待用户消息 | session 空闲期间 | 不会重跑任何东西。下一条消息开始新的一轮。 | [Python][py-kills], [TypeScript][ts-kills] | [Python][py-server], [TypeScript][ts-server] | [Python][py-server], [TypeScript][ts-server] |
+| 任何 Step | 在排队，Dex 还没有把它交给 Worker | Step 留在队列中，不消耗 attempt。Worker 接手时，它以 attempt 1 运行。 | [server-zd][zd-pull] | [server-zd][zd-queued] | [server-zd][zd-queued] |
+| **PollToolTask**、**CompactContext** | 第一个 heartbeat 到达 Dex 之前 | 按设计，与上面对应 Step 的行相同。 | 未测试 | 未测试 | 未测试 |
+| **AwaitToolApproval**、**AwaitQuestionAnswer**、**AwaitTimer** | 等待结束后，推进这一轮的 handler 运行期间 | 按设计，handler 重新运行。已经记录的批准、回答或 Timer 结果保持不变。 | 未测试 | 未测试 | 未测试 |
+| 任何 Step | Worker 已发送结果、Dex 尚未提交时 | 按设计，Dex 要么提交结果，要么让 attempt 失败。失败的 attempt 按对应 Step 的行处理。 | 未测试 | 未测试 | 未测试 |
+| framework 无法推迟的 tool | 运行期间 | tool 在 **RunModel** 内部运行，**RunModel** 重跑时它也会重复，属于至少一次。 | 未测试 | 未测试 | 未测试 |
+| Claude Agent SDK 的一段轮次 | 运行期间 | 被推迟的自定义 tool 在各自的 **CallTool** 或 **CallSingleAttemptTool** Step 中运行，规则同上。模型调用、inline 读取 tool，以及 **Bash**、**Write**、**Edit**、**Task** 等 CLI tool 在 **RunModel** 内部运行，**RunModel** 重跑时会重复，属于至少一次。 | [Python][py-claude], [TypeScript][ts-claude] | 未测试 | 未测试 |
+
+每个 adapter 包都在自己的测试套件中重复 **RunModel** 和 tool Step 的 Worker 被杀用例。
+
+正在运行的 Worker 能挺过这两种 Server 故障。它会自行重连，Dex 让它持有的 attempt 失败，所以适用
+对应 Step 的那一行。Worker 和客户端要通过一个跟随[就绪状态](/reference/server/high-availability#hot-standby-health)
+的地址到达新的active 节点。故障节点上的 Stream 会丢失。见 [Stream 后端](#stream-backend)。
+
+接管测试使用 hot standby 和 SIGKILL。cold standby 和计划内的让位在 Server 层覆盖：见
+[failover 测试][zd-failover]和 [drain 测试][zd-drain]。
+
+[py-kills]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_worker_kills.py
+[py-tools]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_deferred_tool_calls.py
+[py-stepwise]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_stepwise.py
+[py-tasks]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_tool_tasks.py
+[py-compaction]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_compaction.py
+[py-server]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_server_failures.py
+[py-claude]: https://github.com/superdurable/dex/blob/main/agents/python/claude-agent-sdk/tests/test_worker_kills.py
+[ts-kills]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/integ/worker-kill.integration.test.ts
+[ts-stepwise]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/integ/stepwise-worker-kill.integration.test.ts
+[ts-compaction]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/integ/compaction.integration.test.ts
+[ts-server]: https://github.com/superdurable/dex/blob/main/agents/typescript/core/test/fixtures/server-failure-suite.ts
+[ts-claude]: https://github.com/superdurable/dex/blob/main/agents/typescript/claude-agent-sdk/test/integ/worker-kills.integration.test.ts
+[go-kills]: https://github.com/superdurable/dex/blob/main/agents/go/core/integ/approvals_and_crashes_test.go
+[zd-queued]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/queued_restart.rs
+[zd-pull]: https://github.com/superdurable/dex/blob/main/server-zd/integ/pull_worker_test.go
+[zd-drain]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/attempt_drain.rs
+[zd-failover]: https://github.com/superdurable/dex/blob/main/server-zd/crates/dexzd-server/tests/serve_process/standby_failover.rs
 
 单次尝试的 tool 在少数很窄的情况下会运行两次，例如节点崩溃后 ASYNC 的重新运行。见
 [Tool call 的限制](#tool-runs-twice)。
