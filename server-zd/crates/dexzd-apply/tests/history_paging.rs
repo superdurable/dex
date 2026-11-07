@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use dexzd_apply::read_model::{
     ReadModelError, get_history_events, is_history_event_available,
-    is_history_event_available_from_records_for_test,
+    is_history_event_available_from_records_for_test, load_blobs,
 };
 use dexzd_apply::{
     ApplyContext, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
@@ -26,9 +26,9 @@ use dexzd_keyspace::row_keys::{
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_protocol::dex::{
     ChannelMessage, DeleteChannelMessageRequest, FlowHistoryEvent, FlowResetType,
-    FlowTimeoutPolicy, HistoryEventIdRange, PublishToChannelRequest, ResetFlowRequest,
-    StartFlowRequest, StepOptions, StopFlowRequest, StopType, Value, WaitForHistoryEventResponse,
-    WorkerTarget, flow_history_event, value,
+    FlowTimeoutPolicy, HistoryEventIdRange, LoadBlobRequestEntry, PublishToChannelRequest,
+    ResetFlowRequest, StartFlowRequest, StepOptions, StopFlowRequest, StopType, Value,
+    WaitForHistoryEventResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, ChannelMessageDeleteCommand, ChannelPublishCommand, CommandReply, FlowCommand,
@@ -1331,4 +1331,70 @@ fn an_event_alone_over_the_byte_limit_is_reported_by_its_id() {
         response.events.first().map(|event| event.event_id),
         Some(later_event.event_id)
     );
+}
+
+#[test]
+fn a_published_value_above_the_inline_threshold_is_a_reference_in_history() {
+    let mut harness = Harness::new(settings(1_000_000, 10_000));
+    let large_message = string_value(&"m".repeat(4096));
+    let small_message = string_value("small");
+    let published = harness.apply(Command::ChannelPublish(ChannelPublishCommand {
+        request: Some(PublishToChannelRequest {
+            messages: vec![
+                ChannelMessage {
+                    channel_name: "orders".to_owned(),
+                    value: Some(large_message.clone()),
+                    message_id: "large".to_owned(),
+                },
+                ChannelMessage {
+                    channel_name: "orders".to_owned(),
+                    value: Some(small_message.clone()),
+                    message_id: "small".to_owned(),
+                },
+            ],
+            ..PublishToChannelRequest::default()
+        }),
+    }));
+    assert!(is_ok(&published.reply), "PublishToChannel applies");
+
+    let page = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+        usize::MAX,
+    )
+    .expect("history reads");
+    let messages = page
+        .events
+        .iter()
+        .find_map(|event| match event.payload.as_ref() {
+            Some(flow_history_event::Payload::ChannelExternalPublish(publish)) => {
+                Some(&publish.messages)
+            }
+            _ => None,
+        })
+        .expect("the publish is in history");
+    let large_reference = messages[0].value.clone().expect("the message has a value");
+    let Some(value::Kind::InternalBlobIdForStringValue(reference)) = large_reference.kind.clone()
+    else {
+        panic!("the large message is a reference, got {large_reference:?}");
+    };
+    assert_eq!(messages[1].value.as_ref(), Some(&small_message));
+
+    let hasher = PartitionHasher::new(&[7; 16], 1024).expect("valid partition hasher");
+    let loaded = load_blobs(
+        &harness.state,
+        &hasher,
+        TenantId::DEFAULT,
+        &[LoadBlobRequestEntry {
+            flow_id: "order-1".to_owned(),
+            blob_value: Some(large_reference),
+        }],
+    )
+    .expect("LoadBlobs reads");
+    assert_eq!(loaded.values.get(&reference), Some(&large_message));
 }

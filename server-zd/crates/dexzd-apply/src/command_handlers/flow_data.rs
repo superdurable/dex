@@ -32,7 +32,7 @@ use crate::projections::{attribute_sync, work_queue_permissions};
 use crate::state_access::FlowTransaction;
 use crate::values::{
     ValueHolder, ValueRejection, is_null_value, load_stored_value, release_stored_value,
-    store_value,
+    store_value, table_value_reference,
 };
 use crate::{ApplyEffect, ApplyError, WaitableChange};
 
@@ -78,10 +78,31 @@ impl From<FlowDataRejection> for HandlerResult {
 /// Upper bound of messages one command may publish; keeps enqueue seqs unique per command.
 const MAX_MESSAGES_PER_COMMAND: u64 = 1_000_000;
 
+/// Wire references of the effect values a command stored in the value table, in the order of
+/// each request list. `None` marks a value kept inline, a deletion, or a hard-delete Attribute.
+///
+/// History events show these references instead of complete values.
+#[derive(Default)]
+pub(crate) struct EffectValueReferences {
+    /// One entry per Attribute write.
+    pub(crate) attributes: Vec<Option<Value>>,
+    /// One entry per published Channel message.
+    pub(crate) publications: Vec<Option<Value>>,
+    /// One entry per Step execution local.
+    pub(crate) locals: Vec<Option<Value>>,
+}
+
+/// Channels that publications changed, and each message's value reference.
+pub(crate) struct PublishedMessages {
+    pub(crate) changed_channels: Vec<String>,
+    pub(crate) value_references: Vec<Option<Value>>,
+}
+
 /// Applies Attribute writes in order (later writes win) and the permission projection, then
 /// marks the synced keys in the Attribute Sync outbox.
 ///
-/// Returns the changed keys, a rejected value, or an unavailable recorded-history permission input.
+/// Returns each write's value reference in write order (see [`EffectValueReferences`]), a
+/// rejected value, or an unavailable recorded-history permission input.
 pub(crate) fn apply_attribute_writes(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -90,7 +111,7 @@ pub(crate) fn apply_attribute_writes(
     permission_mappings: Option<&ActionPermissionMappings>,
     scope: &CommandScope<'_>,
     should_wake_waiters: bool,
-) -> Result<Result<Vec<String>, FlowDataRejection>, ApplyError> {
+) -> Result<Result<Vec<Option<Value>>, FlowDataRejection>, ApplyError> {
     let projected_write = if let Some(mappings) = permission_mappings {
         match apply_permission_mappings(transaction, cursor, writes, mappings, scope)? {
             Ok(write) => write,
@@ -101,6 +122,7 @@ pub(crate) fn apply_attribute_writes(
     };
     let mut changed_keys =
         Vec::with_capacity(writes.len() + usize::from(projected_write.is_some()));
+    let mut value_references = Vec::with_capacity(writes.len());
     let mut pending_store_names = BTreeSet::new();
     for (write_index, write) in writes.iter().enumerate() {
         let hard_delete_object = hard_delete_objects
@@ -108,12 +130,13 @@ pub(crate) fn apply_attribute_writes(
             .find(|object| usize::try_from(object.write_index).ok() == Some(write_index));
         let outcome = if write.is_hard_delete_on_null {
             apply_hard_delete_write(transaction, cursor, write, hard_delete_object)?;
-            Ok(())
+            Ok(None)
         } else {
             apply_plain_write(transaction, cursor, write)?
         };
-        if let Err(rejection) = outcome {
-            return Ok(Err(FlowDataRejection::Value(rejection)));
+        match outcome {
+            Ok(reference) => value_references.push(reference),
+            Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
         }
         let synced_keys = attribute_sync::synced_write_keys([write]);
         pending_store_names.extend(attribute_sync::mark_attribute_sync_entries(
@@ -158,19 +181,20 @@ pub(crate) fn apply_attribute_writes(
         keys.dedup();
         cursor.wake(WaitableChange::AttributesChanged { keys });
     }
-    Ok(Ok(changed_keys))
+    Ok(Ok(value_references))
 }
 
+/// Returns the value's wire reference when it went to the value table, or a rejected value.
 fn apply_plain_write(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     write: &AttributeWrite,
-) -> Result<Result<(), ValueRejection>, ApplyError> {
+) -> Result<Result<Option<Value>, ValueRejection>, ApplyError> {
     // Release first: a write may name the value the Attribute already holds.
     release_previous_attribute(transaction, cursor, &write.key)?;
     if is_null_value(write.value.as_ref()) {
         cursor.rows.delete_attribute(transaction, &write.key);
-        return Ok(Ok(()));
+        return Ok(Ok(None));
     }
     let holder = ValueHolder::Attribute {
         attribute_key: write.key.clone(),
@@ -188,6 +212,7 @@ fn apply_plain_write(
         Ok(stored) => stored,
         Err(rejection) => return Ok(Err(rejection)),
     };
+    let reference = table_value_reference(cursor.rows, &stored);
     cursor.rows.put_attribute(
         transaction,
         &write.key,
@@ -199,7 +224,7 @@ fn apply_plain_write(
             is_hard_delete_on_null: false,
         },
     );
-    Ok(Ok(()))
+    Ok(Ok(reference))
 }
 
 /// Hard-delete Attributes live in their own objects; writing or clearing one schedules the old
@@ -492,14 +517,15 @@ fn remove_pending_message(
     Ok(())
 }
 
-/// Appends messages to their channels in list order. Returns the channels that changed, or the
-/// first value the caller must reject.
+/// Appends messages to their channels in list order. Returns the channels that changed with
+/// each message's value reference, or the first value the caller must reject.
 pub(crate) fn apply_channel_publications(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     messages: &[ChannelMessage],
-) -> Result<Result<Vec<String>, ValueRejection>, ApplyError> {
+) -> Result<Result<PublishedMessages, ValueRejection>, ApplyError> {
     let mut changed_channels: Vec<String> = Vec::new();
+    let mut value_references = Vec::with_capacity(messages.len());
     for message in messages {
         // One command may publish several times, so its message index continues across calls.
         let index = cursor.next_channel_message_index;
@@ -529,6 +555,7 @@ pub(crate) fn apply_channel_publications(
             Ok(stored) => stored,
             Err(rejection) => return Ok(Err(rejection)),
         };
+        value_references.push(table_value_reference(cursor.rows, &stored));
         cursor.rows.put_channel_message(
             transaction,
             &ChannelMessageRecord {
@@ -549,7 +576,10 @@ pub(crate) fn apply_channel_publications(
             changed_channels.push(message.channel_name.clone());
         }
     }
-    Ok(Ok(changed_channels))
+    Ok(Ok(PublishedMessages {
+        changed_channels,
+        value_references,
+    }))
 }
 
 /// The data effects of a Worker method result, applied in the Go Server's order: Attribute
@@ -565,14 +595,16 @@ pub(crate) struct MethodEffects<'response> {
 
 /// Applies a method result's data effects to the run and the Step's locals, then lets waiting
 /// Steps react to the changed channels.
+///
+/// Returns the effect value references, or the rejection the caller must reply with.
 pub(crate) fn apply_method_effects(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     step: &mut dexzd_protocol::dexzd::v1::StepExecutionRecord,
     effects: &MethodEffects<'_>,
     scope: &CommandScope<'_>,
-) -> Result<Result<(), FlowDataRejection>, ApplyError> {
-    if let Err(rejection) = apply_attribute_writes(
+) -> Result<Result<EffectValueReferences, FlowDataRejection>, ApplyError> {
+    let attributes = match apply_attribute_writes(
         transaction,
         cursor,
         effects.writes,
@@ -581,14 +613,15 @@ pub(crate) fn apply_method_effects(
         scope,
         true,
     )? {
-        return Ok(Err(rejection));
-    }
+        Ok(references) => references,
+        Err(rejection) => return Ok(Err(rejection)),
+    };
     apply_channel_deletions(transaction, cursor, effects.deletions)?;
-    let changed_channels =
-        match apply_channel_publications(transaction, cursor, effects.publications)? {
-            Ok(channels) => channels,
-            Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
-        };
+    let published = match apply_channel_publications(transaction, cursor, effects.publications)? {
+        Ok(published) => published,
+        Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
+    };
+    let mut locals = Vec::with_capacity(effects.locals.len());
     for local in effects.locals {
         let holder = ValueHolder::StepLocal {
             step_execution_id: step.step_execution_id.clone(),
@@ -605,6 +638,7 @@ pub(crate) fn apply_method_effects(
             }
         }
         if is_null_value(local.value.as_ref()) {
+            locals.push(None);
             continue;
         }
         let value = local.value.clone().unwrap_or_default();
@@ -620,6 +654,7 @@ pub(crate) fn apply_method_effects(
             Ok(stored) => stored,
             Err(rejection) => return Ok(Err(FlowDataRejection::Value(rejection))),
         };
+        locals.push(table_value_reference(cursor.rows, &stored));
         step.locals.push(dexzd_protocol::dexzd::v1::StoredKeyValue {
             key: local.key.clone(),
             value: Some(stored),
@@ -630,7 +665,11 @@ pub(crate) fn apply_method_effects(
         transaction,
         cursor,
         scope.now_micros,
-        &changed_channels,
+        &published.changed_channels,
     )?;
-    Ok(Ok(()))
+    Ok(Ok(EffectValueReferences {
+        attributes,
+        publications: published.value_references,
+        locals,
+    }))
 }

@@ -177,7 +177,7 @@ pub(crate) fn start_run(
             checkpoint_seqs: Vec::new(),
         },
     );
-    if let Err(rejection) = apply_attribute_writes(
+    let attribute_references = match apply_attribute_writes(
         transaction,
         &mut cursor,
         &options.attributes,
@@ -186,8 +186,9 @@ pub(crate) fn start_run(
         scope,
         true,
     )? {
-        return Ok(HandlerResult::from(rejection));
-    }
+        Ok(references) => references,
+        Err(rejection) => return Ok(HandlerResult::from(rejection)),
+    };
     pin_genesis_attributes(transaction, &cursor, &options.attributes)?;
     let mut start_step_execution_id = None;
     // Without a start Step type the Flow waits for RPCs or a close, as in the Go Server.
@@ -273,8 +274,12 @@ pub(crate) fn start_run(
         ),
         Vec::new(),
     );
-    let flow_started_event =
-        history_events::record_flow_started(&mut cursor, request, &start.flow_config);
+    let flow_started_event = history_events::record_flow_started(
+        &mut cursor,
+        request,
+        &start.flow_config,
+        attribute_references,
+    );
     if let Some(step_execution_id) = start_step_execution_id {
         cursor.link_step_event(
             flow_started_event,

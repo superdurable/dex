@@ -299,6 +299,11 @@ pub(crate) fn wire_value(rows: RunRows, stored: &StoredValue) -> Value {
     }
 }
 
+/// Returns the `zd1|...` wire reference of a table value, or `None` for any other stored value.
+pub(crate) fn table_value_reference(rows: RunRows, stored: &StoredValue) -> Option<Value> {
+    matches!(stored.kind, Some(stored_value::Kind::TableValue(_))).then(|| wire_value(rows, stored))
+}
+
 /// Reads the complete value, or `None` if a table value was already collected.
 pub(crate) fn load_stored_value(
     transaction: &FlowTransaction<'_>,

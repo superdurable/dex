@@ -16,6 +16,7 @@ mod failure_policies;
 mod flow_controls;
 mod hard_delete_closed;
 mod harness;
+mod history_paging;
 mod queued_state;
 mod queued_time_travel;
 mod reserved_slots;
