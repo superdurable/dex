@@ -634,6 +634,52 @@ fn single_node_partition_count_defaults_to_32_unless_the_overrides_set_it() {
 }
 
 #[test]
+fn single_node_log_deletion_delay_defaults_to_one_hour_unless_the_overrides_set_it() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let other_snapshot_key_path = temporary.path().join("snapshot-interval.yaml");
+    fs::write(&other_snapshot_key_path, "snapshot:\n  interval: 5m\n").expect("write test config");
+    let explicit_delay_path = temporary.path().join("log-deletion-delay.yaml");
+    fs::write(&explicit_delay_path, "snapshot:\n  logDeletionDelay: 24h\n")
+        .expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
+            .expect("configuration without YAML");
+        assert_eq!(
+            without_overrides.snapshot.log_deletion_delay,
+            Duration::from_secs(60 * 60)
+        );
+        let with_other_snapshot_key = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(other_snapshot_key_path.clone()),
+        ))
+        .expect("configuration with another snapshot key");
+        assert_eq!(
+            with_other_snapshot_key.snapshot.log_deletion_delay,
+            Duration::from_secs(60 * 60)
+        );
+        assert_eq!(
+            with_other_snapshot_key.snapshot.interval,
+            Duration::from_secs(5 * 60)
+        );
+        let with_explicit_delay = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(explicit_delay_path.clone()),
+        ))
+        .expect("configuration with an explicit log deletion delay");
+        assert_eq!(
+            with_explicit_delay.snapshot.log_deletion_delay,
+            Duration::from_secs(24 * 60 * 60)
+        );
+    }
+
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert_eq!(
+        serve.snapshot.log_deletion_delay,
+        Duration::from_secs(24 * 60 * 60)
+    );
+}
+
+#[test]
 fn single_node_applier_lanes_above_the_default_partition_count_need_an_explicit_count() {
     let temporary = tempfile::tempdir().expect("test directory");
     let lanes_path = temporary.path().join("lanes.yaml");

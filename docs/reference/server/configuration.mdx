@@ -175,6 +175,27 @@ authenticators, it logs a warning at startup. Configure authentication before
 you expose it. Set **metrics.listen** in the overrides to enable
 [metrics](/reference/server/metrics).
 
+### Disk use {#single-node-local-disk}
+
+**dev** and **local** default **snapshot.logDeletionDelay** to 1 hour.
+**serve** defaults it to 24 hours. An explicit value in the overrides always
+wins, and it must be greater than zero. After a snapshot covers a log object or
+replaces an older snapshot, that object waits this long before it is deleted.
+A longer delay keeps older snapshots and their log for fallback and lets a
+stopped node catch up from the log, at the cost of disk space. The delay must
+also exceed the longest snapshot upload. Changed in 0.1.21: before, **dev**
+and **local** also defaulted to 24 hours.
+
+The embedded object store shares the disk with the local store. Plan for about
+two to three times the data written during **snapshot.logDeletionDelay**, plus
+the size of **store**.
+
+A Flow that rewrites a large value on every Step needs more disk. Its history
+records wait for a newer [checkpoint](#history-checkpoints) before they can be
+deleted. For such Flows, lower **history.checkpointCommandThreshold** from its
+default of 1000. Better, store incremental values, one entry per item, instead
+of rewriting one large value.
+
 ### Back up and restore {#single-node-local-backup}
 
 To back up, stop **local** with SIGTERM, wait for it to exit, and copy the
@@ -196,6 +217,7 @@ explains.
 | Nodes | One. | One. | One active process, with optional hot standbys. |
 | Step attempt drain on stop | 2 seconds. | 30 seconds. | 30 seconds. |
 | Lease duration | 30 seconds. | 30 seconds. | 10 seconds. |
+| Default **snapshot.logDeletionDelay** | 1 hour. | 1 hour. | 24 hours. |
 | Default partition count | 32 | 32 | 1024 |
 | Default listen address | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
 | Configuration | Flags and an optional overrides file. | Flags and an optional overrides file. | One YAML file. |
