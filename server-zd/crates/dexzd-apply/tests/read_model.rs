@@ -124,8 +124,8 @@ struct Harness {
     run_id: RunId,
     now_micros: i64,
     is_transactional_rpc_in_flight: bool,
-    checkpoint_max_commands: u32,
-    checkpoint_min_written_bytes: u64,
+    checkpoint_command_threshold: u32,
+    checkpoint_row_write_bytes_threshold: u64,
 }
 
 impl Harness {
@@ -146,8 +146,8 @@ impl Harness {
             run_id,
             now_micros: 1_800_000_000_000_000,
             is_transactional_rpc_in_flight: false,
-            checkpoint_max_commands: 0,
-            checkpoint_min_written_bytes: 0,
+            checkpoint_command_threshold: 0,
+            checkpoint_row_write_bytes_threshold: 0,
         }
     }
 
@@ -211,8 +211,8 @@ impl Harness {
                 history_window_semantic_events: 10_000,
                 history_prune_chunk_semantic_events: 1000,
                 max_retained_superseded_bytes: 256 << 20,
-                checkpoint_max_commands: self.checkpoint_max_commands,
-                checkpoint_min_written_bytes: self.checkpoint_min_written_bytes,
+                checkpoint_command_threshold: self.checkpoint_command_threshold,
+                checkpoint_row_write_bytes_threshold: self.checkpoint_row_write_bytes_threshold,
                 ..RunSettings::default()
             }),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
@@ -2348,7 +2348,7 @@ impl Harness {
 #[test]
 fn step_rows_restored_from_checkpoints_keep_markers_that_match_the_record_oracle() {
     let mut harness = Harness::new();
-    harness.checkpoint_max_commands = 1;
+    harness.checkpoint_command_threshold = 1;
     harness.travel_around_a_canceled_and_terminated_flow("checkpoint restore");
     let terminate_seq = harness.step_row("WaitingStep-1").completed_seq;
     assert!(
@@ -2362,7 +2362,7 @@ fn step_rows_restored_from_checkpoints_keep_markers_that_match_the_record_oracle
 #[test]
 fn step_rows_restored_through_replay_keep_markers_that_match_the_record_oracle() {
     let mut harness = Harness::new();
-    harness.checkpoint_min_written_bytes = 1 << 30;
+    harness.checkpoint_row_write_bytes_threshold = 1 << 30;
     harness.travel_around_a_canceled_and_terminated_flow("replay restore");
     assert_eq!(
         harness.checkpoint_seqs(1).len(),

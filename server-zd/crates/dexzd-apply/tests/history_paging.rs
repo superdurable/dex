@@ -1125,8 +1125,9 @@ fn history_event_waits_match_the_record_oracle_through_pruning_and_time_travel()
     for seed in 1..=12_u64 {
         let mut random = ScenarioRandom(seed);
         let window_events = [6, 20, 1_000_000][usize::try_from(seed % 3).expect("small index")];
-        let checkpoint_max_commands = [5, 10_000][usize::try_from(seed % 2).expect("small index")];
-        let mut harness = Harness::new(settings(window_events, checkpoint_max_commands));
+        let checkpoint_command_threshold =
+            [5, 10_000][usize::try_from(seed % 2).expect("small index")];
+        let mut harness = Harness::new(settings(window_events, checkpoint_command_threshold));
         // Recent semantic points of any attempt: (attempt, timestamp).
         let mut recent_points: Vec<(u32, i64)> = Vec::new();
         let mut attempt = 1;
