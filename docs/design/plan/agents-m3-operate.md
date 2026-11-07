@@ -564,8 +564,8 @@ Products with a similar problem. Each row says what to take and what differs.
 
 O2 is the UI work of this plan.
 
-- Session view: a tab on the run page, present only for Flows with the Dex Agents schema. Each tool call shows its state, and "queued for a Worker" reads differently from "running" and "failed".
-- Inbox: an agent mode of the Work Queue, one row per session that needs a person, oldest deadline first.
+- Session view: a tab on the run page, present only for Flows with the Dex Agents schema. It reads as a conversation, with each tool call drawn inline where the agent made it. Each tool call shows its state, and "queued for a Worker" reads differently from "running" and "failed".
+- Inbox: an agent mode of the Work Queue. Rows are grouped by agent, which is the session's Flow type, with a count per group. One row per session that needs a person, oldest deadline first inside a group. Selecting a row opens the Work Queue side panel with the pending call, the last message, approve, reject, and open session, so the operator acts without leaving the list.
 - Approval card: tool, arguments, effect class, deadline, approve and reject. A failed approval because another operator acted reads as "already handled", and the card reloads.
 - An error while reading a session shows what is missing. It does not show an empty conversation.
 
@@ -585,16 +585,19 @@ Native Dex Web units are the standard. The view works with Workers down, except 
 5. **The inbox uses `ActiveStepTypes`.** No new indexed Attribute.
 6. **Python and TypeScript gain Actions.** The agent inbox does not wait for this.
 7. **O7 closes.** A new requirement reopens it.
+8. **Inbox and session view layout.** The inbox groups rows by agent and acts in the Work
+   Queue side panel. The session view is one conversation with tool calls inline, which also
+   reads on a phone. Grouping needs the cross Flow type search listed under Dex Web changes.
 
 **Settled without an owner decision, and shared as FYI on this PR.**
 
-8. **Action route.** #1352 returns an RPC's output and accepts an Action without a condition.
-9. **Limit exemption.** Dropped. The read path in #1335 reports the failure.
-10. **Error code.** Text matching stays for now. #1350 tracks a dedicated code.
+9. **Action route.** #1352 returns an RPC's output and accepts an Action without a condition.
+10. **Limit exemption.** Dropped. The read path in #1335 reports the failure.
+11. **Error code.** Text matching stays for now. #1350 tracks a dedicated code.
 
 **Still open.**
 
-11. **Long record keeping.** With #1325, is archiving old messages still needed?
+12. **Long record keeping.** With #1325, is archiving old messages still needed?
 
 ## Non-goals
 
