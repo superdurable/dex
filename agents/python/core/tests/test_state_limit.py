@@ -16,11 +16,22 @@ import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from dex import DexServiceError, FlowStatus
+from dex import (
+    BlobCacheConfig,
+    Client,
+    ClientOptions,
+    DexServiceError,
+    FlowNotActiveOrNotFoundError,
+    FlowStatus,
+    RecoveryErrorInfo,
+    Registry,
+    open_blob_cache,
+)
 
 from dex_agents import (
     AgentEventType,
@@ -30,12 +41,15 @@ from dex_agents import (
     AgentSessionStatus,
     AgentSnapshot,
 )
+from dex_agents.session_flow import _is_state_limit_failure
 from dex_agents.testing import (
     EXECUTE_COMPLETED_EVENT,
     AgentTestStack,
     InvocationLog,
     wait_for_agent_snapshot,
 )
+from dex_agents.testing.worker import TEST_BLOB_CACHE_BYTES
+from dex_agents.ui_stream import stream_agent_event_frames, stream_agent_event_frames_sync
 from tests.conftest import CORE_DIR
 from tests.scripted_agent import INVOCATION_LOG_NAME, STATE_DIR_ENVIRONMENT_VARIABLE
 from tests.state_limit_agent import build_state_limit_agent_flow
@@ -44,10 +58,11 @@ WORKER_MODULE = "tests.state_limit_worker"
 STATE_LIMIT_BYTES = 131_072
 # A stored answer costs about twice its characters: two of these leave room for a large write.
 LARGE_ANSWER = "pad 20000"
+EVENT_POLL_TIMEOUT = timedelta(seconds=1)
 NO_ROOM_SESSIONS = 24
 NO_ROOM_SMALL_TURNS = 40
 STATE_LIMIT_REASON = re.compile(
-    rf"^run state of \d+ bytes exceeds the maximum of {STATE_LIMIT_BYTES} bytes$"
+    rf"^(active )?run state of \d+ bytes exceeds the maximum of {STATE_LIMIT_BYTES} bytes$"
 )
 
 
@@ -98,6 +113,17 @@ class StateLimitHarness:
     async def executed_step_types(self, session_id: str) -> list[str]:
         history = await self.stack.read_step_history(session_id)
         return [entry.step_type for entry in history if entry.event_type == EXECUTE_COMPLETED_EVENT]
+
+    async def read_all_event_frames(self, session_id: str) -> list[str]:
+        """Read the event stream to its end; a stream that never ends fails the test."""
+
+        async def read() -> list[str]:
+            frames = await stream_agent_event_frames(
+                self.stack.client, self.flow, session_id, poll_timeout=EVENT_POLL_TIMEOUT
+            )
+            return [frame async for frame in frames]
+
+        return await asyncio.wait_for(read(), timeout=60)
 
     async def assert_new_messages_are_rejected(self, session_id: str, reason: str) -> None:
         with pytest.raises(AgentSessionFailedError) as sent:
@@ -215,7 +241,7 @@ async def test_a_session_with_no_room_to_store_its_failure_still_reports_it(
     """
     async with _state_limit_harness(tmp_path) as harness:
 
-        async def run_to_failure(first_answer_characters: int) -> bool:
+        async def run_to_failure(first_answer_characters: int) -> AgentSessionStatus:
             session_id = harness.new_session_id()
             await harness.sessions.start_session(session_id)
             # All sent while there is room: a later send could be refused instead of failing a Step.
@@ -234,16 +260,79 @@ async def test_a_session_with_no_room_to_store_its_failure_still_reports_it(
             assert snapshot.state.last_turn_error == reason
             assert snapshot.state.active_turn_id is None
             assert snapshot.pending_interrupts == []
+            assert snapshot.tool_calls == []
             await harness.assert_new_messages_are_rejected(session_id, reason)
+            await harness.read_all_event_frames(session_id)
             stored = await harness.stored_snapshot(session_id)
             assert stored.state is not None
-            return stored.state.status is AgentSessionStatus.FAILED
+            return stored.state.status
 
-        stored_the_failure = await asyncio.gather(
+        stored_statuses = await asyncio.gather(
             *[run_to_failure(25_000 + 37 * offset) for offset in range(NO_ROOM_SESSIONS)]
         )
 
-        assert not all(stored_the_failure)
+        # A failed RunModel had a route, and its route's commit did not fit.
+        assert AgentSessionStatus.RUNNING_MODEL in stored_statuses
+
+
+async def test_the_event_stream_of_a_failed_session_ends(tmp_path: Path) -> None:
+    async with _state_limit_harness(tmp_path) as harness:
+        session_id = harness.new_session_id()
+        await harness.sessions.start_session(session_id)
+        for _ in range(3):
+            assert await harness.sessions.send_user_message(session_id, "pad 30000")
+        await harness.close_reason(session_id)
+
+        frames = await harness.read_all_event_frames(session_id)
+        assert any("turn_failed" in frame for frame in frames)
+
+        blob_cache = open_blob_cache(
+            BlobCacheConfig(str(tmp_path / "sync-client-cache"), TEST_BLOB_CACHE_BYTES)
+        )
+        client = Client(
+            Registry([harness.flow], allow_async_handlers=True),
+            blob_cache,
+            ClientOptions(server_address=harness.stack.engine.address),
+        )
+        try:
+
+            def read_sync_frames() -> list[str]:
+                return list(
+                    stream_agent_event_frames_sync(
+                        client, harness.flow, session_id, poll_timeout=EVENT_POLL_TIMEOUT
+                    )
+                )
+
+            sync_frames = await asyncio.wait_for(asyncio.to_thread(read_sync_frames), timeout=60)
+        finally:
+            client.close()
+            blob_cache.close()
+        assert any("turn_failed" in frame for frame in sync_frames)
+
+
+async def test_a_message_to_a_session_that_does_not_exist_keeps_the_dex_error(
+    tmp_path: Path,
+) -> None:
+    async with _state_limit_harness(tmp_path) as harness:
+        with pytest.raises(FlowNotActiveOrNotFoundError) as refused:
+            await harness.sessions.send_user_message("no-such-session", "say hello")
+        assert type(refused.value) is FlowNotActiveOrNotFoundError
+
+
+@pytest.mark.parametrize(
+    ("error_type", "detail", "is_state_limit"),
+    [
+        ("ValueTooLarge", "run state of 9 bytes exceeds the maximum of 8 bytes", True),
+        # The text of a server that counts only active state, which no released dexcli runs yet.
+        ("ValueTooLarge", "active run state of 9 bytes exceeds the maximum of 8 bytes", True),
+        ("ValueTooLarge", "value of 9 bytes exceeds the maximum of 8 bytes", False),
+        ("WorkerError", "run state of 9 bytes exceeds the maximum of 8 bytes", False),
+    ],
+)
+def test_the_state_limit_failure_is_told_from_other_failures(
+    error_type: str, detail: str, is_state_limit: bool
+) -> None:
+    assert _is_state_limit_failure(RecoveryErrorInfo(detail, error_type)) is is_state_limit
 
 
 async def test_a_message_that_does_not_fit_is_refused_and_the_session_stays_usable(

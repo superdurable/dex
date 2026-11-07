@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 
-import { DexServiceError } from "@superdurable/dex";
+import { DexServiceError, FlowNotActiveOrNotFoundError } from "@superdurable/dex";
+
+import { isStateLimitFailure } from "../../src/agent-session-steps.js";
 
 import {
   AgentSessionFailedError,
@@ -33,6 +35,14 @@ import {
   pollUntil,
   readStepHistory,
 } from "../../src/testing/index.js";
+import {
+  readAgentSessionUIMessages,
+  streamAgentEventSseFrames,
+  streamAgentUIMessageChunks,
+  type AgentUIMessageChunk,
+} from "../../src/ui-stream/index.js";
+import { createTurnReplayCursor } from "../../src/ui-stream/agent-ui-message-stream.js";
+import { encodeAgentUIStreamCursor } from "../../src/ui-stream/agent-ui-stream-cursor.js";
 import { StateLimitRunner } from "../fixtures/state-limit-runner.js";
 
 const stateLimitBytes = 131_072;
@@ -42,7 +52,7 @@ const largeAnswer = "pad 20000";
 const resourceExhaustedCode = 8;
 const noRoomSessions = 24;
 const noRoomSmallTurns = 40;
-const stateLimitReason = new RegExp(`^run state of \\d+ bytes exceeds the maximum of ${stateLimitBytes} bytes$`);
+const stateLimitReason = new RegExp(`^(active )?run state of \\d+ bytes exceeds the maximum of ${stateLimitBytes} bytes$`);
 
 interface Harness {
   readonly engine: PrivateDexEngine;
@@ -110,6 +120,49 @@ async function assertNewMessagesAreRejected(harness: Harness, sessionId: string,
     assert.ok(error.message.includes(reason));
     return true;
   });
+}
+
+/** Reads the event stream to its end; a stream that never ends times the test out. */
+async function readAllEventFrames(harness: Harness, sessionId: string): Promise<string[]> {
+  const frames: string[] = [];
+  for await (const frame of streamAgentEventSseFrames({
+    client: harness.environment.client,
+    flow: harness.flow,
+    flowId: sessionId,
+    pollTimeoutMs: 1_000,
+  })) {
+    frames.push(frame);
+  }
+  return frames;
+}
+
+/** A browser that follows the stale turn ends with the Flow's reason. */
+async function assertUIStreamReportsFailure(
+  harness: Harness,
+  sessionId: string,
+  activeTurnId: string,
+  reason: string,
+): Promise<void> {
+  const { client } = harness.environment;
+  const cursor = await createTurnReplayCursor(client, harness.flow, sessionId, activeTurnId, null);
+  assert.ok(cursor !== undefined);
+  const chunks: AgentUIMessageChunk[] = [];
+  for await (const chunk of streamAgentUIMessageChunks({
+    client,
+    flow: harness.flow,
+    flowId: sessionId,
+    resumeToken: encodeAgentUIStreamCursor(cursor),
+    pollTimeoutMs: 1_000,
+  })) {
+    chunks.push(chunk);
+  }
+  assert.deepEqual(
+    chunks.filter((chunk) => chunk.type === "error" || chunk.type === "finish"),
+    [
+      { type: "error", errorText: reason },
+      { type: "finish", finishReason: "error" },
+    ],
+  );
 }
 
 async function fill(harness: Harness, sessionId: string, turns: number): Promise<void> {
@@ -189,7 +242,7 @@ describe("a session at limits.maxFlowStateBytes", () => {
   test("a session with no room to store its failure still reports it", async () => {
     await withHarness(async (harness) => {
       // Sessions differ in how much room the last commit left, so some cannot store the failure.
-      const runToFailure = async (firstAnswerCharacters: number): Promise<boolean> => {
+      const runToFailure = async (firstAnswerCharacters: number): Promise<string | undefined> => {
         const sessionId = `session-${randomUUID()}`;
         await harness.sessions.startSession(sessionId);
         // All sent while there is room: a later send could be refused instead of failing a Step.
@@ -205,16 +258,63 @@ describe("a session at limits.maxFlowStateBytes", () => {
         assert.equal(snapshot.state?.lastTurnError, reason);
         assert.equal(snapshot.state?.activeTurnId, null);
         assert.deepEqual(snapshot.pendingInterrupts, []);
+        assert.deepEqual(snapshot.toolCalls, []);
         await assertNewMessagesAreRejected(harness, sessionId, reason);
-        return (await storedSnapshot(harness, sessionId)).state?.status === "failed";
+        const uiMessages = await readAgentSessionUIMessages({
+          client: harness.environment.client,
+          flow: harness.flow,
+          flowId: sessionId,
+        });
+        assert.equal(uiMessages.failure, reason);
+        await readAllEventFrames(harness, sessionId);
+        const stored = await storedSnapshot(harness, sessionId);
+        if (stored.state?.activeTurnId != null) {
+          await assertUIStreamReportsFailure(harness, sessionId, stored.state.activeTurnId, reason);
+        }
+        return stored.state?.status;
       };
 
-      const storedTheFailure = await Promise.all(
+      const storedStatuses = await Promise.all(
         Array.from({ length: noRoomSessions }, (_unused, offset) => runToFailure(25_000 + 37 * offset)),
       );
 
-      assert.ok(storedTheFailure.includes(false));
+      // A failed RunModel had a route, and its route's commit did not fit.
+      assert.ok(storedStatuses.includes("running_model"));
     });
+  });
+
+  test("the event stream of a failed session ends", async () => {
+    await withHarness(async (harness) => {
+      const sessionId = `session-${randomUUID()}`;
+      await harness.sessions.startSession(sessionId);
+      for (let turn = 0; turn < 3; turn += 1) {
+        assert.equal(await send(harness, sessionId, "pad 30000"), true);
+      }
+      await closeReason(harness, sessionId);
+
+      const frames = await readAllEventFrames(harness, sessionId);
+
+      assert.ok(frames.some((frame) => frame.includes("turn_failed")));
+    });
+  });
+
+  test("a message to a session that does not exist keeps the Dex error", async () => {
+    await withHarness(async (harness) => {
+      await assert.rejects(send(harness, "no-such-session", "say hello"), (error: unknown) => {
+        assert.ok(error instanceof FlowNotActiveOrNotFoundError);
+        assert.equal(error.constructor, FlowNotActiveOrNotFoundError);
+        return true;
+      });
+    });
+  });
+
+  test("the state limit failure is told from other failures", () => {
+    const failure = (errorType: string, detail: string): boolean => isStateLimitFailure({ detail, errorType });
+    assert.equal(failure("ValueTooLarge", "run state of 9 bytes exceeds the maximum of 8 bytes"), true);
+    // The text of a server that counts only active state, which no released dexcli runs yet.
+    assert.equal(failure("ValueTooLarge", "active run state of 9 bytes exceeds the maximum of 8 bytes"), true);
+    assert.equal(failure("ValueTooLarge", "value of 9 bytes exceeds the maximum of 8 bytes"), false);
+    assert.equal(failure("WorkerError", "run state of 9 bytes exceeds the maximum of 8 bytes"), false);
   });
 
   test("a message that does not fit is refused and the session stays usable", async () => {

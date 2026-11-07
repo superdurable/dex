@@ -10,7 +10,7 @@
 // fails on the same limit, and the Flow closes without it. Dex always records that close, so a reader takes a
 // failed Flow's status and reason from it.
 
-import { FlowNotActiveOrNotFoundError, type Client } from "@superdurable/dex";
+import { FlowNotActiveOrNotFoundError, FlowNotFoundError, type Client } from "@superdurable/dex";
 
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "./agent-framework-runner.js";
 import type { AgentSessionFlow } from "./agent-session-flow.js";
@@ -40,16 +40,17 @@ export class AgentSessionFailedError extends FlowNotActiveOrNotFoundError {
 }
 
 /**
- * Returns the snapshot of a session whose Flow failed: the state the session stores when it has room, with status
- * `failed`, the reason, no active turn, and no pending interrupts. A snapshot with no state, or with status
- * `failed`, is returned unchanged.
+ * Returns the snapshot of a session whose Flow failed, with what the session stores when it has room: status
+ * `failed`, the reason, no active turn, and no pending interrupts. `toolCalls` lists the active turn's calls, so it
+ * is empty too; a stale turn's calls will never finish. A snapshot with no state, or with status `failed`, is
+ * returned unchanged.
  * @param snapshot - The stored snapshot.
  * @param reason - The Flow's failure reason.
  * @returns The snapshot to show.
  */
 export function withSessionFailure(snapshot: AgentSnapshot, reason: string): AgentSnapshot {
   const state = snapshot.state;
-  if (state === null || state.status === "failed") {
+  if (state === null || !mayHideSessionFailure(snapshot)) {
     return snapshot;
   }
   return {
@@ -63,6 +64,7 @@ export function withSessionFailure(snapshot: AgentSnapshot, reason: string): Age
       lastTurnError: reason,
     },
     pendingInterrupts: [],
+    toolCalls: [],
   };
 }
 
@@ -70,11 +72,18 @@ export function withSessionFailure(snapshot: AgentSnapshot, reason: string): Age
  * Returns why a session's Flow failed.
  * @param client - An open Client.
  * @param sessionId - Running or retained closed session.
- * @returns The Flow's failure reason, or `undefined` when the Flow did not fail.
+ * @returns The Flow's failure reason, or `undefined` when the Flow did not fail or does not exist.
  */
 export async function readSessionFailure(client: Client, sessionId: string): Promise<string | undefined> {
-  if ((await client.describeFlow(sessionId)).status !== "failed") {
-    return undefined;
+  try {
+    if ((await client.describeFlow(sessionId)).status !== "failed") {
+      return undefined;
+    }
+  } catch (error: unknown) {
+    if (error instanceof FlowNotFoundError) {
+      return undefined;
+    }
+    throw error;
   }
   return (await client.waitForFlow(sessionId)).errorMessage || unknownFailure;
 }
@@ -93,8 +102,16 @@ export async function readAgentSnapshot(
   sessionId: string,
 ): Promise<AgentSnapshot> {
   const snapshot = await client.invokeRPC(flow.getAgentSnapshot, sessionId);
+  if (!mayHideSessionFailure(snapshot)) {
+    return snapshot;
+  }
   const reason = await readSessionFailure(client, sessionId);
   return reason === undefined ? snapshot : withSessionFailure(snapshot, reason);
+}
+
+/** Reports whether the Flow's close could add to this snapshot. */
+function mayHideSessionFailure(snapshot: AgentSnapshot): boolean {
+  return snapshot.state !== null && snapshot.state.status !== "failed";
 }
 
 /**

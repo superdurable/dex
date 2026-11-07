@@ -316,6 +316,7 @@ const finalResumeTokenMarker = Symbol("final resume token");
 class AgentUIMessageChunkTranslator {
   private chunks: (AgentUIMessageChunk | typeof finalResumeTokenMarker)[] = [];
   private isStreamEnded = false;
+  private flowFailure: string | undefined;
 
   public constructor(
     private readonly records: AgentSessionRecordReader,
@@ -368,19 +369,32 @@ class AgentUIMessageChunkTranslator {
       if (afterTurnNumber !== null && state !== undefined && state.turnCount > afterTurnNumber) {
         return "end";
       }
-      return (await this.records.isFlowRunning()) ? "wait" : "end";
+      return (await this.records.isFlowRunning()) ? "wait" : this.decideEndOfClosedFlow();
     }
-    if (state?.activeTurnId !== turnId || !(await this.records.isFlowRunning())) {
+    if (state?.activeTurnId !== turnId) {
       return "end";
+    }
+    if (!(await this.records.isFlowRunning())) {
+      return this.decideEndOfClosedFlow();
     }
     return this.isFinishedWhenAwaitingApproval && (await this.isConfirmedWaitingOnlyForApprovals())
       ? "pause"
       : "wait";
   }
 
+  /** A failure that had no room to store its `turn_failed` commit is known only from the Flow's close. */
+  private async decideEndOfClosedFlow(): Promise<IdleDecision> {
+    this.flowFailure = await this.records.readFlowFailure();
+    return "end";
+  }
+
   public applyIdleDecision(idleDecision: IdleDecision): AgentUIMessageChunk[] {
     if (idleDecision === "end") {
-      this.endStream("other");
+      if (this.flowFailure === undefined) {
+        this.endStream("other");
+      } else {
+        this.endStream("error", this.flowFailure);
+      }
     } else if (idleDecision === "pause") {
       this.endStream("tool-calls");
     }

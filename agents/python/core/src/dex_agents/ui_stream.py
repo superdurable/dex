@@ -46,7 +46,12 @@ from dex import (
     StreamMessagesPage,
 )
 
-from dex_agents.session_failure import read_agent_snapshot, read_agent_snapshot_sync
+from dex_agents.session_failure import (
+    read_agent_snapshot,
+    read_agent_snapshot_sync,
+    read_session_failure,
+    read_session_failure_sync,
+)
 from dex_agents.session_flow import AgentSessionFlow
 from dex_agents.values import AgentEvent, AgentSnapshot
 
@@ -227,8 +232,9 @@ async def stream_agent_event_frames(
     ``resume_token`` to continue after the last event the browser received, with
     no repeated or missing event while the Stream retains them. After each empty
     long poll the generator yields ``KEEP_ALIVE_FRAME``; with the Server's Stream
-    Store disabled it only yields those. It never ends on its own; the web
-    framework closes it when the browser disconnects.
+    Store disabled it only yields those. It ends on its own only once the
+    session's Flow failed and every event was sent; otherwise the web framework
+    closes it when the browser disconnects.
 
     The browser applies the event rules of the session contract. Within one
     ``step_execution_id`` it keeps only the highest ``attempt`` and drops the
@@ -267,6 +273,7 @@ async def stream_agent_event_frames(
 
     Returns:
         An async generator of SSE frames and keep-alive comments, as ``str``.
+        It ends once the session's Flow failed and every event was sent.
 
     Raises:
         ValueError: If ``poll_timeout`` is not a positive whole number of seconds.
@@ -297,12 +304,17 @@ async def _generate_agent_event_frames(
     first_message: StreamMessage[AgentEvent] | None,
 ) -> AsyncGenerator[str, None]:
     message = first_message
+    has_flow_failed = False
     while True:
         if message is None:
             message = await _read_next_agent_event(
                 client, flow, session_id, resume_token, poll_timeout
             )
         if message is None:
+            # A poll that started after the Flow failed saw every event there will be.
+            if has_flow_failed:
+                return
+            has_flow_failed = await read_session_failure(client, session_id) is not None
             yield KEEP_ALIVE_FRAME
             continue
         resume_token = message.resume_token
@@ -349,7 +361,8 @@ def stream_agent_event_frames_sync(
         poll_timeout: Long-poll duration of one Stream read, in whole seconds.
 
     Returns:
-        A generator of SSE frames and keep-alive comments, as ``str``.
+        A generator of SSE frames and keep-alive comments, as ``str``. It ends
+        once the session's Flow failed and every event was sent.
 
     Raises:
         ValueError: If ``poll_timeout`` is not a positive whole number of seconds.
@@ -380,12 +393,17 @@ def _generate_agent_event_frames_sync(
     first_message: StreamMessage[AgentEvent] | None,
 ) -> Generator[str, None, None]:
     message = first_message
+    has_flow_failed = False
     while True:
         if message is None:
             message = _read_next_agent_event_sync(
                 client, flow, session_id, resume_token, poll_timeout
             )
         if message is None:
+            # A poll that started after the Flow failed saw every event there will be.
+            if has_flow_failed:
+                return
+            has_flow_failed = read_session_failure_sync(client, session_id) is not None
             yield KEEP_ALIVE_FRAME
             continue
         resume_token = message.resume_token

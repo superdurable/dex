@@ -814,15 +814,17 @@ closed run is kept for 7 days by default.
   heartbeats, and Step completions. A Step over budget fails without retry. A
   Step with no failure route, such as `AwaitUserMessage`, fails the Flow.
 - **Failing at the budget.** A model or tool Step's failure route sees
-  `ValueTooLarge` and `run state of <X> bytes exceeds the maximum of <Y> bytes`.
-  In Python and TypeScript it sets status `failed` and closes the Flow in one
-  commit. That commit meets the same budget, and a commit only passes while its
-  total fits or it adds no active storage. Measured at a 128 KiB budget with
-  small turns, 20 of 24 sessions could not store it, and a close with no writes
-  can also trip. Those Flows still close failed, because an attempt failure is
-  not checked. So the guarantee is the Flow's close: `get_agent_snapshot` on
-  `AgentSessionClient` and `readAgentSnapshot` read it. A send refused for size
-  fails no Step, so the session stays open and only the caller sees it.
+  `ValueTooLarge` and `run state of <X> bytes exceeds the maximum of <Y> bytes`
+  (`active run state of ...` since the limit counts only active state). In Python
+  and TypeScript it sets status `failed` and closes the Flow in one commit. That
+  commit meets the same budget, and it passes only while it fits or adds no
+  active state. Measured at a 128 KiB budget with small turns, 20 of 24 sessions
+  could not store it, and a close with no writes can also trip. Those Flows still
+  close failed, because an attempt failure is not checked, and so do Steps with
+  no failure route. So the guarantee is the Flow's close, for any session that
+  stored a state: `get_agent_snapshot` on `AgentSessionClient`, `readAgentSnapshot`,
+  and the UI streams read it. A send refused for size fails no Step, so the
+  session stays open and only the caller sees it.
 
 ### C9. Observability and usage
 

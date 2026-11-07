@@ -231,9 +231,10 @@ INVALID_TOOL_TASK_POLL_INTERVAL = "the tool task's poll interval is not a number
 # Longest wait between two polls of a tool task; a longer interval is shortened to it.
 _MAXIMUM_TOOL_TASK_POLL_INTERVAL_SECONDS = 86_400
 # server-zd reports a Step whose commit would pass limits.maxFlowStateBytes with this type and
-# text: "run state of <X> bytes exceeds the maximum of <Y> bytes".
+# text: "run state of <X> bytes exceeds the maximum of <Y> bytes", or "active run state of ..."
+# since the limit counts only active state.
 STATE_LIMIT_ERROR_TYPE = "ValueTooLarge"
-STATE_LIMIT_ERROR_PREFIX = "run state of "
+STATE_LIMIT_ERROR_TEXT = "run state of "
 SNAPSHOT_MESSAGE_LIMIT = 200
 MESSAGE_PAGE_LIMIT = 200
 # Keeps liveness well inside the shortest heartbeat timeout, one minute.
@@ -3803,7 +3804,7 @@ def _is_state_limit_failure(error: RecoveryErrorInfo | None) -> bool:
     return (
         error is not None
         and error.error_type == STATE_LIMIT_ERROR_TYPE
-        and error.detail.startswith(STATE_LIMIT_ERROR_PREFIX)
+        and STATE_LIMIT_ERROR_TEXT in error.detail
     )
 
 

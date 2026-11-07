@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from dex import AsyncClient, Client, FlowNotActiveOrNotFoundError, FlowStatus
+from dex import AsyncClient, Client, FlowNotActiveOrNotFoundError, FlowNotFoundError, FlowStatus
 
 from dex_agents.values import AgentSessionStatus, AgentSnapshot
 
@@ -64,13 +64,14 @@ def with_session_failure(snapshot: AgentSnapshot, reason: str) -> AgentSnapshot:
         reason: The Flow's failure reason.
 
     Returns:
-        The same snapshot with the state that the session stores when it has
-        room: status ``FAILED``, the reason, no active turn, and no pending
-        interrupts. A snapshot with no state, or with status ``FAILED``, is
-        returned unchanged.
+        The same snapshot with what the session stores when it has room:
+        status ``FAILED``, the reason, no active turn, and no pending
+        interrupts. ``tool_calls`` lists the active turn's calls, so it is
+        empty too; a stale turn's calls will never finish. A snapshot with no
+        state, or with status ``FAILED``, is returned unchanged.
     """
     state = snapshot.state
-    if state is None or state.status is AgentSessionStatus.FAILED:
+    if not _may_hide_session_failure(snapshot) or state is None:
         return snapshot
     return replace(
         snapshot,
@@ -83,6 +84,7 @@ def with_session_failure(snapshot: AgentSnapshot, reason: str) -> AgentSnapshot:
             last_turn_error=reason,
         ),
         pending_interrupts=[],
+        tool_calls=[],
     )
 
 
@@ -94,11 +96,33 @@ async def read_session_failure(client: AsyncClient, session_id: str) -> str | No
         session_id: Running or retained closed session.
 
     Returns:
-        The Flow's failure reason, or ``None`` when the Flow did not fail.
+        The Flow's failure reason, or ``None`` when the Flow did not fail or
+        does not exist.
     """
-    if (await client.describe_flow(session_id)).status is not FlowStatus.FAILED:
+    try:
+        if (await client.describe_flow(session_id)).status is not FlowStatus.FAILED:
+            return None
+    except FlowNotFoundError:
         return None
     return (await client.wait_for_flow(session_id)).error_message or _UNKNOWN_FAILURE
+
+
+def read_session_failure_sync(client: Client, session_id: str) -> str | None:
+    """Return why a session's Flow failed, through a synchronous Client.
+
+    Args:
+        client: An open Client.
+        session_id: Running or retained closed session.
+
+    Returns:
+        The reason. See ``read_session_failure``.
+    """
+    try:
+        if client.describe_flow(session_id).status is not FlowStatus.FAILED:
+            return None
+    except FlowNotFoundError:
+        return None
+    return client.wait_for_flow(session_id).error_message or _UNKNOWN_FAILURE
 
 
 async def read_agent_snapshot(client: AsyncClient, flow: Any, session_id: str) -> AgentSnapshot:
@@ -116,6 +140,8 @@ async def read_agent_snapshot(client: AsyncClient, flow: Any, session_id: str) -
         The snapshot. See ``with_session_failure``.
     """
     snapshot: AgentSnapshot = await client.invoke_rpc(flow.get_agent_snapshot, session_id)
+    if not _may_hide_session_failure(snapshot):
+        return snapshot
     reason = await read_session_failure(client, session_id)
     return snapshot if reason is None else with_session_failure(snapshot, reason)
 
@@ -132,7 +158,13 @@ def read_agent_snapshot_sync(client: Client, flow: Any, session_id: str) -> Agen
         The snapshot. See ``read_agent_snapshot``.
     """
     snapshot: AgentSnapshot = client.invoke_rpc(flow.get_agent_snapshot, session_id)
-    if client.describe_flow(session_id).status is not FlowStatus.FAILED:
+    if not _may_hide_session_failure(snapshot):
         return snapshot
-    reason = client.wait_for_flow(session_id).error_message or _UNKNOWN_FAILURE
-    return with_session_failure(snapshot, reason)
+    reason = read_session_failure_sync(client, session_id)
+    return snapshot if reason is None else with_session_failure(snapshot, reason)
+
+
+def _may_hide_session_failure(snapshot: AgentSnapshot) -> bool:
+    """Report whether the Flow's close could add to this snapshot."""
+    state = snapshot.state
+    return state is not None and state.status is not AgentSessionStatus.FAILED

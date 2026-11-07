@@ -1287,9 +1287,10 @@ export class ApplyTurnControlStep implements Step<void> {
 }
 
 // server-zd reports a Step whose commit would pass limits.maxFlowStateBytes with this type and text:
-// "run state of <X> bytes exceeds the maximum of <Y> bytes".
+// "run state of <X> bytes exceeds the maximum of <Y> bytes", or "active run state of ..." since the limit
+// counts only active state.
 const stateLimitErrorType = "ValueTooLarge";
-const stateLimitErrorPrefix = "run state of ";
+const stateLimitErrorText = "run state of ";
 
 /** Ends a failed turn; it is the failure route of `RunModel` and `CompactContext`, so it takes either's input. */
 export class RecordTurnFailureStep implements Step<CompactContextInput | undefined> {
@@ -1338,11 +1339,9 @@ export class RecordTurnFailureStep implements Step<CompactContextInput | undefin
 }
 
 /** Reports whether a Step failed because its commit would exceed the Flow's state limit. */
-function isStateLimitFailure(recoveryError: RecoveryErrorInfo | undefined): boolean {
+export function isStateLimitFailure(recoveryError: RecoveryErrorInfo | undefined): boolean {
   // The Server gives this failure no code of its own; a value over its own limit shares the type.
-  return (
-    recoveryError?.errorType === stateLimitErrorType && recoveryError.detail.startsWith(stateLimitErrorPrefix)
-  );
+  return recoveryError?.errorType === stateLimitErrorType && recoveryError.detail.includes(stateLimitErrorText);
 }
 
 /**

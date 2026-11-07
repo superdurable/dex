@@ -36,6 +36,8 @@ export interface AgentSessionUIMessages {
    * messages still show the turn's tool calls and approvals; poll this function until the turn ends.
    */
   readonly resumeToken: string | null;
+  /** Why the session failed, or `null` when it did not. A failed session takes no more messages. */
+  readonly failure: string | null;
 }
 
 /**
@@ -121,11 +123,12 @@ export async function readAgentSessionUIMessages(options: {
   const snapshot = await readAgentSnapshot(client, flow, flowId);
   const messages = convertAgentSnapshotToUIMessages(snapshot);
   const activeTurnId = snapshot.state?.activeTurnId ?? null;
+  const failure = snapshot.state?.status === "failed" ? snapshot.state.lastTurnError : null;
   if (activeTurnId === null) {
-    return { messages, resumeToken: null };
+    return { messages, resumeToken: null, failure };
   }
   const cursor = await createTurnReplayCursor(client, flow, flowId, activeTurnId, null);
-  return { messages, resumeToken: cursor === undefined ? null : encodeAgentUIStreamCursor(cursor) };
+  return { messages, resumeToken: cursor === undefined ? null : encodeAgentUIStreamCursor(cursor), failure };
 }
 
 /** Collects one turn's stored assistant and tool messages into one assistant message. */

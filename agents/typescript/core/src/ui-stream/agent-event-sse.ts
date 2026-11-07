@@ -9,7 +9,7 @@
 import type { Client, StreamMessage } from "@superdurable/dex";
 
 import type { AgentFrameworkRunner, DeferredToolOutcome } from "../agent-framework-runner.js";
-import { readAgentSnapshot } from "../agent-session-failure.js";
+import { readAgentSnapshot, readSessionFailure } from "../agent-session-failure.js";
 import type { AgentSessionFlow } from "../agent-session-flow.js";
 import type { AgentEvent, AgentSnapshot } from "../agent-session-values.js";
 import { convertAgentEventToJson, convertAgentSnapshotToJson } from "./agent-event-json.js";
@@ -99,8 +99,9 @@ export function formatAgentEventSseFrame(message: StreamMessage<AgentEvent>): st
  * Each event becomes one frame whose `id` is its Dex resume token and whose data is the `AgentEvent` wire
  * JSON: `type`, `turn_id`, `attempt`, `step_execution_id`, and `payload` text. Reconnecting with the last
  * `id` continues with the next event, with no repeated or missing event while the Stream retains them.
- * After each empty long poll it yields a keep-alive comment. The stream never ends on its own; stop
- * iterating, or abort `signal`, when the browser goes away.
+ * After each empty long poll it yields a keep-alive comment. The stream ends on its own only once the
+ * session's Flow failed and every event was sent; otherwise stop iterating, or abort `signal`, when the
+ * browser goes away.
  *
  * The browser applies the event rules of the session contract. Within one `step_execution_id` it keeps
  * only the highest `attempt` and drops the partial text of lower attempts. After `turn_completed`,
@@ -133,12 +134,18 @@ async function* formatAgentEventSseFramesFrom(
   const pollTimeoutMs = requireAgentEventPollTimeoutMs(options.pollTimeoutMs);
   let eventResumeToken = options.resumeToken ?? "";
   let pendingMessage = firstMessage;
+  let hasFlowFailed = false;
   while (options.signal?.aborted !== true) {
     const message =
       pendingMessage ??
       (await readNextAgentEvent(options.client, options.flow, options.flowId, eventResumeToken, pollTimeoutMs));
     pendingMessage = undefined;
     if (message === undefined) {
+      // A poll that started after the Flow failed saw every event there will be.
+      if (hasFlowFailed) {
+        return;
+      }
+      hasFlowFailed = (await readSessionFailure(options.client, options.flowId)) !== undefined;
       yield serverSentEventKeepAliveFrame;
       continue;
     }
