@@ -655,9 +655,11 @@ directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
-The v2 list compiles typed filter controls into visibility queries,
-loads current-run Summary RPCs with bounded concurrency, and displays Indexed
-Attributes before ordered Summary fields. Selecting a run validates the Display
+The v2 list compiles typed filter controls into visibility queries, including
+the built-in `activeStepTypes` filter. `POST /api/v2/search` takes `flowTypes`
+in place of `flowType` to search several Flow types in one query; such a search
+accepts built-in filter fields only. The list loads current-run Summary RPCs
+with bounded concurrency, and displays Indexed Attributes before ordered Summary fields. Selecting a run validates the Display
 contract, supports inline edits for declared primitive fields, and renders
 conditional none/object Actions beside the Flow Definition Graph.
 Attribute-sourced Action inputs remain hidden. The UI condition is

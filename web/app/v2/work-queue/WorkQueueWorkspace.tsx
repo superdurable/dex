@@ -20,8 +20,14 @@ import { RUN_COPY } from '../run/copy';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
-import { permissionActionLabels, permissionsOf } from '../workspace/permissions';
-import { EMPTY_RUN_QUERY, flowStatusQueryValue } from '../workspace/runQuery';
+import { permissionActionLabelsAcross, permissionsAcross } from '../workspace/permissions';
+import {
+  EMPTY_RUN_QUERY,
+  emptyRunsText,
+  flowStatusQueryValue,
+  searchedFlowTypes,
+  stepTypeOptions,
+} from '../workspace/runQuery';
 import { SelectedRunPanel } from '../workspace/SelectedRunPanel';
 import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useRunQuery } from '../workspace/useRunQuery';
@@ -39,17 +45,18 @@ import { openFlowStatusLabel } from './liveness';
 export function WorkQueueWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
-  const { ready, canUseV2, catalog, error, definitionUpdateKey } = useWebCatalog();
+  const { ready, canUseV2, catalog, definitions, error, definitionUpdateKey } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
   // A work queue opens on active work; the control widens it.
   const runQuery = useRunQuery(entry?.definition, { ...EMPTY_RUN_QUERY, status: flowStatusQueryValue(openFlowStatusLabel()) });
   const [permission, setPermission] = useState('');
+  const searchFlowTypes = searchedFlowTypes(runQuery.appliedFlowTypes, flowType);
   const workQueuePermissions = useMemo(
     () => permission === '' ? [] : [permission],
     [permission],
   );
   const search = useFlowSearch(
-    flowType || undefined,
+    searchFlowTypes,
     entry?.definition,
     runQuery.appliedFilters,
     workQueuePermissions,
@@ -78,19 +85,22 @@ export function WorkQueueWorkspace() {
   if (!entry) return <Navigate to={v2WorkQueuePath()} replace />;
 
   const selectedFlow = search.flows.find((flow) => flow.flowId === flowId);
+  const searchedDefinitions = catalog.flows
+    .filter((candidate) => searchFlowTypes.includes(candidate.flowType))
+    .map((candidate) => candidate.definition);
   const paneStyle = { '--v2-list-w': `${listPane.width}px` } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
       <div className="v2-run-body" ref={bodyRef}>
         <RunList
           collapsed={listPane.isCollapsed}
-          emptyText={WORK_QUEUE_COPY.clear}
+          emptyText={emptyRunsText(runQuery.appliedFilters, searchFlowTypes, WORK_QUEUE_COPY.clear)}
           entry={entry}
           flowTypes={catalog.flows}
           heading={WORK_QUEUE_COPY.appName}
           headerNote={WORK_QUEUE_COPY.liveNote}
           onExpand={listPane.expand}
-          permissionControl={permissionsOf(entry.definition).length > 0 ? (
+          permissionControl={permissionsAcross(searchedDefinitions).length > 0 ? (
             <label className="rsw-permission">
               <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
               <select
@@ -99,14 +109,14 @@ export function WorkQueueWorkspace() {
                 onChange={(event) => setPermission(event.target.value)}
               >
                 <option value="">{WORK_QUEUE_COPY.anyPermission}</option>
-                {permissionsOf(entry.definition).map((candidate) => (
+                {permissionsAcross(searchedDefinitions).map((candidate) => (
                   <option key={candidate} value={candidate}>{candidate}</option>
                 ))}
               </select>
               {permission !== '' && (
                 <small className="rsw-permission-note">
                   {WORK_QUEUE_COPY.permissionActions(
-                    permissionActionLabels(entry.definition, permission),
+                    permissionActionLabelsAcross(searchedDefinitions, permission),
                   )}
                 </small>
               )}
@@ -116,6 +126,13 @@ export function WorkQueueWorkspace() {
             <RunSearch
               busy={search.loading}
               definition={entry.definition}
+              flowType={entry.flowType}
+              flowTypes={catalog.flows.map((candidate) => candidate.flowType)}
+              stepTypes={stepTypeOptions(
+                definitions?.definitions ?? [],
+                searchedFlowTypes(runQuery.query.flowTypes, entry.flowType),
+                runQuery.query.activeStepTypes,
+              )}
               query={runQuery.query}
               onChange={runQuery.setQuery}
               onClear={runQuery.clear}
@@ -124,9 +141,13 @@ export function WorkQueueWorkspace() {
           )}
           search={search}
           selectedFlowID={flowId}
+          showFlowType={searchFlowTypes.length > 1}
           strandedFlowIDs={strandedFlowIDs}
-          onSelectFlowType={(next) => navigate(v2WorkQueuePath(next))}
-          onSelectRun={(nextFlowID) => navigate(v2WorkQueuePath(entry.flowType, nextFlowID))}
+          onSelectFlowType={(next) => {
+            runQuery.narrowToPageFlowType();
+            navigate(v2WorkQueuePath(next));
+          }}
+          onSelectRun={(flow) => navigate(v2WorkQueuePath(flow.flowType, flow.flowId))}
         />
         <V2SplitHandle
           axis="column"

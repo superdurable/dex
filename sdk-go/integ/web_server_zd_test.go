@@ -21,8 +21,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"github.com/superdurable/dex/sdk-go/integ/webv2approval"
+	"github.com/superdurable/dex/sdk-go/integ/webv2reply"
 )
 
 // These tests drive a web-only Dex Server whose FlowService target is server-zd.
@@ -123,6 +125,77 @@ func TestDexWebOnServerZDStartsPullFlowsAndFiltersStatus(t *testing.T) {
 		completedFlowIDs, searchErr := searchDexWebV2(web, approvalFlow.flowType, "Completed")
 		return searchErr == nil && slices.Contains(completedFlowIDs, flowID)
 	}, dexWebV2ConvergenceTimeout, dexWebV2PollInterval, "the run list never showed %s as Completed", flowID)
+}
+
+func TestDexWebOnServerZDFindsRunsAtActiveStepsAcrossFlowTypes(t *testing.T) {
+	web := newDexWebOnServerZDClient(t)
+	var catalog struct {
+		DefinitionRevision string `json:"definitionRevision"`
+	}
+	status, err := web.getJSON("/api/v2/catalog", &catalog)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	web.revision = catalog.DefinitionRevision
+
+	ctx := integrationContext(t)
+	approvalFlow := dexWebV2TestFlow{
+		flowType:   dex.GetFinalFlowType(&webv2approval.ApprovalFlow{}),
+		permission: webv2approval.DecidePermission,
+	}
+	replyFlowType := dex.GetFinalFlowType(&webv2reply.ReplyFlow{})
+	// Both Flows name their first Step awaitDecision, so one Step type spans two Flow types.
+	waitingStep := webv2approval.StartStepType()
+	require.Equal(t, waitingStep, webv2reply.StartStepType())
+	flowTypes := []string{approvalFlow.flowType, replyFlowType}
+	searchable := dex.StartFlowOptions{ConfigOverride: &dex.FlowConfig{
+		ActiveStepSearchMode: ptr.Any(dex.SearchActiveStepsWithWaitFor),
+	}}
+
+	approvalID := newFlowID(t, "web-zd-active-approval")
+	_, err = integClient.StartFlow(ctx, &webv2approval.ApprovalFlow{}, approvalID, webv2approval.Input{Requester: approvalID}, searchable)
+	require.NoError(t, err)
+	replyID := newFlowID(t, "web-zd-active-reply")
+	_, err = integClient.StartFlow(ctx, &webv2reply.ReplyFlow{}, replyID, webv2reply.Input{Thread: replyID}, searchable)
+	require.NoError(t, err)
+	unindexedID := newFlowID(t, "web-zd-active-unindexed")
+	unindexedRunID, err := integClient.StartFlow(ctx, &webv2approval.ApprovalFlow{}, unindexedID, webv2approval.Input{Requester: unindexedID}, dex.StartFlowOptions{})
+	require.NoError(t, err)
+	waitForDexWebEvent(t, web, unindexedID, unindexedRunID, "StepWaitForCompleted")
+
+	require.Eventually(t, func() bool {
+		found, searchErr := searchDexWebV2AtSteps(web, flowTypes, []string{waitingStep})
+		return searchErr == nil && found[approvalID] == approvalFlow.flowType && found[replyID] == replyFlowType
+	}, dexWebV2ConvergenceTimeout, dexWebV2PollInterval, "one search never found the runs waiting in both Flow types")
+
+	oneFlowType, err := searchDexWebV2AtSteps(web, []string{replyFlowType}, []string{waitingStep})
+	require.NoError(t, err)
+	require.Contains(t, oneFlowType, replyID)
+	require.NotContains(t, oneFlowType, approvalID, "a run of an unsearched Flow type matched")
+
+	otherStep, err := searchDexWebV2AtSteps(web, flowTypes, []string{"closeThread"})
+	require.NoError(t, err)
+	require.NotContains(t, otherStep, replyID, "a run at another Step matched the Step filter")
+
+	anyOfSteps, err := searchDexWebV2AtSteps(web, flowTypes, []string{"closeThread", waitingStep})
+	require.NoError(t, err)
+	require.Contains(t, anyOfSteps, approvalID)
+	require.Contains(t, anyOfSteps, replyID)
+
+	// The unindexed run is at the same Step and in the list, but the Step filter cannot see it.
+	require.NotContains(t, anyOfSteps, unindexedID, "a Flow without ActiveStepSearchMode matched the Step filter")
+	everyRun, err := searchDexWebV2AtSteps(web, flowTypes, nil)
+	require.NoError(t, err)
+	require.Contains(t, everyRun, unindexedID)
+
+	web.approveDecision(t, approvalFlow, approvalID)
+	require.Eventually(t, func() bool {
+		found, searchErr := searchDexWebV2AtSteps(web, flowTypes, []string{waitingStep})
+		if searchErr != nil {
+			return false
+		}
+		_, stillWaiting := found[approvalID]
+		return !stillWaiting
+	}, dexWebV2ConvergenceTimeout, dexWebV2PollInterval, "a run that moved on stayed at its old Step")
 }
 
 func TestDexWebOnServerZDDeletesPendingMessagesAndTimeTravelsRunAttempts(t *testing.T) {
@@ -376,4 +449,27 @@ func searchDexWebV2(web *dexWebV2Client, flowType string, executionStatus string
 		flowIDs = append(flowIDs, flow.FlowID)
 	}
 	return flowIDs, nil
+}
+
+// searchDexWebV2AtSteps returns the Flow type of every run found, by Flow ID.
+func searchDexWebV2AtSteps(web *dexWebV2Client, flowTypes []string, stepTypes []string) (map[string]string, error) {
+	filters := []map[string]any{}
+	if len(stepTypes) > 0 {
+		filters = append(filters, map[string]any{"field": "activeStepTypes", "operator": "in", "values": stepTypes})
+	}
+	var result dexWebV2SearchResponse
+	status, err := web.sendJSON(http.MethodPost, "/api/v2/search", map[string]any{
+		"flowTypes": flowTypes, "workQueuePermissions": []string{}, "pageSize": 50, "filters": filters,
+	}, &result)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("v2 search at %v returned HTTP %d", stepTypes, status)
+	}
+	found := make(map[string]string, len(result.Flows))
+	for _, flow := range result.Flows {
+		found[flow.FlowID] = flow.FlowType
+	}
+	return found, nil
 }

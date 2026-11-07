@@ -7,8 +7,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import type { FlowV2Definition, V2ValueType } from '@superdurable/flow-definition-renderer';
-import { FLOW_STATUS, FLOW_STATUS_QUERY_VALUE, type FlowStatus } from '@/lib/types';
-import { newFilterRow, type FilterRow } from './filters';
+import {
+  FLOW_STATUS,
+  FLOW_STATUS_QUERY_VALUE,
+  type FlowDefinitionEntry,
+  type FlowStatus,
+} from '@/lib/types';
+import { ACTIVE_STEP_TYPES_FIELD, newFilterRow, type FilterRow } from './filters';
+import { SEARCH_COPY } from './searchCopy';
 
 /**
  * Two controls in front, three behind a disclosure. Not a query builder.
@@ -27,6 +33,13 @@ export interface RunQuery {
   attributeKey: string;
   attributeOperator: RunOperator;
   attributeValue: string;
+  /** Step types a run must be at, any of them. Empty for no filter. */
+  activeStepTypes: string[];
+  /**
+   * Every Flow type searched when the reader widened past the page's own, which it always includes.
+   * Empty otherwise, so a search of one Flow type never names one the page does not show.
+   */
+  flowTypes: string[];
 }
 
 /**
@@ -54,6 +67,8 @@ export const EMPTY_RUN_QUERY: RunQuery = {
   attributeKey: '',
   attributeOperator: 'eq',
   attributeValue: '',
+  activeStepTypes: [],
+  flowTypes: [],
 };
 
 const OPERATOR_LABEL: Record<RunOperator, string> = {
@@ -139,7 +154,15 @@ export function toFilterRows(
     rows.push(newFilterRow('flowId', 'eq', flowId));
   }
 
-  const value = query.attributeValue.trim();
+  if (query.activeStepTypes.length > 0) {
+    rows.push({
+      ...newFilterRow(ACTIVE_STEP_TYPES_FIELD, 'in', query.activeStepTypes.join(', ')),
+      values: query.activeStepTypes,
+    });
+  }
+
+  // An Attribute means what one Flow type declares, so it cannot narrow several at once.
+  const value = query.flowTypes.length > 1 ? '' : query.attributeValue.trim();
   const attribute = attributeByKey(definition, query.attributeKey);
   if (attribute !== null && value !== '') {
     const legal = operatorsFor(attribute.indexType).map((operator) => operator.value);
@@ -160,6 +183,8 @@ export function isEmptyQuery(query: RunQuery): boolean {
 /** Whether anything behind the disclosure is set, so a closed panel cannot hide an active filter. */
 export function hasAdvancedQuery(query: RunQuery): boolean {
   return query.flowId.trim() !== ''
+    || query.activeStepTypes.length > 0
+    || query.flowTypes.length > 0
     || (query.attributeKey !== '' && query.attributeValue.trim() !== '');
 }
 
@@ -169,5 +194,69 @@ function activeParts(query: RunQuery): number {
     query.since,
     query.flowId.trim(),
     query.attributeKey !== '' ? query.attributeValue.trim() : '',
+    query.activeStepTypes.join(),
+    query.flowTypes.join(),
   ].filter((part) => part !== '').length;
+}
+
+/** The Flow types one search covers: the page's own, unless the reader widened past it. */
+export function searchedFlowTypes(flowTypes: readonly string[], pageFlowType: string): readonly string[] {
+  if (flowTypes.length > 1) return flowTypes;
+  return pageFlowType === '' ? [] : [pageFlowType];
+}
+
+/** The widened selection after one Flow type is ticked or unticked. The page's own always stays. */
+export function toggleFlowType(
+  flowTypes: readonly string[],
+  pageFlowType: string,
+  flowType: string,
+): string[] {
+  if (flowType === pageFlowType) return [...flowTypes];
+  const searched = searchedFlowTypes(flowTypes, pageFlowType);
+  const next = searched.includes(flowType)
+    ? searched.filter((candidate) => candidate !== flowType)
+    : [...searched, flowType];
+  return next.length > 1 ? next.sort() : [];
+}
+
+export function toggleStepType(stepTypes: readonly string[], stepType: string): string[] {
+  return stepTypes.includes(stepType)
+    ? stepTypes.filter((candidate) => candidate !== stepType)
+    : [...stepTypes, stepType].sort();
+}
+
+/**
+ * The Step types a reader can ask for, read off the graphs of the Flow types being searched.
+ *
+ * Anything already chosen stays listed even when it no longer belongs to one of those Flow types,
+ * so a filter that is still applied can always be seen and unticked.
+ */
+export function stepTypeOptions(
+  definitions: readonly FlowDefinitionEntry[],
+  flowTypes: readonly string[],
+  chosen: readonly string[],
+): string[] {
+  const stepTypes = new Set(chosen);
+  for (const entry of definitions) {
+    if (entry.schemaVersion !== '2.0' || !entry.valid || !flowTypes.includes(entry.flowName)) continue;
+    for (const node of entry.graph.nodes) {
+      if (node.kind === 'step') stepTypes.add(node.name);
+    }
+  }
+  return [...stepTypes].sort();
+}
+
+/**
+ * What an empty list says, from the search that actually ran.
+ *
+ * A run is findable by Step only when its Flow opted in, so an empty answer to that filter must
+ * not read as "no work": unindexed runs can be waiting at exactly those Steps.
+ */
+export function emptyRunsText(
+  filters: readonly FilterRow[],
+  flowTypes: readonly string[],
+  otherwise: string,
+): string {
+  if (filters.some((filter) => filter.field === ACTIVE_STEP_TYPES_FIELD)) return SEARCH_COPY.noActiveStepMatch;
+  return flowTypes.length > 1 ? SEARCH_COPY.noRunsAcrossFlowTypes : otherwise;
 }

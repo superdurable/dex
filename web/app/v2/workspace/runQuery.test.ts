@@ -8,18 +8,25 @@
 
 import { describe, expect, it } from 'vitest';
 import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
+import type { FlowDefinitionEntry } from '@/lib/types';
 import {
   EMPTY_RUN_QUERY,
   defaultOperator,
+  emptyRunsText,
   filterableAttributes,
   hasAdvancedQuery,
   flowStatusQueryValue,
   isEmptyQuery,
   operatorsFor,
+  searchedFlowTypes,
   statusOptions,
+  stepTypeOptions,
   toFilterRows,
+  toggleFlowType,
+  toggleStepType,
   valueInputKind,
 } from './runQuery';
+import { SEARCH_COPY } from './searchCopy';
 
 const indexed = (attributeKey: string, indexType: string, valueType: string) => ({
   attributeKey, indexKey: attributeKey, indexType, valueType, description: attributeKey,
@@ -186,5 +193,128 @@ describe('query emptiness', () => {
     expect(hasAdvancedQuery({
       ...EMPTY_RUN_QUERY, attributeKey: 'refund-amount', attributeValue: '450',
     })).toBe(true);
+  });
+});
+
+describe('active Step filter', () => {
+  it('sends the chosen Step types as exact values, so a comma stays part of a name', () => {
+    const [row] = toFilterRows(
+      { ...EMPTY_RUN_QUERY, activeStepTypes: ['AwaitApproval', 'Pick[a,b]'] },
+      searchable,
+      NOW,
+    );
+
+    expect(row).toMatchObject({
+      field: 'activeStepTypes',
+      operator: 'in',
+      values: ['AwaitApproval', 'Pick[a,b]'],
+    });
+  });
+
+  it('adds no filter when no Step is chosen', () => {
+    expect(rows({})).toEqual([]);
+  });
+
+  it('counts as an active, advanced filter', () => {
+    const query = { ...EMPTY_RUN_QUERY, activeStepTypes: ['AwaitApproval'] };
+
+    expect(isEmptyQuery(query)).toBe(false);
+    expect(hasAdvancedQuery(query)).toBe(true);
+  });
+
+  it('toggles a Step type in sorted order', () => {
+    expect(toggleStepType(['B'], 'A')).toEqual(['A', 'B']);
+    expect(toggleStepType(['A', 'B'], 'A')).toEqual(['B']);
+  });
+});
+
+describe('Flow type scope', () => {
+  it('searches the page Flow type until the reader widens it', () => {
+    expect(searchedFlowTypes([], 'RefundFlow')).toEqual(['RefundFlow']);
+    expect(searchedFlowTypes(['OrderFlow', 'RefundFlow'], 'RefundFlow')).toEqual(['OrderFlow', 'RefundFlow']);
+    expect(searchedFlowTypes([], '')).toEqual([]);
+  });
+
+  it('widens from the page Flow type and collapses back to it', () => {
+    const widened = toggleFlowType([], 'RefundFlow', 'OrderFlow');
+
+    expect(widened).toEqual(['OrderFlow', 'RefundFlow']);
+    expect(toggleFlowType(widened, 'RefundFlow', 'OrderFlow')).toEqual([]);
+  });
+
+  it('never drops the page Flow type', () => {
+    expect(toggleFlowType(['OrderFlow', 'RefundFlow'], 'RefundFlow', 'RefundFlow'))
+      .toEqual(['OrderFlow', 'RefundFlow']);
+  });
+
+  it('leaves an Attribute filter out of a search of several Flow types', () => {
+    const query = {
+      attributeKey: 'case-status',
+      attributeOperator: 'eq' as const,
+      attributeValue: 'review',
+    };
+
+    expect(rows(query)).toEqual(['case-status eq review']);
+    expect(rows({ ...query, flowTypes: ['OrderFlow', 'RefundFlow'] })).toEqual([]);
+  });
+});
+
+describe('stepTypeOptions', () => {
+  const entry = (flowName: string, steps: string[], overrides: Partial<FlowDefinitionEntry> = {}) => ({
+    flowName,
+    schemaVersion: '2.0',
+    valid: true,
+    graph: {
+      nodes: [
+        ...steps.map((name) => ({ id: `step:${name}`, kind: 'step', name })),
+        { id: 'channel:Approvals', kind: 'channel', name: 'Approvals' },
+      ],
+    },
+    ...overrides,
+  }) as unknown as FlowDefinitionEntry;
+
+  it('lists the Steps of the searched Flow types only, once each', () => {
+    const definitions = [
+      entry('RefundFlow', ['AwaitApproval', 'Pay']),
+      entry('OrderFlow', ['AwaitApproval', 'Ship']),
+      entry('OtherFlow', ['Hidden']),
+    ];
+
+    expect(stepTypeOptions(definitions, ['RefundFlow', 'OrderFlow'], []))
+      .toEqual(['AwaitApproval', 'Pay', 'Ship']);
+  });
+
+  it('skips definitions Version 2 cannot use', () => {
+    const definitions = [
+      entry('RefundFlow', ['Old'], { schemaVersion: '1.0' }),
+      entry('RefundFlow', ['Broken'], { valid: false }),
+    ];
+
+    expect(stepTypeOptions(definitions, ['RefundFlow'], [])).toEqual([]);
+  });
+
+  it('keeps a chosen Step listed after its Flow type leaves the search', () => {
+    expect(stepTypeOptions([entry('RefundFlow', ['Pay'])], ['RefundFlow'], ['Ship']))
+      .toEqual(['Pay', 'Ship']);
+  });
+});
+
+describe('emptyRunsText', () => {
+  const stepFilter = { id: '1', field: 'activeStepTypes', operator: 'in', value: 'A', values: ['A'] };
+
+  it('names the opt-in when the Step filter found nothing', () => {
+    const text = emptyRunsText([stepFilter], ['RefundFlow'], 'Nothing open on this page.');
+
+    expect(text).toBe(SEARCH_COPY.noActiveStepMatch);
+    expect(text).toContain('ActiveStepSearchMode');
+  });
+
+  it('does not speak for one Flow type when the search covered several', () => {
+    expect(emptyRunsText([], ['OrderFlow', 'RefundFlow'], 'No runs of this Flow type.'))
+      .toBe(SEARCH_COPY.noRunsAcrossFlowTypes);
+  });
+
+  it('keeps the view\'s own wording otherwise', () => {
+    expect(emptyRunsText([], ['RefundFlow'], 'No runs of this Flow type.')).toBe('No runs of this Flow type.');
   });
 });

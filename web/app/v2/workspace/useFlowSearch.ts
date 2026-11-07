@@ -30,7 +30,8 @@ export interface FlowSearch {
 }
 
 export function useFlowSearch(
-  flowType: string | undefined,
+  /** One search covers all of these. The Flow type of the page alone, unless the reader widened it. */
+  flowTypes: readonly string[],
   definition: FlowV2Definition | undefined,
   /** Owned by whatever renders the search controls, so there is one source of scope. */
   filters: readonly FilterRow[],
@@ -43,8 +44,10 @@ export function useFlowSearch(
   const [pageTokens, setPageTokens] = useState<string[]>(['']);
   const [page, setPage] = useState(0);
 
+  const flowTypesKey = flowTypes.join('\n');
+
   const executeSearch = useCallback(async (token = '', nextPage = 0) => {
-    if (!flowType || !definition) return;
+    if (flowTypes.length === 0 || !definition) return;
     setLoading(true);
     try {
       const response = await fetch('/api/v2/search', {
@@ -54,12 +57,12 @@ export function useFlowSearch(
           ...definitionRevisionHeaders(catalog?.definitionRevision ?? ''),
         },
         body: JSON.stringify({
-          flowType,
+          flowTypes,
           workQueuePermissions,
           filters: filters.map((filter) => ({
             field: filter.field,
             operator: filter.operator,
-            values: parseFilterValues(filter.value, filterValueType(filter.field, definition)),
+            values: filter.values ?? parseFilterValues(filter.value, filterValueType(filter.field, definition)),
           })),
           pageSize: 50,
           nextPageToken: token,
@@ -82,12 +85,12 @@ export function useFlowSearch(
     } finally {
       setLoading(false);
     }
-  }, [catalog?.definitionRevision, definition, definitionUpdateKey, filters, flowType, handleDefinitionError, workQueuePermissions]);
+  }, [catalog?.definitionRevision, definition, definitionUpdateKey, filters, flowTypesKey, handleDefinitionError, workQueuePermissions]);
 
   // `filters` only changes when the reader submits, so this cannot fire per keystroke.
   useEffect(() => {
-    if (flowType && definition) void executeSearch();
-  }, [definition, filters, flowType]);
+    if (flowTypes.length > 0 && definition) void executeSearch();
+  }, [definition, filters, flowTypesKey]);
 
   const runSearch = useCallback(() => {
     setPageTokens(['']);

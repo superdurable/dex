@@ -28,4 +28,11 @@ export const SEARCH_COPY = {
   clear: 'Clear',
   findHeading: 'Find runs',
   flowTypeLabel: 'Flow type',
+  flowTypesLabel: 'Flow types',
+  attributeNeedsOneFlowType: 'Attribute filters work on one Flow type at a time.',
+  activeStepLabel: 'Waiting at Step',
+  activeStepNote: 'Only finds runs of Flows that set ActiveStepSearchMode.',
+  noActiveStepMatch:
+    'No runs found at these Steps. Runs may still be waiting there: a Flow shows up in this search only if it set ActiveStepSearchMode.',
+  noRunsAcrossFlowTypes: 'No runs of these Flow types.',
 } as const;

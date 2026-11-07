@@ -111,7 +111,7 @@ dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refu
 dexcli dev --flow-rendering-dir ./build
 ```
 
-**v2** searches current runs for one Flow type. The canvas uses that Flow type's generated definition, so you do not pick a JSON file again. Historical runs stay on **v1**.
+**v2** searches current runs for one Flow type, or for several at once. The canvas uses that Flow type's generated definition, so you do not pick a JSON file again. Historical runs stay on **v1**.
 
 Each definition uses the Flow type and Step types that your Workers register, as described in [Flow and Step names](/reference/web/flow-visualization#flow-and-step-names). Go Flows need no **GetFlowType** or **GetStepType** override unless the analyzer reports one of the name diagnostics listed there. Generate definitions with the **dexcli** release that matches your Dex Web, and regenerate them after upgrading.
 
@@ -242,7 +242,25 @@ An indexed Attribute declaration binds the Dex Attribute key, physical search in
 
 The physical key can be a generic namespace slot such as **keyword2**. The selected Flow type scopes its meaning in this workspace, so the UI behavior does not change when different Flow types reuse that slot.
 
-The **v2** list searches one Flow type at a time. Filters include Flow ID, execution status, start and close time, and the declared indexed Attributes. Dex Web compiles these controls into a visibility query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
+The **v2** list searches the page's Flow type. Filters include Flow ID, execution status, start and close time, active Step types, and the declared indexed Attributes. Dex Web compiles these controls into a visibility query. It does not accept a raw query from the browser. Different fields use AND; multiple values for one field use OR.
+
+### Search several Flow types {#search-several-flow-types}
+
+Under **Advanced search**, tick more **Flow types** to search them in one query. The page's own Flow type stays ticked. **POST /api/v2/search** accepts **flowTypes** in place of **flowType**, and rejects a request that sends both. Every Flow type needs a valid definition.
+
+Each row then shows its Flow type and reads its indexed Attributes, Summary, and UI slots from that Flow type's definition. Opening a row moves the page to its Flow type and keeps the list. Choosing a Flow type from the picker returns to that one Flow type.
+
+A search of several Flow types accepts only built-in fields: Flow ID, execution status, start and close time, and active Step types. An indexed Attribute belongs to one Flow type, and the same physical key can mean something else in another. The API rejects such a filter, and the UI hides the Attribute control. **Working as** still applies, and offers the permissions of every Flow type searched.
+
+Only a search of one Flow type uses the builtin search backend's per-type index. A search of several reads every run and fails when that exceeds the backend's scan budget. SQL search backends have no such budget.
+
+### Find runs at a Step {#find-runs-at-a-step}
+
+Under **Advanced search**, **Waiting at Step** lists the Step types of the Flow types being searched. Tick several to match a run at any of them. The API takes the built-in filter field **activeStepTypes** with the operator **eq** or **in**. It searches the **ActiveStepTypes** field, the same one that **dexcli flow search --query** reads.
+
+A run appears only if its Flow set **ActiveStepSearchMode**, which the server does not turn on by default. See [FlowConfig](/reference/server/runtime-steps#flow-config). With the wait-for mode, a run appears only at Steps that ran **WaitFor**. A Flow can turn the mode on while it runs with **UpdateFlowConfig**. When this filter finds nothing, the list says that runs may still be waiting, because runs without the mode cannot match.
+
+The field holds the Step types active now. A run leaves the search when it moves on, after the search index catches up.
 
 Each row calls **GetDexSummary** for the logical Flow ID's current run. The RPC accepts **dex.None** and returns a **map[string]any**. Dex Web loads at most eight summaries concurrently, applies a five-second timeout to each call, and isolates a failure to its row. Indexed Attributes appear before Summary fields.
 
@@ -278,7 +296,7 @@ The Server overlays the business writes on authoritative Attribute state and eva
 
 The permission history lasts for the Flow execution and remains searchable after completion. A Server upgrade preserves permissions that are still stored but does not reconstruct permissions removed before the upgrade. A new, independent Flow execution starts from its own initial Attributes. A changed Action definition is first evaluated when a later source write sends its mapping or a new Flow starts. Removing or renaming an Action permission does not clear the old value from existing permission history.
 
-Work Queue offers the permissions declared by the selected Flow type. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers that derive them from multiple user roles. A run matches when its permission history contains any requested permission. This permission group is joined with the Flow type and other filters using AND.
+Work Queue offers the permissions declared by the Flow types being searched. Choosing **Working as** one permission sends it as **workQueuePermissions** to **POST /api/v2/search**. The API also accepts several permissions for callers that derive them from multiple user roles. A run matches when its permission history contains any requested permission. This permission group is joined with the Flow types and other filters using AND.
 
 A matching permission means an Action is or was available; it does not mean the Action is available now. A keyed gate also needs its current key, and the list reads an eventually consistent index. The run decides which Actions are currently available once it is open.
 

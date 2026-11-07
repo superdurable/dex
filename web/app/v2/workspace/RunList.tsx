@@ -35,6 +35,7 @@ export function RunList({
   scope,
   permissionControl,
   emptyText,
+  showFlowType = false,
   collapsed = false,
   onExpand,
   onSelectFlowType,
@@ -53,15 +54,18 @@ export function RunList({
   /** Which permission scopes the Work Queue. */
   permissionControl?: ReactNode;
   emptyText: string;
+  /** Names each row's Flow type, for a list that spans several. */
+  showFlowType?: boolean;
   collapsed?: boolean;
   onExpand?: () => void;
   onSelectFlowType: (flowType: string) => void;
-  onSelectRun: (flowID: string) => void;
+  onSelectRun: (flow: V2Flow) => void;
 }) {
   const { timezone } = usePreferences();
   const { flows, liveness, loading } = search;
   const groups = groupRuns(flows);
-  const uiSlots = uiSlotsOf(entry.definition);
+  // Per Flow type, because a row reads the slots its own Flow declared.
+  const uiSlotsByFlowType = new Map(flowTypes.map((candidate) => [candidate.flowType, uiSlotsOf(candidate.definition)]));
   const stateText = liveness === 'loading'
     ? WORK_QUEUE_COPY.loading
     : liveness === 'unreachable'
@@ -124,7 +128,8 @@ export function RunList({
                 >
                   <RunRowButton
                     flow={flow}
-                    uiSlots={uiSlots}
+                    showFlowType={showFlowType}
+                    uiSlots={uiSlotsByFlowType.get(flow.flowType) ?? {}}
                     stranded={strandedFlowIDs.has(flow.flowId)}
                     timezone={timezone}
                     onSelect={onSelectRun}
@@ -147,16 +152,17 @@ export function RunList({
  * No denser than the row it replaces. What the Flow declares for `recommendation` and `reason` is
  * deliberately left to the drawer — a list of reasons stops being a list.
  */
-function RunRowButton({ flow, uiSlots, stranded, timezone, onSelect }: {
+function RunRowButton({ flow, showFlowType, uiSlots, stranded, timezone, onSelect }: {
   flow: V2Flow;
+  showFlowType: boolean;
   uiSlots: UISlotMap;
   stranded: boolean;
   timezone: TimezonePreference;
-  onSelect: (flowID: string) => void;
+  onSelect: (flow: V2Flow) => void;
 }) {
   const row = runRow(flow, uiSlots);
   return (
-    <button className="rsw-row" onClick={() => onSelect(flow.flowId)} type="button">
+    <button className="rsw-row" onClick={() => onSelect(flow)} type="button">
       <span
         className={row.titleIsFlowID ? 'rsw-id t-mono' : 'rsw-id'}
         title={flow.flowId}
@@ -164,6 +170,7 @@ function RunRowButton({ flow, uiSlots, stranded, timezone, onSelect }: {
         {row.title}
       </span>
       <span className="rsw-time">{formatTimeOfDay(flow.startTime, timezone)}</span>
+      {showFlowType && <span className="rsw-state">{flow.flowType}</span>}
       <span className="rsw-state">{row.status}</span>
       {stranded && <span className="rsw-stranded">{WORK_QUEUE_COPY.strandedRow}</span>}
     </button>
