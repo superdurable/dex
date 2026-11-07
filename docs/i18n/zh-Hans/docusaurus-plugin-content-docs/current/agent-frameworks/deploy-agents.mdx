@@ -321,6 +321,52 @@ FlowType = "SupportAgent" AND ExecutionStatus = "Running"
 有两种需要人处理的情况不会出现，因为没有 Step 在等待它们：记录了 **outcome_unknown** 的
 tool call，以及等待 **execute_plan** 的草稿计划。
 
+## 花费限制 {#spend-limits}
+
+花费限制通常按账户或 API key 计算，跨越许多 session。Dex 没有内置限制。应用实现
+**ModelSpendLimit**，并通过 Python **AgentSessionOptions** 的 **spend_limit** 或 TypeScript
+的 **spendLimit** 传入。不传时，session 不做任何检查。
+
+session 在 **RunModel** 和 **CompactContext** 的每次模型调用前后调用这个接口：
+
+| 调用 | 时机 | 收到的内容 |
+| --- | --- | --- |
+| **check_model_call** | 每次 attempt 之前，在轮次控制和压缩判断之后 | session、轮次、Step 类型、attempt、session settings 和已提交的用量 |
+| **report_model_usage** | attempt 的模型调用返回时，Step 提交之前 | 同上，外加这次调用的用量和稳定的报告 ID |
+
+计数器和限额都属于应用。把账户或 API key 的引用放在 session settings 中，再在检查时读取。
+它只能是引用，因为 session settings 会被存储。
+
+**被拒绝的调用会结束这一轮。** session 把 **MODEL_CALL_REFUSED_ERROR_PREFIX** 和应用给出的
+原因写入 **AgentState.last_turn_error**，保留这一轮已完成的 tool 结果和通常的失败说明，然后
+等待下一条用户消息。那条消息开始新的一轮，并再次检查。被拒绝的 **CompactContext** 同样结束
+这一轮。session 保持存活，不涉及新的状态或 interrupt。
+
+**失败的检查等同于没有原因的拒绝。** 检查抛出异常或超过 30 秒时，这次 attempt 失败。Dex 按
+Step 的重试策略重试，没有通过检查就不会有模型调用。重试用完后，这一轮带着错误失败。要改成
+放行，在检查中捕获自己的错误并允许调用。
+
+**失败的报告不改变任何事。** 报告抛出异常或超时时，只记录日志并丢弃。让 attempt 失败会为这次
+调用再付一次费。
+
+**每次 attempt 只报告一次。** 报告 ID 是 **flow/turn/step execution/attempt**，所以每个 ID 只
+计一次。重试是一次新的付费调用，ID 也是新的。Step 已报告但没有提交时，比如 Worker 崩溃，
+重试时会再报告一次。两次调用都付了费，所以报告的总量会超过 **AgentUsage**，后者只保留已提交的
+attempt。报告还带有包含这次调用的 session 用量，按 session 计数的应用可以在下一次报告时
+弥补被丢弃的报告。
+
+设计时要考虑四个限制：
+
+- 检查限制的是下一次调用，不是它的花费。同时通过检查的 session 可能超出限额。
+- Claude Agent SDK session 这样的 harness 每个轮次段只检查一次，用量在段结束时才到达。一段可能
+  因为其中所有模型调用而超出限额。同时设置 harness 自己的预算选项，比如 Python 的
+  **max_budget_usd** 或 TypeScript 的 **maxBudgetUsd**。
+- 失败、被取消或随 Worker 丢失的调用不会报告，但 provider 可能仍然计费。有些框架不提供 token
+  数，所以报告可能显示 **model_calls** 大于零而 token 为零。这表示未知，不是免费。按你自己的
+  规则计算这些调用。
+- 报告不是持久的。报告在 Step 内运行，所以 Worker 在模型回答之后、报告之前崩溃时，这次报告会
+  丢失。这次 attempt 不会提交，所以 **AgentUsage** 中也没有这次调用，只有 provider 的账单有记录。
+
 ## 崩溃和重新部署 {#worker-failures}
 
 崩溃最多重跑当时正在运行的那一次调用。

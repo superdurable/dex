@@ -73,6 +73,8 @@ from dex_agents.testing import (
     ScriptedModelReply,
     ScriptedToolCall,
 )
+from tests.file_spend_limit import FileSpendLimit
+from tests.scripted_agent import SPEND_LIMIT_ENVIRONMENT_VARIABLE
 
 COMPACTION_AGENT_FLOW_TYPE = "CompactionScriptedAgent"
 STATE_DIR_ENVIRONMENT_VARIABLE = "COMPACTION_AGENT_STATE_DIR"
@@ -172,6 +174,8 @@ def build_compaction_agent_flow(
         options = replace(options, tracing=tracing)
     if message_storage:
         options = replace(options, **message_storage)
+    if os.environ.get(SPEND_LIMIT_ENVIRONMENT_VARIABLE):
+        options = replace(options, spend_limit=FileSpendLimit(state_dir))
     runner = (
         StepwiseAgentRunner(definition)
         if summary_model_call_metadata is None

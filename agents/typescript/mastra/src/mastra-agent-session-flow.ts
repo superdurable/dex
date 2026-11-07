@@ -100,6 +100,7 @@ export function createMastraAgentSessionFlow(
     interruptDeadlineMs,
     tracing,
     runModelLimit,
+    spendLimit,
     ...runnerOptions
   } = options;
   const runner = new MastraAgentRunner(agent, {
@@ -113,5 +114,6 @@ export function createMastraAgentSessionFlow(
     ...(interruptDeadlineMs === undefined ? {} : { interruptDeadlineMs }),
     ...(tracing === undefined ? {} : { tracing }),
     ...(runModelLimit === undefined ? {} : { runModelLimit }),
+    ...(spendLimit === undefined ? {} : { spendLimit }),
   });
 }

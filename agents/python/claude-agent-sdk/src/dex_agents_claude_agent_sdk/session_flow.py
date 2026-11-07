@@ -21,6 +21,7 @@ from dex_agents import (
     AgentSessionFlow,
     AgentSessionOptions,
     AgentTracingOptions,
+    ModelSpendLimit,
     RunModelLimit,
     ToolEffect,
     ToolPolicy,
@@ -44,6 +45,7 @@ def claude_agent_session_flow(
     custom_tool_server_name: str = DEFAULT_CUSTOM_TOOL_SERVER_NAME,
     tracing: AgentTracingOptions | None = None,
     run_model_limit: RunModelLimit | None = None,
+    spend_limit: ModelSpendLimit | None = None,
 ) -> AgentSessionFlow:
     """Create the durable agent session Flow for one Claude Agent SDK agent.
 
@@ -122,6 +124,11 @@ def claude_agent_session_flow(
             runs inline tools, so it can need longer than the default 15
             minutes. A failed segment reruns whole. ``None``, the default, uses
             ``RunModelLimit()``.
+        spend_limit: The application's ``ModelSpendLimit``. It is checked once
+            before each turn segment, and usage arrives when the segment ends,
+            so one segment can overshoot it. Set ``max_budget_usd`` in the
+            ``ClaudeAgentOptions`` too to bound a single segment. ``None``, the
+            default, makes no checks.
 
     Returns:
         An ``AgentSessionFlow`` that runs the agent with ``ClaudeAgentRunner``.
@@ -144,5 +151,6 @@ def claude_agent_session_flow(
             interrupt_deadline=interrupt_deadline,
             tracing=AgentTracingOptions() if tracing is None else tracing,
             run_model_limit=RunModelLimit() if run_model_limit is None else run_model_limit,
+            spend_limit=spend_limit,
         ),
     )

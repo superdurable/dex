@@ -112,6 +112,7 @@ import {
   type ToolEffect,
   type TurnControlKind,
 } from "../../src/agent-session-values.js";
+import { modelCallRefusedErrorPrefix } from "../../src/agent-session-spend-limit.js";
 import type { BuiltInTool } from "../../src/agent-built-in-tools.js";
 import {
   buildContextSummaryNote,
@@ -584,6 +585,7 @@ describe("the conformance suite's text table", () => {
       invalid_tool_task_poll_interval: invalidToolTaskPollInterval,
       tool_task_abandoned_error: toolTaskAbandonedError,
       tool_call_not_run_error_prefix: toolCallNotRunErrorPrefix,
+      model_call_refused_error_prefix: modelCallRefusedErrorPrefix,
       stepwise_context_summary_note_header: contextSummaryNoteHeader,
       stepwise_context_summary_instructions: contextSummaryInstructions,
       stepwise_context_summary_request: contextSummaryRequest,
