@@ -20,6 +20,9 @@ import { isGrpcMessageSizeError, workerErrorResponse } from "../src/grpc-status.
 import { ValueHydrator } from "../src/value-mapper.js";
 
 const dexDetailsTypeUrl = "type.googleapis.com/dex.ServiceErrorResponse";
+const receiveLimitMessage = "Received message larger than max (9 vs 5)";
+const serverSendLimitMessage =
+  "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes";
 
 test("the default receive limit matches Go and Python and keeps sends unlimited", () => {
   assert.equal(DEFAULT_GRPC_MAX_MESSAGE_BYTES, 32 * 1024 * 1024);
@@ -57,32 +60,61 @@ test("Client and Worker reject an invalid grpcMaxMessageBytes", () => {
   }
 });
 
-test("only a RESOURCE_EXHAUSTED error without status details is a size error", () => {
-  assert.equal(isGrpcMessageSizeError(sizeError()), true);
-  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, "x", emptyStatusDetails())), true);
-  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, "x", dexStatusDetails())), false);
-  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, "x", Buffer.from([0x1a, 0x7f]))), false);
+test("a RESOURCE_EXHAUSTED or OUT_OF_RANGE size diagnostic without Dex details is a size error", () => {
+  for (const [code, message] of [
+    [status.RESOURCE_EXHAUSTED, receiveLimitMessage],
+    [status.RESOURCE_EXHAUSTED, "Sent message larger than max (9 vs. 5)"],
+    [status.RESOURCE_EXHAUSTED, "grpc: trying to send message larger than max (9 vs. 5)"],
+    [status.RESOURCE_EXHAUSTED, "grpc: received message after decompression larger than max 5"],
+    [status.RESOURCE_EXHAUSTED, "Error, decoded message length too large: found 9 bytes, the limit is: 5 bytes"],
+    [status.OUT_OF_RANGE, serverSendLimitMessage],
+  ] as const) {
+    assert.equal(isGrpcMessageSizeError(grpcError(code, message)), true, message);
+  }
+  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, receiveLimitMessage, emptyStatusDetails())), true);
+  assert.equal(isGrpcMessageSizeError(grpcError(status.OUT_OF_RANGE, serverSendLimitMessage, emptyStatusDetails())), true);
+});
+
+test("other failures are not size errors", () => {
+  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, "Bandwidth exhausted")), false);
+  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, "Frame size 20000 is larger than max frame size 16384")), false);
+  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, receiveLimitMessage, dexStatusDetails())), false);
+  assert.equal(isGrpcMessageSizeError(grpcError(status.RESOURCE_EXHAUSTED, receiveLimitMessage, Buffer.from([0x1a, 0x7f]))), false);
+  assert.equal(isGrpcMessageSizeError(grpcError(status.OUT_OF_RANGE, serverSendLimitMessage, dexStatusDetails())), false);
+  assert.equal(isGrpcMessageSizeError(grpcError(status.OUT_OF_RANGE, "page token out of range")), false);
+  assert.equal(isGrpcMessageSizeError(grpcError(status.INTERNAL, receiveLimitMessage)), false);
   assert.equal(isGrpcMessageSizeError(grpcError(status.UNAVAILABLE, "down")), false);
-  assert.equal(isGrpcMessageSizeError(grpcError(status.OUT_OF_RANGE, "encoded message length too large")), false);
-  assert.equal(isGrpcMessageSizeError(new Error("not gRPC")), false);
+  assert.equal(isGrpcMessageSizeError(new Error(receiveLimitMessage)), false);
   assert.equal(isGrpcMessageSizeError(undefined), false);
 });
 
-test("an oversized batch is split until it fits and returns every value in order", async () => {
-  const service = new LimitedBlobService(2);
-  const hydrated = await hydrator(service).hydrateAll("flow", blobValues(5));
-  assert.deepEqual(hydrated.map(stringOf), [0, 1, 2, 3, 4].map((index) => `value-blob-${index}`));
-  assert.equal(service.callSizes[0], 5);
-  assert.ok(Math.max(...service.callSizes.slice(1)) > 1);
-  assert.ok(service.callSizes.length <= 2 * 5 - 1);
-});
+for (const [name, sizeFailure] of sizeFailures()) {
+  test(`an oversized batch rejected at the ${name} is split in order until it fits`, async () => {
+    const service = new LimitedBlobService(2, undefined, undefined, sizeFailure);
+    const hydrated = await hydrator(service).hydrateAll("flow", blobValues(5));
+    assert.deepEqual(hydrated.map(stringOf), [0, 1, 2, 3, 4].map((index) => `value-blob-${index}`));
+    assert.deepEqual(service.requestedBlobIds, [
+      ["blob-0", "blob-1", "blob-2", "blob-3", "blob-4"],
+      ["blob-0", "blob-1"],
+      ["blob-2", "blob-3", "blob-4"],
+      ["blob-2"],
+      ["blob-3", "blob-4"],
+    ]);
+  });
 
-test("N blobs that each need their own call take exactly 2N-1 calls", async () => {
-  const service = new LimitedBlobService(1);
-  const hydrated = await hydrator(service).hydrateAll("flow", blobValues(4));
-  assert.equal(hydrated.length, 4);
-  assert.equal(service.callSizes.length, 2 * 4 - 1);
-});
+  test(`N blobs that each need their own call at the ${name} take exactly 2N-1 calls`, async () => {
+    const service = new LimitedBlobService(1, undefined, undefined, sizeFailure);
+    const hydrated = await hydrator(service).hydrateAll("flow", blobValues(4));
+    assert.equal(hydrated.length, 4);
+    assert.equal(service.callSizes.length, 2 * 4 - 1);
+  });
+
+  test(`hydrateAll names the blob that does not fit at the ${name} after splitting`, async () => {
+    const service = new LimitedBlobService(1, "blob-2", undefined, sizeFailure);
+    const failure = await rejection(hydrator(service).hydrateAll("flow-1", blobValues(4)));
+    assertTooLarge(failure, "flow-1", "blob-2", sizeFailure);
+  });
+}
 
 test("a repeated blob is requested once and fills every position", async () => {
   const service = new LimitedBlobService(1);
@@ -98,12 +130,6 @@ test("hydrate reports one blob over the limit by name", async () => {
   assert.equal(service.callSizes.length, 1);
 });
 
-test("hydrateAll names the blob that does not fit after splitting", async () => {
-  const service = new LimitedBlobService(1, "blob-2");
-  const failure = await rejection(hydrator(service).hydrateAll("flow-1", blobValues(4)));
-  assertTooLarge(failure, "flow-1", "blob-2");
-});
-
 test("a size failure from a batch of one is not retried", async () => {
   const service = new LimitedBlobService(0);
   await rejection(hydrator(service).hydrateAll("flow-1", blobValues(1)));
@@ -113,6 +139,8 @@ test("a size failure from a batch of one is not retried", async () => {
 for (const [name, failure] of [
   ["an unavailable service", grpcError(status.UNAVAILABLE, "down")],
   ["a Dex RESOURCE_EXHAUSTED error", grpcError(status.RESOURCE_EXHAUSTED, "quota", dexStatusDetails())],
+  ["a RESOURCE_EXHAUSTED error without a size diagnostic", grpcError(status.RESOURCE_EXHAUSTED, "Bandwidth exhausted")],
+  ["a Dex OUT_OF_RANGE error", grpcError(status.OUT_OF_RANGE, serverSendLimitMessage, dexStatusDetails())],
 ] as const) {
   test(`${name} is not split and keeps its error`, async () => {
     const service = new LimitedBlobService(1, undefined, failure);
@@ -129,21 +157,26 @@ test("a Worker failure keeps the blob, Flow ID, and gRPC message", () => {
 });
 
 class LimitedBlobService {
-  public readonly callSizes: number[] = [];
+  public readonly requestedBlobIds: string[][] = [];
 
   public constructor(
     private readonly maxBlobs: number,
     private readonly oversizedBlobId?: string,
     private readonly failure?: ServiceError,
+    private readonly sizeFailure: ServiceError = sizeError(),
   ) {}
 
+  public get callSizes(): number[] {
+    return this.requestedBlobIds.map((blobIds) => blobIds.length);
+  }
+
   public loadBlobs(request: LoadBlobsRequest, callback: (error: ServiceError | null, response: LoadBlobsResponse) => void): void {
-    this.callSizes.push(request.entries.length);
     const blobIds = request.entries.map((entry) => blobIdOf(entry.blobValue));
+    this.requestedBlobIds.push(blobIds);
     if (this.failure !== undefined) {
       callback(this.failure, undefined as unknown as LoadBlobsResponse);
     } else if (blobIds.length > this.maxBlobs || blobIds.includes(this.oversizedBlobId ?? "")) {
-      callback(sizeError(), undefined as unknown as LoadBlobsResponse);
+      callback(this.sizeFailure, undefined as unknown as LoadBlobsResponse);
     } else {
       const values = Object.fromEntries(blobIds.map((blobId) => [blobId, stringValue(`value-${blobId}`)]));
       callback(null, { values });
@@ -184,7 +217,14 @@ function blobIdOf(value: ProtoValue | undefined): string {
 }
 
 function sizeError(): ServiceError {
-  return grpcError(status.RESOURCE_EXHAUSTED, "Received message larger than max (9 vs 5)");
+  return grpcError(status.RESOURCE_EXHAUSTED, receiveLimitMessage);
+}
+
+function sizeFailures(): [string, ServiceError][] {
+  return [
+    ["SDK receive limit", sizeError()],
+    ["server send limit", grpcError(status.OUT_OF_RANGE, serverSendLimitMessage)],
+  ];
 }
 
 function grpcError(code: status, details: string, statusDetails?: Buffer): ServiceError {
@@ -213,13 +253,14 @@ async function rejection(operation: Promise<unknown>): Promise<unknown> {
   assert.fail("expected a rejection");
 }
 
-function assertTooLarge(failure: unknown, flowId: string, blobId: string): void {
+function assertTooLarge(failure: unknown, flowId: string, blobId: string, sizeFailure = sizeError()): void {
   assert.ok(failure instanceof BlobMessageTooLargeError);
   assert.equal(failure.blobId, blobId);
   assert.equal(failure.flowId, flowId);
   assert.equal(failure.code, status.RESOURCE_EXHAUSTED);
   assert.equal(failure.operation, "loadBlobs");
-  assert.equal(failure.detail, "Received message larger than max (9 vs 5)");
-  assert.match(failure.message, new RegExp(`blob "${blobId}" of Flow ID "${flowId}" .*larger than max`));
+  assert.equal(failure.detail, sizeFailure.details);
+  assert.ok(failure.message.startsWith(`blob "${blobId}" of Flow ID "${flowId}" exceeds the gRPC message size limit: `));
   assert.ok(isGrpcMessageSizeError(failure.cause));
+  assert.equal(failure.cause.code, sizeFailure.code);
 }

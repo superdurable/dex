@@ -13,12 +13,16 @@ package dex
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -194,6 +198,167 @@ func TestBlobCachePayloadRoundTrip(t *testing.T) {
 	decoded, err = unmarshalBlobCachePayload(objectBlobID, first)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(objectValue.GetObjValue(), decoded.GetObjValue()))
+}
+
+const (
+	testReceiveLimitMessage    = "grpc: received message larger than max (9 vs. 5)"
+	testServerSendLimitMessage = "Error, encoded message length too large: found 37748736 bytes, the limit is: 33554432 bytes"
+)
+
+var testMessageSizeFailures = []struct {
+	name    string
+	code    codes.Code
+	message string
+}{
+	{name: "receive limit", code: codes.ResourceExhausted, message: testReceiveLimitMessage},
+	{name: "server send limit", code: codes.OutOfRange, message: testServerSendLimitMessage},
+}
+
+// limitedHydrationFlowServiceClient fails LoadBlobs calls above maxBlobs entries, or with oversizedBlobID.
+type limitedHydrationFlowServiceClient struct {
+	dexpb.FlowServiceClient
+	maxBlobs         int
+	oversizedBlobID  string
+	failure          error
+	requestedBlobIDs [][]string
+}
+
+func (client *limitedHydrationFlowServiceClient) LoadBlobs(
+	_ context.Context,
+	request *dexpb.LoadBlobsRequest,
+	_ ...grpc.CallOption,
+) (*dexpb.LoadBlobsResponse, error) {
+	blobIDs := make([]string, 0, len(request.Entries))
+	for _, entry := range request.Entries {
+		blobIDs = append(blobIDs, entry.GetBlobValue().GetInternalBlobIdForStringValue())
+	}
+	client.requestedBlobIDs = append(client.requestedBlobIDs, blobIDs)
+	if len(blobIDs) > client.maxBlobs || slices.Contains(blobIDs, client.oversizedBlobID) {
+		return nil, client.failure
+	}
+	values := make(map[string]*dexpb.Value, len(blobIDs))
+	for _, blobID := range blobIDs {
+		values[blobID] = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "value-" + blobID}}
+	}
+	return &dexpb.LoadBlobsResponse{Values: values}, nil
+}
+
+func TestIsGrpcMessageSizeErrorRequiresCodeDiagnosticAndNoDetails(t *testing.T) {
+	sizeFailures := []*status.Status{
+		status.New(codes.ResourceExhausted, testReceiveLimitMessage),
+		status.New(codes.ResourceExhausted, "grpc: trying to send message larger than max (9 vs. 5)"),
+		status.New(codes.ResourceExhausted, "grpc: received message after decompression larger than max 5"),
+		status.New(codes.ResourceExhausted, "Received message larger than max (9 vs. 5)"),
+		status.New(codes.ResourceExhausted, "Sent message larger than max (9 vs. 5)"),
+		status.New(codes.ResourceExhausted, "Error, decoded message length too large: found 9 bytes, the limit is: 5 bytes"),
+		status.New(codes.OutOfRange, testServerSendLimitMessage),
+	}
+	for _, sizeFailure := range sizeFailures {
+		require.True(t, isGrpcMessageSizeError(sizeFailure.Err()), sizeFailure.Message())
+	}
+	otherFailures := []error{
+		status.Error(codes.ResourceExhausted, "Bandwidth exhausted"),
+		status.Error(codes.ResourceExhausted, "Frame size 20000 is larger than max frame size 16384"),
+		status.Error(codes.OutOfRange, "page token out of range"),
+		status.Error(codes.Internal, testReceiveLimitMessage),
+		status.Error(codes.Unavailable, "down"),
+		testDexStatusError(t, codes.OutOfRange, testServerSendLimitMessage),
+		errors.New(testReceiveLimitMessage),
+	}
+	for _, otherFailure := range otherFailures {
+		require.False(t, isGrpcMessageSizeError(otherFailure), otherFailure.Error())
+	}
+}
+
+func TestHydrateValuesSplitsOversizedBatchInOrder(t *testing.T) {
+	for _, sizeFailure := range testMessageSizeFailures {
+		t.Run(sizeFailure.name, func(t *testing.T) {
+			client := &limitedHydrationFlowServiceClient{
+				maxBlobs: 2,
+				failure:  status.Error(sizeFailure.code, sizeFailure.message),
+			}
+			hydrator := newValueHydrator(client, newHydrationCache(t), nil, "flow-test")
+			values := testStringBlobValues(5)
+
+			require.NoError(t, hydrator.HydrateValuesInPlace(context.Background(), valuePointers("flow-1", values)))
+			for index, value := range values {
+				require.Equal(t, fmt.Sprintf("value-blob-%d", index), value.GetStringValue())
+			}
+			require.Equal(t, [][]string{
+				{"blob-0", "blob-1", "blob-2", "blob-3", "blob-4"},
+				{"blob-0", "blob-1"},
+				{"blob-2", "blob-3", "blob-4"},
+				{"blob-2"},
+				{"blob-3", "blob-4"},
+			}, client.requestedBlobIDs)
+		})
+	}
+}
+
+func TestHydrateValuesReportsSingleOversizedBlob(t *testing.T) {
+	for _, sizeFailure := range testMessageSizeFailures {
+		t.Run(sizeFailure.name, func(t *testing.T) {
+			client := &limitedHydrationFlowServiceClient{
+				maxBlobs:        3,
+				oversizedBlobID: "blob-1",
+				failure:         status.Error(sizeFailure.code, sizeFailure.message),
+			}
+			hydrator := newValueHydrator(client, newHydrationCache(t), nil, "flow-test")
+			values := testStringBlobValues(3)
+
+			err := hydrator.HydrateValuesInPlace(context.Background(), valuePointers("flow-1", values))
+			var tooLarge *BlobMessageTooLargeError
+			require.ErrorAs(t, err, &tooLarge)
+			require.Equal(t, "flow-1", tooLarge.FlowID)
+			require.Equal(t, "blob-1", tooLarge.BlobID)
+			require.Equal(t, sizeFailure.code, status.Code(tooLarge.Err))
+			require.ErrorContains(t, err, `blob "blob-1"`)
+			require.ErrorContains(t, err, sizeFailure.message)
+			require.Equal(t, [][]string{
+				{"blob-0", "blob-1", "blob-2"},
+				{"blob-0"},
+				{"blob-1", "blob-2"},
+				{"blob-1"},
+			}, client.requestedBlobIDs)
+		})
+	}
+}
+
+func TestHydrateValuesDoesNotSplitOtherFailures(t *testing.T) {
+	otherFailures := map[string]error{
+		"unavailable":                 status.Error(codes.Unavailable, "down"),
+		"non-size resource exhausted": status.Error(codes.ResourceExhausted, "Bandwidth exhausted"),
+		"Dex out of range":            testDexStatusError(t, codes.OutOfRange, testServerSendLimitMessage),
+	}
+	for name, otherFailure := range otherFailures {
+		t.Run(name, func(t *testing.T) {
+			client := &limitedHydrationFlowServiceClient{maxBlobs: 0, failure: otherFailure}
+			hydrator := newValueHydrator(client, newHydrationCache(t), nil, "flow-test")
+
+			err := hydrator.HydrateValuesInPlace(context.Background(), valuePointers("flow-1", testStringBlobValues(3)))
+			require.ErrorIs(t, err, otherFailure)
+			var tooLarge *BlobMessageTooLargeError
+			require.False(t, errors.As(err, &tooLarge))
+			require.Len(t, client.requestedBlobIDs, 1)
+		})
+	}
+}
+
+func testDexStatusError(t *testing.T, code codes.Code, message string) error {
+	t.Helper()
+	withDetails, err := status.New(code, message).WithDetails(&dexpb.ServiceErrorResponse{Detail: message})
+	require.NoError(t, err)
+	return withDetails.Err()
+}
+
+func testStringBlobValues(count int) []*dexpb.Value {
+	values := make([]*dexpb.Value, count)
+	for index := range values {
+		values[index] = &dexpb.Value{Kind: &dexpb.Value_InternalBlobIdForStringValue{
+			InternalBlobIdForStringValue: fmt.Sprintf("blob-%d", index),
+		}}
+	}
+	return values
 }
 
 func valuePointers(flowID string, values []*dexpb.Value) []flowValuePointer {

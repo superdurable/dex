@@ -38,5 +38,12 @@
 
 ### Fixed
 
+- Split a LoadBlobs batch when the Dex server rejects its response with
+  OUT_OF_RANGE for exceeding the server's send limit, as server-zd does with
+  default limits. Before, hydrating more than 32 MiB of uncached blobs failed.
+  A RESOURCE_EXHAUSTED or OUT_OF_RANGE status now splits the batch only when it
+  has no Dex error details and its message names a gRPC message size limit. A
+  single blob that does not fit still returns `BlobMessageTooLargeError`, whose
+  `Err` may now carry OUT_OF_RANGE.
 - Reject late Step heartbeats, Stream writes, and results after task cancellation,
   completion, or pull-stream reuse. Preserve progress-before-result ordering.

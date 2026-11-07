@@ -51,12 +51,33 @@ def grpc_message_size_channel_options(configured: int) -> tuple[tuple[str, int],
     )
 
 
+_GRPC_SIZE_STATUS_CODES = frozenset(
+    (grpc.StatusCode.RESOURCE_EXHAUSTED, grpc.StatusCode.OUT_OF_RANGE)
+)
+
+# Lowercase diagnostics of gRPC message size limits; transports reuse the codes otherwise.
+_GRPC_SIZE_DIAGNOSTICS = (
+    "message larger than max",
+    "message after decompression larger than max",
+    "message length too large",
+)
+
+
 def is_grpc_message_size_error(error: grpc.RpcError) -> bool:
-    """Report a gRPC size rejection, which carries no Dex service error details."""
-    if cast(grpc.Call, error).code() is not grpc.StatusCode.RESOURCE_EXHAUSTED:
+    """Report a gRPC size rejection, which carries no Dex service error details.
+
+    The receiver's limit yields RESOURCE_EXHAUSTED, and a tonic server's send limit
+    yields OUT_OF_RANGE. The message must also name a size limit, because HTTP/2 flow
+    control failures reuse RESOURCE_EXHAUSTED without details.
+    """
+    call = cast(grpc.Call, error)
+    if call.code() not in _GRPC_SIZE_STATUS_CODES:
+        return False
+    message = (call.details() or "").lower()
+    if not any(diagnostic in message for diagnostic in _GRPC_SIZE_DIAGNOSTICS):
         return False
     try:
-        status = rpc_status.from_call(cast(grpc.Call, error))
+        status = rpc_status.from_call(call)
     except ValueError:
         return False
     return status is None or not status.details

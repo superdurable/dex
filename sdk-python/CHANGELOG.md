@@ -9,8 +9,10 @@
   `grpc_max_message_bytes` on `ClientOptions` or `WorkerOptions` to change it. A
   positive value limits both directions.
 - Split a LoadBlobs request in half when its response exceeds a gRPC size limit, so a
-  Worker with an empty blob cache no longer fails on a long Flow. A single blob that
-  does not fit raises the new `BlobMessageTooLargeError`.
+  Worker with an empty blob cache no longer fails on a long Flow. Both the SDK's
+  receive limit (RESOURCE_EXHAUSTED) and the Dex server's send limit (OUT_OF_RANGE)
+  trigger the split. A single blob that does not fit raises the new
+  `BlobMessageTooLargeError`.
 
 - Add `FlowServiceTlsOptions` to Client and Worker options for verified TLS 1.2+
   connections, including async APIs and pull streams. Trust is the gRPC default
