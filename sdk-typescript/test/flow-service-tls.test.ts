@@ -14,12 +14,13 @@ import { createFlowServiceChannel } from "../src/flow-service-tls.js";
 
 const unsupportedAddress = "serverAddress as host:port, dns:///host:port, or dns://authority/host:port";
 const blobCache = {} as BlobCache;
+const defaultMessageSizeOptions = { "grpc.max_receive_message_length": 32 * 1024 * 1024 };
 
 test("omitted flowServiceTls keeps the plaintext target and options", () => {
   for (const serverAddress of ["localhost:8801", "unix:///tmp/dex.sock", "DNS:///localhost:443"]) {
     const channel = createFlowServiceChannel(serverAddress, undefined);
     assert.equal(channel.target, serverAddress);
-    assert.deepEqual(channel.channelOptions, {});
+    assert.deepEqual(channel.channelOptions, defaultMessageSizeOptions);
     assert.equal(channel.channelCredentials._isSecure(), false);
   }
 });
@@ -37,7 +38,7 @@ test("flowServiceTls accepts host:port and DNS targets", () => {
     const channel = createFlowServiceChannel(serverAddress, {});
     assert.equal(channel.target, target, serverAddress);
     assert.equal(channel.channelCredentials._isSecure(), true);
-    assert.deepEqual(channel.channelOptions, {});
+    assert.deepEqual(channel.channelOptions, defaultMessageSizeOptions);
   }
 });
 
@@ -69,11 +70,12 @@ test("flowServiceTls validates serverName and sends it as the target name and au
   }
   for (const serverName of ["dex.example.com", "127.0.0.1", "::1"]) {
     assert.deepEqual(createFlowServiceChannel("127.0.0.1:443", { serverName }).channelOptions, {
+      ...defaultMessageSizeOptions,
       "grpc.ssl_target_name_override": serverName,
       "grpc.default_authority": serverName,
     });
   }
-  assert.deepEqual(createFlowServiceChannel("localhost:443", { serverName: "" }).channelOptions, {});
+  assert.deepEqual(createFlowServiceChannel("localhost:443", { serverName: "" }).channelOptions, defaultMessageSizeOptions);
 });
 
 test("flowServiceTls requires a parsable certificate in a nonempty root CA bundle", () => {

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { status } from "@grpc/grpc-js";
+import { status } from "@grpc/grpc-js";
 
 
 /** Indicates that an API is intentionally unavailable in the current SDK phase. */
@@ -95,6 +95,62 @@ export class DexServiceError extends Error {
   ) {
     super(options?.message ?? detail, options);
     this.name = new.target.name;
+  }
+}
+
+/**
+ * Reports a blob value that alone exceeds a gRPC message size limit.
+ *
+ * Dex stores large Attribute, Channel, and RPC values as blobs, and the SDK hydrates them with
+ * LoadBlobs. The SDK first requests every uncached blob in one call. When gRPC rejects that call
+ * with RESOURCE_EXHAUSTED and no Dex error details, the SDK splits the request in half and retries
+ * each half, so N blobs take at most 2N-1 calls. This error means a single blob still does not fit
+ * in one message.
+ *
+ * The limit is usually `grpcMaxMessageBytes` on the Client or Worker options. `detail` keeps gRPC's
+ * message, which states the limit. `code` is RESOURCE_EXHAUSTED, and `cause` is the gRPC error.
+ * Raise the limit above the value size plus headroom, or split the value across several Attributes
+ * or AttributeMap instances.
+ *
+ * The SDK does not split a batch that the Dex server itself rejects for exceeding its
+ * `api.grpcMaxMessageBytes`. The server reports OUT_OF_RANGE for such a response, so the call fails
+ * with a {@link DexServiceError}. Raise the server limit above the total size of the uncached blobs.
+ *
+ * A Client call rejects with this error. A Worker reports it as a failed Step or RPC whose detail
+ * contains this message.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   const [report] = await client.getAttributes("order-42", orderReport);
+ * } catch (error) {
+ *   if (error instanceof BlobMessageTooLargeError) {
+ *     console.warn(`blob ${error.blobId} of ${error.flowId} is too large: ${error.detail}`);
+ *   } else {
+ *     throw error;
+ *   }
+ * }
+ * ```
+ * @since 1.38.0
+ */
+export class BlobMessageTooLargeError extends DexServiceError {
+  /**
+   * Creates the error for one blob.
+   * @param flowId - Flow ID that owns the blob.
+   * @param blobId - Dex blob ID of the value that did not fit.
+   * @param detail - gRPC's size failure message.
+   * @param options - Standard Error construction options.
+   */
+  public constructor(
+    flowId: string,
+    public readonly blobId: string,
+    detail: string,
+    options?: ErrorOptions,
+  ) {
+    super(status.RESOURCE_EXHAUSTED, ErrorSubStatus.UNCATEGORIZED, detail, "loadBlobs", flowId, {
+      ...options,
+      message: `blob ${JSON.stringify(blobId)} of Flow ID ${JSON.stringify(flowId)} exceeds the gRPC message size limit: ${detail}`,
+    });
   }
 }
 

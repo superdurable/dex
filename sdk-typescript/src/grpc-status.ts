@@ -166,6 +166,26 @@ export function translateServiceError(
   }
 }
 
+/**
+ * Reports a gRPC message size rejection, which carries no Dex service error details.
+ * @returns Whether `failure` is a RESOURCE_EXHAUSTED gRPC error without status details.
+ */
+export function isGrpcMessageSizeError(failure: unknown): failure is GrpcServiceError {
+  const error = failure as Partial<GrpcServiceError> | undefined;
+  if (error?.code !== status.RESOURCE_EXHAUSTED || !(error.metadata instanceof Metadata)) {
+    return false;
+  }
+  const encoded = error.metadata.get(statusDetailsKey)[0];
+  if (!(encoded instanceof Buffer)) {
+    return true;
+  }
+  try {
+    return decodeStatus(encoded).details.length === 0;
+  } catch {
+    return false;
+  }
+}
+
 function serviceErrorResponse(error: GrpcServiceError): ServiceErrorResponse | undefined {
   const encoded = error.metadata.get(statusDetailsKey)[0];
   if (!(encoded instanceof Buffer)) {
