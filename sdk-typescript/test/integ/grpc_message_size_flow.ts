@@ -107,4 +107,10 @@ export class AboveServerLimitFlow implements Flow<void> {
     aboveServerLimitValues[Number(input) as 0 | 1 | 2].set(context, input.repeat(aboveServerLimitValueBytes));
     return { output: undefined };
   }
+
+  @rpc({ outputCodec: stringCodec })
+  public sumValueLengths(context: Context): RPCResult<string> {
+    const total = aboveServerLimitValues.reduce((sum, value) => sum + value.get(context).length, 0);
+    return { output: String(total) };
+  }
 }

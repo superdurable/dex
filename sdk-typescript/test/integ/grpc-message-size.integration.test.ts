@@ -38,10 +38,16 @@ import {
 
 const serverAddress = process.env.DEX_SERVER_ADDRESS ?? "127.0.0.1:8801";
 const twoMebibytes = 2 * 1024 * 1024;
+const defaultCacheBytes = 128 * 1024 * 1024;
+// Smaller than one value, so the Worker cache rejects every hydrated value.
+const uncachedCacheBytes = 1024;
 
-function withFreshBlobCache<Result>(run: (cache: BlobCache) => Promise<Result>): Promise<Result> {
+function withFreshBlobCache<Result>(
+  run: (cache: BlobCache) => Promise<Result>,
+  maxBytes = defaultCacheBytes,
+): Promise<Result> {
   const directory = mkdtempSync(join(tmpdir(), "dex-typescript-message-size-"));
-  const cache = openBlobCache({ directory, maxBytes: 128 * 1024 * 1024 });
+  const cache = openBlobCache({ directory, maxBytes });
   return run(cache).finally(() => {
     cache.close();
     rmSync(directory, { recursive: true, force: true });
@@ -67,6 +73,7 @@ async function withWorker<Result>(
   flow: Flow<any>,
   grpcMaxMessageBytes: number,
   run: (worker: Worker) => Promise<Result>,
+  cacheBytes = defaultCacheBytes,
 ): Promise<Result> {
   return withFreshBlobCache(async (cache) => {
     const worker = new Worker(new Registry([flow]), cache, {
@@ -79,7 +86,7 @@ async function withWorker<Result>(
     } finally {
       await worker.close();
     }
-  });
+  }, cacheBytes);
 }
 
 function countLoadBlobsCalls(worker: Worker): { count: number } {
@@ -147,6 +154,22 @@ test("a default Client splits a read above the server send limit", async () => {
     assert.deepEqual(values.map((value) => value?.[0]), ["0", "1", "2"]);
     await client.stopFlow(id);
   });
+});
+
+test("a default Worker with an empty blob cache splits a batch above the server send limit", async () => {
+  const flow = new AboveServerLimitFlow();
+  const id = flowId("grpc-size-worker-above-server-limit");
+  await withWorker(flow, 0, (worker) => withClient(flow, 0, async (client) => {
+    await client.startFlow(flow, id, undefined);
+    for (const index of aboveServerLimitValues.keys()) {
+      await client.invokeRPC(flow.writeLargeValue, id, String(index));
+    }
+    const calls = countLoadBlobsCalls(worker);
+    const total = await client.invokeRPC(flow.sumValueLengths, id);
+    assert.equal(total, String(aboveServerLimitValues.length * aboveServerLimitValueBytes));
+    assert.ok(calls.count > 1, `expected several LoadBlobs calls, saw ${calls.count}`);
+    await client.stopFlow(id);
+  }), uncachedCacheBytes);
 });
 
 test("a Client limit below one blob rejects with the named error", async () => {

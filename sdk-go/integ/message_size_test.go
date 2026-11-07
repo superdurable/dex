@@ -9,10 +9,13 @@
 package integ
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/sdk-go/dex"
@@ -128,6 +131,48 @@ func (messageSizeOutputStep) Execute(ctx dex.Context, name string) (*dex.StepDec
 	return dex.GracefulComplete(text), nil
 }
 
+// messageSizeUncachedFlow runs only on its own Worker, whose cache keeps no value.
+type messageSizeUncachedFlow struct {
+	dex.FlowDefaults
+}
+
+func (messageSizeUncachedFlow) GetSteps() []dex.StepDef {
+	return nil
+}
+
+func (flow messageSizeUncachedFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.WriteText, nil),
+		dex.DefineRPC(flow.SumTextLengths, nil),
+	}
+}
+
+func (messageSizeUncachedFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return messageSizeFlow{}.GetPersistenceSchema()
+}
+
+func (messageSizeUncachedFlow) WriteText(
+	ctx dex.Context,
+	input messageSizeTextInput,
+) (*dex.RPCResult[dex.None], error) {
+	if err := messageSizeTexts[input.Name].Set(ctx, strings.Repeat(input.Name, input.Bytes)); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (messageSizeUncachedFlow) SumTextLengths(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
+	total := 0
+	for _, name := range messageSizeTextNames {
+		text, err := messageSizeTexts[name].Get(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read text %q: %w", name, err)
+		}
+		total += len(text)
+	}
+	return &dex.RPCResult[int]{Output: total}, nil
+}
+
 func TestMessageSizeDefaultLimitCarriesValuesAboveGrpcDefault(t *testing.T) {
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "message-size-default")
@@ -179,6 +224,32 @@ func TestMessageSizeDefaultClientSplitsBatchAboveServerSendLimit(t *testing.T) {
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 }
 
+func TestMessageSizeDefaultWorkerSplitsBatchAboveServerSendLimit(t *testing.T) {
+	ctx := integrationContext(t)
+	flow := messageSizeUncachedFlow{}
+	registry, err := dex.NewRegistry([]dex.Flow{flow})
+	require.NoError(t, err)
+	startUncachedMessageSizeWorker(ctx, t, registry)
+	client, err := dex.NewClient(registry, newUncachedMessageSizeCache(t), dex.ClientOptions{
+		FlowServiceAddress: flowServiceAddress(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	flowID := newFlowID(t, "message-size-worker-above-server-limit")
+	_, err = client.StartFlow(ctx, flow, flowID, nil, dex.StartFlowOptions{})
+	require.NoError(t, err)
+	for _, name := range messageSizeTextNames {
+		require.NoError(t, client.InvokeRPC(ctx, flowID, flow.WriteText,
+			messageSizeTextInput{Name: name, Bytes: aboveServerLimitTextBytes}, nil))
+	}
+
+	var total int
+	require.NoError(t, client.InvokeRPC(ctx, flowID, flow.SumTextLengths, nil, &total))
+	require.Equal(t, len(messageSizeTextNames)*aboveServerLimitTextBytes, total)
+	require.NoError(t, client.StopFlow(ctx, flowID, dex.StopOptions{}))
+}
+
 func requireMessageSizeOutputs(t *testing.T, result dex.FlowResult, textBytes map[string]int) {
 	t.Helper()
 	require.Equal(t, dex.FlowCompleted, result.Status)
@@ -200,6 +271,24 @@ func newUncachedMessageSizeCache(t *testing.T) *blobcache.Cache {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cache.Close()) })
 	return cache
+}
+
+func startUncachedMessageSizeWorker(ctx context.Context, t *testing.T, registry *dex.Registry) {
+	t.Helper()
+	worker, err := dex.NewWorker(registry, newUncachedMessageSizeCache(t), dex.WorkerOptions{
+		FlowServiceAddress: flowServiceAddress(),
+		Pull:               &dex.PullWorkerOptions{AppWorkerID: "message-size-" + uuid.NewString()},
+	})
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() { result <- worker.Start() }()
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		require.NoError(t, worker.Stop(stopCtx))
+		require.NoError(t, <-result)
+	})
+	require.NoError(t, worker.WaitPullRegistered(ctx))
 }
 
 func newMessageSizeRegistry(t *testing.T) *dex.Registry {
