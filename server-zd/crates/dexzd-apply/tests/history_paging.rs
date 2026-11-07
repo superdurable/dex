@@ -1229,7 +1229,6 @@ fn a_byte_limit_ends_pages_early_and_the_token_loop_reaches_every_event() {
         .expect("the run has events");
     let max_response_bytes = 64 + 3 * largest_event_bytes;
 
-    let event_byte_budget = max_response_bytes - 64;
     let mut read_event_ids = Vec::new();
     let mut start_event_id = 0;
     let mut token = Vec::new();
@@ -1257,12 +1256,21 @@ fn a_byte_limit_ends_pages_early_and_the_token_loop_reaches_every_event() {
         if response.next_page_token.is_empty() {
             break;
         }
-        let page_event_bytes: usize = response.events.iter().map(response_event_bytes).sum();
-        let next_event = &all_events[read_event_ids.len()];
+        let one_more_event = get_history_events(
+            &harness.state,
+            harness.context.flow_hash,
+            harness.run_id,
+            start_event_id,
+            i32::try_from(response.events.len() + 1).expect("small page"),
+            &token,
+            0,
+            usize::MAX,
+        )
+        .expect("an unlimited page reads");
         assert!(
-            page_event_bytes + response_event_bytes(next_event) > event_byte_budget,
+            one_more_event.encoded_len() > max_response_bytes,
             "page {pages} stopped before event {} although it fit",
-            next_event.event_id
+            all_events[read_event_ids.len()].event_id
         );
         let last_event_id = response.events.last().expect("non-empty page").event_id;
         assert_eq!(
@@ -1287,8 +1295,35 @@ fn an_event_alone_over_the_byte_limit_is_reported_by_its_id() {
         .flat_map(|record| record.events)
         .collect();
     let first_event_bytes = response_event_bytes(&events[0]);
-    let max_response_bytes = 64 + first_event_bytes - 1;
+    let single_event_response_bytes = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        1,
+        &[],
+        0,
+        usize::MAX,
+    )
+    .expect("an unlimited page reads")
+    .encoded_len();
 
+    let exactly_fitting = get_history_events(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run_id,
+        0,
+        0,
+        &[],
+        0,
+        single_event_response_bytes,
+    )
+    .expect("a response exactly at the limit reads");
+    assert_eq!(exactly_fitting.events.len(), 1);
+    assert_eq!(exactly_fitting.encoded_len(), single_event_response_bytes);
+    assert!(!exactly_fitting.next_page_token.is_empty());
+
+    let max_response_bytes = single_event_response_bytes - 1;
     let result = get_history_events(
         &harness.state,
         harness.context.flow_hash,
@@ -1306,7 +1341,7 @@ fn an_event_alone_over_the_byte_limit_is_reported_by_its_id() {
             max_response_bytes: reported_limit,
         }) => {
             assert_eq!(event_id, events[0].event_id);
-            assert_eq!(size_bytes, first_event_bytes);
+            assert_eq!(size_bytes, single_event_response_bytes);
             assert_eq!(reported_limit, max_response_bytes);
         }
         other => panic!("an oversized first event is reported, got {other:?}"),

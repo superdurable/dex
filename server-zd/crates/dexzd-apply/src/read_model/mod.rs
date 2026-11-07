@@ -57,15 +57,15 @@ pub enum ReadModelError {
         /// Attribute key.
         key: String,
     },
-    /// One history event alone is larger than the response size limit.
+    /// A response holding only one history event is larger than the response size limit.
     #[error(
-        "history event {event_id} is {size_bytes} bytes, more than the {max_response_bytes}-byte \
-         response limit (api.grpcMaxMessageBytes)"
+        "a GetHistoryEvents response holding only history event {event_id} is {size_bytes} bytes, \
+         more than the {max_response_bytes}-byte response limit (api.grpcMaxMessageBytes)"
     )]
     HistoryEventTooLarge {
         /// Event that cannot be returned.
         event_id: i64,
-        /// Encoded size of the event in the response.
+        /// Encoded size of a response holding only this event.
         size_bytes: usize,
         /// Largest encoded response.
         max_response_bytes: usize,

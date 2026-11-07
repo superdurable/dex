@@ -13,6 +13,7 @@ use dexzd_keyspace::row_keys::{history_record_key, prefix_range};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, run_table_prefix};
 use dexzd_protocol::dex::{FlowHistoryEvent, GetHistoryEventsResponse, HistoryEventIdRange};
 use dexzd_protocol::dexzd::v1::HistoryRecord;
+use prost::Message;
 
 use crate::history::genesis_seq;
 use crate::read_model::{ReadModelError, RunView};
@@ -23,9 +24,6 @@ const MAX_HISTORY_SCAN_ROWS: usize = 256;
 
 /// FlowStart records the first event of every run, so window pruning removes IDs from 2.
 const FIRST_PRUNABLE_EVENT_ID: i64 = 2;
-
-/// Upper bound of the encoded response fields other than `events`.
-const NON_EVENT_RESPONSE_BYTES: usize = 64;
 
 /// Field number of `events` in `GetHistoryEventsResponse`.
 const EVENTS_FIELD_NUMBER: u32 = 1;
@@ -83,23 +81,28 @@ pub fn get_history_events(
     } else {
         usize::try_from(page_size).unwrap_or(usize::MAX)
     };
-    let event_byte_budget = max_response_bytes.saturating_sub(NON_EVENT_RESPONSE_BYTES);
     let history = HistoryRecordRows::new(&view);
     let mut events = history.collect_lineage_events(
         &lineage,
         first_event_id,
         size.saturating_add(1),
-        event_byte_budget,
+        max_response_bytes,
     )?;
     events.sort_by_key(|event| event.event_id);
-    let page_len = events_within_budget(&events[..events.len().min(size)], event_byte_budget)
-        .map_err(
-            |(event_id, size_bytes)| ReadModelError::HistoryEventTooLarge {
-                event_id,
-                size_bytes,
-                max_response_bytes,
-            },
-        )?;
+    let pruned_event_id_range = pruned_event_id_range(&view)?;
+    let page_len = events_within_limit(
+        &events,
+        size,
+        max_response_bytes,
+        pruned_event_id_range.as_ref(),
+    )
+    .map_err(
+        |(event_id, size_bytes)| ReadModelError::HistoryEventTooLarge {
+            event_id,
+            size_bytes,
+            max_response_bytes,
+        },
+    )?;
     let has_more = events.len() > page_len;
     events.truncate(page_len);
     let next_internal_event_id = events
@@ -112,7 +115,6 @@ pub fn get_history_events(
     } else {
         Vec::new()
     };
-    let pruned_event_id_range = pruned_event_id_range(&view)?;
     Ok(GetHistoryEventsResponse {
         events,
         next_page_token,
@@ -121,25 +123,54 @@ pub fn get_history_events(
     })
 }
 
-/// Returns how many leading events fit in `byte_budget`, or the ID and size of a first event that
-/// does not fit alone.
-fn events_within_budget(
+/// Returns how many of the first `page_size` events fit in a response of at most
+/// `max_response_bytes`, counting the page token, next event ID, and pruned range.
+///
+/// Returns the ID of the first event and the size of a response holding only it when that
+/// response does not fit.
+fn events_within_limit(
     events: &[FlowHistoryEvent],
-    byte_budget: usize,
+    page_size: usize,
+    max_response_bytes: usize,
+    pruned_event_id_range: Option<&HistoryEventIdRange>,
 ) -> Result<usize, (i64, usize)> {
-    let mut used_bytes = 0_usize;
-    for (index, event) in events.iter().enumerate() {
-        let event_bytes = encoded_event_bytes(event);
-        used_bytes = used_bytes.saturating_add(event_bytes);
-        if used_bytes > byte_budget {
+    let mut event_bytes = 0_usize;
+    for (index, event) in events.iter().take(page_size).enumerate() {
+        event_bytes = event_bytes.saturating_add(encoded_event_bytes(event));
+        let has_more = index + 1 < events.len();
+        let response_bytes = event_bytes.saturating_add(non_event_response_bytes(
+            event,
+            has_more,
+            pruned_event_id_range,
+        ));
+        if response_bytes > max_response_bytes {
             return if index == 0 {
-                Err((event.event_id, event_bytes))
+                Err((event.event_id, response_bytes))
             } else {
                 Ok(index)
             };
         }
     }
-    Ok(events.len())
+    Ok(events.len().min(page_size))
+}
+
+/// Encoded size of the response fields other than `events` for a page ending at `last_event`.
+fn non_event_response_bytes(
+    last_event: &FlowHistoryEvent,
+    has_more: bool,
+    pruned_event_id_range: Option<&HistoryEventIdRange>,
+) -> usize {
+    GetHistoryEventsResponse {
+        events: Vec::new(),
+        next_page_token: if has_more {
+            last_event.event_id.to_be_bytes().to_vec()
+        } else {
+            Vec::new()
+        },
+        next_internal_event_id: last_event.event_id.saturating_add(1),
+        pruned_event_id_range: pruned_event_id_range.copied(),
+    }
+    .encoded_len()
 }
 
 /// Bytes the event adds to an encoded response, including its field tag and length prefix.
