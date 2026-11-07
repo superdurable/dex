@@ -6,12 +6,17 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+use std::collections::BTreeSet;
 use std::fmt;
 
 use dexzd_apply::diagnostics::SemanticPointHash;
 use dexzd_apply::{ApplyOutcome, StateWrite};
-use dexzd_keyspace::PartitionId;
-use dexzd_protocol::dexzd::v1::{FlowCommand, LogPosition, flow_command::Command};
+use dexzd_keyspace::row_keys::prefix_range;
+use dexzd_keyspace::{ColumnFamily, FlowHash, PartitionId, RunId, RunTable, run_table_prefix};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, HistoryRowMetadata, LogPosition, flow_command::Command,
+};
+use dexzd_storage::{LocalReadView, ScanDirection, StorageError};
 use prost::Message;
 
 use crate::flow_coordination::CommittedCommand;
@@ -243,6 +248,53 @@ fn command_kind(command: &FlowCommand) -> &'static str {
     }
 }
 
+/// History metadata rows one scan of the pre-replay semantic points reads.
+const METADATA_SCAN_ROWS: usize = 256;
+
+/// Returns the semantic points that the history metadata of `runs` lists, by run, attempt,
+/// and seq, including points whose records offload deleted locally.
+///
+/// Returns an error when the store cannot be read or holds an invalid row.
+pub(crate) fn semantic_metadata_points(
+    store: &dyn LocalReadView,
+    runs: &BTreeSet<(FlowHash, RunId)>,
+) -> Result<BTreeSet<(RunId, u32, u64)>, StorageError> {
+    let mut points = BTreeSet::new();
+    for (flow_hash, run_id) in runs {
+        let prefix = run_table_prefix(*flow_hash, *run_id, RunTable::HistoryRowMetadata);
+        let (mut start, end) = prefix_range(&prefix);
+        loop {
+            let rows = store.scan(
+                ColumnFamily::Flow,
+                Some(&start),
+                Some(&end),
+                ScanDirection::Forward,
+                METADATA_SCAN_ROWS,
+            )?;
+            for (key, value) in &rows {
+                let suffix = &key[prefix.len()..];
+                if suffix.len() != 13 || suffix[8] != RunTable::HistoryRecord as u8 {
+                    continue;
+                }
+                let metadata = HistoryRowMetadata::decode(value.as_slice())?;
+                if metadata.is_semantic {
+                    let seq = u64::from_be_bytes(suffix[..8].try_into().expect("eight seq bytes"));
+                    points.insert((*run_id, metadata.attempt, seq));
+                }
+            }
+            let Some((last_key, _)) = rows.last() else {
+                break;
+            };
+            if rows.len() < METADATA_SCAN_ROWS {
+                break;
+            }
+            start.clone_from(last_key);
+            start.push(0);
+        }
+    }
+    Ok(points)
+}
+
 pub(crate) fn compare_semantic_point_hash(
     expected: &[u8; 16],
     reconstructed: &SemanticPointHash,
@@ -267,11 +319,69 @@ pub(crate) fn compare_semantic_point_hash(
 
 #[cfg(test)]
 mod tests {
-    use dexzd_apply::diagnostics::SemanticPointHash;
-    use dexzd_keyspace::RunId;
-    use dexzd_protocol::dexzd::v1::{FlowCommand, LogPosition};
+    use std::collections::BTreeSet;
 
-    use super::compare_semantic_point_hash;
+    use dexzd_apply::diagnostics::SemanticPointHash;
+    use dexzd_keyspace::row_keys::history_row_metadata_key;
+    use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable};
+    use dexzd_protocol::dexzd::v1::{FlowCommand, HistoryRowMetadata, LogPosition};
+    use dexzd_storage::{InMemoryLocalStore, LocalStore, WriteBatch};
+    use prost::Message;
+
+    use super::{METADATA_SCAN_ROWS, compare_semantic_point_hash, semantic_metadata_points};
+
+    // Offload deletes uploaded records but keeps semantic metadata, which time travel targets.
+    #[test]
+    fn semantic_points_come_from_metadata_of_records_offload_deleted() {
+        let store = InMemoryLocalStore::new();
+        let flow_hash = FlowHash(7);
+        let run_id = RunId([9; 16]);
+        let other_run = RunId([8; 16]);
+        let mut batch = WriteBatch::new();
+        let mut expected = BTreeSet::new();
+        let seq_count = u64::try_from(METADATA_SCAN_ROWS).expect("small") * 2 + 3;
+        for seq in 1..=seq_count {
+            let is_semantic = seq % 3 != 0;
+            let attempt = if seq > seq_count / 2 { 2 } else { 1 };
+            let metadata = HistoryRowMetadata {
+                is_semantic,
+                attempt,
+                ..HistoryRowMetadata::default()
+            };
+            batch.put(
+                ColumnFamily::Flow,
+                history_row_metadata_key(flow_hash, run_id, seq, RunTable::HistoryRecord, 0),
+                metadata.encode_to_vec(),
+            );
+            batch.put(
+                ColumnFamily::Flow,
+                history_row_metadata_key(flow_hash, run_id, seq, RunTable::Checkpoint, attempt),
+                HistoryRowMetadata {
+                    is_semantic: true,
+                    ..HistoryRowMetadata::default()
+                }
+                .encode_to_vec(),
+            );
+            if is_semantic {
+                expected.insert((run_id, attempt, seq));
+            }
+        }
+        batch.put(
+            ColumnFamily::Flow,
+            history_row_metadata_key(flow_hash, other_run, 5, RunTable::HistoryRecord, 0),
+            HistoryRowMetadata {
+                is_semantic: true,
+                attempt: 1,
+                ..HistoryRowMetadata::default()
+            }
+            .encode_to_vec(),
+        );
+        store.write(batch).expect("the memory store writes");
+
+        let points = semantic_metadata_points(&store, &BTreeSet::from([(flow_hash, run_id)]))
+            .expect("the metadata scans");
+        assert_eq!(points, expected);
+    }
 
     #[test]
     fn corrupted_reconstruction_names_the_command_and_semantic_key() {

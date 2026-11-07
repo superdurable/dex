@@ -149,6 +149,14 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         migrations.started > 0 && migrations.completed > 0 && migrations.abandoned > 0,
         "the seed set never started, completed, and abandoned a history migration: {total:#?}"
     );
+    let local_offload = total.local_offload;
+    assert!(
+        local_offload.rows_deleted > 0
+            && local_offload.values_offloaded > 0
+            && local_offload.time_travels_from_uploaded_history > 0,
+        "the seed set never deleted uploaded rows, offloaded a value, and time traveled from \
+         uploaded history: {total:#?}"
+    );
     assert!(
         total.history_offload_off_time_travels > 0,
         "the seed set never time traveled a run while its partition did not offload: {total:#?}"

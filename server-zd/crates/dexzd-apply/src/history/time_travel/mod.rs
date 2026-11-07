@@ -93,7 +93,7 @@ pub(crate) fn apply_time_travel(
 #[cfg(feature = "test-util")]
 pub use owner_staging::{
     StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
-    stage_time_travel_for_test,
+    stage_time_travel_for_test, stage_time_travel_from_sources_for_test,
 };
 
 /// Test entry point that stages a TimeTravel the way an owner does.
@@ -168,6 +168,29 @@ mod owner_staging {
         state: &dyn FlowStateReader,
         command: &FlowCommand,
     ) -> Result<Result<StagedTimeTravelForTest, CommandReply>, ApplyError> {
+        let run_id =
+            RunId::from_slice(&command.run_id).map_err(|error| ApplyError::InvariantViolation {
+                detail: format!("a TimeTravel command has an invalid run ID: {error}"),
+            })?;
+        let history = StateHistorySource::new(state, *context, run_id);
+        stage_time_travel_from_sources_for_test(
+            context,
+            &TimeTravelComputationSources {
+                state,
+                history: &history,
+                offloaded_values: &NoOffloadedValues,
+            },
+            command,
+        )
+    }
+
+    /// Like [`stage_time_travel_for_test`], but reads history and offloaded values from
+    /// `sources`, as an owner whose run offloaded history does.
+    pub fn stage_time_travel_from_sources_for_test(
+        context: &ApplyContext,
+        sources: &TimeTravelComputationSources<'_>,
+        command: &FlowCommand,
+    ) -> Result<Result<StagedTimeTravelForTest, CommandReply>, ApplyError> {
         let Some(Command::TimeTravel(time_travel)) = &command.command else {
             return Err(ApplyError::InvariantViolation {
                 detail: "only a TimeTravel command can be staged".to_owned(),
@@ -178,14 +201,9 @@ mod owner_staging {
                 detail: format!("a TimeTravel command has an invalid run ID: {error}"),
             })?;
         let reset = time_travel.request.clone().unwrap_or_default();
-        let history = StateHistorySource::new(state, *context, run_id);
         let computation = compute_time_travel(
             context,
-            &TimeTravelComputationSources {
-                state,
-                history: &history,
-                offloaded_values: &NoOffloadedValues,
-            },
+            sources,
             &TimeTravelComputationRequest {
                 run_id,
                 reset: &reset,

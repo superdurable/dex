@@ -17,6 +17,7 @@ use crate::command_handlers::{
     CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 use crate::history;
+use crate::history_offload::local_deletion::{delete_uploaded_history, stamp_superseded_values};
 use crate::history_offload::segment_migration::seal_or_migrate_history_segment;
 use crate::projections::history_event_links::{
     HistoryEventIndex, PendingHistoryEvents, StepEventLink, resolve_step_event_links,
@@ -282,9 +283,11 @@ impl RunCursor {
             window_event_count_before,
         );
         search_document::refresh_search_document(transaction, &self, scope)?;
+        stamp_superseded_values(transaction, self.rows, scope.now_micros)?;
         history::after_command(transaction, &mut self, window_events)?;
         seal_or_migrate_history_segment(transaction, &mut self, scope.now_micros, has_closed_run)?;
         history::delete_idle_staging(transaction, &mut self, scope.now_micros);
+        delete_uploaded_history(transaction, &mut self, scope.now_micros)?;
         self.rows.put_run_record(transaction, &self.record);
         if scope.is_replay {
             reconcile_run_storage(transaction, &mut self)?;

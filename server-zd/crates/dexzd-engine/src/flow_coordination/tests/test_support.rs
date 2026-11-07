@@ -67,6 +67,11 @@ impl MemoryStore {
             .unwrap()
             .insert((column_family, key), value);
     }
+
+    /// Returns a copy of every committed row.
+    pub(crate) fn rows(&self) -> Rows {
+        self.rows.lock().unwrap().clone()
+    }
 }
 
 pub(crate) fn apply_writes_to(rows: &mut Rows, writes: &[StateWrite]) {

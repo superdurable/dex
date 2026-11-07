@@ -15,17 +15,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use dexzd_apply::StateWrite;
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_history_segment::encode_history_segment;
+use dexzd_keyspace::row_keys::{value_garbage_key, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId, parse_run_key};
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, HistorySegmentState, RunRecord, flow_command::Command,
+    FlowCommand, HistorySegmentState, RunRecord, ValueBirthRecord, ValueGarbageRecord,
+    flow_command::Command,
 };
+use prost::Message;
 
 use crate::invariants::history_migration_invariants::{is_migration_step, must_migrate};
+use crate::invariants::value_invariants::{covering_uploaded_segment, offloaded_value_row};
 use crate::invariants::{InvariantViolation, RunContext};
 use crate::memory_state::MemoryFlowState;
 use crate::state_view::{FlowView, RunView};
 
-/// Encoding of each SEALED segment when the checker first saw it, by run and first seq.
+/// Encoding of each segment when the checker first saw it SEALED, by run and first seq. It
+/// stays after the upload as the segment's object, until the catalog row goes.
 pub(crate) type SealedSegmentEncodings = BTreeMap<(RunId, u64), Vec<u8>>;
 
 const FIRST_VALUE_ID: ValueId = ValueId {
@@ -312,12 +317,17 @@ pub(crate) fn check_segment_chain(
 
 /// Requires every history record, checkpoint, or superseded value the command deleted to be at
 /// or below the run's uploaded seq while the partition offloads history or, whatever the mode,
-/// while the run has a SEALED segment (invariant 1).
+/// while the run has a SEALED segment (invariant 1). Such a row that no UPLOADED segment covers
+/// must also be before the window start: only window pruning deletes it.
+///
+/// Returns how many history records and checkpoints the command deleted under UPLOADED
+/// segments.
 pub(crate) fn check_deletions_were_uploaded(
     flow_id: &str,
     writes: &[StateWrite],
     view: &FlowView,
-) -> Result<(), InvariantViolation> {
+) -> Result<usize, InvariantViolation> {
+    let mut uploaded_rows_deleted = 0;
     let deleted_value_rows: BTreeSet<(RunId, &[u8])> = writes
         .iter()
         .filter_map(|write| match write {
@@ -354,11 +364,25 @@ pub(crate) fn check_deletions_were_uploaded(
         if !is_fenced {
             continue;
         }
-        let uploaded_through_seq = view
-            .runs
-            .get(&parsed.run_id)
-            .and_then(|run| run.record.as_ref())
-            .map_or(0, |record| record.history_uploaded_through_seq);
+        let run = view.runs.get(&parsed.run_id);
+        let record = run.and_then(|run| run.record.as_ref());
+        let uploaded_through_seq = record.map_or(0, |record| record.history_uploaded_through_seq);
+        let window_start_seq = record.map_or(0, |record| record.window_start_seq);
+        let is_uploaded =
+            run.is_some_and(|run| covering_uploaded_segment(run, deleted_seq).is_some());
+        if !is_uploaded && deleted_seq >= window_start_seq {
+            return Err(InvariantViolation::new(
+                "H11-delete-uploaded-or-pruned",
+                format!(
+                    "Flow {flow_id} run {} deleted a {:?} row at seq {deleted_seq} that no \
+                     UPLOADED segment covers, inside the window from seq {window_start_seq}",
+                    parsed.run_id, parsed.table
+                ),
+            ));
+        }
+        if is_uploaded && *column_family == ColumnFamily::History {
+            uploaded_rows_deleted += 1;
+        }
         if deleted_seq > uploaded_through_seq {
             return Err(InvariantViolation::new(
                 "H7-delete-after-upload",
@@ -370,11 +394,192 @@ pub(crate) fn check_deletions_were_uploaded(
             ));
         }
     }
+    Ok(uploaded_rows_deleted)
+}
+
+/// Local history that offload deleted, and time travels it did not stop.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LocalOffloadCounts {
+    /// History records and checkpoints deleted under UPLOADED segments.
+    pub rows_deleted: usize,
+    /// Superseded values offloaded after their grace period.
+    pub values_offloaded: usize,
+    /// Applied TimeTravel commands whose computation read uploaded history or values.
+    pub time_travels_from_uploaded_history: usize,
+}
+
+impl LocalOffloadCounts {
+    /// Adds another seed's counts.
+    pub fn merge(&mut self, other: &Self) {
+        self.rows_deleted += other.rows_deleted;
+        self.values_offloaded += other.values_offloaded;
+        self.time_travels_from_uploaded_history += other.time_travels_from_uploaded_history;
+    }
+}
+
+/// Grace period of superseded values by command time; an oracle independent of apply.
+const SUPERSEDED_VALUE_GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+
+/// What the store held for a value that a command offloaded, read before the command committed.
+pub(crate) struct ValueOffload {
+    run_id: RunId,
+    value_id: ValueId,
+    superseded_seq: u64,
+    value_row: Vec<u8>,
+}
+
+/// Reads, before `writes` commit, the values the command offloads, and requires each to have
+/// passed its grace period by the command's time. Also requires every garbage row the command
+/// adds to carry the command's time.
+///
+/// Returns the offloads for [`check_value_offloads`], or the first violation.
+pub(crate) fn collect_value_offloads(
+    command: &FlowCommand,
+    writes: &[StateWrite],
+    state: &MemoryFlowState,
+    flow_hash: FlowHash,
+) -> Result<Vec<ValueOffload>, InvariantViolation> {
+    let mut offloads = Vec::new();
+    for write in writes {
+        let StateWrite::Put {
+            column_family: ColumnFamily::Flow,
+            key,
+            value,
+        } = write
+        else {
+            continue;
+        };
+        let Ok(parsed) = parse_run_key(key) else {
+            continue;
+        };
+        let context = format!("Flow {} run {}", command.flow_id, parsed.run_id);
+        match parsed.table {
+            RunTable::ValueGarbage if state.row(ColumnFamily::Flow, key).is_none() => {
+                let garbage = decode::<ValueGarbageRecord>(value, "value garbage")?;
+                if garbage.superseded_at_micros != command.proposed_at_micros {
+                    return Err(InvariantViolation::new(
+                        "H12-superseded-time",
+                        format!(
+                            "{context} superseded a value at {} instead of its command time {}",
+                            garbage.superseded_at_micros, command.proposed_at_micros
+                        ),
+                    ));
+                }
+            }
+            RunTable::ValueBirth => {
+                let birth = decode::<ValueBirthRecord>(value, "value birth")?;
+                let previous = state
+                    .row(ColumnFamily::Flow, key)
+                    .map(|bytes| decode::<ValueBirthRecord>(bytes, "value birth"))
+                    .transpose()?;
+                if !birth.is_offloaded || previous.is_some_and(|previous| previous.is_offloaded) {
+                    continue;
+                }
+                let value_id = ValueId::from_key_suffix(parsed.suffix).ok_or_else(|| {
+                    InvariantViolation::new("H10-offloaded-value", "birth key has no value ID")
+                })?;
+                let garbage = state
+                    .row(
+                        ColumnFamily::Flow,
+                        &value_garbage_key(flow_hash, parsed.run_id, birth.garbage_seq, value_id),
+                    )
+                    .map(|bytes| decode::<ValueGarbageRecord>(bytes, "value garbage"))
+                    .transpose()?;
+                let value_row = state
+                    .row(
+                        ColumnFamily::Value,
+                        &value_row_key(flow_hash, parsed.run_id, RunTable::Value, value_id),
+                    )
+                    .map(<[u8]>::to_vec);
+                let (Some(garbage), Some(value_row)) = (garbage, value_row) else {
+                    return Err(InvariantViolation::new(
+                        "H10-offloaded-value",
+                        format!(
+                            "{context} offloaded value {value_id:?}, which was not a stored \
+                             superseded value"
+                        ),
+                    ));
+                };
+                let is_in_grace = garbage.superseded_at_micros != 0
+                    && command.proposed_at_micros - garbage.superseded_at_micros
+                        < SUPERSEDED_VALUE_GRACE_MICROS;
+                if is_in_grace {
+                    return Err(InvariantViolation::new(
+                        "H13-superseded-value-grace",
+                        format!(
+                            "{context} offloaded value {value_id:?} at {}, within the grace \
+                             period of its supersession at {}",
+                            command.proposed_at_micros, garbage.superseded_at_micros
+                        ),
+                    ));
+                }
+                offloads.push(ValueOffload {
+                    run_id: parsed.run_id,
+                    value_id,
+                    superseded_seq: birth.garbage_seq,
+                    value_row,
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(offloads)
+}
+
+/// Requires the object of the UPLOADED segment that covers each offloaded value's superseded
+/// seq to hold the value row the store deleted.
+pub(crate) fn check_value_offloads(
+    flow_id: &str,
+    offloads: &[ValueOffload],
+    view: &FlowView,
+    objects: &SealedSegmentEncodings,
+) -> Result<(), InvariantViolation> {
+    for offload in offloads {
+        let context = format!("Flow {flow_id} run {}", offload.run_id);
+        let segment = view
+            .runs
+            .get(&offload.run_id)
+            .and_then(|run| covering_uploaded_segment(run, offload.superseded_seq))
+            .ok_or_else(|| {
+                InvariantViolation::new(
+                    "H10-offloaded-value",
+                    format!(
+                        "{context} offloaded value {:?} superseded at {}, which no UPLOADED \
+                         segment covers",
+                        offload.value_id, offload.superseded_seq
+                    ),
+                )
+            })?;
+        let stored = objects
+            .get(&(offload.run_id, segment.first_seq))
+            .ok_or_else(|| "the segment has no object".to_owned())
+            .and_then(|object| offloaded_value_row(object, offload.value_id));
+        if stored.as_deref() != Ok(offload.value_row.as_slice()) {
+            return Err(InvariantViolation::new(
+                "H10-offloaded-value",
+                format!(
+                    "{context} offloaded value {:?}, but segment {} does not hold its row: \
+                     {stored:?}",
+                    offload.value_id, segment.first_seq
+                ),
+            ));
+        }
+    }
     Ok(())
 }
 
+fn decode<RowMessage: Message + Default>(
+    bytes: &[u8],
+    table: &str,
+) -> Result<RowMessage, InvariantViolation> {
+    RowMessage::decode(bytes).map_err(|error| {
+        InvariantViolation::new("row-decoding", format!("a {table} row is corrupt: {error}"))
+    })
+}
+
 /// Encodes every SEALED segment from both stores and requires identical bytes, equal to the
-/// bytes first encoded for the segment (invariant 2). Forgets segments that are no longer SEALED.
+/// bytes first encoded for the segment (invariant 2). Keeps the encoding of an UPLOADED segment
+/// as its object, and forgets segments whose catalog row is gone.
 pub(crate) fn check_sealed_segment_encodings(
     flow_id: &str,
     view: &FlowView,
@@ -391,12 +596,7 @@ pub(crate) fn check_sealed_segment_encodings(
             .map_or(0, |record| record.history_uploaded_through_seq);
         let is_purging = run.record.as_ref().is_some_and(|record| record.is_purging);
         encodings.retain(|(encoded_run, first_seq), _| {
-            encoded_run != run_id
-                || (!is_purging
-                    && run
-                        .history_segments
-                        .get(first_seq)
-                        .is_some_and(|segment| segment.last_seq > uploaded_through_seq))
+            encoded_run != run_id || run.history_segments.contains_key(first_seq)
         });
         if is_purging {
             continue;

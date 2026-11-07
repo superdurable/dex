@@ -203,6 +203,7 @@ pub(crate) fn store_value(
             size_bytes,
             written_seq: value_id.run_seq,
             garbage_seq: 0,
+            is_offloaded: false,
         },
     );
     put_holder(transaction, rows, value_id, holder);
@@ -271,6 +272,8 @@ pub(crate) fn release_stored_value(
         value_garbage_key(rows.flow_hash, rows.run_id, current_seq, value_id),
         &ValueGarbageRecord {
             size_bytes: stored_value_size(stored),
+            // The command's finish stamps its proposal time.
+            superseded_at_micros: 0,
         },
     );
     Ok(())
@@ -517,7 +520,7 @@ pub(crate) fn restore_unheld_value(
     value: Value,
     seq: u64,
 ) {
-    if birth.garbage_seq != 0 {
+    if birth.garbage_seq != 0 && !birth.is_offloaded {
         // The value moves to the garbage row at `seq`, so its earlier one goes.
         transaction.delete(
             ColumnFamily::Flow,
@@ -536,6 +539,7 @@ pub(crate) fn restore_unheld_value(
             size_bytes: birth.size_bytes,
             written_seq: birth.written_seq,
             garbage_seq: seq,
+            is_offloaded: false,
         },
     );
     transaction.put_message(
@@ -543,6 +547,7 @@ pub(crate) fn restore_unheld_value(
         value_garbage_key(rows.flow_hash, rows.run_id, seq, value_id),
         &ValueGarbageRecord {
             size_bytes: birth.size_bytes,
+            superseded_at_micros: 0,
         },
     );
 }

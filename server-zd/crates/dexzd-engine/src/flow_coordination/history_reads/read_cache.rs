@@ -44,6 +44,19 @@ impl HistoryReadCacheKey {
         (!text.starts_with(HARD_DELETE_REFERENCE_PREFIX)).then_some(Self(text))
     }
 
+    /// Returns the key of an offloaded value: its value reference text and the content checksum
+    /// of the segment object that holds it, or `None` for a hard-delete value reference.
+    ///
+    /// The checksum keeps a value of a restored older timeline, which reuses value IDs, from
+    /// matching.
+    pub(crate) fn offloaded_value(reference_text: &str, content_checksum: &[u8]) -> Option<Self> {
+        let mut text = format!("{reference_text}|");
+        for byte in content_checksum {
+            write!(text, "{byte:02x}").expect("writing to a String never fails");
+        }
+        Self::from_text(text)
+    }
+
     /// Returns the key of a part of the segment object at `object_key` with `content_checksum`.
     ///
     /// The checksum keeps an object that a restored older timeline replaced from matching.
@@ -198,6 +211,23 @@ mod tests {
         assert_eq!(
             HistoryReadCacheKey::from_text(reference.clone()).map(|key| key.text().to_owned()),
             Some(reference)
+        );
+    }
+
+    #[test]
+    fn offloaded_value_keys_name_the_reference_and_the_segment_checksum() {
+        let reference = "0192f3a4-5b6c-7d8e-9fa0-b1c2d3e4f5a6/7/0";
+        let key = HistoryReadCacheKey::offloaded_value(reference, &[0xab; 16])
+            .expect("a value reference is a cache key");
+        assert_eq!(key.text(), format!("{reference}|{}", "ab".repeat(16)));
+        assert_ne!(
+            Some(key),
+            HistoryReadCacheKey::offloaded_value(reference, &[0xac; 16]),
+            "a restored timeline's object never matches"
+        );
+        assert_eq!(
+            HistoryReadCacheKey::offloaded_value("hd1|0192f3a4|42", &[0xab; 16]),
+            None
         );
     }
 

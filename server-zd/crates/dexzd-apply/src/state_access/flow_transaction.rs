@@ -159,6 +159,13 @@ impl<'reader> FlowTransaction<'reader> {
         self.rows.insert((column_family, key), None);
     }
 
+    /// Deletes the history record or checkpoint row at `key` and leaves its metadata row, which
+    /// the caller rewrites or deletes.
+    pub(crate) fn delete_history_row_keeping_metadata(&mut self, key: Vec<u8>) {
+        self.check_key_scope(ColumnFamily::History, &key);
+        self.rows.insert((ColumnFamily::History, key), None);
+    }
+
     /// Deletes a row put once since its last deletion; see [`StateWrite::SingleDelete`].
     ///
     /// Returns the reader's error when checking for such a row fails.

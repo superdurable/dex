@@ -340,6 +340,7 @@ fn unstored_values(
     value_ids: BTreeMap<ValueId, u64>,
 ) -> Result<Result<Vec<TimeTravelStagedValue>, CommandReply>, ApplyError> {
     let mut unstored = Vec::new();
+    let mut first_unavailable = None;
     for (value_id, size_bytes) in value_ids {
         if is_stored_value(transaction, rows, value_id)? {
             continue;
@@ -357,8 +358,10 @@ fn unstored_values(
                 .offloaded_values
                 .offloaded_value(rows.run_id, value_id)?,
         };
+        // Every value is asked for, so an owner learns all it must fetch at once.
         let Some(value) = value else {
-            return Ok(Err(unavailable_value_reply(rows, value_id)));
+            first_unavailable.get_or_insert(value_id);
+            continue;
         };
         unstored.push(TimeTravelStagedValue {
             value_id: Some(StoredValueId {
@@ -367,6 +370,9 @@ fn unstored_values(
             }),
             value: Some(value),
         });
+    }
+    if let Some(value_id) = first_unavailable {
+        return Ok(Err(unavailable_value_reply(rows, value_id)));
     }
     Ok(Ok(unstored))
 }

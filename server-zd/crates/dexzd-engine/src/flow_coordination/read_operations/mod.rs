@@ -8,6 +8,7 @@
 
 //! Client reads. They see only committed state, never the speculative overlay (plan 6.4).
 
+mod blob_reads;
 mod history_pages;
 mod permission_json;
 mod read_model_adapter;
@@ -16,22 +17,19 @@ pub(crate) mod state_rows;
 use std::collections::BTreeMap;
 
 use dexzd_keyspace::row_keys::channel_name_prefix;
-use dexzd_keyspace::{ColumnFamily, RunId, RunTable, TenantId, ValueReference, run_key};
+use dexzd_keyspace::{ColumnFamily, RunId, RunTable, TenantId, run_key};
 use dexzd_protocol::dex::{
     ChannelMessage, EncodedObject, FlowExecutionId, GetAttributesRequest, GetAttributesResponse,
     GetChannelMessagesRequest, GetChannelMessagesResponse, GetFlowStateRequest,
-    GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse, Kv, LoadBlobsRequest,
-    LoadBlobsResponse, Value, value,
+    GetFlowStateResponse, GetFlowSummaryRequest, GetFlowSummaryResponse, Kv, Value, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, ChannelMessageRecord, HardDeleteObjectReference, PermissionSetRecord,
-    RunRecord,
 };
 
 use crate::effects::HardDeleteObjectOwner;
 use crate::flow_coordination::read_operations::state_rows::{
-    WireValue, decode_row, read_directory, read_run, read_table_value, response_value,
-    scan_run_rows,
+    WireValue, decode_row, read_run, response_value, scan_run_rows,
 };
 use crate::flow_coordination::{FlowAddress, FlowCoordinationError, FlowCoordinatorRegistry};
 
@@ -160,98 +158,6 @@ impl FlowCoordinatorRegistry {
             close_time: (record.closed_at_micros > 0)
                 .then(|| timestamp_from_micros(record.closed_at_micros)),
         })
-    }
-
-    /// Returns the values behind value references, keyed by reference text.
-    ///
-    /// References outside the named Flow and values that no longer exist are omitted.
-    ///
-    /// Reads only committed state, so no client sees a value that may never commit. Dispatch
-    /// inlines uncommitted values instead.
-    pub async fn load_blobs(
-        &self,
-        tenant_id: TenantId,
-        request: LoadBlobsRequest,
-    ) -> Result<LoadBlobsResponse, FlowCoordinationError> {
-        self.check_running()?;
-        let committed = self.inner.dependencies.committer.committed_view()?;
-        let mut values = BTreeMap::new();
-        for entry in request.entries {
-            if entry.flow_id.is_empty() {
-                return Err(FlowCoordinationError::invalid_argument(
-                    "Flow ID is required for every Blob",
-                ));
-            }
-            let reference_text = match entry.blob_value.and_then(|blob_value| blob_value.kind) {
-                Some(
-                    value::Kind::InternalBlobIdForStringValue(text)
-                    | value::Kind::InternalBlobIdForObjValue(text),
-                ) => text,
-                _ => {
-                    return Err(FlowCoordinationError::invalid_argument(
-                        "blob value must be an internal blob ID",
-                    ));
-                }
-            };
-            let reference: ValueReference = reference_text.parse().map_err(|_| {
-                FlowCoordinationError::invalid_argument(format!(
-                    "blob ID {reference_text:?} is not a value reference"
-                ))
-            })?;
-            let flow = FlowAddress::new(tenant_id, entry.flow_id);
-            let context = self.flow_context(&flow);
-            let directory = read_directory(committed.as_ref(), context, &flow)?;
-            let Some(directory) = directory else {
-                // A purged and an unknown Flow have no directory; the Go Server omits both.
-                continue;
-            };
-            let is_run_of_flow = directory
-                .runs
-                .iter()
-                .any(|run| run.run_id.as_slice() == reference.run_id.as_bytes());
-            if !is_run_of_flow {
-                continue;
-            }
-            let run_record: Option<RunRecord> = decode_row(
-                committed.as_ref(),
-                ColumnFamily::Flow,
-                &run_key(
-                    context.flow_hash,
-                    reference.run_id,
-                    RunTable::RunRecord,
-                    &[],
-                ),
-                "run",
-            )?;
-            match run_record {
-                Some(record)
-                    if record.flow_id == flow.flow_id
-                        && record.tenant_id == flow.tenant_id.0
-                        && record.is_purging =>
-                {
-                    continue;
-                }
-                Some(record)
-                    if record.flow_id == flow.flow_id && record.tenant_id == flow.tenant_id.0 => {}
-                _ => return Err(FlowCoordinationError::flow_not_found(&flow.flow_id)),
-            }
-            if let Some(value) = read_table_value(
-                committed.as_ref(),
-                context.flow_hash,
-                reference.run_id,
-                reference.value_id,
-            )? {
-                values.insert(reference_text, value);
-            } else {
-                // A Worker that receives no value cannot run its Step.
-                tracing::debug!(
-                    flow_id = %flow.flow_id,
-                    reference = %reference_text,
-                    "LoadBlobs omitted a value reference that names no committed value"
-                );
-            }
-        }
-        Ok(LoadBlobsResponse { values })
     }
 
     /// Returns the state of a run through apply's read model.

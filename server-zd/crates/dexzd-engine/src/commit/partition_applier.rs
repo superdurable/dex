@@ -40,7 +40,9 @@ use crate::commit::commit_state::{
     CommitState, LEASE_VALIDITY_EXPIRED_DETAIL, NodeStopReason, PendingCommand,
     lease_validity_expired_error, partition_stopped_error,
 };
-use crate::commit::replay_checks::{compare_repeated_apply, compare_semantic_point_hash};
+use crate::commit::replay_checks::{
+    compare_repeated_apply, compare_semantic_point_hash, semantic_metadata_points,
+};
 use crate::commit::staged_state_reader::StagedStateReader;
 use crate::commit::{CommitProgress, EngineLocalStore};
 use crate::flow_coordination::{CommitError, CommittedCommand, CommittedFlowCommand};
@@ -532,6 +534,7 @@ impl FrameApplier {
         store: &dyn LocalReadView,
     ) -> Result<BTreeSet<(RunId, u32, u64)>, StorageError> {
         let mut points = BTreeSet::new();
+        let mut runs = BTreeSet::new();
         let mut start = None;
         loop {
             let rows = store.scan(
@@ -547,6 +550,7 @@ impl FrameApplier {
             for (key, value) in &rows {
                 let parsed = parse_run_key(key)
                     .map_err(|error| StorageError::Invalid(format!("history key: {error}")))?;
+                runs.insert((parsed.flow_hash, parsed.run_id));
                 if parsed.table == RunTable::HistoryRecord {
                     let history = HistoryRecord::decode(value.as_slice())?;
                     if history.is_semantic {
@@ -562,6 +566,8 @@ impl FrameApplier {
             next.push(0);
             start = Some(next);
         }
+        // Offload deletes uploaded records; their semantic metadata stays for the window.
+        points.extend(semantic_metadata_points(store, &runs)?);
         Ok(points)
     }
 

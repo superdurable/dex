@@ -34,6 +34,10 @@ const INFO_LOG_FILE_MAX_BYTES: usize = 8 * 1024 * 1024;
 const PARTITION_INDEX_DELETION_WINDOW: usize = 128 * 1024;
 /// Deletions within one window that mark a PartitionIndex file for compaction.
 const PARTITION_INDEX_DELETION_TRIGGER: usize = 32 * 1024;
+/// Consecutive History or Value entries a file's deletion counter looks at.
+const OFFLOADED_HISTORY_DELETION_WINDOW: usize = 16 * 1024;
+/// Deletions within one window that mark a History or Value file for compaction.
+const OFFLOADED_HISTORY_DELETION_TRIGGER: usize = 4 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RocksDbStoreOptions {
@@ -157,6 +161,16 @@ impl RocksDbLocalStore {
             thread,
         });
         Ok(())
+    }
+
+    /// Flushes the memtable of `cf` to a table file.
+    #[cfg(test)]
+    pub(crate) fn flush_for_test(&self, cf: ColumnFamily) -> StorageResult<()> {
+        let handle = self
+            .db
+            .cf_handle(cf.name())
+            .expect("every column family is opened");
+        Ok(self.db.flush_cf(handle)?)
     }
 
     #[cfg(test)]
@@ -436,6 +450,14 @@ fn column_family_descriptors(options: RocksDbStoreOptions) -> Vec<ColumnFamilyDe
                 cf_options.add_compact_on_deletion_collector_factory(
                     PARTITION_INDEX_DELETION_WINDOW,
                     PARTITION_INDEX_DELETION_TRIGGER,
+                    0.0,
+                );
+            }
+            if matches!(cf, ColumnFamily::History | ColumnFamily::Value) {
+                // Offload deletes uploaded history in runs; compact files full of its tombstones.
+                cf_options.add_compact_on_deletion_collector_factory(
+                    OFFLOADED_HISTORY_DELETION_WINDOW,
+                    OFFLOADED_HISTORY_DELETION_TRIGGER,
                     0.0,
                 );
             }

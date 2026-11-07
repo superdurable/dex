@@ -34,9 +34,9 @@ pub use flow_coordination_error::{FlowCoordinationError, grpc_code};
 pub use flow_coordination_ports::{
     FlowCoordinationEffectSink, HardDeleteReadError, HardDeleteUploadError,
     HardDeleteUploadOutcome, HardDeleteUploads, HardDeleteValueReader, HardDeleteValueUploader,
-    RpcInvokeError, RpcWorkerInvoker, SegmentedTimeTravelHistory, StepQueueStatus,
-    TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation,
-    WorkerRpcResult,
+    LoadedOffloadedValues, RpcInvokeError, RpcWorkerInvoker, SegmentedTimeTravelHistory,
+    StepQueueStatus, TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory,
+    WorkerRpcInvocation, WorkerRpcResult,
 };
 pub use history_reads::{HistoryReadsConfig, HistorySegmentReader};
 pub use registry::{

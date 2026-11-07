@@ -8,11 +8,18 @@
 
 use std::collections::BTreeMap;
 
-use dexzd_keyspace::{PartitionHasher, TenantId, ValueReference};
+use dexzd_keyspace::row_keys::value_row_key;
+use dexzd_keyspace::{
+    ColumnFamily, FlowHash, PartitionHasher, RunId, RunTable, TenantId, ValueId, ValueReference,
+};
 use dexzd_protocol::dex::{LoadBlobRequestEntry, LoadBlobsResponse, value};
-use dexzd_protocol::dexzd::v1::{StoredValue, StoredValueId, StoredValueReference, stored_value};
+use dexzd_protocol::dexzd::v1::{
+    HistorySegmentRecord, StoredValue, StoredValueId, StoredValueReference, ValueBirthRecord,
+    stored_value,
+};
 
 use crate::FlowStateReader;
+use crate::history_offload::segment_catalog::{CatalogPosition, SegmentCatalog, is_uploaded};
 use crate::read_model::{ReadModelError, RunView};
 use crate::values::load_stored_value;
 
@@ -88,4 +95,50 @@ pub fn load_blobs(
         }
     }
     Ok(LoadBlobsResponse { values })
+}
+
+/// Where LoadBlobs finds a value of a run that the local store no longer holds.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OffloadedValueLocation {
+    /// The value is gone: it was never offloaded, the window passed it, or no UPLOADED segment
+    /// holds it any more.
+    Absent,
+    /// The value is in the object of this UPLOADED segment of the run.
+    Uploaded(HistorySegmentRecord),
+}
+
+/// Returns where value `value_id` of run `run_id` is, when the local store holds no value row for
+/// it. Reads only the committed view; the caller reads the object afterwards.
+///
+/// A value superseded before the window start reads as absent, as window pruning deletes such
+/// local values. Returns [`ReadModelError::RunNotFound`] for a missing or purging run, or an
+/// error when stored state is corrupt.
+pub fn locate_offloaded_value(
+    reader: &dyn FlowStateReader,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    value_id: ValueId,
+) -> Result<OffloadedValueLocation, ReadModelError> {
+    let view = RunView::open(reader, flow_hash, run_id)?;
+    let birth: Option<ValueBirthRecord> = view.transaction.get_message(
+        ColumnFamily::Flow,
+        &value_row_key(flow_hash, run_id, RunTable::ValueBirth, value_id),
+        "value birth",
+    )?;
+    let Some(birth) = birth
+        .filter(|birth| birth.is_offloaded && birth.garbage_seq >= view.record.window_start_seq)
+    else {
+        return Ok(OffloadedValueLocation::Absent);
+    };
+    let catalog = SegmentCatalog::new(
+        &view.transaction,
+        view.rows,
+        view.record.history_uploaded_through_seq,
+    );
+    Ok(match catalog.position(birth.garbage_seq)? {
+        CatalogPosition::Covered(segment) if is_uploaded(&segment) => {
+            OffloadedValueLocation::Uploaded(segment)
+        }
+        CatalogPosition::Covered(_) | CatalogPosition::Gap { .. } => OffloadedValueLocation::Absent,
+    })
 }

@@ -28,10 +28,10 @@ use dexzd_engine::{
     EngineServices, FlowAddress, FlowCoordinationConfig, FlowCoordinationEffectSink,
     FlowCoordinationError, FlowCoordinationHardDeleteUploads, FlowCoordinatorDependencies,
     FlowCoordinatorRegistry, HardDeleteReadError, HardDeleteUploadError, HardDeleteUploadOutcome,
-    HardDeleteValueReader, HardDeleteValueUploader, LocalStoreConfig, RpcInvokeError,
-    RpcWorkerInvoker, SegmentedTimeTravelHistory, StepQueueStatus, SystemEngineIdSource,
-    TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory, WorkerRpcInvocation,
-    WorkerRpcResult, grpc_code,
+    HardDeleteValueReader, HardDeleteValueUploader, LoadedOffloadedValues, LocalStoreConfig,
+    RpcInvokeError, RpcWorkerInvoker, SegmentedTimeTravelHistory, StepQueueStatus,
+    SystemEngineIdSource, TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory,
+    WorkerRpcInvocation, WorkerRpcResult, grpc_code,
 };
 use dexzd_history_segment::{encode_history_segment, history_segment_object_key};
 use dexzd_keyspace::row_keys::{
@@ -591,6 +591,7 @@ impl TimeTravelHistoryOpener for ScriptedHistory {
         context: ApplyContext,
         run_id: RunId,
         segments: Arc<LoadedHistorySegments>,
+        _values: Arc<LoadedOffloadedValues>,
     ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>> {
         Box::pin(async move {
             self.opens.fetch_add(1, Ordering::SeqCst);
@@ -1575,4 +1576,87 @@ async fn a_restored_snapshot_keeps_the_staging_for_its_time_travel() {
         "the target predates the restored snapshot, so it has no recorded hash"
     );
     second.shutdown().await;
+}
+
+/// A value that offload deleted locally after its grace period comes from its uploaded segment:
+/// time travel to a point that held it reads it from object storage and stores it again.
+#[tokio::test(start_paused = true)]
+async fn a_value_offloaded_after_its_grace_period_is_staged_from_object_storage() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        LocalStoreConfig::InMemory,
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel.set_attribute("note", string_value("0")).await;
+    let target_seq = travel.run_record(run_id).next_run_seq - 1;
+    let target_time = travel.history_record(run_id, target_seq).timestamp_micros;
+    travel
+        .set_attribute("report", string_value(&"n".repeat(400)))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.offload_sealed_history(run_id).await;
+
+    let flow_hash = travel.context().flow_hash;
+    let birth_key = value_row_key(flow_hash, run_id, RunTable::ValueBirth, old_value);
+    let value_key = value_row_key(flow_hash, run_id, RunTable::Value, old_value);
+    let birth = |view: &dyn FlowStateReader| {
+        ValueBirthRecord::decode(
+            view.get(ColumnFamily::Flow, &birth_key)
+                .expect("the birth reads")
+                .expect("the birth row stays")
+                .as_slice(),
+        )
+        .expect("the birth decodes")
+    };
+    assert!(
+        birth(&travel.view()).is_offloaded,
+        "the old report is offloaded"
+    );
+    assert!(
+        travel
+            .view()
+            .get(ColumnFamily::Value, &value_key)
+            .expect("the value reads")
+            .is_none()
+    );
+
+    let reads_before = travel.history_object_reads();
+    let attempt = travel
+        .reset(reset_to_time(target_time))
+        .await
+        .expect("the reset applies");
+    assert_eq!(attempt, 2);
+    assert!(
+        travel.history_object_reads() > reads_before,
+        "the computation read the value from object storage"
+    );
+    let restored = travel
+        .attribute(run_id, "report")
+        .expect("the report is restored");
+    assert_eq!(table_value_id(&restored), old_value);
+    assert!(
+        travel
+            .view()
+            .get(ColumnFamily::Value, &value_key)
+            .expect("the value reads")
+            .is_some(),
+        "the staged value is stored again"
+    );
+    assert!(!birth(&travel.view()).is_offloaded);
+    travel.assert_every_travel_verified(1);
+    travel.shutdown().await;
 }

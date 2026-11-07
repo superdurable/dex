@@ -92,10 +92,13 @@ retried with backoff; any other failure is retried at the next rescan. Alert whe
 **dexzd_history_upload_rescan_errors_total** rises.
 
 **dexzd_history_reads_total** counts history reads. **kind** is **page** for
-GetHistoryEvents. **source** is **local** for a page that only local disk
-served, and otherwise **cache** or **object_store** for each part of an
-uploaded segment, its header or its records, that the read took from the disk
-read cache or from object storage.
+GetHistoryEvents and **blob** for LoadBlobs. For a page, **source** is **local**
+when only local disk served it, and otherwise **cache** or **object_store** for
+each part of an uploaded segment, its header or its records, that the read took
+from the disk read cache or from object storage. For LoadBlobs, **source** is
+**local** for each value that local disk served, **cache** for each value from
+the disk read cache, and **object_store** for each value and each segment header
+read from object storage.
 
 ~~~text
 # Failed API calls by class and code

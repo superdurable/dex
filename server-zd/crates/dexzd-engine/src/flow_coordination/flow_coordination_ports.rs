@@ -9,20 +9,22 @@
 //! Services the runtime calls but other modules implement: effects, Worker RPCs, hard-delete
 //! values, and time travel history.
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
-use dexzd_apply::values::NoOffloadedValues;
+use dexzd_apply::read_model::{OffloadedValueLocation, ReadModelError, locate_offloaded_value};
+use dexzd_apply::values::OffloadedValues;
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyError, FlowStateReader, LoadedHistorySegments,
     SegmentedTimeTravelComputation, TimeTravelComputationRequest,
     compute_time_travel_from_segments,
 };
-use dexzd_keyspace::RunId;
+use dexzd_keyspace::{RunId, ValueId};
 use dexzd_protocol::dex::{
     AttributeWrite, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, PullRouting, Value,
     WorkerErrorResponse,
 };
-use dexzd_protocol::dexzd::v1::{HardDeleteObjectReference, LogPosition};
+use dexzd_protocol::dexzd::v1::{HardDeleteObjectReference, HistorySegmentRecord, LogPosition};
 use futures::future::BoxFuture;
 use tokio::time::Instant;
 
@@ -237,7 +239,20 @@ pub trait TimeTravelRunHistory: Send {
         context: &ApplyContext,
         request: &TimeTravelComputationRequest<'_>,
     ) -> Result<SegmentedTimeTravelComputation, ApplyError>;
+
+    /// Returns the values that offload deleted locally which the last computation read and
+    /// this history lacks, each with the UPLOADED segment that holds it, and forgets them.
+    ///
+    /// The runtime fetches them and computes again, since the computation ran without them.
+    /// The default reports none.
+    fn take_missing_offloaded_values(&self) -> Vec<(ValueId, HistorySegmentRecord)> {
+        Vec::new()
+    }
 }
+
+/// Values that offload deleted locally, which a time travel fetched from object storage, by
+/// value ID.
+pub type LoadedOffloadedValues = BTreeMap<ValueId, Value>;
 
 /// Error from opening the history a time travel computation replays.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -253,7 +268,8 @@ pub struct TimeTravelHistoryError {
 /// segments a computation needs between computations, while it holds no committed view.
 pub trait TimeTravelHistoryOpener: Send + Sync + 'static {
     /// Opens the history of run `run_id` that `view` shows, with the uploaded segments
-    /// `segments` holds. It reads nothing from object storage.
+    /// `segments` holds and the offloaded values `values` holds. It reads nothing from object
+    /// storage.
     ///
     /// Returns [`TimeTravelHistoryError`] when the history cannot be read.
     fn open_time_travel_history(
@@ -262,12 +278,15 @@ pub trait TimeTravelHistoryOpener: Send + Sync + 'static {
         context: ApplyContext,
         run_id: RunId,
         segments: Arc<LoadedHistorySegments>,
+        values: Arc<LoadedOffloadedValues>,
     ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>>;
 }
 
-/// The [`TimeTravelHistoryOpener`] that reads local rows and uploaded history segments.
+/// The [`TimeTravelHistoryOpener`] that reads local rows, uploaded history segments, and the
+/// values that offload deleted locally.
 ///
-/// Values that the local store no longer holds are not read yet.
+/// A computation that reads an offloaded value it was not given reports the value's segment,
+/// and the runtime fetches it for the next computation.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SegmentedTimeTravelHistory;
 
@@ -275,20 +294,31 @@ impl TimeTravelHistoryOpener for SegmentedTimeTravelHistory {
     fn open_time_travel_history(
         &self,
         view: Box<dyn FlowStateReader + Send>,
-        _context: ApplyContext,
+        context: ApplyContext,
         _run_id: RunId,
         segments: Arc<LoadedHistorySegments>,
+        values: Arc<LoadedOffloadedValues>,
     ) -> BoxFuture<'_, Result<Box<dyn TimeTravelRunHistory>, TimeTravelHistoryError>> {
-        let history: Box<dyn TimeTravelRunHistory> =
-            Box::new(SegmentedRunHistory { view, segments });
+        let history: Box<dyn TimeTravelRunHistory> = Box::new(SegmentedRunHistory {
+            view,
+            context,
+            segments,
+            values,
+            missing_values: Mutex::new(BTreeMap::new()),
+        });
         Box::pin(std::future::ready(Ok(history)))
     }
 }
 
-/// History that a committed view of the local store and fetched uploaded segments hold.
+/// History that a committed view of the local store, fetched uploaded segments, and fetched
+/// offloaded values hold.
 struct SegmentedRunHistory {
     view: Box<dyn FlowStateReader + Send>,
+    context: ApplyContext,
     segments: Arc<LoadedHistorySegments>,
+    values: Arc<LoadedOffloadedValues>,
+    /// Offloaded values the computation read and `values` lacks, with their segments.
+    missing_values: Mutex<BTreeMap<ValueId, HistorySegmentRecord>>,
 }
 
 impl TimeTravelRunHistory for SegmentedRunHistory {
@@ -301,8 +331,55 @@ impl TimeTravelRunHistory for SegmentedRunHistory {
             context,
             self.view.as_ref(),
             &self.segments,
-            &NoOffloadedValues,
+            self,
             request,
         )
+    }
+
+    fn take_missing_offloaded_values(&self) -> Vec<(ValueId, HistorySegmentRecord)> {
+        std::mem::take(
+            &mut *self
+                .missing_values
+                .lock()
+                .expect("the missing value lock is poisoned only if a holder panicked"),
+        )
+        .into_iter()
+        .collect()
+    }
+}
+
+impl OffloadedValues for SegmentedRunHistory {
+    /// Returns a fetched value; for any other value that an UPLOADED segment holds, notes the
+    /// segment and returns `None`.
+    fn offloaded_value(
+        &self,
+        run_id: RunId,
+        value_id: ValueId,
+    ) -> Result<Option<Value>, ApplyError> {
+        if let Some(value) = self.values.get(&value_id) {
+            return Ok(Some(value.clone()));
+        }
+        let location = match locate_offloaded_value(
+            self.view.as_ref(),
+            self.context.flow_hash,
+            run_id,
+            value_id,
+        ) {
+            Ok(location) => location,
+            Err(ReadModelError::RunNotFound { .. }) => return Ok(None),
+            Err(ReadModelError::State(error)) => return Err(error),
+            Err(error) => {
+                return Err(ApplyError::InvariantViolation {
+                    detail: format!("locating an offloaded value failed: {error}"),
+                });
+            }
+        };
+        if let OffloadedValueLocation::Uploaded(segment) = location {
+            self.missing_values
+                .lock()
+                .expect("the missing value lock is poisoned only if a holder panicked")
+                .insert(value_id, segment);
+        }
+        Ok(None)
     }
 }

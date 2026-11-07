@@ -29,7 +29,7 @@ use crate::testdata_tree::{
 };
 
 /// Digest of every file of each version, README included. Regenerate v1 before 1.0; afterward versions are immutable: add `v<N+1>`.
-const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "da353a0fbc247ea1b83f2cc47d0ff5d5")];
+const PINNED_VERSION_DIGESTS: &[(&str, &str)] = &[("v1", "6df44f407e43345c6e87aa898024c79c")];
 /// The restoring node starts this long after the last recorded command.
 pub(crate) const RESTART_DELAY_MICROS: i64 = 60 * 60 * 1_000_000;
 

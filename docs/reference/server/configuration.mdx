@@ -289,7 +289,7 @@ on another page.
 | **history.windowEvents** | 10000 | Approximate number of the newest history events kept in the window of a run that sets no window of its own. Pruning starts when the window exceeds this value plus one prune chunk. Must be positive. The deprecated name **history.windowSemanticEvents** is still accepted with a startup warning; setting both names is an error. Changed in 0.1.21: the window counted semantic commands, not events, and the key was named **history.windowSemanticEvents**. A run that started before 0.1.21 keeps its recorded size, which now counts events, so its window reaches a little less far back. |
 | **history.pruneChunkSize** | 1000 | Most old history events pruned at a time. A run prunes at most one tenth of its window at a time, and at least one event, when that is smaller. Must be positive and must not exceed **windowEvents**. Changed in 0.1.21: the unit was semantic commands. |
 | **history.maxWindowEvents** | 100000 | Largest window that a run's **history_window_events** may set. StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents**. Must be positive. Changing it affects later requests only. Since 0.1.21. |
-| **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. A superseded value is a stored value that the run no longer holds, such as the earlier value of a rewritten Attribute. When a run's superseded values exceed this cap, the window moves forward and the oldest of them are deleted. The cap is a soft target: the window always keeps the current point, and each command does a bounded amount of pruning, so local superseded bytes can exceed the cap for a while until later commands prune them. Time travel then reaches less far back. The cap never rejects a command or fails a Flow, and superseded values do not count toward **limits.maxFlowStateBytes**. A run that keeps rewriting large values can hold up to this many superseded value bytes on local disk. Its history records, which also hold each written value, stay until a later checkpoint lets the window prune them, so they can take more space than this cap. Changed in 0.1.21: before, the 64 MiB **limits.maxFlowStateBytes** default counted superseded values, so a Flow failed before this cap took effect. |
+| **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. A superseded value is a stored value that the run no longer holds, such as the earlier value of a rewritten Attribute. When a run's superseded values exceed this cap, the window moves forward and the oldest of them are deleted. The cap is a soft target: the window always keeps the current point, and each command does a bounded amount of pruning, so local superseded bytes can exceed the cap for a while until later commands prune them. Time travel then reaches less far back. The cap never rejects a command or fails a Flow, and superseded values do not count toward **limits.maxFlowStateBytes**. It does not apply while history offload is on; see [History offload](#history-offload). A run that keeps rewriting large values can hold up to this many superseded value bytes on local disk. Its history records, which also hold each written value, stay until a later checkpoint lets the window prune them, so they can take more space than this cap. Changed in 0.1.21: before, the 64 MiB **limits.maxFlowStateBytes** default counted superseded values, so a Flow failed before this cap took effect. |
 
 Each run records **windowEvents**, **pruneChunkSize**, and
 **maxRetainedSupersededBytes** when it starts. A new value applies only to runs
@@ -359,10 +359,23 @@ its previous value. The node then logs an error and increments
 
 While offload is on, each run that starts in that partition divides its history
 into segments. A segment is sealed when it reaches **history.segmentTargetBytes**,
-when 10,000 values were superseded inside it, or when the run closes. Window
-pruning then deletes local history only after its segment is uploaded. Each run
+when 10,000 values were superseded inside it, or when the run closes. Each run
 records **history.segmentTargetBytes** when it starts, so a new value applies only
 to runs that start after the node restarts with it.
+
+Once a segment is uploaded, the run deletes its history records and checkpoints
+from local disk. The run's first record and checkpoint stay. The small metadata
+row of each checkpoint, and of each history record that is a time travel point
+or holds events, stays until the window passes it. A superseded value is a
+stored value that the run no longer holds, such as the earlier value of a
+rewritten Attribute. A superseded value of an uploaded segment is deleted from
+local disk 10 minutes after the command that superseded it, measured in command
+time. A value reference that a Worker or client just read therefore still loads
+from local disk. Each command deletes a bounded amount, and later commands of
+the run continue. A run that receives no more commands, such as a closed run,
+keeps the rest until it is deleted. While offload is on,
+**history.maxRetainedSupersededBytes** does not apply: superseded values leave
+local disk once they are uploaded.
 
 Runs that already exist when offload turns on migrate, including runs that
 started while it was off. The first command that leaves such a run running seals
@@ -374,12 +387,13 @@ deleting it after its retention deletes its local history. A run that closes
 during its migration keeps the rest of its history on local disk until it is
 deleted.
 
-Turning offload off stops sealing. History of segments sealed earlier stays on
-local disk until each segment is uploaded; then pruning returns to the window
-rule. Commands applied while offload is off belong to no segment, so turning it
-on again starts a new segment after them. Turning offload off also ends every
-migration; the rest of each such run's history follows the window rule like
-those commands.
+Turning offload off stops sealing and stops deleting uploaded history from local
+disk. History of segments sealed earlier stays on local disk until each segment
+is uploaded; then pruning returns to the window rule. History that offload
+already deleted stays readable from object storage. Commands applied while
+offload is off belong to no segment, so turning it on again starts a new segment
+after them. Turning offload off also ends every migration; the rest of each such
+run's history follows the window rule like those commands.
 
 The lease holder uploads each sealed segment to the primary object store, under
 the **history/** prefix of the bucket that holds the commit log. It uploads a
@@ -419,12 +433,19 @@ uploaded segment object is missing, fails with UNAVAILABLE and changes nothing;
 the client may retry it. The history it reads from object storage counts against
 **history.timeTravelReplayMemoryBytes** apart from the computation itself.
 
-The node keeps uploaded segment headers in memory and keeps segment headers and
-records in its disk read cache, up to **history.readCacheMaxBytes**. Uploaded
-segments never change, so cached entries are never stale. The cache survives a
-restart and is never authoritative: deleting its directory while the node is
-stopped only costs object storage reads. The node never sets the cache aside
-with a local store it rebuilds.
+LoadBlobs reads a superseded value that offload deleted from local disk from its
+uploaded segment. Values of one request that share a segment take one object
+storage read. A value that the window passed is not returned, as before. A read
+that object storage fails, or whose uploaded segment object is missing, fails
+with UNAVAILABLE. A ResetFlow whose target state holds such a value reads it
+from object storage in the same way.
+
+The node keeps uploaded segment headers in memory and keeps segment headers,
+records, and values in its disk read cache, up to **history.readCacheMaxBytes**.
+Uploaded segments never change, so cached entries are never stale. The cache
+survives a restart and is never authoritative: deleting its directory while the
+node is stopped only costs object storage reads. The node never sets the cache
+aside with a local store it rebuilds.
 
 ## Limits {#limits}
 
@@ -447,6 +468,9 @@ evicts the oldest request IDs instead.
 Changed in 0.1.22: a GetHistoryEvents page holds at most 1000 events. A
 request whose **estimate_page_size** is larger returns 1000 events and a next
 page token. Earlier versions had no such limit.
+
+Changed in 0.1.22: a LoadBlobs request names at most 1000 values. A request with
+more entries fails with INVALID_ARGUMENT. Earlier versions had no such limit.
 
 Each run records **values.maxValueBytes**, **limits.maxFlowStateBytes**,
 **limits.maxChildFlowResultBytes**, and **limits.maxRequestIdsPerRun** when it starts. A new value applies only to runs that start after the node

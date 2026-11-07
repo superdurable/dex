@@ -56,11 +56,17 @@ message ValueBirthRecord {
   uint64 written_seq = 2;
   // Seq at which the value lost its last holder (its key in table G); zero while held.
   uint64 garbage_seq = 3;
+  // The value row was deleted after its history segment was uploaded. The superseded value is
+  // then read from the uploaded segment that covers garbage_seq, and the row has no G row.
+  bool is_offloaded = 4;
 }
 
 // Row of RunTable::ValueGarbage (table G), keyed by (lost_last_holder_seq, value ID).
 message ValueGarbageRecord {
   uint64 size_bytes = 1;
+  // Proposal time of the command that superseded the value; zero in rows written before the
+  // field existed.
+  int64 superseded_at_micros = 2;
 }
 
 // A key-value pair whose value is stored.
@@ -172,6 +178,12 @@ message RunRecord {
   // The run's staged TimeTravel result, whose chunks are RunTable::TimeTravelStaging rows; unset
   // when the run has none.
   TimeTravelStagingState time_travel_staging = 65;
+  // Last seq through which the history records and checkpoints of uploaded segments were deleted
+  // locally; zero before the first deletion. Rows of seqs no uploaded segment covers stay.
+  uint64 history_local_rows_deleted_through_seq = 67;
+  // Last superseded seq through which the values of uploaded segments were offloaded or passed
+  // over; zero before the first offload.
+  uint64 history_values_offloaded_through_seq = 68;
 }
 
 // A staged TimeTravel result of a run; see TimeTravelStageCommand.
