@@ -764,6 +764,7 @@ fn metadata_pruning_deletes_old_metadata_and_maintains_the_pruned_event_range() 
         100,
         &[],
         0,
+        usize::MAX,
     )
     .expect("history reads");
     let range = response

@@ -455,8 +455,8 @@ Dropping the model's run-attempt stamps from invocation commands and from redeli
 did not make `2204788261` fail before or after this change, so that seed is a historical case
 here too. The same mutation found no failure in 128 other seeds of 1,000 commands.
 
-The v1 format pin changes from `b4398cca52dcab470ab58855a7441a9d` to
-`6f3a380adda3348a7c6e792e1b85a29e`. The regenerated snapshot store, its manifest, and
+The v1 format pin changes from `e345cf25eaaa7b81f4ab41ac8b3ba446` to
+`f416b131c12698176fe51a081f397d04`. The regenerated snapshot store, its manifest, and
 `state.txt` carry the run window counters and the history row metadata field
 `window_event_count_before`. Log objects, the workload, and the fixture README are unchanged.
 
