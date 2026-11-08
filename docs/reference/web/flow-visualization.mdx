@@ -241,7 +241,7 @@ The check covers calls in the Flow file and same-package helpers reached by hand
 
 ## State loads {#state-loads}
 
-A Step method, RPC, or Flow timeout handler receives ordinary Attributes and Channel sizes. It does not receive AttributeMap values or pending Channel messages unless it selects them. See [Selective state loading](/reference/server/runtime-steps#selective-state-loading) and [Selective RPC state loading](/reference/server/runtime-data#load-collection-state). A read of unselected state fails at run time, and a failing Step method is retried until its retry policy ends. For Go sources, **dexcli visualize** reports these reads as blocking diagnostics in every schema version:
+A Step method, RPC, or Flow timeout handler receives ordinary Attributes and Channel sizes. It does not receive AttributeMap values or pending Channel messages unless it selects them. See [Selective state loading](/reference/sdk-common/flows-and-steps#selective-state-loading) and [Selective RPC state loading](/reference/server/runtime-data#load-collection-state). A read of unselected state fails at run time, and a failing Step method is retried until its retry policy ends. For Go sources, **dexcli visualize** reports these reads as blocking diagnostics in every schema version:
 
 - **attribute_map_read_not_loaded**: **AttributeMap.Get** reads a map that no whole-map or instance load selects for this method.
 - **attribute_map_enumeration_not_loaded**: **AllInstanceKeys** or **MapSize** runs without a whole-map load. Exact-instance loads cannot enumerate, and the SDK panics.

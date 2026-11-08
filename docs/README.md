@@ -77,8 +77,7 @@ SDKs, CLI, and Web use minor versions such as `1.35.x`. Server uses each
 for a component; never invent a missing minor.
 
 The left sidebar selector uses Docusaurus's version metadata. Choosing a
-version in the select does not navigate; the Go button or Enter opens it,
-because keyboard changes on a closed native select fire `change` events. The
+version opens it immediately. The
 selector keeps the document ID when switching versions and falls back to the
 target version's index when that document is absent. It keeps the URL anchor
 when the target page has that anchor, and drops it otherwise. The selector also

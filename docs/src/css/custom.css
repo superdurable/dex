@@ -1899,3 +1899,13 @@ code {
 .markdown a[id]:not([href]) {
   scroll-margin-top: calc(var(--ifm-navbar-height) + 0.5rem);
 }
+
+.reference-version-heading {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+.reference-version-heading > * {
+  min-width: min(100%, 17rem);
+}
