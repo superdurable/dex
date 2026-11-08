@@ -52,6 +52,7 @@ the published core. It is for tests only; it needs `DEXCLI` and
 | `@superdurable/dex-agents/stepwise` | Stepwise mode: `createStepwiseAgentSessionFlow`, `functionTool`, `ToolSource`, `ModelClient`, `ScriptedModelClient` | none |
 | `@superdurable/dex-agents/ai-sdk` | `createAiSdkModelClient` for any AI SDK `LanguageModel` | optional peer `ai@^7.0.159`, the Vercel AI SDK adapter's range |
 | `@superdurable/dex-agents/mcp` | MCP servers' tools as agent tools; see [MCP tools](#mcp-tools-superdurabledex-agentsmcp) | optional peer `@modelcontextprotocol/sdk@^1.32.2` |
+| `@superdurable/dex-agents/connectors` | Reviewed Connector operations as agent tools; see [Connector tools](#connector-tools-superdurabledex-agentsconnectors) | optional peer `@superdurable/connectors-sdk` |
 | `@superdurable/dex-agents/ui-stream` | Browser streams of live sessions; see [UI streams](#ui-streams) | none |
 | `@superdurable/dex-agents/testing` | Test engine, Worker processes, waits, and `ScriptedModelClient` (the same class as the stepwise entry point's) | none |
 
@@ -1398,6 +1399,101 @@ Vercel AI SDK and Mastra also defer their own MCP client tools into tool
 Steps; use the source there for the shared idempotency key and annotation
 handling. The OpenAI Agents SDK runs its own MCP servers inline in `RunModel`,
 so a wrapper is its only path to tool Steps.
+
+## Connector tools (`@superdurable/dex-agents/connectors`)
+
+`@superdurable/dex-agents/connectors` offers reviewed Connector operations to a
+Stepwise agent as tools. `ConnectorToolSource` implements `ToolSource`, like
+`McpToolSource`. Each call runs one operation in its own tool Step through the
+Connector SDK's `runQuery` or `runMutation`, so the connector's Call ID,
+idempotency key, credential handling, and single-dispatch fence apply. Install
+the Connector SDK, an optional peer dependency, and each Connector package the
+agent uses:
+
+```bash
+npm i @superdurable/connectors-sdk @superdurable/connector-stripe
+```
+
+The subpath needs a Connector SDK release that exports `throwDexRetry`
+(superdurable/dex-connectors-library#628), and Connector packages that export
+`./dex-connector.json`. Until they ship, `package.json` pins
+`@superdurable/connectors-sdk` to `0.8.0`, which lacks the export, so this
+package does not typecheck against the registry; replace the pin with the
+released version before release. Local tests install a tarball packed from
+that branch with `npm install --no-save`.
+
+```ts
+import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+
+const stripe = newProjectConnection(project, "billing-stripe");
+const source = new ConnectorToolSource([
+  connectorTool(stripe.operations.createRefund(), stripe.reference, {
+    manifest,
+    inputValidator: CreateRefundInputSchema,
+    requiresApproval: (args) => Number(args["amount"]) > 5000,
+  }),
+]);
+```
+
+Nothing is exposed by default. `connectorTool` takes the package's parsed
+`dex-connector.json` and the input validator the package exports, and refuses
+an operation whose entry lacks `agent.exposed: true`, an `agent` value it does
+not know, an `agent.branches` key that is not an optional branch (or an
+`unknown` one on a Query), or an `inputSchema` keyword it cannot check. The
+tool name defaults to `<connectorId>_<operation in snake case>`; the
+description and argument schema come from the manifest. A Mutation is any
+operation with an `idempotencyKey` method.
+
+| Operation | Effect | Tool Step | Retries |
+| --- | --- | --- | --- |
+| Query | `read` | `CallTool` | The operation's Execute retry policy, at most three attempts |
+| Mutation with `agent.retry: safe` | `idempotent_write` | `CallTool` | The same |
+| Any other Mutation | `non_idempotent_write` | `CallSingleAttemptTool` | None |
+
+The source gives each call's tool Step the operation's `executeMethodTimeoutMs`
+and retry policy through `toolCallStepOptions`, a movement-scoped option. A
+session `toolPolicies` entry for a connector tool changes only its approval;
+the effect always comes from the manifest. Approval follows
+`agent.approval: recommended`; `requiresApproval` overrides it with a boolean
+or a per-call predicate over the decoded arguments, and a predicate that throws
+asks for approval.
+
+A call checks the arguments against `inputSchema`, then decodes them with the
+input validator; either failure is a `ToolExecutionError` the model reads, and
+the operation never runs. The Call ID comes from
+`deriveCallID(flowId, stepExecutionId, operation)` over
+`DeferredToolExecution.context`, the same on every attempt. The operation sees
+a `ConnectorStepContext`, which stores each heartbeat value, such as the
+fence's marker, as the tool Step's text checkpoint in the Python core's JSON
+form, so the session's heartbeats repeat it and the next attempt reads it
+back. A `RetryError` goes through `throwDexRetry`.
+
+| Branch | Record | The model reads |
+| --- | --- | --- |
+| A required (success) branch | `succeeded` | The value as compact JSON, keys sorted |
+| Listed `rejected` under `agent.branches` | `failed` (`ToolExecutionError`) | `<connector> <operation> returned <branch>: <kind>: <message>` |
+| `defect` | `failed` | The same text |
+| A Query branch not listed | `failed` | The same text |
+| `uncertain`, listed `unknown`, or a Mutation branch not listed | `outcome_unknown` (`ToolOutcomeUnknownError`) | `outcomeUnknownToolResult` |
+
+A result over `maxResultBytes` (default `defaultConnectorResultMaxBytes`,
+64 KiB of UTF-8 text, set per source or per tool) is cut, followed by
+`connectorResultTruncatedNote`, and `AgentToolCall.truncatedOutputBytes` holds
+the full size.
+
+Writes are ordered: the source marks every connector write
+`DeferredToolCall.ordered`, so the writes of one model response run one at a
+time in the model's order while reads run in parallel. `RunModel` starts the
+next queued write (`AgentToolCall.writeQueued`) before any model call and raises
+its approval only then. Once a write is not `succeeded`, the response's later
+writes record `failed` with `skipped: true` and the error
+`` `${toolCallNotRunErrorPrefix}: ${toolCallSkippedAfterWriteDetail}` ``.
+Steering and `cancel_turn` cancel queued writes as they cancel unstarted calls.
+
+Framework adapters do not offer connector tools yet; `ToolSource` is Stepwise
+only.
 
 ## UI streams
 

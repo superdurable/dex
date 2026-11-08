@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { AsyncContext, RetryPolicy } from "@superdurable/dex";
+
 import type { BuiltInTool } from "./agent-built-in-tools.js";
 import type { ContextSummaryRequest, ContextSummaryResult } from "./agent-context-compaction.js";
 import type {
@@ -279,6 +281,15 @@ export interface DeferredToolCall {
    * the tool without listing it again. Omit it to store nothing.
    */
   readonly toolSourceReference?: string;
+  /**
+   * Whether the call is a write that runs in the model's order after the turn's earlier ordered calls.
+   * The session starts one ordered call at a time, raises its approval only when its turn comes, and
+   * records later ordered calls as skipped once one does not succeed. `read` calls ignore it. When
+   * omitted, the call runs in parallel with the turn's other calls. `ConnectorToolSource` sets it for
+   * connector writes.
+   * @since 0.3.0
+   */
+  readonly ordered?: boolean;
 }
 
 /**
@@ -430,12 +441,50 @@ export interface DeferredToolExecution {
    * @returns A Promise that resolves when the Worker accepted the heartbeat.
    */
   saveHeartbeatCheckpoint?(checkpoint: string): Promise<void>;
+  /**
+   * The tool Step's live context, absent when the caller has none, such as a unit test. It gives the Step
+   * execution ID, the attempt deadline, and heartbeats. Use it only during this call and never store it.
+   * Record heartbeats only through {@link heartbeat} and {@link saveHeartbeatCheckpoint}, because a bare
+   * `context.recordHeartbeat()` would drop the checkpoint. It is never part of stored state.
+   * `ConnectorToolSource` derives the connector Call ID from its Step execution ID.
+   * @since 0.3.0
+   */
+  readonly context?: AsyncContext;
 }
 
 /** Successful result of one deferred tool call. A result without `kind` is a `ToolExecutionResult`. */
 export interface ToolExecutionResult {
   /** Output text recorded on the call and shown to the model. */
   readonly output: string;
+  /**
+   * Size in bytes of the full output when {@link output} is a truncated copy; omit it when the output is
+   * whole. The session stores it as {@link AgentToolCall.truncatedOutputBytes}.
+   * @since 0.3.0
+   */
+  readonly truncatedOutputBytes?: number;
+}
+
+/**
+ * Timeout and retry policy of one tool call's Step, returned by
+ * {@link AgentFrameworkRunner.toolCallStepOptions}.
+ *
+ * The session applies it to the movement that starts the call's tool Step, and to no other Step. A
+ * `CallSingleAttemptTool` call takes only {@link executeMethodTimeout}; it still runs one attempt.
+ *
+ * @example
+ * ```ts
+ * const options: ToolCallStepOptions = {
+ *   executeMethodTimeout: 30_000,
+ *   executeRetry: { maximumAttempts: 3, totalDuration: 3_600_000 },
+ * };
+ * ```
+ * @since 0.3.0
+ */
+export interface ToolCallStepOptions {
+  /** Timeout of each attempt in milliseconds; omit it for the tool Step's default. */
+  readonly executeMethodTimeout?: number;
+  /** Retry policy of a `CallTool` call; omit it for the default of three attempts. */
+  readonly executeRetry?: RetryPolicy;
 }
 
 /**
@@ -599,6 +648,33 @@ export type DeferredToolOutcome = ToolExecutionResult | ToolInputRequested | Too
 
 /** Result of {@link AgentFrameworkRunner.pollToolTask}. */
 export type ToolTaskPollOutcome = ToolExecutionResult | ToolInputRequested | ToolTaskPending;
+
+/**
+ * Tool failure whose effect may or may not have happened, thrown from
+ * {@link AgentFrameworkRunner.executeDeferredToolCall}.
+ *
+ * Throw it when the tool sent a write and cannot tell whether it took effect, such as a connector
+ * operation's `uncertain` branch. The session records `outcome_unknown` with this error's message as
+ * `error`, does not retry, and the model sees {@link outcomeUnknownToolResult}. A later ordered write of
+ * the turn is skipped.
+ *
+ * @example
+ * ```ts
+ * throw new ToolOutcomeUnknownError("the provider timed out after receiving the refund");
+ * ```
+ * @since 0.3.0
+ */
+export class ToolOutcomeUnknownError extends Error {
+  /**
+   * Creates an unknown-outcome failure.
+   * @param message - Error text recorded on the call.
+   * @param options - Standard error options, such as `cause`.
+   */
+  public constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ToolOutcomeUnknownError";
+  }
+}
 
 /**
  * Tool failure that the model should see, thrown from {@link AgentFrameworkRunner.executeDeferredToolCall}.
@@ -783,6 +859,25 @@ export interface AgentFrameworkRunner<ToolOutcome extends DeferredToolOutcome = 
    * three times, then records the call `outcome_unknown` anyway, so the turn always ends.
    */
   cancelToolTask?(cancellation: ToolTaskCancellation): Promise<void>;
+  /**
+   * Returns the timeout and retry policy of one call's tool Step. Optional.
+   *
+   * Implement it when some tools need options other than the tool Steps' defaults, as the Stepwise runner
+   * does for a tool source that defines `toolCallStepOptions`. The session calls it whenever it starts a
+   * call's tool Step, including after an approval, so it must answer from the record alone. A method that
+   * throws leaves the defaults.
+   *
+   * @example
+   * ```ts
+   * public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
+   *   return toolCall.toolName === "export_report" ? { executeMethodTimeout: 120_000 } : undefined;
+   * }
+   * ```
+   * @param toolCall - The record whose tool Step starts.
+   * @returns The options, or `undefined` for the defaults.
+   * @since 0.3.0
+   */
+  toolCallStepOptions?(toolCall: AgentToolCall): ToolCallStepOptions | undefined;
   /**
    * Estimates the size of the model input that the next {@link runModelStep} sends. Optional; one of the
    * three compaction methods that {@link AgentSessionOptions.compaction} requires.

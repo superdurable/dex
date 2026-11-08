@@ -409,6 +409,15 @@ export class AgentSessionTransitions {
     this.publishToolCallResult(context, toolCall.toolCallId);
   }
 
+  /** Records a queued call final; `ResumeTurn` never waited for it, so no result is published. */
+  public finishUnscheduledToolCall(context: Context, toolCall: AgentToolCallRecord, events: StreamAgentEventWriter): void {
+    if (!isFinalToolCallStatus(toolCall.status)) {
+      throw new TypeError(`tool call ${toolCall.toolCallId} is not final: ${toolCall.status}`);
+    }
+    this.writeToolCall(context, toolCall);
+    events.writeToolCallFinished(toolCall.toolCallId, toolCall.toolName, toolCall.status as AgentToolCallStatus);
+  }
+
   public writeInterruptRaised(events: StreamAgentEventWriter, interrupt: AgentInterrupt): void {
     events.writeEvent("interrupt_raised", {
       interrupt_id: interrupt.interruptId,

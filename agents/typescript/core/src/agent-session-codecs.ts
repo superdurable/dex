@@ -345,6 +345,10 @@ export function encodeAgentToolCall(value: AgentToolCallRecord): unknown {
     task_id: value.taskId ?? null,
     task_poll_interval_seconds: value.taskPollIntervalSeconds ?? null,
     task_answer_pending: value.taskAnswerPending ?? false,
+    ordered_write: value.orderedWrite ?? false,
+    write_queued: value.writeQueued ?? false,
+    skipped: value.skipped ?? false,
+    truncated_output_bytes: value.truncatedOutputBytes ?? null,
   };
 }
 
@@ -373,6 +377,10 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord {
     taskId: reader.readNullableString("task_id"),
     taskPollIntervalSeconds: reader.readNullableInteger("task_poll_interval_seconds"),
     taskAnswerPending: reader.readBooleanOrDefault("task_answer_pending", false),
+    orderedWrite: reader.readBooleanOrDefault("ordered_write", false),
+    writeQueued: reader.readBooleanOrDefault("write_queued", false),
+    skipped: reader.readBooleanOrDefault("skipped", false),
+    truncatedOutputBytes: reader.readNullableInteger("truncated_output_bytes"),
     ...(traceContext === null ? {} : { traceContext }),
   };
   const toolSourceReference = reader.readNullableString("tool_source_reference");
