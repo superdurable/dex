@@ -584,6 +584,8 @@ fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfil
         checkpoint_command_threshold: 10_000,
         // Zero (the 4 MiB default) keeps the pinned canonical command bytes as well.
         history_segment_target_bytes: 0,
+        // Zero (the 10-minute default) keeps the pinned canonical command bytes too.
+        superseded_value_grace_micros: 0,
         ..default_run_settings()
     };
     if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {

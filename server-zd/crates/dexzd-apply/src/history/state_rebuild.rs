@@ -492,6 +492,15 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
                 ),
             });
         }
+        // Local history cleanup never records history.
+        Command::HistoryLocalCleanup(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a HistoryLocalCleanup command",
+                    history_record.seq
+                ),
+            });
+        }
         // Reviving an offloaded value never records history.
         Command::ValueRevive(_) => {
             return Err(ApplyError::InvariantViolation {

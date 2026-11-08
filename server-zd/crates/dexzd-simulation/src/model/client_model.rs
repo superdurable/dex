@@ -62,6 +62,7 @@ pub(crate) fn run_settings() -> RunSettings {
         // Zero (the 4 MiB default) keeps the pinned main-stream bytes of the regression seeds.
         history_segment_target_bytes: 0,
         delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
     }
 }
 

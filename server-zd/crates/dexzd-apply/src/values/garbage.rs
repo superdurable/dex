@@ -12,12 +12,15 @@ use dexzd_protocol::dexzd::v1::ValueGarbageRecord;
 
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
-use crate::history::{WindowAdvanceTarget, advance_window, prune_window_history};
+use crate::history::{
+    HISTORY_ROWS_PER_COMMAND, LocalCleanupBacklog, WindowAdvanceTarget, advance_window,
+    prune_window_history,
+};
 use crate::history_offload::offload_mode::is_history_offload_enabled;
 use crate::history_offload::segment_expiry::expire_passed_history_segments;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
-use crate::values::{projected_superseded_value_bytes, reconcile_run_storage};
+use crate::values::projected_superseded_value_bytes;
 
 const GARBAGE_ROWS_PER_CALL: usize = 128;
 
@@ -95,37 +98,76 @@ pub(crate) fn superseded_bytes_over_cap(cursor: &RunCursor) -> u64 {
 ///
 /// While the partition offloads history, superseded values leave local disk once uploaded, so
 /// the cap moves nothing; garbage and window history are still pruned. Segments that pruning
-/// passed then expire; `now_micros` is the command's proposal time.
+/// passed then expire; `now_micros` is the command's proposal time. The caller reconciles the
+/// run's storage.
+///
+/// Returns the backlog, unfinished when a per-command bound stopped pruning or expiry.
 pub(crate) fn enforce_superseded_byte_cap(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     now_micros: i64,
+) -> Result<LocalCleanupBacklog, ApplyError> {
+    let mut backlog = LocalCleanupBacklog::default();
+    prune_garbage_before_window(transaction, cursor, &mut backlog)?;
+    if !is_history_offload_enabled(transaction)? {
+        let superseded_bytes = projected_superseded_value_bytes(transaction, cursor)?;
+        let cap = cursor
+            .record
+            .settings
+            .unwrap_or_default()
+            .max_retained_superseded_bytes;
+        let excess_bytes = superseded_bytes.saturating_sub(cap);
+        if excess_bytes > 0
+            && let Some(target_garbage_seq) =
+                garbage_seq_to_fit_cap(transaction, cursor, excess_bytes)?
+        {
+            advance_window(
+                transaction,
+                cursor,
+                WindowAdvanceTarget::GarbageSeq(target_garbage_seq),
+            )?;
+        }
+    }
+    prune_window_and_expire_segments(transaction, cursor, now_micros, &mut backlog)?;
+    Ok(backlog)
+}
+
+/// Prunes what the window start passed and expires passed segments; marks `backlog` unfinished
+/// when a bound stops a pass.
+pub(crate) fn prune_passed_history(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    now_micros: i64,
+    backlog: &mut LocalCleanupBacklog,
 ) -> Result<(), ApplyError> {
-    prune_garbage(transaction, cursor, cursor.record.window_start_seq)?;
-    if is_history_offload_enabled(transaction)? {
-        prune_window_history(transaction, cursor)?;
-        expire_passed_history_segments(transaction, cursor, now_micros)?;
-        return reconcile_run_storage(transaction, cursor);
-    }
-    let superseded_bytes = projected_superseded_value_bytes(transaction, cursor)?;
-    let cap = cursor
-        .record
-        .settings
-        .unwrap_or_default()
-        .max_retained_superseded_bytes;
-    let excess_bytes = superseded_bytes.saturating_sub(cap);
-    if excess_bytes > 0
-        && let Some(target_garbage_seq) = garbage_seq_to_fit_cap(transaction, cursor, excess_bytes)?
+    prune_garbage_before_window(transaction, cursor, backlog)?;
+    prune_window_and_expire_segments(transaction, cursor, now_micros, backlog)
+}
+
+fn prune_garbage_before_window(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &RunCursor,
+    backlog: &mut LocalCleanupBacklog,
+) -> Result<(), ApplyError> {
+    if prune_garbage(transaction, cursor, cursor.record.window_start_seq)? == GARBAGE_ROWS_PER_CALL
     {
-        advance_window(
-            transaction,
-            cursor,
-            WindowAdvanceTarget::GarbageSeq(target_garbage_seq),
-        )?;
+        backlog.mark_unfinished();
     }
-    prune_window_history(transaction, cursor)?;
-    expire_passed_history_segments(transaction, cursor, now_micros)?;
-    reconcile_run_storage(transaction, cursor)?;
+    Ok(())
+}
+
+fn prune_window_and_expire_segments(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    now_micros: i64,
+    backlog: &mut LocalCleanupBacklog,
+) -> Result<(), ApplyError> {
+    if prune_window_history(transaction, cursor)? == HISTORY_ROWS_PER_COMMAND {
+        backlog.mark_unfinished();
+    }
+    if expire_passed_history_segments(transaction, cursor, now_micros)? {
+        backlog.mark_unfinished();
+    }
     Ok(())
 }
 

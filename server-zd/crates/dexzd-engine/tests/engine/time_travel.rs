@@ -53,11 +53,12 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, FlowCommand, FlowConfigUpdateCommand,
-    HardDeleteObjectReference, HistoryRecord, HistorySegmentObjectsDeletedCommand,
-    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, LogPosition,
-    RunRecord, RunSettings, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepInvocationKey, StepMethod, ValueBirthRecord, ValueRecord, flow_command::Command,
-    step_attempt_heartbeat_command, stored_value,
+    HardDeleteObjectReference, HistoryLocalCleanupCommand, HistoryRecord,
+    HistorySegmentObjectsDeletedCommand, HistorySegmentRecord, HistorySegmentState,
+    HistorySegmentUploadedCommand, LogPosition, RunRecord, RunSettings,
+    StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
+    ValueBirthRecord, ValueRecord, flow_command::Command, step_attempt_heartbeat_command,
+    stored_value,
 };
 use dexzd_storage::{LocalStore, RestoredLocalStore, WriteBatch};
 use futures::future::BoxFuture;
@@ -1692,6 +1693,76 @@ async fn a_hot_standby_replays_segment_expiry_and_recorded_object_deletions() {
         expired_segments[0].last_seq
     );
     assert!(record.history_expired_through_seq > record.history_objects_deleted_through_seq);
+    crate::hot_standby::wait_until_caught_up(&cluster, &standby).await;
+    travel.shutdown().await;
+    standby.shutdown().await;
+    crate::hot_standby::assert_same_stores(&serving_directory, &standby_directory);
+}
+
+/// A hot standby replays the local cleanup of an idle run to the serving store's state.
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_replays_the_local_cleanup_of_an_idle_run() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let serving_directory = directory.path().join("serving");
+    let standby_directory = directory.path().join("standby");
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        crate::hot_standby::rocksdb_store(&serving_directory),
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    let mut standby_config = cluster.config(crate::hot_standby::rocksdb_store(&standby_directory));
+    standby_config.commit.debug_replay_checks = true;
+    let standby = dexzd_engine::HotStandby::start(
+        standby_config,
+        crate::hot_standby::fast_standby_config(),
+        dexzd_engine::HotStandbyDependencies {
+            metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+            object_store: Arc::new(crate::hot_standby::ProcessObjectStore::new(
+                cluster.object_store.clone(),
+            )),
+            clock: cluster.clock.clone(),
+            applier: Arc::new(DeterministicCommandApplier),
+            id_source: Arc::new(SystemEngineIdSource),
+            restart_jitter_seed: 7,
+        },
+    )
+    .expect("the hot standby starts");
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel
+        .set_attribute("report", string_value(&"n".repeat(400)))
+        .await;
+    upload_and_acknowledge(&travel, run_id).await;
+    assert!(
+        travel
+            .run_record(run_id)
+            .history_local_cleanup_due_micros
+            .is_some(),
+        "the superseded value waits for its grace period"
+    );
+    assert!(is_value_stored(&travel, run_id, old_value));
+
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .commit(
+            run_id,
+            Command::HistoryLocalCleanup(HistoryLocalCleanupCommand {}),
+        )
+        .await;
+    assert!(value_birth(&travel, run_id, old_value).is_offloaded);
+    assert!(!is_value_stored(&travel, run_id, old_value));
+    assert_eq!(
+        travel.run_record(run_id).history_local_cleanup_due_micros,
+        None
+    );
     crate::hot_standby::wait_until_caught_up(&cluster, &standby).await;
     travel.shutdown().await;
     standby.shutdown().await;

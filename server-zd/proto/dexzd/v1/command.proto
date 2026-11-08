@@ -75,6 +75,7 @@ message FlowCommand {
     HistorySegmentUploadedCommand history_segment_uploaded = 82;
     HistorySegmentObjectsDeletedCommand history_segment_objects_deleted = 83;
     ValueReviveCommand value_revive = 84;
+    HistoryLocalCleanupCommand history_local_cleanup = 85;
   }
 }
 
@@ -126,6 +127,9 @@ message RunSettings {
   // Whether the owner deletes the objects of the run's expired history segments (default false;
   // true in dev and local). A run's FlowConfig.delete_expired_history_objects overrides it.
   bool delete_expired_history_objects = 14;
+  // Command time a superseded value stays local before offload may delete it (default 10
+  // minutes). Zero means 10 minutes.
+  int64 superseded_value_grace_micros = 15;
 }
 
 // A hard-delete Attribute value that the owner uploaded as its own object before proposing.
@@ -508,6 +512,10 @@ message ValueReviveCommand {
 message HistorySegmentObjectsDeletedCommand {
   repeated uint64 first_seqs = 1;
 }
+
+// The owner's local history cleanup of a run, applied only once due. Records no history, takes no
+// run seq.
+message HistoryLocalCleanupCommand {}
 
 // Sets whether this partition offloads run history to object storage.
 message SetHistoryOffloadModeCommand {

@@ -89,6 +89,8 @@ history:
   # FlowConfig.delete_expired_history_objects overrides it per run.
   deleteExpiredObjects: false
   segmentTargetBytes: 4194304
+  # Command time a superseded value stays on local disk before offload deletes it.
+  supersededValueGracePeriod: 10m
   uploadConcurrency: 16
   # Disk read cache of uploaded history in <localStorage.directory>-history-read-cache; 0 disables it.
   readCacheMaxBytes: 1073741824

@@ -7,8 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! Runs the work that committed commands imply: method dispatch, timers, cross-Flow deliveries,
-//! hard-delete object deletion, history segment uploads and object deletions, and retention
-//! purges.
+//! hard-delete object deletion, history segment uploads and object deletions, local history
+//! cleanup, and retention purges.
 //!
 //! [`EffectRunner::handle`] only enqueues. One router task owns the scheduling state and
 //! spawns tracked tasks for the work. Everything here can be rebuilt from committed state with
@@ -174,6 +174,7 @@ impl Default for EffectsConfig {
                 max_child_flow_result_bytes: 16 * 1024 * 1024,
                 history_segment_target_bytes: 4 * 1024 * 1024,
                 delete_expired_history_objects: false,
+                superseded_value_grace_micros: 10 * 60 * 1_000_000,
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
             heads_resync_interval: Duration::from_secs(5 * 60),
@@ -298,6 +299,7 @@ pub(crate) enum TrackedWork {
     PendingCloseCheck { run_id: RunId },
     HistoryUpload { run_id: RunId },
     HistoryObjectDeletion { run_id: RunId },
+    HistoryLocalCleanup { run_id: RunId },
 }
 
 /// Dependencies of the effect runner, passed once to [`EffectRunner::new`].
@@ -939,6 +941,9 @@ impl EffectRouter {
             ApplyEffect::HistorySegmentsExpired { run_id } => {
                 self.spawn_tracked(flow, TrackedWork::HistoryObjectDeletion { run_id });
             }
+            ApplyEffect::HistoryLocalCleanupScheduled { run_id } => {
+                self.spawn_tracked(flow, TrackedWork::HistoryLocalCleanup { run_id });
+            }
         }
     }
 
@@ -974,6 +979,9 @@ impl EffectRouter {
                 }
                 TrackedWork::HistoryObjectDeletion { run_id } => {
                     history_uploads::delete_expired_history_objects(&context, &flow, *run_id).await
+                }
+                TrackedWork::HistoryLocalCleanup { run_id } => {
+                    history_uploads::clean_up_local_history(&context, &flow, *run_id).await
                 }
             };
             if let Err(error) = result {

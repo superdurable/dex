@@ -291,6 +291,17 @@ pub struct HistoryConfig {
     /// superseded values reach this many bytes. Recorded in RunRecord at FlowStart; changes
     /// affect only later runs.
     pub segment_target_bytes: u64,
+    /// Defaults to 10 minutes; how long a superseded value stays on local disk after the command
+    /// that superseded it, so a value reference that a Worker or Client just read still resolves
+    /// locally.
+    ///
+    /// While history offload is on, a superseded value is deleted locally once its history
+    /// segment is uploaded and this period has passed; reads then fetch it from object storage.
+    /// A run that receives no more commands deletes such values about one minute after the period
+    /// ends. Must be at least 1 microsecond. Recorded in RunRecord at FlowStart; changes affect
+    /// only later runs.
+    #[serde(with = "humantime_serde")]
+    pub superseded_value_grace_period: Duration,
     /// Defaults to 16; from 1 to 1024. Most sealed history segments the lease holder reads,
     /// encodes, and uploads to object storage at once. Higher values drain an upload backlog
     /// faster and hold more segments in memory; each in-flight segment holds about its encoded
@@ -339,6 +350,7 @@ impl Default for HistoryConfig {
             is_offload_enabled: false,
             should_delete_expired_objects: false,
             segment_target_bytes: 4 * 1024 * 1024,
+            superseded_value_grace_period: Duration::from_secs(10 * 60),
             upload_concurrency: 16,
             read_cache_max_bytes: 1 << 30,
             read_cache_directory: None,
@@ -395,6 +407,8 @@ struct HistoryConfigSource {
     #[serde(rename = "deleteExpiredObjects")]
     should_delete_expired_objects: bool,
     segment_target_bytes: u64,
+    #[serde(with = "humantime_serde")]
+    superseded_value_grace_period: Duration,
     upload_concurrency: u32,
     read_cache_max_bytes: u64,
     read_cache_directory: Option<PathBuf>,
@@ -430,6 +444,7 @@ impl Default for HistoryConfigSource {
             is_offload_enabled: defaults.is_offload_enabled,
             should_delete_expired_objects: defaults.should_delete_expired_objects,
             segment_target_bytes: defaults.segment_target_bytes,
+            superseded_value_grace_period: defaults.superseded_value_grace_period,
             upload_concurrency: defaults.upload_concurrency,
             read_cache_max_bytes: defaults.read_cache_max_bytes,
             read_cache_directory: defaults.read_cache_directory,
@@ -476,6 +491,7 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             is_offload_enabled: source.is_offload_enabled,
             should_delete_expired_objects: source.should_delete_expired_objects,
             segment_target_bytes: source.segment_target_bytes,
+            superseded_value_grace_period: source.superseded_value_grace_period,
             upload_concurrency: source.upload_concurrency,
             read_cache_max_bytes: source.read_cache_max_bytes,
             read_cache_directory: source.read_cache_directory,

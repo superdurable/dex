@@ -685,6 +685,7 @@ fn settings(is_deletion_enabled: bool) -> RunSettings {
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 1,
         delete_expired_history_objects: is_deletion_enabled,
+        superseded_value_grace_micros: 0,
     }
 }
 

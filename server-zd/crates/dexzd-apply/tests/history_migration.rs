@@ -647,6 +647,7 @@ fn legacy_settings() -> RunSettings {
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 1_500,
         delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
     }
 }
 
@@ -703,13 +704,20 @@ fn assert_segment_chain(harness: &Harness) {
 }
 
 fn assert_segment_state(harness: &Harness, segment: &HistorySegmentRecord, record: &RunRecord) {
-    let state = if segment.last_seq <= record.history_uploaded_through_seq {
+    // An acknowledgment also prunes, so the segments pruning passed may already be EXPIRED.
+    let state = if segment.first_seq > 1 && segment.last_seq <= record.history_expired_through_seq {
+        HistorySegmentState::Expired
+    } else if segment.last_seq <= record.history_uploaded_through_seq {
         HistorySegmentState::Uploaded
     } else {
         HistorySegmentState::Sealed
     };
     assert_eq!(segment.state, state as i32, "{segment:?}");
     let values = harness.segment_values(segment.first_seq);
+    if state == HistorySegmentState::Expired {
+        assert!(values.is_empty(), "expiry deletes the value list");
+        return;
+    }
     assert_eq!(segment.superseded_value_count, values.len() as u64);
     assert!(
         values

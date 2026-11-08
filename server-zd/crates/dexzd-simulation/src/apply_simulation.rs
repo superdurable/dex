@@ -6,11 +6,14 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::time::{Duration, Instant};
 
-use dexzd_protocol::dexzd::v1::{FlowCommand, command_reply, flow_command::Command};
+use dexzd_protocol::dexzd::v1::{
+    FlowCommand, HistoryLocalCleanupCommand, SetHistoryOffloadModeCommand, command_reply,
+    flow_command::Command,
+};
 use prost::Message;
 use xxhash_rust::xxh3::xxh3_128;
 
@@ -18,10 +21,13 @@ use crate::apply_checker::ApplyChecker;
 use crate::invariants::{
     CloseBarrierCounts, HistoryMigrationCounts, InvariantViolation, LocalOffloadCounts,
 };
-use crate::model::{ClosedErasePhase, CommandGenerator};
+use crate::model::{ClosedErasePhase, CommandGenerator, HISTORY_OFFLOAD_FLOW_IDS};
+use crate::state_view::RunSelection;
 
 /// Replays allowed while shrinking one failure.
 const SHRINK_REPLAY_BUDGET: usize = 200;
+/// Most HistoryLocalCleanup commands the end of a seed applies before it gives up.
+const MAX_DRAIN_CLEANUPS: usize = 10_000;
 const SHRINK_TIME_BUDGET: Duration = Duration::from_secs(30);
 
 /// What one seed exercised.
@@ -238,6 +244,21 @@ pub fn run_seed(
             }
         }
     }
+    let now_micros = side_streams
+        .iter()
+        .map(CommandGenerator::now_micros)
+        .fold(generator.now_micros(), i64::max);
+    drain_local_cleanup(&mut checker, now_micros, &mut history, &mut summary).map_err(
+        |violation| {
+            failure(
+                seed,
+                command_count.saturating_sub(1),
+                violation,
+                history.clone(),
+                &mut report_failure,
+            )
+        },
+    )?;
     summary.size_rejections = checker.size_rejections().clone();
     summary.close_barrier = checker.close_barrier_counts();
     summary.history_offload_off_time_travels = checker.history_offload_off_time_travels();
@@ -245,6 +266,66 @@ pub fn run_seed(
     summary.local_offload = checker.local_offload_counts();
     summary.final_row_count = checker.state().row_count();
     Ok(summary)
+}
+
+/// Turns offload on again, applies each due HistoryLocalCleanup at its due time, then checks H17.
+///
+/// Returns the first violated invariant, or a violation when a due cleanup changes nothing or
+/// cleanups never finish.
+fn drain_local_cleanup(
+    checker: &mut ApplyChecker,
+    mut now_micros: i64,
+    history: &mut Vec<FlowCommand>,
+    summary: &mut SimulationSummary,
+) -> Result<(), InvariantViolation> {
+    for flow_id in HISTORY_OFFLOAD_FLOW_IDS {
+        let view = checker.view(flow_id, RunSelection::Only(&BTreeSet::new()))?;
+        let Some((partition, _)) = view.location.filter(|_| !view.is_history_offload_enabled)
+        else {
+            continue;
+        };
+        now_micros = now_micros.saturating_add(1_000);
+        let body = Command::SetHistoryOffloadMode(SetHistoryOffloadModeCommand {
+            enabled: true,
+            partition: u32::from(partition.0),
+        });
+        let command = owner_command(flow_id.to_string(), Vec::new(), now_micros, body);
+        history.push(command.clone());
+        apply_and_count(checker, &command, summary)?;
+    }
+    for _ in 0..MAX_DRAIN_CLEANUPS {
+        let Some((flow_id, run_id, due_micros)) = checker.first_due_local_cleanup()? else {
+            return checker.check_local_cleanup_drained();
+        };
+        now_micros = now_micros.saturating_add(1_000).max(due_micros);
+        let body = Command::HistoryLocalCleanup(HistoryLocalCleanupCommand {});
+        let command = owner_command(flow_id, run_id.as_bytes().to_vec(), now_micros, body);
+        history.push(command.clone());
+        if !apply_and_count(checker, &command, summary)? {
+            return Err(InvariantViolation::new(
+                "H17-local-cleanup-drained",
+                format!("the due cleanup of run {run_id} at {now_micros} changed nothing"),
+            ));
+        }
+    }
+    Err(InvariantViolation::new(
+        "H17-local-cleanup-drained",
+        format!("local cleanup is still due after {MAX_DRAIN_CLEANUPS} cleanups"),
+    ))
+}
+
+/// Returns an owner command with `body`, proposed at `now_micros` and bound to no attempt.
+fn owner_command(flow_id: String, run_id: Vec<u8>, now_micros: i64, body: Command) -> FlowCommand {
+    FlowCommand {
+        flow_id,
+        run_id,
+        epoch: 1,
+        behavior_version: dexzd_apply::BehaviorVersion::CURRENT.number(),
+        proposed_at_micros: now_micros,
+        command_id: u128::from(now_micros.unsigned_abs()).to_be_bytes().to_vec(),
+        command: Some(body),
+        ..FlowCommand::default()
+    }
 }
 
 fn apply_and_count(
@@ -389,6 +470,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::HistorySegmentUploaded(_)) => "HistorySegmentUploaded",
         Some(Command::ValueRevive(_)) => "ValueRevive",
         Some(Command::HistorySegmentObjectsDeleted(_)) => "HistorySegmentObjectsDeleted",
+        Some(Command::HistoryLocalCleanup(_)) => "HistoryLocalCleanup",
     }
 }
 

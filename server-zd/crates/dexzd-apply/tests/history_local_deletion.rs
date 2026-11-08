@@ -9,7 +9,8 @@
 //! Deleting uploaded history locally (plan section 5.5): records, checkpoints, and metadata after
 //! the acknowledgment, superseded values after their grace period, the storage totals, and where
 //! LoadBlobs finds an offloaded value. Also reviving an offloaded value before a command that
-//! references it (plan section 5.11).
+//! references it (plan section 5.11), and the HistoryLocalCleanup command that finishes local
+//! deletion and window pruning for runs that stop receiving commands.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -26,7 +27,8 @@ use dexzd_apply::{
 };
 use dexzd_history_segment::{HistorySegmentContent, encode_history_segment};
 use dexzd_keyspace::row_keys::{
-    attempt_record_key, prefix_range, run_named_key, run_singleton_key, value_row_key,
+    attempt_record_key, history_local_cleanup_pending_index_key, prefix_range, run_named_key,
+    run_singleton_key, value_row_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, ValueId, ValueReference,
@@ -35,18 +37,20 @@ use dexzd_keyspace::{
 use dexzd_protocol::dex::{
     AttributeWrite, FlowConfig, FlowResetStepMethod, FlowResetType, FlowTimeoutPolicy,
     InvokeExecuteMethodResponse, LoadBlobRequestEntry, ResetFlowRequest, SetAttributesRequest,
-    StartFlowRequest, StepDecision, StepMovement, StepOptions, UpdateFlowConfigRequest, Value,
-    WorkerTarget, flow_history_event, value,
+    StartFlowRequest, StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType,
+    UpdateFlowConfigRequest, Value, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand,
-    FlowConfigUpdateCommand, FlowStartCommand, HistoryRecord, HistoryRowMetadata,
-    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, RunRecord,
-    RunSettings, RunStorageUsage, SetHistoryOffloadModeCommand, StepAttemptHeartbeatCommand,
+    FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand, HistoryLocalCleanupCommand,
+    HistoryRecord, HistoryRowMetadata, HistorySegmentRecord, HistorySegmentState,
+    HistorySegmentUploadedCommand, RetentionTimerId, RunPurgeCommand, RunRecord, RunSettings,
+    RunStorageUsage, SetHistoryOffloadModeCommand, StepAttemptHeartbeatCommand,
     StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, TimeTravelStagedChunk, ValueBirthRecord, ValueGarbageRecord,
-    ValueRecord, ValueReviveCommand, command_reply, flow_command::Command,
-    step_attempt_heartbeat_command, step_method_completed_command, stored_value,
+    StepMethodCompletedCommand, TimeTravelStagedChunk, TimerId, TimersFiredCommand,
+    ValueBirthRecord, ValueGarbageRecord, ValueRecord, ValueReviveCommand, command_reply,
+    flow_command::Command, step_attempt_heartbeat_command, step_method_completed_command,
+    stored_value, timer_id,
 };
 use prost::Message;
 
@@ -55,6 +59,10 @@ const START_STEP: &str = "ChargeStep";
 const START_STEP_EXECUTION: &str = "ChargeStep-1";
 /// The grace period of superseded values, by command time.
 const GRACE: i64 = 10 * 60 * SECOND;
+/// Command time a run goes without commands before its pending local cleanup comes due.
+const QUIET: i64 = 60 * SECOND;
+/// Command time between cleanups that wait for offload to turn on again.
+const OFFLOAD_RECHECK: i64 = 60 * 60 * SECOND;
 
 #[derive(Default, Clone)]
 struct MemoryState {
@@ -198,6 +206,12 @@ impl Harness {
         self.now_micros += micros;
     }
 
+    /// Moves the command clock so the next command applies at exactly `micros`.
+    fn advance_to(&mut self, micros: i64) {
+        assert!(micros > self.now_micros, "command time only moves forward");
+        self.now_micros = micros - self.step_micros;
+    }
+
     fn set_offload_mode(&mut self, is_enabled: bool) {
         let outcome = self.apply(Command::SetHistoryOffloadMode(
             SetHistoryOffloadModeCommand {
@@ -290,7 +304,9 @@ impl Harness {
     }
 
     /// Acknowledges every SEALED segment, oldest first, keeping the content of its object.
-    fn ack_all(&mut self) {
+    /// Returns the outcome of each acknowledgment.
+    fn ack_all(&mut self) -> Vec<ApplyOutcome> {
+        let mut outcomes = Vec::new();
         loop {
             let uploaded_through_seq = self.run_record().history_uploaded_through_seq;
             let Some(segment) = self
@@ -298,7 +314,7 @@ impl Harness {
                 .into_iter()
                 .find(|segment| segment.last_seq > uploaded_through_seq)
             else {
-                return;
+                return outcomes;
             };
             let content = read_history_segment_content(
                 &self.state,
@@ -319,7 +335,76 @@ impl Harness {
             ));
             assert!(is_ok(&outcome.reply), "{:?}", outcome.reply);
             self.uploaded.insert(segment.first_seq, (segment, content));
+            outcomes.push(outcome);
         }
+    }
+
+    /// Applies the HistoryLocalCleanup command that the owner proposes once cleanup is due.
+    fn clean_up(&mut self) -> ApplyOutcome {
+        self.apply(Command::HistoryLocalCleanup(HistoryLocalCleanupCommand {}))
+    }
+
+    /// Applies due cleanups, as the owner does, until none is pending. Returns how many applied.
+    fn clean_up_until_done(&mut self) -> usize {
+        let mut cleanup_count = 0;
+        while let Some(due_micros) = self.cleanup_due() {
+            assert!(cleanup_count < 100, "local cleanup never finishes");
+            if due_micros > self.now_micros + self.step_micros {
+                self.advance_to(due_micros);
+            }
+            let outcome = self.clean_up();
+            assert!(is_ok(&outcome.reply), "{:?}", outcome.reply);
+            cleanup_count += 1;
+        }
+        cleanup_count
+    }
+
+    fn stop(&mut self) {
+        let outcome = self.apply(Command::FlowStop(FlowStopCommand {
+            request: Some(StopFlowRequest {
+                flow_id: self.flow_id.clone(),
+                stop_type: StopType::Cancel as i32,
+                ..StopFlowRequest::default()
+            }),
+        }));
+        assert!(is_ok(&outcome.reply), "{:?}", outcome.reply);
+    }
+
+    fn fire_retention(&mut self) -> ApplyOutcome {
+        self.apply(Command::TimersFired(TimersFiredCommand {
+            timers: vec![TimerId {
+                run_attempt: 0,
+                kind: Some(timer_id::Kind::Retention(RetentionTimerId {})),
+            }],
+        }))
+    }
+
+    fn cleanup_due(&self) -> Option<i64> {
+        self.run_record().history_local_cleanup_due_micros
+    }
+
+    fn has_cleanup_index_row(&self) -> bool {
+        let key = history_local_cleanup_pending_index_key(
+            self.context.partition,
+            self.context.flow_hash,
+            self.run(),
+        );
+        self.state
+            .get(ColumnFamily::PartitionIndex, &key)
+            .expect("memory reads never fail")
+            .is_some()
+    }
+
+    /// Returns the seq of the checkpoint that window pruning keeps: the newest one at or before
+    /// the window start.
+    fn window_keep_from_seq(&self) -> u64 {
+        let record = self.run_record();
+        self.attempt_record(record.current_attempt)
+            .checkpoint_seqs
+            .into_iter()
+            .filter(|seq| *seq <= record.window_start_seq)
+            .max()
+            .expect("a checkpoint precedes the window start")
     }
 
     fn run(&self) -> RunId {
@@ -763,6 +848,7 @@ fn settings(segment_target_bytes: u64) -> RunSettings {
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: segment_target_bytes,
         delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
     }
 }
 
@@ -1068,10 +1154,17 @@ fn deletion_is_bounded_per_command_and_later_commands_finish_it() {
             .any(|seq| *seq > 1 && *seq <= record.history_uploaded_through_seq),
         "uploaded records remain for later commands"
     );
+    assert_eq!(
+        harness.cleanup_due(),
+        Some(harness.now_micros + QUIET),
+        "unfinished deletion comes due once the run is quiet"
+    );
 
     harness.bookkeep();
     let record = harness.run_record();
     assert!(record.history_local_rows_deleted_through_seq >= record.history_uploaded_through_seq);
+    assert_eq!(harness.cleanup_due(), None, "the next command finished it");
+    assert!(!harness.has_cleanup_index_row());
     assert!(
         harness
             .stored_record_seqs()
@@ -1909,4 +2002,368 @@ fn while_offloading_steps_created_in_the_window_are_time_travelable() {
             .is_empty(),
         "travel to the earliest Step created in the window replays from the uploaded segments"
     );
+}
+
+#[test]
+fn an_idle_run_offloads_what_its_last_command_superseded_once_its_cleanup_is_due() {
+    // The settings predate the grace period field, so the run keeps 10 minutes.
+    let mut harness = Harness::offloading(settings(1));
+    harness.set_attribute("profile", large_text("first", 300));
+    let first = harness.attribute_value_id("profile");
+    harness.set_attribute("profile", large_text("second", 300));
+    let superseded_at = harness.garbage()[&first].1.superseded_at_micros;
+    assert_eq!(harness.cleanup_due(), None, "nothing is uploaded yet");
+
+    let acknowledgments = harness.ack_all();
+    assert_eq!(harness.cleanup_due(), Some(superseded_at + GRACE));
+    assert!(harness.has_cleanup_index_row());
+    let scheduled: Vec<_> = acknowledgments
+        .iter()
+        .flat_map(|outcome| &outcome.effects)
+        .filter(|effect| matches!(effect, ApplyEffect::HistoryLocalCleanupScheduled { .. }))
+        .collect();
+    assert_eq!(
+        scheduled.len(),
+        1,
+        "the row's creation asks the owner to schedule it"
+    );
+    assert!(harness.value_row(first).is_some());
+
+    harness.advance_to(superseded_at + GRACE - SECOND);
+    let early = harness.clean_up();
+    assert!(is_ok(&early.reply), "{:?}", early.reply);
+    assert!(
+        early.writes.is_empty(),
+        "a cleanup before its due time writes nothing"
+    );
+
+    let record_before = harness.run_record();
+    harness.advance_to(superseded_at + GRACE);
+    let cleanup = harness.clean_up();
+    assert!(is_ok(&cleanup.reply), "{:?}", cleanup.reply);
+    assert_eq!(harness.value_row(first), None, "the value row is offloaded");
+    assert!(harness.birth(first).expect("birth").is_offloaded);
+    let record = harness.run_record();
+    assert_eq!(record.history_local_cleanup_due_micros, None);
+    assert!(!harness.has_cleanup_index_row());
+    assert_eq!(
+        record.next_run_seq, record_before.next_run_seq,
+        "no run seq"
+    );
+    assert_eq!(
+        record.next_event_id, record_before.next_event_id,
+        "no event"
+    );
+    assert!(
+        cleanup.writes.iter().all(|write| !matches!(
+            write,
+            StateWrite::Put {
+                column_family: ColumnFamily::History,
+                ..
+            }
+        )),
+        "a cleanup records no history"
+    );
+    harness.assert_storage_recounts();
+
+    let repeated = harness.clean_up();
+    assert!(is_ok(&repeated.reply) && repeated.writes.is_empty());
+}
+
+#[test]
+fn an_idle_run_resumes_its_cleanup_once_offload_turns_on_again() {
+    let mut harness = Harness::offloading(settings(1));
+    harness.set_attribute("profile", large_text("first", 300));
+    let first = harness.attribute_value_id("profile");
+    harness.set_attribute("profile", large_text("second", 300));
+    let superseded_at = harness.garbage()[&first].1.superseded_at_micros;
+    harness.ack_all();
+    harness.set_offload_mode(false);
+
+    harness.advance_to(superseded_at + GRACE);
+    let paused = harness.clean_up();
+    assert!(is_ok(&paused.reply), "{:?}", paused.reply);
+    assert!(harness.value_row(first).is_some(), "offload is off");
+    assert_eq!(
+        harness.cleanup_due(),
+        Some(harness.now_micros + OFFLOAD_RECHECK),
+        "the run keeps its cleanup pending while offload is off"
+    );
+    assert!(harness.has_cleanup_index_row());
+
+    harness.set_offload_mode(true);
+    let cleanup_count = harness.clean_up_until_done();
+    assert_eq!(cleanup_count, 1, "the next recheck resumes the cleanup");
+    assert_eq!(harness.value_row(first), None, "the value row is offloaded");
+    assert!(harness.birth(first).expect("birth").is_offloaded);
+    assert!(!harness.has_cleanup_index_row());
+    harness.assert_storage_recounts();
+}
+
+#[test]
+fn window_pruning_while_offload_is_off_ends_the_wait_for_uploaded_history() {
+    let mut harness = Harness::offloading(RunSettings {
+        history_window_events: 4,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 2,
+        ..settings(1)
+    });
+    harness.set_attribute("profile", large_text("first", 300));
+    let first = harness.attribute_value_id("profile");
+    harness.set_attribute("profile", large_text("second", 300));
+    harness.ack_all();
+    let uploaded_through_seq = harness.run_record().history_uploaded_through_seq;
+    harness.set_offload_mode(false);
+    assert!(
+        harness.has_cleanup_index_row(),
+        "the value waits for its grace period"
+    );
+
+    for round in 0..40 {
+        let record = harness.run_record();
+        if record.window_start_seq > uploaded_through_seq
+            && record.history_window_pruned_through_seq >= uploaded_through_seq
+        {
+            break;
+        }
+        harness.set_attribute("note", format!("note {round}"));
+    }
+    let record = harness.run_record();
+    assert!(record.window_start_seq > uploaded_through_seq);
+    assert!(
+        record.history_values_offloaded_through_seq < uploaded_through_seq,
+        "offload never deleted the value"
+    );
+    assert_eq!(harness.value_row(first), None, "window pruning deleted it");
+    assert_eq!(record.history_local_cleanup_due_micros, None);
+    assert!(!harness.has_cleanup_index_row());
+
+    harness.advance(2 * OFFLOAD_RECHECK);
+    let late = harness.clean_up();
+    assert!(is_ok(&late.reply), "{:?}", late.reply);
+    assert!(late.writes.is_empty(), "no cleanup is due any more");
+    harness.assert_storage_recounts();
+}
+
+#[test]
+fn a_closed_run_offloads_every_superseded_value_through_cleanups_a_quiet_period_apart() {
+    let mut harness = Harness::offloading(settings(1));
+    for round in 0..4 {
+        harness.set_attribute("profile", large_text(&format!("v{round}"), 300));
+    }
+    harness.stop();
+    harness.ack_all();
+    let garbage = harness.garbage();
+    assert_eq!(garbage.len(), 3);
+    let first_superseded_at = garbage
+        .values()
+        .map(|(_, row)| row.superseded_at_micros)
+        .min()
+        .expect("superseded values");
+    assert_eq!(harness.cleanup_due(), Some(first_superseded_at + GRACE));
+
+    let cleanup_count = harness.clean_up_until_done();
+    assert!(
+        cleanup_count <= 2,
+        "values superseded close together leave in at most two cleanups, not {cleanup_count}"
+    );
+    assert!(
+        harness.garbage().is_empty(),
+        "every superseded value is offloaded"
+    );
+    assert!(!harness.has_cleanup_index_row());
+    harness.assert_storage_recounts();
+
+    // A hot standby that applies the same log reaches the same state.
+    let mut standby = MemoryState::default();
+    for command in &harness.log {
+        let outcome =
+            apply_flow_command(&harness.context, &standby, command).expect("replay applies");
+        standby.commit(&outcome);
+    }
+    assert_eq!(standby.rows, harness.state.rows);
+}
+
+#[test]
+fn a_closed_run_finishes_the_window_pruning_its_upload_allowed_through_cleanups() {
+    // The run's only segment seals when it closes, so pruning waits for that upload.
+    let mut harness = Harness::offloading(RunSettings {
+        history_window_events: 4,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 2,
+        ..settings(64 << 20)
+    });
+    for round in 0..300 {
+        harness.set_attribute("note", format!("note {round}"));
+    }
+    harness.stop();
+    assert_eq!(harness.run_record().history_uploaded_through_seq, 0);
+    let metadata_before = harness.metadata().len();
+    assert!(
+        metadata_before > 400,
+        "the window kept {metadata_before} rows"
+    );
+
+    harness.ack_all();
+    let keep_from_seq = harness.window_keep_from_seq();
+    let passed_rows = |harness: &Harness| {
+        harness
+            .metadata()
+            .keys()
+            .filter(|(seq, _, _)| *seq > 1 && *seq < keep_from_seq)
+            .count()
+    };
+    assert!(
+        passed_rows(&harness) > 0,
+        "one acknowledgment prunes a bounded amount"
+    );
+    assert_eq!(harness.cleanup_due(), Some(harness.now_micros + QUIET));
+
+    let cleanup_count = harness.clean_up_until_done();
+    assert!(
+        cleanup_count >= 2,
+        "a cleanup continues unfinished pruning at once"
+    );
+    assert_eq!(
+        passed_rows(&harness),
+        0,
+        "pruning reached the kept checkpoint"
+    );
+    assert!(
+        harness.run_record().history_window_pruned_through_seq >= keep_from_seq - 1,
+        "readers see the pruned range through the kept checkpoint"
+    );
+    assert!(!harness.has_cleanup_index_row());
+    harness.assert_storage_recounts();
+}
+
+#[test]
+fn window_pruning_that_a_run_left_unfinished_completes_through_cleanups_without_offload() {
+    let mut harness = Harness::not_offloading(RunSettings {
+        history_window_events: 10,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 300,
+        ..settings(4 << 20)
+    });
+    let mut round = 0;
+    while harness.cleanup_due().is_none() {
+        round += 1;
+        assert!(round < 1000, "the window never left pruning unfinished");
+        harness.set_attribute("note", format!("note {round}"));
+    }
+    assert_eq!(
+        harness.cleanup_due(),
+        Some(harness.now_micros + QUIET),
+        "unfinished pruning comes due once the run is quiet"
+    );
+    assert!(harness.has_cleanup_index_row());
+    let keep_from_seq = harness.window_keep_from_seq();
+    assert!(
+        harness
+            .stored_record_seqs()
+            .iter()
+            .any(|seq| *seq > 1 && *seq < keep_from_seq),
+        "records before the kept checkpoint remain"
+    );
+
+    let cleanup_count = harness.clean_up_until_done();
+    assert!(
+        cleanup_count >= 2,
+        "a cleanup continues unfinished pruning at once"
+    );
+    assert!(
+        harness
+            .stored_record_seqs()
+            .iter()
+            .all(|seq| *seq == 1 || *seq >= keep_from_seq),
+        "pruning reached the kept checkpoint"
+    );
+    assert!(!harness.has_cleanup_index_row());
+    harness.assert_storage_recounts();
+}
+
+#[test]
+fn a_busy_run_keeps_its_cleanup_one_quiet_period_after_each_command() {
+    let mut harness = Harness::offloading(RunSettings {
+        superseded_value_grace_micros: 2 * 60 * SECOND,
+        ..settings(1)
+    });
+    harness.step_micros = 10 * SECOND;
+    harness.set_attribute("profile", large_text("v0", 300));
+    let first = harness.attribute_value_id("profile");
+    for round in 1..40 {
+        harness.set_attribute("profile", large_text(&format!("v{round}"), 300));
+        harness.ack_all();
+        if let Some(due_micros) = harness.cleanup_due() {
+            assert!(
+                due_micros >= harness.now_micros + QUIET,
+                "round {round}: cleanup is due within a quiet period of the last command"
+            );
+        }
+    }
+    assert!(
+        harness.birth(first).expect("birth").is_offloaded,
+        "the run's own commands offloaded values whose grace period passed"
+    );
+}
+
+#[test]
+fn retention_removes_the_cleanup_row_and_a_cleanup_of_a_purging_run_is_not_found() {
+    let mut harness = Harness::offloading(RunSettings {
+        retention_after_close_micros: 60 * SECOND,
+        ..settings(1)
+    });
+    harness.set_attribute("profile", large_text("first", 300));
+    harness.set_attribute("profile", large_text("second", 300));
+    harness.stop();
+    harness.ack_all();
+    assert!(harness.has_cleanup_index_row());
+
+    harness.advance(60 * SECOND);
+    let fired = harness.fire_retention();
+    assert!(is_ok(&fired.reply), "{:?}", fired.reply);
+    let record = harness.run_record();
+    assert!(record.is_purging);
+    assert_eq!(record.history_local_cleanup_due_micros, None);
+    assert!(!harness.has_cleanup_index_row());
+
+    let cleanup = harness.clean_up();
+    assert_eq!(error_message(&cleanup.reply).map(|(code, _)| code), Some(5));
+    assert!(cleanup.writes.is_empty());
+    let purge = harness.apply(Command::RunPurge(RunPurgeCommand {}));
+    assert!(is_ok(&purge.reply), "{:?}", purge.reply);
+    assert!(!harness.has_cleanup_index_row());
+}
+
+#[test]
+fn each_run_offloads_after_the_grace_period_it_recorded_at_start() {
+    let mut harness = Harness::offloading(RunSettings {
+        superseded_value_grace_micros: 30 * SECOND,
+        ..settings(1)
+    });
+    harness.set_attribute("profile", large_text("first", 300));
+    let first = harness.attribute_value_id("profile");
+    harness.set_attribute("profile", large_text("second", 300));
+    let superseded_at = harness.garbage()[&first].1.superseded_at_micros;
+    harness.ack_all();
+    assert_eq!(
+        harness.cleanup_due(),
+        Some(harness.now_micros + QUIET),
+        "a grace period shorter than the quiet period still waits for the quiet period"
+    );
+
+    harness.advance_to(superseded_at + 30 * SECOND - SECOND);
+    harness.bookkeep();
+    assert!(
+        harness.value_row(first).is_some(),
+        "within the recorded period"
+    );
+    harness.advance_to(superseded_at + 30 * SECOND);
+    harness.bookkeep();
+    assert_eq!(
+        harness.value_row(first),
+        None,
+        "offloaded after the recorded 30 seconds"
+    );
+    harness.assert_storage_recounts();
 }

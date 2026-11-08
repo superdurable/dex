@@ -123,7 +123,7 @@ pub(super) fn enable_history_offload(harness: &EffectHarness) {
 }
 
 /// Commits the offload mode to every partition.
-fn set_history_offload_mode(harness: &EffectHarness, is_enabled: bool) {
+pub(super) fn set_history_offload_mode(harness: &EffectHarness, is_enabled: bool) {
     for (partition, flow_id) in harness
         .hasher
         .partition_command_flow_ids()

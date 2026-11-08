@@ -182,6 +182,11 @@ pub enum ApplyEffect {
         /// Run whose segments expired.
         run_id: RunId,
     },
+    /// The run's local history cleanup became pending; only the committed copy counts.
+    HistoryLocalCleanupScheduled {
+        /// Run whose cleanup is pending.
+        run_id: RunId,
+    },
     /// The command wrote or removed DispatchQueue rows. Only the committed copy counts, since
     /// a speculative one may roll back.
     DispatchQueueChanged {

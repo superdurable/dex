@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dexzd_apply::read_model::read_history_segment_content;
 use dexzd_apply::{StateWrite, is_expired_history_object_deletion_enabled};
 use dexzd_history_segment::encode_history_segment;
-use dexzd_keyspace::row_keys::{value_garbage_key, value_row_key};
+use dexzd_keyspace::row_keys::{run_singleton_key, value_garbage_key, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId, parse_run_key};
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, HistorySegmentState, RunRecord, ValueBirthRecord, ValueGarbageRecord,
@@ -24,6 +24,7 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use crate::invariants::history_migration_invariants::{is_migration_step, must_migrate};
+use crate::invariants::local_cleanup_invariants::superseded_value_grace_micros;
 use crate::invariants::value_invariants::{covering_uploaded_segment, offloaded_value_row};
 use crate::invariants::{InvariantViolation, RunContext};
 use crate::memory_state::MemoryFlowState;
@@ -555,9 +556,6 @@ impl LocalOffloadCounts {
     }
 }
 
-/// Grace period of superseded values by command time; an oracle independent of apply.
-const SUPERSEDED_VALUE_GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
-
 /// What the store held for a value that a command offloaded, read before the command committed.
 pub(crate) struct ValueOffload {
     run_id: RunId,
@@ -567,8 +565,8 @@ pub(crate) struct ValueOffload {
 }
 
 /// Reads, before `writes` commit, the values the command offloads, and requires each to have
-/// passed its grace period by the command's time. Also requires every garbage row the command
-/// adds to carry the command's time.
+/// passed the grace period its run recorded, by the command's time. Also requires every garbage
+/// row the command adds to carry the command's time.
 ///
 /// Returns the offloads for [`check_value_offloads`], or the first violation.
 pub(crate) fn collect_value_offloads(
@@ -638,9 +636,17 @@ pub(crate) fn collect_value_offloads(
                         ),
                     ));
                 };
+                let run_record = state
+                    .row(
+                        ColumnFamily::Flow,
+                        &run_singleton_key(flow_hash, parsed.run_id, RunTable::RunRecord),
+                    )
+                    .map(|bytes| decode::<RunRecord>(bytes, "run record"))
+                    .transpose()?
+                    .unwrap_or_default();
                 let is_in_grace = garbage.superseded_at_micros != 0
                     && command.proposed_at_micros - garbage.superseded_at_micros
-                        < SUPERSEDED_VALUE_GRACE_MICROS;
+                        < superseded_value_grace_micros(&run_record);
                 if is_in_grace {
                     return Err(InvariantViolation::new(
                         "H13-superseded-value-grace",

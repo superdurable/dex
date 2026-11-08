@@ -261,6 +261,10 @@ event. Pruning stops only between commands, so a run keeps slightly more or
 fewer events than the window size. One command moves the window past at most
 about 2,000 history records, so a larger chunk takes several commands. Deleting
 the pruned records from local disk also proceeds a bounded amount per command.
+Since 0.1.22, a run that stops receiving commands, such as an idle or closed
+run, still finishes that deletion. About one minute after the run's last
+command, the lease holder commits internal cleanup commands for the run until
+the deletion is done. They record no history event.
 
 A run can set its own window size with the **history_window_events** field of
 its Flow configuration. Set it at start with the Flow configuration override, or
@@ -346,6 +350,7 @@ disk or fail Steps.
 | **history.offloadEnabled** | false | Experimental. Whether partitions offload run history to object storage. |
 | **history.deleteExpiredObjects** | false for **serve**; true for **dev** and **local** | Experimental. Since 0.1.22. Whether the lease holder deletes the object of a history segment about one hour after the history window passes the whole segment. A run's **delete_expired_history_objects** in **FlowConfig** overrides it. Each run records the value when it starts, so a new value applies only to runs that start after the node restarts with it. See the data retention consequences below. |
 | **history.segmentTargetBytes** | 4194304 (4 MiB) | Experimental. Since 0.1.21. Bytes of history records, checkpoints, and superseded values after which a run seals its open history segment for upload. From 1 byte to 268435456 (256 MiB). |
+| **history.supersededValueGracePeriod** | 10m | Experimental. Since 0.1.22. How long a superseded value of an uploaded segment stays on local disk after the command that superseded it, measured in command time. Must be at least 1 microsecond. Each run records the value when it starts, so a new value applies only to runs that start after the node restarts with it. Runs that started before 0.1.22 keep 10 minutes. |
 | **history.uploadConcurrency** | 16 | Experimental. Since 0.1.21. Most sealed history segments the lease holder reads, encodes, and uploads at once. From 1 to 1024. Each upload in flight holds about one encoded segment in memory. |
 | **history.readCacheMaxBytes** | 1073741824 (1 GiB) | Experimental. Since 0.1.22. Most bytes of uploaded history that the node keeps in its disk read cache. 0 disables the cache. |
 | **history.readCacheDirectory** | **localStorage.directory** with the suffix **-history-read-cache**, such as **/var/lib/dex-server-zd/store-history-read-cache** | Experimental. Since 0.1.22. Directory of the disk read cache, which the cache owns. It must be outside **localStorage.directory**, which a local store rebuild sets aside, and must not contain **..** components; startup fails otherwise. If the node cannot create it, the node logs one warning and reads from object storage without a cache. |
@@ -370,16 +375,22 @@ row of each checkpoint, and of each history record that is a time travel point
 or holds events, stays until the window passes it. A superseded value is a
 stored value that the run no longer holds, such as the earlier value of a
 rewritten Attribute. A superseded value of an uploaded segment is deleted from
-local disk 10 minutes after the command that superseded it, measured in command
-time. A value reference that a Worker or client just read therefore still loads
-from local disk. A Worker result, client write, or RPC result that hands back a
-reference to such a value also succeeds after the 10 minutes. Before it records
+local disk once **history.supersededValueGracePeriod**, 10 minutes by default,
+has passed since the command that superseded it, measured in command time. A
+value reference that a Worker or client just read therefore still loads from
+local disk. A Worker result, client write, or RPC result that hands back a
+reference to such a value also succeeds after that period. Before it records
 the result, the lease holder reads the value from its uploaded segment and
 restores it on local disk. A restored value that no state holds again can stay on
 local disk until the window passes it. A reference to a value that the window
 passed is rejected, as without offload. Each command deletes a bounded amount, and later commands of
-the run continue. A run that receives no more commands, such as a closed run,
-keeps the rest until it is deleted. While offload is on,
+the run continue. Since 0.1.22, a run that receives no more commands, such as an
+idle or closed run, still finishes. The lease holder commits internal cleanup
+commands for the run, which record no history event. The first comes about one
+minute after the run's last command, or when the period of a waiting superseded
+value ends, whichever is later. While a run waits for such periods, it gets at
+most one cleanup command a minute. Values superseded in the open segment of an
+idle running run stay on local disk until that segment is sealed. While offload is on,
 **history.maxRetainedSupersededBytes** does not apply: superseded values leave
 local disk once they are uploaded.
 
@@ -399,7 +410,9 @@ is uploaded; then pruning returns to the window rule. History that offload
 already deleted stays readable from object storage. Commands applied while
 offload is off belong to no segment, so turning it on again starts a new segment
 after them. Turning offload off also ends every migration; the rest of each such
-run's history follows the window rule like those commands.
+run's history follows the window rule like those commands. Since 0.1.22, uploaded
+history that waits for deletion while offload is off is deleted within about an
+hour after offload turns on again, also in runs that receive no more commands.
 
 The lease holder uploads each sealed segment to the primary object store, under
 the **history/** prefix of the bucket that holds the commit log. It uploads a
