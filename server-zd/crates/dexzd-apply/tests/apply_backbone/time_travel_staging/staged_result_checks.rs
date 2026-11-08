@@ -398,7 +398,8 @@ fn a_beginning_reset_that_holds_more_input_than_its_budget_is_rejected() {
     let message = error_message(&reply);
     assert!(
         message.contains("external input")
-            && message.contains("history.timeTravelReplayMemoryBytes"),
+            && message.contains("history.timeTravelReplayMemoryBytes")
+            && message.contains("skip_writes_reapply"),
         "{message}"
     );
     let skipping = harness.travel_command(reset_to(FlowResetType::Beginning, false));

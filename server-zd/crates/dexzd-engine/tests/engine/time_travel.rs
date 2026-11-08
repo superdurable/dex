@@ -1293,6 +1293,7 @@ async fn uploaded_history_over_the_memory_budget_fails_before_every_segment_is_r
             .contains("history.timeTravelReplayMemoryBytes"),
         "{error}"
     );
+    assert!(error.to_string().contains("skip_writes_reapply"), "{error}");
     let reads = travel.history_object_reads() - reads_before;
     assert!(
         reads < segment_count,

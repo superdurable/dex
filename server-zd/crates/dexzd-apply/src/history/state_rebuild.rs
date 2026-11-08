@@ -404,8 +404,8 @@ pub(crate) fn replay_memory_exceeded_reply(
         ErrorSubStatus::Uncategorized,
         format!(
             "time travel to run attempt {} at run seq {} needs more than {memory_budget_bytes} \
-             bytes of memory to hold {held}; choose a later target point, travel without \
-             reapplying writes, or raise history.timeTravelReplayMemoryBytes",
+             bytes of memory to hold {held}; choose a later target point, set \
+             skip_writes_reapply to true, or raise history.timeTravelReplayMemoryBytes",
             point.attempt, point.seq
         ),
     )
