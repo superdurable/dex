@@ -384,9 +384,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": null,
             "rejection_message": null,
             "requires_approval": true,
+            "skipped": false,
             "status": "awaiting_approval",
             "task_answer_pending": false,
             "task_id": null,
@@ -395,8 +397,10 @@
             "tool_name": "send_email",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         ],
         "usage": {

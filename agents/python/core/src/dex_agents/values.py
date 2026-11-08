@@ -469,6 +469,22 @@ class AgentToolCall:
             yet. ``AwaitQuestionAnswer`` sets it, ``PollToolTask`` then polls at
             once and hands that entry to the runner, and the poll's commit
             clears it.
+        ordered_write: Whether the call is a write that runs in the model's
+            order after the turn's earlier ordered writes, from
+            ``DeferredToolCall.ordered``. ``False`` for every other call.
+        write_queued: Whether the call waits for an earlier ordered write of
+            its turn. No Step runs it yet, and its approval is not raised yet.
+            ``RunModel`` starts it once every earlier call is final and every
+            earlier ordered write succeeded. Otherwise ``RunModel`` records it
+            ``FAILED`` with ``skipped`` set. ``ResumeTurn`` does not wait for it.
+        skipped: Whether write ordering skipped the call because an earlier
+            ordered write of the turn failed, was rejected, or ended
+            ``OUTCOME_UNKNOWN``. The record is ``FAILED``, and its ``error``
+            starts with ``TOOL_CALL_NOT_RUN_ERROR_PREFIX``, so a reader that does
+            not know this field still sees that the tool did not run.
+        truncated_output_bytes: Size in bytes of the full output when
+            ``output`` holds a truncated copy, from
+            ``ToolExecutionResult.truncated_output_bytes``, or ``None``.
     """
 
     tool_call_id: str
@@ -494,6 +510,10 @@ class AgentToolCall:
     task_id: str | None = None
     task_poll_interval_seconds: int | None = None
     task_answer_pending: bool = False
+    ordered_write: bool = False
+    write_queued: bool = False
+    skipped: bool = False
+    truncated_output_bytes: int | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

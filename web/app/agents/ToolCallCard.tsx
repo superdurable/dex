@@ -166,7 +166,9 @@ export function toolCallDetail(call: ToolCallView, now: number): string {
     case 'deciding': return SESSION_COPY.decidingDetail;
     case 'waiting': return SESSION_COPY.waitingDetail;
     case 'outcome_unknown': return SESSION_COPY.outcomeUnknownDetail;
-    case 'skipped': return SESSION_COPY.skippedDetail;
+    case 'skipped':
+      return call.skippedAfterWrite ? SESSION_COPY.skippedAfterWriteDetail : SESSION_COPY.skippedDetail;
+    case 'write_queued': return SESSION_COPY.writeQueuedDetail;
     case 'cancelled': return SESSION_COPY.cancelledDetail(call.cancellationReason);
     case 'rejected': return SESSION_COPY.rejectedDetail(call.rejectionMessage);
     case 'no_result': return SESSION_COPY.noResultDetail;

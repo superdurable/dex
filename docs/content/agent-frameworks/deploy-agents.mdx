@@ -416,6 +416,135 @@ the RPC declares. A raw **InvokeRPC** request, such as **dexcli api call**,
 must list them in **lock_attribute_keys**. Without them the RPC runs unlocked,
 and two answers to one approval can both succeed.
 
+## Connector tools {#connector-tools}
+
+A Stepwise agent can call [Connector](/primitives/components/connector)
+operations as tools. **ConnectorToolSource** offers them, the way
+**McpToolSource** offers an MCP server's tools. Each call runs one operation
+in its own tool Step through the Connector SDK, so the Call ID, the idempotency
+key, credential handling, and the single-dispatch fence work as they do in a
+Connector Step. The Python and TypeScript cores ship it. The Go core has
+function tools only, and framework adapters do not offer connector tools yet.
+
+Install the core with the Connector SDK, and each Connector package an agent
+uses:
+
+```bash
+pip install 'dex-agents[connectors]' dex-connector-stripe
+npm i @superdurable/dex-agents @superdurable/connectors-sdk @superdurable/connector-stripe
+```
+
+Some Python Connector packages are released on GitHub before PyPI. Install one
+from its release tag. The release notes give the exact command:
+
+```bash
+pip install "dex-connector-<name> @ git+https://github.com/superdurable/dex-connectors-library@<tag>#subdirectory=connectors/<name>/python"
+```
+
+Pin the versions you tested. Connector tools need Connector packages whose
+**dex-connector.json** carries agent metadata, and Dex CLI 1.38.0 or later to
+analyze a Flow that imports them.
+
+### Which operations are offered {#connector-tools-offered}
+
+Nothing is exposed by default. The application names each operation an agent
+may use, with **connector_tool** in Python or **connectorTool** in TypeScript.
+Only an operation that its Connector author reviewed for agent use, marked
+**agent.exposed** in **dex-connector.json**, can become a tool. Any other
+operation is refused when the agent definition is built. The tool name defaults
+to the Connector ID and the operation in snake case, such as
+**stripe_create_refund**. The description and the argument schema come from
+the manifest.
+
+The model's arguments are checked against the operation's **inputSchema**
+before they are decoded into the operation's input type. A misspelled field,
+a wrong type, or a missing field fails the call with a message the model can
+correct. The operation does not run.
+
+### Effect classes {#connector-tools-effects}
+
+The manifest decides whether a call can run again, and so which Step runs it:
+
+| Operation | Effect class | Runs in |
+| --- | --- | --- |
+| Query | **read** | **CallTool**, with retries |
+| Mutation with **agent.retry: safe** | **idempotent_write** | **CallTool**, with retries |
+| Any other Mutation | **non_idempotent_write** | **CallSingleAttemptTool**, once |
+
+**agent.retry: safe** is a claim the Connector author makes after review: a
+repeat with the same Call ID cannot make a second effect. Without it, the call
+runs once. A **CallTool** retry keeps the Call ID, because the Call ID is derived
+from the Flow ID and the tool Step's execution ID. Its retries stay inside the
+operation's own Execute retry policy and timeout, and never exceed three
+attempts. A call whose attempts run out records **failed** for a Query and
+**outcome_unknown** for a Mutation.
+
+A session's **tool_policies** (**toolPolicies**) entry for a connector tool
+changes only its approval. The effect class always comes from the manifest.
+
+### Approval {#connector-tools-approval}
+
+Approval asks whether the call should happen. It is separate from retry: a
+refund with an idempotency key is still a real refund. By default a connector
+tool waits for approval only when its manifest says **agent.approval:
+recommended**, as for a refund. Other Mutations run without approval, because
+approving every message would make an always-on agent unusable.
+
+The application can override that per tool, either way. It can also pass a
+predicate that decides per call from the call's arguments, such as refunds
+above a limit. A predicate that raises asks for approval. Arguments that fail
+the schema check never wait for approval, because they never run.
+
+### Outcomes {#connector-tools-outcomes}
+
+The branch the operation selects becomes the tool call's record. A Connector
+author lists the branches that need it under **agent.branches**, as
+**rejected** (nothing took effect) or **unknown** (the write may have taken
+effect). The rule fails closed:
+
+| Branch | Record | The model sees |
+| --- | --- | --- |
+| A success branch, such as **sent** or **refunded** | **succeeded** | The result value |
+| Listed as **rejected**, such as **providerRejected** | **failed** | The branch and the provider's message |
+| **defect** | **failed** | The branch and the message |
+| A Query branch not listed | **failed** | The branch and the message |
+| **uncertain**, a branch listed as **unknown**, or a Mutation branch not listed | **outcome_unknown** | That the outcome is unknown |
+
+A rejected or failed call does not fail the session. The model reads it and
+can react. Reconcile **outcome_unknown** as for any tool; see
+[Reconcile outcome_unknown](#reconcile-outcome-unknown).
+
+### Write order {#connector-tools-write-order}
+
+Connector writes of one model response run one at a time, in the model's
+order. Reads, and calls of other tools, run in parallel as before. A write that
+needs approval asks for it only when its turn comes. When a write fails, ends
+**outcome_unknown**, or is rejected by a person or by its provider, the later
+connector writes of that response do not run. Each records **failed** with its
+**skipped** field set and an error that starts "the tool did not run, so it is
+safe to call again". Dex Web shows these calls as skipped.
+
+### Result size {#connector-tools-result-size}
+
+A result reaches the model as compact JSON with sorted keys. A result larger
+than 64 KiB of text is cut, and the model reads the note "[Dex] truncated, N
+bytes" after it. The record's **truncated_output_bytes** holds the full size.
+Change the bound on the source or on one tool.
+
+### Crashes {#connector-tools-crashes}
+
+A Worker crash during a connector write never sends a write twice:
+
+| Failure | Retry-safe write in **CallTool** | Write in **CallSingleAttemptTool** |
+| --- | --- | --- |
+| Worker dies before the request is sent | Retried with the same Call ID. A fenced write that recorded no claim reads back and ends **outcome_unknown** with nothing sent | **outcome_unknown**, nothing sent |
+| Worker dies after the provider accepted it | The provider drops the repeated key, or a fenced write reads back and settles as sent. One write | **outcome_unknown**, one write |
+| Provider rate-limits the request | Retried and sent once | **outcome_unknown**, nothing sent |
+
+Credentials stay with the Worker. A connector tool stores only the logical
+connection name with the call, as a Connector Step does; see
+[Credentials](#credentials).
+
 ## Find sessions that need a person {#find-sessions}
 
 **ActiveStepTypes** is a built-in search field. It lists the Steps a Flow waits

@@ -121,6 +121,17 @@ describe('readSession', () => {
     expect(calls.map((call) => call.state)).toEqual(['done', 'failed', 'outcome_unknown', 'skipped', 'rejected', 'cancelled']);
   });
 
+  it('reads the skipped marker, and the not-run prefix of older records', () => {
+    const calls = callsOf([
+      state(),
+      requestOf(1, 'marked'), toolCall('marked', 'failed', { error: 'the earlier write failed', skipped: true }),
+      requestOf(2, 'old'), toolCall('old', 'failed', { error: 'the tool did not run, so it is safe to call again: x' }),
+      requestOf(3, 'next'), toolCall('next', 'approved', { write_queued: true, ordered_write: true }),
+    ]);
+    expect(calls.map((call) => call.state)).toEqual(['skipped', 'skipped', 'write_queued']);
+    expect(calls.map((call) => call.skippedAfterWrite)).toEqual([true, false, false]);
+  });
+
   it('marks an approval whose interrupt is gone as a recorded decision, not a pending one', () => {
     const [call] = callsOf([state(), requestOf(1, 'c1'), toolCall('c1', 'awaiting_approval'), { key: 'PendingInterrupts', value: [] }]);
     expect(call.state).toBe('deciding');

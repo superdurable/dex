@@ -308,6 +308,85 @@ RPC 的锁由调用方发送。SDK Client 和 Dex Web 会带上 RPC 声明的锁
 **InvokeRPC** 请求（例如 **dexcli api call**）要在 **lock_attribute_keys** 里列出这些锁。
 不带锁时 RPC 不加锁运行，同一个审批的两个答复可能都成功。
 
+## Connector tool {#connector-tools}
+
+Stepwise agent 可以把 [Connector](/primitives/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。Go core 只支持 function tool，framework adapter 暂时也不提供 connector tool。
+
+安装带 Connector SDK 的 core，以及 agent 用到的每个 Connector 包：
+
+```bash
+pip install 'dex-agents[connectors]' dex-connector-stripe
+npm i @superdurable/dex-agents @superdurable/connectors-sdk @superdurable/connector-stripe
+```
+
+有些 Python Connector 包先在 GitHub 发布，之后才上 PyPI。这时从它的 release tag 安装。 release notes 里有确切的命令：
+
+```bash
+pip install "dex-connector-<name> @ git+https://github.com/superdurable/dex-connectors-library@<tag>#subdirectory=connectors/<name>/python"
+```
+
+固定你测试过的版本。Connector tool 需要 **dex-connector.json** 带有 agent 元数据的 Connector 包，分析导入这些包的 Flow 需要 Dex CLI 1.38.0 或更高版本。
+
+### 提供哪些 operation {#connector-tools-offered}
+
+默认不暴露任何 operation。应用用 Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 列出 agent 可以使用的每个 operation。只有 Connector 作者审查过、在 **dex-connector.json** 中标记了 **agent.exposed** 的 operation 才能成为 tool。其他 operation 在构建 agent 定义时就会被拒绝。tool 名称默认是 Connector ID 加上 snake case 形式的 operation，例如 **stripe_create_refund**。描述和参数 schema 来自 manifest。
+
+模型给出的参数先按 operation 的 **inputSchema** 检查，再解码成 operation 的输入类型。拼错的字段、错误的类型或缺少的字段会让这次调用失败，并给出模型可以据此修正的消息。operation 不会运行。
+
+### Effect class {#connector-tools-effects}
+
+manifest 决定一次调用能否再次运行，也就决定由哪个 Step 运行它：
+
+| Operation | Effect class | 运行于 |
+| --- | --- | --- |
+| Query | **read** | **CallTool**，会重试 |
+| 带 **agent.retry: safe** 的 Mutation | **idempotent_write** | **CallTool**，会重试 |
+| 其他 Mutation | **non_idempotent_write** | **CallSingleAttemptTool**，只运行一次 |
+
+**agent.retry: safe** 是 Connector 作者审查后做出的声明：用同一个 Call ID 重复调用不会产生第二次效果。没有这个声明时，调用只运行一次。**CallTool** 重试时 Call ID 不变，因为 Call ID 由 Flow ID 和 tool Step 的 execution ID 派生。重试不超出 operation 自己的 Execute 重试策略和超时，也最多三次 attempt。attempt 用尽时，Query 记录为 **failed**，Mutation 记录为 **outcome_unknown**。
+
+session 的 **tool_policies**（**toolPolicies**）中针对 connector tool 的条目只改变它的审批。effect class 始终来自 manifest。
+
+### 审批 {#connector-tools-approval}
+
+审批回答的是这次调用该不该发生。它和重试是两个问题：带幂等键的退款仍然是真实的退款。默认情况下，只有 manifest 写明 **agent.approval: recommended** 的 connector tool 才等待审批，例如退款。其他 Mutation 不需要审批就会运行，因为每条消息都要审批的话，常驻 agent 就没法用了。
+
+应用可以按 tool 覆盖这个默认值，两个方向都可以。应用还可以传入一个谓词，根据每次调用的参数决定是否审批，例如超过限额的退款。谓词抛出异常时会要求审批。没有通过 schema 检查的参数不会运行，所以也不会等待审批。
+
+### 结果 {#connector-tools-outcomes}
+
+operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。规则在不确定时按最保守的方式处理：
+
+| Branch | 记录 | 模型看到 |
+| --- | --- | --- |
+| 成功 branch，例如 **sent** 或 **refunded** | **succeeded** | 结果值 |
+| 列为 **rejected** 的 branch，例如 **providerRejected** | **failed** | branch 和 provider 的消息 |
+| **defect** | **failed** | branch 和消息 |
+| 未列出的 Query branch | **failed** | branch 和消息 |
+| **uncertain**、列为 **unknown** 的 branch，或未列出的 Mutation branch | **outcome_unknown** | 结果未知 |
+
+被拒绝或失败的调用不会让 session 失败。模型读到结果后可以做出反应。和其他 tool 一样处理 **outcome_unknown**，见[核对 outcome_unknown](#reconcile-outcome-unknown)。
+
+### 写入顺序 {#connector-tools-write-order}
+
+同一次模型回复中的 connector 写入按模型给出的顺序逐个运行。读取以及其他 tool 的调用照旧并行运行。需要审批的写入轮到它时才请求审批。一次写入失败、以 **outcome_unknown** 结束，或者被人或 provider 拒绝时，这次回复中后面的 connector 写入都不会运行。它们各自记录为 **failed**， **skipped** 字段为 true，错误以 "the tool did not run, so it is safe to call again" 开头。 Dex Web 把这些调用显示为已跳过。
+
+### 结果大小 {#connector-tools-result-size}
+
+结果以键排序的紧凑 JSON 交给模型。超过 64 KiB 文本的结果会被截断，模型会在截断处之后读到 "[Dex] truncated, N bytes" 这条说明。记录的 **truncated_output_bytes** 保存完整大小。可以在 source 上或单个 tool 上修改这个上限。
+
+### 崩溃 {#connector-tools-crashes}
+
+connector 写入期间 Worker 崩溃，绝不会把一次写入发送两次：
+
+| 故障 | **CallTool** 中可安全重试的写入 | **CallSingleAttemptTool** 中的写入 |
+| --- | --- | --- |
+| 请求发出前 Worker 退出 | 用同一个 Call ID 重试。还没记录 claim 的 fenced 写入会回读，以 **outcome_unknown** 结束，什么都没发送 | **outcome_unknown**，什么都没发送 |
+| provider 接受后 Worker 退出 | provider 丢弃重复的键，或者 fenced 写入回读并确认已发送。一次写入 | **outcome_unknown**，一次写入 |
+| provider 限流 | 重试并只发送一次 | **outcome_unknown**，什么都没发送 |
+
+凭证留在 Worker。和 Connector Step 一样，connector tool 只随调用保存逻辑 connection 名称，见 [凭证](#credentials)。
+
 ## 查找需要人处理的 session {#find-sessions}
 
 **ActiveStepTypes** 是内置的搜索字段。它列出 Flow 正在等待的 Step，所以一条查询就能跨 agent

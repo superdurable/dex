@@ -1,0 +1,433 @@
+{
+  "description": "Connector tool behavior every core must match: argument checks, branch mapping, result text, and truncation. Hand-written; see README.md.",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "accountId": {
+        "type": "string",
+        "description": "The account."
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "reason": {
+        "type": "string",
+        "enum": [
+          "duplicate",
+          "fraudulent"
+        ]
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "lines": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/Line"
+        }
+      },
+      "note": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "at": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": [
+      "accountId",
+      "amount"
+    ],
+    "$defs": {
+      "Line": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sku": {
+            "type": "string"
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "sku"
+        ]
+      }
+    }
+  },
+  "argumentCases": [
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5
+      },
+      "violation": null
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5.0
+      },
+      "violation": null
+    },
+    {
+      "arguments": {
+        "accountId": "a"
+      },
+      "violation": "arguments.amount is required"
+    },
+    {
+      "arguments": {
+        "accountId": 7,
+        "amount": 5
+      },
+      "violation": "arguments.accountId must be string"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5.5
+      },
+      "violation": "arguments.amount must be integer"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": true
+      },
+      "violation": "arguments.amount must be integer"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 0
+      },
+      "violation": "arguments.amount must be at least 1"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "reasn": "duplicate"
+      },
+      "violation": "arguments.reasn is not allowed"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "reason": "other"
+      },
+      "violation": "arguments.reason must be one of [\"duplicate\", \"fraudulent\"]"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "metadata": {
+          "k": 1
+        }
+      },
+      "violation": "arguments.metadata.k must be string"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "lines": [
+          {
+            "sku": "s"
+          },
+          {
+            "count": 1
+          }
+        ]
+      },
+      "violation": "arguments.lines[1].sku is required"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "lines": [
+          {
+            "sku": "s",
+            "count": null
+          }
+        ]
+      },
+      "violation": null
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "lines": [
+          {
+            "sku": "s",
+            "count": "1"
+          }
+        ]
+      },
+      "violation": "arguments.lines[0].count must be integer or null"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "note": null
+      },
+      "violation": null
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "note": 3
+      },
+      "violation": "arguments.note matches none of the allowed types"
+    },
+    {
+      "arguments": {
+        "accountId": "a",
+        "amount": 5,
+        "at": "not a time"
+      },
+      "violation": null
+    },
+    {
+      "arguments": {
+        "zeta": 1,
+        "alpha": 2,
+        "accountId": "a",
+        "amount": 5
+      },
+      "violation": "arguments.alpha is not allowed"
+    }
+  ],
+  "refusedSchemas": [
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "^x"
+          }
+        }
+      },
+      "error": "inputSchema.properties.a uses pattern, which agent tools do not check"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "$ref": "https://example.com/s"
+          }
+        }
+      },
+      "error": "inputSchema.properties.a.$ref must point into #/$defs/"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/Missing"
+          }
+        }
+      },
+      "error": "inputSchema.properties.a.$ref names a missing definition"
+    },
+    {
+      "schema": {
+        "type": "array"
+      },
+      "error": "inputSchema must have type object"
+    },
+    {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "decimal"
+          }
+        }
+      },
+      "error": "inputSchema.properties.a.type is not a JSON type"
+    }
+  ],
+  "branchCases": [
+    {
+      "kind": "query",
+      "branch": "done",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "succeeded"
+    },
+    {
+      "kind": "query",
+      "branch": "notFound",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "notFound": "rejected"
+      },
+      "outcome": "rejected"
+    },
+    {
+      "kind": "query",
+      "branch": "notFound",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "failed"
+    },
+    {
+      "kind": "query",
+      "branch": "invalidResponse",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "failed"
+    },
+    {
+      "kind": "query",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "defect": "rejected"
+      },
+      "outcome": "failed"
+    },
+    {
+      "kind": "mutation",
+      "branch": "done",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "done": "unknown"
+      },
+      "outcome": "succeeded"
+    },
+    {
+      "kind": "mutation",
+      "branch": "providerRejected",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "providerRejected": "rejected"
+      },
+      "outcome": "rejected"
+    },
+    {
+      "kind": "mutation",
+      "branch": "providerRejected",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "invalidResponse",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "invalidResponse",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "invalidResponse": "unknown"
+      },
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "uncertain",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "uncertain": "rejected"
+      },
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "failed"
+    }
+  ],
+  "resultCases": [
+    {
+      "json": "{\"b\":1,\"a\":\"Gr\\u00fc\\u00dfe\",\"c\":2.0,\"d\":[1.5,{\"z\":null,\"y\":true}]}",
+      "text": "{\"a\":\"Grüße\",\"b\":1,\"c\":2,\"d\":[1.5,{\"y\":true,\"z\":null}]}"
+    },
+    {
+      "json": "null",
+      "text": "null"
+    },
+    {
+      "json": "\"plain\"",
+      "text": "\"plain\""
+    }
+  ],
+  "truncationCases": [
+    {
+      "output": "abcdef",
+      "maxResultBytes": 6,
+      "expectedOutput": "abcdef",
+      "truncatedOutputBytes": null
+    },
+    {
+      "output": "abcdef",
+      "maxResultBytes": 4,
+      "expectedOutput": "abcd\n[Dex] truncated, 6 bytes",
+      "truncatedOutputBytes": 6
+    },
+    {
+      "output": "aéz",
+      "maxResultBytes": 2,
+      "expectedOutput": "a\n[Dex] truncated, 4 bytes",
+      "truncatedOutputBytes": 4
+    }
+  ]
+}

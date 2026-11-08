@@ -41,9 +41,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>",
             "rejection_message": null,
             "requires_approval": false,
+            "skipped": false,
             "status": "succeeded",
             "task_answer_pending": false,
             "task_id": null,
@@ -52,8 +54,10 @@
             "tool_name": "lookup_order",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         },
         "text": "Grüße \"quoted\" \\ back\nline\ttab ☕ 😀 </script> & <ok>"
@@ -71,9 +75,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": null,
             "rejection_message": null,
             "requires_approval": false,
+            "skipped": false,
             "status": "succeeded",
             "task_answer_pending": false,
             "task_id": null,
@@ -82,8 +88,10 @@
             "tool_name": "lookup_order",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         },
         "text": ""
@@ -101,9 +109,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": null,
             "rejection_message": null,
             "requires_approval": false,
+            "skipped": false,
             "status": "failed",
             "task_answer_pending": false,
             "task_id": null,
@@ -112,8 +122,10 @@
             "tool_name": "lookup_order",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         },
         "text": "The tool call failed: smtp down"
@@ -131,9 +143,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": null,
             "rejection_message": null,
             "requires_approval": false,
+            "skipped": false,
             "status": "failed",
             "task_answer_pending": false,
             "task_id": null,
@@ -142,8 +156,10 @@
             "tool_name": "lookup_order",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         },
         "text": "The tool call failed: unknown error"
@@ -161,9 +177,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": null,
             "rejection_message": "not today",
             "requires_approval": false,
+            "skipped": false,
             "status": "rejected",
             "task_answer_pending": false,
             "task_id": null,
@@ -172,8 +190,10 @@
             "tool_name": "lookup_order",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         },
         "text": "not today"
@@ -191,9 +211,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": null,
             "rejection_message": null,
             "requires_approval": false,
+            "skipped": false,
             "status": "rejected",
             "task_answer_pending": false,
             "task_id": null,
@@ -202,8 +224,10 @@
             "tool_name": "lookup_order",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         },
         "text": "The user rejected this tool call."
@@ -221,9 +245,11 @@
             "input_choices": [],
             "input_continuation": null,
             "input_question": null,
+            "ordered_write": false,
             "output": null,
             "rejection_message": null,
             "requires_approval": false,
+            "skipped": false,
             "status": "outcome_unknown",
             "task_answer_pending": false,
             "task_id": null,
@@ -232,8 +258,10 @@
             "tool_name": "lookup_order",
             "tool_source_reference": null,
             "trace_context": null,
+            "truncated_output_bytes": null,
             "turn_id": "turn-1",
-            "wait_until": null
+            "wait_until": null,
+            "write_queued": false
           }
         },
         "text": "The tool call's outcome is unknown: it stopped without returning a result, so it may or may not have taken effect. It will not be retried automatically."
@@ -254,9 +282,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": null,
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "rejected",
               "task_answer_pending": false,
               "task_id": null,
@@ -265,8 +295,10 @@
               "tool_name": "transfer_funds",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             },
             {
               "arguments": "{\"query\": \"7\"}",
@@ -279,9 +311,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": "found 7",
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "succeeded",
               "task_answer_pending": false,
               "task_id": null,
@@ -290,8 +324,10 @@
               "tool_name": "lookup_order",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             },
             {
               "arguments": "{}",
@@ -304,9 +340,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": null,
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "outcome_unknown",
               "task_answer_pending": false,
               "task_id": null,
@@ -315,8 +353,10 @@
               "tool_name": "publish_note",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             },
             {
               "arguments": "{\"to\": \"ops\"}",
@@ -329,9 +369,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": null,
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "failed",
               "task_answer_pending": false,
               "task_id": null,
@@ -340,8 +382,10 @@
               "tool_name": "send_email",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             }
           ]
         },
@@ -363,9 +407,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": null,
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "rejected",
               "task_answer_pending": false,
               "task_id": null,
@@ -374,8 +420,10 @@
               "tool_name": "transfer_funds",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             },
             {
               "arguments": "{\"query\": \"7\"}",
@@ -388,9 +436,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": "found 7",
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "succeeded",
               "task_answer_pending": false,
               "task_id": null,
@@ -399,8 +449,10 @@
               "tool_name": "lookup_order",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             }
           ]
         },
@@ -422,9 +474,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": null,
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "outcome_unknown",
               "task_answer_pending": false,
               "task_id": null,
@@ -433,8 +487,10 @@
               "tool_name": "publish_note",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             },
             {
               "arguments": "{\"to\": \"ops\"}",
@@ -447,9 +503,11 @@
               "input_choices": [],
               "input_continuation": null,
               "input_question": null,
+              "ordered_write": false,
               "output": null,
               "rejection_message": null,
               "requires_approval": false,
+              "skipped": false,
               "status": "failed",
               "task_answer_pending": false,
               "task_id": null,
@@ -458,8 +516,10 @@
               "tool_name": "send_email",
               "tool_source_reference": null,
               "trace_context": null,
+              "truncated_output_bytes": null,
               "turn_id": "turn-1",
-              "wait_until": null
+              "wait_until": null,
+              "write_queued": false
             }
           ]
         },

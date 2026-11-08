@@ -396,7 +396,8 @@ The header shows the session status, the active turn, and the token usage from *
 | **recording the result** | The Step's attempts ended without a result, and a recovery Step is pending. The call may have run. |
 | **done**, **failed** | The tool ran and returned a result or an error. |
 | **outcome unknown** | The call may have run. Check the system it writes to. **Tell the agent** fills the steer box. |
-| **skipped** | The tool did not run, so it is safe to call again. |
+| **waiting for an earlier write** | Since 1.39. A connector write waits for the earlier connector writes of its turn. No Step runs it yet, and its approval is not raised yet. |
+| **skipped** | The tool did not run, so it is safe to call again. Since 1.39, a connector write that write ordering skipped says that an earlier write of the turn did not succeed, and Dex Web reads the record's **skipped** field, and the "the tool did not run" error text of older records. |
 | **rejected**, **not run** | A person or a deadline rejected the call, or steering or **cancel_turn** abandoned it. |
 
 The bottom of the tab has a message box with **Steer** and **Stop turn**. **Steer** calls **steer_user_message**. While no turn runs, the button reads **Send** and the message starts the next turn. **Stop turn** calls **cancel_turn** for the active turn.

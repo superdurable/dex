@@ -157,6 +157,10 @@ describe('toolCallDetail', () => {
     expect(toolCallDetail(call({ state: 'running', attempt: 2, maxAttempts: 3, requiresApproval: false }), now))
       .toBe('A Worker is running it. Attempt 2 of 3.');
     expect(toolCallDetail(call({ state: 'skipped', requiresApproval: false }), now)).toBe('It did not run.');
+    expect(toolCallDetail(call({ state: 'skipped', skippedAfterWrite: true, requiresApproval: false }), now))
+      .toBe('It did not run, because an earlier write of this turn did not succeed.');
+    expect(toolCallDetail(call({ state: 'write_queued', requiresApproval: false }), now))
+      .toBe('It runs after the earlier writes of this turn succeed.');
     expect(toolCallDetail(call({ state: 'rejected', rejectionMessage: 'no' }), now)).toBe('Rejected. The agent was told: “no”');
   });
 });

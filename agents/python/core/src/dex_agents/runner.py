@@ -30,7 +30,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeVar, runtime_checkable
+
+from dex import AsyncContext, RetryPolicy
 
 from dex_agents.built_in_tools import BuiltInTool
 from dex_agents.events import AgentEventWriter
@@ -88,6 +91,9 @@ TOOL_TASK_ABANDONED_ERROR = (
 
 #: Start of the ``error`` of a ``failed`` record whose tool Step certainly never ran the tool.
 TOOL_CALL_NOT_RUN_ERROR_PREFIX = "the tool did not run, so it is safe to call again"
+
+#: Detail after ``TOOL_CALL_NOT_RUN_ERROR_PREFIX`` on a record that write ordering skipped.
+TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL = "an earlier write of this turn did not succeed"
 
 
 @dataclass(frozen=True)
@@ -290,6 +296,13 @@ class DeferredToolCall:
             tool Step returns it in ``DeferredToolExecution.tool_call``, so the
             source resolves the tool without listing it again. ``None``, the
             default, stores nothing.
+        ordered: Whether the call is a write that runs in the model's order
+            after the turn's earlier ordered calls. The session starts one
+            ordered call at a time, raises its approval only when its turn
+            comes, and records later ordered calls as skipped once one does not
+            succeed. ``READ`` calls ignore it. Defaults to ``False``, which runs
+            the call in parallel with the turn's other calls.
+            ``ConnectorToolSource`` sets it for connector writes.
     """
 
     tool_call_id: str
@@ -297,6 +310,7 @@ class DeferredToolCall:
     arguments: str
     policy: ToolPolicy
     tool_source_reference: str | None = None
+    ordered: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -543,6 +557,14 @@ class DeferredToolExecution:
             so the tool may return ``ToolTaskStarted``. When it is ``False``,
             run remote work to its end inside the call instead. Defaults to
             ``False``.
+        context: The tool Step's live ``AsyncContext``, or ``None`` when the
+            caller has none, such as a unit test. It gives the Step execution
+            ID, the attempt deadline, and heartbeats. Use it only during this
+            call, never store it, and record heartbeats only through
+            ``heartbeat`` and ``save_heartbeat_checkpoint``, because a bare
+            ``context.heartbeat`` would drop the checkpoint. It is never part of
+            stored state. ``ConnectorToolSource`` derives the connector Call ID
+            from its Step execution ID. Defaults to ``None``.
     """
 
     flow_id: str
@@ -555,6 +577,7 @@ class DeferredToolExecution:
     save_heartbeat_checkpoint: Callable[[str], Awaitable[None]] | None = None
     input_answers: Sequence[QuestionAnswer] = ()
     supports_tool_tasks: bool = False
+    context: AsyncContext | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -563,9 +586,39 @@ class ToolExecutionResult:
 
     Attributes:
         output: Tool output text the model sees.
+        truncated_output_bytes: Size in bytes of the full output when ``output``
+            is a truncated copy, or ``None``, the default, when it is whole. The
+            session stores it as ``AgentToolCall.truncated_output_bytes``.
     """
 
     output: str
+    truncated_output_bytes: int | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ToolCallStepOptions:
+    """Override the timeout and retry policy of one tool call's Step.
+
+    A runner returns it from ``ToolCallStepOptionsProvider.tool_call_step_options``.
+    The session applies it to the movement that starts the call's tool Step,
+    and to no other Step. A ``CallSingleAttemptTool`` call takes only
+    ``execute_method_timeout``; it still runs one attempt.
+
+    Example:
+        >>> ToolCallStepOptions(
+        ...     execute_method_timeout=timedelta(seconds=30),
+        ...     execute_retry=RetryPolicy(maximum_attempts=3, total_duration=timedelta(hours=1)),
+        ... )
+
+    Attributes:
+        execute_method_timeout: Timeout of each attempt, or ``None`` for the
+            tool Step's default.
+        execute_retry: Retry policy of a ``CallTool`` call, or ``None`` for the
+            default of three attempts.
+    """
+
+    execute_method_timeout: timedelta | None = None
+    execute_retry: RetryPolicy | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -767,6 +820,21 @@ else:
     ToolOutcomeT_co = TypeVar("ToolOutcomeT_co", bound=DeferredToolOutcome, covariant=True)
 
 
+class ToolOutcomeUnknownError(Exception):
+    """Report that a tool call may or may not have taken effect, so it must not run again.
+
+    Raise it from ``execute_deferred_tool_call`` when the tool sent a write
+    and cannot tell whether it took effect, such as a connector operation's
+    ``uncertain`` branch. The session records ``OUTCOME_UNKNOWN`` with
+    ``str(error)`` as ``error``, does not retry, and the model sees
+    ``OUTCOME_UNKNOWN_TOOL_RESULT``. A later ordered write of the turn is
+    skipped.
+
+    Example:
+        >>> raise ToolOutcomeUnknownError("the provider timed out after receiving the refund")
+    """
+
+
 class ToolExecutionError(Exception):
     """Report a tool failure that the model should see.
 
@@ -952,6 +1020,29 @@ class PlanModeRunner(Protocol):
 
         Returns:
             ``True`` when the runner implements plan mode as described above.
+        """
+        ...
+
+
+@runtime_checkable
+class ToolCallStepOptionsProvider(Protocol):
+    """Give a tool call's Step its own timeout and retry policy.
+
+    A runner implements it when some tools need options other than the
+    tool Steps' defaults, as ``StepwiseAgentRunner`` does for a tool source
+    that defines ``tool_call_step_options``. The session calls it whenever it
+    starts a call's tool Step, including after an approval, so it must
+    answer from the record alone. A method that raises leaves the defaults.
+    """
+
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        """Return the options of one call's tool Step.
+
+        Args:
+            tool_call: The record whose tool Step starts.
+
+        Returns:
+            The options, or ``None`` for the defaults.
         """
         ...
 

@@ -38,6 +38,7 @@ from dex_agents.runner import (
     DeferredToolOutcome,
     FrameworkMessage,
     ToolCallsRequested,
+    ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
@@ -545,6 +546,36 @@ class StepwiseAgentRunner:
         return await source.poll_tool_task(
             replace(poll, tool_call=replace(record, tool_source_reference=reference))
         )
+
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        """Return a tool source's options for one call's tool Step.
+
+        A source that defines ``tool_call_step_options(tool_call)`` gives its
+        calls their own timeout and retry policy, as ``ConnectorToolSource``
+        does from each operation's manifest. Function tools and other sources
+        keep the tool Steps' defaults.
+
+        Args:
+            tool_call: The record whose tool Step starts.
+
+        Returns:
+            The source's options, or ``None`` for the defaults.
+
+        Raises:
+            LookupError: If a source built the call but the definition no
+                longer has it. The session then uses the defaults.
+        """
+        if tool_call.tool_name in self._tools_by_name:
+            return None
+        routed = self._route_to_tool_source(tool_call)
+        if routed is None:
+            return None
+        source, reference = routed
+        provide = getattr(source, "tool_call_step_options", None)
+        if provide is None:
+            return None
+        options = provide(replace(tool_call, tool_source_reference=reference))
+        return options if isinstance(options, ToolCallStepOptions) else None
 
     async def cancel_tool_task(self, cancellation: ToolTaskCancellation) -> None:
         """Cancel a tool source's task through the source that built the call.
