@@ -163,6 +163,18 @@ struct OffloadedRun {
 
 impl OffloadedRun {
     fn start(settings: RunSettings) -> Self {
+        Self::start_with_request(
+            settings,
+            StartFlowRequest {
+                flow_id: FLOW_ID.to_owned(),
+                flow_type: "OffloadedFlow".to_owned(),
+                request_id: "start".to_owned(),
+                ..StartFlowRequest::default()
+            },
+        )
+    }
+
+    fn start_with_request(settings: RunSettings, request: StartFlowRequest) -> Self {
         // The harness registry hashes Flows with this key and partition count.
         let hasher = PartitionHasher::new(&[7; 16], 4).expect("valid partition hasher");
         let flow_hash = hasher.flow_hash(TENANT, FLOW_ID);
@@ -186,12 +198,7 @@ impl OffloadedRun {
         ));
         let outcome = run.apply(Command::FlowStart(FlowStartCommand {
             new_run_id: vec![9; 16],
-            request: Some(StartFlowRequest {
-                flow_id: FLOW_ID.to_owned(),
-                flow_type: "OffloadedFlow".to_owned(),
-                request_id: "start".to_owned(),
-                ..StartFlowRequest::default()
-            }),
+            request: Some(request),
             settings: Some(settings),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
             worker_target: Some(WorkerTarget { is_pull_mode: true }),
@@ -984,3 +991,4 @@ async fn a_read_cache_that_cannot_be_created_disables_itself() {
 }
 
 mod load_blob_read_tests;
+mod value_revival_tests;

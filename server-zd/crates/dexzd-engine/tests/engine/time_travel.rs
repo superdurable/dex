@@ -33,7 +33,9 @@ use dexzd_engine::{
     SystemEngineIdSource, TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory,
     WorkerRpcInvocation, WorkerRpcResult, grpc_code,
 };
-use dexzd_history_segment::{encode_history_segment, history_segment_object_key};
+use dexzd_history_segment::{
+    HistorySegmentContent, encode_history_segment, history_segment_object_key,
+};
 use dexzd_keyspace::row_keys::{
     attempt_record_key, checkpoint_key, history_record_key, prefix_range, run_singleton_key,
     value_row_key,
@@ -379,6 +381,32 @@ impl TravelNode {
         let flow_hash = self.context().flow_hash;
         // FlowStart is the run's first seq.
         let genesis_seq = 1;
+        for content in self.acknowledge_sealed_history(run_id).await {
+            let mut batch = WriteBatch::new();
+            for record in &content.records {
+                if record.seq != genesis_seq {
+                    batch.delete(
+                        ColumnFamily::History,
+                        history_record_key(flow_hash, run_id, record.seq),
+                    );
+                }
+            }
+            for checkpoint in &content.checkpoints {
+                batch.delete(
+                    ColumnFamily::History,
+                    checkpoint_key(flow_hash, run_id, checkpoint.attempt, checkpoint.seq),
+                );
+            }
+            self.store.write(batch).expect("the local rows are removed");
+        }
+        self.run_record(run_id).history_uploaded_through_seq
+    }
+
+    /// Uploads and acknowledges every SEALED segment of the run as the uploader does, and
+    /// returns the content of each. Only committed commands change the store.
+    async fn acknowledge_sealed_history(&self, run_id: RunId) -> Vec<HistorySegmentContent> {
+        let flow_hash = self.context().flow_hash;
+        let mut acknowledged = Vec::new();
         for segment in self.segments(run_id) {
             if segment.state != HistorySegmentState::Sealed as i32 {
                 continue;
@@ -410,24 +438,9 @@ impl TravelNode {
                 }),
             )
             .await;
-            let mut batch = WriteBatch::new();
-            for record in &content.records {
-                if record.seq != genesis_seq {
-                    batch.delete(
-                        ColumnFamily::History,
-                        history_record_key(flow_hash, run_id, record.seq),
-                    );
-                }
-            }
-            for checkpoint in &content.checkpoints {
-                batch.delete(
-                    ColumnFamily::History,
-                    checkpoint_key(flow_hash, run_id, checkpoint.attempt, checkpoint.seq),
-                );
-            }
-            self.store.write(batch).expect("the local rows are removed");
+            acknowledged.push(content);
         }
-        self.run_record(run_id).history_uploaded_through_seq
+        acknowledged
     }
 
     fn segments(&self, run_id: RunId) -> Vec<HistorySegmentRecord> {
@@ -2098,4 +2111,115 @@ async fn a_cached_offloaded_value_counts_against_the_replay_memory_budget() {
     );
     assert_eq!(travel.committed_count(is_stage), 0, "nothing is staged");
     travel.shutdown().await;
+}
+
+/// A hot standby replays the revive that restores an offloaded value before a write that
+/// references it, and reaches the serving store's state.
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_replays_the_revive_of_an_offloaded_value_to_the_serving_state() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let serving_directory = directory.path().join("serving");
+    let standby_directory = directory.path().join("standby");
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        crate::hot_standby::rocksdb_store(&serving_directory),
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    let mut standby_config = cluster.config(crate::hot_standby::rocksdb_store(&standby_directory));
+    standby_config.commit.debug_replay_checks = true;
+    let standby = dexzd_engine::HotStandby::start(
+        standby_config,
+        crate::hot_standby::fast_standby_config(),
+        dexzd_engine::HotStandbyDependencies {
+            metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+            object_store: Arc::new(crate::hot_standby::ProcessObjectStore::new(
+                cluster.object_store.clone(),
+            )),
+            clock: cluster.clock.clone(),
+            applier: Arc::new(DeterministicCommandApplier),
+            id_source: Arc::new(SystemEngineIdSource),
+            restart_jitter_seed: 7,
+        },
+    )
+    .expect("the hot standby starts");
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel
+        .set_attribute("report", string_value(&"n".repeat(400)))
+        .await;
+    travel.acknowledge_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.acknowledge_sealed_history(run_id).await;
+    assert!(value_birth(&travel, run_id, old_value).is_offloaded);
+
+    // Request validation admits no reference, so the write is proposed as a Worker echo would be.
+    let reference = ValueReference {
+        run_id,
+        value_id: old_value,
+    }
+    .to_string();
+    let copy = FlowCommand {
+        flow_id: FLOW_ID.to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                flow_id: FLOW_ID.to_owned(),
+                attributes: vec![AttributeWrite {
+                    key: "copy".to_owned(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::InternalBlobIdForStringValue(reference)),
+                    }),
+                    ..AttributeWrite::default()
+                }],
+                request_id: "copy-report".to_owned(),
+                ..SetAttributesRequest::default()
+            }),
+            hard_delete_objects: Vec::new(),
+            request_fingerprint: b"copy-report".to_vec(),
+        })),
+        ..FlowCommand::default()
+    };
+    let proposal = travel
+        .registry
+        .propose(
+            FlowAddress::new(TenantId::DEFAULT, FLOW_ID.to_owned()),
+            copy,
+            CommitUrgency::Prompt,
+        )
+        .await
+        .expect("the write is proposed");
+    let committed = proposal.ticket.wait().await.expect("the write commits");
+    assert!(
+        matches!(
+            committed.outcome.reply.reply,
+            Some(dexzd_protocol::dexzd::v1::command_reply::Reply::Ok(_))
+        ),
+        "{:?}",
+        committed.outcome.reply
+    );
+    assert_eq!(
+        travel.committed_count(|command| matches!(command, Command::ValueRevive(_))),
+        1
+    );
+    assert_eq!(
+        table_value_id(&travel.attribute(run_id, "copy").expect("the copy")),
+        old_value
+    );
+    assert!(!value_birth(&travel, run_id, old_value).is_offloaded);
+
+    crate::hot_standby::wait_until_caught_up(&cluster, &standby).await;
+    travel.shutdown().await;
+    standby.shutdown().await;
+    crate::hot_standby::assert_same_stores(&serving_directory, &standby_directory);
 }

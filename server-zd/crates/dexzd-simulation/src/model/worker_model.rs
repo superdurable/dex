@@ -8,7 +8,7 @@
 
 //! Commands that the owner and a pull Worker produce for method calls and timers.
 
-use dexzd_keyspace::RunId;
+use dexzd_keyspace::{RunId, ValueReference};
 use dexzd_protocol::dex::{
     AttributeWrite, ChannelCondition, ChannelMessage, ChannelMessageDeletion, CloseDecision,
     CloseDecisionType, InvokeExecuteMethodResponse, InvokeWaitForMethodResponse, Kv, StepDecision,
@@ -87,10 +87,32 @@ impl Call<'_> {
                 stored.extend(channel.messages.iter().filter_map(|m| m.value.as_ref()));
             }
         }
-        stored
+        let mut visible: Vec<Value> = stored
             .into_iter()
             .filter_map(|stored| wire_value(self.run_id, stored))
-            .collect()
+            .collect();
+        // A Worker may hold a reference it read long ago, which offload has since deleted locally.
+        let window_start_seq = self
+            .run
+            .record
+            .as_ref()
+            .map_or(0, |record| record.window_start_seq);
+        visible.extend(
+            self.run
+                .value_births
+                .iter()
+                .filter(|(_, birth)| birth.is_offloaded && birth.garbage_seq >= window_start_seq)
+                .map(|(value_id, _)| Value {
+                    kind: Some(value::Kind::InternalBlobIdForStringValue(
+                        ValueReference {
+                            run_id: self.run_id,
+                            value_id: *value_id,
+                        }
+                        .to_string(),
+                    )),
+                }),
+        );
+        visible
     }
 }
 

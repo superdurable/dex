@@ -146,6 +146,11 @@ fn apply_in_scope(
         Command::TimeTravelStage(stage) => {
             crate::history::apply_time_travel_stage(&mut transaction, scope, stage)?
         }
+        Command::ValueRevive(revive) => crate::history_offload::value_revive::apply_value_revive(
+            &mut transaction,
+            scope,
+            revive,
+        )?,
         Command::FlowStart(start) => flow_start::apply_flow_start(&mut transaction, scope, start)?,
         Command::InboxMessage(message) => {
             crate::cross_flow::apply_inbox_message(&mut transaction, scope, message)?
@@ -306,6 +311,8 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         Command::HistorySegmentUploaded(_) => false,
         // Staged time travel results live outside run storage.
         Command::TimeTravelStage(_) => false,
+        // A revived value is superseded, so active state never grows.
+        Command::ValueRevive(_) => false,
         _ => false,
     }
 }
@@ -439,6 +446,7 @@ pub(crate) fn apply_run_command(
         | Command::StepAttemptQueued(_)
         | Command::HistorySegmentUploaded(_)
         | Command::TimeTravelStage(_)
+        | Command::ValueRevive(_)
         | Command::InboxMessage(_)
         | Command::RunPurge(_) => Err(ApplyError::InvariantViolation {
             detail: "cross-Flow or partition command routed to the wrong handler".to_owned(),

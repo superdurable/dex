@@ -24,7 +24,7 @@ const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
 const VALUE_BYTES: usize = 300;
 
 impl OffloadedRun {
-    fn set_text(&mut self, key: &str, text: String) {
+    pub(super) fn set_text(&mut self, key: &str, text: String) {
         self.request_count += 1;
         let request_id = format!("{key}-{}", self.request_count);
         let outcome = self.apply(Command::AttributesSet(AttributesSetCommand {
@@ -49,7 +49,7 @@ impl OffloadedRun {
         );
     }
 
-    fn profile_value_id(&self) -> ValueId {
+    pub(super) fn profile_value_id(&self) -> ValueId {
         use dexzd_apply::FlowStateReader;
         let key = run_named_key(
             self.context.flow_hash,
@@ -75,7 +75,7 @@ impl OffloadedRun {
         }
     }
 
-    fn reference(&self, value_id: ValueId) -> String {
+    pub(super) fn reference(&self, value_id: ValueId) -> String {
         ValueReference {
             run_id: self.run_id,
             value_id,
@@ -83,7 +83,7 @@ impl OffloadedRun {
         .to_string()
     }
 
-    fn locate(&self, value_id: ValueId) -> OffloadedValueLocation {
+    pub(super) fn locate(&self, value_id: ValueId) -> OffloadedValueLocation {
         locate_offloaded_value(
             &self.store.view(),
             self.context.flow_hash,
@@ -101,11 +101,25 @@ async fn offloaded_profiles(
     rewrites: usize,
     segment_target_bytes: u64,
 ) -> (OffloadedRun, Vec<(String, String)>) {
-    let mut run = OffloadedRun::start(RunSettings {
+    let mut run = OffloadedRun::start(offloading_settings(segment_target_bytes));
+    let offloaded = offload_profiles(&mut run, rewrites).await;
+    (run, offloaded)
+}
+
+pub(super) fn offloading_settings(segment_target_bytes: u64) -> RunSettings {
+    RunSettings {
         history_segment_target_bytes: segment_target_bytes,
         wire_inline_threshold_bytes: 100,
         ..default_run_settings()
-    });
+    }
+}
+
+/// Rewrites the run's profile `rewrites` times and lets offload delete every superseded
+/// profile locally. Returns the offloaded value references with their texts, oldest first.
+pub(super) async fn offload_profiles(
+    run: &mut OffloadedRun,
+    rewrites: usize,
+) -> Vec<(String, String)> {
     let mut superseded = Vec::new();
     for round in 0..=rewrites {
         let text = format!("profile {round} {}", "x".repeat(VALUE_BYTES));
@@ -120,14 +134,13 @@ async fn offloaded_profiles(
     run.now_micros += GRACE_MICROS;
     run.set_text("note", "after the grace period".to_owned());
     run.upload_all().await;
-    let offloaded = superseded
+    superseded
         .into_iter()
         .filter(|(value_id, _)| {
             matches!(run.locate(*value_id), OffloadedValueLocation::Uploaded(_))
         })
         .map(|(value_id, text)| (run.reference(value_id), text))
-        .collect();
-    (run, offloaded)
+        .collect()
 }
 
 fn blob_request(references: impl IntoIterator<Item = String>) -> LoadBlobsRequest {

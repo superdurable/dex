@@ -387,6 +387,7 @@ pub fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::HardDeleteObjectsDeleted(_)) => "HardDeleteObjectsDeleted",
         Some(Command::RunPurge(_)) => "RunPurge",
         Some(Command::HistorySegmentUploaded(_)) => "HistorySegmentUploaded",
+        Some(Command::ValueRevive(_)) => "ValueRevive",
     }
 }
 

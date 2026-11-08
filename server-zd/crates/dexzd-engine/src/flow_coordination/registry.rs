@@ -10,6 +10,7 @@
 //! the SYNC barrier, and lock checks.
 
 mod flow_effect_operations_adapter;
+mod value_revival;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -475,9 +476,9 @@ impl FlowCoordinatorRegistry {
             .await
     }
 
-    /// Like [`Self::propose_with`]; without `should_wait_for_capacity`, the speculation limit
-    /// fails with `Unavailable` at once.
-    async fn propose_with_admission<T>(
+    /// Proposes once, without reviving referenced values; without `should_wait_for_capacity`,
+    /// the speculation limit fails with `Unavailable` at once.
+    async fn propose_once_with_admission<T>(
         &self,
         flow: &FlowAddress,
         urgency: CommitUrgency,

@@ -108,6 +108,22 @@ value is unknown, as one outside the window is. The pass stops at the first valu
 still in its grace period. While offload is on, the superseded value byte cap
 moves nothing.
 
+`ValueReviveCommand` restores such a value, so a command that references it
+resolves it. Like the acknowledgment, it records no history, takes no run seq,
+and is not bound to an attempt. When the run's birth record still marks the value
+offloaded and `garbage_seq` is at or after the window start, apply writes the
+value row, clears `is_offloaded`, and writes the garbage row again at
+`garbage_seq`, stamped with the command's time, so the value is superseded where
+it was. Local deletion has usually passed that seq, so a revived value that no
+command holds again stays local until window pruning deletes it, as it does any
+superseded value. The command must carry a value of the size
+its birth record holds; otherwise it is rejected with INVALID_ARGUMENT and writes
+nothing. For a value that is local, has no birth record, or that the window
+passed, it replies OK and writes nothing. A missing or purging run replies
+NOT_FOUND. `offloaded_command_references` lists the
+offloaded values that a Worker result, Client write, or RPC result references,
+using the same values apply resolves as references.
+
 ## History migration
 
 A run that started while its partition did not offload history has no segment
