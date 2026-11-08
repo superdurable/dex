@@ -28,6 +28,17 @@ const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const docsRoot = join(root, '..');
 const redirectsPath = join(root, '..', 'redirects.json');
+for (const [locale, prefix] of [['en', 'index-'], ['zh-Hans', 'zh-hans-']]) {
+  const metadataDirectory = join(docsRoot, '.docusaurus', 'docusaurus-plugin-content-docs', 'default', 'p');
+  const metadataFile = (await readdir(metadataDirectory)).find((name) =>
+    name.startsWith(prefix) && name.endsWith('.json'));
+  assert.ok(metadataFile, `Missing ${locale} default docs sidebar metadata`);
+  const metadata = JSON.parse(await readFile(join(metadataDirectory, metadataFile), 'utf8'));
+  const sharedSidebar = JSON.parse(await readFile(join(docsRoot, 'src', 'data', `docs-sidebar-${locale}.json`), 'utf8'));
+  assert.deepEqual(sharedSidebar, metadata.version.docsSidebars.docs,
+    `${locale} shared reference sidebar must match the main docs sidebar`);
+}
+
 const latestReferenceVersions = JSON.parse(await readFile(join(docsRoot, 'reference/versions.json'), 'utf8'));
 const referenceVersions = new Map();
 for (const [component, latest] of Object.entries(latestReferenceVersions)) {
