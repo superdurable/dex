@@ -1127,6 +1127,8 @@ async fn idle_orphan_cleanup_stops_after_losing_the_lease() {
 }
 
 const IDLE_LOG_DELETION_DELAY: Duration = Duration::from_secs(60 * 60);
+/// The cleanup timer period: the deletion delay capped at one minute.
+const IDLE_LOG_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Returns a config whose schedule takes no snapshot while a test waits.
 fn idle_log_cleanup_config(cluster: &TestCluster) -> EngineNodeConfig {
@@ -1138,12 +1140,59 @@ fn idle_log_cleanup_config(cluster: &TestCluster) -> EngineNodeConfig {
     config
 }
 
-/// Ages every snapshot past the delay, then waits for one periodic cleanup.
-async fn wait_for_idle_log_cleanup(cluster: &TestCluster) {
+fn age_snapshots_past_the_idle_deletion_delay(cluster: &TestCluster) {
     cluster
         .clock
         .shift(i64::try_from(2 * IDLE_LOG_DELETION_DELAY.as_micros()).expect("delay fits i64"));
-    tokio::time::sleep(Duration::from_secs(61)).await;
+}
+
+/// Lets two periodic cleanup runs pass, for asserting that nothing more is deleted.
+async fn wait_for_two_idle_cleanup_runs() {
+    tokio::time::sleep(2 * IDLE_LOG_CLEANUP_INTERVAL + Duration::from_secs(1)).await;
+}
+
+async fn keys_under(cluster: &TestCluster, prefix: &str) -> Vec<String> {
+    cluster
+        .object_store
+        .list(prefix, None, 1000)
+        .await
+        .expect("list keys")
+        .objects
+        .into_iter()
+        .map(|object| object.key)
+        .collect()
+}
+
+/// Advances paused time one second at a time until the keys under `prefix` satisfy `is_done`.
+async fn wait_for_keys_under(
+    cluster: &TestCluster,
+    prefix: &str,
+    is_done: impl Fn(&[String]) -> bool,
+) {
+    for _ in 0..(5 * IDLE_LOG_CLEANUP_INTERVAL.as_secs()) {
+        if is_done(&keys_under(cluster, prefix).await) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    let keys = keys_under(cluster, prefix).await;
+    panic!("keys under {prefix} did not converge: {keys:?}");
+}
+
+async fn rewrite_partition_snapshots(
+    cluster: &TestCluster,
+    mut edit: impl FnMut(&mut Vec<dexzd_protocol::dexzd::v1::PartitionAssignment>),
+) {
+    dexzd_cluster_metadata::update_manifest(
+        cluster.object_store.as_ref(),
+        cluster.clock.as_ref(),
+        |manifest| {
+            edit(&mut manifest.partitions);
+            Ok(dexzd_cluster_metadata::ManifestChange::Changed)
+        },
+    )
+    .await
+    .expect("rewrite partition snapshots");
 }
 
 fn seq_of_batch(key: &str) -> u64 {
@@ -1164,12 +1213,13 @@ async fn idle_node_deletes_log_batches_once_its_snapshot_is_old_enough() {
     test.node.take_snapshot().await.expect("snapshot succeeds");
     assert_eq!(log_batch_keys(&cluster).await, batches_before);
 
-    wait_for_idle_log_cleanup(&cluster).await;
+    age_snapshots_past_the_idle_deletion_delay(&cluster);
 
-    let first_retained = batches_before.last().expect("batches exist");
-    assert_eq!(log_batch_keys(&cluster).await, vec![first_retained.clone()]);
+    let first_retained = batches_before.last().expect("batches exist").clone();
+    let expected = vec![first_retained.clone()];
+    wait_for_keys_under(&cluster, "log/", |keys| keys == expected.as_slice()).await;
     assert_eq!(snapshot_manifest_keys(&cluster).await.len(), 1);
-    let first_retained_seq = seq_of_batch(first_retained);
+    let first_retained_seq = seq_of_batch(&first_retained);
     assert!(
         cluster
             .cluster_manifest()
@@ -1204,7 +1254,7 @@ async fn idle_log_cleanup_never_passes_the_published_snapshot() {
     assert_eq!(snapshot_manifest_keys(&cluster).await.len(), 2);
     let batches_before_cleanup = log_batch_keys(&cluster).await;
 
-    wait_for_idle_log_cleanup(&cluster).await;
+    age_snapshots_past_the_idle_deletion_delay(&cluster);
 
     let first_retained = published_batches.last().expect("batches exist");
     let expected: Vec<String> = batches_before_cleanup
@@ -1212,9 +1262,68 @@ async fn idle_log_cleanup_never_passes_the_published_snapshot() {
         .filter(|key| key >= first_retained)
         .collect();
     assert!(expected.len() > 1, "{expected:?}");
+    wait_for_keys_under(&cluster, "log/", |keys| keys == expected.as_slice()).await;
+    wait_for_two_idle_cleanup_runs().await;
     assert_eq!(log_batch_keys(&cluster).await, expected);
     assert_eq!(snapshot_manifest_keys(&cluster).await.len(), 2);
     assert_eq!(test.node.stop_reason(), None);
+    test.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_log_cleanup_bounds_deletion_by_every_published_snapshot() {
+    let mut cluster = TestCluster::new();
+    let config = idle_log_cleanup_config(&cluster);
+    let test = cluster.start_with(&config).await.expect("node starts");
+    test.commit_prompt("mixed-reference-flow", 3).await;
+    let older = test.node.take_snapshot().await.expect("older snapshot");
+    let older_batches = log_batch_keys(&cluster).await;
+    test.commit_prompt("mixed-reference-flow", 2).await;
+    test.node.take_snapshot().await.expect("newer snapshot");
+    let batches_before_cleanup = log_batch_keys(&cluster).await;
+    rewrite_partition_snapshots(&cluster, |partitions| {
+        partitions.last_mut().expect("partitions exist").snapshot = Some(older.clone());
+    })
+    .await;
+
+    age_snapshots_past_the_idle_deletion_delay(&cluster);
+
+    let first_retained = older_batches.last().expect("batches exist");
+    let expected: Vec<String> = batches_before_cleanup
+        .into_iter()
+        .filter(|key| key >= first_retained)
+        .collect();
+    assert!(expected.len() > 1, "{expected:?}");
+    wait_for_keys_under(&cluster, "log/", |keys| keys == expected.as_slice()).await;
+    wait_for_two_idle_cleanup_runs().await;
+    assert_eq!(log_batch_keys(&cluster).await, expected);
+    assert_eq!(snapshot_manifest_keys(&cluster).await.len(), 2);
+    test.node.shutdown().await.expect("lease released");
+}
+
+#[tokio::test(start_paused = true)]
+async fn idle_log_cleanup_skips_a_partition_without_a_snapshot() {
+    let mut cluster = TestCluster::new();
+    let config = idle_log_cleanup_config(&cluster);
+    let test = cluster.start_with(&config).await.expect("node starts");
+    test.commit_prompt("missing-reference-flow", 3).await;
+    let reference = test.node.take_snapshot().await.expect("snapshot succeeds");
+    let batches_before = log_batch_keys(&cluster).await;
+    rewrite_partition_snapshots(&cluster, |partitions| {
+        partitions.last_mut().expect("partitions exist").snapshot = None;
+    })
+    .await;
+
+    age_snapshots_past_the_idle_deletion_delay(&cluster);
+    wait_for_two_idle_cleanup_runs().await;
+
+    assert_eq!(log_batch_keys(&cluster).await, batches_before);
+    rewrite_partition_snapshots(&cluster, |partitions| {
+        partitions.last_mut().expect("partitions exist").snapshot = Some(reference.clone());
+    })
+    .await;
+    let expected = vec![batches_before.last().expect("batches exist").clone()];
+    wait_for_keys_under(&cluster, "log/", |keys| keys == expected.as_slice()).await;
     test.node.shutdown().await.expect("lease released");
 }
 
@@ -1232,9 +1341,55 @@ async fn idle_log_cleanup_stops_after_losing_the_lease() {
         NodeStopReason::LeaseLost { .. }
     ));
 
-    wait_for_idle_log_cleanup(&cluster).await;
+    age_snapshots_past_the_idle_deletion_delay(&cluster);
+    wait_for_two_idle_cleanup_runs().await;
 
     assert_eq!(log_batch_keys(&cluster).await, batches_before);
+    test.node.shutdown().await.expect("stopped node shuts down");
+}
+
+#[tokio::test(start_paused = true)]
+async fn log_cleanup_issues_no_delete_after_losing_the_lease_between_batches() {
+    const HELD_DELETE: Duration = Duration::from_secs(10 * 60);
+    let mut cluster = TestCluster::new();
+    let config = idle_log_cleanup_config(&cluster);
+    let test = cluster.start_with(&config).await.expect("node starts");
+    test.commit_prompt("held-delete-flow", 3).await;
+    test.node.take_snapshot().await.expect("snapshot succeeds");
+    let live_batches = log_batch_keys(&cluster).await;
+    let old_incarnation_prefix = "log/node-a/0000000000/";
+    for seq in 1..=1500_u64 {
+        cluster
+            .object_store
+            .put(
+                &format!("{old_incarnation_prefix}{seq:020}"),
+                Bytes::new(),
+                WriteCondition::CreateOnly,
+            )
+            .await
+            .expect("upload old incarnation batch");
+    }
+    // delete_many reports an empty key, so this holds the first delete batch.
+    cluster.faults.delay_next_batch_delete(HELD_DELETE);
+
+    age_snapshots_past_the_idle_deletion_delay(&cluster);
+    cluster.faults.wait_until_delayed_operation_entered().await;
+    cluster.expire_lease_of("node-a").await;
+    assert!(matches!(
+        test.node.wait_for_stop().await,
+        NodeStopReason::LeaseLost { .. }
+    ));
+    tokio::time::sleep(HELD_DELETE).await;
+    wait_for_two_idle_cleanup_runs().await;
+
+    assert_eq!(
+        keys_under(&cluster, old_incarnation_prefix).await.len(),
+        500
+    );
+    assert_eq!(
+        keys_under(&cluster, "log/node-a/0000000001/").await,
+        live_batches
+    );
     test.node.shutdown().await.expect("stopped node shuts down");
 }
 
@@ -1256,22 +1411,15 @@ async fn log_cleanup_bounds_each_run_and_idle_cleanup_finishes_the_rest() {
             .await
             .expect("upload old incarnation batch");
     }
-    let old_batch_count = || async {
-        cluster
-            .object_store
-            .list(old_incarnation_prefix, None, 1000)
-            .await
-            .expect("list old incarnation")
-            .objects
-            .len()
-    };
     test.commit_prompt("bounded-log-flow", 1).await;
     test.node.take_snapshot().await.expect("snapshot succeeds");
-    assert_eq!(old_batch_count().await, 500);
+    assert_eq!(
+        keys_under(&cluster, old_incarnation_prefix).await.len(),
+        500
+    );
 
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    wait_for_keys_under(&cluster, old_incarnation_prefix, <[String]>::is_empty).await;
 
-    assert_eq!(old_batch_count().await, 0);
     assert_eq!(snapshot_manifest_keys(&cluster).await.len(), 1);
     test.node.shutdown().await.expect("lease released");
 }

@@ -111,9 +111,7 @@ impl SnapshotService {
         }
     }
 
-    /// Runs snapshot retention and log cleanup between snapshots.
-    ///
-    /// An idle node takes no snapshots, so only this run deletes its covered log batches.
+    /// Runs retention and log cleanup; on an idle node, only this deletes covered log batches.
     async fn run_periodic_cleanup(&self) -> Result<(), SnapshotError> {
         let _operation_guard = self.acquire_operation_lock().await;
         let cluster_manifest = self
@@ -372,22 +370,29 @@ impl SnapshotService {
     }
 }
 
-/// Returns the retained snapshot that each partition of `cluster_manifest` points to.
+/// Returns each distinct retained snapshot that a partition of `cluster_manifest` points to.
 ///
 /// Returns `None` when a partition points to no snapshot or to one that `retained` lacks.
 fn published_snapshots<'catalog>(
     cluster_manifest: &Manifest,
     retained: &[&'catalog SnapshotManifest],
 ) -> Option<Vec<&'catalog SnapshotManifest>> {
-    cluster_manifest
-        .partitions
-        .iter()
-        .map(|partition| {
-            let reference = partition.snapshot.as_ref()?;
+    let mut references = BTreeSet::new();
+    for partition in &cluster_manifest.partitions {
+        let reference = partition.snapshot.as_ref()?;
+        references.insert((
+            reference.node_id.as_str(),
+            reference.lineage_id.as_slice(),
+            reference.snapshot_number,
+        ));
+    }
+    references
+        .into_iter()
+        .map(|(node_id, lineage_id, snapshot_number)| {
             retained.iter().copied().find(|manifest| {
-                manifest.node_id == reference.node_id
-                    && manifest.lineage_id == reference.lineage_id
-                    && manifest.snapshot_number == reference.snapshot_number
+                manifest.node_id == node_id
+                    && manifest.lineage_id == lineage_id
+                    && manifest.snapshot_number == snapshot_number
             })
         })
         .collect()
