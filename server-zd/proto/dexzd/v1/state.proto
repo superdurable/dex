@@ -196,6 +196,9 @@ message RunRecord {
   // Last seq of the newest expired history segment whose object the owner deleted and whose
   // catalog row is gone; zero before the first deletion. Objects are deleted oldest first.
   uint64 history_objects_deleted_through_seq = 71;
+  // Newest event ID of the history records a window scan inspected before window_scan_seq; zero
+  // when window_scan_seq is zero or the event ID is unknown.
+  int64 window_scan_last_event_id = 72;
 }
 
 // A staged TimeTravel result of a run; see TimeTravelStageCommand.

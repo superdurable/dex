@@ -138,6 +138,7 @@ pub(crate) fn advance_window(
     record.max_pruned_event_id = pruned.last_event_id_before_window_start;
     record.window_start_seq = pruned.window_start_seq;
     record.window_scan_seq = 0;
+    record.window_scan_last_event_id = 0;
     record.pruned_semantic_event_count += pruned.semantic_points;
     record.pruned_window_event_count = record
         .pruned_window_event_count
@@ -205,7 +206,12 @@ fn find_new_window_start(
     let mut semantic_points = 0;
     let mut candidate = None;
     let mut last_scanned_seq = None;
-    let mut last_record_event_id = 0;
+    // A resumed scan starts after the rows an earlier command inspected; the W row seeds a new one.
+    let mut last_record_event_id = if start_seq > current_start {
+        cursor.record.window_scan_last_event_id
+    } else {
+        0
+    };
     let page_count = match target {
         WindowAdvanceTarget::Events(_) => EVENT_CHUNK_PAGES_PER_COMMAND,
         WindowAdvanceTarget::GarbageSeq(_) => 1,
@@ -277,6 +283,7 @@ fn find_new_window_start(
         && let Some(last_seq) = last_scanned_seq
     {
         cursor.record.window_scan_seq = last_seq.saturating_add(1);
+        cursor.record.window_scan_last_event_id = last_record_event_id;
     }
     Ok(candidate)
 }

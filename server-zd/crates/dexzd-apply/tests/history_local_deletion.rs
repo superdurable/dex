@@ -612,8 +612,19 @@ impl Harness {
 
     /// Returns the history uploaded segments hold, loaded as an owner fetches it.
     fn loaded_segments(&self) -> LoadedHistorySegments {
+        self.loaded_segments_matching(|_| true)
+    }
+
+    /// Returns the history of the uploaded segments that `is_loaded` accepts.
+    fn loaded_segments_matching(
+        &self,
+        is_loaded: impl Fn(&HistorySegmentRecord) -> bool,
+    ) -> LoadedHistorySegments {
         let mut loaded = LoadedHistorySegments::default();
         for (segment, content) in self.uploaded.values() {
+            if !is_loaded(segment) {
+                continue;
+            }
             let records: Vec<HistoryRecord> = content
                 .records
                 .iter()
@@ -1640,6 +1651,52 @@ fn while_offloading_every_visible_event_is_time_travelable_and_its_values_load()
         .pruned_event_id_range
         .expect("the window pruned events");
     assert_eq!(range.end_event_id, window_start_last_event_id - 1);
+
+    // Reads never need a segment that lies wholly after genesis and before W.
+    let is_hidden = |segment: &HistorySegmentRecord| {
+        segment.first_seq > 1 && segment.last_seq < record.window_start_seq
+    };
+    assert!(
+        harness
+            .uploaded
+            .values()
+            .any(|(segment, _)| is_hidden(segment)),
+        "a segment lies wholly before W"
+    );
+    let visible_segments = harness.loaded_segments_matching(|segment| !is_hidden(segment));
+    for start_event_id in [
+        0,
+        2,
+        window_start_last_event_id - 1,
+        window_start_last_event_id,
+    ] {
+        let read = get_history_events_from_segments(
+            &harness.state,
+            harness.context.flow_hash,
+            harness.run(),
+            start_event_id,
+            1000,
+            &[],
+            0,
+            usize::MAX,
+            &visible_segments,
+            false,
+        )
+        .expect("history reads");
+        let SegmentedHistoryPage::Page(visible_page) = read else {
+            panic!("a read from event {start_event_id} needs a segment before W: {read:?}");
+        };
+        let first_after_flow_start = visible_page
+            .events
+            .iter()
+            .map(|event| event.event_id)
+            .find(|event_id| *event_id > 1);
+        assert_eq!(
+            first_after_flow_start,
+            Some(start_event_id.max(window_start_last_event_id)),
+            "a read from event {start_event_id}"
+        );
+    }
 
     let mut references = Vec::new();
     for event in &page.events[1..] {

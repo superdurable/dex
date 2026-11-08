@@ -874,6 +874,51 @@ fn reads_start_at_the_window_start_while_pruning_still_deletes_older_records() {
     harness.assert_visible_events_load_and_travel();
 }
 
+#[test]
+fn a_window_scan_resumed_by_a_later_command_keeps_the_event_id_before_its_window_start() {
+    // A superseded value over the byte cap moves W one metadata page of 128 rows per command.
+    let mut harness = Harness::start(
+        RunSettings {
+            max_retained_superseded_bytes: 100,
+            checkpoint_command_threshold: 10_000,
+            ..settings(100_000, 10_000)
+        },
+        worker_target_config(),
+    );
+    harness.set_large_attribute();
+    // Seqs 3 to 129 record neither a semantic point nor an event.
+    for _ in 3..=129 {
+        harness.update_flow_config(FlowConfig::default());
+    }
+    // Seq 130 supersedes the value of seq 2; later commands move W toward it.
+    harness.set_large_attribute();
+    let mut resumed_scan_seqs = Vec::new();
+    while harness.run_record().window_start_seq < 130 {
+        harness.update_flow_config(FlowConfig::default());
+        let record = harness.run_record();
+        resumed_scan_seqs.push(record.window_scan_seq);
+        assert!(
+            record.next_run_seq < 140,
+            "W reaches the superseding record"
+        );
+    }
+    let record = harness.run_record();
+    assert_eq!(record.window_start_seq, 130);
+    assert!(
+        resumed_scan_seqs.contains(&130),
+        "the scan that selected W resumed at W: {resumed_scan_seqs:?}"
+    );
+    let metadata = harness.record_metadata();
+    assert!(!metadata[&129].is_semantic && metadata[&129].max_event_id == 0);
+    let last_event_id_before_window_start = metadata[&129].last_assigned_event_id;
+    assert_eq!(last_event_id_before_window_start, 2);
+    assert_eq!(
+        record.max_pruned_event_id,
+        last_event_id_before_window_start
+    );
+    harness.assert_visible_events_load_and_travel();
+}
+
 impl Harness {
     /// Returns the seq of the newest checkpoint at or before W, which window pruning keeps.
     fn checkpoint_seq_rebuilding_window(&self) -> u64 {

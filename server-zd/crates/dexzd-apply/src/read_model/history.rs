@@ -610,10 +610,10 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
         if first_event_id >= self.view.record.next_event_id {
             return Ok(Vec::new());
         }
-        let Some(seek) = self.seek_first_record(first_event_id)? else {
+        let pruned_seqs = PrunedSeqs::of_run(self.view)?;
+        let Some(seek) = self.seek_first_record(first_event_id, pruned_seqs)? else {
             return Ok(Vec::new());
         };
-        let pruned_seqs = PrunedSeqs::of_run(self.view)?;
         let mut events = Vec::new();
         let mut event_bytes = 0_usize;
         let mut last_event_id = 0_i64;
@@ -691,17 +691,22 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
 
     /// Returns the first record holding an event at or after `first_event_id`, with the
     /// eventless seq ranges found on the way, or `None` when no record holds such an event.
+    ///
+    /// The search never probes the seqs that `pruned_seqs` hides, so it loads no segment there.
     fn seek_first_record(
         &self,
         first_event_id: i64,
+        pruned_seqs: PrunedSeqs,
     ) -> Result<Option<HistorySeek>, ReadModelError> {
         let mut eventless_ranges = EventlessRanges::default();
         let mut chunk_rows = 1;
         let mut high = self.view.record.next_run_seq;
-        let mut low = self
-            .history
-            .event_search_start_seq(first_event_id)?
-            .unwrap_or(0)
+        let mut low = pruned_seqs
+            .skip_from(
+                self.history
+                    .event_search_start_seq(first_event_id)?
+                    .unwrap_or(0),
+            )
             .min(high);
         let mut first_record_seq = None;
         // Probing the oldest record first answers a read from the start without a search.
@@ -712,7 +717,7 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
                 Some(record) => {
                     eventless_ranges.insert(probe..record.seq);
                     if record.last_event_id < first_event_id {
-                        low = record.seq.saturating_add(1);
+                        low = pruned_seqs.skip_from(record.seq.saturating_add(1));
                     } else {
                         first_record_seq = Some(record.seq);
                         high = probe;
