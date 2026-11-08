@@ -123,9 +123,9 @@ unversioned bucket.
 
 ## History offload {#history-offload}
 
-History offload is experimental. It is off by default for **serve** and,
-changed in 0.1.22, on by default for **dev** and **local**. To opt out there,
-set **history.offloadEnabled: false**. It seals run history into
+History offload is experimental. It is off by default for **serve**.
+Changed in 0.1.22: it is on by default for **dev** and **local**. To opt out
+there, set **history.offloadEnabled: false**. It seals run history into
 segments and uploads them to the primary object store under **PREFIX/history/**.
 Uploaded segments let the server reclaim local history rows and, after a grace
 period, superseded values. Segments expire when the history window passes them.
