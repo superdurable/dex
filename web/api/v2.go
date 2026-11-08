@@ -887,19 +887,16 @@ func compileV2Query(
 	filters []v2Filter,
 	definitions map[string]V2Definition,
 ) (string, error) {
-	conditions := []string{compileV2FlowTypes(flowTypes)}
+	permissionCondition, err := compileWorkQueuePermissions(workQueuePermissions)
+	if err != nil {
+		return "", err
+	}
+	conditions := compileV2Scope(flowTypes, workQueuePermissions, permissionCondition, definitions)
 	// The same physical index key can mean different things in different Flow types, so an indexed
 	// Attribute filter has a meaning only within one. Built-in fields mean the same everywhere.
 	var definition V2Definition
 	if len(flowTypes) == 1 {
 		definition = definitions[flowTypes[0]]
-	}
-	permissionCondition, err := compileWorkQueuePermissions(workQueuePermissions)
-	if err != nil {
-		return "", err
-	}
-	if permissionCondition != "" {
-		conditions = append(conditions, permissionCondition)
 	}
 	for _, filter := range filters {
 		if len(filter.Values) == 0 {
@@ -922,6 +919,47 @@ func compileV2Query(
 		conditions = append(conditions, condition)
 	}
 	return strings.Join(conditions, " AND "), nil
+}
+
+// compileV2Scope returns the Flow type and permission conditions of one search.
+//
+// An Action without a condition is offered on every active run and never enters the projected
+// permission history, so a Flow type that offers a requested permission that way skips the filter.
+func compileV2Scope(
+	flowTypes []string,
+	workQueuePermissions []string,
+	permissionCondition string,
+	definitions map[string]V2Definition,
+) []string {
+	if permissionCondition == "" {
+		return []string{compileV2FlowTypes(flowTypes)}
+	}
+	var unfiltered, filtered []string
+	for _, flowType := range flowTypes {
+		if offersPermissionWithoutCondition(definitions[flowType], workQueuePermissions) {
+			unfiltered = append(unfiltered, flowType)
+		} else {
+			filtered = append(filtered, flowType)
+		}
+	}
+	switch {
+	case len(unfiltered) == 0:
+		return []string{compileV2FlowTypes(filtered), permissionCondition}
+	case len(filtered) == 0:
+		return []string{compileV2FlowTypes(unfiltered)}
+	default:
+		return []string{"(" + compileV2FlowTypes(unfiltered) + " OR (" +
+			compileV2FlowTypes(filtered) + " AND " + permissionCondition + "))"}
+	}
+}
+
+func offersPermissionWithoutCondition(definition V2Definition, permissions []string) bool {
+	for _, action := range definition.Actions {
+		if action.Condition == nil && containsPermission(permissions, action.RequiredPermission) {
+			return true
+		}
+	}
+	return false
 }
 
 // compileV2FlowTypes keeps the single-type query an equality: the builtin search backend reads

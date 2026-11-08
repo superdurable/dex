@@ -7,20 +7,19 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   LIST_WIDTH_DEFAULT,
   LIST_WIDTH_KEY,
   V2SplitHandle,
   useCollapsibleColumn,
 } from '../V2SplitHandle';
-import { v2RunPath, v2WorkQueuePath } from '../contract';
+import { V2_AGENT_INBOX_VIEW, v2RunPath, v2WorkQueuePath } from '../contract';
 import '../css/v2.css';
 import { RUN_COPY } from '../run/copy';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
-import { permissionActionLabelsAcross } from '../workspace/permissions';
 import {
   EMPTY_RUN_QUERY,
   emptyRunsText,
@@ -33,8 +32,11 @@ import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useRunQuery } from '../workspace/useRunQuery';
 import { useStrandedRuns } from '../workspace/useStrandedRuns';
 import { useWorkingAs } from '../workspace/useWorkingAs';
+import { AgentInboxWorkspace } from './AgentInboxWorkspace';
+import { inboxSessionSchemas } from './agentInbox';
 import { WORK_QUEUE_COPY } from './copy';
 import { openFlowStatusLabel } from './liveness';
+import { WorkingAsControl, WorkQueueModeSwitch } from './WorkQueueControls';
 
 /**
  * What has arrived for the reader. No canvas: clearing work does not need the shape of the
@@ -44,6 +46,11 @@ import { openFlowStatusLabel } from './liveness';
  * deliberate: the scope control, and evidence before the decision.
  */
 export function WorkQueueWorkspace() {
+  const [searchParams] = useSearchParams();
+  return searchParams.get('view') === V2_AGENT_INBOX_VIEW ? <AgentInboxWorkspace /> : <RunQueueWorkspace />;
+}
+
+function RunQueueWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
   const { ready, canUseV2, catalog, definitions, error, definitionUpdateKey } = useWebCatalog();
@@ -58,7 +65,8 @@ export function WorkQueueWorkspace() {
   const searchedDefinitions = (catalog?.flows ?? [])
     .filter((candidate) => searchFlowTypes.includes(candidate.flowType))
     .map((candidate) => candidate.definition);
-  const { permission, permissionOptions, setPermission, workQueuePermissions } = useWorkingAs(searchedDefinitions);
+  const workingAs = useWorkingAs(searchedDefinitions);
+  const { workQueuePermissions } = workingAs;
   const search = useFlowSearch(
     searchFlowTypes,
     entry?.definition,
@@ -101,27 +109,14 @@ export function WorkQueueWorkspace() {
           heading={WORK_QUEUE_COPY.appName}
           headerNote={WORK_QUEUE_COPY.liveNote}
           onExpand={listPane.expand}
-          permissionControl={permissionOptions.length > 0 ? (
-            <label className="rsw-permission">
-              <span className="rsw-zonehead">{WORK_QUEUE_COPY.permissionLabel}</span>
-              <select
-                aria-label={WORK_QUEUE_COPY.permissionLabel}
-                value={permission}
-                onChange={(event) => setPermission(event.target.value)}
-              >
-                <option value="">{WORK_QUEUE_COPY.anyPermission}</option>
-                {permissionOptions.map((candidate) => (
-                  <option key={candidate} value={candidate}>{candidate}</option>
-                ))}
-              </select>
-              {permission !== '' && (
-                <small className="rsw-permission-note">
-                  {WORK_QUEUE_COPY.permissionActions(
-                    permissionActionLabelsAcross(searchedDefinitions, permission),
-                  )}
-                </small>
-              )}
-            </label>
+          headerAction={(
+            <WorkQueueModeSwitch
+              hasAgents={inboxSessionSchemas(catalog.flows, definitions?.definitions ?? []).size > 0}
+              mode="runs"
+            />
+          )}
+          permissionControl={workingAs.permissionOptions.length > 0 ? (
+            <WorkingAsControl definitions={searchedDefinitions} workingAs={workingAs} />
           ) : undefined}
           scope={(
             <RunSearch

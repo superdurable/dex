@@ -13,6 +13,7 @@ import {
   actionBlockedReason,
   classifyActionFailure,
   invokeSessionAction,
+  LOCK_CONFLICT_RETRY_DELAYS_MS,
   resolveInterruptInput,
   type SessionControlContext,
 } from './sessionActions';
@@ -54,9 +55,30 @@ describe('invokeSessionAction', () => {
     await expect(invokeSessionAction(request, respond({ invoked: true, output: false }))).resolves.toEqual({ kind: 'already_handled' });
   });
 
-  it('reads a lock conflict on an interrupt as already handled', async () => {
-    const fetcher = respond({ error: 'RpcLockConflictError: PendingInterrupts is locked', grpcCode: 10 }, 409);
-    await expect(invokeSessionAction(request, fetcher)).resolves.toEqual({ kind: 'already_handled' });
+  const lockConflict = () => new Response(
+    JSON.stringify({ error: 'RpcLockConflictError: PendingInterrupts is locked', grpcCode: 10 }),
+    { status: 502 },
+  );
+
+  it('retries a lock conflict, which committed nothing, until the RPC answers', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(lockConflict())
+      .mockResolvedValueOnce(lockConflict())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ invoked: true, output: true }), { status: 200 }));
+    await expect(invokeSessionAction(request, fetcher, [0, 0, 0])).resolves.toEqual({ kind: 'done' });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it('says the session is busy after the retries, without calling it handled', async () => {
+    const fetcher = vi.fn(async () => lockConflict());
+    await expect(invokeSessionAction(request, fetcher, [0, 0, 0])).resolves.toEqual({
+      kind: 'failed', message: 'The session is busy. Try again.',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it('waits 200, 500, then 1000 ms between lock conflict retries', () => {
+    expect(LOCK_CONFLICT_RETRY_DELAYS_MS).toEqual([200, 500, 1000]);
   });
 
   it('reports false from a steer as refused, not as handled', async () => {
@@ -73,7 +95,7 @@ describe('invokeSessionAction', () => {
   });
 
   it('keeps other failures as failures', () => {
-    expect(classifyActionFailure('resolve_interrupt', new DexAPIError('worker RPC deadline exceeded', 408, 4)))
+    expect(classifyActionFailure(new DexAPIError('worker RPC deadline exceeded', 408, 4)))
       .toEqual({ kind: 'failed', message: 'worker RPC deadline exceeded' });
   });
 });

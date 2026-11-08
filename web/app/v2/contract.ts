@@ -64,6 +64,13 @@ export function v2WorkQueuePath(flowType?: string, flowID?: string) {
   return v2ModePath('work-queue', flowType, flowID);
 }
 
+/** The agent mode of Work Queue, which lists Dex Agents sessions that wait for a person. */
+export const V2_AGENT_INBOX_VIEW = 'agents';
+
+export function v2AgentInboxPath(flowType?: string, flowID?: string) {
+  return `${v2WorkQueuePath(flowType, flowID)}?view=${V2_AGENT_INBOX_VIEW}`;
+}
+
 export function v2ConnectorsPath() {
   return v2ModePath('connectors');
 }
