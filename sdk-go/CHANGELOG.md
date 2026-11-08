@@ -4,6 +4,11 @@
 
 ### Added
 
+- Add `FlowConfig.DeleteExpiredHistoryObjects` to control expired history object
+  deletion at start, on update, and for SubFlows. Omission uses the server default at
+  start and inherits for children; explicit false is preserved. Requires history
+  offload. See the API reference for deletion timing and update semantics.
+
 - `FlowConfig.HistoryWindowEvents` sets about how many of the newest history
   events a run keeps for history reads and Time Travel. Set it at start through
   `StartFlowOptions.ConfigOverride`, change it with `Client.UpdateFlowConfig`,

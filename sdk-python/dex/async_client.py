@@ -1481,6 +1481,10 @@ class AsyncClient:
                 )
             if config.history_window_events is not None:
                 mapped.history_window_events = config.history_window_events
+            if config.delete_expired_history_objects is not None:
+                mapped.delete_expired_history_objects = (
+                    config.delete_expired_history_objects
+                )
         return mapped
 
     @staticmethod

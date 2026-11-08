@@ -86,6 +86,27 @@ class FlowConfig:
                 ... )
 
             .. versionadded:: 1.38.0
+        delete_expired_history_objects: Controls deletion of object storage objects for expired history segments.
+
+            True deletes each expired segment's object about one hour after expiry. False keeps
+            objects until the run is deleted after retention. This only matters when history
+            offload is enabled. ``None``, the default, uses ``history.deleteExpiredObjects`` on the server: true
+            for dev/local and false for serve. The run records that default at start.
+
+            Set it through ``StartFlowOptions.config_override``, update it with ``update_flow_config``,
+            or override it with ``SubFlowOptions.config_override``. Children otherwise inherit the parent's value.
+            An omitted update preserves the current value; it cannot be cleared to the server
+            default. Enabling deletion includes already expired objects. Disabling it stops
+            deletions that have not started; requests already sent may complete, and deleted
+            objects never return. History reads and Time Travel exclude expired history even
+            when its objects are kept.
+
+            Example:
+                >>> client.update_flow_config(
+                ...     "order-42", FlowConfig(delete_expired_history_objects=False)
+                ... )
+
+            .. versionadded:: 1.39.0
     """
 
     active_step_search_mode: ActiveStepSearchMode | None = None
@@ -94,3 +115,4 @@ class FlowConfig:
     step_durability: StepDurability | None = None
     attribute_store_names: list[str] | None = None
     history_window_events: int | None = None
+    delete_expired_history_objects: bool | None = None

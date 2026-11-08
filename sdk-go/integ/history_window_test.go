@@ -24,21 +24,24 @@ func TestHistoryWindowEventsStartAndUpdate(t *testing.T) {
 
 	flowID := newFlowID(t, "history-window")
 	runID, err := integClient.StartFlow(ctx, noStepFlow{}, flowID, nil, dex.StartFlowOptions{
-		ConfigOverride: &dex.FlowConfig{HistoryWindowEvents: ptr.Any(int32(500))},
+		ConfigOverride: &dex.FlowConfig{HistoryWindowEvents: ptr.Any(int32(500)), DeleteExpiredHistoryObjects: ptr.Any(true)},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int32(500), readHistoryWindowEvents(t, service, flowID, runID))
+	require.True(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
 
 	require.NoError(t, integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
-		HistoryWindowEvents: ptr.Any(int32(2000)),
+		HistoryWindowEvents: ptr.Any(int32(2000)), DeleteExpiredHistoryObjects: ptr.Any(false),
 	}))
 	require.Equal(t, int32(2000), readHistoryWindowEvents(t, service, flowID, runID))
+	require.False(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
 
 	err = integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
 		HistoryWindowEvents: ptr.Any(int32(0)),
 	})
 	requireInvalidArgument(t, err)
 	require.Equal(t, int32(2000), readHistoryWindowEvents(t, service, flowID, runID))
+	require.False(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
 
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 	waitForFlow(t, flowID, false)
@@ -78,4 +81,22 @@ func requireInvalidArgument(t *testing.T, err error) {
 	var serviceError *dex.ServiceError
 	require.ErrorAs(t, err, &serviceError)
 	require.Equal(t, codes.InvalidArgument, serviceError.Code)
+}
+
+func readDeleteExpiredHistoryObjects(
+	t *testing.T,
+	service dexpb.FlowServiceClient,
+	flowID string,
+	runID string,
+) bool {
+	t.Helper()
+	response, err := service.GetFlowState(integrationContext(t), &dexpb.GetFlowStateRequest{
+		FlowId: flowID,
+		RunId:  runID,
+	})
+	require.NoError(t, err)
+	config := response.GetFlowConfig()
+	require.NotNil(t, config)
+	require.NotNil(t, config.DeleteExpiredHistoryObjects)
+	return config.GetDeleteExpiredHistoryObjects()
 }

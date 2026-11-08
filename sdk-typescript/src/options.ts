@@ -343,6 +343,31 @@ export interface FlowConfig {
    * @since 1.38.0
    */
   readonly historyWindowEvents?: number;
+
+  /**
+   * Controls deletion of object storage objects for expired history segments.
+   *
+   * `true` deletes each expired segment's object about one hour after expiry. `false` keeps
+   * objects until the run is deleted after retention. This only matters when history
+   * offload is enabled. Omission uses `history.deleteExpiredObjects` on the server: true
+   * for dev/local and false for serve. The run records that default at start.
+   *
+   * Set it through `StartFlowOptions.configOverride`, update it with `Client.updateFlowConfig`,
+   * or override it with `SubFlowOptions.configOverride`. Children otherwise inherit the parent's value.
+   * An omitted update preserves the current value; it cannot be cleared to the server
+   * default. Enabling deletion includes already expired objects. Disabling it stops
+   * deletions that have not started; requests already sent may complete, and deleted
+   * objects never return. History reads and Time Travel exclude expired history even
+   * when its objects are kept.
+   *
+   * @example
+   * ```ts
+   * await client.updateFlowConfig("order-42", { deleteExpiredHistoryObjects: false });
+   * ```
+   *
+   * @since 1.39.0
+   */
+  readonly deleteExpiredHistoryObjects?: boolean;
 }
 
 /**

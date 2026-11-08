@@ -673,8 +673,8 @@ dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
 
 `--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
 `wait-for`, or `disabled`), state-transfer thresholds, `stepDurability`
-(`sync` or `async`), `attributeStoreNames`, and `historyWindowEvents`. It rejects a non-null
-`workerTarget` because Dex routes Flow work to pull Workers. `--retry-policy` uses
+(`sync` or `async`), `attributeStoreNames`, `historyWindowEvents`, and
+`deleteExpiredHistoryObjects`. It rejects a non-null `workerTarget` because Dex routes Flow work to pull Workers. `--retry-policy` uses
 `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
 `maximumAttempts`; intervals are Go duration strings. `--step-options` accepts
 protobuf JSON because it mirrors the full nested StepOptions message. When a
@@ -682,6 +682,15 @@ Flow timeout is set without `--flow-timeout-policy`, the server's `fail` default
 applies because dexcli cannot inspect the application's Flow registry.
 Only one option in a `start` command may use `-`, because stdin can be consumed
 once.
+
+`deleteExpiredHistoryObjects` controls deletion of expired history segment objects.
+True deletes them about one hour after expiry; false keeps them until run deletion
+after retention. It applies only with history offload enabled. Omission uses the
+server default at start (true for dev/local, false for serve), inherits for children,
+and preserves the current value on update. Enabling it includes already expired
+objects; disabling it stops deletions that have not started. Requests already sent
+may complete, and deleted objects never return. Once set, it cannot be cleared to
+the server default.
 
 `historyWindowEvents` sets about how many of the newest history events the run
 keeps for history reads and Time Travel. At `flow start`, omitting it uses the

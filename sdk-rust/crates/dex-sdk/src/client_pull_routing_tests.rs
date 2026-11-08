@@ -66,3 +66,31 @@ fn flow_config_maps_history_window_events() {
         "a window above int32 must fail locally"
     );
 }
+
+#[test]
+fn flow_config_maps_delete_expired_history_objects() {
+    for (config, expected_deletion) in [
+        (FlowConfig::new(), None),
+        (
+            FlowConfig::new().delete_expired_history_objects(false),
+            Some(false),
+        ),
+        (
+            FlowConfig::new().delete_expired_history_objects(true),
+            Some(true),
+        ),
+    ] {
+        assert_eq!(
+            map_pull_flow_config(Some(&config))
+                .expect("map StartFlow config")
+                .delete_expired_history_objects,
+            expected_deletion
+        );
+        assert_eq!(
+            map_flow_config(Some(&config))
+                .expect("map Flow config update")
+                .delete_expired_history_objects,
+            expected_deletion
+        );
+    }
+}
