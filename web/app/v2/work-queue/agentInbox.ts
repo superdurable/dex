@@ -6,8 +6,63 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import type { V2Flow } from '@/lib/types';
-import type { AgentInterrupt, AgentSessionRead } from './agentSession';
+import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
+import { hydrateBlobs } from '@/lib/blobs';
+import { readResponseJSON } from '@/lib/http';
+import type { FlowDefinitionEntry, FlowState, FlowSummary, V2CatalogEntry, V2Flow } from '@/lib/types';
+import {
+  APPROVAL_STEP_TYPE,
+  QUESTION_STEP_TYPE,
+  SESSION_ATTRIBUTE,
+  agentSessionSchema,
+  decodePendingInterrupts,
+  type AgentInterruptRecord,
+  type AgentSessionSchema,
+} from '../agents/sessionSchema';
+import { isOpenFlowStatusCode } from './liveness';
+
+type AgentInterrupt = AgentInterruptRecord;
+
+/** The Step types where a session waits for a person. */
+export const AGENT_WAITING_STEP_TYPES = [APPROVAL_STEP_TYPE, QUESTION_STEP_TYPE];
+
+/** What a row needs from one session: its pending calls, read from stored state. */
+export interface AgentSessionRead {
+  interrupts: AgentInterruptRecord[];
+  isActive: boolean;
+}
+
+/** The session schema of every loaded Flow type that can ask for an approval. */
+export function inboxSessionSchemas(
+  flows: readonly V2CatalogEntry[],
+  definitions: readonly FlowDefinitionEntry[],
+): Map<string, { definition: FlowV2Definition; schema: AgentSessionSchema }> {
+  const schemas = new Map<string, { definition: FlowV2Definition; schema: AgentSessionSchema }>();
+  for (const entry of [...flows].sort((left, right) => left.flowType.localeCompare(right.flowType))) {
+    const graph = definitions.find((candidate) => (
+      candidate.flowName === entry.flowType && candidate.schemaVersion === '2.0' && candidate.valid
+    ))?.graph;
+    const schema = agentSessionSchema(graph, entry.definition);
+    if (schema?.resolveInterrupt) schemas.set(entry.flowType, { definition: entry.definition, schema });
+  }
+  return schemas;
+}
+
+/** Reads only PendingInterrupts, so a page of rows costs one small read each and no Worker. */
+export async function readInboxSession(flowId: string, signal?: AbortSignal): Promise<AgentSessionRead> {
+  const summary = await readResponseJSON<FlowSummary>(
+    await fetch(`/api/flows/summary?flowId=${encodeURIComponent(flowId)}`, { cache: 'no-store', signal }),
+  );
+  const state = await readResponseJSON<FlowState>(await fetch(
+    `/api/flows/state?flowId=${encodeURIComponent(flowId)}&runId=${encodeURIComponent(summary.runId)}`,
+    { cache: 'no-store', signal },
+  ));
+  const stored = state.attributes.find((entry) => entry.key === SESSION_ATTRIBUTE.pendingInterrupts)?.value;
+  const hydrated = await hydrateBlobs(flowId, stored ?? [], new Map(), signal);
+  const interrupts = hydrated.error ? null : decodePendingInterrupts(hydrated.value);
+  if (interrupts === null) throw new Error(`${SESSION_ATTRIBUTE.pendingInterrupts} could not be read`);
+  return { interrupts, isActive: isOpenFlowStatusCode(summary.flowStatusCode) };
+}
 
 /** What the inbox knows about one session row: the search result and, once read, what it waits on. */
 export interface AgentInboxRow {
@@ -58,7 +113,7 @@ export function compareInterrupts(left: AgentInterrupt, right: AgentInterrupt): 
   if (left.deadline !== null && right.deadline !== null) return timeOf(left.deadline) - timeOf(right.deadline);
   if (left.deadline !== null) return -1;
   if (right.deadline !== null) return 1;
-  return timeOf(left.createdAt) - timeOf(right.createdAt);
+  return timeOf(left.createdAt ?? '') - timeOf(right.createdAt ?? '');
 }
 
 /** The interrupt a row names: the one that runs out first. */
@@ -91,26 +146,13 @@ function clip(text: string): string {
   return text.length > SUMMARY_LENGTH ? `${text.slice(0, SUMMARY_LENGTH - 1)}…` : text;
 }
 
-/** Arguments as indented JSON when they parse, else as the model wrote them. */
-export function formattedArguments(argumentsText: string): string {
-  try {
-    return JSON.stringify(JSON.parse(argumentsText), null, 2);
-  } catch {
-    return argumentsText;
-  }
-}
-
 /** Time left before the deadline, or how long it has waited when there is none. */
 export function waitText(interrupt: AgentInterrupt, nowMs: number): string {
   if (interrupt.deadline !== null) {
     const left = timeOf(interrupt.deadline) - nowMs;
     return left <= 0 ? 'past its deadline' : `${durationText(left)} left`;
   }
-  return interrupt.createdAt === '' ? 'no deadline' : `waiting ${durationText(nowMs - timeOf(interrupt.createdAt))}`;
-}
-
-export function isPastDeadline(interrupt: AgentInterrupt, nowMs: number): boolean {
-  return interrupt.deadline !== null && timeOf(interrupt.deadline) <= nowMs;
+  return interrupt.createdAt ? `waiting ${durationText(nowMs - timeOf(interrupt.createdAt))}` : 'no deadline';
 }
 
 export function durationText(milliseconds: number): string {
@@ -120,17 +162,6 @@ export function durationText(milliseconds: number): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} h`;
   return `${Math.floor(hours / 24)} d`;
-}
-
-/** The effect class a tool source declared, in words. */
-export function effectText(effect: string): string {
-  switch (effect) {
-    case 'read': return 'Read';
-    case 'idempotent_write': return 'Write, safe to repeat';
-    case 'non_idempotent_write': return 'Write, not safe to repeat';
-    case 'unclassified': return 'Unclassified';
-    default: return effect === '' ? 'Not recorded' : effect;
-  }
 }
 
 function timeOf(value: string): number {

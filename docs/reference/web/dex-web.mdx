@@ -374,7 +374,7 @@ Python and TypeScript sessions get the full tab. A Go session has no questions, 
 
 ## Agent inbox {#agent-inbox}
 
-Since 1.39, Work Queue has an agent mode for [Dex Agents](/agent-frameworks/deploy-agents) sessions. Choose **Agents** at the top of the Work Queue list. The switch appears when at least one Flow type is a session Flow: its graph has the **AwaitToolApproval** and **AwaitQuestionAnswer** Steps and the **resolve_interrupt** and **answer_question** Actions. The mode's URL is **/v2/work-queue?view=agents**.
+Since 1.39, Work Queue has an agent mode for [Dex Agents](/agent-frameworks/deploy-agents) sessions. Choose **Agents** at the top of the Work Queue list. The switch appears when at least one Flow type is a session Flow, by the rule in [Compatibility](#agent-session-compatibility), and declares the **resolve_interrupt** Action. The mode's URL is **/v2/work-queue?view=agents**.
 
 <img
   src="/img/production/dex-web-agent-inbox.png"
@@ -385,11 +385,11 @@ The list shows each session that waits for a person. It searches every session F
 
 Each row says what is asked: the tool and a short summary of its arguments, or the question. It also shows the session ID, and the time left before the deadline or, without one, how long the session has waited. Dex Web reads these from **PendingInterrupts** after the search. Inside a group, the earliest deadline comes first, then the longest wait. The deadline is not indexed, so this order covers the loaded page only. When more sessions match, the list says so.
 
-Selecting a row opens the side panel. It shows each pending call with its tool, arguments, effect class, and deadline, and the last message with text. An approval offers **Approve** and **Reject**, with an optional reason that the model sees. A question offers its choices, a free-text answer when the question allows one, and **Decline**. **Open session** opens the run page. On a narrow screen, the panel replaces the list, and its close button returns to the list.
+Selecting a row opens the side panel. It shows each waiting call as the same card the [Session tab](#agent-session-view) draws: tool, effect class, arguments, deadline, and **Approve** and **Reject** or the question's answers. Below the calls is the last message with text. **Open session** opens the run page on its **Session** tab. On a narrow screen, the panel replaces the list, and its close button returns to the list.
 
-The panel reads stored Attributes, so it works while Workers are down. Answering calls **resolve_interrupt** or **answer_question** through **POST /api/v2/actions**, which needs a Worker. The answer is offered only while **Working as** names the permission of that Action.
+The panel reads the session as the Session tab does, so it works while Workers are down. Its controls follow [Session controls](#agent-session-controls): each answer is an Action through **POST /api/v2/actions**, offered while **Working as** names its permission, and a queued Step does not disable it.
 
-After each answer, Dex Web reads the session again. When the call is gone, its row leaves the list. Two operators can answer the same call. Once one answer has committed, the RPC returns false for a later one. The panel then reads the committed state and says **Already handled**. A deadline can reject the call while an operator decides; the panel says so when the deadline has passed. An RPC that cannot take its lock fails. When the call is still pending after that, the panel says **Not applied** and keeps the call.
+After each answer, the panel and the row read the session again, and the row leaves the list when nothing waits. When another operator or a deadline answered the call first, the card says **Already handled**.
 
 The inbox does not show a tool call whose outcome is unknown or a draft plan that waits for **execute_plan**. No Step waits on either, so the search cannot find them. Open the session to see them.
 

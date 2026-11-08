@@ -10,49 +10,37 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '../../providers';
 import { WebCatalogProvider } from '../WebCatalogProvider';
+import { SESSION_COPY } from '../agents/copy';
 import { AGENT_INBOX_COPY } from './agentCopy';
 import { WorkQueueWorkspace } from './WorkQueueWorkspace';
 
-const view = (rpcName: string) => ({ rpcName, fields: [] });
-const field = (fieldName: string, valueType: string, required: boolean) => ({
-  fieldName, valueType, source: 'user', required, description: fieldName,
-});
+/** The graph Dex Agents publishes, with the Flow type and permission filled in as the renderer does. */
+function sessionGraph(flowType: string, permission: string) {
+  // jsdom gives import.meta.url an http scheme, so the path starts at the web module.
+  const path = `${process.cwd()}/../agents/conformance/session_graph.json`;
+  const graph = JSON.parse(readFileSync(path, 'utf8').replaceAll('<action-permission>', permission));
+  graph.flow.name = flowType;
+  return graph;
+}
 
-function agentContract(permission: string) {
+function graphEntry(flowType: string, permission: string) {
   return {
-    indexedAttributes: [],
-    summary: view('GetDexSummary'),
-    display: view('GetDexDisplay'),
-    actions: [
-      {
-        rpcName: 'resolve_interrupt', label: 'Resolve interrupt', requiredPermission: permission,
-        input: { kind: 'object', fields: [field('interrupt_id', 'string', true), field('approved', 'bool', true), field('rejection_message', 'string', false)] },
-      },
-      {
-        rpcName: 'answer_question', label: 'Answer question', requiredPermission: permission,
-        input: { kind: 'object', fields: [field('interrupt_id', 'string', true), field('answer', 'string', true)] },
-      },
-    ],
+    id: flowType, file: `${flowType}.json`, schemaVersion: '2.0', flowName: flowType, sourceLanguage: 'python',
+    sourcePath: 'session_flow.py', valid: true, graph: sessionGraph(flowType, permission),
   };
 }
 
-function graphEntry(flowName: string, steps: string[]) {
-  return {
-    id: flowName, file: `${flowName}.json`, schemaVersion: '2.0', flowName, sourceLanguage: 'python',
-    sourcePath: 'session_flow.py', valid: true,
-    graph: { nodes: steps.map((name) => ({ id: `step:${name}`, kind: 'step', name })), edges: [] },
-  };
-}
-
-const SESSION_STEPS = ['AwaitUserMessage', 'AwaitToolApproval', 'AwaitQuestionAnswer'];
+const view = { rpcName: 'GetDexSummary', fields: [] };
 const soon = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 
 interface Session {
   flowType: string;
   interrupts: Record<string, unknown>[];
+  calls: Record<string, unknown>[];
 }
 
 function approval(id: string, message: string, deadline: string | null) {
@@ -66,22 +54,23 @@ function stubServer(sessions: Record<string, Session>, actionReply: (body: Recor
   const searches: Record<string, unknown>[] = [];
   const actions: Record<string, unknown>[] = [];
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn(handle));
+  async function handle(url: string, init?: RequestInit) {
     const path = new URL(url, 'http://dex.test');
     const flowId = path.searchParams.get('flowId') ?? '';
     if (url === '/api/flow-definitions') {
       return json({
         configured: true, definitionRevision: 'r1', definitionCount: 3,
-        definitions: [graphEntry('SupportAgent', SESSION_STEPS), graphEntry('FinanceAgent', SESSION_STEPS), graphEntry('OrderFlow', ['AwaitPacking'])],
+        definitions: [graphEntry('SupportAgent', 'support.operate'), graphEntry('FinanceAgent', 'finance.operate')],
       });
     }
     if (url === '/api/v2/catalog') {
       return json({
         enabled: true, definitionRevision: 'r1',
         flows: [
-          { flowType: 'FinanceAgent', definition: agentContract('finance.operate') },
-          { flowType: 'OrderFlow', definition: { ...agentContract('order.manage'), actions: [] } },
-          { flowType: 'SupportAgent', definition: agentContract('support.operate') },
+          { flowType: 'FinanceAgent', definition: sessionGraph('FinanceAgent', 'finance.operate').v2 },
+          { flowType: 'OrderFlow', definition: { indexedAttributes: [], summary: view, display: view, actions: [] } },
+          { flowType: 'SupportAgent', definition: sessionGraph('SupportAgent', 'support.operate').v2 },
         ],
       });
     }
@@ -95,18 +84,24 @@ function stubServer(sessions: Record<string, Session>, actionReply: (body: Recor
         nextPageToken: '',
       });
     }
-    if (path.pathname === '/api/flows/summary') return json({ runId: `run-${flowId}`, flowStatusCode: 1 });
+    if (path.pathname === '/api/flows/summary') return json({ flowId, runId: `run-${flowId}`, flowType: sessions[flowId].flowType, flowStatus: 'Running', flowStatusCode: 1, runAttempt: 1 });
     if (path.pathname === '/api/flows/state') {
       return json({
+        activeStepExecutions: [],
         attributes: [
+          { key: 'AgentState', value: { status: 'running_tools', turn_count: 0, active_turn_id: 'turn-1', accepts_turn_control: true } },
           { key: 'PendingInterrupts', value: sessions[flowId].interrupts },
-          { key: 'AgentMessages/000000000001', value: { sequence: 1, role: 'user', text: `Please help with ${flowId}`, created_at: soon(-6) } },
-          ...sessions[flowId].interrupts.map((pending) => ({
-            key: `AgentToolCalls/${String(pending.tool_call_id)}`,
-            value: { tool_call_id: pending.tool_call_id, tool_name: pending.tool_name, effect: 'non_idempotent_write', status: 'awaiting_approval' },
+          { key: 'AgentMessages/000000000001', value: { sequence: 1, turn_id: 'turn-1', role: 'user', text: `Please help with ${flowId}`, created_at: soon(-6) } },
+          ...sessions[flowId].calls.map((call) => ({
+            key: `AgentToolCalls/${String(call.tool_call_id)}`,
+            value: { turn_id: 'turn-1', effect: 'non_idempotent_write', requires_approval: true, ...call },
           })),
         ],
       });
+    }
+    // Without history the panel shows message text only, which these tests do not need.
+    if (path.pathname === '/api/flows/history' || path.pathname === '/api/flows/wait') {
+      return json({ error: 'history unavailable' }, 503);
     }
     if (url === '/api/v2/actions') {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -114,7 +109,7 @@ function stubServer(sessions: Record<string, Session>, actionReply: (body: Recor
       return actionReply(body);
     }
     return new Response('{}', { status: 404 });
-  }));
+  }
   return { searches, actions };
 }
 
@@ -140,21 +135,35 @@ function renderInbox(entry = '/v2/work-queue?view=agents') {
   );
 }
 
+function call(id: string, toolName: string, args: string, status: string) {
+  return { tool_call_id: id, tool_name: toolName, arguments: args, status };
+}
+
 function threeSessions(): Record<string, Session> {
+  const late = approval('call-a', 'Close ticket 77', soon(40));
+  const early = approval('call-b', 'Refund order 5521', soon(10));
   return {
-    'ses-late': { flowType: 'SupportAgent', interrupts: [approval('call-a', 'Close ticket 77', soon(40))] },
-    'ses-soon': { flowType: 'SupportAgent', interrupts: [approval('call-b', 'Refund order 5521', soon(10))] },
+    'ses-late': { flowType: 'SupportAgent', interrupts: [late], calls: [call('call-a', 'publish_note', late.arguments, 'awaiting_approval')] },
+    'ses-soon': { flowType: 'SupportAgent', interrupts: [early], calls: [call('call-b', 'publish_note', early.arguments, 'awaiting_approval')] },
     'ses-question': {
       flowType: 'FinanceAgent',
       interrupts: [{
         interrupt_id: 'call-q', kind: 'question', tool_call_id: 'call-q', tool_name: 'ask_user', arguments: '{}',
         created_at: soon(-180), deadline: null, question: 'Which account should I use?', choices: ['checking', 'savings'], allows_free_text: true,
       }],
+      calls: [call('call-q', 'ask_user', '{}', 'awaiting_answer')],
     },
   };
 }
 
+/** The session's state after an answer committed, whoever sent it. */
+function answer(session: Session) {
+  session.interrupts = [];
+  session.calls = session.calls.map((entry) => ({ ...entry, status: 'approved' }));
+}
+
 const ok = (output: unknown) => new Response(JSON.stringify({ invoked: true, output }), { status: 200 });
+const failure = (grpcCode: number) => new Response(JSON.stringify({ error: 'resolve_interrupt failed', grpcCode }), { status: 502 });
 
 afterEach(() => {
   cleanup();
@@ -192,15 +201,17 @@ describe('Work Queue agent mode', () => {
     stubServer(threeSessions(), () => ok(true));
     renderInbox('/v2/work-queue/SupportAgent/ses-soon?view=agents');
 
-    const card = await screen.findByRole('article');
-    expect(within(card).getByText(AGENT_INBOX_COPY.needsPermission('support.operate'))).toBeTruthy();
-    expect((within(card).getByRole('button', { name: AGENT_INBOX_COPY.approve }) as HTMLButtonElement).disabled).toBe(true);
+    const card = await screen.findByTestId('approval-call-b');
+    expect(within(card).getByText(SESSION_COPY.chooseWorkingAs('support.operate'))).toBeTruthy();
+    expect((within(card).getByRole('button', { name: SESSION_COPY.approve }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('link', { name: AGENT_INBOX_COPY.openSession }).getAttribute('href'))
+      .toBe('/v2/run/SupportAgent/ses-soon?view=session');
   });
 
   it('approves from the side panel, and the row leaves the list', async () => {
     const sessions = threeSessions();
     const { actions, searches } = stubServer(sessions, () => {
-      sessions['ses-soon'].interrupts = [];
+      answer(sessions['ses-soon']);
       return ok(true);
     });
     renderInbox();
@@ -208,65 +219,63 @@ describe('Work Queue agent mode', () => {
     await waitFor(() => expect(searches[searches.length - 1].workQueuePermissions).toEqual(['support.operate']));
     fireEvent.click(await screen.findByRole('button', { name: /Refund order 5521/ }));
 
-    const card = await screen.findByRole('article');
-    expect(within(card).getByText('Write, not safe to repeat')).toBeTruthy();
+    const card = await screen.findByTestId('approval-call-b');
     expect(screen.getByText('Please help with ses-soon')).toBeTruthy();
     expect(screen.getByLabelText('location').textContent).toBe('/v2/work-queue/SupportAgent/ses-soon?view=agents');
-    fireEvent.click(within(card).getByRole('button', { name: AGENT_INBOX_COPY.approve }));
+    fireEvent.click(within(card).getByRole('button', { name: SESSION_COPY.approve }));
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /Refund order 5521/ })).toBeNull());
     expect(actions).toEqual([expect.objectContaining({
       flowType: 'SupportAgent', flowId: 'ses-soon', rpcName: 'resolve_interrupt', workQueuePermissions: ['support.operate'],
-      input: { interrupt_id: 'call-b', approved: true, rejection_message: null },
+      input: { interrupt_id: 'call-b', approved: true },
     })]);
-    expect(await screen.findByText(AGENT_INBOX_COPY.done)).toBeTruthy();
-    expect(screen.getByText(AGENT_INBOX_COPY.nothingPending)).toBeTruthy();
+    expect(await screen.findByText(AGENT_INBOX_COPY.nothingPending)).toBeTruthy();
   });
 
   it('says already handled when another operator answered first', async () => {
     const sessions = threeSessions();
     stubServer(sessions, () => {
       // Another operator's answer committed just before this one.
-      sessions['ses-late'].interrupts = [];
+      answer(sessions['ses-late']);
       return ok(false);
     });
     renderInbox('/v2/work-queue/SupportAgent/ses-late?view=agents');
     fireEvent.change(await screen.findByLabelText('Working as'), { target: { value: 'support.operate' } });
-    const card = await screen.findByRole('article');
-    fireEvent.click(within(card).getByRole('button', { name: AGENT_INBOX_COPY.reject }));
-    fireEvent.change(within(card).getByLabelText(AGENT_INBOX_COPY.rejectReason), { target: { value: 'Not this one' } });
-    fireEvent.click(within(card).getByRole('button', { name: AGENT_INBOX_COPY.reject }));
+    const card = await screen.findByTestId('approval-call-a');
+    fireEvent.click(within(card).getByRole('button', { name: SESSION_COPY.reject }));
+    fireEvent.change(within(card).getByLabelText(SESSION_COPY.rejectReasonLabel), { target: { value: 'Not this one' } });
+    fireEvent.click(within(card).getByRole('button', { name: SESSION_COPY.confirmReject }));
 
-    const notice = await screen.findByRole('status');
-    expect(within(notice).getByText(AGENT_INBOX_COPY.alreadyHandled)).toBeTruthy();
-    expect(within(notice).getByText(AGENT_INBOX_COPY.alreadyHandledWhy)).toBeTruthy();
+    expect(await screen.findByText(SESSION_COPY.alreadyHandled)).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('button', { name: /Close ticket 77/ })).toBeNull());
   });
 
-  it('keeps the call when the RPC could not take its lock', async () => {
-    stubServer(threeSessions(), () => new Response(JSON.stringify({ error: 'resolve_interrupt failed', grpcCode: 10 }), { status: 502 }));
+  it('treats a lock failure as already handled and a missing Worker as its own failure', async () => {
+    const sessions = threeSessions();
+    let reply = failure(10);
+    stubServer(sessions, () => reply);
     renderInbox('/v2/work-queue/SupportAgent/ses-late?view=agents');
     fireEvent.change(await screen.findByLabelText('Working as'), { target: { value: 'support.operate' } });
-    const card = await screen.findByRole('article');
-    fireEvent.click(within(card).getByRole('button', { name: AGENT_INBOX_COPY.approve }));
+    fireEvent.click(within(await screen.findByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }));
+    expect(await screen.findByText(SESSION_COPY.alreadyHandled)).toBeTruthy();
 
-    const notice = await screen.findByRole('status');
-    expect(within(notice).getByText(AGENT_INBOX_COPY.notApplied)).toBeTruthy();
-    expect(within(notice).getByText(AGENT_INBOX_COPY.stillWaitingAfterLock)).toBeTruthy();
-    expect(screen.getByRole('article')).toBeTruthy();
+    reply = failure(14);
+    await waitFor(() => expect((within(screen.getByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(screen.getByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }));
+    expect(await screen.findByText(SESSION_COPY.noWorker)).toBeTruthy();
   });
 
   it('answers a question with one of its choices', async () => {
     const sessions = threeSessions();
     const { actions } = stubServer(sessions, () => {
-      sessions['ses-question'].interrupts = [];
+      answer(sessions['ses-question']);
       return ok(true);
     });
     renderInbox('/v2/work-queue/FinanceAgent/ses-question?view=agents');
     fireEvent.change(await screen.findByLabelText('Working as'), { target: { value: 'finance.operate' } });
-    const card = await screen.findByRole('article');
+    const card = await screen.findByTestId('question-call-q');
+    await waitFor(() => expect((within(card).getByRole('button', { name: 'savings' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(within(card).getByRole('button', { name: 'savings' }));
-    fireEvent.click(within(card).getByRole('button', { name: AGENT_INBOX_COPY.answer }));
 
     await waitFor(() => expect(actions[0]).toMatchObject({
       rpcName: 'answer_question', input: { interrupt_id: 'call-q', answer: 'savings' },

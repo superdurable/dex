@@ -8,17 +8,27 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { v2AgentInboxPath, v2RunPath } from '../contract';
+import { v2AgentInboxPath, v2SessionPath } from '../contract';
 import '../css/v2.css';
 import { useWebCatalog } from '../WebCatalogProvider';
 import { ACTIVE_STEP_TYPES_FIELD, newFilterRow, type FilterRow } from '../workspace/filters';
 import { flowStatusQueryValue } from '../workspace/runQuery';
 import { useFlowSearch } from '../workspace/useFlowSearch';
 import { useWorkingAs } from '../workspace/useWorkingAs';
+import { SESSION_COPY } from '../agents/copy';
 import { AGENT_INBOX_COPY } from './agentCopy';
-import { askedText, firstInterrupt, groupInboxRows, waitText, type AgentInboxRow } from './agentInbox';
+import {
+  AGENT_WAITING_STEP_TYPES,
+  askedText,
+  firstInterrupt,
+  groupInboxRows,
+  inboxSessionSchemas,
+  readInboxSession,
+  waitText,
+  type AgentInboxRow,
+  type AgentSessionRead,
+} from './agentInbox';
 import { AgentSessionPanel } from './AgentSessionPanel';
-import { AGENT_WAITING_STEP_TYPES, agentSessionFlowTypes, readAgentSession, type AgentSessionRead } from './agentSession';
 import { openFlowStatusLabel, readFailureReason } from './liveness';
 import { WORK_QUEUE_COPY } from './copy';
 import { WorkingAsControl, WorkQueueModeSwitch } from './WorkQueueControls';
@@ -41,24 +51,19 @@ export function AgentInboxWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
   const { ready, canUseV2, catalog, definitions, error } = useWebCatalog();
-  const agentFlowTypes = useMemo(
-    () => agentSessionFlowTypes(catalog?.flows ?? [], definitions?.definitions ?? []),
+  const schemas = useMemo(
+    () => inboxSessionSchemas(catalog?.flows ?? [], definitions?.definitions ?? []),
     [catalog, definitions],
   );
-  const agentEntries = useMemo(
-    () => (catalog?.flows ?? []).filter((entry) => agentFlowTypes.includes(entry.flowType)),
-    [agentFlowTypes, catalog],
-  );
-  const agentDefinitions = useMemo(() => agentEntries.map((entry) => entry.definition), [agentEntries]);
+  const agentFlowTypes = useMemo(() => [...schemas.keys()], [schemas]);
+  const agentDefinitions = useMemo(() => [...schemas.values()].map((entry) => entry.definition), [schemas]);
   const workingAs = useWorkingAs(agentDefinitions);
   const filters = useMemo<FilterRow[]>(() => [
     { ...newFilterRow(ACTIVE_STEP_TYPES_FIELD, 'in', AGENT_WAITING_STEP_TYPES.join(', ')), values: AGENT_WAITING_STEP_TYPES },
     newFilterRow('executionStatus', 'eq', flowStatusQueryValue(openFlowStatusLabel())),
   ], []);
   const search = useFlowSearch(agentFlowTypes, agentDefinitions[0], filters, workingAs.workQueuePermissions);
-  const listedIDs = search.flows.map((flow) => flow.flowId);
-  // A session opened by link may have left the list; the panel still reads it.
-  const reads = useSessionReads(flowId === '' || listedIDs.includes(flowId) ? listedIDs : [...listedIDs, flowId]);
+  const reads = useSessionReads(search.flows.map((flow) => flow.flowId));
   const nowMs = useClock();
 
   const { runSearch } = search;
@@ -83,8 +88,7 @@ export function AgentInboxWorkspace() {
   }));
   const groups = groupInboxRows(rows);
   const waitingCount = groups.reduce((total, group) => total + group.rows.length, 0);
-  const selected = rows.find((row) => row.flow.flowId === flowId && row.flow.flowType === flowType);
-  const selectedEntry = agentEntries.find((entry) => entry.flowType === flowType);
+  const selectedSchema = schemas.get(flowType)?.schema;
   const listState = search.liveness === 'loading'
     ? WORK_QUEUE_COPY.loading
     : search.liveness === 'unreachable'
@@ -143,23 +147,20 @@ export function AgentInboxWorkspace() {
           </div>
         </aside>
         <section className="v2-work-queue-case ai-case" aria-label={flowId || AGENT_INBOX_COPY.heading}>
-          {flowId !== '' && selectedEntry ? (
+          {flowId !== '' && selectedSchema ? (
             <AgentSessionPanel
-              definition={selectedEntry.definition}
               flowId={flowId}
               flowType={flowType}
               key={`${flowType}/${flowId}`}
-              nowMs={nowMs}
-              read={selected?.read ?? reads.held.get(flowId)?.read ?? null}
-              readError={selected?.readError ?? ''}
+              schema={selectedSchema}
               workQueuePermissions={workingAs.workQueuePermissions}
-              onReadBack={(readFlowID, read) => {
-                reads.put(readFlowID, read);
+              onSettled={() => {
+                reads.reread();
                 runSearch();
               }}
               footer={(
                 <>
-                  <Link className="v2-seemore" to={v2RunPath(flowType, flowId)}>{AGENT_INBOX_COPY.openSession}</Link>
+                  <Link className="v2-seemore" to={v2SessionPath(flowType, flowId)}>{AGENT_INBOX_COPY.openSession}</Link>
                   <button
                     aria-label={AGENT_INBOX_COPY.close}
                     className="rhd-close"
@@ -186,10 +187,10 @@ function InboxRowButton({ row, nowMs, onSelect }: { row: AgentInboxRow; nowMs: n
   return (
     <button className="rsw-row ai-row" onClick={onSelect} type="button">
       <span className="rsw-id ai-asked" title={first ? askedText(first) : row.flow.flowId}>
-        {first ? askedText(first) : row.readError !== '' ? row.flow.flowId : AGENT_INBOX_COPY.reading}
+        {first ? askedText(first) : row.readError !== '' ? row.flow.flowId : SESSION_COPY.loading}
       </span>
       {first && (
-        <span className="ai-chip" data-tone="attention">
+        <span className="ai-chip">
           {first.kind === 'question' ? AGENT_INBOX_COPY.question : AGENT_INBOX_COPY.approval}
         </span>
       )}
@@ -206,6 +207,7 @@ function InboxRowButton({ row, nowMs, onSelect }: { row: AgentInboxRow; nowMs: n
 /** Reads each listed session once per search answer, a few at a time, keeping the last good read. */
 function useSessionReads(flowIDs: readonly string[]) {
   const [held, setHeld] = useState<Map<string, HeldRead>>(() => new Map());
+  const [rereadKey, setRereadKey] = useState(0);
   const key = flowIDs.join('\n');
 
   useEffect(() => {
@@ -215,7 +217,7 @@ function useSessionReads(flowIDs: readonly string[]) {
       for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
         const flowID = next;
         try {
-          const read = await readAgentSession(flowID, controller.signal);
+          const read = await readInboxSession(flowID, controller.signal);
           setHeld((current) => new Map(current).set(flowID, { read, error: '' }));
         } catch (readError) {
           if (controller.signal.aborted) return;
@@ -228,12 +230,11 @@ function useSessionReads(flowIDs: readonly string[]) {
     };
     for (let index = 0; index < READ_CONCURRENCY; index += 1) void worker();
     return () => controller.abort();
-  }, [key]);
+  }, [key, rereadKey]);
 
-  const put = useCallback((flowID: string, read: AgentSessionRead) => {
-    setHeld((current) => new Map(current).set(flowID, { read, error: '' }));
-  }, []);
-  return { held, put };
+  /** After an answer the search index lags, so the rows are read again from committed state. */
+  const reread = useCallback(() => setRereadKey((current) => current + 1), []);
+  return { held, reread };
 }
 
 function useClock(): number {

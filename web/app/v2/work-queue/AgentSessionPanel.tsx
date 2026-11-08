@@ -7,100 +7,61 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useState, type ReactNode } from 'react';
-import type { FlowV2Definition } from '@superdurable/flow-definition-renderer';
-import { formatDate } from '@/lib/format';
-import { usePreferences } from '../../providers';
-import { useWebCatalog } from '../WebCatalogProvider';
-import { readFailureReason } from './liveness';
+import type { SettledOutcome } from '../agents/ApprovalCard';
+import { SESSION_COPY } from '../agents/copy';
+import { InterruptControls } from '../agents/InterruptControls';
+import type { AgentSessionSchema } from '../agents/sessionSchema';
+import { ToolCallCard } from '../agents/ToolCallCard';
+import { useAgentSession } from '../agents/useAgentSession';
 import { AGENT_INBOX_COPY } from './agentCopy';
-import { agentActionInput, agentActionNotice, invokeAgentAction, type AgentAnswer } from './agentActions';
-import { askedText, compareInterrupts, effectText, formattedArguments, waitText } from './agentInbox';
-import {
-  AGENT_SESSION,
-  answeringAction,
-  readAgentSession,
-  type AgentInterrupt,
-  type AgentSessionRead,
-} from './agentSession';
-
-interface Notice {
-  interruptId: string;
-  asked: string;
-  title: string;
-  text: string;
-}
+import { isOpenFlowStatusCode } from './liveness';
 
 /**
- * The side panel of one session: every pending call, the last message, and the answers.
- *
- * After each answer it reads the session back, because the RPC result alone cannot tell
- * "someone else answered" from "its deadline passed".
+ * The Work Queue side panel of one session: its waiting calls with their controls, and the last
+ * message. The cards and Actions are the Session tab's; only the layout is the inbox's own.
  */
 export function AgentSessionPanel({
   flowType,
   flowId,
-  definition,
-  read,
-  readError,
-  nowMs,
+  schema,
   workQueuePermissions,
   footer,
-  onReadBack,
+  onSettled,
 }: {
   flowType: string;
   flowId: string;
-  definition: FlowV2Definition;
-  read: AgentSessionRead | null;
-  readError: string;
-  nowMs: number;
+  schema: AgentSessionSchema;
   workQueuePermissions: readonly string[];
   footer: ReactNode;
-  /** The session as read after an answer, so the list can drop or keep its row. */
-  onReadBack: (flowId: string, read: AgentSessionRead) => void;
+  /** A call was answered here or elsewhere, so the list re-reads this session. */
+  onSettled: () => void;
 }) {
-  const { catalog } = useWebCatalog();
-  const { timezone } = usePreferences();
-  const [notices, setNotices] = useState<Notice[]>([]);
-  const [error, setError] = useState('');
-  const [busyID, setBusyID] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  const { held } = useAgentSession(flowId, reloadKey);
+  /** Kept outside the card: the reload that follows removes the card's own controls. */
+  const [handledElsewhere, setHandledElsewhere] = useState<ReadonlySet<string>>(new Set());
+  const session = held.value;
+  const now = Date.now();
 
-  async function answer(interrupt: AgentInterrupt, answerValue: AgentAnswer) {
-    const rpcName = answerValue.rpc === 'resolve' ? AGENT_SESSION.resolveRPC : AGENT_SESSION.answerRPC;
-    const action = answeringAction(definition, rpcName);
-    const input = action ? agentActionInput(action, interrupt, answerValue) : null;
-    if (!action || !input) {
-      setError(AGENT_INBOX_COPY.undeclared(rpcName));
-      return;
-    }
-    setBusyID(interrupt.interruptId);
-    setError('');
-    try {
-      const result = await invokeAgentAction({
-        flowType, flowId, rpcName, input, workQueuePermissions,
-        definitionRevision: catalog?.definitionRevision ?? '',
-      });
-      const readBack = await readAgentSession(flowId);
-      const notice = agentActionNotice(result, interrupt, readBack, Date.now());
-      setNotices((current) => [
-        ...current.filter((entry) => entry.interruptId !== interrupt.interruptId),
-        {
-          interruptId: interrupt.interruptId,
-          asked: askedText(interrupt),
-          title: notice?.title ?? AGENT_INBOX_COPY.done,
-          text: notice?.text ?? '',
-        },
-      ]);
-      onReadBack(flowId, readBack);
-    } catch (actionError) {
-      setError(readFailureReason(actionError));
-    } finally {
-      setBusyID('');
-    }
-  }
+  const settle = (toolCallId: string) => (outcome: SettledOutcome) => {
+    if (outcome === 'already_handled') setHandledElsewhere((current) => new Set(current).add(toolCallId));
+    setReloadKey((key) => key + 1);
+    onSettled();
+  };
 
-  const pending = [...(read?.interrupts ?? [])].sort(compareInterrupts);
-  const pendingIDs = new Set(pending.map((interrupt) => interrupt.interruptId));
-  const settled = notices.filter((notice) => !pendingIDs.has(notice.interruptId) || notice.title !== AGENT_INBOX_COPY.done);
+  const waiting = session?.view.waitingCalls ?? [];
+  const waitingIDs = new Set(waiting.map((call) => call.toolCallId));
+  const handledCalls = session?.view.items
+    .flatMap((item) => (item.kind === 'tool' && handledElsewhere.has(item.call.toolCallId) && !waitingIDs.has(item.call.toolCallId)
+      ? [item.call]
+      : [])) ?? [];
+  const lastMessage = [...(session?.view.items ?? [])].reverse()
+    .find((item) => item.kind === 'message' && (item.message.text ?? '').trim() !== '');
+  const controlContext = {
+    isFlowOpen: session ? isOpenFlowStatusCode(session.summary.flowStatusCode) : false,
+    workQueuePermissions,
+  };
+
   return (
     <div className="v2-case sc ai-panel">
       <div className="sc-head">
@@ -108,194 +69,45 @@ export function AgentSessionPanel({
         <span className="sc-status">{flowType}</span>
         {footer}
       </div>
-      {readError !== '' && <p className="v2-error">{readError}</p>}
-      {error !== '' && <p className="v2-error">{error}</p>}
-      {settled.map((notice) => (
-        <div className="ai-card" data-state="settled" key={notice.interruptId} role="status">
-          <div className="ai-cardhead">
-            <span className="ai-asked">{notice.asked}</span>
-            <span className="ai-chip" data-tone="neutral">{notice.title}</span>
-          </div>
-          {notice.text !== '' && <p className="sc-state">{notice.text}</p>}
-        </div>
-      ))}
-      {read === null && readError === '' && <p className="sc-state">{AGENT_INBOX_COPY.reading}</p>}
-      {read !== null && (
+      {!session && (held.liveness === 'unreachable'
+        ? <p className="v2-error" role="alert">{SESSION_COPY.readFailed(held.reason ?? '')}</p>
+        : <p className="sc-state">{SESSION_COPY.loading}</p>)}
+      {held.liveness === 'stale' && <p className="sc-why" role="status">{SESSION_COPY.stale} {held.reason}</p>}
+      {session && (
         <>
           <div className="sc-block">
-            <div className="sc-blockhead">{AGENT_INBOX_COPY.pendingCalls(pending.length)}</div>
-            {pending.length === 0 && <p className="sc-state">{AGENT_INBOX_COPY.nothingPending}</p>}
-            {pending.map((interrupt) => (
-              <AgentCallCard
-                busy={busyID === interrupt.interruptId}
-                definition={definition}
-                effect={read.toolCalls[interrupt.toolCallId]?.effect ?? ''}
-                interrupt={interrupt}
-                isActive={read.isActive}
-                key={interrupt.interruptId}
-                nowMs={nowMs}
-                timezone={timezone}
-                workQueuePermissions={workQueuePermissions}
-                onAnswer={(value) => void answer(interrupt, value)}
-              />
+            <div className="sc-blockhead">{AGENT_INBOX_COPY.pendingCalls(waiting.length)}</div>
+            {waiting.length === 0 && <p className="sc-state">{AGENT_INBOX_COPY.nothingPending}</p>}
+            {[...waiting, ...handledCalls].map((call) => (
+              <ToolCallCard call={call} key={call.toolCallId} now={now}>
+                <InterruptControls
+                  call={call}
+                  controlContext={controlContext}
+                  flowId={flowId}
+                  flowType={flowType}
+                  isHandledElsewhere={handledElsewhere.has(call.toolCallId)}
+                  now={now}
+                  schema={schema}
+                  onSettled={settle(call.toolCallId)}
+                />
+              </ToolCallCard>
             ))}
           </div>
           <div className="sc-block">
             <div className="sc-blockhead">{AGENT_INBOX_COPY.lastMessage}</div>
-            {read.lastMessage === null ? (
-              <p className="sc-state">{AGENT_INBOX_COPY.noMessage}</p>
-            ) : (
+            {lastMessage?.kind === 'message' ? (
               <blockquote className="ai-message">
-                <span className="ai-role">{read.lastMessage.role}</span>
-                <span>{read.lastMessage.text}</span>
+                <span className="ai-role">
+                  {lastMessage.message.role === 'user' ? SESSION_COPY.user : SESSION_COPY.assistant}
+                </span>
+                <span>{lastMessage.message.text}</span>
               </blockquote>
+            ) : (
+              <p className="sc-state">{AGENT_INBOX_COPY.noMessage}</p>
             )}
           </div>
         </>
       )}
     </div>
-  );
-}
-
-/** One pending call: what it is, what it would do, until when, and the answers it accepts. */
-function AgentCallCard({
-  interrupt,
-  effect,
-  definition,
-  isActive,
-  busy,
-  nowMs,
-  timezone,
-  workQueuePermissions,
-  onAnswer,
-}: {
-  interrupt: AgentInterrupt;
-  effect: string;
-  definition: FlowV2Definition;
-  isActive: boolean;
-  busy: boolean;
-  nowMs: number;
-  timezone: ReturnType<typeof usePreferences>['timezone'];
-  workQueuePermissions: readonly string[];
-  onAnswer: (answer: AgentAnswer) => void;
-}) {
-  const [isRejecting, setRejecting] = useState(false);
-  const [reason, setReason] = useState('');
-  const [answerText, setAnswerText] = useState('');
-  const isQuestion = interrupt.kind === 'question';
-  const action = answeringAction(definition, isQuestion ? AGENT_SESSION.answerRPC : AGENT_SESSION.resolveRPC);
-  const resolveAction = answeringAction(definition, AGENT_SESSION.resolveRPC);
-  const blocked = !isActive
-    ? AGENT_INBOX_COPY.ended
-    : action === undefined
-      ? AGENT_INBOX_COPY.undeclared(isQuestion ? AGENT_SESSION.answerRPC : AGENT_SESSION.resolveRPC)
-      : workQueuePermissions.includes(action.requiredPermission)
-        ? ''
-        : AGENT_INBOX_COPY.needsPermission(action.requiredPermission);
-  const disabled = blocked !== '' || busy;
-  const canDecline = resolveAction !== undefined && workQueuePermissions.includes(resolveAction.requiredPermission);
-
-  return (
-    <article className="ai-card" aria-label={askedText(interrupt)}>
-      <div className="ai-cardhead">
-        <span className="ai-asked">{isQuestion && interrupt.question ? interrupt.question : interrupt.toolName}</span>
-        <span className="ai-chip" data-tone="attention">
-          {isQuestion ? AGENT_INBOX_COPY.question : AGENT_INBOX_COPY.approval}
-        </span>
-      </div>
-      <dl className="sc-facts">
-        <dt className="sc-fname">{AGENT_INBOX_COPY.tool}</dt>
-        <dd className="sc-fvalue t-mono">{interrupt.toolName}</dd>
-        <dt className="sc-fname">{AGENT_INBOX_COPY.effect}</dt>
-        <dd className="sc-fvalue">{effectText(effect)}</dd>
-        <dt className="sc-fname">{AGENT_INBOX_COPY.deadline}</dt>
-        <dd className="sc-fvalue">
-          {interrupt.deadline === null
-            ? `${AGENT_INBOX_COPY.noDeadline} · ${waitText(interrupt, nowMs)}`
-            : `${formatDate(interrupt.deadline, timezone)} · ${waitText(interrupt, nowMs)}`}
-        </dd>
-      </dl>
-      <div className="sc-fname">{AGENT_INBOX_COPY.arguments}</div>
-      <pre className="ai-arguments">{formattedArguments(interrupt.arguments)}</pre>
-      {blocked !== '' && <p className="sc-state">{blocked}</p>}
-      {isQuestion ? (
-        <form
-          className="ai-answer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (answerText.trim() !== '') onAnswer({ rpc: 'answer', answer: answerText.trim() });
-          }}
-        >
-          {interrupt.choices.length > 0 && (
-            <div className="ai-choices">
-              {interrupt.choices.map((choice) => (
-                <button
-                  className="v2-ghost"
-                  data-on={answerText === choice ? 'true' : undefined}
-                  disabled={disabled}
-                  key={choice}
-                  onClick={() => setAnswerText(choice)}
-                  type="button"
-                >
-                  {choice}
-                </button>
-              ))}
-            </div>
-          )}
-          {interrupt.allowsFreeText && (
-            <label className="ai-field">
-              <span className="sc-fname">{AGENT_INBOX_COPY.answerLabel}</span>
-              <input disabled={disabled} value={answerText} onChange={(event) => setAnswerText(event.target.value)} />
-            </label>
-          )}
-          <div className="ai-buttons">
-            <button className="v2-primary" disabled={disabled || answerText.trim() === ''} type="submit">
-              {busy ? AGENT_INBOX_COPY.working : AGENT_INBOX_COPY.answer}
-            </button>
-            <button
-              className="v2-ghost"
-              disabled={disabled || !canDecline}
-              onClick={() => onAnswer({ rpc: 'resolve', approved: false, rejectionMessage: '' })}
-              type="button"
-            >
-              {AGENT_INBOX_COPY.decline}
-            </button>
-          </div>
-        </form>
-      ) : isRejecting ? (
-        <form
-          className="ai-answer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onAnswer({ rpc: 'resolve', approved: false, rejectionMessage: reason });
-          }}
-        >
-          <label className="ai-field">
-            <span className="sc-fname">{AGENT_INBOX_COPY.rejectReason}</span>
-            <textarea disabled={disabled} rows={2} value={reason} onChange={(event) => setReason(event.target.value)} />
-          </label>
-          <div className="ai-buttons">
-            <button className="v2-primary" disabled={disabled} type="submit">
-              {busy ? AGENT_INBOX_COPY.working : AGENT_INBOX_COPY.reject}
-            </button>
-            <button className="v2-ghost" onClick={() => setRejecting(false)} type="button">{AGENT_INBOX_COPY.cancel}</button>
-          </div>
-        </form>
-      ) : (
-        <div className="ai-buttons">
-          <button
-            className="v2-primary"
-            disabled={disabled}
-            onClick={() => onAnswer({ rpc: 'resolve', approved: true, rejectionMessage: '' })}
-            type="button"
-          >
-            {busy ? AGENT_INBOX_COPY.working : AGENT_INBOX_COPY.approve}
-          </button>
-          <button className="v2-ghost" disabled={disabled} onClick={() => setRejecting(true)} type="button">
-            {AGENT_INBOX_COPY.reject}
-          </button>
-        </div>
-      )}
-    </article>
   );
 }

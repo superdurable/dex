@@ -1260,50 +1260,6 @@
   font-weight: 500;
 }
 
-.ai-row .ai-asked {
-  white-space: normal;
-}
-
-.ai-chip {
-  align-self: start;
-  padding: 0 6px;
-  border-radius: 3px;
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-.ai-chip[data-tone='attention'] {
-  background: var(--hue-attention-fill);
-  color: var(--hue-attention-ink);
-}
-
-.ai-chip[data-tone='neutral'] {
-  background: var(--p-surface-3);
-  color: var(--p-ink-1);
-}
-
-.ai-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0 0 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--p-line);
-  border-radius: 6px;
-}
-
-.ai-card[data-state='settled'] {
-  margin-top: 12px;
-  border-style: dashed;
-}
-
-.ai-cardhead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
 .ai-asked {
   min-width: 0;
   color: var(--p-ink-0);
@@ -1312,48 +1268,22 @@
   overflow-wrap: anywhere;
 }
 
-.ai-arguments {
-  margin: 0;
-  padding: 6px 8px;
-  max-height: 14rem;
-  overflow: auto;
-  border-radius: 4px;
-  background: var(--p-surface-2);
-  color: var(--p-ink-1);
-  font-family: var(--p-mono);
-  font-size: 11.5px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.ai-row .ai-asked {
+  white-space: normal;
 }
 
-.ai-answer,
-.ai-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.ai-chip {
+  align-self: start;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--hue-attention-fill);
+  color: var(--hue-attention-ink);
+  font-size: 10.5px;
+  white-space: nowrap;
 }
 
-.ai-field input,
-.ai-field textarea {
-  padding: 4px 6px;
-  border: 1px solid var(--p-line);
-  border-radius: 5px;
-  background: var(--p-surface-2);
-  color: var(--p-ink-0);
-  font: inherit;
-  font-size: 12px;
-}
-
-.ai-choices,
-.ai-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.ai-choices .v2-ghost[data-on='true'] {
-  border-color: var(--p-run-active);
-  color: var(--p-ink-0);
+.ai-panel .atc {
+  margin-bottom: 10px;
 }
 
 .ai-message {
@@ -1371,7 +1301,6 @@
 .ai-role {
   color: var(--p-ink-2);
   font-size: 10.5px;
-  text-transform: capitalize;
 }
 
 /* A phone shows one column: the list, or the selected session with its close button. */

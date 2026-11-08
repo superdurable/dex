@@ -220,10 +220,9 @@ active run and never enters the projection.
 
 `/v2/work-queue?view=agents` is the agent mode. It lists Dex Agents sessions
 waiting at `AwaitToolApproval` or `AwaitQuestionAnswer` across every session
-Flow type, grouped by Flow type, and answers them in the side panel through
-`resolve_interrupt` and `answer_question`. Rows read `PendingInterrupts`,
-`AgentToolCalls`, and `AgentMessages` through `/api/flows/state` and
-`/api/blobs/load`. See the Dex Web reference, section Agent inbox.
+Flow type, grouped by Flow type. Each row reads `PendingInterrupts` through
+`/api/flows/state` and `/api/blobs/load`. The side panel reuses the Session
+tab's read, cards, and Actions from `app/v2/agents/`. See the Dex Web reference, section Agent inbox.
 
 The local v2 Connectors page is available at `/v2/connectors` when Dex Web
 runs through loopback-bound `dexcli dev` with a local Flow Definition source.

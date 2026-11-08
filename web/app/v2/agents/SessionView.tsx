@@ -7,14 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useRef, useState, type ReactNode, type RefObject } from 'react';
-import { useWebCatalog } from '../WebCatalogProvider';
 import { isOpenFlowStatusCode } from '../work-queue/liveness';
-import { ApprovalCard, QuestionCard, type SettledOutcome } from './ApprovalCard';
+import type { SettledOutcome } from './ApprovalCard';
 import { SESSION_COPY } from './copy';
+import { InterruptControls, useSessionActionInvoker, type SessionActionInvoker } from './InterruptControls';
 import {
   actionBlockedReason,
-  invokeSessionAction,
-  resolveInterruptInput,
   type SessionActionOutcome,
   type SessionControlContext,
 } from './sessionActions';
@@ -41,7 +39,7 @@ export function SessionView({
   /** Sets Working as, so a phone, which hides the run list, can still act. */
   onChooseWorkingAs?: (permission: string) => void;
 }) {
-  const { catalog } = useWebCatalog();
+  const invoke = useSessionActionInvoker(flowType, flowId, workQueuePermissions);
   const { held, reload, includeChunks, loadEarlierMessages } = useAgentSession(flowId, reloadKey);
   const [steerText, setSteerText] = useState('');
   /** Kept outside the card: the reload that follows removes the card's own controls. */
@@ -67,17 +65,6 @@ export function SessionView({
     isFlowOpen: isOpenFlowStatusCode(session.summary.flowStatusCode),
     workQueuePermissions,
   };
-  const invoke = (action: AgentSessionSchema['resolveInterrupt'], input: Record<string, unknown>) => {
-    if (!action) return Promise.resolve<SessionActionOutcome>({ kind: 'failed', message: SESSION_COPY.closed });
-    return invokeSessionAction({
-      flowType,
-      flowId,
-      action,
-      input,
-      workQueuePermissions,
-      definitionRevision: catalog?.definitionRevision ?? '',
-    });
-  };
   const tellAgent = (call: ToolCallView) => {
     setSteerText(SESSION_COPY.tellAgentPrefix(call.toolName, call.toolCallId));
     steerRef.current?.focus();
@@ -87,40 +74,18 @@ export function SessionView({
     if (outcome === 'already_handled') setHandledElsewhere((current) => new Set(current).add(toolCallId));
     reload();
   };
-  const renderControls = (call: ToolCallView) => {
-    const interrupt = call.interrupt;
-    if (!interrupt) {
-      return handledElsewhere.has(call.toolCallId)
-        ? <p className="agc-note" role="status">{SESSION_COPY.alreadyHandled}</p>
-        : null;
-    }
-    const resolveBlocked = actionBlockedReason(SESSION_RPC.resolveInterrupt, schema.resolveInterrupt, controlContext);
-    if (interrupt.kind === 'question') {
-      return (
-        <QuestionCard
-          answerBlockedReason={actionBlockedReason(SESSION_RPC.answerQuestion, schema.answerQuestion, controlContext)}
-          declineBlockedReason={resolveBlocked}
-          interrupt={interrupt}
-          now={now}
-          onAnswer={(answer) => invoke(schema.answerQuestion, { interrupt_id: interrupt.interruptId, answer })}
-          onDecline={() => invoke(schema.resolveInterrupt, resolveInterruptInput(interrupt.interruptId, false))}
-          onSettled={settle(call.toolCallId)}
-        />
-      );
-    }
-    return (
-      <ApprovalCard
-        blockedReason={resolveBlocked}
-        interrupt={interrupt}
-        now={now}
-        onResolve={(approved, reason) => invoke(
-          schema.resolveInterrupt,
-          resolveInterruptInput(interrupt.interruptId, approved, reason),
-        )}
-        onSettled={settle(call.toolCallId)}
-      />
-    );
-  };
+  const renderControls = (call: ToolCallView) => (
+    <InterruptControls
+      call={call}
+      controlContext={controlContext}
+      flowId={flowId}
+      flowType={flowType}
+      isHandledElsewhere={handledElsewhere.has(call.toolCallId)}
+      now={now}
+      schema={schema}
+      onSettled={settle(call.toolCallId)}
+    />
+  );
 
   const { view } = session;
   const neededPermission = sessionPermissionToChoose(schema, workQueuePermissions);
@@ -282,7 +247,7 @@ function SessionControls({
   schema: AgentSessionSchema;
   session: LoadedAgentSession;
   context: SessionControlContext;
-  invoke: (action: AgentSessionSchema['resolveInterrupt'], input: Record<string, unknown>) => Promise<SessionActionOutcome>;
+  invoke: SessionActionInvoker;
   onActed: () => void;
   steerRef: RefObject<HTMLTextAreaElement | null>;
   steerText: string;

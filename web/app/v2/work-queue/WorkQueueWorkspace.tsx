@@ -33,7 +33,7 @@ import { useRunQuery } from '../workspace/useRunQuery';
 import { useStrandedRuns } from '../workspace/useStrandedRuns';
 import { useWorkingAs } from '../workspace/useWorkingAs';
 import { AgentInboxWorkspace } from './AgentInboxWorkspace';
-import { agentSessionFlowTypes } from './agentSession';
+import { inboxSessionSchemas } from './agentInbox';
 import { WORK_QUEUE_COPY } from './copy';
 import { openFlowStatusLabel } from './liveness';
 import { WorkingAsControl, WorkQueueModeSwitch } from './WorkQueueControls';
@@ -111,7 +111,7 @@ function RunQueueWorkspace() {
           onExpand={listPane.expand}
           headerAction={(
             <WorkQueueModeSwitch
-              hasAgents={agentSessionFlowTypes(catalog.flows, definitions?.definitions ?? []).length > 0}
+              hasAgents={inboxSessionSchemas(catalog.flows, definitions?.definitions ?? []).size > 0}
               mode="runs"
             />
           )}
