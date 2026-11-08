@@ -33,10 +33,10 @@ use dexzd_keyspace::{
     parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowConfig, FlowResetType, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
-    LoadBlobRequestEntry, ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepDecision,
-    StepMovement, StepOptions, UpdateFlowConfigRequest, Value, WorkerTarget, flow_history_event,
-    value,
+    AttributeWrite, FlowConfig, FlowResetStepMethod, FlowResetType, FlowTimeoutPolicy,
+    InvokeExecuteMethodResponse, LoadBlobRequestEntry, ResetFlowRequest, SetAttributesRequest,
+    StartFlowRequest, StepDecision, StepMovement, StepOptions, UpdateFlowConfigRequest, Value,
+    WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand,
@@ -675,6 +675,28 @@ impl Harness {
                 chunk
             })
             .collect()
+    }
+
+    /// Computes `request` with the production time travel over the committed state and every
+    /// uploaded segment.
+    fn time_travel_computation(&self, request: &ResetFlowRequest) -> TimeTravelComputation {
+        let computation = compute_time_travel_from_segments(
+            &self.context,
+            &self.state,
+            &self.loaded_segments(),
+            &NoOffloadedValues,
+            &TimeTravelComputationRequest {
+                run_id: self.run(),
+                reset: request,
+                now_micros: self.now_micros,
+                replay_memory_budget_bytes: u64::MAX,
+            },
+        )
+        .expect("the computation runs");
+        let SegmentedTimeTravelComputation::Computed(computed) = computation else {
+            panic!("the computation has every segment: {computation:?}");
+        };
+        computed
     }
 
     /// Event IDs of the first page, read as the engine does: uploaded seqs from their objects.
@@ -1683,5 +1705,151 @@ fn while_offloading_every_visible_event_is_time_travelable_and_its_values_load()
             .staged_result(&harness.state.clone(), &request)
             .is_empty(),
         "travel to the earliest visible event replays from the uploaded segments"
+    );
+}
+
+#[test]
+fn while_offloading_steps_created_in_the_window_are_time_travelable() {
+    // Checkpoints every 37 commands leave records between the kept checkpoint and W.
+    let mut harness = Harness::new();
+    harness.set_offload_mode(true);
+    harness.start_with_step(RunSettings {
+        history_window_events: 60,
+        history_prune_chunk_events: 6,
+        checkpoint_command_threshold: 37,
+        ..settings(4096)
+    });
+    // Each Step passes its successor an input above the inline threshold, so history references it.
+    for index in 1..=150_u8 {
+        let invocation = StepInvocationKey {
+            step_execution_id: format!("{START_STEP}-{index}"),
+            method: StepMethod::Execute as i32,
+        };
+        let started = harness.apply(Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: vec![index; 16],
+            pull_routing: None,
+        }));
+        assert!(is_ok(&started.reply), "{:?}", started.reply);
+        let completed = harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::Execute(
+                InvokeExecuteMethodResponse {
+                    step_decision: Some(StepDecision {
+                        next_steps: vec![StepMovement {
+                            step_type: START_STEP.to_owned(),
+                            step_input: Some(Value {
+                                kind: Some(value::Kind::StringValue(large_text(
+                                    &format!("input {index}"),
+                                    300,
+                                ))),
+                            }),
+                            step_options: Some(StepOptions {
+                                skip_wait_for: true,
+                                ..StepOptions::default()
+                            }),
+                            ..StepMovement::default()
+                        }],
+                        ..StepDecision::default()
+                    }),
+                    ..InvokeExecuteMethodResponse::default()
+                },
+            )),
+            task_id: vec![index; 16],
+            ..StepMethodCompletedCommand::default()
+        }));
+        assert!(is_ok(&completed.reply), "{:?}", completed.reply);
+        if index % 25 == 0 {
+            harness.ack_all();
+            harness.advance(GRACE + SECOND);
+        }
+    }
+    harness.ack_all();
+    harness.advance(GRACE + SECOND);
+    harness.bookkeep();
+    let record = harness.run_record();
+    assert!(
+        record.history_window_pruned_through_seq + 1 < record.window_start_seq,
+        "records before W rebuild it: {record:?}"
+    );
+    assert!(
+        harness.stored_record_seqs().len() < 100,
+        "offload deleted uploaded records locally"
+    );
+
+    let SegmentedHistoryPage::Page(page) = get_history_events_from_segments(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run(),
+        0,
+        1000,
+        &[],
+        0,
+        usize::MAX,
+        &harness.loaded_segments(),
+        false,
+    )
+    .expect("history reads") else {
+        panic!("every uploaded segment is loaded");
+    };
+    let window_start_last_event_id = harness.metadata()
+        [&(record.window_start_seq, RunTable::HistoryRecord as u8, 0)]
+        .last_assigned_event_id;
+    // Every Step completion records one event, so W's record holds only its last event.
+    assert_eq!(page.events[1].event_id, window_start_last_event_id);
+    let Some(flow_history_event::Payload::StepExecuteCompleted(completed_at_window_start)) =
+        &page.events[1].payload
+    else {
+        panic!("W completes a Step: {:?}", page.events[1]);
+    };
+    let step_completed_at_window_start = completed_at_window_start
+        .context
+        .as_ref()
+        .expect("the event names its Step")
+        .step_execution_id
+        .clone();
+
+    let step_reset = |step_execution_id: String| ResetFlowRequest {
+        flow_id: harness.flow_id.clone(),
+        reset_type: FlowResetType::StepExecutionId as i32,
+        reason: "earliest visible Step".to_owned(),
+        skip_writes_reapply: true,
+        step_execution_id,
+        step_method: FlowResetStepMethod::Execute as i32,
+        ..ResetFlowRequest::default()
+    };
+    // The Step that W completes was pending only before W, so no window point restores it.
+    let TimeTravelComputation::Rejected(rejected) =
+        harness.time_travel_computation(&step_reset(step_completed_at_window_start))
+    else {
+        panic!("the Step completed at W has no pending point in the window");
+    };
+    let Some(command_reply::Reply::Error(error)) = rejected.reply else {
+        panic!("the rejection is an error: {rejected:?}");
+    };
+    assert_eq!(error.grpc_code, 9, "FAILED_PRECONDITION");
+
+    let earliest_created_step = (record.window_start_seq..record.next_run_seq)
+        .filter_map(|seq| {
+            harness
+                .metadata()
+                .get(&(seq, RunTable::HistoryRecord as u8, 0))
+                .cloned()
+        })
+        .find_map(|metadata| {
+            metadata
+                .pending_step_methods
+                .into_iter()
+                .find(|pending| pending.is_step_created)
+        })
+        .expect("a visible record creates a Step")
+        .step_execution_id;
+    assert!(
+        !harness
+            .staged_result(&harness.state.clone(), &step_reset(earliest_created_step))
+            .is_empty(),
+        "travel to the earliest Step created in the window replays from the uploaded segments"
     );
 }

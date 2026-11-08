@@ -4483,6 +4483,24 @@ fn every_visible_step_is_time_travelable_and_the_values_of_visible_events_load()
         "values of visible events {missing:?} load"
     );
 
+    // The Step that W completes was pending only before W, so no window point restores it.
+    let Some(flow_history_event::Payload::StepExecuteCompleted(completed_at_window_start)) =
+        &page.events[1].payload
+    else {
+        panic!("W completes a Step: {:?}", page.events[1]);
+    };
+    let rejected = harness.time_travel(ResetFlowRequest {
+        step_execution_id: completed_at_window_start
+            .context
+            .as_ref()
+            .expect("the event names its Step")
+            .step_execution_id
+            .clone(),
+        step_method: FlowResetStepMethod::Execute as i32,
+        ..reset(FlowResetType::StepExecutionId)
+    });
+    assert_eq!(error_code(&rejected.reply), Some(FAILED_PRECONDITION));
+
     let earliest_created_step = (window_start_seq..=harness.last_seq())
         .filter_map(|seq| harness.history_record(seq))
         .find_map(|history| {

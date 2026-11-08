@@ -999,6 +999,32 @@ fn an_unmoved_window_reports_no_range_without_history_reads() {
 }
 
 #[test]
+fn history_event_waits_skip_records_before_the_window_start_without_the_watermark() {
+    // A checkpoint every 7 commands keeps records before W that rebuild it.
+    let mut harness = Harness::new(settings(20, 7));
+    for _ in 0..30 {
+        harness.append_round(2);
+    }
+    let mut run = harness.run_record();
+    let first_kept_seq = harness.history_records()[1].seq;
+    assert!(
+        first_kept_seq < run.window_start_seq,
+        "records before W rebuild it"
+    );
+    run.max_pruned_event_id = 0;
+    let run_key = run_singleton_key(
+        harness.context.flow_hash,
+        harness.run_id,
+        RunTable::RunRecord,
+    );
+    harness
+        .state
+        .rows
+        .insert((ColumnFamily::Flow, run_key), run.encode_to_vec());
+    harness.assert_history_event_waits_match_oracle("a run without the watermark");
+}
+
+#[test]
 fn runs_pruned_before_the_watermark_scan_until_newer_rows_are_pruned() {
     let mut harness = Harness::new(settings(20, 5));
     for _ in 0..30 {
