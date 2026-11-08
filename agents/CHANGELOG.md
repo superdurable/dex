@@ -36,7 +36,8 @@ for the Dex SDK and framework versions each release supports.
   superdurable/dex-connectors-library#628. Until they ship, the Python core pins
   the SDK to a commit of that branch, and the TypeScript peer is pinned to a
   version that lacks `throwDexRetry`.
-- Go core: no connector tools.
+- Go core: no connector tools. Its **AgentToolCall** carries the four new fields, so a
+  record written by another core round-trips.
 - See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
 
 ### Tool call contract additions

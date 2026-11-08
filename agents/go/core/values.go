@@ -668,6 +668,15 @@ type AgentToolCall struct {
 	TaskPollIntervalSeconds *int64 `json:"task_poll_interval_seconds"`
 	// TaskAnswerPending reports whether the last answer has not reached the task yet.
 	TaskAnswerPending bool `json:"task_answer_pending"`
+	// OrderedWrite reports whether the call is a connector write that runs in the model's order.
+	// The Go core never sets it; it keeps the field so a record written by another core round-trips.
+	OrderedWrite bool `json:"ordered_write"`
+	// WriteQueued reports whether the call waits for an earlier ordered write of its turn.
+	WriteQueued bool `json:"write_queued"`
+	// Skipped reports whether write ordering skipped the call after an earlier write failed.
+	Skipped bool `json:"skipped"`
+	// TruncatedOutputBytes is the size of the full output when Output holds a truncated copy, or nil.
+	TruncatedOutputBytes *int64 `json:"truncated_output_bytes"`
 }
 
 // MarshalJSON encodes the wire object, writing empty lists as [] rather than null.
