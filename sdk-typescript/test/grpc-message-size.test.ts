@@ -281,3 +281,16 @@ function assertTooLarge(failure: unknown, flowId: string, blobId: string, sizeFa
   assert.ok(isGrpcMessageSizeError(failure.cause));
   assert.equal(failure.cause.code, sizeFailure.code);
 }
+
+for (const maxBlobs of [1000, 500]) {
+  test(`2500 entries respect the count limit and size limit ${maxBlobs}`, async () => {
+    const service = new LimitedBlobService(maxBlobs);
+    const hydrated = await hydrator(service).hydrateAll("flow", blobValues(2500));
+    const expectedRanges: [number, number][] = maxBlobs === 1000
+      ? [[0, 1000], [1000, 2000], [2000, 2500]]
+      : [[0, 1000], [0, 500], [500, 1000], [1000, 2000], [1000, 1500], [1500, 2000], [2000, 2500]];
+    assert.deepEqual(service.requestedBlobIds, expectedRanges.map(([start, end]) =>
+      Array.from({ length: end - start }, (_unused, offset) => `blob-${start + offset}`)));
+    assert.deepEqual(hydrated.map(stringOf), Array.from({ length: 2500 }, (_unused, index) => `value-blob-${index}`));
+  });
+}

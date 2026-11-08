@@ -363,6 +363,36 @@ func TestHydrateValuesDoesNotSplitOtherFailures(t *testing.T) {
 	}
 }
 
+func TestHydrateValuesLimitsEntryCountBeforeSizeSplitting(t *testing.T) {
+	for _, maxBlobs := range []int{1000, 500} {
+		t.Run(fmt.Sprint(maxBlobs), func(t *testing.T) {
+			client := &limitedHydrationFlowServiceClient{
+				maxBlobs: maxBlobs,
+				failure:  status.Error(codes.ResourceExhausted, testReceiveLimitMessage),
+			}
+			values := testStringBlobValues(2500)
+			hydrator := newValueHydrator(client, newHydrationCache(t), nil, "flow-test")
+			require.NoError(t, hydrator.HydrateValuesInPlace(context.Background(), valuePointers("flow-1", values)))
+			expectedSizes := []int{1000, 1000, 500}
+			expectedStarts := []int{0, 1000, 2000}
+			if maxBlobs == 500 {
+				expectedSizes = []int{1000, 500, 500, 1000, 500, 500, 500}
+				expectedStarts = []int{0, 0, 500, 1000, 1000, 1500, 2000}
+			}
+			require.Len(t, client.requestedBlobIDs, len(expectedSizes))
+			for index, batch := range client.requestedBlobIDs {
+				require.Len(t, batch, expectedSizes[index])
+				for offset, blobID := range batch {
+					require.Equal(t, fmt.Sprintf("blob-%d", expectedStarts[index]+offset), blobID)
+				}
+			}
+			for index, value := range values {
+				require.Equal(t, fmt.Sprintf("value-blob-%d", index), value.GetStringValue())
+			}
+		})
+	}
+}
+
 func testDexStatusError(t *testing.T, code codes.Code, message string) error {
 	t.Helper()
 	withDetails, err := status.New(code, message).WithDetails(&dexpb.ServiceErrorResponse{Detail: message})

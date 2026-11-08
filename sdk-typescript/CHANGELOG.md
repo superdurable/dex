@@ -4,6 +4,9 @@
 
 ### Added and fixed
 
+- Limit LoadBlobs requests to 1000 entries, preserving input order when hydrating
+  more values with history offload enabled.
+
 - Add `ActiveStepSearchMode.WITH_WAIT_FOR` and `ActiveStepSearchMode.DISABLED`, which
   the Python and Go SDKs already have. `startFlow`, `updateFlowConfig`, and SubFlow
   `configOverride` send them. Any value other than `ALL` used to be sent as the

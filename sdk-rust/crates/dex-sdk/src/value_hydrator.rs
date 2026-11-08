@@ -19,6 +19,9 @@ use crate::credential::CredentialChannel;
 use crate::sdk_error::FlowTargetRequirement;
 use crate::{SdkError, SdkResult};
 
+// The server rejects more than 1000 entries while history offload is on.
+const MAX_LOAD_BLOBS_ENTRIES: usize = 1000;
+
 #[derive(Clone)]
 pub(crate) struct ValueHydrator {
     service: FlowServiceClient<CredentialChannel>,
@@ -82,9 +85,10 @@ impl ValueHydrator {
                 Ok(None) | Err(_) => misses.push(key.clone()),
             }
         }
-        if !misses.is_empty() {
+        misses.sort_by_key(|key| pending[key][0]);
+        for batch in misses.chunks(MAX_LOAD_BLOBS_ENTRIES) {
             let request = LoadBlobsRequest {
-                entries: misses
+                entries: batch
                     .iter()
                     .map(|key| LoadBlobRequestEntry {
                         flow_id: key.flow_id.clone(),
@@ -101,17 +105,17 @@ impl ValueHydrator {
                     SdkError::from_status(status, "load_blobs", None, FlowTargetRequirement::None)
                 })?
                 .into_inner();
-            for key in misses {
+            for key in batch {
                 let value = response.values.get(&key.id).cloned().ok_or_else(|| {
                     SdkError::ValueMapping {
                         message: format!("LoadBlobs omitted blob {}", key.id),
                     }
                 })?;
                 key.validate_hydrated(&value)?;
-                if let Err(error) = self.write_cache(&key, &value) {
+                if let Err(error) = self.write_cache(key, &value) {
                     tracing::warn!(%error, blob_id = %key.id, "cache hydrated blob");
                 }
-                resolved.insert(key, value);
+                resolved.insert(key.clone(), value);
             }
         }
         for (key, indexes) in pending {
@@ -315,5 +319,141 @@ mod tests {
             );
         }
         cache.close().expect("close cache");
+    }
+
+    #[derive(Clone)]
+    struct RecordingBlobService {
+        batches: Arc<std::sync::Mutex<Vec<Vec<String>>>>,
+    }
+
+    impl tonic::server::NamedService for RecordingBlobService {
+        const NAME: &'static str = "dex.FlowService";
+    }
+
+    impl<RequestBody> tonic::codegen::Service<tonic::codegen::http::Request<RequestBody>>
+        for RecordingBlobService
+    where
+        RequestBody: tonic::codegen::Body + Send + 'static,
+        RequestBody::Error: Into<tonic::codegen::StdError> + Send + 'static,
+    {
+        type Response = tonic::codegen::http::Response<tonic::body::Body>;
+        type Error = std::convert::Infallible;
+        type Future = tonic::codegen::BoxFuture<Self::Response, Self::Error>;
+
+        fn poll_ready(
+            &mut self,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, request: tonic::codegen::http::Request<RequestBody>) -> Self::Future {
+            let service = self.clone();
+            Box::pin(async move {
+                let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
+                Ok(grpc.unary(service, request).await)
+            })
+        }
+    }
+
+    impl tonic::server::UnaryService<LoadBlobsRequest> for RecordingBlobService {
+        type Response = dex_protocol::dex::LoadBlobsResponse;
+        type Future = tonic::codegen::BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+
+        fn call(&mut self, request: tonic::Request<LoadBlobsRequest>) -> Self::Future {
+            let entries = request.into_inner().entries;
+            let blob_ids = entries
+                .iter()
+                .map(
+                    |entry| match entry.blob_value.as_ref().unwrap().kind.as_ref().unwrap() {
+                        value::Kind::InternalBlobIdForStringValue(blob_id) => blob_id.clone(),
+                        unexpected => panic!("unexpected blob kind: {unexpected:?}"),
+                    },
+                )
+                .collect::<Vec<_>>();
+            self.batches.lock().unwrap().push(blob_ids.clone());
+            Box::pin(async move {
+                assert!(blob_ids.len() <= 1000);
+                let values = blob_ids
+                    .into_iter()
+                    .map(|blob_id| {
+                        let concrete = Value {
+                            kind: Some(value::Kind::StringValue(format!("value-{blob_id}"))),
+                        };
+                        (blob_id, concrete)
+                    })
+                    .collect();
+                Ok(tonic::Response::new(dex_protocol::dex::LoadBlobsResponse {
+                    values,
+                }))
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn count_batches_preserve_request_and_result_order() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let batches = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let service = RecordingBlobService {
+            batches: Arc::clone(&batches),
+        };
+        let (stop_sender, stop_receiver) = tokio::sync::oneshot::channel();
+        let server_task = tokio::spawn(
+            tonic::transport::Server::builder()
+                .add_service(service)
+                .serve_with_incoming_shutdown(
+                    tokio_stream::wrappers::TcpListenerStream::new(listener),
+                    async {
+                        stop_receiver.await.unwrap();
+                    },
+                ),
+        );
+        let channel = Endpoint::from_shared(format!("http://{address}"))
+            .unwrap()
+            .connect()
+            .await
+            .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let cache = Arc::new(
+            BlobCache::open(BlobCacheConfig::new(directory.path(), 1 << 20, 0).unwrap()).unwrap(),
+        );
+        let hydrator = ValueHydrator::new(
+            FlowServiceClient::new(CredentialChannel::new(
+                channel,
+                CredentialInterceptor::new(None),
+            )),
+            Arc::clone(&cache),
+        );
+        let values = (0..2500)
+            .map(|index| Value {
+                kind: Some(value::Kind::InternalBlobIdForStringValue(format!(
+                    "blob-{index}"
+                ))),
+            })
+            .collect();
+        let hydrated = hydrator.hydrate_all("flow", values).await.unwrap();
+        {
+            let batches = batches.lock().unwrap();
+            assert_eq!(
+                batches.iter().map(Vec::len).collect::<Vec<_>>(),
+                vec![1000, 1000, 500]
+            );
+            assert_eq!(
+                batches.iter().flatten().cloned().collect::<Vec<_>>(),
+                (0..2500)
+                    .map(|index| format!("blob-{index}"))
+                    .collect::<Vec<_>>()
+            );
+        }
+        for (index, value) in hydrated.iter().enumerate() {
+            assert_eq!(
+                value.kind,
+                Some(value::Kind::StringValue(format!("value-blob-{index}")))
+            );
+        }
+        cache.close().unwrap();
+        stop_sender.send(()).unwrap();
+        server_task.await.unwrap().unwrap();
     }
 }

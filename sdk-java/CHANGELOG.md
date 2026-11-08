@@ -69,6 +69,9 @@ LoadBlobs and the BlobCache. Unregistered or mismatched definitions raise
 
 ### Fixed
 
+- Limit LoadBlobs requests to 1000 entries, preserving input order when hydrating
+  more values with history offload enabled.
+
 Reject heartbeat and Stream writes from a cancelled or completed Step invocation,
 including when its pull stream has been reused for another task. A handler that
 returns cooperatively after cancellation still sends one final result; only

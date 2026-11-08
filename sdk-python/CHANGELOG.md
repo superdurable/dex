@@ -4,6 +4,9 @@
 
 ### Added and fixed
 
+- Limit LoadBlobs requests to 1000 entries, preserving input order when hydrating
+  more values with history offload enabled.
+
 - Add `FlowConfig.history_window_events`, which sets about how many of the newest
   history events a run keeps for history reads and Time Travel. Set it at start
   through `StartFlowOptions.config_override`, change it with `update_flow_config`,
