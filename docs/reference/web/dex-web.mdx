@@ -360,7 +360,7 @@ A control is disabled, with the reason, when:
 
 A queued tool call does not disable the controls. A Step waits for a Worker whenever every Step task slot is busy, while RPCs use the Worker's [reserved RPC capacity](/reference/server/workers#reserved-rpc-capacity). So the controls stay enabled when the Step queue is backed up, which is when most approvals wait. If an Action's RPC finds no connected Worker, or loses its Worker, **POST /api/v2/actions** answers **502** with **grpcCode** 14, and the card reads "No Worker is connected to run this. Try again when Workers are back." Other failures show the route's error text.
 
-When **resolve_interrupt** or **answer_question** returns false, or fails on a lock conflict, another operator or a deadline answered the call first. The card says **Already handled** and the tab reloads from committed state.
+When **resolve_interrupt** or **answer_question** returns false, another operator or a deadline answered the call first. The card says **Already handled** and the tab reloads from committed state. An RPC that cannot take its locks commits nothing, so Dex Web retries it after 200, 500, and 1000 ms. If it still conflicts, the card says "The session is busy. Try again." and keeps its controls.
 
 ### Compatibility {#agent-session-compatibility}
 

@@ -11,6 +11,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalCard } from './ApprovalCard';
+import { SESSION_COPY } from './copy';
 import type { ToolCallView } from './sessionModel';
 import type { AgentInterruptRecord } from './sessionSchema';
 import { ToolCallCard, toolCallDetail } from './ToolCallCard';
@@ -57,6 +58,20 @@ describe('ApprovalCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     expect((await screen.findByRole('status')).textContent).toMatch(/Already handled/);
     expect(onSettled).toHaveBeenCalledWith('already_handled');
+  });
+
+  it('keeps the call answerable when the session stayed busy', async () => {
+    const onSettled = vi.fn();
+    render(<ApprovalCard
+      blockedReason={null}
+      interrupt={interrupt}
+      onResolve={async () => ({ kind: 'failed', message: SESSION_COPY.busy })}
+      onSettled={onSettled}
+    />);
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect((await screen.findByRole('status')).textContent).toBe('The session is busy. Try again.');
+    expect(onSettled).not.toHaveBeenCalled();
+    expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('disables both decisions with the reason', () => {

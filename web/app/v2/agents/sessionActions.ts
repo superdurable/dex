@@ -13,7 +13,7 @@ import { SESSION_RPC } from './sessionSchema';
 
 export type SessionActionOutcome =
   | { kind: 'done' }
-  /** Another operator, a deadline, or the session acted first. Reload and show the result. */
+  /** The interrupt RPC returned false: another operator or a deadline acted first. Reload and show the result. */
   | { kind: 'already_handled' }
   /** The RPC ran and said no, such as a steer the turn does not accept. */
   | { kind: 'refused'; message: string }
@@ -32,43 +32,65 @@ const GRPC_ABORTED = 10;
 const GRPC_UNAVAILABLE = 14;
 const RPCS_ANSWERING_ONE_INTERRUPT: readonly string[] = [SESSION_RPC.resolveInterrupt, SESSION_RPC.answerQuestion];
 
-/** Invokes one session Action through POST /api/v2/actions and says what happened. */
+/** Waits before each retry of an RPC that could not take its locks; the RPC committed nothing. */
+export const LOCK_CONFLICT_RETRY_DELAYS_MS: readonly number[] = [200, 500, 1000];
+
+/**
+ * Invokes one session Action through POST /api/v2/actions and says what happened.
+ *
+ * A lock conflict is retried after each delay in `retryDelaysMs`, then reported as busy.
+ */
 export async function invokeSessionAction(
   request: SessionActionRequest,
   fetcher: typeof fetch = fetch,
+  retryDelaysMs: readonly number[] = LOCK_CONFLICT_RETRY_DELAYS_MS,
 ): Promise<SessionActionOutcome> {
-  let output: unknown;
-  try {
-    const response = await fetcher('/api/v2/actions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...definitionRevisionHeaders(request.definitionRevision),
-      },
-      body: JSON.stringify({
-        flowType: request.flowType,
-        flowId: request.flowId,
-        rpcName: request.action.rpcName,
-        workQueuePermissions: request.workQueuePermissions,
-        input: request.input,
-        attributeSnapshot: {},
-      }),
-    });
-    output = (await readResponseJSON<{ output?: unknown }>(response)).output;
-  } catch (error) {
-    return classifyActionFailure(request.action.rpcName, error);
+  for (let attempt = 0; ; attempt += 1) {
+    let output: unknown;
+    try {
+      output = await postSessionAction(request, fetcher);
+    } catch (error) {
+      if (isLockConflict(error) && attempt < retryDelaysMs.length) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[attempt]));
+        continue;
+      }
+      return classifyActionFailure(error);
+    }
+    if (output !== false) return { kind: 'done' };
+    if (RPCS_ANSWERING_ONE_INTERRUPT.includes(request.action.rpcName)) return { kind: 'already_handled' };
+    return { kind: 'refused', message: SESSION_COPY.refused(request.action.rpcName) };
   }
-  if (output !== false) return { kind: 'done' };
-  if (RPCS_ANSWERING_ONE_INTERRUPT.includes(request.action.rpcName)) return { kind: 'already_handled' };
-  return { kind: 'refused', message: SESSION_COPY.refused(request.action.rpcName) };
 }
 
-/** A lock conflict on an interrupt means another resolve holds it: the call is being handled. */
-export function classifyActionFailure(rpcName: string, error: unknown): SessionActionOutcome {
+async function postSessionAction(request: SessionActionRequest, fetcher: typeof fetch): Promise<unknown> {
+  const response = await fetcher('/api/v2/actions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...definitionRevisionHeaders(request.definitionRevision),
+    },
+    body: JSON.stringify({
+      flowType: request.flowType,
+      flowId: request.flowId,
+      rpcName: request.action.rpcName,
+      workQueuePermissions: request.workQueuePermissions,
+      input: request.input,
+      attributeSnapshot: {},
+    }),
+  });
+  return (await readResponseJSON<{ output?: unknown }>(response)).output;
+}
+
+/** The RPC could not take its Attribute locks, so it committed nothing and is safe to retry. */
+function isLockConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  const isLockConflict = (error instanceof DexAPIError && error.grpcCode === GRPC_ABORTED)
-    || /lock/i.test(message);
-  if (isLockConflict && RPCS_ANSWERING_ONE_INTERRUPT.includes(rpcName)) return { kind: 'already_handled' };
+  return (error instanceof DexAPIError && error.grpcCode === GRPC_ABORTED) || /lock/i.test(message);
+}
+
+/** A lock conflict left the call as it was; only a false result means someone else answered. */
+export function classifyActionFailure(error: unknown): SessionActionOutcome {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isLockConflict(error)) return { kind: 'failed', message: SESSION_COPY.busy };
   // The Server answers UNAVAILABLE when an RPC dispatch finds no Worker or loses it.
   if (error instanceof DexAPIError && error.grpcCode === GRPC_UNAVAILABLE) return { kind: 'failed', message: SESSION_COPY.noWorker };
   return { kind: 'failed', message };

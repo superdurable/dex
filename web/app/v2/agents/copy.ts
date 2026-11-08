@@ -78,6 +78,7 @@ export const SESSION_COPY = {
   workAs(permission: string): string {
     return `Work as ${permission}`;
   },
+  busy: 'The session is busy. Try again.',
   noWorker: 'No Worker is connected to run this. Try again when Workers are back.',
   goReduced:
     'This session runs on Go Workers, which have no questions, steering, or stopping. The view shows messages, tool calls, approvals, and usage.',

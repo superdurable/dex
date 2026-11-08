@@ -250,18 +250,26 @@ describe('Work Queue agent mode', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /Close ticket 77/ })).toBeNull());
   });
 
-  it('treats a lock failure as already handled and a missing Worker as its own failure', async () => {
+  it('retries a lock conflict, then says the session is busy and keeps the call answerable', async () => {
     const sessions = threeSessions();
-    let reply = failure(10);
-    stubServer(sessions, () => reply);
+    const { actions } = stubServer(sessions, () => failure(10));
     renderInbox('/v2/work-queue/SupportAgent/ses-late?view=agents');
     fireEvent.change(await screen.findByLabelText('Working as'), { target: { value: 'support.operate' } });
     fireEvent.click(within(await screen.findByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }));
-    expect(await screen.findByText(SESSION_COPY.alreadyHandled)).toBeTruthy();
 
-    reply = failure(14);
-    await waitFor(() => expect((within(screen.getByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(within(screen.getByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }));
+    expect(await screen.findByText(SESSION_COPY.busy, undefined, { timeout: 4000 })).toBeTruthy();
+    expect(actions).toHaveLength(4);
+    expect(screen.queryByText(SESSION_COPY.alreadyHandled)).toBeNull();
+    const approve = within(screen.getByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }) as HTMLButtonElement;
+    expect(approve.disabled).toBe(false);
+    expect(screen.getByRole('button', { name: /Close ticket 77/ })).toBeTruthy();
+  });
+
+  it('says no Worker is connected when the RPC finds none', async () => {
+    stubServer(threeSessions(), () => failure(14));
+    renderInbox('/v2/work-queue/SupportAgent/ses-late?view=agents');
+    fireEvent.change(await screen.findByLabelText('Working as'), { target: { value: 'support.operate' } });
+    fireEvent.click(within(await screen.findByTestId('approval-call-a')).getByRole('button', { name: SESSION_COPY.approve }));
     expect(await screen.findByText(SESSION_COPY.noWorker)).toBeTruthy();
   });
 
