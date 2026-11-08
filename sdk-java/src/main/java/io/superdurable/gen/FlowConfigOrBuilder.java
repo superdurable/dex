@@ -221,8 +221,9 @@ public interface FlowConfigOrBuilder extends
    *
    * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
    * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
-   * window already passed. Changing it from true to false keeps the objects that are not
-   * deleted yet; objects already deleted never come back. Once set, the value can be changed
+   * window already passed. Changing it from true to false stops the deletions that have not
+   * started; a deletion request already sent to object storage may still complete, and objects
+   * already deleted never come back. Once set, the value can be changed
    * but not cleared back to the server default. A child Flow inherits it from its parent unless
    * its own override sets it.
    *
@@ -255,8 +256,9 @@ public interface FlowConfigOrBuilder extends
    *
    * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
    * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
-   * window already passed. Changing it from true to false keeps the objects that are not
-   * deleted yet; objects already deleted never come back. Once set, the value can be changed
+   * window already passed. Changing it from true to false stops the deletions that have not
+   * started; a deletion request already sent to object storage may still complete, and objects
+   * already deleted never come back. Once set, the value can be changed
    * but not cleared back to the server default. A child Flow inherits it from its parent unless
    * its own override sets it.
    *

@@ -38,7 +38,8 @@ const GRPC_NOT_FOUND: i32 = 5;
 /// before deleting its object. Failed object storage calls retry with backoff.
 ///
 /// Reads the run's delete switch and EXPIRED segments from a new committed view before each
-/// attempt, retries included, so a run whose switch turned off keeps the objects not deleted yet.
+/// attempt, retries included, so a run whose switch turned off starts no further deletion. A
+/// deletion request already sent to object storage may still complete.
 /// Returns `Ok` once no EXPIRED segment remains, the switch is off, or the run is gone or
 /// purging. Returns an error when committed state cannot be read, or when a
 /// recorded deletion is rejected or leaves its oldest segment in place.

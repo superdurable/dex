@@ -434,8 +434,9 @@ before the expiry can finish. The switch is the run's
 **FlowConfig.delete_expired_history_objects**, set at StartFlow, in a SubFlow
 override, or with UpdateFlowConfig. A run that leaves it unset uses
 **history.deleteExpiredObjects** as recorded when the run started. Turning the
-switch on deletes the objects that already expired. Turning it off keeps the
-objects that are not deleted yet; deleted objects never come back. Runs that
+switch on deletes the objects that already expired. Turning it off stops the
+deletions that have not started; a deletion request already sent to object
+storage may still complete, and deleted objects never come back. Runs that
 started before 0.1.22 recorded no default, so their switch is off until
 UpdateFlowConfig turns it on.
 
