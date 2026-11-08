@@ -19,7 +19,8 @@ use dexzd_protocol::dexzd::v1::{
     FlowCommand, HistorySegmentObjectsDeletedCommand, command_reply, flow_command,
 };
 
-use super::run_history_objects::{delete_keys, sleep_until_stopped};
+use super::run_history_objects::{sleep_until_stopped, wait_after_failure};
+use super::until_stopped;
 use crate::effects::state_reads::RunLocation;
 use crate::effects::{EffectContext, EffectError};
 use crate::flow_coordination::{CommitUrgency, FlowAddress};
@@ -36,9 +37,10 @@ const GRPC_NOT_FOUND: i32 = 5;
 /// committed state has none left. Waits until the deletion delay after a segment's expiry passed
 /// before deleting its object. Failed object storage calls retry with backoff.
 ///
-/// Reads the run's delete switch before each batch, so a run whose switch turned off keeps the
-/// objects not deleted yet. Returns `Ok` once no EXPIRED segment remains, the switch is off, or
-/// the run is gone or purging. Returns an error when committed state cannot be read, or when a
+/// Reads the run's delete switch and EXPIRED segments from a new committed view before each
+/// attempt, retries included, so a run whose switch turned off keeps the objects not deleted yet.
+/// Returns `Ok` once no EXPIRED segment remains, the switch is off, or the run is gone or
+/// purging. Returns an error when committed state cannot be read, or when a
 /// recorded deletion is rejected or leaves its oldest segment in place.
 pub(crate) async fn delete_expired_history_objects(
     context: &EffectContext,
@@ -47,6 +49,7 @@ pub(crate) async fn delete_expired_history_objects(
 ) -> Result<(), EffectError> {
     let run = context.run_location(flow, run_id);
     let mut recorded_first_seq = None;
+    let mut backoff = context.retry_backoff();
     let delay_micros =
         i64::try_from(EXPIRED_OBJECT_DELETION_DELAY.as_micros()).expect("one hour fits in i64");
     loop {
@@ -99,7 +102,17 @@ pub(crate) async fn delete_expired_history_objects(
                 )
             })
             .collect();
-        delete_keys(context, run, &keys).await?;
+        let deletion =
+            until_stopped(context, context.history_object_store.delete_many(&keys)).await;
+        match deletion {
+            Ok(()) => backoff = context.retry_backoff(),
+            Err(EffectError::Stopped) => return Err(EffectError::Stopped),
+            Err(error) => {
+                // The next attempt reads committed state again and drops what is no longer due.
+                wait_after_failure(context, &mut backoff, run, &error).await?;
+                continue;
+            }
+        }
         let deleted_count = u64::try_from(keys.len()).expect("a batch length fits in u64");
         context
             .metrics

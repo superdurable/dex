@@ -117,7 +117,7 @@ async fn sweep_run_prefix(
     }
 }
 
-pub(super) async fn delete_keys(
+async fn delete_keys(
     context: &EffectContext,
     run: RunLocation,
     keys: &[String],
@@ -136,7 +136,7 @@ pub(super) async fn delete_keys(
 /// recheck of a permanent rejection.
 ///
 /// Returns [`EffectError::Stopped`] when the node stops first.
-async fn wait_after_failure(
+pub(super) async fn wait_after_failure(
     context: &EffectContext,
     backoff: &mut RetryBackoff,
     run: RunLocation,

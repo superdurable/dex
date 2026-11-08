@@ -10,6 +10,7 @@
 //! deletion delay, the per-run switch, restarts, purges, and the orphan sweep.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -447,6 +448,92 @@ async fn a_purge_deletes_the_objects_of_expired_segments() {
     assert!(
         object_keys_with_prefix(&harness, &prefix).await.is_empty(),
         "the purge deleted the run's expired objects with the rest"
+    );
+    harness.shutdown().await;
+}
+
+/// Fails every object deletion while `is_failing` is set; a batch delete names no key.
+#[derive(Default)]
+struct DeleteFaults {
+    is_failing: AtomicBool,
+}
+
+impl FaultInjector for DeleteFaults {
+    fn action(&self, operation: ObjectStoreOperation, _key: &str) -> FaultAction {
+        if operation == ObjectStoreOperation::Delete && self.is_failing.load(Ordering::SeqCst) {
+            FaultAction::FailBeforeEffect
+        } else {
+            FaultAction::Proceed
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_switch_turned_off_while_deletion_retries_keeps_the_objects_once_storage_recovers() {
+    let faults = Arc::new(DeleteFaults::default());
+    let durable = DurableState {
+        objects: Arc::new(InMemoryObjectStore::with_injector(faults.clone())),
+        ..DurableState::new()
+    };
+    let harness = EffectHarness::with_config(durable, EffectsConfig::default());
+    harness.rebuild_all_partitions().await;
+    enable_history_offload(&harness);
+    let run_id = start_run(&harness, "order-1", expiring_settings(true));
+    write_until_expired(&harness, "order-1", run_id, 2).await;
+    let kept = object_keys(
+        &harness,
+        "order-1",
+        run_id,
+        &expired_segments(&harness, "order-1", run_id),
+    );
+
+    // Deletion starts after the delay and keeps failing.
+    faults.is_failing.store(true, Ordering::SeqCst);
+    tokio::time::sleep(HOUR + 2 * MINUTE).await;
+    harness.settle().await;
+    let failed_deletes = harness
+        .durable
+        .objects
+        .call_count(ObjectStoreOperation::Delete, "");
+    assert!(failed_deletes > 0, "the owner tried to delete the objects");
+    assert!(
+        are_stored(&harness, &kept)
+            .await
+            .iter()
+            .all(|is_stored| *is_stored)
+    );
+
+    // The switch turns off while the deletion retries, then storage recovers.
+    set_delete_switch(&harness, "order-1", run_id, false);
+    faults.is_failing.store(false, Ordering::SeqCst);
+    tokio::time::sleep(2 * MINUTE).await;
+    harness.settle().await;
+    assert!(
+        are_stored(&harness, &kept)
+            .await
+            .iter()
+            .all(|is_stored| *is_stored),
+        "a retry rechecks committed state, so the objects the switch keeps stay"
+    );
+    assert!(deletion_records(&harness).is_empty());
+    assert_eq!(
+        harness.metrics.history_expired_objects_deleted.get(),
+        0,
+        "no deletion succeeded"
+    );
+    assert!(!expired_segments(&harness, "order-1", run_id).is_empty());
+
+    // Turning the switch on again deletes them.
+    set_delete_switch(&harness, "order-1", run_id, true);
+    wait_until(&harness, "the kept objects are deleted", || {
+        expired_segments(&harness, "order-1", run_id).is_empty()
+    })
+    .await;
+    assert!(
+        are_stored(&harness, &kept)
+            .await
+            .iter()
+            .all(|is_stored| !*is_stored)
     );
     harness.shutdown().await;
 }
