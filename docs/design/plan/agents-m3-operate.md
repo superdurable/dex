@@ -185,10 +185,18 @@ after an approval runs in its first tool Step execution, so its key is stable.
 | Connector outcome | Tool call |
 | --- | --- |
 | Success branch (`sent`, `read`, `found`) | Completed, with the Result value for the model |
-| Declared business branch (`notFound`, `providerRejected`) | Completed with an error result, so the model can react. The session does not fail |
+| Optional branch listed `rejected` in `agent.branches` | Completed with an error result, so the model can react. The session does not fail |
+| Optional branch listed `unknown`, or a Mutation branch not listed | `outcome_unknown` |
+| Query branch not listed | `failed` |
 | `uncertain` | `outcome_unknown` |
 | `defect` | `failed` |
 | Retry | Raises through the Step, so Execute retry applies. Exhausted retries reach `RecordToolFailure` |
+
+The connector contract has no fixed outcome enum, so a branch name does not say whether the
+write happened. Stripe `createRefund` raises `invalidResponse` after a 2xx, when the refund has
+happened. Read as a business error, the model calls again with a new Call ID and refunds twice.
+So the manifest's `agent` block classifies each optional branch as `rejected` (nothing changed)
+or `unknown` (the effect may have happened), and an unlisted Mutation branch fails closed.
 
 An unwired optional branch fails a Flow in a normal connector Step. That rule must
 not apply here. One provider rejection must not end a session.
@@ -581,7 +589,10 @@ Native Dex Web units are the standard. The view works with Workers down, except 
    fence stops a later attempt from sending again.
 3. **High-risk operations carry an optional manifest marker.** Mutations run without approval by
    default, and only reviewed operations are offered to agents.
-4. **Connector writes in one turn run in order.** A failed or unknown write stops later writes.
+4. **Connector writes in one turn run in order.** A failed, unknown, or rejected write, or a rejected
+   approval, stops later writes, which are recorded as skipped. A queued write asks for approval
+   only when its turn comes. Session tool policies change approval only; the effect class of a
+   connector tool always comes from its manifest.
 5. **The inbox uses `ActiveStepTypes`.** No new indexed Attribute.
 6. **Python and TypeScript gain Actions.** The agent inbox does not wait for this.
 7. **O7 closes.** A new requirement reopens it.
