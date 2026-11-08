@@ -238,3 +238,43 @@ func sourceLine(t *testing.T, path string, fragment string) int {
 	require.Failf(t, "source fragment not found", "%q in %s", fragment, path)
 	return 0
 }
+
+func TestVisualizeRecordsGoRPCLocksForDexWeb(t *testing.T) {
+	source := stateLoadsFixture(t, "rpc-locks/workflow.go")
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+
+	locks := make([]string, 0)
+	for _, edge := range graph.Edges {
+		if edge.Kind == "resource_lock" {
+			locks = append(locks, edge.From+">"+edge.To+">"+edge.Metadata["rpcName"].(string))
+		}
+	}
+	require.Equal(t, []string{
+		"rpc:ApproveCase>resource:attribute:Gate>approve_case",
+		"rpc:ApproveCase>resource:attribute:Status>approve_case",
+		"rpc:AssignOwner>resource:attribute:Owners>AssignOwner",
+	}, locks)
+	owners := graphEdge(t, graph, "resource_lock", "rpc:AssignOwner", "resource:attribute:Owners", "Lock")
+	require.Equal(t, "rpc", owners.Metadata["phase"])
+	require.Equal(t, sourceLine(t, source, `dex.LockAttributeMap(Owners, "primary")`), owners.Span.StartLine)
+}
+
+func TestVisualizeReportsUnresolvedGoRPCLocksOnlyForDexWebRPCs(t *testing.T) {
+	source := stateLoadsFixture(t, "rpc-locks-unresolved/workflow.go")
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+	require.NotContains(t, diagnosticCodes(graph.Diagnostics), "rpc_lock_unresolved")
+	require.False(t, hasEdge(graph.Edges, "resource_lock", "rpc:AssignOwner", "resource:attribute:Status"))
+
+	graph, err = flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2})
+	require.NoError(t, err)
+	require.False(t, graph.Valid)
+	require.Equal(t, []string{"rpc_lock_unresolved"}, sortedDiagnosticCodes(graph.Diagnostics))
+	unresolved := diagnosticWithCode(t, graph, "rpc_lock_unresolved", "RPC AssignOwner")
+	require.Equal(t, "error", unresolved.Severity)
+	require.Contains(t, unresolved.Message, "(dex.LockAttribute(attribute) at workflow.go:")
+	require.True(t, hasEdge(graph.Edges, "resource_lock", "rpc:ApproveCase", "resource:attribute:Status"))
+}
