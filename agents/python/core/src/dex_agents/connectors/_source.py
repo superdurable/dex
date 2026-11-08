@@ -34,6 +34,7 @@ from dex_connectors.sdk import (
     run_mutation,
     run_query,
 )
+from dex_connectors.sdk.singledispatch import Marker, State
 
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
 from dex_agents.connectors._step_context import ConnectorStepContext
@@ -59,6 +60,9 @@ DEFAULT_CONNECTOR_RESULT_MAX_BYTES = 64 * 1024
 
 #: Note appended to a truncated result; ``{total_bytes}`` is the size of the full result.
 CONNECTOR_RESULT_TRUNCATED_NOTE = "[Dex] truncated, {total_bytes} bytes"
+
+#: Error text of a single-attempt write whose fence proved no send before the connector's Retry.
+CONNECTOR_NOT_SENT_RETRY_LATER = "not sent; the provider asked to retry later"
 
 #: Name of the manifest file every Connector language package ships.
 CONNECTOR_MANIFEST_FILE_NAME = "dex-connector.json"
@@ -368,9 +372,14 @@ class ConnectorToolSource:
 
     The branch the operation selects maps as ``classify_connector_branch``
     describes. A connector retry raises through the Step, so the tool Step's
-    retry policy applies. A result longer than ``max_result_bytes`` reaches
-    the model truncated, with ``CONNECTOR_RESULT_TRUNCATED_NOTE``, and the
-    record's ``truncated_output_bytes`` holds the full size.
+    retry policy applies. A single-attempt write that asks to retry ends
+    ``OUTCOME_UNKNOWN``, unless its single-dispatch fence saved a ``notSent`` or
+    ``canResend`` marker in this attempt: that proves the provider did not
+    process the request, so the call records ``FAILED`` with
+    ``CONNECTOR_NOT_SENT_RETRY_LATER``. Either way it stops the later writes.
+    A result longer than ``max_result_bytes`` reaches the model truncated,
+    with ``CONNECTOR_RESULT_TRUNCATED_NOTE``, and the record's
+    ``truncated_output_bytes`` holds the full size.
 
     Example:
         >>> slack = slack_new_project_connection(project, "support-slack")
@@ -500,7 +509,11 @@ class ConnectorToolSource:
 
         Raises:
             ToolExecutionError: The arguments break the schema or do not
-                decode, or the operation selected a ``rejected`` or failed branch.
+                decode, the operation selected a ``rejected`` or failed branch,
+                or a single-attempt write asked to retry after its fence
+                recorded ``notSent`` or ``canResend`` in this attempt, which
+                proves the provider did not process it
+                (``CONNECTOR_NOT_SENT_RETRY_LATER``).
             ToolOutcomeUnknownError: The operation selected an unknown branch.
             LookupError: This source no longer has the tool, so the effect class decides.
             RuntimeError: The call has no Step context.
@@ -536,6 +549,11 @@ class ConnectorToolSource:
                     cast(Query[Any, Any], tool.operation), connector_call, operation_input
                 )
         except RetryError as error:
+            if tool.effect is ToolEffect.NON_IDEMPOTENT_WRITE and _is_proven_not_sent(
+                connector_call
+            ):
+                # One attempt only, so a Retry would record outcome_unknown though nothing was sent.
+                raise ToolExecutionError(_not_sent_detail(tool, error.failure)) from None
             raise_dex_retry(error)
         outcome = classify_connector_branch(
             kind=tool.kind,
@@ -674,6 +692,26 @@ def _integral_floats_as_ints(value: Any) -> Any:
     if isinstance(value, list):
         return [_integral_floats_as_ints(item) for item in value]
     return value
+
+
+def _is_proven_not_sent(call: Call) -> bool:
+    """Report whether this attempt's last saved fence marker proves the write was not sent."""
+    context = call.context
+    if not isinstance(context, ConnectorStepContext):
+        return False
+    marker = context._saved_heartbeat_value
+    return (
+        isinstance(marker, Marker)
+        and marker.call_id == call.id
+        and marker.attempt == context.attempt
+        and marker.state in (State.NOT_SENT, State.CAN_RESEND)
+        and not marker.provider_id
+    )
+
+
+def _not_sent_detail(tool: ConnectorTool, failure: Any) -> str:
+    detail = f"{tool.connector_id} {tool.operation_id} {CONNECTOR_NOT_SENT_RETRY_LATER}"
+    return f"{detail}: {failure.kind}: {failure.message}" if failure is not None else detail
 
 
 def _branch_detail(tool: ConnectorTool, branch: str, failure: Any) -> str:

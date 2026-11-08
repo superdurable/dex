@@ -39,6 +39,7 @@ from dex_agents.connectors import (
     format_connector_result,
 )
 from dex_agents.connectors._schema import check_input_schema, find_input_violation
+from dex_agents.connectors._source import _is_proven_not_sent
 from tests.connector_agent import CONNECTION, read_fake_ledger_manifest
 from tests.fake_ledger import (
     CloseAccountOperation,
@@ -382,6 +383,58 @@ async def test_a_marker_proving_no_send_lets_the_next_attempt_send() -> None:
 async def test_a_checkpoint_that_is_not_a_marker_fails_closed() -> None:
     fence = Fence(_fenced_call(2, '"a task handle"', _ToolStepHeartbeats()), timedelta(seconds=30))
     assert (await fence.decide()).kind is DecisionKind.FAIL_CLOSED
+
+
+async def test_only_a_saved_not_sent_or_can_resend_marker_of_this_attempt_proves_no_send() -> None:
+    no_marker = _fenced_call(1, None, _ToolStepHeartbeats())
+    assert not _is_proven_not_sent(no_marker)
+
+    not_sent = _fenced_call(1, None, _ToolStepHeartbeats())
+    fence = Fence(not_sent, timedelta(seconds=30))
+    await fence.decide()
+    await fence.record_not_sent()
+    assert _is_proven_not_sent(not_sent)
+
+    claimed = _fenced_call(1, None, _ToolStepHeartbeats())
+    fence = Fence(claimed, timedelta(seconds=30))
+    await fence.decide()
+
+    async def send(deadline: datetime) -> str:
+        return "note-1"
+
+    await fence.dispatch(send)
+    assert not _is_proven_not_sent(claimed)
+    await fence.record_can_resend()
+    assert _is_proven_not_sent(claimed)
+
+    accepted = _fenced_call(1, None, _ToolStepHeartbeats())
+    fence = Fence(accepted, timedelta(seconds=30))
+    await fence.decide()
+    await fence.dispatch(send)
+    await fence.record_provider_id("note-1")
+    assert not _is_proven_not_sent(accepted)
+
+    # A marker an earlier attempt saved is history, not proof about this attempt.
+    retry_heartbeats = _ToolStepHeartbeats()
+    first = _ToolStepHeartbeats()
+    fence = Fence(_fenced_call(1, None, first), timedelta(seconds=30))
+    await fence.decide()
+    await fence.record_not_sent()
+    assert not _is_proven_not_sent(_fenced_call(2, first.checkpoint, retry_heartbeats))
+
+
+class _FailingSaves(_ToolStepHeartbeats):
+    async def save(self, checkpoint: str) -> None:
+        raise RuntimeError("the heartbeat did not reach Dex")
+
+
+async def test_a_marker_that_failed_to_save_proves_nothing() -> None:
+    call = _fenced_call(1, None, _FailingSaves())
+    fence = Fence(call, timedelta(seconds=30))
+    await fence.decide()
+    with pytest.raises(RuntimeError):
+        await fence.record_not_sent()
+    assert not _is_proven_not_sent(call)
 
 
 def test_the_call_id_depends_only_on_the_flow_step_execution_and_operation() -> None:

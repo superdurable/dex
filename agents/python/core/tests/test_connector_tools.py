@@ -24,7 +24,7 @@ from dex_agents import (
     AgentToolCall,
     ToolCallStatus,
 )
-from dex_agents.connectors import CONNECTOR_RESULT_TRUNCATED_NOTE
+from dex_agents.connectors import CONNECTOR_NOT_SENT_RETRY_LATER, CONNECTOR_RESULT_TRUNCATED_NOTE
 from dex_agents.testing import resolve_dexcli_path, wait_for_agent_snapshot
 from dex_agents.ui_stream import agent_snapshot_to_json
 from tests.conftest import ScriptedAgentHarness
@@ -239,6 +239,23 @@ async def test_a_failed_or_unknown_write_skips_the_later_writes_of_the_response(
         f"post_note: {FAILED}{SKIPPED_ERROR}",
     ]
     assert ledger.writes("postNote") == []
+
+
+async def test_a_write_proven_unsent_still_skips_the_later_writes(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    await connector_harness.stack.start_worker()
+    _, lines = await _run_turn(
+        connector_harness,
+        ("post_note", {"accountId": "a-1", "text": "rate-limit-once"}),
+        ("create_payout", {"accountId": "a-1", "amount": 5}),
+    )
+    assert lines == [
+        f"post_note: {FAILED}fake-ledger postNote {CONNECTOR_NOT_SENT_RETRY_LATER}: "
+        "RATE_LIMIT: rate limited",
+        f"create_payout: {FAILED}{SKIPPED_ERROR}",
+    ]
+    assert ledger.writes() == []
 
 
 # O1-6: approval

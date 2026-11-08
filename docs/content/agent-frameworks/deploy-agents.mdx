@@ -539,7 +539,9 @@ A Worker crash during a connector write never sends a write twice:
 | --- | --- | --- |
 | Worker dies before the request is sent | Retried with the same Call ID. A fenced write that recorded no claim reads back and ends **outcome_unknown** with nothing sent | **outcome_unknown**, nothing sent |
 | Worker dies after the provider accepted it | The provider drops the repeated key, or a fenced write reads back and settles as sent. One write | **outcome_unknown**, one write |
-| Provider rate-limits the request | Retried and sent once | **outcome_unknown**, nothing sent |
+| Provider rate-limits the request | Retried and sent once | **failed** with "not sent; the provider asked to retry later" when the write's fence recorded that nothing was sent; otherwise **outcome_unknown** |
+
+A write that runs once and asks to retry usually ends **outcome_unknown**, because a retry request alone does not prove that nothing was sent. The single-dispatch fence can prove it: it records that the request never left, or that the provider refused it without acting. With that proof the call records **failed**, the model can call again, and no one needs to check the provider. The later writes of the response are still skipped.
 
 Credentials stay with the Worker. A connector tool stores only the logical
 connection name with the call, as a Connector Step does; see

@@ -383,7 +383,9 @@ connector 写入期间 Worker 崩溃，绝不会把一次写入发送两次：
 | --- | --- | --- |
 | 请求发出前 Worker 退出 | 用同一个 Call ID 重试。还没记录 claim 的 fenced 写入会回读，以 **outcome_unknown** 结束，什么都没发送 | **outcome_unknown**，什么都没发送 |
 | provider 接受后 Worker 退出 | provider 丢弃重复的键，或者 fenced 写入回读并确认已发送。一次写入 | **outcome_unknown**，一次写入 |
-| provider 限流 | 重试并只发送一次 | **outcome_unknown**，什么都没发送 |
+| provider 限流 | 重试并只发送一次 | 写入的 fence 记录了未发送时为 **failed**，错误为 "not sent; the provider asked to retry later"；否则为 **outcome_unknown** |
+
+只运行一次的写入请求重试时，通常以 **outcome_unknown** 结束，因为重试请求本身不能证明什么都没发送。single-dispatch fence 可以证明这一点：它记录请求从未离开进程，或者 provider 没有处理就拒绝了请求。有了这个证明，调用记录为 **failed**，模型可以再次调用，也不需要有人去核对 provider。这次回复中后面的写入仍然会被跳过。
 
 凭证留在 Worker。和 Connector Step 一样，connector tool 只随调用保存逻辑 connection 名称，见 [凭证](#credentials)。
 

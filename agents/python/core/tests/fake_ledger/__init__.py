@@ -15,9 +15,12 @@ provider drops a repeated idempotency key, so it is ``retry: safe``.
 provider does not drop repeats. ``closeAccount`` is not exposed to agents.
 
 Space-separated words in a payout ``memo`` or a note ``text`` steer the provider:
-``reject``, ``invalid``, ``uncertain``, ``rate-limit-once``, ``hide`` (read-back
-finds nothing), and ``gate-before-send:<gate>``, ``gate-after-claim:<gate>``, or
-``gate-after-accept:<gate>``, which wait at a ``FileGate`` on attempt 1 only.
+``reject``, ``invalid``, ``uncertain``, ``rate-limit-once`` (refused before the
+claim, ``notSent``), ``rate-limit-after-send`` (the provider refuses the sent
+note, ``canResend``), ``hide`` (read-back finds nothing), and
+``gate-before-send:<gate>``, ``gate-after-claim:<gate>``,
+``gate-after-accept:<gate>``, or ``gate-before-can-resend:<gate>``, which wait at
+a ``FileGate`` on attempt 1 only.
 """
 
 from __future__ import annotations
@@ -337,8 +340,12 @@ class PostNoteOperation:
                 Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
             )
 
-        async def send(deadline: datetime) -> str:
+        async def send(deadline: datetime) -> str | None:
             await _wait_at(self._provider, words, "gate-after-claim", attempt)
+            if "rate-limit-after-send" in words and attempt == 1:
+                # The request reached the provider, which refused it without acting.
+                _append_line(self._provider._sends, {"operation": "rate-limited", "key": key})
+                return None
             note_id = self._provider.accept(
                 "postNote", key, deduplicate=False, hidden="hide" in words
             )
@@ -346,6 +353,12 @@ class PostNoteOperation:
             return note_id
 
         note_id = await fence.dispatch(send)
+        if note_id is None:
+            await _wait_at(self._provider, words, "gate-before-can-resend", attempt)
+            await fence.record_can_resend()
+            return MutationAttempt.retry(
+                Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
+            )
         await fence.record_provider_id(note_id)
         if "uncertain" in words:
             return MutationAttempt.uncertain(Note(), _failure("postNote", "no response"), Receipt())

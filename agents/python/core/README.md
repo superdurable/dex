@@ -1406,7 +1406,10 @@ What a call does:
    reads it back. It exposes only what the fence uses, which
    `tests/test_connector_tool_source.py` pins.
 4. Run the operation. A connector `RetryError` goes through `raise_dex_retry`,
-   so the tool Step's retry policy applies.
+   so the tool Step's retry policy applies. A single-attempt write that asks to
+   retry would then record `OUTCOME_UNKNOWN`. When its fence saved `notSent` or
+   `canResend` in this attempt, which proves the provider did not process it, it
+   records `FAILED` with `CONNECTOR_NOT_SENT_RETRY_LATER` instead.
 5. Map the selected branch with `classify_connector_branch`:
 
 | Branch | Record | The model reads |

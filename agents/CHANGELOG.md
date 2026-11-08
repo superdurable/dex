@@ -29,6 +29,9 @@ for the Dex SDK and framework versions each release supports.
   `failed`, `uncertain`, `unknown`, and unlisted Mutation branches are
   `outcome_unknown`, and unlisted Query branches are `failed`. Results are
   canonical JSON, cut at 64 KiB by default with a note.
+- A single-attempt write that asks to retry records `outcome_unknown`, unless its
+  single-dispatch fence saved `notSent` or `canResend` in that attempt; then it
+  records `failed` with "not sent; the provider asked to retry later".
 - Connector writes of one model response run one at a time in the model's
   order. Once one is not `succeeded`, the later ones record `failed` with the
   new `AgentToolCall.skipped` marker.

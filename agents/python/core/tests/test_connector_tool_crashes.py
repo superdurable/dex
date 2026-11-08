@@ -22,6 +22,7 @@ import json
 import pytest
 
 from dex_agents import OUTCOME_UNKNOWN_TOOL_RESULT
+from dex_agents.connectors import CONNECTOR_NOT_SENT_RETRY_LATER
 from tests.conftest import ScriptedAgentHarness
 from tests.fake_ledger import FakeLedgerProvider
 
@@ -146,11 +147,55 @@ async def test_a_killed_single_attempt_write_ends_outcome_unknown_and_never_send
     assert len(ledger.sends("postNote")) == expected_writes
 
 
-async def test_a_single_attempt_write_that_the_provider_rate_limits_ends_unknown_unsent(
+@pytest.mark.parametrize(
+    ("words", "provider_refusals"),
+    [
+        # The fence recorded notSent before the claim, so the request never left the process.
+        ("rate-limit-once", 1),
+        # The provider refused the sent note without acting, and the fence recorded canResend.
+        ("rate-limit-after-send", 1),
+    ],
+)
+async def test_a_single_attempt_write_proven_unsent_fails_with_a_retry_later_error(
+    connector_harness: ScriptedAgentHarness,
+    ledger: FakeLedgerProvider,
+    words: str,
+    provider_refusals: int,
+) -> None:
+    answer = await _write_with_kill(
+        connector_harness, "post_note", {"accountId": "a-1", "text": words}, None
+    )
+    assert answer == (
+        f"The tool call failed: fake-ledger postNote {CONNECTOR_NOT_SENT_RETRY_LATER}: "
+        "RATE_LIMIT: rate limited"
+    )
+    assert ledger.writes("postNote") == []
+    assert len(ledger.sends("rate-limited")) == provider_refusals
+
+
+async def test_a_kill_after_the_provider_refused_but_before_the_marker_stays_unknown(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    # The claim committed and the request left; no canResend proof reached the session.
+    answer = await _write_with_kill(
+        connector_harness,
+        "post_note",
+        {"accountId": "a-1", "text": "rate-limit-after-send gate-before-can-resend:kill"},
+        "kill",
+    )
+    assert answer == OUTCOME_UNKNOWN_TOOL_RESULT
+    assert ledger.writes("postNote") == []
+    assert len(ledger.sends("rate-limited")) == 1
+
+
+async def test_a_retry_safe_fenced_write_refused_after_send_is_retried_and_sent_once(
     connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
 ) -> None:
     answer = await _write_with_kill(
-        connector_harness, "post_note", {"accountId": "a-1", "text": "rate-limit-once"}, None
+        connector_harness,
+        "post_note_retried",
+        {"accountId": "a-1", "text": "rate-limit-after-send"},
+        None,
     )
-    assert answer == OUTCOME_UNKNOWN_TOOL_RESULT
-    assert ledger.sends("postNote") == []
+    assert answer == '{"noteId":"postNote-1"}'
+    assert len(ledger.writes("postNote")) == 1
