@@ -98,7 +98,7 @@ with the default. To keep it, pass a `--zd-config` file that sets
 With `--attribute-store-config`, the CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its
 `attributeStore` section. zd supports only `type: postgres`, and each database
-needs the fencing table described in `server-zd/README.md`. Do not also set
+needs the [fencing table](https://docs.superdurable.io/reference/server/attribute-store-sync#attribute-store-fencing-table). Do not also set
 `attributeStore` in the `--zd-config` file.
 The Temporal engine was removed. `--engine temporal`, every
 `--external-temporal-*` or `--temporal-*` flag, `--sqlite-db-filename`,
@@ -645,7 +645,6 @@ dexcli flow skip-timer FLOW_ID --step-type TYPE [--execution N]
                     (--condition-id ID|--condition-index N) --yes
 dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--request-timeout DURATION]
 dexcli flow update-config FLOW_ID --config JSON|@FILE|- --yes
-dexcli flow trigger-continue-as-new FLOW_ID --yes
 dexcli flow time-travel FLOW_ID [--run-id RUN_ID]
                         --type beginning|history-event-time|step-type|step-execution-id
                         [--target VALUE] [--step-method wait-for|execute]

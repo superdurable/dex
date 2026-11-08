@@ -1,6 +1,6 @@
 # Server (server-zd)
 
-server-zd is the Dex Server. It stores every Flow's state and hands Steps and RPCs to Workers. Its only runtime dependency is object storage, such as Amazon S3 or an S3-compatible store. It is the only Dex Server; the older Go Server is retired, so never apply its configuration to server-zd.
+server-zd is the Dex Server. It stores every Flow's state and hands Steps and RPCs to Workers. Its only runtime dependency is object storage, such as Amazon S3 or an S3-compatible store.
 
 Discuss Server internals only when the user operates or develops Dex itself. For an application, state Dex behavior and guarantees.
 

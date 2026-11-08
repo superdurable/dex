@@ -114,6 +114,13 @@ unversioned bucket.
 }
 ~~~
 
+## Snapshot uploads after ownership changes
+
+The first snapshot after a takeover or restart uploads the full local checkpoint to a new
+lineage. It cannot reuse objects from the previous lineage, even when the local RocksDB
+directory is reused. Allow for the full checkpoint size, manifest data, upload throughput,
+and per-file request time. Later snapshots from the same owner can reuse unchanged files.
+
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The local store is
