@@ -218,9 +218,9 @@ Flow history 大约保留一个 session 最新的 10,000 个事件。读取对�
 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
 [Time travel](/reference/server/runtime-client#time-travel) 只能以
 [history 窗口](/reference/server/configuration#history-window)内的时间点为目标。
-Time travel 到起点始终可用。重写大值（比如 **FrameworkRunState**）的 session 窗口可能更短：
-被替换值超过 **history.maxRetainedSupersededBytes**（默认 256 MiB）时，窗口也会移除旧事件。
-这不会让 session 失败。
+Time travel 到起点始终可用。重写大值（比如 **FrameworkRunState**）的 session 可用的
+Time travel 范围可能更短。运维人员可以调整 **history.windowEvents** 和每个 run 的 history 窗口；
+参见 [history 窗口配置](/reference/server/configuration#history-window)。
 
 session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 session 及其
 **get_agent_snapshot** RPC 在[保留期](/reference/server/configuration#retention)内仍可用，
