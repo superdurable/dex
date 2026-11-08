@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/superdurable/dex/web/api"
@@ -189,6 +190,11 @@ func validateFlowDefinitionV2(file string, graph []byte, header flowDefinitionHe
 	if err := validateV2Definition(definition); err != nil {
 		return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid v2: %w", file, err)
 	}
+	rpcLocks, err := loadRPCLocks(header.Nodes, header.Edges)
+	if err != nil {
+		return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid RPC locks: %w", file, err)
+	}
+	definition.RPCLocks = rpcLocks
 	if definition.Start != nil {
 		if err := loadStartStepPhase(header.Nodes, definition.Start); err != nil {
 			return fmt.Errorf("Flow Definition Graph 2.0 %s has invalid Start Step: %w", file, err)
@@ -232,6 +238,81 @@ func loadStartStepPhase(nodes []json.RawMessage, start *api.V2StartDefinition) e
 		return fmt.Errorf("Start Step %q is absent from graph nodes", start.StepType)
 	}
 	return nil
+}
+
+// loadRPCLocks reads each RPC's resource_lock edges into the lock keys InvokeRPC sends.
+func loadRPCLocks(rawNodes []json.RawMessage, rawEdges []json.RawMessage) (map[string]api.V2RPCLocks, error) {
+	type graphNode struct {
+		ID       string `json:"id"`
+		Kind     string `json:"kind"`
+		Name     string `json:"name"`
+		Resource *struct {
+			Map bool `json:"map"`
+		} `json:"resource"`
+	}
+	type graphEdge struct {
+		Kind     string `json:"kind"`
+		From     string `json:"from"`
+		To       string `json:"to"`
+		Metadata struct {
+			RPCName string `json:"rpcName"`
+		} `json:"metadata"`
+	}
+	nodes := make(map[string]graphNode, len(rawNodes))
+	for _, raw := range rawNodes {
+		var node graphNode
+		if err := json.Unmarshal(raw, &node); err != nil {
+			return nil, fmt.Errorf("malformed node: %w", err)
+		}
+		nodes[node.ID] = node
+	}
+	keysByRPC := make(map[string]map[string]bool)
+	locks := make(map[string]api.V2RPCLocks)
+	for _, raw := range rawEdges {
+		var edge graphEdge
+		if err := json.Unmarshal(raw, &edge); err != nil {
+			return nil, fmt.Errorf("malformed edge: %w", err)
+		}
+		owner, isOwnerKnown := nodes[edge.From]
+		if edge.Kind != "resource_lock" || !isOwnerKnown || owner.Kind != "rpc" {
+			continue
+		}
+		// Go graphs record the protocol name, which RPCOptions.Name can make differ from the method name.
+		rpcName := edge.Metadata.RPCName
+		if rpcName == "" {
+			rpcName = owner.Name
+		}
+		if keysByRPC[rpcName] == nil {
+			keysByRPC[rpcName] = make(map[string]bool)
+		}
+		target, isTargetKnown := nodes[edge.To]
+		switch {
+		case !isTargetKnown || target.Kind != "attribute" || target.Name == "":
+			markRPCLockUnresolved(locks, rpcName, fmt.Sprintf("its lock names %q, which is not an Attribute in the Flow Definition Graph", edge.To))
+		case target.Resource != nil && target.Resource.Map:
+			markRPCLockUnresolved(locks, rpcName, fmt.Sprintf(
+				"it locks an instance of AttributeMap %q, and the Flow Definition Graph does not record which instance; invoke it with an SDK Client", target.Name))
+		default:
+			keysByRPC[rpcName][target.Name] = true
+		}
+	}
+	for rpcName, keys := range keysByRPC {
+		rpcLocks := locks[rpcName]
+		for key := range keys {
+			rpcLocks.AttributeKeys = append(rpcLocks.AttributeKeys, key)
+		}
+		sort.Strings(rpcLocks.AttributeKeys)
+		locks[rpcName] = rpcLocks
+	}
+	return locks, nil
+}
+
+func markRPCLockUnresolved(locks map[string]api.V2RPCLocks, rpcName string, reason string) {
+	rpcLocks := locks[rpcName]
+	if rpcLocks.UnresolvedReason == "" {
+		rpcLocks.UnresolvedReason = reason
+	}
+	locks[rpcName] = rpcLocks
 }
 
 func decodeStrictFlowDefinitionJSON(data []byte, target interface{}) error {

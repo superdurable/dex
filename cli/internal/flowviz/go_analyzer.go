@@ -267,6 +267,7 @@ func (analyzer *goAnalyzer) analyzeStateLoadsAndApplicationLints(getSteps *ast.F
 	}
 	checker := newGoStateLoadChecker(analyzer, evaluator, flowObject, analyzer.isApplicationLint)
 	checker.report()
+	(&goRPCLockRecorder{analyzer: analyzer, evaluator: evaluator, sources: checker.sources}).record()
 	newGoStartFlowInputChecker(analyzer).report()
 	if analyzer.isApplicationLint {
 		newGoApplicationLinter(analyzer, evaluator, checker.sources).report()

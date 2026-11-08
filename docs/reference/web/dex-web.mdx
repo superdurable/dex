@@ -308,6 +308,15 @@ A matching permission means an Action is or was available; it does not mean the 
 
 The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
 
+Since 1.39, Dex Web takes the Attribute locks that the invoked RPC declares, as the SDK Clients do. It reads them from the graph's **resource_lock** edges from the RPC's node, and sends their Attribute names as **lock_attribute_keys**. A locking RPC runs transactionally. Summary and Display RPCs follow the same rule. Regenerate a Go graph with this release of **dexcli visualize**: an older one records no RPC locks, so Dex Web invokes its RPCs without them.
+
+Dex Web refuses an Action with **422** and code **rpc_locks_unresolved**, without invoking the RPC, when the graph names a lock it cannot take:
+
+- The RPC locks an AttributeMap instance. The graph records the map but not the instance. Invoke such an RPC with an SDK Client.
+- A lock edge names a node that is not an Attribute of the graph.
+
+When another Step or RPC holds a lock, the Server rejects the call before the RPC runs, and nothing is committed. Dex Web answers **409** with code **rpc_lock_conflict** and **grpcCode** 10. The call is safe to retry.
+
 Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
 
 ## Agent session view {#agent-session-view}

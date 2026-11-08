@@ -1252,6 +1252,128 @@ func TestV2ActionReturnsRPCOutput(t *testing.T) {
 	}
 }
 
+func TestV2ActionSendsTheRPCsDeclaredLocks(t *testing.T) {
+	definition := testV2Definition()
+	definition.RPCLocks = map[string]V2RPCLocks{
+		"ApproveRefund": {AttributeKeys: []string{"case-status", "gate-request-key"}},
+	}
+	client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": definition})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}
+	}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("Action status = %d body=%s", response.Code, response.Body.String())
+	}
+	if len(client.rpcRequests) != 1 {
+		t.Fatalf("RPC requests = %+v", client.rpcRequests)
+	}
+	request := client.rpcRequests[0]
+	if got := strings.Join(request.GetLockAttributeKeys(), ","); got != "case-status,gate-request-key" {
+		t.Fatalf("lock keys = %q", got)
+	}
+	if !request.GetIsTransactional() || request.GetRequestId() == "" {
+		t.Fatalf("request = %+v", request)
+	}
+}
+
+func TestV2ActionWithoutLocksStaysNonTransactional(t *testing.T) {
+	client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": testV2Definition()})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}
+	}`)
+	if response.Code != http.StatusOK || len(client.rpcRequests) != 1 {
+		t.Fatalf("Action status = %d requests=%+v", response.Code, client.rpcRequests)
+	}
+	if request := client.rpcRequests[0]; len(request.GetLockAttributeKeys()) != 0 || request.GetIsTransactional() {
+		t.Fatalf("request = %+v", request)
+	}
+}
+
+func TestV2ActionRefusesAnRPCWhoseLocksAreUnresolved(t *testing.T) {
+	definition := testV2Definition()
+	definition.RPCLocks = map[string]V2RPCLocks{
+		"ApproveRefund": {
+			AttributeKeys:    []string{"case-status"},
+			UnresolvedReason: `it locks an instance of AttributeMap "progress"`,
+		},
+	}
+	client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": definition})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}
+	}`)
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("Action status = %d body=%s", response.Code, response.Body.String())
+	}
+	var body errorResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "rpc_locks_unresolved" || !strings.Contains(body.Error, `AttributeMap "progress"`) {
+		t.Fatalf("body = %+v", body)
+	}
+	for _, request := range client.rpcRequests {
+		if request.GetRpcName() == "ApproveRefund" {
+			t.Fatalf("Action invoked its RPC without its locks: %+v", request)
+		}
+	}
+}
+
+func TestV2ActionAnswersALockConflictWithConflict(t *testing.T) {
+	definition := testV2Definition()
+	definition.RPCLocks = map[string]V2RPCLocks{"ApproveRefund": {AttributeKeys: []string{"case-status"}}}
+	client := &v2TestClient{currentCaseStatus: "awaiting-manager"}
+	client.invokeRPCHandler = func(context.Context, *dexpb.InvokeRPCRequest) (*dexpb.InvokeRPCResponse, error) {
+		return nil, status.Error(codes.Aborted, "attribute lock is held: case-status")
+	}
+	mux := http.NewServeMux()
+	RegisterV2Handlers(mux, client, map[string]V2Definition{"RefundFlow": definition})
+
+	response := performV2JSON(t, mux, http.MethodPost, "/api/v2/actions", `{
+		"flowType":"RefundFlow","flowId":"refund-1","rpcName":"ApproveRefund","input":{}
+	}`)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("Action status = %d body=%s", response.Code, response.Body.String())
+	}
+	var body errorResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "rpc_lock_conflict" || body.GRPCCode == nil || *body.GRPCCode != int32(codes.Aborted) {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestV2ViewsSendTheirRPCsDeclaredLocks(t *testing.T) {
+	definition := testV2Definition()
+	definition.RPCLocks = map[string]V2RPCLocks{"GetDexSummary": {AttributeKeys: []string{"charge-reference"}}}
+	client := &v2TestClient{}
+	flows := []v2Flow{{FlowID: "refund-1", FlowType: "RefundFlow"}}
+	handler := &v2Handler{client: client}
+	handler.loadSummaries(context.Background(), map[string]V2Definition{"RefundFlow": definition}, flows)
+	if flows[0].SummaryError != "" || len(client.rpcRequests) != 1 {
+		t.Fatalf("flows = %+v requests = %+v", flows, client.rpcRequests)
+	}
+	if request := client.rpcRequests[0]; strings.Join(request.GetLockAttributeKeys(), ",") != "charge-reference" || !request.GetIsTransactional() {
+		t.Fatalf("summary request = %+v", request)
+	}
+
+	definition.RPCLocks = map[string]V2RPCLocks{"GetDexSummary": {UnresolvedReason: "unreadable lock"}}
+	flows = []v2Flow{{FlowID: "refund-1", FlowType: "RefundFlow"}}
+	handler.loadSummaries(context.Background(), map[string]V2Definition{"RefundFlow": definition}, flows)
+	if !strings.Contains(flows[0].SummaryError, "unreadable lock") || len(client.rpcRequests) != 1 {
+		t.Fatalf("flows = %+v requests = %+v", flows, client.rpcRequests)
+	}
+}
+
 func TestV2ActionOutputReadsBlobAndNeverFailsAfterTheRPCRan(t *testing.T) {
 	client := &v2TestClient{
 		currentCaseStatus: "awaiting-manager",
