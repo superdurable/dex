@@ -1019,7 +1019,10 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         The RPC removes the interrupt from ``PendingInterrupts`` and publishes
         the answer in the same commit, so only one call can succeed for each
         interrupt. It locks ``PendingInterrupts``: a concurrent session Step can
-        make it raise ``RpcLockConflictError``, which is safe to retry.
+        make it raise ``RpcLockConflictError``, which is safe to retry. The
+        caller sends the RPC's locks: SDK Clients and Dex Web do, but a raw
+        ``InvokeRPC`` request without them runs unlocked, and then more than one
+        call can succeed.
 
         For a ``question`` interrupt, ``approved=False`` declines the question:
         the model sees ``rejection_message``, or ``"The user declined to
