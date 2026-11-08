@@ -413,6 +413,11 @@ wins.
 the same lock. A retry is safe. The Python **AgentSessionClient** retries for up
 to 5 seconds.
 
+The caller of an RPC sends its locks. SDK Clients and Dex Web send the locks
+the RPC declares. A raw **InvokeRPC** request, such as **dexcli api call**,
+must list them in **lock_attribute_keys**. Without them the RPC runs unlocked,
+and two answers to one approval can both succeed.
+
 ## Find sessions that need a person {#find-sessions}
 
 **ActiveStepTypes** is a built-in search field. It lists the Steps a Flow waits

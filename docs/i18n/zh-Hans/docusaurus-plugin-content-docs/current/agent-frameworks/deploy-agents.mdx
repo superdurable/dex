@@ -305,6 +305,10 @@ session 在模型请求调用时，用 Worker 的时钟计算截止时间。保�
 Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictError** 失败。重试是
 安全的。Python 的 **AgentSessionClient** 最多重试 5 秒。
 
+RPC 的锁由调用方发送。SDK Client 和 Dex Web 会带上 RPC 声明的锁。直接发送的
+**InvokeRPC** 请求（例如 **dexcli api call**）要在 **lock_attribute_keys** 里列出这些锁。
+不带锁时 RPC 不加锁运行，同一个审批的两个答复可能都成功。
+
 ## 查找需要人处理的 session {#find-sessions}
 
 **ActiveStepTypes** 是内置的搜索字段。它列出 Flow 正在等待的 Step，所以一条查询就能跨 agent

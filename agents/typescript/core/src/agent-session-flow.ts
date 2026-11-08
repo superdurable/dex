@@ -441,7 +441,8 @@ export interface AgentSessionFlow<
    * It removes the interrupt from `PendingInterrupts` and publishes the answer in one commit, so only
    * one call succeeds per interrupt. It locks `PendingInterrupts`, so a call that races
    * `AwaitToolApproval`, `AwaitQuestionAnswer`, `ResumeTurn`, `FinishTurnCancellation`, or `cancel_turn` can fail
-   * with `RpcLockConflictError`, which is safe to retry. The rejection message is dropped when `approved` is `true`. A question needs an answer, so
+   * with `RpcLockConflictError`, which is safe to retry. The caller sends the RPC's locks: SDK clients and Dex Web do,
+   * but a raw `InvokeRPC` request without them runs unlocked, and then more than one call can succeed. The rejection message is dropped when `approved` is `true`. A question needs an answer, so
    * `approved` `true` on a `question` interrupt is refused; answer it with {@link answerQuestion}.
    *
    * @param context - RPC Context supplied by Dex.
