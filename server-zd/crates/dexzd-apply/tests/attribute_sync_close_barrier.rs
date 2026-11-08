@@ -550,6 +550,7 @@ fn settings() -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
+        delete_expired_history_objects: false,
     }
 }
 

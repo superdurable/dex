@@ -40,12 +40,12 @@ use dexzd_protocol::dex::{
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand,
     FlowConfigUpdateCommand, FlowStartCommand, HistoryRecord, HistoryRowMetadata,
-    HistorySegmentRecord, HistorySegmentUploadedCommand, RunRecord, RunSettings, RunStorageUsage,
-    SetHistoryOffloadModeCommand, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepExecutionRecord, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
-    TimeTravelStagedChunk, ValueBirthRecord, ValueGarbageRecord, ValueRecord, ValueReviveCommand,
-    command_reply, flow_command::Command, step_attempt_heartbeat_command,
-    step_method_completed_command, stored_value,
+    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, RunRecord,
+    RunSettings, RunStorageUsage, SetHistoryOffloadModeCommand, StepAttemptHeartbeatCommand,
+    StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, TimeTravelStagedChunk, ValueBirthRecord, ValueGarbageRecord,
+    ValueRecord, ValueReviveCommand, command_reply, flow_command::Command,
+    step_attempt_heartbeat_command, step_method_completed_command, stored_value,
 };
 use prost::Message;
 
@@ -728,6 +728,7 @@ fn settings(segment_target_bytes: u64) -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: segment_target_bytes,
+        delete_expired_history_objects: false,
     }
 }
 
@@ -1130,9 +1131,20 @@ fn a_value_superseded_before_the_window_start_reads_as_absent() {
         harness.ack_all();
     }
     assert!(harness.run_record().window_start_seq > superseded_seq);
-    assert!(
-        harness.birth(first).is_some_and(|birth| birth.is_offloaded),
-        "the birth record stays until its segment expires"
+    let holding_segment = harness
+        .segments()
+        .into_iter()
+        .find(|segment| (segment.first_seq..=segment.last_seq).contains(&superseded_seq))
+        .expect("the segment that holds the value keeps its catalog row");
+    assert_eq!(
+        holding_segment.state,
+        HistorySegmentState::Expired as i32,
+        "window pruning passed the segment"
+    );
+    assert_eq!(
+        harness.birth(first),
+        None,
+        "the segment's expiry deleted the birth record only its object held"
     );
     assert_eq!(
         harness.locate(first),
@@ -1441,7 +1453,9 @@ fn a_revive_of_a_local_value_or_of_one_the_window_passed_changes_nothing() {
     let mut harness = Harness::offloading(RunSettings {
         history_window_events: 4,
         history_prune_chunk_events: 1,
-        checkpoint_command_threshold: 2,
+        // Only the start checkpoint exists, so pruning never passes the value's segment: it
+        // stays uploaded with the birth record offloaded while the window start moves past it.
+        checkpoint_command_threshold: 1000,
         ..settings(1)
     });
     let live_text = large_text("live", 300);

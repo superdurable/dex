@@ -501,6 +501,15 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
                 ),
             });
         }
+        // Recording deleted history objects never records history.
+        Command::HistorySegmentObjectsDeleted(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a HistorySegmentObjectsDeleted command",
+                    history_record.seq
+                ),
+            });
+        }
         // Staging a time travel result never records history.
         Command::TimeTravelStage(_) => {
             return Err(ApplyError::InvariantViolation {

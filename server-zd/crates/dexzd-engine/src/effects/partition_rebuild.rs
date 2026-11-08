@@ -59,6 +59,7 @@ pub(crate) async fn rebuild_partition(
     rebuild_outbox_messages(reader.as_ref(), partition, &mut work)?;
     rebuild_hard_delete_deletions(reader.as_ref(), partition, &mut work)?;
     rebuild_history_uploads(reader.as_ref(), partition, &mut work)?;
+    rebuild_history_object_deletions(reader.as_ref(), partition, &mut work)?;
     rebuild_run_purges(reader.as_ref(), partition, &mut work)?;
     let effect_count: usize = work
         .values()
@@ -251,6 +252,25 @@ fn rebuild_history_uploads(
         let (run, _) = parse_run_item_index_key(partition, IndexKind::HistoryUploadPending, &key)?;
         if let Some((flow, _)) = flow_of_run(reader, run)? {
             let effect = ApplyEffect::HistorySegmentSealed { run_id: run.run_id };
+            add_effects(work, run, flow, vec![effect]);
+        }
+    }
+    Ok(())
+}
+
+/// Runs whose delete switch is on and whose EXPIRED history segments keep their objects. Apply
+/// keeps no index row for a run whose switch is off, so such runs start no work.
+fn rebuild_history_object_deletions(
+    reader: &dyn FlowStateReader,
+    partition: PartitionId,
+    work: &mut BTreeMap<RunLocation, (FlowAddress, Vec<ApplyEffect>)>,
+) -> Result<(), EffectError> {
+    let prefix = partition_index_prefix(partition, IndexKind::HistoryObjectDeletePending);
+    for (key, _) in scan_all(reader, ColumnFamily::PartitionIndex, &prefix)? {
+        let (run, _) =
+            parse_run_item_index_key(partition, IndexKind::HistoryObjectDeletePending, &key)?;
+        if let Some((flow, _)) = flow_of_run(reader, run)? {
+            let effect = ApplyEffect::HistorySegmentsExpired { run_id: run.run_id };
             add_effects(work, run, flow, vec![effect]);
         }
     }

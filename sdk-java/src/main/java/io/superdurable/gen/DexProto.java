@@ -948,7 +948,7 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "flow_already_started_options\030\006 \001(\0132\036.dex" +
       ".FlowAlreadyStartedOptions\022?\n\027timeout_ha" +
       "ndler_options\030\007 \001(\0132\036.dex.FlowTimeoutHan" +
-      "dlerOptions\"\216\004\n\nFlowConfig\022?\n\027active_ste" +
+      "dlerOptions\"\336\004\n\nFlowConfig\022?\n\027active_ste" +
       "p_search_mode\030\001 \001(\0162\031.dex.ActiveStepSear" +
       "chModeH\000\210\001\001\022&\n\031continue_as_new_threshold" +
       "\030\002 \001(\005H\001\210\001\001\022/\n\"continue_as_new_page_size" +
@@ -957,11 +957,13 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "r_target\030\005 \001(\0132\021.dex.WorkerTarget\022<\n\025att" +
       "ribute_store_names\030\006 \001(\0132\030.dex.Attribute" +
       "StoreNamesH\004\210\001\001\022\"\n\025history_window_events" +
-      "\030\007 \001(\005H\005\210\001\001B\032\n\030_active_step_search_modeB" +
-      "\034\n\032_continue_as_new_thresholdB%\n#_contin" +
-      "ue_as_new_page_size_in_bytesB\022\n\020_step_du" +
-      "rabilityB\030\n\026_attribute_store_namesB\030\n\026_h" +
-      "istory_window_events\"$\n\023AttributeStoreNa" +
+      "\030\007 \001(\005H\005\210\001\001\022+\n\036delete_expired_history_ob" +
+      "jects\030\010 \001(\010H\006\210\001\001B\032\n\030_active_step_search_" +
+      "modeB\034\n\032_continue_as_new_thresholdB%\n#_c" +
+      "ontinue_as_new_page_size_in_bytesB\022\n\020_st" +
+      "ep_durabilityB\030\n\026_attribute_store_namesB" +
+      "\030\n\026_history_window_eventsB!\n\037_delete_exp" +
+      "ired_history_objects\"$\n\023AttributeStoreNa" +
       "mes\022\r\n\005names\030\001 \003(\t\"N\n\014WorkerTarget\022\024\n\014is" +
       "_pull_mode\030\003 \001(\010J\004\010\001\020\002J\004\010\002\020\003R\007addressR\023i" +
       "s_headless_address\"\261\002\n\020StartFlowRequest\022" +
@@ -1217,9 +1219,9 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "_type\030\003 \001(\t\022#\n\005phase\030\004 \001(\0162\024.dex.ActiveS" +
       "tepPhase\022#\n\010movement\030\005 \001(\0132\021.dex.StepMov" +
       "ement\0225\n\021waiting_condition\030\006 \001(\0132\032.dex.W" +
-      "aitingConditionState\022C\n\024completed_condit" +
+      "aitingConditionState\022C\n\024completed_condit",
       "ions\030\007 \001(\0132%.dex.StepExecutionCompletedC" +
-      "onditions\022&\n\025step_execution_locals\030\010 \003(\013",
+      "onditions\022&\n\025step_execution_locals\030\010 \003(\013" +
       "2\007.dex.KV\022\036\n\006timers\030\t \003(\0132\016.dex.TimerInf" +
       "o\0221\n\021last_failure_info\030\n \001(\0132\026.dex.StepM" +
       "ethodFailure\022/\n\025wait_for_pull_routing\030\013 " +
@@ -1617,9 +1619,9 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "TE_ON_CHANNELS_EMPTY\020\001\022)\n%CLOSE_DECISION" +
       "_TYPE_GRACEFUL_COMPLETE\020\002\022&\n\"CLOSE_DECIS" +
       "ION_TYPE_FORCE_COMPLETE\020\003\022\"\n\036CLOSE_DECIS" +
-      "ION_TYPE_FORCE_FAIL\020\004\022 \n\034CLOSE_DECISION_" +
+      "ION_TYPE_FORCE_FAIL\020\004\022 \n\034CLOSE_DECISION_",
       "TYPE_DEAD_END\020\005*\310\001\n\024WaitingConditionType" +
-      "\022&\n\"WAITING_CONDITION_TYPE_UNSPECIFIED\020\000",
+      "\022&\n\"WAITING_CONDITION_TYPE_UNSPECIFIED\020\000" +
       "\022(\n$WAITING_CONDITION_TYPE_ALL_COMPLETED" +
       "\020\001\022(\n$WAITING_CONDITION_TYPE_ANY_COMPLET" +
       "ED\020\002\0224\n0WAITING_CONDITION_TYPE_ANY_COMBI" +
@@ -1879,7 +1881,7 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     internal_static_dex_FlowConfig_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_FlowConfig_descriptor,
-        new java.lang.String[] { "ActiveStepSearchMode", "ContinueAsNewThreshold", "ContinueAsNewPageSizeInBytes", "StepDurability", "WorkerTarget", "AttributeStoreNames", "HistoryWindowEvents", });
+        new java.lang.String[] { "ActiveStepSearchMode", "ContinueAsNewThreshold", "ContinueAsNewPageSizeInBytes", "StepDurability", "WorkerTarget", "AttributeStoreNames", "HistoryWindowEvents", "DeleteExpiredHistoryObjects", });
     internal_static_dex_AttributeStoreNames_descriptor =
       getDescriptor().getMessageType(28);
     internal_static_dex_AttributeStoreNames_fieldAccessorTable = new

@@ -118,7 +118,7 @@ fn rescan_config() -> EffectsConfig {
 
 /// Commits the enabled offload mode to every partition, as a node with `history.offloadEnabled`
 /// does.
-fn enable_history_offload(harness: &EffectHarness) {
+pub(super) fn enable_history_offload(harness: &EffectHarness) {
     set_history_offload_mode(harness, true);
 }
 
@@ -166,7 +166,7 @@ async fn hold_upload_slots(harness: &EffectHarness) -> OwnedSemaphorePermit {
 }
 
 /// Terminates the run; the closing command seals its open segment.
-fn close_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
+pub(super) fn close_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
     let command = FlowCommand {
         flow_id: flow_id.to_owned(),
         run_id: run_id.as_bytes().to_vec(),
@@ -190,7 +190,7 @@ fn close_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
     assert!(!is_error_reply(&reply), "stop failed: {reply:?}");
 }
 
-fn short_retention_settings() -> RunSettings {
+pub(super) fn short_retention_settings() -> RunSettings {
     RunSettings {
         retention_after_close_micros: 60 * SECOND_MICROS,
         ..settings()
@@ -198,7 +198,11 @@ fn short_retention_settings() -> RunSettings {
 }
 
 /// Returns the run's committed history segments in seq order.
-fn segments(harness: &EffectHarness, flow_id: &str, run_id: RunId) -> Vec<HistorySegmentRecord> {
+pub(super) fn segments(
+    harness: &EffectHarness,
+    flow_id: &str,
+    run_id: RunId,
+) -> Vec<HistorySegmentRecord> {
     let run = harness.run_location(flow_id, run_id);
     let prefix = run_table_prefix(run.flow_hash, run.run_id, RunTable::HistorySegment);
     let (start, end) = prefix_range(&prefix);
@@ -235,7 +239,7 @@ fn is_fully_uploaded(harness: &EffectHarness, flow_id: &str, run_id: RunId) -> b
         && !is_upload_pending(harness, flow_id, run_id)
 }
 
-fn object_key(
+pub(super) fn object_key(
     harness: &EffectHarness,
     flow_id: &str,
     run_id: RunId,
@@ -286,7 +290,7 @@ fn sealed_contents(
         .collect()
 }
 
-async fn stored_object(harness: &EffectHarness, key: &str) -> Option<Bytes> {
+pub(super) async fn stored_object(harness: &EffectHarness, key: &str) -> Option<Bytes> {
     harness
         .durable
         .objects
@@ -296,7 +300,7 @@ async fn stored_object(harness: &EffectHarness, key: &str) -> Option<Bytes> {
         .map(|content| content.bytes)
 }
 
-async fn object_keys_with_prefix(harness: &EffectHarness, prefix: &str) -> Vec<String> {
+pub(super) async fn object_keys_with_prefix(harness: &EffectHarness, prefix: &str) -> Vec<String> {
     harness
         .durable
         .objects
@@ -324,14 +328,14 @@ fn acknowledged_first_seq(recorded: &RecordedCommand) -> u64 {
     }
 }
 
-fn run_purges(harness: &EffectHarness) -> Vec<RecordedCommand> {
+pub(super) fn run_purges(harness: &EffectHarness) -> Vec<RecordedCommand> {
     harness
         .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::RunPurge(_)))
 }
 
 /// Waits until `condition` holds, letting tasks and paused time advance.
-async fn wait_until(harness: &EffectHarness, what: &str, condition: impl Fn() -> bool) {
+pub(super) async fn wait_until(harness: &EffectHarness, what: &str, condition: impl Fn() -> bool) {
     for _ in 0..WAIT_ROUNDS {
         harness.settle().await;
         if condition() {

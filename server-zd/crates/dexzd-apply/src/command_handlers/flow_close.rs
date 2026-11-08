@@ -79,6 +79,7 @@ pub fn transactional_rpc_hold(command: &FlowCommand) -> TransactionalRpcHold {
         | Command::HardDeleteObjectsDeleted(_)
         | Command::HistorySegmentUploaded(_)
         | Command::ValueRevive(_)
+        | Command::HistorySegmentObjectsDeleted(_)
         | Command::RunPurge(_) => TransactionalRpcHold::MayClose,
     }
 }

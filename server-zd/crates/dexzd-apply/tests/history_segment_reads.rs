@@ -631,6 +631,7 @@ fn settings(segment_target_bytes: u64) -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: segment_target_bytes,
+        delete_expired_history_objects: false,
     }
 }
 

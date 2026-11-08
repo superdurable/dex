@@ -84,6 +84,11 @@ Then the node took a snapshot. After the snapshot:
   value is uploaded; 10 minutes later in command time, the next command's acknowledgment deletes
   it locally and marks its birth record offloaded. A ValueRevive command restores it from the
   uploaded segment, and an Attribute write that references it holds it again.
+- `expiring-4`, in partition 1, records commands with a four-event window, a checkpoint every
+  two commands, and a segment per command, and acknowledges each segment. Pruning expires the
+  oldest segments, and a HistorySegmentObjectsDeleted command records the deletion of the oldest
+  one's object. The run's delete switch is on, so its delete pending index row stays for the
+  segments that remain expired.
 - Partition 0 disables history offload, which deletes its mode record.
 - `legacy-running` and `legacy-closed`, in partition 2, which never offloads history, run with an
   eight-event window, a checkpoint every two commands, and 1,500-byte segments. Thirty commands

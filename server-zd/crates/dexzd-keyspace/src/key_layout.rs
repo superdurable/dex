@@ -254,11 +254,14 @@ pub enum IndexKind {
     HistoryOffloadMode = 0x0e,
     /// `flow_hash(8) ‖ run_id(16)`: runs with a sealed history segment waiting for upload.
     HistoryUploadPending = 0x0f,
+    /// `flow_hash(8) ‖ run_id(16)`: runs with expired history segments whose objects the owner
+    /// deletes.
+    HistoryObjectDeletePending = 0x10,
 }
 
 impl IndexKind {
     /// Every index kind, in byte order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Timer,
         Self::FlowList,
         Self::SearchDocument,
@@ -274,6 +277,7 @@ impl IndexKind {
         Self::DispatchQueue,
         Self::HistoryOffloadMode,
         Self::HistoryUploadPending,
+        Self::HistoryObjectDeletePending,
     ];
 }
 
@@ -436,7 +440,7 @@ mod tests {
         let bytes: Vec<u8> = RunTable::ALL.iter().map(|table| *table as u8).collect();
         assert_eq!(bytes, (1..=29).collect::<Vec<u8>>());
         let kinds: Vec<u8> = IndexKind::ALL.iter().map(|kind| *kind as u8).collect();
-        assert_eq!(kinds, (1..=15).collect::<Vec<u8>>());
+        assert_eq!(kinds, (1..=16).collect::<Vec<u8>>());
         assert_eq!(RunTable::Value.column_family(), ColumnFamily::Value);
         assert_eq!(RunTable::Checkpoint.column_family(), ColumnFamily::History);
         assert_eq!(RunTable::HistorySegment.column_family(), ColumnFamily::Flow);

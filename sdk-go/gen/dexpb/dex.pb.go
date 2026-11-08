@@ -3965,8 +3965,36 @@ type FlowConfig struct {
 	//
 	// Since server-zd 0.1.21.
 	HistoryWindowEvents *int32 `protobuf:"varint,7,opt,name=history_window_events,json=historyWindowEvents,proto3,oneof" json:"history_window_events,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Whether Dex deletes the run's history objects from object storage once the history window
+	// has passed them.
+	//
+	// It applies only while the server offloads run history to object storage, which the
+	// server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+	// objects. Once the window passes a whole segment, no read returns its events or values any
+	// more. When this is true, Dex deletes such a segment's object about one hour later. When it
+	// is false, the object stays in object storage until the run is deleted after its retention.
+	// Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+	// true for dev and local servers and to false otherwise. The run records that default when it
+	// starts.
+	//
+	// Set it to true for a run whose old history must not stay in object storage, such as a
+	// long-running session that holds sensitive values. A run that never closes otherwise keeps
+	// every history object it ever wrote. Set it to false to keep old history objects for audit
+	// or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+	// that the window passed, whatever this value is.
+	//
+	// Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+	// Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+	// window already passed. Changing it from true to false stops the deletions that have not
+	// started; a deletion request already sent to object storage may still complete, and objects
+	// already deleted never come back. Once set, the value can be changed
+	// but not cleared back to the server default. A child Flow inherits it from its parent unless
+	// its own override sets it.
+	//
+	// Since server-zd 0.1.22.
+	DeleteExpiredHistoryObjects *bool `protobuf:"varint,8,opt,name=delete_expired_history_objects,json=deleteExpiredHistoryObjects,proto3,oneof" json:"delete_expired_history_objects,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *FlowConfig) Reset() {
@@ -4046,6 +4074,13 @@ func (x *FlowConfig) GetHistoryWindowEvents() int32 {
 		return *x.HistoryWindowEvents
 	}
 	return 0
+}
+
+func (x *FlowConfig) GetDeleteExpiredHistoryObjects() bool {
+	if x != nil && x.DeleteExpiredHistoryObjects != nil {
+		return *x.DeleteExpiredHistoryObjects
+	}
+	return false
 }
 
 type AttributeStoreNames struct {
@@ -12772,7 +12807,7 @@ const file_dex_proto_rawDesc = "" +
 	"attributes\x12A\n" +
 	"\x14flow_config_override\x18\x05 \x01(\v2\x0f.dex.FlowConfigR\x12flowConfigOverride\x12_\n" +
 	"\x1cflow_already_started_options\x18\x06 \x01(\v2\x1e.dex.FlowAlreadyStartedOptionsR\x19flowAlreadyStartedOptions\x12V\n" +
-	"\x17timeout_handler_options\x18\a \x01(\v2\x1e.dex.FlowTimeoutHandlerOptionsR\x15timeoutHandlerOptions\"\xa2\x05\n" +
+	"\x17timeout_handler_options\x18\a \x01(\v2\x1e.dex.FlowTimeoutHandlerOptionsR\x15timeoutHandlerOptions\"\x8f\x06\n" +
 	"\n" +
 	"FlowConfig\x12U\n" +
 	"\x17active_step_search_mode\x18\x01 \x01(\x0e2\x19.dex.ActiveStepSearchModeH\x00R\x14activeStepSearchMode\x88\x01\x01\x12>\n" +
@@ -12781,13 +12816,15 @@ const file_dex_proto_rawDesc = "" +
 	"\x0fstep_durability\x18\x04 \x01(\x0e2\x13.dex.StepDurabilityH\x03R\x0estepDurability\x88\x01\x01\x126\n" +
 	"\rworker_target\x18\x05 \x01(\v2\x11.dex.WorkerTargetR\fworkerTarget\x12Q\n" +
 	"\x15attribute_store_names\x18\x06 \x01(\v2\x18.dex.AttributeStoreNamesH\x04R\x13attributeStoreNames\x88\x01\x01\x127\n" +
-	"\x15history_window_events\x18\a \x01(\x05H\x05R\x13historyWindowEvents\x88\x01\x01B\x1a\n" +
+	"\x15history_window_events\x18\a \x01(\x05H\x05R\x13historyWindowEvents\x88\x01\x01\x12H\n" +
+	"\x1edelete_expired_history_objects\x18\b \x01(\bH\x06R\x1bdeleteExpiredHistoryObjects\x88\x01\x01B\x1a\n" +
 	"\x18_active_step_search_modeB\x1c\n" +
 	"\x1a_continue_as_new_thresholdB%\n" +
 	"#_continue_as_new_page_size_in_bytesB\x12\n" +
 	"\x10_step_durabilityB\x18\n" +
 	"\x16_attribute_store_namesB\x18\n" +
-	"\x16_history_window_events\"+\n" +
+	"\x16_history_window_eventsB!\n" +
+	"\x1f_delete_expired_history_objects\"+\n" +
 	"\x13AttributeStoreNames\x12\x14\n" +
 	"\x05names\x18\x01 \x03(\tR\x05names\"Z\n" +
 	"\fWorkerTarget\x12 \n" +

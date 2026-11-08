@@ -26,19 +26,23 @@ use std::collections::BTreeSet;
 use dexzd_apply::{TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowStatus, SetAttributesRequest, StopFlowRequest, StopType, Value, value,
+    AttributeWrite, FlowConfig, FlowStatus, SetAttributesRequest, StopFlowRequest, StopType,
+    UpdateFlowConfigRequest, Value, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributesSetCommand, FlowCommand, FlowStopCommand, HardDeleteObjectReference,
-    HistorySegmentUploadedCommand, PendingCloseCheckCommand, SetHistoryOffloadModeCommand,
-    StepInvocationPhase, TimerId, flow_command::Command, timer_id,
+    AttributesSetCommand, FlowCommand, FlowConfigUpdateCommand, FlowStopCommand,
+    HardDeleteObjectReference, HistorySegmentObjectsDeletedCommand, HistorySegmentUploadedCommand,
+    PendingCloseCheckCommand, SetHistoryOffloadModeCommand, StepInvocationPhase, TimerId,
+    flow_command::Command, timer_id,
 };
 use rand::{RngExt, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::apply_checker::ApplyChecker;
 use crate::invariants::InvariantViolation;
-use crate::model::history_offload_model::history_segment_acknowledgments;
+use crate::model::history_offload_model::{
+    expired_object_proposals, history_segment_acknowledgments,
+};
 use crate::model::worker_model::Call;
 use crate::state_view::{FlowView, RunSelection, RunView};
 
@@ -154,6 +158,16 @@ enum Proposal<'view> {
     AcknowledgeHistorySegment {
         run_id: RunId,
         acknowledgment: HistorySegmentUploadedCommand,
+    },
+    /// The owner records deleted objects of expired segments; a stale record changes nothing.
+    RecordDeletedHistoryObjects {
+        run_id: RunId,
+        deleted: HistorySegmentObjectsDeletedCommand,
+    },
+    /// A client turns the run's delete switch on or off with UpdateFlowConfig.
+    SetExpiredObjectDeletion {
+        run_id: RunId,
+        is_enabled: bool,
     },
 }
 
@@ -379,6 +393,8 @@ impl CommandGenerator {
             && let Some(settings) = start.settings.as_mut()
         {
             settings.history_segment_target_bytes = HISTORY_OFFLOAD_SEGMENT_TARGET_BYTES;
+            // One Flow starts its runs deleting expired objects, the other keeping them.
+            settings.delete_expired_history_objects = flow_id == HISTORY_OFFLOAD_FLOW_IDS[0];
         }
         Ok(command)
     }
@@ -422,6 +438,7 @@ impl CommandGenerator {
         };
         if self.stream == CommandStream::HistoryOffload {
             proposals.extend(history_segment_acknowledgments(view, checker)?);
+            proposals.extend(expired_object_proposals(view));
         }
         let is_running = latest_run
             .record
@@ -616,6 +633,26 @@ impl CommandGenerator {
                 // The uploader never binds an acknowledgment to an attempt.
                 command.expected_run_attempt = 0;
                 command
+            }
+            Proposal::RecordDeletedHistoryObjects { run_id, deleted } => {
+                let body = Command::HistorySegmentObjectsDeleted(deleted);
+                let mut command = self.envelope(flow_id, run_id.as_bytes().to_vec(), body);
+                // The owner never binds a deletion record to an attempt.
+                command.expected_run_attempt = 0;
+                command
+            }
+            Proposal::SetExpiredObjectDeletion { run_id, is_enabled } => {
+                let body = Command::FlowConfigUpdate(FlowConfigUpdateCommand {
+                    request: Some(UpdateFlowConfigRequest {
+                        flow_id: flow_id.to_owned(),
+                        flow_config: Some(FlowConfig {
+                            delete_expired_history_objects: Some(is_enabled),
+                            ..FlowConfig::default()
+                        }),
+                        ..UpdateFlowConfigRequest::default()
+                    }),
+                });
+                self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
             Proposal::StartAttempt(call) => {
                 // Only the Step failure stream queues, so main-stream trajectories stay pinned.

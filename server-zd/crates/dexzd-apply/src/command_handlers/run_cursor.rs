@@ -292,7 +292,7 @@ impl RunCursor {
         if scope.is_replay {
             reconcile_run_storage(transaction, &mut self)?;
         } else {
-            enforce_superseded_byte_cap(transaction, &mut self)?;
+            enforce_superseded_byte_cap(transaction, &mut self, scope.now_micros)?;
         }
         if let Some(last_event_id) = last_event_id {
             self.wake(WaitableChange::HistoryAppended { last_event_id });

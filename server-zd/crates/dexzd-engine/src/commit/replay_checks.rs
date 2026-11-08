@@ -246,6 +246,7 @@ fn command_kind(command: &FlowCommand) -> &'static str {
         Some(Command::RunPurge(_)) => "RunPurge",
         Some(Command::HistorySegmentUploaded(_)) => "HistorySegmentUploaded",
         Some(Command::ValueRevive(_)) => "ValueRevive",
+        Some(Command::HistorySegmentObjectsDeleted(_)) => "HistorySegmentObjectsDeleted",
     }
 }
 

@@ -142,6 +142,7 @@ impl Workload<'_> {
         self.history_segment_is_sealed_at_close_and_acknowledged()
             .await;
         self.offloaded_value_is_revived_before_a_reference().await;
+        self.expired_history_segment_object_is_deleted().await;
         self.set_history_offload_modes(&[PartitionId(0)], false)
             .await;
         self.legacy_runs_record_history_without_offload().await;

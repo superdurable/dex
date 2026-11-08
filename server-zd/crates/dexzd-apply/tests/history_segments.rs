@@ -450,6 +450,7 @@ fn settings(segment_target_bytes: u64) -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: segment_target_bytes,
+        delete_expired_history_objects: false,
     }
 }
 
@@ -532,7 +533,8 @@ fn segment_bytes_of(outcome: &ApplyOutcome, run_id: RunId) -> (u64, u64) {
 }
 
 /// Asserts that the segments are contiguous from seq 1 and from event 1, end right before the
-/// open segment, and that U names the last uploaded one.
+/// open segment, and that U names the last uploaded one. Segments the window passed are EXPIRED
+/// and list no values.
 fn assert_segment_chain(harness: &Harness) {
     let record = harness.run_record();
     let mut next_seq = 1;
@@ -541,14 +543,23 @@ fn assert_segment_chain(harness: &Harness) {
         assert_eq!(segment.first_seq, next_seq, "{segment:?}");
         assert!(segment.first_seq <= segment.last_seq, "{segment:?}");
         assert_eq!(segment.first_event_id, next_event_id, "{segment:?}");
-        let state = if segment.last_seq <= record.history_uploaded_through_seq {
-            HistorySegmentState::Uploaded
-        } else {
-            HistorySegmentState::Sealed
-        };
+        // The segment that holds genesis, seq 1, never expires.
+        let state =
+            if segment.first_seq > 1 && segment.last_seq <= record.history_expired_through_seq {
+                HistorySegmentState::Expired
+            } else if segment.last_seq <= record.history_uploaded_through_seq {
+                HistorySegmentState::Uploaded
+            } else {
+                HistorySegmentState::Sealed
+            };
         assert_eq!(segment.state, state as i32, "{segment:?}");
+        let listed_values = if state == HistorySegmentState::Expired {
+            0
+        } else {
+            segment.superseded_value_count
+        };
         assert_eq!(
-            segment.superseded_value_count,
+            listed_values,
             harness.segment_values(segment.first_seq).len() as u64
         );
         next_seq = segment.last_seq + 1;
