@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dexzd_apply::{FlowStateReader, StateRow, StateWrite};
@@ -16,6 +16,7 @@ use dexzd_protocol::dexzd::v1::{
     ChannelMetaRecord, ChannelPublishCommand, FlowCommand, flow_command,
 };
 use prost::Message;
+use tracing_subscriber::layer::SubscriberExt;
 
 use crate::flow_coordination::tests::fixtures::{
     attributes_set_command, flow, int_value, start_flow, string_value,
@@ -181,4 +182,64 @@ async fn ticket_that_failed_before_the_proposal_returned_still_halts() {
         .await;
     assert!(proposal.is_ok(), "{proposal:?}");
     assert!(harness.registry.halted().is_cancelled());
+}
+
+#[derive(Clone)]
+struct HaltLogLevels(Arc<Mutex<Vec<tracing::Level>>>);
+
+impl<Subscriber: tracing::Subscriber> tracing_subscriber::Layer<Subscriber> for HaltLogLevels {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _context: tracing_subscriber::layer::Context<'_, Subscriber>,
+    ) {
+        if event.metadata().target() == "dexzd_engine::flow_coordination::registry" {
+            self.0.lock().unwrap().push(*event.metadata().level());
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn stopping_commit_warns_once_and_other_commit_failures_log_errors() {
+    for (commit_error, expected_level) in [
+        (
+            CommitError::NodeStopping {
+                detail: "shutdown".to_owned(),
+            },
+            tracing::Level::WARN,
+        ),
+        (
+            CommitError::Unavailable {
+                detail: "node is stopping".to_owned(),
+            },
+            tracing::Level::ERROR,
+        ),
+    ] {
+        let harness = FlowCoordinationHarness::new();
+        let run_id = start_flow(&harness, "order-1").await.unwrap();
+        let proposal = harness
+            .registry
+            .propose(
+                flow("order-1"),
+                attributes_set_command("order-1", run_id, "count", int_value(1)),
+                CommitUrgency::Batched,
+            )
+            .await
+            .unwrap();
+        let levels = HaltLogLevels(Arc::default());
+        let subscriber = tracing_subscriber::registry().with(levels.clone());
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(harness.fail_next(commit_error.clone()));
+            harness.registry.halt("another halt".to_owned());
+        });
+        assert_eq!(*levels.0.lock().unwrap(), vec![expected_level]);
+        assert!(harness.registry.halted().is_cancelled());
+        assert_eq!(proposal.ticket.wait().await.unwrap_err(), commit_error);
+        let error = harness
+            .registry
+            .sync_barrier(&flow("order-1"))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, FlowCoordinationError::NodeStopping { .. }));
+    }
 }
