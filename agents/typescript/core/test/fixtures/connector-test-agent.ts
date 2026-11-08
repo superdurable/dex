@@ -36,13 +36,14 @@ import {
   GetBalanceOperation,
   PostNoteInputSchema,
   PostNoteOperation,
+  fakeLedgerConnection,
   fakeLedgerManifest,
 } from "./fake-ledger.js";
 
 export const connectorAgentFlowType = "ConnectorAgent";
 export const connectorAgentMaxResultBytesVariable = "CONNECTOR_AGENT_MAX_RESULT_BYTES";
 export const connectorAgentDroppedToolsVariable = "CONNECTOR_AGENT_DROPPED_TOOLS";
-export const ledgerConnection: ConnectionRef = { provider: "fake-ledger", name: "test-ledger" };
+export const ledgerConnection: ConnectionRef = fakeLedgerConnection;
 
 export function readFakeLedgerManifest(): ConnectorPackageManifest {
   return structuredClone(fakeLedgerManifest) as ConnectorPackageManifest;

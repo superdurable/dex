@@ -19,11 +19,14 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSyn
 import { join } from "node:path";
 
 import {
+  SecretString,
+  StaticCredentialProvider,
   newMutationBranch,
   newMutationRetry,
   newMutationUncertain,
   newQueryBranch,
   type Call,
+  type ConnectionRef,
   type Failure,
   type Mutation,
   type MutationAttempt,
@@ -40,6 +43,10 @@ import manifest from "./fake-ledger-dex-connector.json" with { type: "json" };
 export const fakeLedgerManifest = manifest;
 export const fakeLedgerConnectorId = "fake-ledger";
 export const fakeLedgerStateDirectoryVariable = "FAKE_LEDGER_STATE_DIR";
+// The Worker reads the ledger connection's secret from this variable, as a real Worker reads its store.
+export const fakeLedgerSecretVariable = "FAKE_LEDGER_SECRET";
+export const fakeLedgerDefaultSecret = "unset-test-secret";
+export const fakeLedgerConnection: ConnectionRef = { provider: fakeLedgerConnectorId, name: "test-ledger" };
 
 export const GetBalanceInputSchema = z.strictObject({ accountId: z.string(), padding: z.number().int().optional() });
 export const CreatePayoutInputSchema = z.strictObject({
@@ -84,6 +91,7 @@ const closeAccountDefinition = definition("closeAccount", "closed", "defect");
 interface ProviderEntry {
   readonly operation: string;
   readonly key: string;
+  readonly authorized?: string;
   readonly id?: string;
   readonly hidden?: string;
 }
@@ -92,10 +100,21 @@ interface ProviderEntry {
 export class FakeLedgerProvider {
   private readonly writesPath: string;
   private readonly sendsPath: string;
+  private readonly expectedSecret: string;
+  private readonly credentials: StaticCredentialProvider<SecretString>;
 
   public constructor(public readonly stateDirectory: string) {
     this.writesPath = join(stateDirectory, "fake-ledger-writes.jsonl");
     this.sendsPath = join(stateDirectory, "fake-ledger-sends.jsonl");
+    const secret = process.env[fakeLedgerSecretVariable] ?? fakeLedgerDefaultSecret;
+    this.expectedSecret = secret;
+    this.credentials = new StaticCredentialProvider([[fakeLedgerConnection, new SecretString(secret)]]);
+  }
+
+  /** Resolves the connection's secret at call time and checks it, as a provider checks a token. */
+  public async authorize(call: Call): Promise<boolean> {
+    const secret = await this.credentials.resolve(call);
+    return secret.reveal() === this.expectedSecret;
   }
 
   /** Every write that took effect, oldest first. */
@@ -112,8 +131,12 @@ export class FakeLedgerProvider {
     appendLine(this.sendsPath, { operation: "rate-limited", key });
   }
 
-  public accept(operation: string, key: string, options: { readonly deduplicate: boolean; readonly hidden: boolean }): string {
-    appendLine(this.sendsPath, { operation, key });
+  public accept(
+    operation: string,
+    key: string,
+    options: { readonly deduplicate: boolean; readonly hidden: boolean; readonly authorized?: boolean },
+  ): string {
+    appendLine(this.sendsPath, { operation, key, authorized: (options.authorized ?? true) ? "True" : "False" });
     if (options.deduplicate) {
       const existing = this.writes(operation).find((entry) => entry.key === key);
       if (existing?.id !== undefined) {
@@ -147,7 +170,10 @@ export class GetBalanceOperation implements Query<GetBalanceInput, Balance> {
     return getBalanceDefinition;
   }
 
-  public invoke(_call: Call, input: GetBalanceInput): QueryAttempt<Balance> {
+  public async invoke(call: Call, input: GetBalanceInput): Promise<QueryAttempt<Balance>> {
+    if (!(await this.provider.authorize(call))) {
+      return newQueryBranch("notFound", { accountId: input.accountId, amount: 0 }, {}, refused("getBalance"));
+    }
     if (input.accountId === "missing") {
       return newQueryBranch("notFound", { accountId: input.accountId, amount: 0 }, {}, failure("getBalance", "no account"));
     }
@@ -179,6 +205,9 @@ export class CreatePayoutOperation implements Mutation<CreatePayoutInput, Payout
     const words = (input.memo ?? "").split(/\s+/).filter((word) => word !== "");
     const attempt = call.context.attempt;
     const key = call.idempotencyKey ?? call.id;
+    if (!(await this.provider.authorize(call))) {
+      return newMutationBranch("providerRejected", {}, {}, refused("createPayout"));
+    }
     if (words.includes("reject")) {
       return newMutationBranch("providerRejected", {}, {}, failure("createPayout", "insufficient funds"));
     }
@@ -213,6 +242,9 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
   public async invoke(call: Call, input: PostNoteInput): Promise<MutationAttempt<Note>> {
     const words = input.text.split(/\s+/).filter((word) => word !== "");
     const key = call.idempotencyKey ?? call.id;
+    if (!(await this.provider.authorize(call))) {
+      return newMutationBranch("providerRejected", {}, {}, refused("postNote"));
+    }
     if (words.includes("reject")) {
       return newMutationBranch("providerRejected", {}, {}, failure("postNote", "channel archived"));
     }
@@ -262,6 +294,10 @@ export class CloseAccountOperation implements Mutation<CloseAccountInput, Note> 
   public invoke(): MutationAttempt<Note> {
     throw new Error("closeAccount must never run");
   }
+}
+
+function refused(operation: string): Failure {
+  return { kind: "AUTHENTICATION", provider: fakeLedgerConnectorId, operation, message: "the ledger refused the credential" };
 }
 
 function failure(operation: string, message: string): Failure {

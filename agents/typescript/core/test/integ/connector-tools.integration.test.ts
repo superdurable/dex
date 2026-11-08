@@ -10,10 +10,12 @@
 // The twin of the Python core's tests/test_connector_tools.py and tests/test_connector_tool_crashes.py.
 
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { after, afterEach, before, describe, test } from "node:test";
 
 import { connectorResultTruncatedNote } from "../../src/connectors/index.js";
@@ -35,7 +37,14 @@ import {
   connectorAgentMaxResultBytesVariable,
   createConnectorAgentFlow,
 } from "../fixtures/connector-test-agent.js";
-import { FakeLedgerProvider, fakeLedgerStateDirectoryVariable } from "../fixtures/fake-ledger.js";
+import {
+  FakeLedgerProvider,
+  fakeLedgerSecretVariable,
+  fakeLedgerStateDirectoryVariable,
+} from "../fixtures/fake-ledger.js";
+import { convertAgentSnapshotToJson } from "../../src/ui-stream/index.js";
+
+const execFileAsync = promisify(execFile);
 
 const workerEntryModulePath = fileURLToPath(new URL("../fixtures/connector-test-agent-worker.js", import.meta.url));
 const skippedError = `${toolCallNotRunErrorPrefix}: ${toolCallSkippedAfterWriteDetail}`;
@@ -372,6 +381,65 @@ describe("connector tools on a Dex engine", () => {
     // approved_payout is idempotent_write: retries run out and the write may have run.
     assert.deepEqual(await answerLines(sessionId, 1), [`approved_payout: ${outcomeUnknownToolResult}`]);
     assert.deepEqual(harness.ledger.sends(), []);
+  });
+
+  test("a connection secret never reaches session state, records, streams, or history", async () => {
+    const harness = newHarness();
+    const secret = `ledger-secret-${randomUUID()}`;
+    await harness.startWorker({ [fakeLedgerSecretVariable]: secret });
+    const sessionId = `connector-secret-${randomUUID()}`;
+    const seen: string[] = [];
+    const snapshotText = async () => {
+      const snapshot = await sessions.getAgentSnapshot(sessionId);
+      return [JSON.stringify(convertAgentSnapshotToJson(snapshot)), JSON.stringify(snapshot)];
+    };
+    const turn = async (command: string, turnCount: number) => {
+      if (turnCount === 1) {
+        await sessions.startSession(sessionId, command);
+      } else {
+        await sessions.sendUserMessage(sessionId, command);
+      }
+      await sessions.waitForCompletedTurns(sessionId, turnCount, { timeoutMs: 120_000 });
+      seen.push(...(await snapshotText()));
+    };
+
+    await turn(calls([["get_balance", { accountId: "a-1" }]]), 1);
+    await turn(calls([["create_payout", { accountId: "a-1", amount: 5 }]]), 2);
+    await turn(calls([["post_note", { accountId: "a-1", text: "paid" }]]), 3);
+    await turn(
+      calls([
+        ["create_payout", { accountId: "a-1", amount: 5, memo: "reject" }],
+        ["create_payout", { accountId: "a-1", amount: 5, memo: "uncertain" }],
+      ]),
+      4,
+    );
+    await sessions.sendUserMessage(sessionId, calls([["approved_payout", { accountId: "a-1", amount: 6 }]], "held"));
+    const interrupt = await sessions.waitForPendingInterrupt(sessionId);
+    seen.push(...(await snapshotText()));
+    assert.equal(await sessions.resolveInterrupt(sessionId, interrupt.interruptId, true), true);
+    const records = await heldRecords(harness, sessionId, "held", 1);
+    seen.push(...records.map((record) => JSON.stringify(record)));
+    await sessions.waitForCompletedTurns(sessionId, 5, { timeoutMs: 120_000 });
+
+    seen.push(...(await sessions.listAgentEvents(sessionId)).map((event) => JSON.stringify(event)));
+    const { stdout } = await execFileAsync(
+      process.env["DEXCLI"] ?? "dexcli",
+      ["flow", "history", sessionId, "--server", engine.serverAddress, "--all", "--output", "json"],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+    assert.ok(stdout.includes(sessionId));
+    seen.push(stdout);
+    for (const text of seen) {
+      assert.equal(text.includes(secret), false);
+    }
+    // The secret was in use: every request the provider received was authorized with it.
+    // Turn 4's second payout was skipped after the rejected one, so three requests were sent.
+    const sends = harness.ledger.sends();
+    assert.deepEqual(
+      sends.map((send) => send.operation),
+      ["createPayout", "postNote", "createPayout"],
+    );
+    assert.ok(sends.every((send) => send.authorized === "True"));
   });
 
   describe("Worker kills during connector writes never take a second effect", () => {
