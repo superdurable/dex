@@ -82,7 +82,7 @@ if [[ -z "${DEX_SERVER_ZD_BINARY:-}" ]]; then
 fi
 export DEX_SERVER_ZD_BINARY
 # A config file, unlike a flag, also works with an older DEX_SERVER_ZD_BINARY.
-printf 'dev:\n  durabilityMode: processCrashSafe\n' >"$test_dir/zd-overrides.yaml"
+printf 'dev:\n  durabilityMode: processCrashSafe\nhistory:\n  offloadEnabled: true\n' >"$test_dir/zd-overrides.yaml"
 dev_args+=(-engine zd -zd-binary "$DEX_SERVER_ZD_BINARY" -zd-data-dir "$test_dir/zd" -zd-config "$test_dir/zd-overrides.yaml")
 
 "$binary_dir/dexcli" dev "${dev_args[@]}" >>"$log_file" 2>&1 &

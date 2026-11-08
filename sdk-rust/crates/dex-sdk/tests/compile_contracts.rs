@@ -193,3 +193,11 @@ fn credential_options_compile() {
     let _client_options = dex_sdk::ClientOptions::new().credential(credential.clone());
     let _worker_options = dex_sdk::WorkerOptions::new().credential(credential);
 }
+
+#[test]
+fn delete_expired_history_objects_builder_compiles() {
+    let _start_options = dex_sdk::StartFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().delete_expired_history_objects(true));
+    let _sub_flow_options = dex_sdk::SubFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().delete_expired_history_objects(false));
+}

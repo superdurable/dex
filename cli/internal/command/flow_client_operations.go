@@ -33,6 +33,7 @@ type flowConfigInput struct {
 	WorkerTarget                 json.RawMessage `json:"workerTarget"`
 	AttributeStoreNames          *[]string       `json:"attributeStoreNames"`
 	HistoryWindowEvents          *int32          `json:"historyWindowEvents"`
+	DeleteExpiredHistoryObjects  *bool           `json:"deleteExpiredHistoryObjects"`
 }
 
 type flowRetryPolicyInput struct {
@@ -473,6 +474,7 @@ func parseFlowConfig(reader io.Reader, source string) (*dexpb.FlowConfig, error)
 		ContinueAsNewThreshold:       input.ContinueAsNewThreshold,
 		ContinueAsNewPageSizeInBytes: input.ContinueAsNewPageSizeInBytes,
 		HistoryWindowEvents:          input.HistoryWindowEvents,
+		DeleteExpiredHistoryObjects:  input.DeleteExpiredHistoryObjects,
 	}
 	if input.AttributeStoreNames != nil {
 		config.AttributeStoreNames = &dexpb.AttributeStoreNames{Names: *input.AttributeStoreNames}

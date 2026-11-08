@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `FlowConfig::delete_expired_history_objects` to control expired history object
+  deletion at start, on update, and for SubFlows. Omission uses the server default at
+  start and inherits for children; explicit false is preserved. Requires history
+  offload. See the API reference for deletion timing and update semantics.
+  Requires server-zd 0.1.22 or later; older servers ignore the value.
+
 - Fixed hydration of more than 1000 values with history offload enabled by batching
   LoadBlobs requests in input order.
 

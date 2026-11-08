@@ -162,7 +162,9 @@ persistence: PersistenceSchema = PersistenceSchema.of(status, items)
 start_options: StartFlowOptions = (
     StartFlowOptions(
         config_override=FlowConfig(
-            attribute_store_names=["reporting", "audit"], history_window_events=50_000
+            attribute_store_names=["reporting", "audit"],
+            history_window_events=50_000,
+            delete_expired_history_objects=False,
         )
     )
     .with_attribute(status, "ready")
