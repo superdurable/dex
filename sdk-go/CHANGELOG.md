@@ -47,6 +47,9 @@
 
 ### Fixed
 
+- Limit LoadBlobs requests to 1000 entries, preserving input order when hydrating
+  more values with history offload enabled.
+
 - Split a LoadBlobs batch when the Dex server rejects its response with
   OUT_OF_RANGE for exceeding the server's send limit, as server-zd does with
   default limits. Before, hydrating more than 32 MiB of uncached blobs failed.

@@ -15,6 +15,7 @@ from typing import cast
 import grpc
 
 from dex._message_size import is_grpc_message_size_error
+from dex._value_hydrator import _MAX_LOAD_BLOBS_ENTRIES
 from dex.blob_cache import BlobCache
 from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
@@ -50,9 +51,7 @@ class AsyncValueHydrator:
         flow_id: str,
         values: list[pb.Value],
     ) -> list[pb.Value]:
-        return await self.hydrate_all_for_flows(
-            [(flow_id, value) for value in values]
-        )
+        return await self.hydrate_all_for_flows([(flow_id, value) for value in values])
 
     async def hydrate_all_for_flows(
         self,
@@ -226,8 +225,19 @@ class AsyncValueHydrator:
             miss.hydrated = concrete
             self._write_cache(miss, concrete)
 
-    async def _load_blob_values(self, misses: list[_PendingBlob]) -> dict[str, pb.Value]:
+    async def _load_blob_values(
+        self, misses: list[_PendingBlob]
+    ) -> dict[str, pb.Value]:
         """Load blobs, halving a batch whose response exceeds a gRPC size limit."""
+        if len(misses) > _MAX_LOAD_BLOBS_ENTRIES:
+            values: dict[str, pb.Value] = {}
+            for start in range(0, len(misses), _MAX_LOAD_BLOBS_ENTRIES):
+                values.update(
+                    await self._load_blob_values(
+                        misses[start : start + _MAX_LOAD_BLOBS_ENTRIES]
+                    )
+                )
+            return values
         try:
             response = await self._service.LoadBlobs(
                 pb.LoadBlobsRequest(
