@@ -69,3 +69,4 @@ web/dex-web
 
 # Benchmark server logs are too large to commit
 benchmark/results/**/*.log.gz
+server-zd/integ/rss-measurement

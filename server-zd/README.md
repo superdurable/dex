@@ -27,6 +27,9 @@ Worker timeouts, and retry limits.
 
 ## Layout
 
+For reproducible local memory workloads and allocator measurements, see
+[RSS after history offload and ResetFlow](measurements/rss-1398.md).
+
 | Crate | Role |
 | --- | --- |
 | `dexzd-protocol` | Generated protobuf and gRPC code for the public protocol and internal formats |

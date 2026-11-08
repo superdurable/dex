@@ -1,0 +1,170 @@
+Selected vmmap -summary rows; native tool units are preserved.
+The zone rows use: virtual, resident, dirty, swapped, allocation count, allocated bytes, dirty+swap fragmentation, percent, region count.
+
+system-small initial
+Physical footprint:         10.2M
+Physical footprint (peak):  10.2M
+MALLOC_SMALL                         36.0M    5696K    5696K       0K       0K       0K       0K        9         see MALLOC ZONE table below
+MALLOC_SMALL (empty)                 8192K     256K     256K       0K       0K       0K       0K        2         see MALLOC ZONE table below
+DefaultMallocZone_<address>      48.8M      6688K      6688K         0K       9848      1912K      4776K     72%      14
+
+system-small mid
+Physical footprint:         365.9M
+Physical footprint (peak):  676.3M
+MALLOC_LARGE (empty)                398.0M   230.0M   230.0M       0K       0K       0K       0K       75         see MALLOC ZONE table below
+MALLOC_SMALL                        204.0M   176.5M   125.9M     384K       0K       0K       0K       51         see MALLOC ZONE table below
+MALLOC_SMALL (empty)                 20.0M    9008K    1952K       0K       0K       0K       0K        5         see MALLOC ZONE table below
+DefaultMallocZone_<address>     230.3M     187.7M     128.8M       432K      29446     132.5M         0K      0%      62
+
+system-small finished
+Physical footprint:         446.0M
+Physical footprint (peak):  1.8G
+MALLOC_LARGE                         7184K    7184K    7184K       0K       0K       0K       0K        3         see MALLOC ZONE table below
+MALLOC_LARGE (empty)                445.7M   277.7M   277.7M       0K       0K       0K       0K       71         see MALLOC ZONE table below
+MALLOC_SMALL                        228.0M   180.5M   117.2M    16.6M       0K       0K       0K       57         see MALLOC ZONE table below
+MALLOC_SMALL (empty)                160.0M   136.7M    18.0M       0K       0K       0K       0K       40         see MALLOC ZONE table below
+DefaultMallocZone_<address>     402.3M     327.3M     144.1M      16.7M      41997     134.5M      26.3M     17%     108
+
+system-small idle60
+Physical footprint:         239.1M
+Physical footprint (peak):  1.8G
+MALLOC_LARGE                         7184K    7184K    7184K       0K       0K       0K       0K        3         see MALLOC ZONE table below
+MALLOC_LARGE (empty)                143.9M    92.2M    92.2M       0K       0K       0K       0K       21         see MALLOC ZONE table below
+MALLOC_SMALL                        228.0M   180.5M   114.9M    16.6M       0K       0K       0K       57         see MALLOC ZONE table below
+MALLOC_SMALL (empty)                160.0M   136.7M      16K       0K       0K       0K       0K       40         see MALLOC ZONE table below
+DefaultMallocZone_<address>     402.3M     327.3M     123.8M      16.7M      41753     134.4M      6212K      5%     108
+
+mimalloc-small initial
+Physical footprint:         12.2M
+Physical footprint (peak):  12.2M
+MALLOC_SMALL                      40.0M    4016K    4016K       0K       0K       0K       0K       10         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              20.0M     528K     528K       0K       0K       0K       0K        5         see MALLOC ZONE table below
+DefaultMallocZone_<address>      64.8M      5264K      5264K         0K       7750      1415K      3849K     74%      18
+
+mimalloc-small mid
+Physical footprint:         547.8M
+Physical footprint (peak):  597.1M
+MALLOC_LARGE (empty)              3584K    1312K    1312K       0K       0K       0K       0K        1         see MALLOC ZONE table below
+MALLOC_SMALL                     124.0M    79.3M    79.1M     880K       0K       0K       0K       31         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              16.0M    2336K    2320K      48K       0K       0K       0K        4         see MALLOC ZONE table below
+DefaultMallocZone_<address>     145.3M      82.5M      82.3M      1120K       8596      78.4M      5079K      6%      39
+
+mimalloc-small finished
+Physical footprint:         571.1M
+Physical footprint (peak):  805.8M
+MALLOC_LARGE                      35.6M    20.5M    20.5M     464K       0K       0K       0K        9         see MALLOC ZONE table below
+MALLOC_LARGE (empty)              24.2M    10.0M    10.0M    2400K       0K       0K       0K        5         see MALLOC ZONE table below
+MALLOC_SMALL                     184.0M   126.4M   126.2M    17.2M       0K       0K       0K       46         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              12.0M     608K     592K    1408K       0K       0K       0K        3         see MALLOC ZONE table below
+DefaultMallocZone_<address>     236.9M     148.9M     148.7M      19.2M       9446     130.4M      37.5M     23%      62
+
+mimalloc-small idle60
+Physical footprint:         403.9M
+Physical footprint (peak):  805.8M
+MALLOC_LARGE                      35.6M    20.5M    20.5M     464K       0K       0K       0K        9         see MALLOC ZONE table below
+MALLOC_LARGE (empty)              24.2M    10.0M    10.0M    2400K       0K       0K       0K        5         see MALLOC ZONE table below
+MALLOC_SMALL                     184.0M   126.4M   126.3M    17.2M       0K       0K       0K       46         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              12.0M     608K     592K    1408K       0K       0K       0K        3         see MALLOC ZONE table below
+DefaultMallocZone_<address>     236.9M     148.9M     148.7M      19.2M       9316     130.3M      37.6M     23%      62
+
+system-large initial
+Physical footprint:         10.2M
+Physical footprint (peak):  10.2M
+MALLOC_SMALL                      36.0M    5776K    5776K       0K       0K       0K       0K        9         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              8192K     256K     256K       0K       0K       0K       0K        2         see MALLOC ZONE table below
+DefaultMallocZone_<address>      48.8M      6768K      6768K         0K      11384      2521K      4247K     63%      14
+
+system-large mid
+Physical footprint:         210.5M
+Physical footprint (peak):  220.6M
+MALLOC_LARGE                      70.0M    68.6M    68.6M       0K       0K       0K       0K       34         see MALLOC ZONE table below
+MALLOC_LARGE (empty)              76.0M    75.6M    75.6M       0K       0K       0K       0K       36         see MALLOC ZONE table below
+MALLOC_SMALL                      44.0M    22.2M    22.2M       0K       0K       0K       0K       11         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              44.0M    36.0M    36.0M       0K       0K       0K       0K       11         see MALLOC ZONE table below
+DefaultMallocZone_<address>     164.3M     128.9M     128.6M         0K      16770      79.9M      48.6M     38%      62
+
+system-large finished
+Physical footprint:         559.3M
+Physical footprint (peak):  559.3M
+MALLOC_LARGE                      4128K    4128K    4128K       0K       0K       0K       0K        2         see MALLOC ZONE table below
+MALLOC_LARGE (empty)             112.2M   108.1M   108.1M       0K       0K       0K       0K       48         see MALLOC ZONE table below
+MALLOC_SMALL                      60.0M    43.2M    36.2M       0K       0K       0K       0K       15         see MALLOC ZONE table below
+MALLOC_SMALL (empty)             420.0M   407.0M   401.0M       0K       0K       0K       0K      105         see MALLOC ZONE table below
+DefaultMallocZone_<address>     491.4M     457.6M     443.9M         0K      23312      18.3M     425.5M     96%     130
+
+system-large idle60
+Physical footprint:         395.7M
+Physical footprint (peak):  559.3M
+MALLOC_LARGE                      4128K    4128K    4128K       0K       0K       0K       0K        2         see MALLOC ZONE table below
+MALLOC_LARGE (empty)              3584K     880K     880K       0K       0K       0K       0K        1         see MALLOC ZONE table below
+MALLOC_SMALL                      60.0M    43.2M    26.4M       0K       0K       0K       0K       15         see MALLOC ZONE table below
+MALLOC_SMALL (empty)             420.0M   407.0M   356.0M       0K       0K       0K       0K      105         see MALLOC ZONE table below
+DefaultMallocZone_<address>     491.4M     457.7M     389.1M         0K      22862      18.2M     370.9M     96%     130
+
+jemalloc-large initial
+Physical footprint:         16.3M
+Physical footprint (peak):  16.3M
+MALLOC_SMALL                      20.0M    4032K    4032K       0K       0K       0K       0K        5         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              4096K     128K     128K       0K       0K       0K       0K        1         see MALLOC ZONE table below
+DefaultMallocZone_<address>      28.8M      4736K      4736K         0K       7746      1418K      3318K     71%       9
+
+jemalloc-large mid
+Physical footprint:         713.7M
+Physical footprint (peak):  804.0M
+MALLOC_LARGE                      59.9M    59.5M    59.5M       0K       0K       0K       0K       29         see MALLOC ZONE table below
+MALLOC_LARGE (empty)             145.6M   144.7M   144.7M       0K       0K       0K       0K       40         see MALLOC ZONE table below
+MALLOC_SMALL                      36.0M    13.2M    13.2M       0K       0K       0K       0K        9         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              16.0M    2704K    2704K       0K       0K       0K       0K        4         see MALLOC ZONE table below
+DefaultMallocZone_<address>     117.8M      77.2M      77.2M         0K       9143      66.8M      10.4M     14%      47
+
+jemalloc-large finished
+Physical footprint:         703.7M
+Physical footprint (peak):  835.2M
+MALLOC_LARGE                      25.7M    25.2M    25.2M       0K       0K       0K       0K       12         see MALLOC ZONE table below
+MALLOC_LARGE (empty)             185.9M   180.9M   180.9M       0K       0K       0K       0K       58         see MALLOC ZONE table below
+MALLOC_SMALL                      44.0M    18.2M    18.2M       0K       0K       0K       0K       11         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              16.0M    3712K    3712K       0K       0K       0K       0K        4         see MALLOC ZONE table below
+DefaultMallocZone_<address>      91.5M      48.9M      48.9M         0K       9822      32.8M      16.1M     33%      32
+
+jemalloc-large idle60
+Physical footprint:         596.1M
+Physical footprint (peak):  835.2M
+MALLOC_LARGE                      25.7M    24.6M    24.6M     624K       0K       0K       0K       12         see MALLOC ZONE table below
+MALLOC_LARGE (empty)             185.9M   175.7M   175.7M    5392K       0K       0K       0K       58         see MALLOC ZONE table below
+MALLOC_SMALL                      44.0M    18.1M    18.1M      96K       0K       0K       0K       11         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              16.0M    2816K    2816K     896K       0K       0K       0K        4         see MALLOC ZONE table below
+DefaultMallocZone_<address>      91.5M      47.3M      47.3M      1616K       9496      32.6M      16.3M     34%      32
+
+mimalloc-large initial
+Physical footprint:         11.8M
+Physical footprint (peak):  11.8M
+MALLOC_SMALL                      28.0M    4032K    4032K       0K       0K       0K       0K        7         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              20.0M     464K     464K       0K       0K       0K       0K        5         see MALLOC ZONE table below
+DefaultMallocZone_<address>      52.8M      5152K      5152K         0K       7741      1414K      3738K     73%      15
+
+mimalloc-large mid
+Physical footprint:         454.4M
+Physical footprint (peak):  456.1M
+MALLOC_LARGE                      18.1M    18.1M    18.1M       0K       0K       0K       0K        9         see MALLOC ZONE table below
+MALLOC_LARGE (empty)             168.9M   165.0M   165.0M       0K       0K       0K       0K       61         see MALLOC ZONE table below
+MALLOC_SMALL                      48.0M    15.5M    15.5M       0K       0K       0K       0K       12         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              16.0M    1040K    1040K       0K       0K       0K       0K        4         see MALLOC ZONE table below
+DefaultMallocZone_<address>      88.0M      36.5M      36.5M         0K       9126      25.0M      11.5M     32%      30
+
+mimalloc-large finished
+Physical footprint:         489.3M
+Physical footprint (peak):  912.6M
+MALLOC_LARGE                      28.2M    28.2M    28.2M       0K       0K       0K       0K       14         see MALLOC ZONE table below
+MALLOC_LARGE (empty)             166.7M   149.0M   149.0M    8096K       0K       0K       0K       56         see MALLOC ZONE table below
+MALLOC_SMALL                      44.0M    18.1M    18.1M    2400K       0K       0K       0K       11         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              24.0M    6960K    6960K    1136K       0K       0K       0K        6         see MALLOC ZONE table below
+DefaultMallocZone_<address>     102.0M      54.9M      54.8M      3696K       9785      36.4M      22.1M     38%      36
+
+mimalloc-large idle60
+Physical footprint:         454.6M
+Physical footprint (peak):  912.6M
+MALLOC_LARGE                      28.2M    28.2M    28.2M       0K       0K       0K       0K       14         see MALLOC ZONE table below
+MALLOC_LARGE (empty)             166.7M   149.0M   149.0M    8096K       0K       0K       0K       56         see MALLOC ZONE table below
+MALLOC_SMALL                      44.0M    18.2M    18.2M    2400K       0K       0K       0K       11         see MALLOC ZONE table below
+MALLOC_SMALL (empty)              24.0M    6960K    6960K    1136K       0K       0K       0K        6         see MALLOC ZONE table below
+DefaultMallocZone_<address>     102.0M      54.9M      54.9M      3696K       9487      36.2M      22.3M     39%      36

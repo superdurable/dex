@@ -56,6 +56,13 @@ start dependency containers for a local run. The historical S3-named tests
 exercise server-zd's embedded dev object store and wire-value references;
 they do not require MinIO or external S3. Redis package tests were not copied.
 
+## RSS measurement
+
+The manual `cmd/rss-measurement` driver runs 20,000 Steps with 1 KiB Attribute
+rewrites, or 200 Steps with 2 MiB rewrites followed by ResetFlow. It connects to
+an existing local server and validates completion. See the
+[measurement procedure and findings](../measurements/rss-1398.md).
+
 ## Extraction scope
 
 The source baseline has 326 top-level tests. This module copies 136 names:

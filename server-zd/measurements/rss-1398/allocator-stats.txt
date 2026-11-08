@@ -1,0 +1,11 @@
+jemalloc: final stats after the idle period (bytes):
+JEMALLOC allocated=17833792 active=68304896 resident=416186368 mapped=559611904 retained=1527054336
+
+mimalloc: shutdown arena and process statistics:
+  reserved  :     1.0 GiB     1.0 GiB     1.0 GiB
+  committed :   912.5 MiB   912.5 MiB   912.5 MiB
+  process   : user: 3.025 s, system: 5.372 s, faults: 0, peak rss: 976.3 MiB, peak commit: 912.5 MiB
+
+Separate stack-logged large-value diagnostic around Step 100:
+      20   38076416  1903820.8   malloc in rocksdb::Arena::AllocateNewBlock(unsigned long)  C++     dex-server-zd
+      44   35985632  817855.2   malloc in rocksdb::AllocateBlock(unsigned long, rocksdb::MemoryAllocator*)  C++     dex-server-zd
