@@ -6,6 +6,14 @@ for the Dex SDK and framework versions each release supports.
 
 ## Unreleased
 
+### Dex SDK 1.38.0
+
+- Every package requires Dex SDK 1.38.0 (`dex-python-sdk==1.38.0`,
+  `@superdurable/dex` `1.38.0`, Go `sdk-go` `v1.38.0`) and a Dex Server with
+  protocol 4: server-zd v0.1.17 or later, as with 1.35.0.
+- Agents CI, the nightly long run, and the publish workflows test against
+  `dexcli` 1.38.0.
+
 ### The session graph for Dex Web
 
 - Python and TypeScript cores: `render_session_flow_graph` (`renderSessionFlowGraph`)
