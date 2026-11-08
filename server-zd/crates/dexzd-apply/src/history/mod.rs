@@ -13,6 +13,7 @@ mod attempt_scope;
 mod checkpoints;
 pub mod diagnostics;
 mod lineage;
+mod local_cleanup;
 mod replay_state;
 mod reset_target;
 mod state_rebuild;
@@ -22,6 +23,10 @@ mod window;
 pub(crate) use checkpoints::{after_command, pending_step_methods};
 pub use lineage::{HistoryRecords, HistorySource, StateHistorySource};
 pub(crate) use lineage::{LocalHistorySource, genesis_seq};
+pub(crate) use local_cleanup::{
+    LocalCleanupBacklog, LocalCleanupCaller, apply_history_local_cleanup, clean_up_local_history,
+    schedule_local_cleanup,
+};
 pub use time_travel::{
     ComputedTimeTravel, SegmentedTimeTravelComputation, StagedEntryTooLarge, TimeTravelComputation,
     TimeTravelComputationRequest, TimeTravelComputationSources, compute_time_travel,
@@ -34,5 +39,6 @@ pub use time_travel::{
 };
 pub(crate) use time_travel::{apply_time_travel, apply_time_travel_stage, delete_idle_staging};
 pub(crate) use window::{
-    WindowAdvanceTarget, advance_window, metadata_identity, prune_window_history,
+    HISTORY_ROWS_PER_COMMAND, WindowAdvanceTarget, advance_window, metadata_identity,
+    prune_window_history,
 };

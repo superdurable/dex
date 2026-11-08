@@ -199,6 +199,9 @@ message RunRecord {
   // Newest event ID of the history records a window scan inspected before window_scan_seq; zero
   // when window_scan_seq is zero or the event ID is unknown.
   int64 window_scan_last_event_id = 72;
+  // Command time from which local history cleanup is due; set exactly while the
+  // HistoryLocalCleanupPending row exists.
+  optional int64 history_local_cleanup_due_micros = 73;
 }
 
 // A staged TimeTravel result of a run; see TimeTravelStageCommand.

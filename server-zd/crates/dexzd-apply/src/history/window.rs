@@ -26,7 +26,8 @@ use crate::history_offload::offload_mode::is_history_offload_enabled;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 
-const HISTORY_ROWS_PER_COMMAND: usize = 128;
+/// History metadata rows one command prunes or scans per page.
+pub(crate) const HISTORY_ROWS_PER_COMMAND: usize = 128;
 
 /// Metadata pages one command may scan to prune an event chunk; covers the default 1000-event chunk.
 const EVENT_CHUNK_PAGES_PER_COMMAND: usize = 16;

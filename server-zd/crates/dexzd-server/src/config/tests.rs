@@ -163,6 +163,58 @@ fn history_segment_target_bytes_reaches_run_and_child_settings() {
 }
 
 #[test]
+fn superseded_value_grace_period_reaches_run_and_child_settings() {
+    let default_components =
+        ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    assert_eq!(
+        default_components
+            .flow_coordination
+            .run_settings
+            .superseded_value_grace_micros,
+        10 * 60 * 1_000_000
+    );
+    let parsed = Config::parse_yaml("history:\n  supersededValueGracePeriod: 90s\n")
+        .expect("parse the superseded value grace period");
+    let mut configuration = valid_config();
+    configuration.history.superseded_value_grace_period =
+        parsed.history.superseded_value_grace_period;
+    configuration.validate().expect("a valid grace period");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(
+        components
+            .flow_coordination
+            .run_settings
+            .superseded_value_grace_micros,
+        90 * 1_000_000
+    );
+    assert_eq!(
+        components
+            .effects
+            .child_run_settings
+            .superseded_value_grace_micros,
+        90 * 1_000_000
+    );
+    for too_short in [Duration::ZERO, Duration::from_nanos(500)] {
+        configuration.history.superseded_value_grace_period = too_short;
+        assert!(
+            matches!(
+                configuration.validate(),
+                Err(ConfigError::Invalid {
+                    field: "history.supersededValueGracePeriod",
+                    ..
+                })
+            ),
+            "{too_short:?} is rejected"
+        );
+    }
+    configuration.history.superseded_value_grace_period = Duration::from_micros(1);
+    configuration
+        .validate()
+        .expect("one microsecond is the shortest grace period");
+}
+
+#[test]
 fn delete_expired_objects_reaches_run_and_child_settings() {
     assert!(!Config::default().history.should_delete_expired_objects);
     let default_components =

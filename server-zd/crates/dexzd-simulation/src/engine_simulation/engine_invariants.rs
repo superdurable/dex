@@ -386,8 +386,9 @@ pub(crate) fn check_sync_attempts_ran_at_most_once(
     Ok(sync_frames)
 }
 
-/// Liveness after the calm tail: no overdue timer, no unfinished method call unless blocked
-/// by future backoff, no undelivered outbox message, and no hard-delete object waiting for deletion.
+/// Liveness after the calm tail: no overdue timer or local history cleanup, no unfinished method
+/// call unless blocked by future backoff, no undelivered outbox message, and no hard-delete
+/// object waiting for deletion.
 pub(crate) fn check_drained(
     shadow: &ApplyChecker,
     now_unix_micros: i64,
@@ -434,6 +435,21 @@ pub(crate) fn check_drained(
             ));
         }
         for (run_id, run) in &view.runs {
+            if let Some(due_micros) = run
+                .record
+                .as_ref()
+                .filter(|record| !record.is_purging)
+                .and_then(|record| record.history_local_cleanup_due_micros)
+                .filter(|due_micros| due_micros + overdue_after_micros < now_unix_micros)
+            {
+                return Err(InvariantViolation::new(
+                    "history-local-cleanup-not-run",
+                    format!(
+                        "Flow {flow_id} run {run_id} has local history cleanup due at \
+                         {due_micros} that never ran"
+                    ),
+                ));
+            }
             // Admission rejects RPCs during cleanup, so a held close finalizes once RPCs drain.
             if run
                 .record

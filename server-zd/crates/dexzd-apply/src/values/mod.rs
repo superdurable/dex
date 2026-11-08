@@ -19,7 +19,7 @@ mod storage_accounting;
 mod time_travel;
 mod value_holder;
 
-pub(crate) use garbage::enforce_superseded_byte_cap;
+pub(crate) use garbage::{enforce_superseded_byte_cap, prune_passed_history};
 #[expect(unused_imports, reason = "Available to window maintenance handlers.")]
 pub(crate) use garbage::{prune_garbage, superseded_bytes_over_cap};
 pub use offloaded_values::{NoOffloadedValues, OffloadedValues};

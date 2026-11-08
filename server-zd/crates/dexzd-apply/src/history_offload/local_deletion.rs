@@ -19,14 +19,14 @@ use dexzd_keyspace::row_keys::{
 };
 use dexzd_keyspace::{ColumnFamily, RunTable, ValueId, run_table_prefix};
 use dexzd_protocol::dexzd::v1::{
-    HistoryRowMetadata, HistorySegmentRecord, HistorySegmentValueRecord, ValueBirthRecord,
-    ValueGarbageRecord,
+    HistoryRowMetadata, HistorySegmentRecord, HistorySegmentValueRecord, RunRecord,
+    ValueBirthRecord, ValueGarbageRecord,
 };
 use prost::Message;
 
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
-use crate::history::{genesis_seq, metadata_identity};
+use crate::history::{LocalCleanupBacklog, genesis_seq, metadata_identity};
 use crate::history_offload::offload_mode::is_history_offload_enabled;
 use crate::history_offload::segment_catalog::{CatalogPosition, SegmentCatalog, is_uploaded};
 use crate::history_offload::segment_seal::garbage_identity;
@@ -35,11 +35,26 @@ use crate::state_access::{FlowTransaction, RunRows};
 
 /// How long a superseded value stays local after the command that superseded it, by command
 /// time, so a reference a Worker or Client just read still resolves locally (plan section 5.11).
-pub(crate) const SUPERSEDED_VALUE_GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+const DEFAULT_SUPERSEDED_VALUE_GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+/// Command time between cleanups that wait for offload to turn on again.
+const SUSPENDED_DELETION_RECHECK_MICROS: i64 = 60 * 60 * 1_000_000;
 /// History metadata rows and catalog lookups one command examines to delete uploaded rows.
 const MAX_HISTORY_ROWS_PER_COMMAND: usize = 4096;
 /// Superseded values and catalog lookups one command examines to offload uploaded values.
 const MAX_SUPERSEDED_VALUES_PER_COMMAND: usize = 4096;
+
+/// Returns the run's recorded grace period of superseded values in microseconds, or 10 minutes
+/// when it recorded none.
+pub(crate) fn superseded_value_grace_micros(record: &RunRecord) -> i64 {
+    match record
+        .settings
+        .unwrap_or_default()
+        .superseded_value_grace_micros
+    {
+        grace_micros if grace_micros > 0 => grace_micros,
+        _ => DEFAULT_SUPERSEDED_VALUE_GRACE_MICROS,
+    }
+}
 
 /// Deletes, within per-command limits, the local history records and checkpoints of uploaded
 /// segments and the superseded values whose grace period ended, while the partition offloads
@@ -48,14 +63,19 @@ const MAX_SUPERSEDED_VALUES_PER_COMMAND: usize = 4096;
 /// Genesis keeps its record and checkpoint. Metadata stays for the window, except for records
 /// that are neither semantic nor hold events. An offloaded value keeps its birth record, marked
 /// offloaded, so LoadBlobs finds its segment. `now_micros` is the command's proposal time.
+///
+/// Returns what is left: unfinished when a per-command limit stopped a pass, and the end of the
+/// grace period that stopped the value pass. Returns an empty backlog when the partition does
+/// not offload, since nothing here progresses then.
 pub(crate) fn delete_uploaded_history(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     now_micros: i64,
-) -> Result<(), ApplyError> {
+) -> Result<LocalCleanupBacklog, ApplyError> {
+    let mut backlog = LocalCleanupBacklog::default();
     if cursor.record.history_uploaded_through_seq == 0 || !is_history_offload_enabled(transaction)?
     {
-        return Ok(());
+        return Ok(backlog);
     }
     let genesis = genesis_seq(transaction, cursor.rows)?;
     if cursor.record.history_window_pruned_through_seq == 0 {
@@ -65,7 +85,48 @@ pub(crate) fn delete_uploaded_history(
         cursor.record.history_window_pruned_through_seq = first_window_seq - 1;
     }
     delete_uploaded_rows(transaction, cursor, genesis)?;
-    offload_uploaded_values(transaction, cursor, now_micros)
+    let record = &cursor.record;
+    if record.history_local_rows_deleted_through_seq.max(genesis)
+        < record.history_uploaded_through_seq
+    {
+        backlog.mark_unfinished();
+    }
+    match offload_uploaded_values(transaction, cursor, now_micros)? {
+        ValueOffloadProgress::Complete => {}
+        ValueOffloadProgress::Unfinished => backlog.mark_unfinished(),
+        ValueOffloadProgress::InGrace {
+            grace_ends_at_micros,
+        } => backlog.wait_until(grace_ends_at_micros),
+    }
+    Ok(backlog)
+}
+
+/// Returns when to check again, an hour from `now_micros`, while the partition does not offload
+/// and uploaded history still waits for local deletion; returns `None` otherwise. Turning
+/// offload on again then resumes the deletion in runs that receive no more commands.
+///
+/// Rows that window pruning deleted no longer wait, and values before the window start are
+/// garbage pruning's work.
+pub(crate) fn suspended_deletion_recheck_micros(
+    transaction: &FlowTransaction<'_>,
+    cursor: &RunCursor,
+    now_micros: i64,
+) -> Result<Option<i64>, ApplyError> {
+    let record = &cursor.record;
+    let uploaded_through_seq = record.history_uploaded_through_seq;
+    if uploaded_through_seq == 0 || is_history_offload_enabled(transaction)? {
+        return Ok(None);
+    }
+    let genesis = genesis_seq(transaction, cursor.rows)?;
+    let rows_gone_through_seq = record
+        .history_local_rows_deleted_through_seq
+        .max(record.history_window_pruned_through_seq)
+        .max(genesis);
+    let has_waiting_rows = rows_gone_through_seq < uploaded_through_seq;
+    let has_waiting_values = record.history_values_offloaded_through_seq < uploaded_through_seq
+        && record.window_start_seq <= uploaded_through_seq;
+    Ok((has_waiting_rows || has_waiting_values)
+        .then(|| now_micros.saturating_add(SUSPENDED_DELETION_RECHECK_MICROS)))
 }
 
 /// Stamps every value this command superseded with the command's proposal time, from which
@@ -264,15 +325,40 @@ fn is_metadata_kept_after_upload(metadata: &HistoryRowMetadata) -> bool {
         || metadata.flow_closed_message.is_some()
 }
 
+/// How far the value offload pass of one command got.
+enum ValueOffloadProgress {
+    /// Every value through the uploaded seq was offloaded or passed over.
+    Complete,
+    /// The per-command limit stopped the pass; a later command resumes it.
+    Unfinished,
+    /// The pass stopped at a value whose grace period ends at `grace_ends_at_micros`.
+    InGrace { grace_ends_at_micros: i64 },
+}
+
+/// How far a bounded pass over the values of one segment got.
+enum ValueRangeProgress {
+    Complete,
+    /// The limit stopped the pass before finishing this superseded seq.
+    StoppedAt(u64),
+    /// A value superseded at this seq is in its grace period until `grace_ends_at_micros`.
+    InGrace {
+        superseded_seq: u64,
+        grace_ends_at_micros: i64,
+    },
+}
+
 /// Offloads the superseded values of uploaded segments after the run's offload seq, moving that
 /// seq forward; it stops at the first value still in its grace period.
+///
+/// Returns whether the pass reached the uploaded seq, or what stopped it.
 fn offload_uploaded_values(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     now_micros: i64,
-) -> Result<(), ApplyError> {
+) -> Result<ValueOffloadProgress, ApplyError> {
     let rows = cursor.rows;
     let uploaded_through_seq = cursor.record.history_uploaded_through_seq;
+    let grace_micros = superseded_value_grace_micros(&cursor.record);
     let mut budget = MAX_SUPERSEDED_VALUES_PER_COMMAND;
     let mut seq = cursor
         .record
@@ -280,7 +366,7 @@ fn offload_uploaded_values(
         .saturating_add(1);
     while seq <= uploaded_through_seq && budget > 0 {
         budget -= 1;
-        let (done_through, is_stopped) =
+        let (done_through, stop) =
             match uploaded_range_at(transaction, rows, uploaded_through_seq, seq)? {
                 UploadedRange::Uploaded(segment) => {
                     match offload_values_of_segment(
@@ -289,24 +375,40 @@ fn offload_uploaded_values(
                         &segment,
                         seq,
                         now_micros,
+                        grace_micros,
                         &mut budget,
                     )? {
-                        RangeProgress::Complete => (segment.last_seq, false),
-                        RangeProgress::StoppedAt(stop_seq) => (stop_seq - 1, true),
+                        ValueRangeProgress::Complete => (segment.last_seq, None),
+                        ValueRangeProgress::StoppedAt(stop_seq) => {
+                            (stop_seq - 1, Some(ValueOffloadProgress::Unfinished))
+                        }
+                        ValueRangeProgress::InGrace {
+                            superseded_seq,
+                            grace_ends_at_micros,
+                        } => (
+                            superseded_seq - 1,
+                            Some(ValueOffloadProgress::InGrace {
+                                grace_ends_at_micros,
+                            }),
+                        ),
                     }
                 }
-                UploadedRange::NotUploaded { next_seq } => (next_seq - 1, false),
+                UploadedRange::NotUploaded { next_seq } => (next_seq - 1, None),
             };
         cursor.record.history_values_offloaded_through_seq = cursor
             .record
             .history_values_offloaded_through_seq
             .max(done_through);
-        if is_stopped {
-            break;
+        if let Some(stop) = stop {
+            return Ok(stop);
         }
         seq = done_through.saturating_add(1);
     }
-    Ok(())
+    Ok(if seq <= uploaded_through_seq {
+        ValueOffloadProgress::Unfinished
+    } else {
+        ValueOffloadProgress::Complete
+    })
 }
 
 /// Offloads the values superseded in `[first_seq, segment.last_seq]` that `segment` lists,
@@ -318,8 +420,9 @@ fn offload_values_of_segment(
     segment: &HistorySegmentRecord,
     first_seq: u64,
     now_micros: i64,
+    grace_micros: i64,
     budget: &mut usize,
-) -> Result<RangeProgress, ApplyError> {
+) -> Result<ValueRangeProgress, ApplyError> {
     let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::ValueGarbage);
     let mut start = prefix.clone();
     start.extend_from_slice(&first_seq.to_be_bytes());
@@ -343,10 +446,12 @@ fn offload_values_of_segment(
             continue;
         }
         let is_in_grace = garbage.superseded_at_micros != 0
-            && now_micros.saturating_sub(garbage.superseded_at_micros)
-                < SUPERSEDED_VALUE_GRACE_MICROS;
+            && now_micros.saturating_sub(garbage.superseded_at_micros) < grace_micros;
         if is_in_grace {
-            return Ok(RangeProgress::StoppedAt(superseded_seq));
+            return Ok(ValueRangeProgress::InGrace {
+                superseded_seq,
+                grace_ends_at_micros: garbage.superseded_at_micros.saturating_add(grace_micros),
+            });
         }
         let birth_key = value_row_key(rows.flow_hash, rows.run_id, RunTable::ValueBirth, value_id);
         let birth = transaction
@@ -373,9 +478,9 @@ fn offload_values_of_segment(
         );
     }
     Ok(if is_complete {
-        RangeProgress::Complete
+        ValueRangeProgress::Complete
     } else {
-        RangeProgress::StoppedAt(last_scanned_seq)
+        ValueRangeProgress::StoppedAt(last_scanned_seq)
     })
 }
 

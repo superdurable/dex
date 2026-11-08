@@ -51,6 +51,8 @@ pub struct FlowView {
     pub history_upload_pending_runs: BTreeSet<RunId>,
     /// Runs of this Flow named by the partition's HistoryObjectDeletePending index.
     pub history_object_delete_pending_runs: BTreeSet<RunId>,
+    /// Runs of this Flow named by the partition's HistoryLocalCleanupPending index.
+    pub history_local_cleanup_pending_runs: BTreeSet<RunId>,
     /// True when the Flow's partition offloads history.
     pub is_history_offload_enabled: bool,
     /// The partition and Flow hash the view was read for.
@@ -299,6 +301,29 @@ impl FlowView {
                 })?;
             if row_flow_hash == flow_hash {
                 view.history_object_delete_pending_runs.insert(run_id);
+            }
+        }
+        let (start, end) = partition_index_range(partition, IndexKind::HistoryLocalCleanupPending);
+        let cleanup_pending_rows = dexzd_apply::FlowStateReader::scan(
+            state,
+            ColumnFamily::PartitionIndex,
+            &start,
+            &end,
+            usize::MAX,
+        )
+        .map_err(|error| StateViewError {
+            what: "HistoryLocalCleanupPending index",
+            key_hex: hex(&start),
+            detail: error.to_string(),
+        })?;
+        for (key, _) in &cleanup_pending_rows {
+            let (row_flow_hash, run_id) = decode_flow_run_after_prefix(key, start.len())
+                .filter(|_| key.len() == start.len() + 24)
+                .ok_or_else(|| {
+                    view_error(key, "HistoryLocalCleanupPending index", "malformed key")
+                })?;
+            if row_flow_hash == flow_hash {
+                view.history_local_cleanup_pending_runs.insert(run_id);
             }
         }
         let mode_key = history_offload_mode_key(partition);

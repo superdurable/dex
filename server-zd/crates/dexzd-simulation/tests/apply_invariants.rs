@@ -135,6 +135,7 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "SetHistoryOffloadMode",
         "HistorySegmentUploaded",
         "HistorySegmentObjectsDeleted",
+        "HistoryLocalCleanup",
     ] {
         assert!(
             total.applied(kind) > 0,
@@ -180,6 +181,13 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
             .get("HistorySegmentObjectsDeleted")
             .is_some_and(|count| *count > 0),
         "the seed set never proposed a stale record of deleted history objects: {total:#?}"
+    );
+    assert!(
+        total
+            .rejected_by_kind
+            .get("HistoryLocalCleanup")
+            .is_some_and(|count| *count > 0),
+        "the seed set never proposed a local history cleanup before it was due: {total:#?}"
     );
     assert!(
         total.close_barrier.held_by_rpcs > 0 && total.close_barrier.finalized_after_rpcs > 0,

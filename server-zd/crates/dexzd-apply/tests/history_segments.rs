@@ -451,6 +451,7 @@ fn settings(segment_target_bytes: u64) -> RunSettings {
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: segment_target_bytes,
         delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
     }
 }
 
@@ -782,7 +783,13 @@ fn acknowledgments_accept_only_the_oldest_sealed_segment() {
 
     let applied = harness.ack(first.first_seq, first.last_seq);
     assert!(is_ok(&applied.reply));
-    assert!(applied.effects.is_empty());
+    // Superseded values of the uploaded segment wait for their grace period.
+    assert!(
+        applied
+            .effects
+            .iter()
+            .all(|effect| matches!(effect, ApplyEffect::HistoryLocalCleanupScheduled { .. }))
+    );
     let record = harness.run_record();
     assert_eq!(record.history_uploaded_through_seq, first.last_seq);
     assert_eq!(

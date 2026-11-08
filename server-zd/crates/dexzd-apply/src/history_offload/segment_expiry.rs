@@ -48,21 +48,23 @@ const MAX_EXPIRED_SEGMENTS_PER_COMMAND: usize = 256;
 /// lists more expires alone, since its seal wrote as many rows in one command. Later commands
 /// continue. Asks the owner to delete the new EXPIRED objects when the run's delete switch is on.
 /// `now_micros` is the command's proposal time.
+///
+/// Returns true when a per-command bound stopped the expiry, so a later command can continue.
 pub(crate) fn expire_passed_history_segments(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
     now_micros: i64,
-) -> Result<(), ApplyError> {
+) -> Result<bool, ApplyError> {
     let record = &cursor.record;
     let pruned_through_seq = record.history_window_pruned_through_seq;
     let mut expired_through_seq = record.history_expired_through_seq;
     if record.history_open_segment_first_seq == 0 || pruned_through_seq <= expired_through_seq {
-        return Ok(());
+        return Ok(false);
     }
     let rows = cursor.rows;
     let first_seq = expired_through_seq.max(genesis_seq(transaction, rows)?) + 1;
     if first_seq > pruned_through_seq {
-        return Ok(());
+        return Ok(false);
     }
     let candidates = transaction.scan_messages::<HistorySegmentRecord>(
         ColumnFamily::Flow,
@@ -76,7 +78,8 @@ pub(crate) fn expire_passed_history_segments(
         "history segment",
     )?;
     let mut listed_value_rows = 0_u64;
-    let mut has_expired = false;
+    let mut expired_count = 0;
+    let mut is_bound_reached = false;
     for (key, segment) in candidates {
         if segment.last_seq > pruned_through_seq {
             break;
@@ -94,7 +97,8 @@ pub(crate) fn expire_passed_history_segments(
             break;
         }
         let with_segment = listed_value_rows.saturating_add(segment.superseded_value_count);
-        if has_expired && with_segment > MAX_SEGMENT_SUPERSEDED_VALUES {
+        if expired_count > 0 && with_segment > MAX_SEGMENT_SUPERSEDED_VALUES {
+            is_bound_reached = true;
             break;
         }
         listed_value_rows = with_segment;
@@ -109,13 +113,14 @@ pub(crate) fn expire_passed_history_segments(
                 ..segment
             },
         );
-        has_expired = true;
+        expired_count += 1;
     }
-    if !has_expired {
-        return Ok(());
+    if expired_count == 0 {
+        return Ok(false);
     }
     cursor.record.history_expired_through_seq = expired_through_seq;
-    update_history_object_delete_pending(transaction, cursor, true)
+    update_history_object_delete_pending(transaction, cursor, true)?;
+    Ok(is_bound_reached || expired_count == MAX_EXPIRED_SEGMENTS_PER_COMMAND)
 }
 
 /// Deletes the value list of the segment that starts at `first_seq`, and the birth record of

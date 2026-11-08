@@ -279,6 +279,12 @@ impl Config {
             "history.segmentTargetBytes",
             "must be positive and at most 256 MiB",
         )?;
+        // Runs record whole microseconds, and zero would select the 10-minute default.
+        ensure(
+            self.history.superseded_value_grace_period >= Duration::from_micros(1),
+            "history.supersededValueGracePeriod",
+            "must be at least 1 microsecond",
+        )?;
         ensure(
             (1..=MAX_HISTORY_UPLOAD_CONCURRENCY).contains(&self.history.upload_concurrency),
             "history.uploadConcurrency",

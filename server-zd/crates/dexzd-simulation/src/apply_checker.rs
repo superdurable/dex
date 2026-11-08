@@ -30,9 +30,9 @@ use crate::invariants::{
     CheckerMemory, CloseBarrierCounts, HistoryMigrationCounts, InvariantViolation,
     LocalOffloadCounts, OffloadGapsByRun, WindowPointState, check_close_barrier,
     check_deletions_were_uploaded, check_flow, check_fresh_snapshot, check_history_migration,
-    check_open_segment_transitions, check_outbox_writes, check_sealed_segment_encodings,
-    check_value_offloads, check_window_value_content, collect_value_offloads, offloaded_value_row,
-    remember_ack, remember_window_points,
+    check_local_cleanup_drained, check_open_segment_transitions, check_outbox_writes,
+    check_sealed_segment_encodings, check_value_offloads, check_window_value_content,
+    collect_value_offloads, offloaded_value_row, remember_ack, remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::offloaded_history::compute_offloaded_time_travel;
@@ -725,6 +725,54 @@ impl ApplyChecker {
             })
             .collect();
         self.memory.genesis_values.insert(run_id, genesis);
+        Ok(())
+    }
+
+    /// Returns the Flow, run, and due time of the earliest due cleanup of a run that is not
+    /// purging, or `None`.
+    pub(crate) fn first_due_local_cleanup(
+        &self,
+    ) -> Result<Option<(String, RunId, i64)>, InvariantViolation> {
+        let mut first: Option<(String, RunId, i64)> = None;
+        for (key, value) in self.state.rows_with_prefix(ColumnFamily::Flow, &[]) {
+            let Ok(parsed) = parse_run_key(key) else {
+                continue;
+            };
+            if parsed.table != RunTable::RunRecord {
+                continue;
+            }
+            let record = RunRecord::decode(value)
+                .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
+            let Some(due_micros) = record
+                .history_local_cleanup_due_micros
+                .filter(|_| !record.is_purging)
+            else {
+                continue;
+            };
+            if first
+                .as_ref()
+                .is_none_or(|(_, _, first_due_micros)| due_micros < *first_due_micros)
+            {
+                first = Some((record.flow_id, parsed.run_id, due_micros));
+            }
+        }
+        Ok(first)
+    }
+
+    /// Requires that no run of any Flow keeps local cleanup a command could still do (H17).
+    pub(crate) fn check_local_cleanup_drained(&self) -> Result<(), InvariantViolation> {
+        let mut flow_ids = BTreeSet::new();
+        for (key, value) in self.state.rows_with_prefix(ColumnFamily::Flow, &[]) {
+            if parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::RunRecord) {
+                let record = RunRecord::decode(value)
+                    .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
+                flow_ids.insert(record.flow_id);
+            }
+        }
+        for flow_id in flow_ids {
+            let view = self.view(&flow_id, RunSelection::All)?;
+            check_local_cleanup_drained(&flow_id, &view)?;
+        }
         Ok(())
     }
 

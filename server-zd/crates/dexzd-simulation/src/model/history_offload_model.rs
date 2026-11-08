@@ -8,7 +8,8 @@
 
 //! The uploader of the history offload stream: it acknowledges sealed history segments, records
 //! deleted objects of expired ones, and sometimes repeats or skips ahead as a stale owner would.
-//! A client of the stream turns runs' delete switches on and off.
+//! A client of the stream turns runs' delete switches on and off. The owner also proposes each
+//! run's local history cleanup.
 
 use dexzd_apply::is_expired_history_object_deletion_enabled;
 use dexzd_apply::read_model::read_history_segment_content;
@@ -105,6 +106,24 @@ fn encoded_acknowledgment<'view>(
             object_size_bytes: encoded.bytes.len() as u64,
         },
     })
+}
+
+/// Returns the local history cleanup of each of the view's runs that has one pending.
+pub(super) fn local_cleanup_proposals<'view>(view: &FlowView) -> Vec<(u32, Proposal<'view>)> {
+    view.runs
+        .iter()
+        .filter(|(_, run)| run.is_complete)
+        .filter_map(|(run_id, run)| {
+            let due_micros = run.record.as_ref()?.history_local_cleanup_due_micros?;
+            Some((
+                1,
+                Proposal::CleanUpLocalHistory {
+                    run_id: *run_id,
+                    due_micros,
+                },
+            ))
+        })
+        .collect()
 }
 
 /// Returns the deletions the owner may record for the view's runs whose delete switch is on: the

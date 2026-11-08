@@ -8,7 +8,8 @@
 
 //! History offload on the leader: uploads sealed history segments and acknowledges them in seq
 //! order, rescans the upload backlog, deletes the objects of expired segments and of a purged
-//! run, and sweeps objects of runs that no longer exist.
+//! run, and sweeps objects of runs that no longer exist. It also proposes local history
+//! cleanup.
 //!
 //! Apply decides each segment's range and content, so every owner of a partition writes the same
 //! object at the same key. A repeated upload therefore finds an object with an equal content
@@ -20,6 +21,7 @@
 //! Partition rebuilds queue background backlog gauge publication when periodic rescanning is enabled.
 
 mod expired_object_deletion;
+mod local_cleanup;
 mod orphan_sweep;
 mod run_history_objects;
 mod segment_upload;
@@ -30,6 +32,7 @@ use std::future::Future;
 use dexzd_object_store::ObjectStoreResult;
 
 pub(crate) use expired_object_deletion::delete_expired_history_objects;
+pub(crate) use local_cleanup::clean_up_local_history;
 pub(crate) use orphan_sweep::run_history_orphan_sweep;
 pub(crate) use run_history_objects::delete_run_history_objects;
 pub(crate) use segment_upload::upload_sealed_history_segments;

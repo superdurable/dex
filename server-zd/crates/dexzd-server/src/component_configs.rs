@@ -113,6 +113,10 @@ impl ComponentConfigs {
         run_settings.max_child_flow_result_bytes = config.limits.max_child_flow_result_bytes;
         run_settings.history_segment_target_bytes = config.history.segment_target_bytes;
         run_settings.delete_expired_history_objects = config.history.should_delete_expired_objects;
+        run_settings.superseded_value_grace_micros = duration_micros(
+            "history.supersededValueGracePeriod",
+            config.history.superseded_value_grace_period,
+        )?;
         let engine_node = EngineNodeConfig {
             node: NodeConfig {
                 node_id: config.cluster.node_id.clone(),
@@ -253,6 +257,7 @@ impl ComponentConfigs {
                 max_child_flow_result_bytes: config.limits.max_child_flow_result_bytes,
                 history_segment_target_bytes: config.history.segment_target_bytes,
                 delete_expired_history_objects: config.history.should_delete_expired_objects,
+                superseded_value_grace_micros: run_settings.superseded_value_grace_micros,
                 ..EffectsConfig::default().child_run_settings
             },
             heads_resync_interval: config.matching.heads_resync_interval,

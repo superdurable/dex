@@ -22,7 +22,7 @@ use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply};
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::{CommandScope, HandlerOutput, HandlerResult};
-use crate::history_offload::local_deletion::delete_uploaded_history;
+use crate::history::{LocalCleanupCaller, clean_up_local_history, schedule_local_cleanup};
 use crate::history_offload::offload_mode::is_history_offload_enabled;
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::reconcile_run_storage;
@@ -32,6 +32,7 @@ const CONTENT_CHECKSUM_BYTES: usize = 16;
 /// Marks the run's oldest SEALED segment UPLOADED and advances the run's uploaded seq U to its
 /// last seq. Removes the run's upload pending index row once no SEALED segment remains, and
 /// starts deleting the local history that uploaded segments hold while the partition offloads.
+/// Then prunes what the window passed, which a new U may allow, and schedules the rest.
 ///
 /// The command records no history, takes no run seq, and is not bound to an attempt. Replies OK
 /// without writes when the acknowledgment names another segment, as a duplicate or stale one
@@ -92,11 +93,18 @@ pub(crate) fn apply_history_segment_uploaded(
         );
     }
     crate::history::delete_idle_staging(transaction, &mut cursor, scope.now_micros);
-    delete_uploaded_history(transaction, &mut cursor, scope.now_micros)?;
+    let backlog = clean_up_local_history(transaction, &mut cursor, scope.now_micros)?;
+    schedule_local_cleanup(
+        transaction,
+        &mut cursor,
+        backlog,
+        scope.now_micros,
+        LocalCleanupCaller::RunCommand,
+    )?;
     reconcile_run_storage(transaction, &mut cursor)?;
     Ok(HandlerResult::Applied(HandlerOutput {
         reply: ok_reply(),
-        effects: Vec::new(),
+        effects: cursor.effects,
         run_id: None,
         replayed: None,
     }))

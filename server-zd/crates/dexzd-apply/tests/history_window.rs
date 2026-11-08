@@ -426,6 +426,7 @@ fn settings(history_window_events: u32, history_prune_chunk_events: u32) -> RunS
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
     }
 }
 

@@ -13,6 +13,7 @@ mod directory_invariants;
 mod dispatch_queue_invariants;
 mod history_migration_invariants;
 mod history_segment_invariants;
+mod local_cleanup_invariants;
 mod lock_invariants;
 mod search_order_invariants;
 mod value_invariants;
@@ -39,6 +40,18 @@ pub(crate) use history_segment_invariants::{
 };
 pub use lock_invariants::check_fresh_snapshot;
 pub(crate) use value_invariants::{offloaded_value_row, remember_window_points};
+
+/// Requires that no run of the Flow keeps doable local cleanup once none is due (H17).
+pub(crate) fn check_local_cleanup_drained(
+    flow_id: &str,
+    view: &FlowView,
+) -> Result<(), InvariantViolation> {
+    for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
+        let context = RunContext { flow_id, run_id };
+        local_cleanup_invariants::check_cleanup_drained(&context, run, view)?;
+    }
+    Ok(())
+}
 
 pub(crate) fn check_window_value_content(
     flow_id: &str,
@@ -133,6 +146,7 @@ pub fn check_flow(
     attribute_sync_invariants::check_index_runs_exist(flow_id, view)?;
     search_order_invariants::check_search_order(flow_id, view)?;
     dispatch_queue_invariants::check_dispatch_queue_runs_exist(flow_id, view)?;
+    local_cleanup_invariants::check_cleanup_index_runs_exist(flow_id, view)?;
     for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
         let context = RunContext { flow_id, run_id };
         directory_invariants::check_run_record(&context, run)?;
@@ -164,6 +178,7 @@ pub fn check_flow(
         )?;
         history_segment_invariants::check_window_frontier(&context, run)?;
         history_segment_invariants::check_segment_expiry(&context, run, view)?;
+        local_cleanup_invariants::check_cleanup_index(&context, run, view)?;
     }
     Ok(())
 }

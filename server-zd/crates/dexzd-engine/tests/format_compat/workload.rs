@@ -41,14 +41,14 @@ use dexzd_protocol::dex::{
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
     ChannelPublishCommand, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand, FlowStopCommand,
-    HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, HistorySegmentRecord,
-    HistorySegmentState, HistorySegmentUploadedCommand, InboxMessageCommand, OutboxAckCommand,
-    OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand, RunSettings,
-    SearchOutboxAckCommand, SetHistoryOffloadModeCommand, SetSearchProjectionModeCommand,
-    StepAttemptFailedCommand, StepAttemptFailureKind, StepAttemptHeartbeatCommand,
-    StepAttemptQueuedCommand, StepAttemptReturnReason, StepAttemptReturnedCommand,
-    StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand,
+    HardDeleteObjectReference, HardDeleteObjectsDeletedCommand, HistoryLocalCleanupCommand,
+    HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand, InboxMessageCommand,
+    OutboxAckCommand, OutboxRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunPurgeCommand,
+    RunSettings, SearchOutboxAckCommand, SetHistoryOffloadModeCommand,
+    SetSearchProjectionModeCommand, StepAttemptFailedCommand, StepAttemptFailureKind,
+    StepAttemptHeartbeatCommand, StepAttemptQueuedCommand, StepAttemptReturnReason,
+    StepAttemptReturnedCommand, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey,
+    StepMethod, StepMethodCompletedCommand, TimerRecord, TimerSkipCommand, TimersFiredCommand,
     ValueBirthRecord, ValueRecord, ValueReviveCommand, command_reply, flow_command::Command,
     inbox_message_command, outbox_record, step_attempt_heartbeat_command,
     step_method_completed_command, timer_id,
@@ -150,7 +150,8 @@ impl Workload<'_> {
 
     /// `history-flow`, in partition 1, which offloads history: a replaced Attribute supersedes a
     /// value, the stop seals the run's only segment, and an upload acknowledgment marks it
-    /// uploaded.
+    /// uploaded. After the value's grace period, a HistoryLocalCleanup deletes it locally, since
+    /// the closed run receives no more commands.
     async fn history_segment_is_sealed_at_close_and_acknowledged(&self) {
         let flow_id = (0..)
             .map(|index| format!("history-flow-{index}"))
@@ -196,6 +197,22 @@ impl Workload<'_> {
         .await;
         let content = self.acknowledge_only_history_segment(&run).await;
         assert_eq!(content.values.len(), 1, "the replaced value is listed");
+        let is_offloaded =
+            |births: &[ValueBirthRecord]| births.iter().any(|birth| birth.is_offloaded);
+        assert!(!is_offloaded(
+            &self.run_rows(&run, RunTable::ValueBirth).await
+        ));
+        self.clock
+            .advance(SUPERSEDED_VALUE_GRACE_MICROS + SECOND_MICROS);
+        self.commit(
+            &run,
+            Command::HistoryLocalCleanup(HistoryLocalCleanupCommand {}),
+        )
+        .await;
+        assert!(
+            is_offloaded(&self.run_rows(&run, RunTable::ValueBirth).await),
+            "the cleanup deletes the replaced value locally"
+        );
     }
 
     /// `revive-flow`, in partition 1, which offloads history: a replaced Attribute's value is
