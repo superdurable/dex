@@ -88,6 +88,16 @@ pub(crate) async fn run_history_upload_rescan(context: Arc<EffectContext>) {
     context.metrics.history_upload_backlog.clear();
 }
 
+pub(crate) fn rebuild_history_upload_backlog(
+    context: &EffectContext,
+    reader: &dyn FlowStateReader,
+    partition: PartitionId,
+) -> Result<(), EffectError> {
+    let backlog = scan_partition_backlog(reader, partition, &SealedSegmentSizes::new())?;
+    record_partition_backlog(context, partition, &backlog);
+    Ok(())
+}
+
 /// Scans the partition's upload pending runs on a blocking thread.
 async fn rescan_partition(
     context: &EffectContext,
@@ -122,23 +132,9 @@ fn publish_partition_backlog(
     backlog: PartitionUploadBacklog,
     sizes: &mut SealedSegmentSizes,
 ) {
-    context.metrics.history_upload_backlog.set_partition(
-        usize::from(partition.0),
-        backlog.segments,
-        backlog.bytes,
-        backlog.oldest_sealed_at_micros,
-    );
+    record_partition_backlog(context, partition, &backlog);
     sizes.retain(|(size_partition, _, _), _| *size_partition != partition);
     sizes.extend(backlog.sizes);
-    for (run, error) in backlog.unreadable {
-        context.metrics.history_upload_rescan_errors.inc();
-        tracing::error!(
-            %error,
-            %partition,
-            run_id = run.map(|run| run.run_id.to_string()),
-            "the history upload rescan could not read a run; skipping it"
-        );
-    }
     for (flow, run) in backlog.runs {
         allow_upload_retry(context, run.run_id);
         context.report(RouterMessage::Effects {
@@ -148,6 +144,28 @@ fn publish_partition_backlog(
             scheduled_at: None,
             position: None,
         });
+    }
+}
+
+fn record_partition_backlog(
+    context: &EffectContext,
+    partition: PartitionId,
+    backlog: &PartitionUploadBacklog,
+) {
+    context.metrics.history_upload_backlog.set_partition(
+        usize::from(partition.0),
+        backlog.segments,
+        backlog.bytes,
+        backlog.oldest_sealed_at_micros,
+    );
+    for (run, error) in &backlog.unreadable {
+        context.metrics.history_upload_rescan_errors.inc();
+        tracing::error!(
+            %error,
+            %partition,
+            run_id = run.map(|run| run.run_id.to_string()),
+            "the history upload rescan could not read a run; skipping it"
+        );
     }
 }
 

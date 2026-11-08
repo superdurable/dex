@@ -59,6 +59,11 @@ pub(crate) async fn rebuild_partition(
     rebuild_outbox_messages(reader.as_ref(), partition, &mut work)?;
     rebuild_hard_delete_deletions(reader.as_ref(), partition, &mut work)?;
     rebuild_history_uploads(reader.as_ref(), partition, &mut work)?;
+    crate::effects::history_uploads::rebuild_history_upload_backlog(
+        context,
+        reader.as_ref(),
+        partition,
+    )?;
     rebuild_history_object_deletions(reader.as_ref(), partition, &mut work)?;
     rebuild_run_purges(reader.as_ref(), partition, &mut work)?;
     let effect_count: usize = work
