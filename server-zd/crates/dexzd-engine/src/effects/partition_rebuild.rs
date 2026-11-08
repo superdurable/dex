@@ -81,6 +81,7 @@ pub(crate) async fn rebuild_partition(
             position: None,
         });
     }
+    crate::effects::history_uploads::request_partition_backlog_rescan(context, partition);
     tracing::debug!(%partition, effect_count, "rebuilt partition effects");
     Ok(effect_count)
 }

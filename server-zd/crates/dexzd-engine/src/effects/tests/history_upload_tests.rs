@@ -657,6 +657,116 @@ async fn an_object_store_outage_grows_the_backlog_without_blocking_commands_then
 }
 
 #[tokio::test(start_paused = true)]
+async fn backlog_gauges_rebuild_during_an_outage_and_track_recovery() {
+    let faults = Arc::new(HistoryWriteFaults::default());
+    faults.set(HistoryWriteFaults::FAIL_PERMANENTLY);
+    let durable = durable_with_faults(Arc::clone(&faults));
+    let first = EffectHarness::with_config(durable.clone(), rescan_config());
+    first.rebuild_all_partitions().await;
+    enable_history_offload(&first);
+    let flow_id = "backlog-restart";
+    let run_id = first.start_flow(
+        start_request(flow_id),
+        RunSettings {
+            history_segment_target_bytes: 1,
+            ..settings()
+        },
+    );
+    for round in 0..3 {
+        set_long_attribute(&first, flow_id, run_id, "notes", &format!("v{round}"));
+    }
+    close_run(&first, flow_id, run_id);
+    tokio::time::sleep(RESCAN_INTERVAL).await;
+    first.settle().await;
+    let expected_segments = segments(&first, flow_id, run_id)
+        .iter()
+        .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+        .count() as u64;
+    let backlog = &first.metrics.history_upload_backlog;
+    assert_eq!(backlog.segments(), expected_segments);
+    let expected_bytes = backlog.bytes();
+    let expected_oldest = backlog.oldest_sealed_at_micros();
+    assert!(expected_bytes > 0);
+    assert!(expected_oldest.is_some());
+    first.shutdown().await;
+
+    let disabled = EffectHarness::with_config(
+        durable.clone(),
+        EffectsConfig {
+            history_upload_rescan_interval: Duration::ZERO,
+            ..rescan_config()
+        },
+    );
+    disabled.rebuild_all_partitions().await;
+    disabled.settle().await;
+    assert_eq!(disabled.metrics.history_upload_backlog.segments(), 0);
+    assert_eq!(disabled.metrics.history_upload_backlog.bytes(), 0);
+    assert_eq!(
+        disabled
+            .metrics
+            .history_upload_backlog
+            .oldest_sealed_at_micros(),
+        None
+    );
+    disabled.shutdown().await;
+
+    let second = EffectHarness::with_config(durable, rescan_config());
+    // Consume the initial tick before any partition belongs to the restarted owner.
+    second.settle().await;
+    let rebuilt_at = tokio::time::Instant::now();
+    second.rebuild_all_partitions().await;
+    let backlog = &second.metrics.history_upload_backlog;
+    wait_until(&second, "rebuilt backlog gauges publish", || {
+        backlog.segments() == expected_segments
+    })
+    .await;
+    assert!(rebuilt_at.elapsed() < RESCAN_INTERVAL);
+    assert_eq!(backlog.segments(), expected_segments);
+    assert_eq!(backlog.bytes(), expected_bytes);
+    assert_eq!(backlog.oldest_sealed_at_micros(), expected_oldest);
+
+    let later_flow_id = "backlog-after-restart";
+    let later_run_id = second.start_flow(
+        start_request(later_flow_id),
+        RunSettings {
+            history_segment_target_bytes: 1,
+            ..settings()
+        },
+    );
+    set_long_attribute(
+        &second,
+        later_flow_id,
+        later_run_id,
+        "notes",
+        "after restart",
+    );
+    close_run(&second, later_flow_id, later_run_id);
+    tokio::time::sleep(RESCAN_INTERVAL).await;
+    second.settle().await;
+    assert_eq!(
+        backlog.segments(),
+        segments(&second, flow_id, run_id)
+            .iter()
+            .chain(segments(&second, later_flow_id, later_run_id).iter())
+            .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+            .count() as u64
+    );
+    assert!(backlog.segments() > expected_segments);
+    assert!(backlog.bytes() > expected_bytes);
+    assert_eq!(backlog.oldest_sealed_at_micros(), expected_oldest);
+
+    faults.set(HistoryWriteFaults::PROCEED);
+    wait_until_uploaded(&second, flow_id, run_id).await;
+    wait_until_uploaded(&second, later_flow_id, later_run_id).await;
+    tokio::time::sleep(RESCAN_INTERVAL).await;
+    second.settle().await;
+    assert_eq!(backlog.segments(), 0);
+    assert_eq!(backlog.bytes(), 0);
+    assert_eq!(backlog.oldest_sealed_at_micros(), None);
+    second.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn retention_waits_for_uploads_and_the_purge_deletes_the_runs_history_objects() {
     let faults = Arc::new(HistoryWriteFaults::default());
     faults.set(HistoryWriteFaults::FAIL);
