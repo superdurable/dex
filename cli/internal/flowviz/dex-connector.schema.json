@@ -232,7 +232,12 @@
             "properties": {
               "agent": {
                 "properties": {
-                  "retry": false
+                  "retry": false,
+                  "branches": {
+                    "additionalProperties": {
+                      "const": "rejected"
+                    }
+                  }
                 }
               }
             }
@@ -285,6 +290,20 @@
             "safe"
           ],
           "description": "Repeating the call with the same Call ID, inside the operation's own Execute retry policy, cannot make a second effect. Absence means a repeat may not be safe."
+        },
+        "branches": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][A-Za-z0-9]+$"
+          },
+          "additionalProperties": {
+            "enum": [
+              "rejected",
+              "unknown"
+            ]
+          },
+          "description": "Classification of optional branches by whether the operation's effect may have happened: rejected means the call changed nothing, unknown means the effect may have happened. A host treats an unlisted optional Mutation branch as unknown, and an unlisted optional Query branch as a failure. Every key is an optional branch ID of this factory."
         }
       },
       "if": {
@@ -297,7 +316,8 @@
       "then": {
         "properties": {
           "approval": false,
-          "retry": false
+          "retry": false,
+          "branches": false
         }
       }
     },

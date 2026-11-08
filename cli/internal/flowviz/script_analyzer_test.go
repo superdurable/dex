@@ -311,6 +311,8 @@ func TestConnectorManifestSchemaDeclaresToolMetadata(t *testing.T) {
 	}
 	require.Contains(t, document.Definitions["agent"].Properties, "exposed")
 	require.Contains(t, document.Definitions["agent"].Properties, "approval")
+	branches := document.Definitions["agent"].Properties["branches"].(map[string]any)
+	require.Equal(t, map[string]any{"enum": []any{"rejected", "unknown"}}, branches["additionalProperties"])
 	require.Equal(t, false, document.Definitions["agent"].AdditionalProperties, "authors still get an error for a typo")
 	require.Equal(t, map[string]any{"enum": []any{"safe"}, "description": document.Definitions["agent"].Properties["retry"].(map[string]any)["description"]}, document.Definitions["agent"].Properties["retry"])
 }
