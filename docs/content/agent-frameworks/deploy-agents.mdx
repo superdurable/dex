@@ -494,6 +494,12 @@ Dex Web offers all four while the session runs, and an RPC that does not apply
 returns false. Read the interrupt ID from **PendingInterrupts** in the run's
 state, or from the session snapshot.
 
+The run page of a session also has a **Session** tab. It shows the
+conversation with each tool call where the agent made it, one approval card for
+each pending call, and **Steer** and **Stop turn**. The tab reads the session's
+Attributes directly, so it still shows the session while its Workers are down.
+See [Agent session view](/reference/web/dex-web#agent-session-view).
+
 The session declares no Summary or Display fields, so Dex Web shows a session
 without calling a Worker. Actions still need a Worker.
 

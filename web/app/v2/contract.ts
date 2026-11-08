@@ -50,6 +50,16 @@ export function v2RunPath(flowType?: string, flowID?: string) {
   return v2ModePath('run', flowType, flowID);
 }
 
+/** The run page's query parameter that picks the canvas or, for an agent session, the Session tab. */
+export const V2_RUN_VIEW_PARAM = 'view';
+
+export type V2RunView = 'canvas' | 'session';
+
+/** Opens a Dex Agents session on its Session tab. Flows without the session schema show the canvas. */
+export function v2SessionPath(flowType: string, flowID: string) {
+  return `${v2RunPath(flowType, flowID)}?${V2_RUN_VIEW_PARAM}=session`;
+}
+
 export function v2WorkQueuePath(flowType?: string, flowID?: string) {
   return v2ModePath('work-queue', flowType, flowID);
 }

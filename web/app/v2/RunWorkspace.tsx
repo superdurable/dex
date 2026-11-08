@@ -8,9 +8,12 @@
 
 import type { FlowRoutingData } from '@/app/flows/details/PullRouting';
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { FlowSummary } from '@/lib/types';
-import { v2HomePath, v2RunPath } from './contract';
+import { v2HomePath, v2RunPath, V2_RUN_VIEW_PARAM, type V2RunView } from './contract';
+import { SESSION_COPY } from './agents/copy';
+import { SessionView } from './agents/SessionView';
+import { agentSessionSchema } from './agents/sessionSchema';
 import './css/v2.css';
 import { RUN_COPY } from './run/copy';
 import { RunDetailDrawer, type StepBand } from './run/RunDetailDrawer';
@@ -53,10 +56,29 @@ export function HomePage() {
 export function RunWorkspace() {
   const { flowType = '', flowId = '' } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     ready, canUseV2, catalog, definitions, error, definitionUpdateKey, handleDefinitionError,
   } = useWebCatalog();
   const entry = catalog?.flows.find((candidate) => candidate.flowType === flowType);
+  const sessionSchema = agentSessionSchema(
+    definitions?.definitions.find((candidate) => (
+      candidate.flowName === flowType && candidate.schemaVersion === '2.0' && candidate.valid
+    ))?.graph,
+    entry?.definition,
+  );
+  const runView: V2RunView = sessionSchema && flowId && searchParams.get(V2_RUN_VIEW_PARAM) === 'session'
+    ? 'session'
+    : 'canvas';
+  const chooseRunView = (next: V2RunView) => {
+    setSearchParams((current) => {
+      const updated = new URLSearchParams(current);
+      if (next === 'session') updated.set(V2_RUN_VIEW_PARAM, 'session');
+      else updated.delete(V2_RUN_VIEW_PARAM);
+      return updated;
+    }, { replace: true });
+    if (next === 'canvas') setRefocusKey((key) => key + 1);
+  };
   const runQuery = useRunQuery(entry?.definition, flowType);
   const [refocusKey, setRefocusKey] = useState(0);
   const searchFlowTypes = searchedFlowTypes(runQuery.appliedFlowTypes, flowType);
@@ -125,7 +147,12 @@ export function RunWorkspace() {
   } as CSSProperties;
   return (
     <div className="v2-shell v2-run" ref={shellRef} style={paneStyle}>
-      <div className="v2-run-body" data-has-drawer={showDrawer ? 'true' : undefined} ref={bodyRef}>
+      <div
+        className="v2-run-body"
+        data-has-drawer={showDrawer ? 'true' : undefined}
+        data-view={runView}
+        ref={bodyRef}
+      >
         <RunList
           collapsed={listPane.isCollapsed}
           emptyText={emptyRunsText(runQuery.appliedFilters, searchFlowTypes, RUN_COPY.noRuns)}
@@ -188,7 +215,7 @@ export function RunWorkspace() {
           onSelectRun={(flow) => {
             // Picking the open run again takes the canvas back to where the run is.
             if (flow.flowId === flowId) setRefocusKey((key) => key + 1);
-            navigate(v2RunPath(flow.flowType, flow.flowId));
+            navigate({ pathname: v2RunPath(flow.flowType, flow.flowId), search: runView === 'session' ? `?${V2_RUN_VIEW_PARAM}=session` : '' });
           }}
         />
         <V2SplitHandle
@@ -203,7 +230,24 @@ export function RunWorkspace() {
           onCommit={listPane.commit}
           onToggle={listPane.isCollapsed ? listPane.expand : listPane.collapse}
         />
-        <section className="v2-canvas" aria-label="Flow definition">
+        <section className="v2-canvas" aria-label="Flow definition" data-view={runView}>
+          {sessionSchema && flowId && (
+            <div className="v2-run-tabs" role="tablist" aria-label={SESSION_COPY.tabsLabel}>
+              {(['canvas', 'session'] as const).map((view) => (
+                <button
+                  aria-selected={runView === view}
+                  className="v2-run-tab"
+                  key={view}
+                  onClick={() => chooseRunView(view)}
+                  role="tab"
+                  type="button"
+                >
+                  {view === 'canvas' ? SESSION_COPY.tabCanvas : SESSION_COPY.tabSession}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="v2-canvas-pane">
           <V2Canvas
             flowId={flowId}
             flowType={entry.flowType}
@@ -218,6 +262,18 @@ export function RunWorkspace() {
             showStepPanel={false}
             onTick={onTick}
           />
+          </div>
+          {runView === 'session' && sessionSchema && (
+            <SessionView
+              key={flowId}
+              flowId={flowId}
+              flowType={entry.flowType}
+              reloadKey={tick}
+              schema={sessionSchema}
+              workQueuePermissions={workQueuePermissions}
+              onChooseWorkingAs={setPermission}
+            />
+          )}
         </section>
         {showDrawer ? (
           <>

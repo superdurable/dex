@@ -22,10 +22,15 @@ import {
   v2ListColumns,
   v2WorkQueuePath,
   v2RunPath,
+  v2SessionPath,
   visibleV2Actions,
 } from './contract';
 
 describe('Dex Web v2 contract helpers', () => {
+  it('opens an agent session on its Session tab', () => {
+    expect(v2SessionPath('Support Agent', 'ses/1')).toBe('/v2/run/Support%20Agent/ses%2F1?view=session');
+  });
+
   it('defaults to v2 Run only when a JSON directory is configured', () => {
     expect(v2HomePath(true)).toBe('/v2/run');
     expect(v2HomePath(false)).toBe('/v1/flows');
