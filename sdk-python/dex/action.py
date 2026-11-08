@@ -26,20 +26,21 @@ from dex.runtime_errors import ValueMappingError
 
 ValueT = TypeVar("ValueT")
 
+#: The KeywordList Search Attribute that holds a Flow execution's Action permissions.
+#:
+#: The Server maintains it from the Action permission mappings that Workers send.
+#: It lists every permission whose Action has been available during the current
+#: Flow execution. It is a Work Queue discovery projection, not an authorization
+#: result: the RPC gateway must still authorize each Action against its required
+#: permission.
+#:
+#: .. versionadded:: 1.39.0
 WORK_QUEUE_PERMISSIONS_INDEX_KEY = "DexWorkQueuePermissions"
-"""The KeywordList Search Attribute that holds a Flow execution's Action permissions.
-
-The Server maintains it from the Action permission mappings that Workers send.
-It lists every permission whose Action has been available during the current
-Flow execution. It is a Work Queue discovery projection, not an authorization
-result: the RPC gateway must still authorize each Action against its required
-permission.
-
-.. versionadded:: 1.39.0
-"""
 
 _ACTION_PERMISSION_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$")
-_ACTION_SCALAR_KINDS = frozenset({"string_value", "bool_value", "int_value", "double_value"})
+_ACTION_SCALAR_KINDS = frozenset(
+    {"string_value", "bool_value", "int_value", "double_value"}
+)
 
 
 @dataclass(frozen=True, init=False)
@@ -213,7 +214,9 @@ class _RegisteredAction:
     def matches(self, value: pb.Value | None) -> bool:
         if value is None or value.WhichOneof("kind") in (None, "null_value"):
             return False
-        return any(_equal_action_scalar_values(value, operand) for operand in self.operands)
+        return any(
+            _equal_action_scalar_values(value, operand) for operand in self.operands
+        )
 
 
 def _compile_action(
@@ -227,7 +230,9 @@ def _compile_action(
     if not isinstance(action.label, str) or not action.label.strip():
         raise ValueError(f"RPC {rpc_name} Action label must not be empty")
     permission = action.required_permission
-    if not isinstance(permission, str) or not _ACTION_PERMISSION_PATTERN.match(permission):
+    if not isinstance(permission, str) or not _ACTION_PERMISSION_PATTERN.match(
+        permission
+    ):
         raise ValueError(
             f"RPC {rpc_name} Action permission {permission!r} must use lowercase letter "
             "and number segments separated by dots or hyphens"
@@ -331,7 +336,8 @@ def _initial_work_queue_permissions_write(
         {
             action.required_permission
             for action in actions
-            if action.attribute_name and action.matches(values.get(action.attribute_name))
+            if action.attribute_name
+            and action.matches(values.get(action.attribute_name))
         }
     )
     if not permissions:

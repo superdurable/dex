@@ -105,7 +105,9 @@ def _server_protocol() -> NegotiatedServerProtocol:
 
 class PassthroughHydrator:
     @staticmethod
-    def execute_request(request: pb.InvokeExecuteMethodRequest) -> pb.InvokeExecuteMethodRequest:
+    def execute_request(
+        request: pb.InvokeExecuteMethodRequest,
+    ) -> pb.InvokeExecuteMethodRequest:
         return request
 
     @staticmethod
@@ -115,7 +117,9 @@ class PassthroughHydrator:
 
 class AsyncPassthroughHydrator:
     @staticmethod
-    async def rpc_request(request: pb.InvokeWorkerRPCRequest) -> pb.InvokeWorkerRPCRequest:
+    async def rpc_request(
+        request: pb.InvokeWorkerRPCRequest,
+    ) -> pb.InvokeWorkerRPCRequest:
         return request
 
 
@@ -138,7 +142,14 @@ def _dispatcher() -> tuple[WorkerDispatcher, ValueMapper]:
 def _expected_mappings(values: ValueMapper) -> list[tuple[str, list[pb.Value], str]]:
     string = values.codec(str)
     return [
-        ("case-status", [values.encode("awaiting-manager", string), values.encode("escalated", string)], "refund.approve"),
+        (
+            "case-status",
+            [
+                values.encode("awaiting-manager", string),
+                values.encode("escalated", string),
+            ],
+            "refund.approve",
+        ),
         ("priority", [values.encode(1, values.codec(int))], "refund.escalate"),
     ]
 
@@ -158,7 +169,9 @@ def test_rpc_writing_a_condition_attribute_sends_every_conditioned_mapping() -> 
         pb.InvokeWorkerRPCRequest(flow_type="RefundFlow", rpc_name="approve_refund")
     )
     assert response.HasField("action_permission_mappings")
-    assert _mapping_tuples(response.action_permission_mappings) == _expected_mappings(values)
+    assert _mapping_tuples(response.action_permission_mappings) == _expected_mappings(
+        values
+    )
 
 
 def test_rpc_writing_only_unrelated_attributes_omits_mappings() -> None:
@@ -189,7 +202,9 @@ def test_execute_writing_a_condition_attribute_sends_mappings() -> None:
         )
         return outputs[-1].result
 
-    assert _mapping_tuples(execute("status").action_permission_mappings) == _expected_mappings(values)
+    assert _mapping_tuples(
+        execute("status").action_permission_mappings
+    ) == _expected_mappings(values)
     assert not execute("other").HasField("action_permission_mappings")
 
 
@@ -202,7 +217,9 @@ def test_async_rpc_sends_mappings() -> None:
     )
     response = asyncio.run(
         dispatcher.invoke_rpc(
-            pb.InvokeWorkerRPCRequest(flow_type="RefundFlow", rpc_name="escalate_refund")
+            pb.InvokeWorkerRPCRequest(
+                flow_type="RefundFlow", rpc_name="escalate_refund"
+            )
         )
     )
     assert [write.key for write in response.upsert_attributes] == ["note"]
@@ -212,25 +229,40 @@ def test_async_rpc_sends_mappings() -> None:
             pb.InvokeWorkerRPCRequest(flow_type="RefundFlow", rpc_name="approve_refund")
         )
     )
-    assert _mapping_tuples(approved.action_permission_mappings) == _expected_mappings(values)
+    assert _mapping_tuples(approved.action_permission_mappings) == _expected_mappings(
+        values
+    )
 
 
 def test_registry_registers_the_work_queue_permissions_index() -> None:
     registry, _ = _registry()
-    assert registry._attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] == pb.INDEX_TYPE_KEYWORD_ARRAY
-    assert WORK_QUEUE_PERMISSIONS_INDEX_KEY not in Registry((PlainFlow(),))._attribute_indexes
+    assert (
+        registry._attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY]
+        == pb.INDEX_TYPE_KEYWORD_ARRAY
+    )
+    assert (
+        WORK_QUEUE_PERMISSIONS_INDEX_KEY
+        not in Registry((PlainFlow(),))._attribute_indexes
+    )
 
 
 def _initial_permissions(
     start: pb.FlowStartOptions | pb.SubFlowOptions,
 ) -> list[pb.AttributeWrite]:
-    return [write for write in start.attributes if write.key == WORK_QUEUE_PERMISSIONS_INDEX_KEY]
+    return [
+        write
+        for write in start.attributes
+        if write.key == WORK_QUEUE_PERMISSIONS_INDEX_KEY
+    ]
 
 
 def _assert_permissions_write(write: pb.AttributeWrite, permissions: list[str]) -> None:
     assert write.value.obj_value.encoding == "json"
     assert json.loads(write.value.obj_value.payload) == permissions
-    assert write.value.obj_value.payload == json.dumps(permissions, separators=(",", ":")).encode()
+    assert (
+        write.value.obj_value.payload
+        == json.dumps(permissions, separators=(",", ":")).encode()
+    )
     assert write.index_config == pb.IndexConfig(
         enable=True,
         type=pb.INDEX_TYPE_KEYWORD_ARRAY,
@@ -250,14 +282,22 @@ def test_start_flow_writes_initial_permissions_sorted_and_deduplicated() -> None
     )
     (write,) = _initial_permissions(matching)
     _assert_permissions_write(write, ["refund.approve", "refund.escalate"])
-    assert matching.attributes[-1] is not None and matching.attributes[-1].key == WORK_QUEUE_PERMISSIONS_INDEX_KEY
+    assert (
+        matching.attributes[-1] is not None
+        and matching.attributes[-1].key == WORK_QUEUE_PERMISSIONS_INDEX_KEY
+    )
 
     not_matching = client._map_start_options(
         registered,
-        StartFlowOptions().with_attribute(CASE_STATUS, "approved").with_attribute(PRIORITY, 2),
+        StartFlowOptions()
+        .with_attribute(CASE_STATUS, "approved")
+        .with_attribute(PRIORITY, 2),
     )
     assert _initial_permissions(not_matching) == []
-    assert _initial_permissions(client._map_start_options(registered, StartFlowOptions())) == []
+    assert (
+        _initial_permissions(client._map_start_options(registered, StartFlowOptions()))
+        == []
+    )
     client.close()
 
 
@@ -290,7 +330,9 @@ class PlainFlow(Flow[None]):
         return PersistenceSchema.of(CASE_STATUS)
 
 
-def _flow_with_action(action: object, schema: PersistenceSchema | None = None) -> Flow[None]:
+def _flow_with_action(
+    action: object, schema: PersistenceSchema | None = None
+) -> Flow[None]:
     class ActionFlow(Flow[None]):
         def get_persistence_schema(self) -> PersistenceSchema:
             return schema or PersistenceSchema.of(CASE_STATUS)
@@ -305,9 +347,15 @@ def _flow_with_action(action: object, schema: PersistenceSchema | None = None) -
 @pytest.mark.parametrize(
     ("action", "message"),
     [
-        (Action(" ", required_permission="refund.approve"), "Action label must not be empty"),
+        (
+            Action(" ", required_permission="refund.approve"),
+            "Action label must not be empty",
+        ),
         (Action("Approve", required_permission="Refund"), "must use lowercase letter"),
-        (Action("Approve", required_permission="refund..approve"), "must use lowercase letter"),
+        (
+            Action("Approve", required_permission="refund..approve"),
+            "must use lowercase letter",
+        ),
         (
             Action(
                 "Approve",
@@ -320,7 +368,9 @@ def _flow_with_action(action: object, schema: PersistenceSchema | None = None) -
             Action(
                 "Approve",
                 required_permission="refund.approve",
-                condition=when_attribute_matches(CASE_STATUS, AttributeMatch.not_equal_to("x")),
+                condition=when_attribute_matches(
+                    CASE_STATUS, AttributeMatch.not_equal_to("x")
+                ),
             ),
             "supports only AttributeMatch.equal_to",
         ),
@@ -328,7 +378,9 @@ def _flow_with_action(action: object, schema: PersistenceSchema | None = None) -
             Action(
                 "Approve",
                 required_permission="refund.approve",
-                condition=when_attribute_matches(Attribute("other", str), AttributeMatch.equal_to("x")),
+                condition=when_attribute_matches(
+                    Attribute("other", str), AttributeMatch.equal_to("x")
+                ),
             ),
             "is not declared by the Flow",
         ),
@@ -389,7 +441,13 @@ def test_condition_less_action_registers_without_a_mapping() -> None:
     flow = _flow_with_action(Action("Decide", required_permission="case.decide"))
     registry = Registry((flow,))
     registered = registry._flow_for_instance(flow)
-    assert registered.action_permission_mappings_for_writes(
-        [pb.AttributeWrite(key="case-status")]
-    ) is None
-    assert registry._attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] == pb.INDEX_TYPE_KEYWORD_ARRAY
+    assert (
+        registered.action_permission_mappings_for_writes(
+            [pb.AttributeWrite(key="case-status")]
+        )
+        is None
+    )
+    assert (
+        registry._attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY]
+        == pb.INDEX_TYPE_KEYWORD_ARRAY
+    )
