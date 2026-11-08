@@ -1453,7 +1453,9 @@ fn a_revive_of_a_local_value_or_of_one_the_window_passed_changes_nothing() {
     let mut harness = Harness::offloading(RunSettings {
         history_window_events: 4,
         history_prune_chunk_events: 1,
-        checkpoint_command_threshold: 2,
+        // Only the start checkpoint exists, so pruning never passes the value's segment: it
+        // stays uploaded with the birth record offloaded while the window start moves past it.
+        checkpoint_command_threshold: 1000,
         ..settings(1)
     });
     let live_text = large_text("live", 300);
