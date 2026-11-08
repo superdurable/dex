@@ -351,6 +351,8 @@ export interface FlowConfig {
    * objects until the run is deleted after retention. This only matters when history
    * offload is enabled. Omission uses `history.deleteExpiredObjects` on the server: true
    * for dev/local and false for serve. The run records that default at start.
+   * The server-side switch is experimental.
+   * Servers older than server-zd 0.1.22 ignore the value.
    *
    * Set it through `StartFlowOptions.configOverride`, update it with `Client.updateFlowConfig`,
    * or override it with `SubFlowOptions.configOverride`. Children otherwise inherit the parent's value.

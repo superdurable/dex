@@ -42,27 +42,29 @@ def test_history_window_events_start_and_update() -> None:
             None,
             StartFlowOptions(
                 config_override=FlowConfig(
-                    history_window_events=500, delete_expired_history_objects=True
+                    history_window_events=500, delete_expired_history_objects=False
                 )
             ),
         )
         assert _read_history_window_events(flow_id, run_id) == 500
-        assert _read_delete_expired_history_objects(flow_id, run_id) is True
+        assert _read_delete_expired_history_objects(flow_id, run_id) is False
 
         client.update_flow_config(
             flow_id,
-            FlowConfig(
-                history_window_events=2000, delete_expired_history_objects=False
-            ),
+            FlowConfig(history_window_events=2000, delete_expired_history_objects=True),
         )
         assert _read_history_window_events(flow_id, run_id) == 2000
-        assert _read_delete_expired_history_objects(flow_id, run_id) is False
+        assert _read_delete_expired_history_objects(flow_id, run_id) is True
+
+        client.update_flow_config(flow_id, FlowConfig(history_window_events=3000))
+        assert _read_history_window_events(flow_id, run_id) == 3000
+        assert _read_delete_expired_history_objects(flow_id, run_id) is True
 
         with pytest.raises(DexServiceError) as rejected_update:
             client.update_flow_config(flow_id, FlowConfig(history_window_events=0))
         assert rejected_update.value.code == grpc.StatusCode.INVALID_ARGUMENT
-        assert _read_history_window_events(flow_id, run_id) == 2000
-        assert _read_delete_expired_history_objects(flow_id, run_id) is False
+        assert _read_history_window_events(flow_id, run_id) == 3000
+        assert _read_delete_expired_history_objects(flow_id, run_id) is True
 
         client.stop_flow(flow_id)
 

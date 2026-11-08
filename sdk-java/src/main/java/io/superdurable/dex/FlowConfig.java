@@ -238,13 +238,18 @@ public final class FlowConfig {
         /**
          * Controls deletion of object storage objects for expired history segments.
          *
-         * {@code true} deletes each expired segment's object about one hour after expiry. {@code false} keeps
-         * objects until the run is deleted after retention. This only matters when history
-         * offload is enabled. Omission uses {@code history.deleteExpiredObjects} on the server: true
-         * for dev/local and false for serve. The run records that default at start.
+         * <p>{@code true} deletes each expired segment's object about one hour after expiry.
+         * {@code false} keeps objects until the run is deleted after retention.
+         * This only matters when history offload is enabled. Omission uses
+         * {@code history.deleteExpiredObjects} on the server: true for dev/local and false for serve.
+         * The run records that default at start.
+         * The server-side switch is experimental.
+         * Servers older than server-zd 0.1.22 ignore the value.
          *
-         * Set it through {@link StartFlowOptions.Builder#configOverride(FlowConfig)},
-         * update it with {@link Client#updateFlowConfig(String, FlowConfig)}, or override it for a SubFlow. Children otherwise inherit the parent's value.
+         * <p>Set it through {@link StartFlowOptions.Builder#configOverride(FlowConfig)},
+         * update it with {@link Client#updateFlowConfig(String, FlowConfig)}, or override it with
+         * {@link SubFlowOptions.Builder#configOverride(FlowConfig)}.
+         * Children otherwise inherit the parent's value.
          * An omitted update preserves the current value; it cannot be cleared to the server
          * default. Enabling deletion includes already expired objects. Disabling it stops
          * deletions that have not started; requests already sent may complete, and deleted

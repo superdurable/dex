@@ -24,24 +24,30 @@ func TestHistoryWindowEventsStartAndUpdate(t *testing.T) {
 
 	flowID := newFlowID(t, "history-window")
 	runID, err := integClient.StartFlow(ctx, noStepFlow{}, flowID, nil, dex.StartFlowOptions{
-		ConfigOverride: &dex.FlowConfig{HistoryWindowEvents: ptr.Any(int32(500)), DeleteExpiredHistoryObjects: ptr.Any(true)},
+		ConfigOverride: &dex.FlowConfig{HistoryWindowEvents: ptr.Any(int32(500)), DeleteExpiredHistoryObjects: ptr.Any(false)},
 	})
 	require.NoError(t, err)
 	require.Equal(t, int32(500), readHistoryWindowEvents(t, service, flowID, runID))
+	require.False(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
+
+	require.NoError(t, integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
+		HistoryWindowEvents: ptr.Any(int32(2000)), DeleteExpiredHistoryObjects: ptr.Any(true),
+	}))
+	require.Equal(t, int32(2000), readHistoryWindowEvents(t, service, flowID, runID))
 	require.True(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
 
 	require.NoError(t, integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
-		HistoryWindowEvents: ptr.Any(int32(2000)), DeleteExpiredHistoryObjects: ptr.Any(false),
+		HistoryWindowEvents: ptr.Any(int32(3000)),
 	}))
-	require.Equal(t, int32(2000), readHistoryWindowEvents(t, service, flowID, runID))
-	require.False(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
+	require.Equal(t, int32(3000), readHistoryWindowEvents(t, service, flowID, runID))
+	require.True(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
 
 	err = integClient.UpdateFlowConfig(ctx, flowID, dex.FlowConfig{
 		HistoryWindowEvents: ptr.Any(int32(0)),
 	})
 	requireInvalidArgument(t, err)
-	require.Equal(t, int32(2000), readHistoryWindowEvents(t, service, flowID, runID))
-	require.False(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
+	require.Equal(t, int32(3000), readHistoryWindowEvents(t, service, flowID, runID))
+	require.True(t, readDeleteExpiredHistoryObjects(t, service, flowID, runID))
 
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 	waitForFlow(t, flowID, false)
