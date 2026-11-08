@@ -576,21 +576,26 @@ async fn a_recorded_running_run_migrates_one_segment_per_command_once_offload_is
     let uploaded = workload.acknowledge_sealed_segments(&run).await;
 
     let after = workload.history_events_with_uploads(&run, &uploaded).await;
-    assert_eq!(
-        after.pruned_event_id_range,
-        Some(pruned_range),
+    // The migration's own commands move the window, so the range may grow but never shrinks.
+    let after_range = after
+        .pruned_event_id_range
+        .expect("pruned events are still reported");
+    assert_eq!(after_range.start_event_id, 2);
+    assert!(
+        after_range.end_event_id >= pruned_range.end_event_id,
         "events pruned before the migration are still reported as pruned"
     );
-    let before_ids: Vec<i64> = before.events.iter().map(|event| event.event_id).collect();
     let after_ids: Vec<i64> = after.events.iter().map(|event| event.event_id).collect();
+    assert_eq!(after_ids[1], after_range.end_event_id + 1);
+    let before_ids_in_window: Vec<i64> = before
+        .events
+        .iter()
+        .map(|event| event.event_id)
+        .filter(|event_id| *event_id == 1 || *event_id > after_range.end_event_id)
+        .collect();
     assert!(
-        after_ids.starts_with(&before_ids),
+        after_ids.starts_with(&before_ids_in_window),
         "the migration keeps every event"
-    );
-    assert!(
-        after_ids
-            .iter()
-            .all(|event_id| *event_id == 1 || *event_id > pruned_range.end_event_id)
     );
     restored.shutdown().await;
 }

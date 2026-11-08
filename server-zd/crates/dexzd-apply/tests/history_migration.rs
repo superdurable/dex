@@ -442,9 +442,11 @@ impl Harness {
             .collect()
     }
 
-    /// Event IDs of the history records that window pruning kept, from local rows or, once
-    /// offload deleted them, from their uploaded segment.
-    fn stored_event_ids(&self) -> BTreeSet<i64> {
+    /// Event IDs of the history records that window pruning kept in the window, FlowStart and
+    /// those from the window start, from local rows or, once offload deleted them, from their
+    /// uploaded segment.
+    fn window_event_ids(&self) -> BTreeSet<i64> {
+        let window_start_seq = self.run_record().window_start_seq;
         let metadata_prefix = run_table_prefix(
             self.context.flow_hash,
             self.run(),
@@ -458,6 +460,7 @@ impl Harness {
             .map(|((_, key), _)| &key[metadata_prefix.len()..])
             .filter(|suffix| suffix[8] == RunTable::HistoryRecord as u8)
             .map(|suffix| u64::from_be_bytes(suffix[..8].try_into().expect("eight-byte seq")))
+            .filter(|seq| *seq == 1 || *seq >= window_start_seq)
             .collect();
         kept_record_seqs
             .into_iter()
@@ -726,12 +729,12 @@ fn assert_segment_state(harness: &Harness, segment: &HistorySegmentRecord, recor
     }
 }
 
-/// Asserts that a history read returns exactly the stored events and reports every other event
-/// ID since event 1 as pruned.
+/// Asserts that a history read returns exactly the stored events in the window and reports every
+/// other event ID since event 1 as pruned.
 fn assert_history_reads_match_stored_events(harness: &Harness) {
     let page = harness.history_page();
     let returned: BTreeSet<i64> = page.events.iter().map(|event| event.event_id).collect();
-    assert_eq!(returned, harness.stored_event_ids());
+    assert_eq!(returned, harness.window_event_ids());
     let pruned = page
         .pruned_event_id_range
         .map_or(0..=0, |range| range.start_event_id..=range.end_event_id);
@@ -798,9 +801,13 @@ fn a_running_legacy_run_migrates_one_segment_per_command_until_caught_up() {
             "pruned records stay holes"
         );
     }
-    assert_eq!(
-        harness.history_page().pruned_event_id_range,
-        Some(pruned_range),
+    let range_after_migration = harness
+        .history_page()
+        .pruned_event_id_range
+        .expect("pruned events are reported");
+    assert_eq!(range_after_migration.start_event_id, 2);
+    assert!(
+        range_after_migration.end_event_id >= pruned_range.end_event_id,
         "the migration deletes nothing, so earlier pruned events stay reported as pruned"
     );
     assert_history_reads_match_stored_events(&harness);

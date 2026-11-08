@@ -520,6 +520,43 @@ struct HistorySeek {
     eventless_ranges: EventlessRanges,
 }
 
+/// The seqs after genesis and before the window start W, which reads hide.
+///
+/// Rows there may remain to rebuild W, but no point there is time-travelable.
+#[derive(Clone, Copy)]
+struct PrunedSeqs {
+    start: u64,
+    end: u64,
+}
+
+impl PrunedSeqs {
+    fn of_run(view: &RunView<'_>) -> Result<Self, ReadModelError> {
+        let genesis_seq = genesis_seq(&view.transaction, view.rows)?;
+        Ok(Self {
+            start: genesis_seq.saturating_add(1),
+            end: view.record.window_start_seq,
+        })
+    }
+
+    /// Returns `seq`, or W when `seq` is hidden.
+    fn skip_from(self, seq: u64) -> u64 {
+        if (self.start..self.end).contains(&seq) {
+            self.end
+        } else {
+            seq
+        }
+    }
+
+    /// Returns the end of a scan from visible `seq` that stops before the hidden seqs.
+    fn scan_end(self, seq: u64, end: u64) -> u64 {
+        if seq < self.start && self.start < self.end {
+            end.min(self.start)
+        } else {
+            end
+        }
+    }
+}
+
 /// Disjoint seq ranges known to hold no events, keyed by start with exclusive ends.
 #[derive(Default)]
 struct EventlessRanges {
@@ -576,6 +613,7 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
         let Some(seek) = self.seek_first_record(first_event_id)? else {
             return Ok(Vec::new());
         };
+        let pruned_seqs = PrunedSeqs::of_run(self.view)?;
         let mut events = Vec::new();
         let mut event_bytes = 0_usize;
         let mut last_event_id = 0_i64;
@@ -583,14 +621,16 @@ impl<'view, 'reader> HistoryRecordRows<'view, 'reader> {
             let mut next_seq = segment.start.max(seek.first_record_seq);
             let mut chunk_rows = event_limit.clamp(1, MAX_HISTORY_SCAN_ROWS);
             while events.len() < event_limit && event_bytes <= byte_budget {
-                next_seq = seek.eventless_ranges.skip_from(next_seq);
+                next_seq = pruned_seqs.skip_from(seek.eventless_ranges.skip_from(next_seq));
                 if next_seq >= segment.end {
                     break;
                 }
-                let scan_end = seek
-                    .eventless_ranges
-                    .next_start_after(next_seq)
-                    .map_or(segment.end, |start| start.min(segment.end));
+                let scan_end = pruned_seqs.scan_end(
+                    next_seq,
+                    seek.eventless_ranges
+                        .next_start_after(next_seq)
+                        .map_or(segment.end, |start| start.min(segment.end)),
+                );
                 let records = self.scan_history_records(next_seq, scan_end, chunk_rows)?;
                 let Some((last_seq, _)) = records.last() else {
                     next_seq = scan_end;
@@ -783,9 +823,9 @@ fn events_left_in_budget(event_count: usize, event_bytes: usize, byte_budget: us
     (byte_budget.saturating_sub(event_bytes) / average_event_bytes).saturating_add(1)
 }
 
-/// Returns the event IDs that window pruning removed, or `None` when it removed none.
+/// Returns the event IDs before the window start W after FlowStart, or `None` when there are none.
 ///
-/// Runs whose window advanced before `max_pruned_event_id` existed scan for their first kept event.
+/// Runs whose window advanced before `max_pruned_event_id` existed scan for W's first event.
 fn pruned_event_id_range(
     view: &RunView<'_>,
     history: &dyn HistorySource,
@@ -801,7 +841,7 @@ fn pruned_event_id_range(
         let history_rows = HistoryRecordRows::new(view, history);
         let mut chunk_rows = 1;
         match history_rows.find_first_event_record(
-            genesis_seq.saturating_add(1),
+            view.record.window_start_seq,
             view.record.next_run_seq,
             &mut chunk_rows,
         )? {

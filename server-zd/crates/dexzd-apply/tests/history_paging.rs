@@ -898,11 +898,13 @@ impl Harness {
         (response.pruned_event_id_range, reader.take_history_reads())
     }
 
-    /// The removed event IDs according to the History rows still stored.
+    /// The event IDs before the window start W after FlowStart, according to the History rows.
     fn reference_pruned_range(&self) -> Option<HistoryEventIdRange> {
         let records = self.history_records();
+        let window_start_seq = self.run_record().window_start_seq;
         let first_kept_event_id = records[1..]
             .iter()
+            .filter(|record| record.seq >= window_start_seq)
             .find_map(|record| record.events.first())
             .map_or(self.run_record().next_event_id, |event| event.event_id);
         let end_event_id = first_kept_event_id - 1;
