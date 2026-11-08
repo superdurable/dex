@@ -38,8 +38,8 @@ async fn startup_commits_the_configured_history_offload_mode_to_every_partition(
     let log = serve_once(
         directory.path(),
         &data_directory,
-        "default",
-        DEFAULT_OVERRIDES,
+        "disabled-first",
+        DISABLED_OVERRIDES,
     )
     .await;
     assert!(!log.contains(MODE_LOG_TEXT), "{log}");
@@ -48,11 +48,12 @@ async fn startup_commits_the_configured_history_offload_mode_to_every_partition(
         vec![None; usize::from(DEV_PARTITION_COUNT)]
     );
 
+    // An existing data directory without offload gets it from the dev default, like `true`.
     let log = serve_once(
         directory.path(),
         &data_directory,
-        "enabled",
-        ENABLED_OVERRIDES,
+        "default",
+        DEFAULT_OVERRIDES,
     )
     .await;
     assert!(log.contains(MODE_LOG_TEXT), "{log}");
@@ -64,7 +65,7 @@ async fn startup_commits_the_configured_history_offload_mode_to_every_partition(
     let log = serve_once(
         directory.path(),
         &data_directory,
-        "enabled-again",
+        "enabled",
         ENABLED_OVERRIDES,
     )
     .await;
@@ -88,6 +89,19 @@ async fn startup_commits_the_configured_history_offload_mode_to_every_partition(
     assert_eq!(
         stored_modes(&data_directory),
         vec![None; usize::from(DEV_PARTITION_COUNT)]
+    );
+
+    let log = serve_once(
+        directory.path(),
+        &data_directory,
+        "enabled-again",
+        ENABLED_OVERRIDES,
+    )
+    .await;
+    assert!(log.contains(MODE_LOG_TEXT), "{log}");
+    assert_eq!(
+        stored_modes(&data_directory),
+        vec![Some(true); usize::from(DEV_PARTITION_COUNT)]
     );
 }
 

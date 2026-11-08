@@ -271,10 +271,11 @@ pub struct HistoryConfig {
     /// with RESOURCE_EXHAUSTED; choose a later target point, skip reapplying writes, or raise
     /// this value. Must be positive. Changes apply to later ResetFlow requests.
     pub time_travel_replay_memory_bytes: u64,
-    /// Defaults to false; experimental switch that offloads run history to object storage.
-    /// Do not enable it until the release notes announce the feature: enabling it early can grow
-    /// local disk or fail Steps. At start, the lease holder commits this value to every partition
-    /// whose stored mode differs, so turning it off again takes effect at the next start.
+    /// Defaults to false for `serve` and true for `dev` and `local`; experimental switch that
+    /// offloads run history to object storage. Do not enable it on `serve` until the release
+    /// notes announce the feature: enabling it early can grow local disk or fail Steps. At start,
+    /// the lease holder commits this value to every partition whose stored mode differs, so
+    /// turning it off again takes effect at the next start.
     #[serde(rename = "offloadEnabled")]
     pub is_offload_enabled: bool,
     /// Defaults to false for `serve` and true for `dev` and `local`; whether the lease holder
