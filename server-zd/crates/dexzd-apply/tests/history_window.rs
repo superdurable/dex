@@ -10,26 +10,28 @@
 
 use std::collections::BTreeMap;
 
-use dexzd_apply::read_model::get_history_events;
+use dexzd_apply::read_model::{get_history_events, is_history_event_available, load_blobs};
 use dexzd_apply::{
     ApplyContext, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     apply_flow_command, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
     stage_time_travel_for_test,
 };
-use dexzd_keyspace::row_keys::{prefix_range, run_singleton_key};
+use dexzd_keyspace::row_keys::{attempt_record_key, prefix_range, run_singleton_key};
 use dexzd_keyspace::{
     ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, parse_run_key, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowConfig, FlowResetType, FlowTimeoutPolicy, ResetFlowRequest,
-    SetAttributesRequest, StartFlowRequest, StepDurability, StepOptions, UpdateFlowConfigRequest,
-    Value, WorkerErrorResponse, WorkerTarget, value,
+    AttributeWrite, FlowConfig, FlowResetType, FlowTimeoutPolicy, HistoryEventIdRange,
+    LoadBlobRequestEntry, ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepDurability,
+    StepOptions, UpdateFlowConfigRequest, Value, WorkerErrorResponse, WorkerTarget,
+    flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributesSetCommand, CommandReply, FlowCommand, FlowConfigUpdateCommand, FlowStartCommand,
-    HistoryRecord, HistoryRowMetadata, RetryBackoffTimerId, RunRecord, RunSettings,
-    StepAttemptFailedCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
-    TimeTravelCommand, TimerId, TimersFiredCommand, command_reply, flow_command::Command, timer_id,
+    AttemptRecord, AttributesSetCommand, CommandReply, FlowCommand, FlowConfigUpdateCommand,
+    FlowStartCommand, HistoryRecord, HistoryRowMetadata, RetryBackoffTimerId, RunRecord,
+    RunSettings, StepAttemptFailedCommand, StepAttemptStartedCommand, StepInvocationKey,
+    StepMethod, TimeTravelCommand, TimerId, TimersFiredCommand, command_reply,
+    flow_command::Command, timer_id,
 };
 use prost::Message;
 
@@ -190,13 +192,22 @@ impl Harness {
 
     /// Writes one small Attribute: an external input that records one history event.
     fn set_attribute(&mut self) {
+        self.set_attribute_text(String::new());
+    }
+
+    /// Writes one Attribute larger than the inline threshold, so history references its value.
+    fn set_large_attribute(&mut self) {
+        self.set_attribute_text("x".repeat(200));
+    }
+
+    fn set_attribute_text(&mut self, padding: String) {
         self.next_request += 1;
         let request_id = format!("set-{}", self.next_request);
         let outcome = self.apply(Command::AttributesSet(AttributesSetCommand {
             request: Some(SetAttributesRequest {
                 attributes: vec![AttributeWrite {
                     key: "status".to_owned(),
-                    value: Some(string_value(&format!("v{}", self.next_request))),
+                    value: Some(string_value(&format!("v{}{padding}", self.next_request))),
                     ..AttributeWrite::default()
                 }],
                 request_id: request_id.clone(),
@@ -773,8 +784,10 @@ fn metadata_pruning_deletes_old_metadata_and_maintains_the_pruned_event_range() 
         .nth(1)
         .expect("a record after FlowStart is kept");
     assert!(*first_kept_seq > 2, "the window pruned records");
-    let first_kept_event_id = first_kept.events[0].event_id;
-    assert_eq!(record.max_pruned_event_id, first_kept_event_id - 1);
+    assert!(*first_kept_seq <= record.window_start_seq);
+    let window_start_event_id = records[&record.window_start_seq].events[0].event_id;
+    assert!(first_kept.events[0].event_id <= window_start_event_id);
+    assert_eq!(record.max_pruned_event_id, window_start_event_id - 1);
     let response = get_history_events(
         &harness.state,
         harness.context.flow_hash,
@@ -792,5 +805,212 @@ fn metadata_pruning_deletes_old_metadata_and_maintains_the_pruned_event_range() 
     assert_eq!(range.start_event_id, 2);
     assert_eq!(range.end_event_id, record.max_pruned_event_id);
     assert_eq!(response.events[0].event_id, 1);
-    assert_eq!(response.events[1].event_id, first_kept_event_id);
+    assert_eq!(response.events[1].event_id, window_start_event_id);
+}
+
+#[test]
+fn every_visible_event_is_in_the_time_travel_window_and_its_values_load() {
+    // Checkpoints every 37 commands leave records between the kept checkpoint and W.
+    let mut harness = Harness::start(
+        RunSettings {
+            checkpoint_command_threshold: 37,
+            ..settings(100, 10)
+        },
+        worker_target_config(),
+    );
+    for _ in 0..300 {
+        harness.set_large_attribute();
+    }
+    let record = harness.run_record();
+    let first_kept_seq = *harness
+        .history_records()
+        .keys()
+        .nth(1)
+        .expect("a record after FlowStart is kept");
+    assert!(
+        first_kept_seq < record.window_start_seq,
+        "records before W rebuild it"
+    );
+    assert_eq!(
+        record.history_window_pruned_through_seq,
+        first_kept_seq - 1,
+        "pruning deleted everything before the checkpoint that rebuilds W"
+    );
+    harness.assert_visible_events_load_and_travel();
+}
+
+#[test]
+fn reads_start_at_the_window_start_while_pruning_still_deletes_older_records() {
+    // W moves 100 records at once, but the checkpoint that rebuilds it moves 370 records, and one
+    // command deletes at most 128 of them.
+    let mut harness = Harness::start(
+        RunSettings {
+            checkpoint_command_threshold: 370,
+            ..settings(1000, 100)
+        },
+        worker_target_config(),
+    );
+    loop {
+        harness.set_large_attribute();
+        let record = harness.run_record();
+        if record.history_window_pruned_through_seq + 1 < harness.checkpoint_seq_rebuilding_window()
+        {
+            break;
+        }
+        assert!(
+            record.next_run_seq < 5000,
+            "pruning lags behind a checkpoint move"
+        );
+    }
+    let first_kept_seq = *harness
+        .history_records()
+        .keys()
+        .nth(1)
+        .expect("a record after FlowStart is kept");
+    assert!(
+        first_kept_seq < harness.checkpoint_seq_rebuilding_window(),
+        "records before the checkpoint that rebuilds W remain"
+    );
+    harness.assert_visible_events_load_and_travel();
+}
+
+#[test]
+fn a_window_scan_resumed_by_a_later_command_keeps_the_event_id_before_its_window_start() {
+    // A superseded value over the byte cap moves W one metadata page of 128 rows per command.
+    let mut harness = Harness::start(
+        RunSettings {
+            max_retained_superseded_bytes: 100,
+            checkpoint_command_threshold: 10_000,
+            ..settings(100_000, 10_000)
+        },
+        worker_target_config(),
+    );
+    harness.set_large_attribute();
+    // Seqs 3 to 129 record neither a semantic point nor an event.
+    for _ in 3..=129 {
+        harness.update_flow_config(FlowConfig::default());
+    }
+    // Seq 130 supersedes the value of seq 2; later commands move W toward it.
+    harness.set_large_attribute();
+    let mut resumed_scan_seqs = Vec::new();
+    while harness.run_record().window_start_seq < 130 {
+        harness.update_flow_config(FlowConfig::default());
+        let record = harness.run_record();
+        resumed_scan_seqs.push(record.window_scan_seq);
+        assert!(
+            record.next_run_seq < 140,
+            "W reaches the superseding record"
+        );
+    }
+    let record = harness.run_record();
+    assert_eq!(record.window_start_seq, 130);
+    assert!(
+        resumed_scan_seqs.contains(&130),
+        "the scan that selected W resumed at W: {resumed_scan_seqs:?}"
+    );
+    let metadata = harness.record_metadata();
+    assert!(!metadata[&129].is_semantic && metadata[&129].max_event_id == 0);
+    let last_event_id_before_window_start = metadata[&129].last_assigned_event_id;
+    assert_eq!(last_event_id_before_window_start, 2);
+    assert_eq!(
+        record.max_pruned_event_id,
+        last_event_id_before_window_start
+    );
+    harness.assert_visible_events_load_and_travel();
+}
+
+impl Harness {
+    /// Returns the seq of the newest checkpoint at or before W, which window pruning keeps.
+    fn checkpoint_seq_rebuilding_window(&self) -> u64 {
+        let record = self.run_record();
+        let key = attempt_record_key(self.context.flow_hash, self.run_id, record.current_attempt);
+        let bytes = self
+            .state
+            .rows
+            .get(&(ColumnFamily::Flow, key))
+            .expect("the attempt record exists");
+        AttemptRecord::decode(bytes.as_slice())
+            .expect("the attempt record decodes")
+            .checkpoint_seqs
+            .into_iter()
+            .filter(|seq| *seq <= record.window_start_seq)
+            .max()
+            .expect("a checkpoint rebuilds W")
+    }
+
+    /// Asserts that history shows FlowStart and then W onward, that the values its events
+    /// reference load, and that time travel reaches its earliest event.
+    fn assert_visible_events_load_and_travel(&mut self) {
+        let response = get_history_events(
+            &self.state,
+            self.context.flow_hash,
+            self.run_id,
+            0,
+            0,
+            &[],
+            0,
+            usize::MAX,
+        )
+        .expect("history reads");
+        let records = self.history_records();
+        let window_start = &records[&self.run_record().window_start_seq];
+        let window_start_event_id = window_start.events[0].event_id;
+        assert_eq!(response.events[0].event_id, 1, "FlowStart stays visible");
+        assert_eq!(response.events[1].event_id, window_start_event_id);
+        let available =
+            is_history_event_available(&self.state, self.context.flow_hash, self.run_id, 2)
+                .expect("availability reads");
+        assert_eq!(available.available_internal_event_id, window_start_event_id);
+        assert_eq!(
+            response.pruned_event_id_range,
+            Some(HistoryEventIdRange {
+                start_event_id: 2,
+                end_event_id: window_start_event_id - 1,
+            })
+        );
+
+        let mut entries = Vec::new();
+        for event in &response.events[1..] {
+            let Some(flow_history_event::Payload::RpcExecutionCompleted(completed)) =
+                &event.payload
+            else {
+                continue;
+            };
+            for write in &completed.upsert_attributes {
+                entries.push((
+                    event.event_id,
+                    LoadBlobRequestEntry {
+                        flow_id: FLOW_ID.to_owned(),
+                        blob_value: write.value.clone(),
+                    },
+                ));
+            }
+        }
+        assert!(!entries.is_empty(), "visible events reference values");
+        let hasher = PartitionHasher::new(&[7; 16], 1024).expect("valid partition hasher");
+        let request: Vec<_> = entries.iter().map(|(_, entry)| entry.clone()).collect();
+        let loaded =
+            load_blobs(&self.state, &hasher, TenantId::DEFAULT, &request).expect("LoadBlobs reads");
+        let missing: Vec<i64> = entries
+            .iter()
+            .filter_map(
+                |(event_id, entry)| match entry.blob_value.as_ref()?.kind.as_ref()? {
+                    value::Kind::InternalBlobIdForStringValue(reference) => {
+                        (!loaded.values.contains_key(reference)).then_some(*event_id)
+                    }
+                    _ => panic!("a large Attribute is a reference in history"),
+                },
+            )
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "values of visible events {missing:?} load"
+        );
+
+        let reply = self.time_travel(reset_to_time(window_start.timestamp_micros));
+        assert!(
+            matches!(reply.reply, Some(command_reply::Reply::TimeTravel(_))),
+            "travel to the earliest visible event applies: {reply:?}"
+        );
+    }
 }

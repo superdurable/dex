@@ -14,7 +14,8 @@ use dexzd_apply::diagnostics::{
     current_semantic_point_hash, time_travel_target_close, time_travel_target_hash,
 };
 use dexzd_apply::read_model::{
-    get_flow_state, get_history_events, get_search_document, search_order_index_keys_of_document,
+    get_flow_state, get_history_events, get_search_document, load_blobs,
+    search_order_index_keys_of_document,
 };
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyError, ApplyOutcome, FlowStateReader, StateReadError, StateRow,
@@ -36,11 +37,11 @@ use dexzd_protocol::dex::{
     FlowResetType, FlowStartOptions, FlowStatus, FlowTimeoutHandlerOptions, FlowTimeoutPolicy,
     GetHistoryEventsResponse, HistoryEventIdRange, IndexConfig, InternalTimerStatus,
     InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
-    InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest, RetryPolicy,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision, StepMethodEventContext,
-    StepMovement, StepOptions, StopFlowRequest, StopType, SubFlowCondition, TimerCondition, Value,
-    WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType, WorkerErrorResponse,
-    WorkerTarget, flow_history_event, value,
+    InvokeWorkerRpcResponse, LoadBlobRequestEntry, PublishToChannelRequest, ResetFlowRequest,
+    RetryPolicy, SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision,
+    StepMethodEventContext, StepMovement, StepOptions, StopFlowRequest, StopType, SubFlowCondition,
+    TimerCondition, Value, WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType,
+    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -3948,13 +3949,15 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
     // Seqs 2 to 6 are pruned: the WaitFor (event 2) and SetAttributes events 3 to 5.
     assert!(harness.history_record(6).is_none());
     assert!(harness.history_record(7).is_some());
+    // Seq 7 holds the checkpoint that rebuilds W, but it is before W, so reads hide event 6.
+    assert_eq!(harness.run_record().window_start_seq, 8);
     let pruned = Some(HistoryEventIdRange {
         start_event_id: 2,
-        end_event_id: 5,
+        end_event_id: 6,
     });
     let first_attempt = history_page(&harness, 0);
     assert_eq!(first_attempt.pruned_event_id_range, pruned);
-    assert_eq!(event_ids(&first_attempt.events), [1, 6, 7, 8, 9, 10, 11]);
+    assert_eq!(event_ids(&first_attempt.events), [1, 7, 8, 9, 10, 11]);
     let first_page = get_history_events(
         &harness.state,
         harness.context.flow_hash,
@@ -3977,17 +3980,25 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
         usize::MAX,
     )
     .unwrap();
-    assert_eq!(event_ids(&second_page.events), [7, 8]);
+    assert_eq!(event_ids(&second_page.events), [8, 9]);
     assert_eq!(first_page.pruned_event_id_range, pruned);
     assert_eq!(second_page.pruned_event_id_range, pruned);
 
     let point = harness.history_record(9).unwrap().timestamp_micros;
     let (attempt, _) = harness.travel_to(reset_to_time(point));
     assert_eq!(attempt, 2);
+    // The TimeTravel record's event moves W past seq 8, which holds event 7.
+    assert_eq!(harness.run_record().window_start_seq, 9);
+    let pruned = Some(HistoryEventIdRange {
+        start_event_id: 2,
+        end_event_id: 7,
+    });
     let second_attempt = history_page(&harness, 0);
     assert_eq!(second_attempt.pruned_event_id_range, pruned);
-    assert_eq!(event_ids(&second_attempt.events), [1, 6, 7, 8, 12]);
-    assert_eq!(history_page(&harness, 1).pruned_event_id_range, pruned);
+    assert_eq!(event_ids(&second_attempt.events), [1, 8, 12]);
+    let first_attempt = history_page(&harness, 1);
+    assert_eq!(first_attempt.pruned_event_id_range, pruned);
+    assert_eq!(event_ids(&first_attempt.events), [1, 8, 9, 10, 11]);
 
     // Pruning continues past the fork, through events that only run attempt 1 recorded.
     for index in 9..17 {
@@ -4001,9 +4012,9 @@ fn history_reads_report_the_event_ids_the_window_pruned() {
         range.end_event_id > 11,
         "the range covers attempt 1's later events: {range:?}"
     );
-    let first_retained_seq = (2..harness.last_seq())
+    let first_retained_seq = (harness.run_record().window_start_seq..harness.last_seq())
         .find(|seq| harness.history_record(*seq).is_some())
-        .expect("a record after FlowStart is kept");
+        .expect("a record from the window start is kept");
     let first_retained = harness.history_record(first_retained_seq).unwrap();
     assert_eq!(
         first_retained.events.first().map(|event| event.event_id),
@@ -4392,4 +4403,130 @@ fn time_travel_over_older_metadata_selects_the_same_point_from_records() {
             assert_eq!(outcome.effects, expected.effects, "case {index}");
         }
     }
+}
+
+#[test]
+fn every_visible_step_is_time_travelable_and_the_values_of_visible_events_load() {
+    // Checkpoints every 37 commands leave records between the kept checkpoint and W.
+    let mut harness = Harness::with_settings(RunSettings {
+        history_window_events: 60,
+        history_prune_chunk_events: 6,
+        checkpoint_command_threshold: 37,
+        ..settings()
+    });
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    // Each Step passes its successor an input above the inline threshold, so history references it.
+    for index in 1..=150 {
+        let step_execution_id = format!("ChargeStep-{index}");
+        harness.start_attempt(&step_execution_id, StepMethod::Execute, 1);
+        let mut decision = next_steps(&["ChargeStep"]);
+        decision.next_steps[0].step_input =
+            Some(string_value(&format!("input {index} {}", "x".repeat(200))));
+        harness.complete_execute(&step_execution_id, 1, decision);
+    }
+    let record = harness.run_record();
+    let window_start_seq = record.window_start_seq;
+    let first_kept_seq = (2..window_start_seq)
+        .find(|seq| harness.history_record(*seq).is_some())
+        .expect("records before W rebuild it");
+    assert_eq!(
+        record.history_window_pruned_through_seq,
+        first_kept_seq - 1,
+        "pruning deleted everything before the checkpoint that rebuilds W"
+    );
+
+    let page = history_page(&harness, 0);
+    let window_start_event_id = harness
+        .history_record(window_start_seq)
+        .expect("W is kept")
+        .events[0]
+        .event_id;
+    assert_eq!(event_ids(&page.events[..2]), [1, window_start_event_id]);
+    assert_eq!(
+        page.pruned_event_id_range,
+        Some(HistoryEventIdRange {
+            start_event_id: 2,
+            end_event_id: window_start_event_id - 1,
+        })
+    );
+
+    let references: Vec<(i64, String)> = page.events[1..]
+        .iter()
+        .flat_map(|event| {
+            value_references(event)
+                .into_iter()
+                .map(|reference| (event.event_id, reference))
+        })
+        .collect();
+    assert!(references.len() > 50, "visible events reference values");
+    let entries: Vec<LoadBlobRequestEntry> = references
+        .iter()
+        .map(|(_, reference)| LoadBlobRequestEntry {
+            flow_id: "order-1".to_owned(),
+            blob_value: Some(Value {
+                kind: Some(value::Kind::InternalBlobIdForStringValue(reference.clone())),
+            }),
+        })
+        .collect();
+    let hasher = PartitionHasher::new(&[7; 16], 1024).expect("valid partition hasher");
+    let loaded =
+        load_blobs(&harness.state, &hasher, TenantId::DEFAULT, &entries).expect("LoadBlobs reads");
+    let missing: Vec<i64> = references
+        .iter()
+        .filter(|(_, reference)| !loaded.values.contains_key(reference))
+        .map(|(event_id, _)| *event_id)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "values of visible events {missing:?} load"
+    );
+
+    // The Step that W completes was pending only before W, so no window point restores it.
+    let Some(flow_history_event::Payload::StepExecuteCompleted(completed_at_window_start)) =
+        &page.events[1].payload
+    else {
+        panic!("W completes a Step: {:?}", page.events[1]);
+    };
+    let rejected = harness.time_travel(ResetFlowRequest {
+        step_execution_id: completed_at_window_start
+            .context
+            .as_ref()
+            .expect("the event names its Step")
+            .step_execution_id
+            .clone(),
+        step_method: FlowResetStepMethod::Execute as i32,
+        ..reset(FlowResetType::StepExecutionId)
+    });
+    assert_eq!(error_code(&rejected.reply), Some(FAILED_PRECONDITION));
+
+    let earliest_created_step = (window_start_seq..=harness.last_seq())
+        .filter_map(|seq| harness.history_record(seq))
+        .find_map(|history| {
+            history
+                .pending_step_methods
+                .into_iter()
+                .find(|pending| pending.is_step_created)
+        })
+        .expect("a visible record creates a Step")
+        .step_execution_id;
+    let (attempt, _) = harness.travel_to(ResetFlowRequest {
+        step_execution_id: earliest_created_step,
+        step_method: FlowResetStepMethod::Execute as i32,
+        ..reset(FlowResetType::StepExecutionId)
+    });
+    assert_eq!(attempt, 2);
+}
+
+/// Returns the value references an event holds, from its debug text.
+fn value_references(event: &FlowHistoryEvent) -> Vec<String> {
+    const MARKER: &str = "InternalBlobIdForStringValue(\"";
+    let text = format!("{event:?}");
+    text.match_indices(MARKER)
+        .map(|(start, _)| {
+            let rest = &text[start + MARKER.len()..];
+            rest[..rest.find('"').expect("a closing quote")].to_owned()
+        })
+        .collect()
 }

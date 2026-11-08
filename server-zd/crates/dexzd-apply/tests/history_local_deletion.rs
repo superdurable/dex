@@ -14,7 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::read_model::{
-    OffloadedValueLocation, SegmentedHistoryPage, get_history_events_from_segments,
+    OffloadedValueLocation, SegmentedHistoryPage, get_history_events_from_segments, load_blobs,
     locate_offloaded_value, read_history_segment_content,
 };
 use dexzd_apply::values::NoOffloadedValues;
@@ -33,9 +33,10 @@ use dexzd_keyspace::{
     parse_run_key, run_prefix, run_table_prefix,
 };
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowConfig, FlowResetType, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
-    ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepDecision, StepMovement,
-    StepOptions, UpdateFlowConfigRequest, Value, WorkerTarget, value,
+    AttributeWrite, FlowConfig, FlowResetStepMethod, FlowResetType, FlowTimeoutPolicy,
+    InvokeExecuteMethodResponse, LoadBlobRequestEntry, ResetFlowRequest, SetAttributesRequest,
+    StartFlowRequest, StepDecision, StepMovement, StepOptions, UpdateFlowConfigRequest, Value,
+    WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, AttributesSetCommand, CommandReply, FlowCommand,
@@ -611,8 +612,19 @@ impl Harness {
 
     /// Returns the history uploaded segments hold, loaded as an owner fetches it.
     fn loaded_segments(&self) -> LoadedHistorySegments {
+        self.loaded_segments_matching(|_| true)
+    }
+
+    /// Returns the history of the uploaded segments that `is_loaded` accepts.
+    fn loaded_segments_matching(
+        &self,
+        is_loaded: impl Fn(&HistorySegmentRecord) -> bool,
+    ) -> LoadedHistorySegments {
         let mut loaded = LoadedHistorySegments::default();
         for (segment, content) in self.uploaded.values() {
+            if !is_loaded(segment) {
+                continue;
+            }
             let records: Vec<HistoryRecord> = content
                 .records
                 .iter()
@@ -674,6 +686,28 @@ impl Harness {
                 chunk
             })
             .collect()
+    }
+
+    /// Computes `request` with the production time travel over the committed state and every
+    /// uploaded segment.
+    fn time_travel_computation(&self, request: &ResetFlowRequest) -> TimeTravelComputation {
+        let computation = compute_time_travel_from_segments(
+            &self.context,
+            &self.state,
+            &self.loaded_segments(),
+            &NoOffloadedValues,
+            &TimeTravelComputationRequest {
+                run_id: self.run(),
+                reset: request,
+                now_micros: self.now_micros,
+                replay_memory_budget_bytes: u64::MAX,
+            },
+        )
+        .expect("the computation runs");
+        let SegmentedTimeTravelComputation::Computed(computed) = computation else {
+            panic!("the computation has every segment: {computation:?}");
+        };
+        computed
     }
 
     /// Event IDs of the first page, read as the engine does: uploaded seqs from their objects.
@@ -1561,4 +1595,318 @@ fn replaying_the_log_with_its_revives_reaches_the_same_state() {
         standby.commit(&outcome);
     }
     assert_eq!(standby.rows, harness.state.rows);
+}
+
+#[test]
+fn while_offloading_every_visible_event_is_time_travelable_and_its_values_load() {
+    // Checkpoints every 37 commands leave records between the kept checkpoint and W.
+    let mut harness = Harness::offloading(RunSettings {
+        history_window_events: 100,
+        history_prune_chunk_events: 10,
+        checkpoint_command_threshold: 37,
+        ..settings(4096)
+    });
+    for round in 0..300 {
+        harness.set_attribute("profile", large_text(&format!("round {round}"), 300));
+        if round % 25 == 24 {
+            harness.ack_all();
+            harness.advance(GRACE + SECOND);
+        }
+    }
+    harness.ack_all();
+    harness.advance(GRACE + SECOND);
+    harness.bookkeep();
+    let record = harness.run_record();
+    assert!(
+        record.history_window_pruned_through_seq + 1 < record.window_start_seq,
+        "records before W rebuild it: {record:?}"
+    );
+    assert!(
+        harness.stored_record_seqs().len() < 100,
+        "offload deleted uploaded records locally"
+    );
+
+    let SegmentedHistoryPage::Page(page) = get_history_events_from_segments(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run(),
+        0,
+        1000,
+        &[],
+        0,
+        usize::MAX,
+        &harness.loaded_segments(),
+        false,
+    )
+    .expect("history reads") else {
+        panic!("every uploaded segment is loaded");
+    };
+    let window_start_last_event_id = harness.metadata()
+        [&(record.window_start_seq, RunTable::HistoryRecord as u8, 0)]
+        .last_assigned_event_id;
+    // Every Attribute write records one event, so W's record holds only its last event.
+    assert_eq!(page.events[0].event_id, 1, "FlowStart stays visible");
+    assert_eq!(page.events[1].event_id, window_start_last_event_id);
+    let range = page
+        .pruned_event_id_range
+        .expect("the window pruned events");
+    assert_eq!(range.end_event_id, window_start_last_event_id - 1);
+
+    // Reads never need a segment that lies wholly after genesis and before W.
+    let is_hidden = |segment: &HistorySegmentRecord| {
+        segment.first_seq > 1 && segment.last_seq < record.window_start_seq
+    };
+    assert!(
+        harness
+            .uploaded
+            .values()
+            .any(|(segment, _)| is_hidden(segment)),
+        "a segment lies wholly before W"
+    );
+    let visible_segments = harness.loaded_segments_matching(|segment| !is_hidden(segment));
+    for start_event_id in [
+        0,
+        2,
+        window_start_last_event_id - 1,
+        window_start_last_event_id,
+    ] {
+        let read = get_history_events_from_segments(
+            &harness.state,
+            harness.context.flow_hash,
+            harness.run(),
+            start_event_id,
+            1000,
+            &[],
+            0,
+            usize::MAX,
+            &visible_segments,
+            false,
+        )
+        .expect("history reads");
+        let SegmentedHistoryPage::Page(visible_page) = read else {
+            panic!("a read from event {start_event_id} needs a segment before W: {read:?}");
+        };
+        let first_after_flow_start = visible_page
+            .events
+            .iter()
+            .map(|event| event.event_id)
+            .find(|event_id| *event_id > 1);
+        assert_eq!(
+            first_after_flow_start,
+            Some(start_event_id.max(window_start_last_event_id)),
+            "a read from event {start_event_id}"
+        );
+    }
+
+    let mut references = Vec::new();
+    for event in &page.events[1..] {
+        let Some(flow_history_event::Payload::RpcExecutionCompleted(completed)) = &event.payload
+        else {
+            continue;
+        };
+        for write in &completed.upsert_attributes {
+            let Some(value::Kind::InternalBlobIdForStringValue(reference)) =
+                write.value.as_ref().and_then(|value| value.kind.as_ref())
+            else {
+                panic!("a large Attribute is a reference in history");
+            };
+            references.push((event.event_id, reference.clone()));
+        }
+    }
+    assert!(references.len() > 50, "visible events reference values");
+    let hasher = PartitionHasher::new(&[7; 16], 1024).expect("valid partition hasher");
+    let entries: Vec<LoadBlobRequestEntry> = references
+        .iter()
+        .map(|(_, reference)| LoadBlobRequestEntry {
+            flow_id: harness.flow_id.clone(),
+            blob_value: Some(Value {
+                kind: Some(value::Kind::InternalBlobIdForStringValue(reference.clone())),
+            }),
+        })
+        .collect();
+    let local =
+        load_blobs(&harness.state, &hasher, TenantId::DEFAULT, &entries).expect("LoadBlobs reads");
+    let mut uploaded_count = 0;
+    for (event_id, reference) in &references {
+        if local.values.contains_key(reference) {
+            continue;
+        }
+        let value_id = reference
+            .parse::<ValueReference>()
+            .expect("a valid reference")
+            .value_id;
+        assert!(
+            matches!(
+                harness.locate(value_id),
+                OffloadedValueLocation::Uploaded(_)
+            ),
+            "the value of visible event {event_id} is local or uploaded"
+        );
+        harness.uploaded_value(value_id);
+        uploaded_count += 1;
+    }
+    assert!(uploaded_count > 0, "some visible values come from objects");
+
+    let earliest_time = page.events[1].event_time.expect("events have a time");
+    let earliest_micros = earliest_time.seconds * SECOND + i64::from(earliest_time.nanos) / 1000;
+    let request = ResetFlowRequest {
+        flow_id: harness.flow_id.clone(),
+        reset_type: FlowResetType::HistoryEventTime as i32,
+        reason: "earliest visible".to_owned(),
+        skip_writes_reapply: true,
+        history_event_time: (i128::from(earliest_micros) * 1000).to_string(),
+        ..ResetFlowRequest::default()
+    };
+    assert!(
+        !harness
+            .staged_result(&harness.state.clone(), &request)
+            .is_empty(),
+        "travel to the earliest visible event replays from the uploaded segments"
+    );
+}
+
+#[test]
+fn while_offloading_steps_created_in_the_window_are_time_travelable() {
+    // Checkpoints every 37 commands leave records between the kept checkpoint and W.
+    let mut harness = Harness::new();
+    harness.set_offload_mode(true);
+    harness.start_with_step(RunSettings {
+        history_window_events: 60,
+        history_prune_chunk_events: 6,
+        checkpoint_command_threshold: 37,
+        ..settings(4096)
+    });
+    // Each Step passes its successor an input above the inline threshold, so history references it.
+    for index in 1..=150_u8 {
+        let invocation = StepInvocationKey {
+            step_execution_id: format!("{START_STEP}-{index}"),
+            method: StepMethod::Execute as i32,
+        };
+        let started = harness.apply(Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation.clone()),
+            attempt: 1,
+            task_id: vec![index; 16],
+            pull_routing: None,
+        }));
+        assert!(is_ok(&started.reply), "{:?}", started.reply);
+        let completed = harness.apply(Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::Execute(
+                InvokeExecuteMethodResponse {
+                    step_decision: Some(StepDecision {
+                        next_steps: vec![StepMovement {
+                            step_type: START_STEP.to_owned(),
+                            step_input: Some(Value {
+                                kind: Some(value::Kind::StringValue(large_text(
+                                    &format!("input {index}"),
+                                    300,
+                                ))),
+                            }),
+                            step_options: Some(StepOptions {
+                                skip_wait_for: true,
+                                ..StepOptions::default()
+                            }),
+                            ..StepMovement::default()
+                        }],
+                        ..StepDecision::default()
+                    }),
+                    ..InvokeExecuteMethodResponse::default()
+                },
+            )),
+            task_id: vec![index; 16],
+            ..StepMethodCompletedCommand::default()
+        }));
+        assert!(is_ok(&completed.reply), "{:?}", completed.reply);
+        if index % 25 == 0 {
+            harness.ack_all();
+            harness.advance(GRACE + SECOND);
+        }
+    }
+    harness.ack_all();
+    harness.advance(GRACE + SECOND);
+    harness.bookkeep();
+    let record = harness.run_record();
+    assert!(
+        record.history_window_pruned_through_seq + 1 < record.window_start_seq,
+        "records before W rebuild it: {record:?}"
+    );
+    assert!(
+        harness.stored_record_seqs().len() < 100,
+        "offload deleted uploaded records locally"
+    );
+
+    let SegmentedHistoryPage::Page(page) = get_history_events_from_segments(
+        &harness.state,
+        harness.context.flow_hash,
+        harness.run(),
+        0,
+        1000,
+        &[],
+        0,
+        usize::MAX,
+        &harness.loaded_segments(),
+        false,
+    )
+    .expect("history reads") else {
+        panic!("every uploaded segment is loaded");
+    };
+    let window_start_last_event_id = harness.metadata()
+        [&(record.window_start_seq, RunTable::HistoryRecord as u8, 0)]
+        .last_assigned_event_id;
+    // Every Step completion records one event, so W's record holds only its last event.
+    assert_eq!(page.events[1].event_id, window_start_last_event_id);
+    let Some(flow_history_event::Payload::StepExecuteCompleted(completed_at_window_start)) =
+        &page.events[1].payload
+    else {
+        panic!("W completes a Step: {:?}", page.events[1]);
+    };
+    let step_completed_at_window_start = completed_at_window_start
+        .context
+        .as_ref()
+        .expect("the event names its Step")
+        .step_execution_id
+        .clone();
+
+    let step_reset = |step_execution_id: String| ResetFlowRequest {
+        flow_id: harness.flow_id.clone(),
+        reset_type: FlowResetType::StepExecutionId as i32,
+        reason: "earliest visible Step".to_owned(),
+        skip_writes_reapply: true,
+        step_execution_id,
+        step_method: FlowResetStepMethod::Execute as i32,
+        ..ResetFlowRequest::default()
+    };
+    // The Step that W completes was pending only before W, so no window point restores it.
+    let TimeTravelComputation::Rejected(rejected) =
+        harness.time_travel_computation(&step_reset(step_completed_at_window_start))
+    else {
+        panic!("the Step completed at W has no pending point in the window");
+    };
+    let Some(command_reply::Reply::Error(error)) = rejected.reply else {
+        panic!("the rejection is an error: {rejected:?}");
+    };
+    assert_eq!(error.grpc_code, 9, "FAILED_PRECONDITION");
+
+    let earliest_created_step = (record.window_start_seq..record.next_run_seq)
+        .filter_map(|seq| {
+            harness
+                .metadata()
+                .get(&(seq, RunTable::HistoryRecord as u8, 0))
+                .cloned()
+        })
+        .find_map(|metadata| {
+            metadata
+                .pending_step_methods
+                .into_iter()
+                .find(|pending| pending.is_step_created)
+        })
+        .expect("a visible record creates a Step")
+        .step_execution_id;
+    assert!(
+        !harness
+            .staged_result(&harness.state.clone(), &step_reset(earliest_created_step))
+            .is_empty(),
+        "travel to the earliest Step created in the window replays from the uploaded segments"
+    );
 }
