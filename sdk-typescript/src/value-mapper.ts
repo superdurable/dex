@@ -234,6 +234,7 @@ export class ValueHydrator {
 
   /**
    * Loads blobs, halving a batch that gRPC rejects for size, so N blobs take at most 2N-1 calls.
+   * Each request holds at most 1000 entries.
    * @returns The hydrated values keyed by blob ID.
    * @throws {@link BlobMessageTooLargeError} when one blob alone exceeds the limit.
    */

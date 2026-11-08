@@ -470,7 +470,7 @@ func (runner *Runner) waitUntilStepWaiting(ctx context.Context, connection *benc
 	}
 }
 
-// readAttributesDirect reads like an uncached client: GetAttributes, then one LoadBlobs for every reference.
+// readAttributesDirect reads like an uncached client: GetAttributes, then ordered LoadBlobs batches for every reference.
 func (runner *Runner) readAttributesDirect(ctx context.Context, connection *benchmarkConnection, flowID string) error {
 	response, err := connection.service.GetAttributes(ctx, &dexpb.GetAttributesRequest{FlowId: flowID, AllKeys: true})
 	if err != nil {
@@ -493,12 +493,15 @@ func (runner *Runner) readAttributesDirect(ctx context.Context, connection *benc
 			return fmt.Errorf("Attribute %s has unexpected value kind %T", attribute.GetKey(), kind)
 		}
 	}
-	if len(entries) != 0 {
-		loaded, err := connection.service.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Entries: entries})
+	for start := 0; start < len(entries); start += 1000 {
+		batch := entries[start:min(start+1000, len(entries))]
+		loaded, err := connection.service.LoadBlobs(ctx, &dexpb.LoadBlobsRequest{Entries: batch})
 		if err != nil {
 			return fmt.Errorf("load blobs: %w", err)
 		}
-		for blobID, key := range pendingKeys {
+		for _, entry := range batch {
+			blobID := entry.GetBlobValue().GetInternalBlobIdForStringValue()
+			key := pendingKeys[blobID]
 			value, found := loaded.GetValues()[blobID]
 			if !found {
 				return fmt.Errorf("LoadBlobs omitted blob for Attribute %s", key)
@@ -509,7 +512,7 @@ func (runner *Runner) readAttributesDirect(ctx context.Context, connection *benc
 			}
 			values[key] = stringValue.StringValue
 		}
-		runner.blobsLoaded.Add(int64(len(entries)))
+		runner.blobsLoaded.Add(int64(len(batch)))
 	}
 	var bytesRead int64
 	for key, expected := range runner.expectedReadValues {

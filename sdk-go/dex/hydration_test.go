@@ -245,6 +245,7 @@ var testTransportMessageSizeFailures = []struct {
 type limitedHydrationFlowServiceClient struct {
 	dexpb.FlowServiceClient
 	maxBlobs         int
+	failingCall      int
 	oversizedBlobID  string
 	failure          error
 	requestedBlobIDs [][]string
@@ -260,7 +261,7 @@ func (client *limitedHydrationFlowServiceClient) LoadBlobs(
 		blobIDs = append(blobIDs, entry.GetBlobValue().GetInternalBlobIdForStringValue())
 	}
 	client.requestedBlobIDs = append(client.requestedBlobIDs, blobIDs)
-	if len(blobIDs) > client.maxBlobs || slices.Contains(blobIDs, client.oversizedBlobID) {
+	if len(client.requestedBlobIDs) == client.failingCall || len(blobIDs) > client.maxBlobs || slices.Contains(blobIDs, client.oversizedBlobID) {
 		return nil, client.failure
 	}
 	values := make(map[string]*dexpb.Value, len(blobIDs))
@@ -360,6 +361,25 @@ func TestHydrateValuesDoesNotSplitOtherFailures(t *testing.T) {
 			require.False(t, errors.As(err, &tooLarge))
 			require.Len(t, client.requestedBlobIDs, 1)
 		})
+	}
+}
+
+func TestHydrateValuesStopsOnSecondChunkFailureWithoutPartialResults(t *testing.T) {
+	failure := status.Error(codes.Unavailable, "second chunk unavailable")
+	client := &limitedHydrationFlowServiceClient{maxBlobs: 1000, failingCall: 2, failure: failure}
+	hydrator := newValueHydrator(client, newHydrationCache(t), nil, "flow-test")
+	values := testStringBlobValues(2500)
+	original := slices.Clone(values)
+
+	err := hydrator.HydrateValuesInPlace(context.Background(), valuePointers("flow-1", values))
+	require.ErrorIs(t, err, failure)
+	require.Len(t, client.requestedBlobIDs, 2)
+	for index, batch := range client.requestedBlobIDs {
+		require.Len(t, batch, 1000)
+		require.Equal(t, fmt.Sprintf("blob-%d", index*1000), batch[0])
+	}
+	for index := range values {
+		require.Same(t, original[index], values[index])
 	}
 }
 

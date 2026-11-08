@@ -205,6 +205,7 @@ func (hydrator *valueHydratorImpl) hydrateBlobValues(
 }
 
 // loadBlobValues returns the hydrated values keyed by blob ID.
+// Each request holds at most 1000 entries.
 // A batch whose response exceeds a gRPC message size limit is split in half,
 // so N misses take at most 2N-1 LoadBlobs calls.
 // It returns a BlobMessageTooLargeError when one blob alone exceeds the limit.

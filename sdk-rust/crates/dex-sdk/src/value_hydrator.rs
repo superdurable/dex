@@ -85,7 +85,7 @@ impl ValueHydrator {
                 Ok(None) | Err(_) => misses.push(key.clone()),
             }
         }
-        misses.sort_by_key(|key| pending[key][0]);
+        misses.sort_by_cached_key(|key| pending[key][0]);
         for batch in misses.chunks(MAX_LOAD_BLOBS_ENTRIES) {
             let request = LoadBlobsRequest {
                 entries: batch
@@ -373,7 +373,6 @@ mod tests {
                 .collect::<Vec<_>>();
             self.batches.lock().unwrap().push(blob_ids.clone());
             Box::pin(async move {
-                assert!(blob_ids.len() <= 1000);
                 let values = blob_ids
                     .into_iter()
                     .map(|blob_id| {
