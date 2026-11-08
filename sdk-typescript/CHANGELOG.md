@@ -9,6 +9,14 @@
   start and inherits for children; explicit false is preserved. Requires history
   offload. See the API reference for deletion timing and update semantics.
   Requires server-zd 0.1.22 or later; older servers ignore the value.
+- Add Actions. Pass `action: new Action({ label, requiredPermission, condition })` to
+  `@rpc` or `declareRPCMethod` to declare an RPC that a person can invoke from Dex Web.
+  `whenAttributeMatches(attribute, AttributeMatch.equalTo(value), ...)` makes it available
+  while a scalar Attribute of the Flow holds one of the values; the condition is optional.
+  The Registry validates the Action and registers the `DexWorkQueuePermissions` index.
+  Workers send the Flow's Action permission mappings with every Step, timeout handler, and
+  RPC result that writes a condition Attribute, and `startFlow` and SubFlow starts record
+  the permissions the initial Attributes make available, as Go Workers and Clients do.
 
 - Limit LoadBlobs requests to 1000 entries, preserving input order when hydrating
   more values with history offload enabled.

@@ -129,11 +129,12 @@ type ViewField struct {
 }
 
 type Action struct {
-	RPCName            string          `json:"rpcName"`
-	Label              string          `json:"label"`
-	RequiredPermission string          `json:"requiredPermission"`
-	Condition          ActionCondition `json:"condition"`
-	Input              ActionInput     `json:"input"`
+	RPCName            string `json:"rpcName"`
+	Label              string `json:"label"`
+	RequiredPermission string `json:"requiredPermission"`
+	// Condition is nil for an Action offered whenever the run is active.
+	Condition *ActionCondition `json:"condition,omitempty"`
+	Input     ActionInput      `json:"input"`
 }
 
 type ActionCondition struct {

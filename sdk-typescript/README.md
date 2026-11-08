@@ -94,6 +94,44 @@ declareRPCMethod(OrderStatusFlow, "getOrderStatus", { outputCodec: stringCodec }
 The runnable [decorator-free RPC example](../examples/typescript/decorator-free-rpc)
 runs under `node --experimental-transform-types` with no build step.
 
+## Dex Web Actions
+
+Since 1.39.0, an RPC can declare an **Action**, which Dex Web offers to a person
+on each run while its condition matches. Set `action` in the RPC options of
+`@rpc` or `declareRPCMethod`:
+
+```typescript
+import { Action, AttributeMatch, rpc, whenAttributeMatches } from "@superdurable/dex";
+
+// dex:input field-name:reason value-type:string source:user required:true description:"Reason"
+@rpc({
+  outputCodec: stringCodec,
+  lockAttributes: [caseStatus.lock()],
+  action: new Action({
+    label: "Reject refund",
+    requiredPermission: "refund.approve",
+    condition: whenAttributeMatches(caseStatus, AttributeMatch.equalTo("awaiting-manager")),
+  }),
+})
+rejectRefund(context: Context, input: RejectRefundInput): RPCResult<string> {
+  if (caseStatus.get(context) !== "awaiting-manager") {
+    throw new Error("the case is no longer awaiting a decision");
+  }
+  caseStatus.set(context, "rejected");
+  return { output: `rejected: ${input.reason}` };
+}
+```
+
+Registry construction validates the Action against the Flow's persistence
+schema. The Worker then sends the Action permission mappings whenever a handler
+writes a condition Attribute, and Client and SubFlow starts write the initial
+`DexWorkQueuePermissions`, as Go Workers and Clients do. The condition is
+optional; an Action without one is offered on every active run. The handler must
+still check current state, because the condition does not authorize the call.
+`dexcli visualize --schema-version 2.0` reads the declaration and the
+`// dex:input` directives into the Flow Definition Graph. See the `Action` and
+`whenAttributeMatches` TSDoc and the Dex Web reference for the rules.
+
 ## RPC state loading
 
 RPCs receive ordinary Attributes and all Channel size metadata by default.

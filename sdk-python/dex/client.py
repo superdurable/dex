@@ -1445,6 +1445,9 @@ class Client:
             _apply_attribute_store_sync(write, definition)
             _apply_hard_delete_on_null(write, definition)
             mapped.attributes.append(write)
+        mapped.attributes.extend(
+            registered.initial_work_queue_permissions_writes(mapped.attributes)
+        )
         mapped.flow_config_override.CopyFrom(
             self._map_flow_config(options.config_override)
         )

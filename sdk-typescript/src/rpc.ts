@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import type { Action } from "./action.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
@@ -51,6 +52,14 @@ export type RPC<Input, Output> = (
 export interface RPCOptions<Input = unknown, Output = unknown> {
   /** Protocol RPC name; uses the method name given to `@rpc` or `declareRPCMethod` when omitted. */
   readonly name?: string;
+  /**
+   * Declares this RPC as an Action that a person can invoke from Dex Web.
+   *
+   * Omit it to leave the RPC outside Dex Web Actions and Work Queue permission projection.
+   * The {@link Registry} validates the Action when it is constructed. See {@link Action} for an example.
+   * @since 1.39.0
+   */
+  readonly action?: Action;
   /**
    * Input codec. Omit this for JSON objects, or when the handler has no input.
    * Scalar wire kinds still need an explicit codec.

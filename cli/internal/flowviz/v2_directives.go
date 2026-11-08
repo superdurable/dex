@@ -613,7 +613,7 @@ func (analyzer *goAnalyzer) v2ActionFromExpression(
 		RPCName:            rpcName,
 		Label:              label,
 		RequiredPermission: permission,
-		Condition:          condition,
+		Condition:          &condition,
 	}, true
 }
 
@@ -1243,6 +1243,10 @@ func v2JSONValueMatchesType(value any, valueType string) bool {
 		_, ok := value.(bool)
 		return ok
 	case "int64":
+		// Go constants arrive as int64; JSON values arrive as json.Number.
+		if _, isInteger := value.(int64); isInteger {
+			return true
+		}
 		number, ok := value.(json.Number)
 		if !ok {
 			return false
@@ -1250,6 +1254,12 @@ func v2JSONValueMatchesType(value any, valueType string) bool {
 		_, err := number.Int64()
 		return err == nil
 	case "double":
+		switch typed := value.(type) {
+		case int64:
+			return true
+		case float64:
+			return !math.IsInf(typed, 0) && !math.IsNaN(typed)
+		}
 		number, ok := value.(json.Number)
 		if !ok {
 			return false

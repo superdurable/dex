@@ -9,6 +9,12 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from dex._grpc_errors import RetryAfterError, retry_after
+from dex.action import (
+    WORK_QUEUE_PERMISSIONS_INDEX_KEY,
+    Action,
+    ActionCondition,
+    when_attribute_matches,
+)
 from dex.async_client import AsyncClient
 from dex.async_worker import AsyncWorker
 from dex.attribute import (
@@ -134,6 +140,10 @@ from dex.worker import Worker
 from dex.worker_options import PullWorkerOptions, WorkerOptions
 
 __all__ = [
+    "Action",
+    "ActionCondition",
+    "WORK_QUEUE_PERMISSIONS_INDEX_KEY",
+    "when_attribute_matches",
     "BOOL",
     "BYTES",
     "DOUBLE",

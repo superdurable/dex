@@ -35,6 +35,14 @@ from typing import (
 from urllib.parse import quote
 
 from dex._utils import require_map_instance, require_name
+from dex.action import (
+    Action,
+    _action_permission_mappings_for_writes,
+    _compile_action,
+    _initial_work_queue_permissions_write,
+    _RegisteredAction,
+    WORK_QUEUE_PERMISSIONS_INDEX_KEY,
+)
 from dex.attribute import Attribute, AttributeLock, AttributeMap, AttributeMapLoad
 from dex.channel import Channel, ChannelMap, ChannelMapLoad
 from dex.codec import Codec, CodecRegistry, WireKind
@@ -75,6 +83,7 @@ class _RPCOptions:
     load_channels: tuple[Channel[Any], ...]
     load_channel_maps: tuple[ChannelMap[Any], ...]
     load_channel_map_instances: tuple[ChannelMapLoad, ...]
+    action: Action | None = None
 
 
 @overload
@@ -93,6 +102,7 @@ def rpc(
     load_channels: Sequence[Channel[Any]] = (),
     load_channel_maps: Sequence[ChannelMap[Any]] = (),
     load_channel_map_instances: Sequence[ChannelMapLoad] = (),
+    action: Action | None = None,
 ) -> Callable[[CallableT], CallableT]: ...
 
 
@@ -108,6 +118,7 @@ def rpc(
     load_channels: Sequence[Channel[Any]] = (),
     load_channel_maps: Sequence[ChannelMap[Any]] = (),
     load_channel_map_instances: Sequence[ChannelMapLoad] = (),
+    action: Action | None = None,
 ) -> CallableT | Callable[[CallableT], CallableT]:
     """Mark a Flow method as a typed RPC handler.
 
@@ -127,6 +138,13 @@ def rpc(
         load_channel_maps: ChannelMaps whose current instance messages are loaded.
         load_channel_map_instances: Exact instances created by
             ``ChannelMap.load_messages``.
+        action: Optional :class:`dex.Action` that lets a person invoke this RPC
+            from Dex Web. Registry construction validates it against the Flow's
+            persistence schema. ``None`` leaves the RPC outside Dex Web Actions
+            and Work Queue permission projection.
+
+    .. versionchanged:: 1.39.0
+       Added ``action``.
 
     Returns:
         The original handler, or a decorator that returns it after attaching options.
@@ -160,6 +178,7 @@ def rpc(
                 tuple(load_channels),
                 tuple(load_channel_maps),
                 tuple(load_channel_map_instances),
+                action,
             ),
         )
         return handler
@@ -344,6 +363,18 @@ class _RegisteredFlow:
     start_step: _RegisteredStep | None
     rpcs: MappingProxyType[str, _RegisteredRPC]
     persistence: MappingProxyType[str, _PersistenceDefinition]
+    actions: tuple[_RegisteredAction, ...] = ()
+
+    def action_permission_mappings_for_writes(
+        self, writes: Sequence[pb.AttributeWrite]
+    ) -> pb.ActionPermissionMappings | None:
+        return _action_permission_mappings_for_writes(self.actions, writes)
+
+    def initial_work_queue_permissions_writes(
+        self, initial_writes: Sequence[pb.AttributeWrite]
+    ) -> list[pb.AttributeWrite]:
+        write = _initial_work_queue_permissions_write(self.actions, initial_writes)
+        return [] if write is None else [write]
 
     def step(self, name: str) -> _RegisteredStep:
         try:
@@ -583,6 +614,7 @@ class Registry:
         persistence = Registry._assemble_persistence(schema, attribute_indexes)
         Registry._validate_hard_delete_attribute_codecs(schema, codec_registry)
         registered_rpcs: dict[str, _RegisteredRPC] = {}
+        registered_actions: list[_RegisteredAction] = []
         for attribute_name in dir(flow):
             method = getattr(flow, attribute_name)
             function = getattr(method, "__func__", method)
@@ -594,6 +626,12 @@ class Registry:
             if rpc_name in registered_rpcs:
                 raise ValueError(f"duplicate RPC {rpc_name}")
             Registry._validate_rpc_locks(rpc_name, options, schema)
+            if options.action is not None:
+                registered_actions.append(
+                    _compile_action(
+                        rpc_name, options.action, persistence, codec_registry
+                    )
+                )
             state_loads = Registry._validate_rpc_state_loads(rpc_name, options, schema)
             input_codec, output_codec = Registry._rpc_codecs(
                 method,
@@ -622,7 +660,18 @@ class Registry:
             start_step,
             MappingProxyType(registered_rpcs),
             MappingProxyType(persistence),
+            tuple(registered_actions),
         )
+        if registered_actions:
+            existing = attribute_indexes.get(WORK_QUEUE_PERMISSIONS_INDEX_KEY)
+            if existing is not None and existing != pb.INDEX_TYPE_KEYWORD_ARRAY:
+                raise ValueError(
+                    f"Attribute index {WORK_QUEUE_PERMISSIONS_INDEX_KEY} is reserved for "
+                    "Action permissions"
+                )
+            attribute_indexes[WORK_QUEUE_PERMISSIONS_INDEX_KEY] = (
+                pb.INDEX_TYPE_KEYWORD_ARRAY
+            )
         for registered_step in registered_steps.values():
             Registry._validate_step_targets(
                 registered_flow,
