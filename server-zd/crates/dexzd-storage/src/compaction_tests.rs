@@ -388,7 +388,7 @@ fn deleted_large_values_release_their_blob_files_without_a_manual_compaction() {
     const LIVE_VALUE_INTERVAL: u64 = 20;
     let directory = tempfile::tempdir().expect("temporary directory exists");
     let path = directory.path().join("db");
-    // Holds as many values per memtable as the default size holds 2 MiB values.
+    // Sixteen values fill a memtable, so the values span many blob files.
     let options = RocksDbStoreOptions {
         write_buffer_bytes: 2 * 1024 * 1024,
         ..RocksDbStoreOptions::default()
