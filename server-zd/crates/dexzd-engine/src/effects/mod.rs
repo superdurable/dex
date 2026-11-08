@@ -338,6 +338,7 @@ pub(crate) struct EffectContext {
     /// Runs whose upload failed without a retry; only the rescan clears an entry, so every
     /// trigger retries such a run at most once per rescan.
     pub(crate) history_upload_failed_runs: std::sync::Mutex<BTreeSet<RunId>>,
+    pub(crate) history_upload_backlog_rebuilds: mpsc::UnboundedSender<PartitionId>,
     pub(crate) hasher: PartitionHasher,
     pub(crate) clock: Arc<dyn WallClock>,
     pub(crate) validation_config: ValidationConfig,
@@ -545,6 +546,8 @@ impl EffectRunner {
     /// Rebuilds pending work of every run of `partition` from committed state: pending and
     /// running invocations, timers, outbox messages, hard-delete deletions, history segment
     /// uploads, retention purges, and hard-delete uploads that never committed.
+    ///
+    /// Queues background publication of upload backlog gauges when history upload rescanning is enabled.
     pub async fn rebuild_partition(&self, partition: PartitionId) -> Result<(), EffectError> {
         self.rebuild_partition_effect_count(partition)
             .await
@@ -647,6 +650,7 @@ impl EffectTasks {
             self.dependencies.metrics.step_task_queue_entries.clone(),
         );
         let router_sender = self.router_sender.clone();
+        let (history_upload_backlog_rebuilds, backlog_rebuild_requests) = mpsc::unbounded_channel();
         let context = Arc::new(EffectContext {
             metrics: self.dependencies.metrics,
             config: self.config,
@@ -655,6 +659,7 @@ impl EffectTasks {
             hard_delete_objects: self.dependencies.hard_delete_objects,
             history_object_store: self.dependencies.history_object_store,
             history_upload_slots,
+            history_upload_backlog_rebuilds,
             history_upload_failed_runs: std::sync::Mutex::new(BTreeSet::new()),
             hasher: self.dependencies.partition_hasher,
             clock: self.dependencies.clock,
@@ -677,9 +682,10 @@ impl EffectTasks {
         });
         tracker.spawn(task_queue::run_claim_pump(Arc::clone(&context)));
         tracker.spawn(task_queue::run_heads_resync(Arc::clone(&context)));
-        tracker.spawn(history_uploads::run_history_upload_rescan(Arc::clone(
-            &context,
-        )));
+        tracker.spawn(history_uploads::run_history_upload_rescan(
+            Arc::clone(&context),
+            backlog_rebuild_requests,
+        ));
         tracker.spawn(history_uploads::run_history_orphan_sweep(Arc::clone(
             &context,
         )));

@@ -9,9 +9,13 @@
 //! Periodic rescan of every owned partition's sealed history segments (plan section 5.15): it
 //! publishes the upload backlog gauges and restarts the uploads of runs whose work stopped. A run
 //! whose rows cannot be read is logged, counted, and skipped, so it never hides the others.
+//!
+//! Rebuild requests publish gauges in this background task, sharing the periodic scan's segment size cache.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+use tokio::sync::mpsc;
 
 use dexzd_apply::{ApplyEffect, FlowStateReader};
 use dexzd_keyspace::row_keys::{history_segment_key, history_segment_value_prefix};
@@ -57,9 +61,18 @@ struct RunUploadBacklog {
     sizes: SealedSegmentSizes,
 }
 
+#[derive(Clone, Copy)]
+enum BacklogScanSource {
+    Rebuild,
+    Periodic,
+}
+
 /// Rescans every owned partition each `history_upload_rescan_interval` until shutdown, then
 /// clears the backlog gauges.
-pub(crate) async fn run_history_upload_rescan(context: Arc<EffectContext>) {
+pub(crate) async fn run_history_upload_rescan(
+    context: Arc<EffectContext>,
+    mut rebuild_requests: mpsc::UnboundedReceiver<PartitionId>,
+) {
     let interval = context.config.history_upload_rescan_interval;
     if interval.is_zero() {
         return;
@@ -69,33 +82,48 @@ pub(crate) async fn run_history_upload_rescan(context: Arc<EffectContext>) {
     let mut sizes = SealedSegmentSizes::new();
     loop {
         // Biased for reproducible simulation; shutdown fires once.
-        tokio::select! {
+        let (partitions, source) = tokio::select! {
             biased;
             () = context.shutdown.cancelled() => break,
-            _ = ticker.tick() => {}
-        }
-        let partitions = context.task_queue_memory().owned_partition_list();
+            partition = rebuild_requests.recv() => {
+                let Some(partition) = partition else { break };
+                (vec![partition], BacklogScanSource::Rebuild)
+            }
+            _ = ticker.tick() => (
+                context.task_queue_memory().owned_partition_list(),
+                BacklogScanSource::Periodic,
+            ),
+        };
         for partition in partitions {
             match rescan_partition(&context, partition, &sizes).await {
-                Ok(backlog) => publish_partition_backlog(&context, partition, backlog, &mut sizes),
-                Err(EffectError::Stopped) => break,
-                Err(error) => {
-                    tracing::warn!(%error, %partition, "rescanning sealed history segments failed");
+                Ok(backlog) => {
+                    publish_partition_backlog(&context, partition, backlog, &mut sizes, source);
                 }
+                Err(EffectError::Stopped) => break,
+                Err(error) => match source {
+                    BacklogScanSource::Rebuild => tracing::warn!(
+                        %error, %partition, "rebuilding history upload backlog gauges failed"
+                    ),
+                    BacklogScanSource::Periodic => tracing::warn!(
+                        %error, %partition, "rescanning sealed history segments failed"
+                    ),
+                },
             }
         }
     }
     context.metrics.history_upload_backlog.clear();
 }
 
-pub(crate) fn rebuild_history_upload_backlog(
-    context: &EffectContext,
-    reader: &dyn FlowStateReader,
-    partition: PartitionId,
-) -> Result<(), EffectError> {
-    let backlog = scan_partition_backlog(reader, partition, &SealedSegmentSizes::new())?;
-    record_partition_backlog(context, partition, &backlog);
-    Ok(())
+/// Queues background publication of a rebuilt partition's backlog gauges when rescanning is enabled.
+pub(crate) fn request_partition_backlog_rescan(context: &EffectContext, partition: PartitionId) {
+    if context.config.history_upload_rescan_interval.is_zero() {
+        return;
+    }
+    if let Err(error) = context.history_upload_backlog_rebuilds.send(partition)
+        && !context.shutdown.is_cancelled()
+    {
+        tracing::warn!(%error, %partition, "queueing history upload backlog rebuild failed");
+    }
 }
 
 /// Scans the partition's upload pending runs on a blocking thread.
@@ -123,18 +151,23 @@ async fn rescan_partition(
     }
 }
 
-/// Publishes the partition's gauges, replaces its remembered sizes, and asks for the uploads of
-/// its pending runs; the router ignores a request for a run whose upload already runs, except to
+/// Publishes the partition's gauges, replaces its remembered sizes, and, for periodic scans, asks
+/// for the uploads of its pending runs; the router ignores a request for a run whose upload already runs, except to
 /// run it once more.
 fn publish_partition_backlog(
     context: &EffectContext,
     partition: PartitionId,
     backlog: PartitionUploadBacklog,
     sizes: &mut SealedSegmentSizes,
+    source: BacklogScanSource,
 ) {
-    record_partition_backlog(context, partition, &backlog);
+    set_partition_backlog_gauges(context, partition, &backlog);
+    report_unreadable_backlog_runs(context, partition, &backlog, source);
     sizes.retain(|(size_partition, _, _), _| *size_partition != partition);
     sizes.extend(backlog.sizes);
+    if matches!(source, BacklogScanSource::Rebuild) {
+        return;
+    }
     for (flow, run) in backlog.runs {
         allow_upload_retry(context, run.run_id);
         context.report(RouterMessage::Effects {
@@ -147,7 +180,7 @@ fn publish_partition_backlog(
     }
 }
 
-fn record_partition_backlog(
+fn set_partition_backlog_gauges(
     context: &EffectContext,
     partition: PartitionId,
     backlog: &PartitionUploadBacklog,
@@ -158,7 +191,24 @@ fn record_partition_backlog(
         backlog.bytes,
         backlog.oldest_sealed_at_micros,
     );
+}
+
+fn report_unreadable_backlog_runs(
+    context: &EffectContext,
+    partition: PartitionId,
+    backlog: &PartitionUploadBacklog,
+    source: BacklogScanSource,
+) {
     for (run, error) in &backlog.unreadable {
+        if matches!(source, BacklogScanSource::Rebuild) {
+            tracing::error!(
+                %error,
+                %partition,
+                run_id = run.map(|run| run.run_id.to_string()),
+                "the history upload backlog rebuild could not read a run; skipping it"
+            );
+            continue;
+        }
         context.metrics.history_upload_rescan_errors.inc();
         tracing::error!(
             %error,

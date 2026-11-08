@@ -16,6 +16,8 @@
 //! upload retries with backoff while the backlog gauges grow.
 //!
 //! Every object storage call ends when the node stops, so no history request outlives its owner.
+//!
+//! Partition rebuilds queue background backlog gauge publication when periodic rescanning is enabled.
 
 mod expired_object_deletion;
 mod orphan_sweep;
@@ -31,7 +33,7 @@ pub(crate) use expired_object_deletion::delete_expired_history_objects;
 pub(crate) use orphan_sweep::run_history_orphan_sweep;
 pub(crate) use run_history_objects::delete_run_history_objects;
 pub(crate) use segment_upload::upload_sealed_history_segments;
-pub(crate) use upload_rescan::{rebuild_history_upload_backlog, run_history_upload_rescan};
+pub(crate) use upload_rescan::{request_partition_backlog_rescan, run_history_upload_rescan};
 
 use crate::effects::{EffectContext, EffectError};
 

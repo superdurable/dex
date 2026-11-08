@@ -675,9 +675,13 @@ async fn backlog_gauges_rebuild_during_an_outage_and_track_recovery() {
     for round in 0..3 {
         set_long_attribute(&first, flow_id, run_id, "notes", &format!("v{round}"));
     }
+    close_run(&first, flow_id, run_id);
     tokio::time::sleep(RESCAN_INTERVAL).await;
     first.settle().await;
-    let expected_segments = segments(&first, flow_id, run_id).len() as u64;
+    let expected_segments = segments(&first, flow_id, run_id)
+        .iter()
+        .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+        .count() as u64;
     let backlog = &first.metrics.history_upload_backlog;
     assert_eq!(backlog.segments(), expected_segments);
     let expected_bytes = backlog.bytes();
@@ -686,24 +690,66 @@ async fn backlog_gauges_rebuild_during_an_outage_and_track_recovery() {
     assert!(expected_oldest.is_some());
     first.shutdown().await;
 
+    let disabled = EffectHarness::with_config(
+        durable.clone(),
+        EffectsConfig {
+            history_upload_rescan_interval: Duration::ZERO,
+            ..rescan_config()
+        },
+    );
+    disabled.rebuild_all_partitions().await;
+    disabled.settle().await;
+    assert_eq!(disabled.metrics.history_upload_backlog.segments(), 0);
+    assert_eq!(disabled.metrics.history_upload_backlog.bytes(), 0);
+    assert_eq!(
+        disabled
+            .metrics
+            .history_upload_backlog
+            .oldest_sealed_at_micros(),
+        None
+    );
+    disabled.shutdown().await;
+
     let second = EffectHarness::with_config(durable, rescan_config());
     // Consume the initial tick before any partition belongs to the restarted owner.
     second.settle().await;
     let rebuilt_at = tokio::time::Instant::now();
     second.rebuild_all_partitions().await;
-    assert!(rebuilt_at.elapsed() < RESCAN_INTERVAL);
     let backlog = &second.metrics.history_upload_backlog;
+    wait_until(&second, "rebuilt backlog gauges publish", || {
+        backlog.segments() == expected_segments
+    })
+    .await;
+    assert!(rebuilt_at.elapsed() < RESCAN_INTERVAL);
     assert_eq!(backlog.segments(), expected_segments);
     assert_eq!(backlog.bytes(), expected_bytes);
     assert_eq!(backlog.oldest_sealed_at_micros(), expected_oldest);
 
-    set_long_attribute(&second, flow_id, run_id, "notes", "after restart");
-    close_run(&second, flow_id, run_id);
+    let later_flow_id = "backlog-after-restart";
+    let later_run_id = second.start_flow(
+        start_request(later_flow_id),
+        RunSettings {
+            history_segment_target_bytes: 1,
+            ..settings()
+        },
+    );
+    set_long_attribute(
+        &second,
+        later_flow_id,
+        later_run_id,
+        "notes",
+        "after restart",
+    );
+    close_run(&second, later_flow_id, later_run_id);
     tokio::time::sleep(RESCAN_INTERVAL).await;
     second.settle().await;
     assert_eq!(
         backlog.segments(),
-        segments(&second, flow_id, run_id).len() as u64
+        segments(&second, flow_id, run_id)
+            .iter()
+            .chain(segments(&second, later_flow_id, later_run_id).iter())
+            .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+            .count() as u64
     );
     assert!(backlog.segments() > expected_segments);
     assert!(backlog.bytes() > expected_bytes);
@@ -711,6 +757,7 @@ async fn backlog_gauges_rebuild_during_an_outage_and_track_recovery() {
 
     faults.set(HistoryWriteFaults::PROCEED);
     wait_until_uploaded(&second, flow_id, run_id).await;
+    wait_until_uploaded(&second, later_flow_id, later_run_id).await;
     tokio::time::sleep(RESCAN_INTERVAL).await;
     second.settle().await;
     assert_eq!(backlog.segments(), 0);
