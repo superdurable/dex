@@ -285,6 +285,46 @@ fn single_node_delete_expired_objects_defaults_to_true_unless_the_overrides_set_
 }
 
 #[test]
+fn single_node_history_offload_defaults_to_enabled_unless_the_overrides_set_it() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let other_history_key_path = temporary.path().join("history-upload-concurrency.yaml");
+    fs::write(
+        &other_history_key_path,
+        "history:\n  uploadConcurrency: 5\n",
+    )
+    .expect("write test config");
+    let explicit_switch_path = temporary.path().join("offload-disabled.yaml");
+    fs::write(&explicit_switch_path, "history:\n  offloadEnabled: false\n")
+        .expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
+            .expect("configuration without YAML");
+        assert!(without_overrides.history.is_offload_enabled);
+        let with_other_history_key = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(other_history_key_path.clone()),
+        ))
+        .expect("configuration with another history key");
+        assert!(with_other_history_key.history.is_offload_enabled);
+        assert_eq!(with_other_history_key.history.upload_concurrency, 5);
+        let with_explicit_switch = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(explicit_switch_path.clone()),
+        ))
+        .expect("configuration with an explicit offload switch");
+        assert!(!with_explicit_switch.history.is_offload_enabled);
+    }
+
+    assert!(!Config::default().history.is_offload_enabled);
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert!(!serve.history.is_offload_enabled);
+    let serve_enabled =
+        Config::parse_yaml("cluster:\n  nodeId: node-a\nhistory:\n  offloadEnabled: true\n")
+            .expect("serve YAML with offload");
+    assert!(serve_enabled.history.is_offload_enabled);
+}
+
+#[test]
 fn history_upload_concurrency_reaches_the_effect_runner() {
     assert_eq!(Config::default().history.upload_concurrency, 16);
     assert_eq!(

@@ -44,6 +44,14 @@ stops applying the partition at the first ResetFlow. Upgrade the active process
 and the standby together, as above. Log entries that a server before 0.1.22
 wrote still apply after the upgrade.
 
+Changed in 0.1.22: **dev** and **local** turn on history offload by default,
+including in existing data directories at their next start. Once offload has
+been on, do not run an earlier release on that data directory, even after
+turning offload off: history removed from local disk needs object storage
+reads. To keep the previous behavior, set **history.offloadEnabled: false**
+before the first start with 0.1.22. See
+[History offload](/reference/server/configuration#history-offload).
+
 A later release that raises the minimum protocol needs the same care. Stop old
 Workers and their traffic before that server upgrade, or use isolated blue and
 green environments so deployments with disjoint intervals never communicate.
