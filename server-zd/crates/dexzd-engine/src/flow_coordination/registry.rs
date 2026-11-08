@@ -937,7 +937,7 @@ impl RegistryInner {
                 .lock()
                 .expect("halt reason lock is poisoned only if a holder panicked");
             if halt_reason.is_none() {
-                tracing::warn!(reason = %reason, "flow runtime registry halted");
+                tracing::error!(reason = %reason, "flow runtime registry halted");
                 *halt_reason = Some(reason);
             }
         }
