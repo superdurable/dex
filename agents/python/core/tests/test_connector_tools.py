@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
+from uuid import uuid4
 
 from dex_agents import (
     OUTCOME_UNKNOWN_TOOL_RESULT,
@@ -23,13 +25,14 @@ from dex_agents import (
     ToolCallStatus,
 )
 from dex_agents.connectors import CONNECTOR_RESULT_TRUNCATED_NOTE
-from dex_agents.testing import wait_for_agent_snapshot
+from dex_agents.testing import resolve_dexcli_path, wait_for_agent_snapshot
+from dex_agents.ui_stream import agent_snapshot_to_json
 from tests.conftest import ScriptedAgentHarness
 from tests.connector_agent import (
     DROPPED_TOOLS_ENVIRONMENT_VARIABLE,
     MAX_RESULT_BYTES_ENVIRONMENT_VARIABLE,
 )
-from tests.fake_ledger import FakeLedgerProvider
+from tests.fake_ledger import SECRET_ENVIRONMENT_VARIABLE, FakeLedgerProvider
 
 SKIPPED_ERROR = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL}"
 FAILED = "The tool call failed: "
@@ -382,3 +385,76 @@ async def test_a_removed_tool_ends_its_stored_call_by_its_effect_class(
     # approved_payout is IDEMPOTENT_WRITE: retries run out and the write may have run.
     assert _answer_lines(snapshot) == [f"approved_payout: {OUTCOME_UNKNOWN_TOOL_RESULT}"]
     assert ledger.sends() == []
+
+
+# O1-8: credentials
+
+
+async def _hydrated_history(harness: ScriptedAgentHarness, session_id: str) -> str:
+    process = await asyncio.create_subprocess_exec(
+        str(resolve_dexcli_path()),
+        "flow",
+        "history",
+        session_id,
+        "--server",
+        harness.stack.engine.address,
+        "--all",
+        "--output",
+        "json",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    assert process.returncode == 0, stderr.decode(errors="replace")
+    return stdout.decode()
+
+
+async def test_a_connection_secret_never_reaches_session_state_records_streams_or_history(
+    connector_harness: ScriptedAgentHarness, ledger: FakeLedgerProvider
+) -> None:
+    harness = connector_harness
+    secret = f"ledger-secret-{uuid4().hex}"
+    await harness.stack.start_worker({SECRET_ENVIRONMENT_VARIABLE: secret})
+    session_id = harness.new_session_id()
+    seen: list[str] = []
+
+    async def turn(command: str, turn_count: int) -> None:
+        if turn_count == 1:
+            await harness.sessions.start_session(session_id, command)
+        else:
+            await harness.sessions.send_user_message(session_id, command)
+        snapshot = await harness.wait_for_turns(session_id, turn_count)
+        seen.append(json.dumps(agent_snapshot_to_json(snapshot)))
+
+    await turn(_calls(("get_balance", {"accountId": "a-1"})), 1)
+    await turn(_calls(("create_payout", {"accountId": "a-1", "amount": 5})), 2)
+    await turn(_calls(("post_note", {"accountId": "a-1", "text": "paid"})), 3)
+    await turn(
+        _calls(
+            ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "reject"}),
+            ("create_payout", {"accountId": "a-1", "amount": 5, "memo": "uncertain"}),
+        ),
+        4,
+    )
+    await harness.sessions.send_user_message(
+        session_id, _calls(("approved_payout", {"accountId": "a-1", "amount": 6}), hold="held")
+    )
+    interrupt = await _pending_interrupt(harness, session_id)
+    seen.append(
+        json.dumps(agent_snapshot_to_json(await harness.sessions.get_agent_snapshot(session_id)))
+    )
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    records = await _held_records(harness, session_id, "held")
+    seen.extend(repr(record) for record in records.values())
+    await harness.wait_for_turns(session_id, 5)
+
+    seen.extend(repr(event) for event in await harness.agent_events(session_id))
+    seen.append(await _hydrated_history(harness, session_id))
+    assert all(secret not in text for text in seen)
+    # The secret was in use: every request the provider received was authorized with it.
+    # Turn 4's second payout was skipped after the rejected one, so three requests were sent.
+    sends = ledger.sends()
+    assert [send["operation"] for send in sends] == ["createPayout", "postNote", "createPayout"]
+    assert all(send["authorized"] == "True" for send in sends)

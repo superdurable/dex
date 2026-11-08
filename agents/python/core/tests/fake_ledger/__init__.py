@@ -33,6 +33,7 @@ from dex_connectors.sdk import (
     BranchDefinition,
     Call,
     CallID,
+    ConnectionRef,
     Failure,
     FailureKind,
     IdempotencyKey,
@@ -42,6 +43,8 @@ from dex_connectors.sdk import (
     QueryAttempt,
     QueryDefinition,
     Receipt,
+    SecretString,
+    StaticCredentialProvider,
     StepDefaults,
 )
 from dex_connectors.sdk.singledispatch import DecisionKind, Fence
@@ -50,6 +53,10 @@ from dex_agents.testing import FileGate
 
 CONNECTOR_ID = "fake-ledger"
 STATE_DIR_ENVIRONMENT_VARIABLE = "FAKE_LEDGER_STATE_DIR"
+#: The Worker reads the ledger connection secret from this variable, as from a secret store.
+SECRET_ENVIRONMENT_VARIABLE = "FAKE_LEDGER_SECRET"
+DEFAULT_SECRET = "unset-test-secret"
+LEDGER_CONNECTION = ConnectionRef(CONNECTOR_ID, "test-ledger")
 _DEFAULTS = StepDefaults(timedelta(seconds=30), 1)
 
 
@@ -142,6 +149,14 @@ class FakeLedgerProvider:
         self.state_dir = state_dir
         self._writes = state_dir / "fake-ledger-writes.jsonl"
         self._sends = state_dir / "fake-ledger-sends.jsonl"
+        secret = os.environ.get(SECRET_ENVIRONMENT_VARIABLE, DEFAULT_SECRET)
+        self._expected_secret = secret
+        self.credentials = StaticCredentialProvider({LEDGER_CONNECTION: SecretString(secret)})
+
+    async def authorize(self, call: Call) -> bool:
+        """Resolve the connection secret at call time and check it, as a provider would."""
+        secret = await self.credentials.resolve(call)
+        return secret.reveal() == self._expected_secret
 
     @classmethod
     def from_environment(cls) -> FakeLedgerProvider:
@@ -163,8 +178,12 @@ class FakeLedgerProvider:
             if operation is None or entry["operation"] == operation
         ]
 
-    def accept(self, operation: str, key: str, *, deduplicate: bool, hidden: bool) -> str:
-        _append_line(self._sends, {"operation": operation, "key": key})
+    def accept(
+        self, operation: str, key: str, *, deduplicate: bool, hidden: bool, authorized: bool = True
+    ) -> str:
+        _append_line(
+            self._sends, {"operation": operation, "key": key, "authorized": str(authorized)}
+        )
         if deduplicate:
             for entry in self.writes(operation):
                 if entry["key"] == key:
@@ -196,6 +215,10 @@ class GetBalanceOperation:
         return GET_BALANCE_DEFINITION
 
     async def invoke(self, call: Call, input: GetBalanceInput) -> QueryAttempt[Balance]:
+        if not await self._provider.authorize(call):
+            return QueryAttempt.branch_result(
+                "notFound", Balance(input.account_id, 0), Receipt(), _refused("getBalance")
+            )
         if input.account_id == "missing":
             return QueryAttempt.branch_result(
                 "notFound",
@@ -231,6 +254,10 @@ class CreatePayoutOperation:
     async def invoke(self, call: Call, input: CreatePayoutInput) -> MutationAttempt[Payout]:
         words = input.memo.split()
         attempt = call.context.attempt if call.context is not None else 1
+        if not await self._provider.authorize(call):
+            return MutationAttempt.branch_result(
+                "providerRejected", Payout(), Receipt(), _refused("createPayout")
+            )
         if "reject" in words:
             return MutationAttempt.branch_result(
                 "providerRejected",
@@ -278,6 +305,10 @@ class PostNoteOperation:
     async def invoke(self, call: Call, input: PostNoteInput) -> MutationAttempt[Note]:
         words = input.text.split()
         key = str(call.idempotency_key)
+        if not await self._provider.authorize(call):
+            return MutationAttempt.branch_result(
+                "providerRejected", Note(), Receipt(), _refused("postNote")
+            )
         if "reject" in words:
             return MutationAttempt.branch_result(
                 "providerRejected", Note(), Receipt(), _failure("postNote", "channel archived")
@@ -334,6 +365,12 @@ class CloseAccountOperation:
 
     async def invoke(self, call: Call, input: CloseAccountInput) -> MutationAttempt[Note]:
         raise AssertionError("closeAccount must never run")
+
+
+def _refused(operation: str) -> Failure:
+    return Failure(
+        FailureKind.AUTHENTICATION, CONNECTOR_ID, operation, "the ledger refused the credential"
+    )
 
 
 def _failure(operation: str, message: str) -> Failure:
