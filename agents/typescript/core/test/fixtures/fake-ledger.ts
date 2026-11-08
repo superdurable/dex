@@ -12,8 +12,10 @@
 // getBalance is a Query. createPayout is a Stripe-like Mutation: the provider drops a repeated idempotency key, so
 // it is retry: safe. postNote is a Slack-like Mutation guarded by the single-dispatch fence; the provider does not
 // drop repeats. closeAccount is not exposed to agents. Words in a payout memo or a note text steer the provider:
-// reject, invalid, uncertain, rate-limit-once, hide (read-back finds nothing), and gate-before-send:<gate>,
-// gate-after-claim:<gate>, or gate-after-accept:<gate>, which wait at a FileGate on attempt 1 only.
+// reject, invalid, uncertain, rate-limit-once (refused before the claim, notSent), rate-limit-after-send (the
+// provider refuses the sent note, canResend), hide (read-back finds nothing), and gate-before-send:<gate>,
+// gate-after-claim:<gate>, gate-after-accept:<gate>, or gate-before-can-resend:<gate>, which wait at a FileGate on
+// attempt 1 only.
 
 import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -267,12 +269,22 @@ export class PostNoteOperation implements Mutation<PostNoteInput, Note> {
       this.provider.recordRateLimited(key);
       return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
     }
-    const noteId = await fence.dispatch(async () => {
+    const noteId = await fence.dispatch(async (): Promise<string | undefined> => {
       await this.provider.waitAt(words, "gate-after-claim", attempt);
+      if (words.includes("rate-limit-after-send") && attempt === 1) {
+        // The request reached the provider, which refused it without acting.
+        this.provider.recordRateLimited(key);
+        return undefined;
+      }
       const id = this.provider.accept("postNote", key, { deduplicate: false, hidden: words.includes("hide") });
       await this.provider.waitAt(words, "gate-after-accept", attempt);
       return id;
     });
+    if (noteId === undefined) {
+      await this.provider.waitAt(words, "gate-before-can-resend", attempt);
+      await fence.recordCanResend();
+      return newMutationRetry({ kind: "RATE_LIMIT", provider: fakeLedgerConnectorId, operation: "postNote", message: "rate limited" });
+    }
     await fence.recordProviderId(noteId);
     if (words.includes("uncertain")) {
       return newMutationUncertain({}, failure("postNote", "no response"));

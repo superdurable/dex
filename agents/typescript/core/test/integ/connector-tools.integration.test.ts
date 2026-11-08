@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { after, afterEach, before, describe, test } from "node:test";
 
-import { connectorResultTruncatedNote } from "../../src/connectors/index.js";
+import { connectorNotSentRetryLater, connectorResultTruncatedNote } from "../../src/connectors/index.js";
 import {
   outcomeUnknownToolResult,
   toolCallNotRunErrorPrefix,
@@ -273,6 +273,20 @@ describe("connector tools on a Dex engine", () => {
     assert.deepEqual(harness.ledger.writes("postNote"), []);
   });
 
+  test("a write proven unsent still skips the later writes", async () => {
+    const harness = newHarness();
+    await harness.startWorker();
+    const [, lines] = await runTurn([
+      ["post_note", { accountId: "a-1", text: "rate-limit-once" }],
+      ["create_payout", { accountId: "a-1", amount: 5 }],
+    ]);
+    assert.deepEqual(lines, [
+      `post_note: ${failed}fake-ledger postNote ${connectorNotSentRetryLater}: RATE_LIMIT: rate limited`,
+      `create_payout: ${failed}${skippedError}`,
+    ]);
+    assert.deepEqual(harness.ledger.writes(), []);
+  });
+
   test("the manifest approval and an override both apply", async () => {
     const harness = newHarness();
     await harness.startWorker();
@@ -524,11 +538,40 @@ describe("connector tools on a Dex engine", () => {
       });
     }
 
-    test("a single-attempt write that the provider rate-limits ends unknown and unsent", async () => {
+    // rate-limit-once: the fence recorded notSent before the claim, so the request never left the process.
+    // rate-limit-after-send: the provider refused the sent note without acting, and the fence recorded canResend.
+    for (const words of ["rate-limit-once", "rate-limit-after-send"]) {
+      test(`a single-attempt write proven unsent by "${words}" fails with a retry-later error`, async () => {
+        const harness = newHarness();
+        const answer = await writeWithKill(harness, "post_note", { accountId: "a-1", text: words }, undefined);
+        assert.equal(
+          answer,
+          `${failed}fake-ledger postNote ${connectorNotSentRetryLater}: RATE_LIMIT: rate limited`,
+        );
+        assert.deepEqual(harness.ledger.writes("postNote"), []);
+        assert.equal(harness.ledger.sends("rate-limited").length, 1);
+      });
+    }
+
+    test("a kill after the provider refused but before the marker stays unknown", async () => {
       const harness = newHarness();
-      const answer = await writeWithKill(harness, "post_note", { accountId: "a-1", text: "rate-limit-once" }, undefined);
+      // The claim committed and the request left; no canResend proof reached the session.
+      const answer = await writeWithKill(
+        harness,
+        "post_note",
+        { accountId: "a-1", text: "rate-limit-after-send gate-before-can-resend:kill" },
+        "kill",
+      );
       assert.equal(answer, outcomeUnknownToolResult);
-      assert.deepEqual(harness.ledger.sends("postNote"), []);
+      assert.deepEqual(harness.ledger.writes("postNote"), []);
+      assert.equal(harness.ledger.sends("rate-limited").length, 1);
+    });
+
+    test("a retry-safe fenced write refused after send is retried and sent once", async () => {
+      const harness = newHarness();
+      const answer = await writeWithKill(harness, "post_note_retried", { accountId: "a-1", text: "rate-limit-after-send" }, undefined);
+      assert.equal(answer, '{"noteId":"postNote-1"}');
+      assert.equal(harness.ledger.writes("postNote").length, 1);
     });
   });
 });

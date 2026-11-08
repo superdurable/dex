@@ -38,7 +38,7 @@ import type { AgentToolCall, ToolEffect } from "../agent-session-values.js";
 import { serializeJsonWithSpacedSeparators } from "../stepwise/json-schema-validation.js";
 import type { SourceToolDefinition, ToolSource } from "../stepwise/tool-source.js";
 import { checkConnectorInputSchema, compareCodePoints, findConnectorInputViolation } from "./connector-input-schema.js";
-import { ConnectorStepContext } from "./connector-step-context.js";
+import { ConnectorStepContext, readSavedHeartbeatValue } from "./connector-step-context.js";
 
 /**
  * Default {@link ConnectorToolSource.sourceName}.
@@ -58,6 +58,13 @@ export const defaultConnectorResultMaxBytes = 64 * 1024;
  * @since 0.3.0
  */
 export const connectorResultTruncatedNote = "[Dex] truncated, {total_bytes} bytes";
+
+/**
+ * Error text of a single-attempt write whose fence proved no send before the connector's Retry; the same text as
+ * the Python core.
+ * @since 0.3.0
+ */
+export const connectorNotSentRetryLater = "not sent; the provider asked to retry later";
 
 // The most CallTool attempts of any tool; a connector's own policy can only narrow it.
 const maximumToolAttempts = 3;
@@ -394,8 +401,11 @@ export function connectorTool<Input, Output>(
  * writes of that response are recorded `failed` with `skipped` set.
  *
  * The selected branch maps as {@link classifyConnectorBranch} describes. A connector retry throws through the
- * Step, so the tool Step's retry policy applies. A result longer than `maxResultBytes` reaches the model
- * truncated, with {@link connectorResultTruncatedNote}, and the record's `truncatedOutputBytes` holds the full size.
+ * Step, so the tool Step's retry policy applies. A single-attempt write that asks to retry ends `outcome_unknown`,
+ * unless its single-dispatch fence saved a `notSent` or `canResend` marker in this attempt: that proves the
+ * provider did not process the request, so the call records `failed` with {@link connectorNotSentRetryLater}.
+ * Either way it stops the later writes. A result longer than `maxResultBytes` reaches the model truncated, with
+ * {@link connectorResultTruncatedNote}, and the record's `truncatedOutputBytes` holds the full size.
  *
  * Install `@superdurable/connectors-sdk` next to this package; it is an optional peer dependency.
  *
@@ -524,8 +534,9 @@ export class ConnectorToolSource implements ToolSource {
    * Checks, decodes, and runs one call, then maps the selected branch.
    * @param call - The approved call, with the tool Step's live context.
    * @returns The result value as JSON text, bounded by `maxResultBytes`.
-   * @throws {ToolExecutionError} When the arguments break the schema or do not decode, or the operation selected a
-   * `rejected` or failed branch.
+   * @throws {ToolExecutionError} When the arguments break the schema or do not decode, the operation selected a
+   * `rejected` or failed branch, or a single-attempt write asked to retry after its fence recorded `notSent` or
+   * `canResend` in this attempt, which proves the provider did not process it ({@link connectorNotSentRetryLater}).
    * @throws {ToolOutcomeUnknownError} When the operation selected an unknown branch.
    * @throws {RangeError} When this source no longer has the tool, so the effect decides the outcome.
    * @throws Any other error, such as a connector retry for the tool Step's retry policy.
@@ -560,6 +571,10 @@ export class ConnectorToolSource implements ToolSource {
       result = await tool.invoke(connectorCall, toolArguments);
     } catch (error: unknown) {
       if (error instanceof RetryError) {
+        if (tool.effect === "non_idempotent_write" && isProvenNotSent(connectorCall, stepContext)) {
+          // One attempt only, so a Retry would record outcome_unknown though nothing was sent.
+          throw new ToolExecutionError(notSentDetail(tool, error.failure));
+        }
         throwDexRetry(error);
       }
       throw error;
@@ -687,6 +702,25 @@ function parseToolArguments(toolName: string, toolArguments: string): Readonly<R
     throw new ToolExecutionError(`invalid arguments for ${toolName}: expected a JSON object`);
   }
   return values;
+}
+
+/** Reports whether this attempt's last saved fence marker proves the write was not sent. */
+export function isProvenNotSent(call: Call, context: ConnectorStepContext): boolean {
+  const marker = readSavedHeartbeatValue(context);
+  if (!isRecord(marker)) {
+    return false;
+  }
+  return (
+    marker["callId"] === call.id &&
+    marker["attempt"] === context.attempt &&
+    (marker["state"] === "notSent" || marker["state"] === "canResend") &&
+    (marker["providerId"] === undefined || marker["providerId"] === "")
+  );
+}
+
+function notSentDetail(tool: ConnectorTool, failure: Failure | undefined): string {
+  const detail = `${tool.connectorId} ${tool.operationId} ${connectorNotSentRetryLater}`;
+  return failure === undefined ? detail : `${detail}: ${failure.kind}: ${failure.message}`;
 }
 
 function branchDetail(tool: ConnectorTool, branch: string, failure: Failure | undefined): string {

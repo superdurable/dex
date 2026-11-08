@@ -31,6 +31,7 @@ import {
   type ConnectorBranchOutcome,
   type ConnectorPackageManifest,
 } from "../../src/connectors/index.js";
+import { isProvenNotSent } from "../../src/connectors/connector-tool-source.js";
 import type { AgentToolCall, AgentTurnContext, ToolPolicy } from "../../src/index.js";
 import { ledgerConnection, readFakeLedgerManifest, retriedNoteManifest } from "../fixtures/connector-test-agent.js";
 import { conformanceSuiteDirectory } from "../fixtures/conformance-suite.js";
@@ -347,6 +348,51 @@ describe("the Step context the single-dispatch fence uses", () => {
     assert.equal(checkpoints.checkpoint, `{"attempt":1,"callId":"${call.id}","state":"notSent"}`);
   });
 
+  test("only a saved notSent or canResend marker of this attempt proves no send", async () => {
+    const proves = (fenced: FencedCall) => isProvenNotSent(fenced.call, fenced.context);
+    assert.equal(proves(fencedCallWithContext(1, undefined, new SessionCheckpoints())), false);
+
+    const notSent = fencedCallWithContext(1, undefined, new SessionCheckpoints());
+    let fence = new Fence(notSent.call, 30_000);
+    fence.decide();
+    await fence.recordNotSent();
+    assert.equal(proves(notSent), true);
+
+    const claimed = fencedCallWithContext(1, undefined, new SessionCheckpoints());
+    fence = new Fence(claimed.call, 30_000);
+    fence.decide();
+    await fence.dispatch(async () => "note-1");
+    assert.equal(proves(claimed), false);
+    await fence.recordCanResend();
+    assert.equal(proves(claimed), true);
+
+    const accepted = fencedCallWithContext(1, undefined, new SessionCheckpoints());
+    fence = new Fence(accepted.call, 30_000);
+    fence.decide();
+    await fence.dispatch(async () => "note-1");
+    await fence.recordProviderId("note-1");
+    assert.equal(proves(accepted), false);
+
+    // A marker an earlier attempt saved is history, not proof about this attempt.
+    const first = new SessionCheckpoints();
+    fence = new Fence(fencedCallWithContext(1, undefined, first).call, 30_000);
+    fence.decide();
+    await fence.recordNotSent();
+    assert.equal(proves(fencedCallWithContext(2, first.checkpoint, new SessionCheckpoints())), false);
+  });
+
+  test("a marker that failed to save proves nothing", async () => {
+    const failing = new SessionCheckpoints();
+    failing.save = async () => {
+      throw new Error("the heartbeat did not reach Dex");
+    };
+    const fenced = fencedCallWithContext(1, undefined, failing);
+    const fence = new Fence(fenced.call, 30_000);
+    fence.decide();
+    await assert.rejects(fence.recordNotSent());
+    assert.equal(isProvenNotSent(fenced.call, fenced.context), false);
+  });
+
   test("the Call ID depends only on the Flow, the Step execution, and the operation", () => {
     const first = fencedCall(1, undefined, new SessionCheckpoints());
     const retry = fencedCall(2, undefined, new SessionCheckpoints());
@@ -384,7 +430,16 @@ class SessionCheckpoints {
   }
 }
 
+interface FencedCall {
+  readonly call: Call;
+  readonly context: ConnectorStepContext;
+}
+
 function fencedCall(attempt: number, previous: string | undefined, checkpoints: SessionCheckpoints): Call {
+  return fencedCallWithContext(attempt, previous, checkpoints).call;
+}
+
+function fencedCallWithContext(attempt: number, previous: string | undefined, checkpoints: SessionCheckpoints): FencedCall {
   const live = {
     flowId: "session-1",
     runId: "run-1",
@@ -398,8 +453,9 @@ function fencedCall(attempt: number, previous: string | undefined, checkpoints: 
     heartbeat: () => checkpoints.record(),
     saveCheckpoint: (checkpoint) => checkpoints.save(checkpoint),
   });
-  return createCall(context as unknown as AsyncContext, ledgerConnection, {
+  const call = createCall(context as unknown as AsyncContext, ledgerConnection, {
     connectorId: "fake-ledger",
     operationId: "postNote",
   });
+  return { call, context };
 }

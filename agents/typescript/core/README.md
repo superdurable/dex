@@ -1468,7 +1468,9 @@ the operation never runs. The Call ID comes from
 a `ConnectorStepContext`, which stores each heartbeat value, such as the
 fence's marker, as the tool Step's text checkpoint in the Python core's JSON
 form, so the session's heartbeats repeat it and the next attempt reads it
-back. A `RetryError` goes through `throwDexRetry`.
+back. A `RetryError` goes through `throwDexRetry`, except for a single-attempt write
+whose fence saved `notSent` or `canResend` in this attempt: that records `failed` with
+`connectorNotSentRetryLater` instead of `outcome_unknown`.
 
 | Branch | Record | The model reads |
 | --- | --- | --- |

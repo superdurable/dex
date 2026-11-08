@@ -10,6 +10,14 @@ import type { AsyncContext } from "@superdurable/dex";
 
 import { compareCodePoints } from "./connector-input-schema.js";
 
+// The source reads it on a Retry; a failed save leaves the earlier value.
+const savedHeartbeatValues = new WeakMap<ConnectorStepContext, unknown>();
+
+/** Returns the last heartbeat value this context saved in this attempt, or `undefined`. Internal to the core. */
+export function readSavedHeartbeatValue(context: ConnectorStepContext): unknown {
+  return savedHeartbeatValues.get(context);
+}
+
 /** How a {@link ConnectorStepContext} reaches the tool Step's heartbeats. */
 export interface ConnectorStepHeartbeats {
   /** The text checkpoint an earlier attempt of the tool Step saved, or `undefined`. */
@@ -123,6 +131,7 @@ export class ConnectorStepContext {
       throw new TypeError("this tool Step cannot save heartbeat checkpoints");
     }
     await this.heartbeats.saveCheckpoint(stringifyWithSortedKeys(value));
+    savedHeartbeatValues.set(this, value);
   }
 }
 

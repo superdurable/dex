@@ -10,6 +10,7 @@ export {
   ConnectorToolSource,
   boundConnectorResult,
   classifyConnectorBranch,
+  connectorNotSentRetryLater,
   connectorResultTruncatedNote,
   connectorTool,
   defaultConnectorResultMaxBytes,
