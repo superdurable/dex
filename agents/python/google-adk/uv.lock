@@ -420,13 +420,14 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", git = "https://github.com/superdurable/dex-connectors-library?subdirectory=sdkpython&rev=ffc176aed26e8cd361e221a5fae4ba6dee1199d2" },
     { name = "dex-python-sdk", specifier = "==1.38.0" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.104,<1.106" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20,<2" },
 ]
-provides-extras = ["mcp", "otel", "litellm"]
+provides-extras = ["mcp", "otel", "litellm", "connectors"]
 
 [package.metadata.requires-dev]
 dev = [
