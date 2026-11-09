@@ -47,6 +47,12 @@ execution numbers come from the StepCounter table, so a deleted row never frees
 its number. The StepExecution table therefore holds the active Steps plus those
 kept rows, and checkpoints and the run state limit grow with them only.
 
+Checkpoints, snapshots, and staged TimeTravel results that a binary from before
+this deletion wrote still hold such rows. A TimeTravel deletes the ones it
+restores, in its own command. The debug semantic hash that compares a TimeTravel
+target with the live state skips them on both sides, because a deletable row
+answers every read as an absent row does.
+
 ## Search outbox
 
 While a partition's `SearchProjectionModeRecord` is enabled, every search
