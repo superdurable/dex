@@ -2,7 +2,7 @@
 
 One server-zd node ran on an on-demand c7gd.4xlarge (16 vCPU Graviton3, local NVMe) in us-west-2b, with the log in S3 Standard. An on-demand c7g.8xlarge load host in the same zone and cluster placement group ran `dexbench`, with 16 gRPC connections unless a round says otherwise. The server was in the placement group. The 2026-10-31 run used a Spot server outside the group.
 
-- server-zd: `f9254ef20`. Its server-zd tree is the same as `e3457b6c6`. The load host ran `dexbench` from `d99724b0d`. The `dexbench` revision field in `config.env` reads `unknown`, because the Go toolchain on the load host could not read the binary's build information.
+- server-zd: `f9254ef20`. Its server-zd tree is the same as `e3457b6c6`. The load host ran `dexbench` from `d99724b0d` (now `92622eb1b` on this branch after a rebase, with the same content). The `dexbench` revision field in `config.env` reads `unknown`, because the Go toolchain on the load host could not read the binary's build information.
 - Server settings beyond the defaults:
   - the four settings of 2026-10-31: `commit.maxUnappliedBytes: 268435456`, `limits.maxInFlightRpcsPerNode: 4096`, `localStorage.blockCacheBytes: 8589934592`, `localStorage.writeBufferBytes: 134217728`;
   - history offload with deletion of expired history objects and a 50,000-event window, which match the upcoming server-zd defaults: `history.offloadEnabled: true`, `history.deleteExpiredObjects: true`, `history.windowEvents: 50000`.
@@ -16,7 +16,7 @@ One server-zd node ran on an on-demand c7gd.4xlarge (16 vCPU Graviton3, local NV
 - Search rounds ran with `DEXBENCH_PROFILE=1`, so each point has a perf profile and thread stacks. Final trials and S1 ran with `DEXBENCH_PROFILE=0`.
 - `config.env` in each round records the exact settings. `benchmark/aws/reproduce.sh <round directory>` reruns a round.
 
-**This set is partial.** It does not report S2, S3, or S6. Their Step throughput on long-lived runs falls as each run ages. See [`../2026-11-09-long-lived-runs/`](../2026-11-09-long-lived-runs/README.md).
+**This set is partial.** It does not report S2, S3, or S6. Their Step throughput on long-lived runs falls as each run ages. See [`../2026-11-09-long-lived-runs/`](../2026-11-09-long-lived-runs/README.md). server-zd v0.1.23 fixed this, and S1, S2, S3, and S6 were measured with it in [`../2026-11-09-aws-s3-c7gd-4xlarge-v0.1.23/`](../2026-11-09-aws-s3-c7gd-4xlarge-v0.1.23/README.md).
 
 ## Results
 

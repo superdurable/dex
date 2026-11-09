@@ -2,7 +2,7 @@
 
 One server-zd node ran on an on-demand c7gd.large (2 vCPU Graviton3, local NVMe) in us-west-2b, with the log in S3 Standard. An on-demand c7g.8xlarge load host in the same zone and cluster placement group ran `dexbench` with 4 gRPC connections. The 2026-10-31 run used a Spot server.
 
-- server-zd: `f9254ef20`. Its server-zd tree is the same as `e3457b6c6`, the last server-zd change before it. The load host ran `dexbench` from `d99724b0d`. The `dexbench` revision field in `config.env` reads `unknown`, because the Go toolchain on the load host could not read the binary's build information.
+- server-zd: `f9254ef20`. Its server-zd tree is the same as `e3457b6c6`, the last server-zd change before it. The load host ran `dexbench` from `d99724b0d` (now `92622eb1b` on this branch after a rebase, with the same content). The `dexbench` revision field in `config.env` reads `unknown`, because the Go toolchain on the load host could not read the binary's build information.
 - Server settings: the `serve` defaults, plus history offload with deletion of expired history objects and a 50,000-event history window. These match the upcoming server-zd defaults.
 
   ```yaml
@@ -16,7 +16,7 @@ One server-zd node ran on an on-demand c7gd.large (2 vCPU Graviton3, local NVMe)
 - Search rounds ran with `DEXBENCH_PROFILE=1`, so each point has a perf profile and thread stacks. Final trials and S1 ran with `DEXBENCH_PROFILE=0`.
 - `config.env` in each round records the exact settings. `benchmark/aws/reproduce.sh <round directory>` reruns a round.
 
-**This set is partial.** S2, S3, and S6 now run on long-lived runs, and their Step throughput falls as each run ages. Numbers from them would depend on the point length, so this set does not report them. See [`../2026-11-09-long-lived-runs/`](../2026-11-09-long-lived-runs/README.md).
+**This set is partial.** S2, S3, and S6 now run on long-lived runs, and their Step throughput falls as each run ages. Numbers from them would depend on the point length, so this set does not report them. See [`../2026-11-09-long-lived-runs/`](../2026-11-09-long-lived-runs/README.md). server-zd v0.1.23 fixed this, and S1, S2, S3, and S6 were measured with it in [`../2026-11-09-aws-s3-c7gd-large-v0.1.23/`](../2026-11-09-aws-s3-c7gd-large-v0.1.23/README.md).
 
 ## Results
 

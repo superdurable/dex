@@ -1,0 +1,13 @@
+cluster:
+  nodeId: "dexbench-1"
+objectStore:
+  bucket: "dex-benchmark-2026-11-09v-fc458a5a"
+  prefix: "2026-11-09v-large-07-age-warmup-90s-repeat-171457/20261109T171457Z-25fd9d/p001-sequential-steps-c128"
+  region: "us-west-2"
+  credentialsSource: defaultChain
+localStorage:
+  directory: "/mnt/nvme/dexzd"
+api:
+  listen: "0.0.0.0:8801"
+metrics:
+  listen: "0.0.0.0:9901"
