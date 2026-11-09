@@ -16,9 +16,9 @@ use dexzd_protocol::dex::{
     StopFlowRequest, StopType,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, CommandReply, FlowCommand, FlowDirectoryRun, FlowStartCommand, FlowStopCommand,
-    FlowTimeoutTimerId, HardDeleteObjectReference, RunRecord, RunSettings, TimerId, command_reply,
-    flow_command::Command, timer_id,
+    AttemptRecord, CommandReply, EndedStepRowSweep, FlowCommand, FlowDirectoryRun,
+    FlowStartCommand, FlowStopCommand, FlowTimeoutTimerId, HardDeleteObjectReference, RunRecord,
+    RunSettings, TimerId, command_reply, flow_command::Command, timer_id,
 };
 
 use prost::Message;
@@ -164,6 +164,11 @@ pub(crate) fn start_run(
         parent: start.parent.clone(),
         window_start_seq: 1,
         window_event_count: Some(0),
+        // A new run never holds rows that older binaries kept.
+        ended_step_row_sweep: Some(EndedStepRowSweep {
+            is_complete: true,
+            ..EndedStepRowSweep::default()
+        }),
         ..RunRecord::default()
     };
     let mut cursor = RunCursor::for_new_run(rows, record);

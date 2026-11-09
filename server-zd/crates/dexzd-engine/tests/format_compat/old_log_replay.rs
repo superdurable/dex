@@ -717,8 +717,10 @@ fn history_without_scheduled_time(value: &[u8]) -> Vec<u8> {
 ///
 /// It also clears the window event counters, which the older binary did not write. A run that
 /// counts events counts at least one per semantic record.
+/// The ended Step row sweep progress, also newer, is cleared too.
 fn run_record_without_storage(value: &[u8]) -> RunRecord {
     let mut run = RunRecord::decode(value).expect("run record rows decode");
+    run.ended_step_row_sweep = None;
     run.storage = None;
     run.row_write_bytes_since_checkpoint = 0;
     run.last_checkpoint_state_bytes = 0;

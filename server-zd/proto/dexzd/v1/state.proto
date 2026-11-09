@@ -205,6 +205,10 @@ message RunRecord {
   // Search cache, kept unless active Step search is DISABLED; older runs recount once.
   // RunStorageUsage.state_row_bytes excludes it.
   ActiveStepTypeCounts search_active_step_type_counts = 74;
+  // Progress of deleting the ended Step rows that the run kept from before apply deleted them
+  // at once. Absent on runs recorded before this field. FlowStart records it complete; a
+  // TimeTravel starts it again.
+  EndedStepRowSweep ended_step_row_sweep = 75;
   // Every HistoryRowMetadata row after genesis and before this seq is deleted; zero means pruning
   // scans from genesis + 1.
   uint64 history_metadata_pruned_before_seq = 76;
@@ -225,6 +229,14 @@ message ActiveStepTypeCount {
   uint64 with_wait_for = 1;
   // Step executions whose options skip WaitFor.
   uint64 without_wait_for = 2;
+}
+
+// How far apply deleted the rows of ended Steps that a run kept from older binaries.
+message EndedStepRowSweep {
+  // Step execution ID of the last row the sweep visited; empty when it starts or is complete.
+  string last_visited_step_execution_id = 1;
+  // True once the sweep visited every Step row; later commands skip it.
+  bool is_complete = 2;
 }
 
 // A staged TimeTravel result of a run; see TimeTravelStageCommand.
