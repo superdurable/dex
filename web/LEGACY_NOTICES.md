@@ -73,8 +73,9 @@ Dex Web draws its interface icons with lucide-react 1.61.0.
 - Source code: https://github.com/lucide-icons/lucide, published as the npm
   package https://www.npmjs.com/package/lucide-react/v/1.61.0.
 
-The icons are distributed unmodified, as part of the Dex Web bundle. The
-Sustainable Use License 1.0 does not apply to them.
+The icons are distributed unmodified, as part of the Dex Web bundle that
+`dexcli`, the Dex Server image, the Dex Web image and the documentation site
+include. The Sustainable Use License 1.0 does not apply to them.
 
 ## Geist fonts
 
@@ -83,8 +84,10 @@ files the documentation site serves.
 
 - Copyright (c) 2023 Vercel, in collaboration with basement.studio.
 - Licensed under the SIL Open Font License 1.1. The license text is in
-  `app/fonts/geist/OFL.txt` and at https://openfontlicense.org/open-font-license-official-text/.
+  `LICENSES/Geist-OFL-1.1.txt` and at
+  https://openfontlicense.org/open-font-license-official-text/.
 - Source: the npm package https://www.npmjs.com/package/geist/v/1.9.0.
 
-The font files are distributed unmodified, as part of the Dex Web bundle. The
-Sustainable Use License 1.0 does not apply to them.
+The font files are distributed unmodified, as part of the Dex Web bundle that
+`dexcli`, the Dex Server image, the Dex Web image and the documentation site
+include. The Sustainable Use License 1.0 does not apply to them.

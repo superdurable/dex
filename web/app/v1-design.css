@@ -17,7 +17,7 @@
  * The v2 Deep Dive embeds the run page and remaps these tokens in debug.css.
  */
 
-/* Self-hosted from the geist npm package 1.9.0, the same files the docs site serves (SIL OFL 1.1, see fonts/geist/OFL.txt). */
+/* Self-hosted from the geist npm package 1.9.0, the same files the docs site serves (SIL OFL 1.1, see web/LICENSES/Geist-OFL-1.1.txt). */
 @font-face {
   font-family: 'Geist';
   src: url('./fonts/geist/Geist-Variable.woff2') format('woff2');
