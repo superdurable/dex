@@ -1,0 +1,8 @@
+history:
+  windowEvents: 50000
+  offloadEnabled: true
+  deleteExpiredObjects: true
+metrics:
+  listen: "127.0.0.1:9901"
+dev:
+  durabilityMode: processCrashSafe

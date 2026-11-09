@@ -1,0 +1,192 @@
+{
+  "schema_version": 2,
+  "started_at": "2026-11-09T04:53:22.847098421Z",
+  "config": {
+    "address": "127.0.0.1:8801",
+    "target": "zd",
+    "engine": "zd",
+    "scenario": "start-complete",
+    "duration_seconds": 15,
+    "warmup_seconds": 2,
+    "concurrency": 4,
+    "worker_pool": 4,
+    "connections": 1,
+    "steps": 10,
+    "timeout_seconds": 30,
+    "metrics_url": "http://127.0.0.1:9901/metrics",
+    "attribute_bytes": 16384,
+    "mode": "local"
+  },
+  "server_version": "unknown",
+  "sdk_version": "in-repo (../../sdk-go)",
+  "machine": {
+    "cpu_model": "",
+    "cores": 6,
+    "ram_bytes": 10491916288,
+    "os": "linux",
+    "architecture": "arm64",
+    "free_disk_bytes": 298057891840
+  },
+  "attempts": 16068,
+  "successes": 16068,
+  "errors": {},
+  "measured_seconds": 15.002925631,
+  "cpu_method": "linux: per-interval delta of /proc/\u003cpid\u003e/stat utime+stime over each root's process tree",
+  "throughput_per_second": 1070.9911116801964,
+  "throughput_unit": "flows",
+  "latency": {
+    "p50_ms": 3.206119,
+    "p90_ms": 5.190906,
+    "p99_ms": 13.627516,
+    "max_ms": 45.452163
+  },
+  "step_latency": {
+    "p50_ms": 0,
+    "p90_ms": 0,
+    "p99_ms": 0,
+    "max_ms": 0
+  },
+  "load_host_resources": [
+    {
+      "at": "2026-11-09T04:53:25.852265022Z",
+      "interval_seconds": 1.000195801,
+      "cpu_percent": 18.996280509280002,
+      "rss_bytes": 20324352,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:26.852200281Z",
+      "interval_seconds": 0.999935217,
+      "cpu_percent": 18.001166169547965,
+      "rss_bytes": 20684800,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:27.85255054Z",
+      "interval_seconds": 1.000350259,
+      "cpu_percent": 17.993697545491408,
+      "rss_bytes": 20488192,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:28.853129839Z",
+      "interval_seconds": 1.000579299,
+      "cpu_percent": 18.98899969146773,
+      "rss_bytes": 20037632,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:29.852561183Z",
+      "interval_seconds": 0.999431344,
+      "cpu_percent": 21.011948570626394,
+      "rss_bytes": 20664320,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:30.852967608Z",
+      "interval_seconds": 1.000406425,
+      "cpu_percent": 15.993499841826777,
+      "rss_bytes": 20484096,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:31.85231341Z",
+      "interval_seconds": 0.999345802,
+      "cpu_percent": 19.012437898848546,
+      "rss_bytes": 20606976,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:32.852373961Z",
+      "interval_seconds": 1.000060551,
+      "cpu_percent": 18.998849600657824,
+      "rss_bytes": 20434944,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:33.853353801Z",
+      "interval_seconds": 1.00097984,
+      "cpu_percent": 20.97944350207892,
+      "rss_bytes": 20566016,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:34.85234702Z",
+      "interval_seconds": 0.998993219,
+      "cpu_percent": 22.022171503848835,
+      "rss_bytes": 20164608,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:35.852683112Z",
+      "interval_seconds": 1.000336092,
+      "cpu_percent": 16.99428835563797,
+      "rss_bytes": 20422656,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:36.852511997Z",
+      "interval_seconds": 0.999828926,
+      "cpu_percent": 14.002395445798507,
+      "rss_bytes": 20779008,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:37.852317506Z",
+      "interval_seconds": 0.999805468,
+      "cpu_percent": 15.002918547750921,
+      "rss_bytes": 20697088,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:38.852258182Z",
+      "interval_seconds": 0.999940718,
+      "cpu_percent": 14.000829997203907,
+      "rss_bytes": 20697088,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T04:53:39.852387566Z",
+      "interval_seconds": 1.000129384,
+      "cpu_percent": 15.997930123808828,
+      "rss_bytes": 20836352,
+      "process_count": 1
+    }
+  ],
+  "measurement_started_at": "2026-11-09T04:53:24.852024472Z",
+  "measurement_ended_at": "2026-11-09T04:53:39.855899143Z",
+  "object_store": {
+    "requests_per_minute": {
+      "dexzd_object_store_requests_total{operation=\"delete\",object_kind=\"other\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"lease\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"manifest\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"get\",object_kind=\"other\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"list\",object_kind=\"log\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"history\"}": 64259.401064147954,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"lease\"}": 3.9989670212301918,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"log\"}": 192766.20629138016,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"manifest\"}": 0,
+      "dexzd_object_store_requests_total{operation=\"put\",object_kind=\"other\"}": 0
+    },
+    "requests_per_minute_by_operation": {
+      "delete": 0,
+      "get": 0,
+      "list": 0,
+      "put": 257029.60632254934
+    },
+    "request_errors": 0,
+    "commit_latency_buckets": {
+      "dexzd_commit_latency_seconds_bucket{le=\"+Inf\"}": 48204,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.01\"}": 48174,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.025\"}": 48196,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.05\"}": 48204,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.1\"}": 48204,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.25\"}": 48204,
+      "dexzd_commit_latency_seconds_bucket{le=\"0.5\"}": 48204,
+      "dexzd_commit_latency_seconds_bucket{le=\"1.0\"}": 48204,
+      "dexzd_commit_latency_seconds_bucket{le=\"2.5\"}": 48204
+    },
+    "commit_latency_count": 48204,
+    "commit_latency_sum_seconds": 36.43752062800012
+  }
+}

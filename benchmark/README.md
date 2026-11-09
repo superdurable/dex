@@ -6,7 +6,105 @@ CPU and memory, and object storage requests for each run.
 
 ## Latest results
 
-These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dispatch fix in #1131.
+These results were measured on 2026-11-09 in AWS us-west-2. **They are partial:** they cover S4, S5, and a rough S1, but not S2, S3, or S6.
+
+- **Server:** one server-zd node on an on-demand c7gd instance. RocksDB was on the local NVMe instance store, and the log went to S3 Standard in the same Region. The 2026-10-31 run used Spot servers.
+- **Load host:** a separate on-demand c7g.8xlarge ran `dexbench` in the same Availability Zone and cluster placement group. Its mean CPU stayed below 35% of the host at every point.
+- **Version:** server-zd `f9254ef20`, whose server-zd tree is the same as `e3457b6c6`. `dexbench` ran from `d99724b0d`.
+- **Configuration:** history offload was on, with deletion of expired history objects and a 50,000-event history window. These match the upcoming server-zd defaults. Everything else was the same as on 2026-10-31; see [Settings for 2026-11-09](#settings-for-2026-11-09).
+- **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. A point with three runs shows the median of the three.
+
+**Why S2, S3, and S6 are missing.** `dexbench` now runs S2, S3, and S6 on long-lived Flows: each client keeps one Flow open for the whole point. On a long-lived Flow, Step throughput falls as the Flow executes more Steps. With eight clients, Steps per second fell by a factor of three to four after 90 seconds, with history offload on or off. A number from these scenarios would therefore depend on the length of the point. The evidence and the code path are in [`results/2026-11-09-long-lived-runs/`](results/2026-11-09-long-lived-runs/README.md). These scenarios will be measured again after a server-zd fix. Their numbers would not be directly comparable with 2026-10-31, which started a new ten-Step Flow for every operation.
+
+Each table lists the peak and a "~50% of peak" row per scenario. The ~50% row shows latency at a normal, unsaturated load. The peak row has bold throughput. Rows marked "search" are single runs from the search rounds, with profiling on. The other rows are medians of three runs.
+
+### c7gd.large (2 vCPU)
+
+| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
+| --- | ---: | ---: | --- |
+| S4 plain RPC, reads one 8-byte Attribute | 4 (~50% of peak) | 7,492 RPCs/s | 0.5 / 0.6 / 0.8 |
+|  | 64 (search) | 12,360 RPCs/s | 5.0 / 7.0 / 9.2 |
+|  | 256 (peak) | **13,926 RPCs/s** | 18.5 / 24.7 / 29.6 |
+|  | 512 (search) | 12,937 RPCs/s | 39.1 / 52.7 / 68.2 |
+| S4 Attribute-locking RPC, updates one 8-byte Attribute | 64 (~50% of peak) | 950 RPCs/s | 64.7 / 88.3 / 115.2 |
+|  | 512 (search) | 1,773 RPCs/s | 278 / 392 / 517 |
+|  | 960 (peak) | **2,149 RPCs/s** | 435 / 608 / 749 |
+| S5 direct read of ten 16 KiB Attributes (160 KiB) | 3 (~50% of peak) | 3,058 reads/s | 0.9 / 1.2 / 1.7 |
+|  | 256 (peak) | **5,891 reads/s** | 43.4 / 59.9 / 74.2 |
+|  | 1,024 (search) | 4,938 reads/s | 205 / 260 / 344 |
+
+### c7gd.4xlarge (16 vCPU)
+
+| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
+| --- | ---: | ---: | --- |
+| S4 plain RPC, reads one 8-byte Attribute | 8 (~50% of peak) | 15.3k RPCs/s | 0.5 / 0.6 / 1.2 |
+|  | 48 (search) | 29.5k RPCs/s | 1.5 / 2.4 / 3.8 |
+|  | 512 (peak) | **32.1k RPCs/s** | 15.4 / 24.1 / 32.2 |
+|  | 2,048 (search) | 29.8k RPCs/s | 66.7 / 102.4 / 134.3 |
+| S4 Attribute-locking RPC, updates one 8-byte Attribute | 512 (~50% of peak) | 6,286 RPCs/s | 73.8 / 104.7 / 252.0 |
+|  | 2,048 (search) | 10.4k RPCs/s | 201 / 244 / 271 |
+|  | 4,096 (peak) | **11.7k RPCs/s** | 347 / 432 / 558 |
+|  | 8,192 | 12.1k RPCs/s | 667 / 770 / 935 |
+| S5 direct read of ten 16 KiB Attributes (160 KiB) | 5 (~50% of peak) | 5,536 reads/s | 0.8 / 1.2 / 1.9 |
+|  | 16 (search) | 11.0k reads/s | 1.3 / 2.3 / 3.2 |
+|  | 256 (peak) | **11.3k reads/s** | 16.2 / 55.2 / 80.3 |
+
+Attribute-locking RPC at C=8,192 used 32 connections and a 16,384 in-flight RPC limit. It is within 4% of the C=4,096 point, so the scenario is flat above C=4,096.
+
+### S1 Flows started and completed (rough)
+
+S1 is rough: a single 15-second run per point, after a 5-second warmup, with profiling off. It uses short Flows: each operation starts a new Flow and waits for it to complete. With history offload on, each completed Flow seals one history segment for upload.
+
+| Instance | C | Throughput | p50 / p90 / p99 (ms) | History uploads/s | S3 PUTs/s | PUTs per completed Flow |
+| --- | ---: | ---: | --- | ---: | ---: | ---: |
+| c7gd.large | 64 | 445 Flows/s | 139 / 176 / 205 | 445 | 573 | 1.29 |
+|  | 512 | 695 Flows/s | 725 / 874 / 1,001 | 394 | 474 | 0.68 |
+|  | 1,024 | 728 Flows/s | 1,372 / 1,634 / 1,871 | 385 | 443 | 0.61 |
+| c7gd.4xlarge | 3,072 | 4,733 Flows/s | 618 / 822 / 1,054 | 547 | 609 | 0.13 |
+|  | 6,144 | 4,925 Flows/s | 1,221 / 1,471 / 1,657 | 532 | 574 | 0.12 |
+|  | 12,288 | 5,351 Flows/s | 2,250 / 2,636 / 2,931 | 503 | 533 | 0.10 |
+
+- History uploads keep up only at low throughput. At C=64 on c7gd.large, uploads matched completed Flows one for one: 8,975 each.
+- Above that, uploads leveled off at about 390 per second on c7gd.large and 500–550 per second on c7gd.4xlarge. This is close to the default `history.uploadConcurrency` of 16 times one S3 PUT round trip. Completed Flows ran ahead of the uploads: at C=12,288 on c7gd.4xlarge, 124,992 Flows completed and 11,157 segments were uploaded during the point.
+- PUTs per completed Flow fall at high throughput only because the uploads trail. `dexzd_history_upload_backlog_segments` still read 0 after these points.
+- A local check counted exactly one history PUT, of about 926 bytes, per closed short Flow. See [`results/2026-11-09-long-lived-runs/`](results/2026-11-09-long-lived-runs/README.md).
+- There were no object storage request errors and no failed uploads.
+
+### Notes
+
+- **C** is the number of concurrent clients. Load is closed-loop, so latency grows with C once the server is saturated.
+- **Changes from 2026-10-31 above 15%:**
+  - Plain RPC on c7gd.large rose from 7,426 to 13,926 RPCs/s. Server CPU was above 92% of both cores in both runs, so each RPC now costs less CPU. The cause was not isolated.
+  - Attribute-locking RPC on c7gd.large rose from 1,805 to 2,149 RPCs/s. The new peak is at C=960 rather than 768.
+  - Plain RPC on c7gd.4xlarge fell from 49,327 to 32,137 RPCs/s. The server was not CPU-bound: it used 36% of the host at the peak, against 76% on 2026-10-31. In every thread snapshot, 6 to 11 of the 27 server threads waited on the `WorkerDispatch` registry mutex in `dexzd-worker-dispatch`. That lock is the likely limit. See the [c7gd.4xlarge results](results/2026-11-09-aws-s3-c7gd-4xlarge/README.md).
+  - S1 on c7gd.large fell from 889 to 728 Flows/s at its peak, and on c7gd.4xlarge from 6,176 to 5,351 Flows/s at C=12,288. These are single 15-second runs with history offload on, so the comparison is indicative only.
+- **S3 requests:** plain RPC and S5 write nothing, so their only PUTs are the lease, about 0.3 per second. Attribute-locking RPC made 14–120 log PUTs per second. The open S4 and S5 Flows wrote no history segments within a point, because a segment seals at 4 MiB or when its Flow closes.
+
+### Settings for 2026-11-09
+
+- **Both instance types:** history offload on, with deletion of expired history objects and a 50,000-event window. These match the upcoming server-zd defaults.
+
+  ```yaml
+  history:
+    offloadEnabled: true
+    deleteExpiredObjects: true
+    windowEvents: 50000
+  ```
+
+- **c7gd.large:** otherwise the default configuration, with 4 gRPC connections.
+- **c7gd.4xlarge:** the four settings of 2026-10-31, with 16 gRPC connections. Attribute-locking RPC at C=8,192 used 32 connections and `limits.maxInFlightRpcsPerNode: 16384`.
+  - `matching.maxConcurrentTasksCap` (default 256) now limits the task slots of each pull Worker.
+  - `dexbench` gives each connection C divided by the connection count, so a point above 256 slots per connection needs more connections. S1 used 48 connections for that reason.
+
+The result sets are in
+[`results/2026-11-09-aws-s3-c7gd-large/`](results/2026-11-09-aws-s3-c7gd-large/)
+and
+[`results/2026-11-09-aws-s3-c7gd-4xlarge/`](results/2026-11-09-aws-s3-c7gd-4xlarge/).
+They have the same layout as the 2026-10-31 sets.
+
+## Previous results: 2026-10-31
+
+These results were measured on 2026-10-31 in AWS us-west-2, after the Worker dispatch fix in #1131. They are the latest full run, and the latest numbers for S2, S3, and S6. They used the old S2, S3, and S6 method, with a new Flow per operation, and history offload was off.
 
 - **Server:** one server-zd node on a c7gd instance. RocksDB was on the local NVMe instance store, and the log went to S3 Standard in the same Region.
 - **Load host:** a separate c7g.8xlarge ran `dexbench` in the same Availability Zone. Its mean CPU stayed below 47% of the host at every point.
@@ -124,6 +222,8 @@ projection, and measure the cost of its acks.
 
 ### What the numbers mean
 
+The figures in this section come from the 2026-10-31 run.
+
 - **A SYNC Step waits for its commits to reach S3, and an ASYNC Step does not.**
   - Each log commit is one S3 PUT round trip. At the SYNC peaks, commits averaged 36–39 ms on c7gd.large and 51–57 ms on c7gd.4xlarge.
   - Under load, a SYNC Step also waits for its batch and for a free PUT slot, so its per-Step latency is 360–710 ms at the peaks.
@@ -145,12 +245,12 @@ concurrency.
 
 | ID | Variant | What it measures |
 | --- | --- | --- |
-| S1 | `start-complete` | Start and complete a Flow with one Step |
-| S2 | `sequential-steps` | Ten sequential SYNC Steps in one Flow |
-| S3 | `sequential-steps-async` | Ten sequential ASYNC Steps in one Flow |
+| S1 | `start-complete` | Start and complete a short Flow with one Step |
+| S2 | `sequential-steps` | Back-to-back SYNC Steps in one long-lived Flow per client |
+| S3 | `sequential-steps-async` | Back-to-back ASYNC Steps in one long-lived Flow per client |
 | S4 | `rpc-plain`, `rpc-locking` | An RPC that reads one 8-byte Attribute, and an RPC that locks and updates it |
 | S5 | `attribute-read-direct` | Read ten 16 KiB Attributes, 160 KiB in total, from the client without a Worker |
-| S6 | `channel-wake` | Latency from a Channel publish to the waiting Step |
+| S6 | `channel-wake` | Latency from a Channel publish to the waiting Step of a long-lived Flow |
 | S7 | `dexbench search` | Search latency, seed projection throughput, WAL, and PostgreSQL backfill |
 
 The scenario name `rpc` runs both S4 variants. The name `attribute-read` runs
@@ -159,24 +259,24 @@ S5.
 **S1 `start-complete`.** Each client starts a new Flow whose only Step
 completes it. The client then waits for the Flow result. The timed operation
 is StartFlow plus WaitForFlow. Throughput is in Flows per second. Every
-operation creates a new Flow.
+operation creates a new, short Flow. With history offload on, each closed
+Flow uploads one history segment, so S1 also measures that cost.
 
-**S2 `sequential-steps`.** Each client starts a new Flow that runs ten SYNC
-Steps one after another. Each Step moves to the next with GoTo. The timed
-operation is the whole Flow, from StartFlow to the result of WaitForFlow.
-Throughput is in Steps per second: completed Flows times ten. The report also
-shows per-Step latency. That is the gap between the start of one Step's
-Execute and the start of the next one, measured inside the Worker. Every
-operation creates a new Flow. Set the Step count with `DEXBENCH_STEPS`.
+**S2 `sequential-steps`.** Before warmup, each client starts one Flow that
+stays open for the whole point. Its SYNC Step moves to itself with GoTo, so
+the Flow runs Steps back to back until the point ends and the client stops
+it. The timed operation is one Step: the gap between the start of one Step's
+Execute and the start of the next one, measured inside the Worker.
+Throughput is in Steps per second. `DEXBENCH_STEPS` is no longer used.
+Results of 2026-10-31 and earlier used a new ten-Step Flow per operation, so
+they are not directly comparable.
 
 **S3 `sequential-steps-async`.** This is S2 with ASYNC Step durability. A SYNC
 Step result is committed to object storage before the Flow moves on. An ASYNC
 result lets the Flow move on first, and the commit follows in a later batch.
 If the server node fails before that commit, the Step runs again, and so does
 any work that started from it. Timing, throughput unit, and per-Step latency
-are the same as in S2. Starting and completing the Flow still need commits, so
-the Flow latency of S3 still includes commit time. Per-Step latency shows the
-effect of ASYNC most directly.
+are the same as in S2.
 
 **S4 `rpc-plain` and `rpc-locking`.** Before warmup, each client starts one
 Flow that stays open. The Flow has one `int64` counter Attribute, 8 bytes on
@@ -201,9 +301,10 @@ RPC. Throughput is in reads per second, and it is limited by bandwidth: at
 11,258 reads per second, c7gd.4xlarge moves about 1.8 GB/s. JSON results record the verified bytes per read and the
 number of blobs loaded.
 
-**S6 `channel-wake`.** Each client starts a new Flow whose Step waits on a
-Channel. After the Step's WaitFor returns, the client polls GetFlowState until
-the Step is waiting. Gating the poll on WaitFor keeps it near one
+**S6 `channel-wake`.** Before warmup, each client starts one Flow that stays
+open for the whole point. Its Step waits on a Channel, and after each wake it
+moves to itself to wait again. After the Step's WaitFor returns, the client
+polls GetFlowState until the Step is waiting. Gating the poll on WaitFor keeps it near one
 GetFlowState call per wake. The client then publishes one message with
 FlowService PublishToChannel. Only the time from the publish call to the start
 of the Step's Execute is timed. Throughput includes the untimed setup, so use
@@ -281,7 +382,7 @@ It takes about 1 hour 45 minutes.
 | `DEXBENCH_WARMUP` | `15` | Warmup seconds per step |
 | `DEXBENCH_CONCURRENCY` | `1,32` | Comma-separated client counts |
 | `DEXBENCH_SCENARIOS` | all six | Comma-separated scenario or variant names |
-| `DEXBENCH_STEPS` | `10` | Steps per S2 and S3 Flow |
+| `DEXBENCH_STEPS` | `10` | Unused; S2 and S3 run long-lived Flows |
 | `DEXBENCH_WORKERS` | `0` | Pull Worker task slots; `0` uses the concurrency |
 | `DEXBENCH_CONNECTIONS` | `1` | Client and Worker pairs, each with its own gRPC connections |
 | `DEXBENCH_OUT` | new temporary directory | Result directory |
@@ -296,9 +397,9 @@ is below `DEXBENCH_MAX_LOAD`.
 
 Every combination of scenario variant and concurrency runs on a newly started
 server with empty state. The script starts `dexcli dev` with a new server-zd
-data directory. S4 and S5 start their Flows before warmup, so the warmup and the
-measurement of one step share those Flows. S1, S2, S3, and S6 start a new Flow
-for every operation.
+data directory. S2 to S6 start one Flow per client before warmup, so the warmup
+and the measurement of one step share those Flows. The client stops them after
+the measurement. S1 starts a new Flow for every operation.
 
 ### Resource sampling
 
