@@ -227,6 +227,7 @@ test('pruning points links to dropped versions at their redirect destinations ev
       '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/1.33.x/) [bare](/reference/cli/1.33.x)',
       '[anchor](/reference/cli/1.33.x/#start-locally) [log](/reference/cli/1.33.x/changelog/#v1-33)',
       '[gone](</reference/cli/1.33.x/removed>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.33.xy/)',
+      '[zh](/zh-Hans/reference/cli/1.33.x/changelog/#v1-33) [zh-gone](/zh-Hans/reference/cli/1.33.x/removed/)',
     ].join('\n'));
     await mkdir(join(siteDirectory, 'content'), {recursive: true});
     await writeFile(join(siteDirectory, 'content/guide.mdx'), '<Link to="/reference/cli/1.33.x/changelog">c</Link>');
@@ -260,6 +261,7 @@ test('pruning points links to dropped versions at their redirect destinations ev
       '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/) [bare](/reference/cli/)',
       '[anchor](/reference/cli/) [log](/reference/cli/changelog/)',
       '[gone](</reference/cli/>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.33.xy/)',
+      '[zh](/zh-Hans/reference/cli/changelog/) [zh-gone](/zh-Hans/reference/cli/)',
     ].join('\n');
     assert.equal(await readFile(join(latestDirectory, 'changelog.mdx'), 'utf8'), expectedChangelog);
     assert.equal(await readFile(join(siteDirectory, 'reference-cli_versioned_docs/version-1.34.x/changelog.mdx'), 'utf8'),
@@ -271,6 +273,7 @@ test('pruning points links to dropped versions at their redirect destinations ev
         '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/1.38.x/) [bare](/reference/cli/1.38.x/)',
         '[anchor](/reference/cli/1.38.x/) [log](/reference/cli/1.38.x/changelog/)',
         '[gone](</reference/cli/1.38.x/>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.38.x/1.33.xy/)',
+        '[zh](/zh-Hans/reference/cli/changelog/) [zh-gone](/zh-Hans/reference/cli/)',
       ].join('\n'));
   } finally {
     await rm(siteDirectory, {recursive: true, force: true});
