@@ -46,7 +46,7 @@ Pass the mock payment and shipping API into the Flow constructor. Do not use a s
   }}>
 <SdkSnippet lang="python">
 
-```python
+```python fold="11-12,15-19,29-30,33-44,77-80"
 order_status = Attribute(
     "order-status",
     str,
@@ -201,7 +201,7 @@ func (*OrderProcessingFlow) Describe(
 }
 ```
 
-```go
+```go fold="2-6,30-42"
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
@@ -301,7 +301,7 @@ func (step refundStep) Execute(
 </SdkSnippet>
   <SdkSnippet lang="java">
 
-```java
+```java fold="14-17,62-66,98-109"
 public class OrderProcessingFlow implements Flow<OrderRequest> {
     public static final Attribute<String> orderStatus = Attribute.define(
             "order-status",
@@ -465,7 +465,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
-```typescript
+```typescript fold="13-15,58-62,85-94"
 const orderStatus = new Attribute("order-status", stringCodec, {
   type: IndexType.KEYWORD,
   indexKey: "keyword1",
@@ -601,7 +601,7 @@ class RefundStep implements Step<OrderRequest> {
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
-```rust
+```rust fold="10-18,76-78,103-107,150-152"
 #[derive(Clone)]
 pub struct OrderProcessingFlow {
     charge: Charge,
@@ -938,7 +938,7 @@ The start handler starts the Flow, then waits for ChargeStep with the Client wai
   }}>
 <SdkSnippet lang="python">
 
-```python
+```python fold="34-39"
     @blueprint.get("/start")
     async def start() -> Response:
         flow_id = new_flow_id("order-processing")
@@ -983,7 +983,7 @@ The start handler starts the Flow, then waits for ChargeStep with the Client wai
 </SdkSnippet>
   <SdkSnippet lang="go">
 
-```go
+```go fold="54-66"
 func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *OrderProcessingFlow) {
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/products/order-processing")
@@ -1056,7 +1056,7 @@ func (controller *controller) describe(request *gin.Context) {
 </SdkSnippet>
   <SdkSnippet lang="java">
 
-```java
+```java fold="10-11,44-49"
 @RestController
 @RequestMapping("/products/order-processing")
 public class OrderProcessingController {
@@ -1113,7 +1113,7 @@ public class OrderProcessingController {
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
-```typescript
+```typescript fold="32-34"
 export function createOrderProcessingRouter(
   client: Client,
   flow: OrderProcessingFlow,
@@ -1157,7 +1157,7 @@ export function createOrderProcessingRouter(
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
-```rust
+```rust fold="50-59"
 pub fn mount(client: SharedClient, flow: OrderProcessingFlow) -> Router {
     Router::new()
         .route("/products/order-processing/start", get(start))

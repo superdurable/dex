@@ -244,6 +244,8 @@ async function transformNode(node, context) {
     fail(context, node, 'MDX expressions need an explicit Markdown expansion');
   }
   if (['link', 'definition'].includes(node.type)) node.url = rewriteLink(node.url, context, node);
+  // fold="..." only changes how the site shows a code block.
+  if (node.type === 'code' && node.meta) node.meta = node.meta.replace(/\s*\bfold="[^"]*"/, '').trim() || null;
   if (node.type === 'image') node.url = new URL(node.url, context.canonicalUrl).href;
   if (node.children) node.children = await transformChildren(node.children, context);
   if (node.type !== 'heading') return [node];
