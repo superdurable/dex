@@ -546,5 +546,549 @@
   {
     "from": "/zh-Hans/primitives/components/external-attribute-sync",
     "to": "/zh-Hans/components/external-attribute-sync"
+  },
+  {
+    "from": "/reference/go/1.29.x/changelog/",
+    "to": "/reference/go/changelog/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/reference/go/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/flow-config/",
+    "to": "/reference/go/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/flow-definition/",
+    "to": "/reference/go/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/",
+    "to": "/reference/go/flows-and-steps/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/start-flow-options/",
+    "to": "/reference/go/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/step-decisions/",
+    "to": "/reference/go/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/step-methods/",
+    "to": "/reference/go/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/step-options/",
+    "to": "/reference/go/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/reference/go/1.29.x/flows-and-steps/waits/",
+    "to": "/reference/go/flows-and-steps/waits/"
+  },
+  {
+    "from": "/reference/go/1.29.x/",
+    "to": "/reference/go/"
+  },
+  {
+    "from": "/reference/go/1.29.x/workers/",
+    "to": "/reference/go/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/changelog/",
+    "to": "/zh-Hans/reference/go/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/flow-config/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/flow-definition/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/start-flow-options/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/step-decisions/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/step-methods/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/step-options/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/flows-and-steps/waits/",
+    "to": "/zh-Hans/reference/go/flows-and-steps/waits/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/",
+    "to": "/zh-Hans/reference/go/"
+  },
+  {
+    "from": "/zh-Hans/reference/go/1.29.x/workers/",
+    "to": "/zh-Hans/reference/go/workers/"
+  },
+  {
+    "from": "/reference/python/1.29.x/changelog/",
+    "to": "/reference/python/changelog/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/reference/python/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/flow-config/",
+    "to": "/reference/python/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/flow-definition/",
+    "to": "/reference/python/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/",
+    "to": "/reference/python/flows-and-steps/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/start-flow-options/",
+    "to": "/reference/python/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/step-decisions/",
+    "to": "/reference/python/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/step-methods/",
+    "to": "/reference/python/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/step-options/",
+    "to": "/reference/python/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/reference/python/1.29.x/flows-and-steps/waits/",
+    "to": "/reference/python/flows-and-steps/waits/"
+  },
+  {
+    "from": "/reference/python/1.29.x/",
+    "to": "/reference/python/"
+  },
+  {
+    "from": "/reference/python/1.29.x/workers/",
+    "to": "/reference/python/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/changelog/",
+    "to": "/zh-Hans/reference/python/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/flow-config/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/flow-definition/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/start-flow-options/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/step-decisions/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/step-methods/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/step-options/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/flows-and-steps/waits/",
+    "to": "/zh-Hans/reference/python/flows-and-steps/waits/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/",
+    "to": "/zh-Hans/reference/python/"
+  },
+  {
+    "from": "/zh-Hans/reference/python/1.29.x/workers/",
+    "to": "/zh-Hans/reference/python/workers/"
+  },
+  {
+    "from": "/reference/java/1.30.x/changelog/",
+    "to": "/reference/java/changelog/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/reference/java/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/flow-config/",
+    "to": "/reference/java/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/flow-definition/",
+    "to": "/reference/java/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/",
+    "to": "/reference/java/flows-and-steps/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/start-flow-options/",
+    "to": "/reference/java/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/step-decisions/",
+    "to": "/reference/java/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/step-methods/",
+    "to": "/reference/java/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/step-options/",
+    "to": "/reference/java/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/reference/java/1.30.x/flows-and-steps/waits/",
+    "to": "/reference/java/flows-and-steps/waits/"
+  },
+  {
+    "from": "/reference/java/1.30.x/",
+    "to": "/reference/java/"
+  },
+  {
+    "from": "/reference/java/1.30.x/workers/",
+    "to": "/reference/java/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/changelog/",
+    "to": "/zh-Hans/reference/java/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/flow-config/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/flow-definition/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/start-flow-options/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/step-decisions/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/step-methods/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/step-options/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/flows-and-steps/waits/",
+    "to": "/zh-Hans/reference/java/flows-and-steps/waits/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/",
+    "to": "/zh-Hans/reference/java/"
+  },
+  {
+    "from": "/zh-Hans/reference/java/1.30.x/workers/",
+    "to": "/zh-Hans/reference/java/workers/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/changelog/",
+    "to": "/reference/typescript/changelog/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/reference/typescript/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/flow-config/",
+    "to": "/reference/typescript/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/flow-definition/",
+    "to": "/reference/typescript/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/",
+    "to": "/reference/typescript/flows-and-steps/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/start-flow-options/",
+    "to": "/reference/typescript/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/step-decisions/",
+    "to": "/reference/typescript/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/step-methods/",
+    "to": "/reference/typescript/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/step-options/",
+    "to": "/reference/typescript/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/flows-and-steps/waits/",
+    "to": "/reference/typescript/flows-and-steps/waits/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/",
+    "to": "/reference/typescript/"
+  },
+  {
+    "from": "/reference/typescript/1.29.x/workers/",
+    "to": "/reference/typescript/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/changelog/",
+    "to": "/zh-Hans/reference/typescript/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/flow-config/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/flow-definition/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/start-flow-options/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/step-decisions/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/step-methods/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/step-options/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/flows-and-steps/waits/",
+    "to": "/zh-Hans/reference/typescript/flows-and-steps/waits/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/",
+    "to": "/zh-Hans/reference/typescript/"
+  },
+  {
+    "from": "/zh-Hans/reference/typescript/1.29.x/workers/",
+    "to": "/zh-Hans/reference/typescript/workers/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/changelog/",
+    "to": "/reference/rust/changelog/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/reference/rust/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/flow-config/",
+    "to": "/reference/rust/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/flow-definition/",
+    "to": "/reference/rust/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/",
+    "to": "/reference/rust/flows-and-steps/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/start-flow-options/",
+    "to": "/reference/rust/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/step-decisions/",
+    "to": "/reference/rust/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/step-methods/",
+    "to": "/reference/rust/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/step-options/",
+    "to": "/reference/rust/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/flows-and-steps/waits/",
+    "to": "/reference/rust/flows-and-steps/waits/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/",
+    "to": "/reference/rust/"
+  },
+  {
+    "from": "/reference/rust/1.25.x/workers/",
+    "to": "/reference/rust/workers/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/changelog/",
+    "to": "/zh-Hans/reference/rust/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/failure-and-redelivery/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/failure-and-redelivery/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/flow-config/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/flow-config/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/flow-definition/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/flow-definition/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/start-flow-options/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/start-flow-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/step-decisions/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/step-decisions/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/step-methods/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/step-methods/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/step-options/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/step-options/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/flows-and-steps/waits/",
+    "to": "/zh-Hans/reference/rust/flows-and-steps/waits/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/",
+    "to": "/zh-Hans/reference/rust/"
+  },
+  {
+    "from": "/zh-Hans/reference/rust/1.25.x/workers/",
+    "to": "/zh-Hans/reference/rust/workers/"
+  },
+  {
+    "from": "/reference/web/1.29.x/changelog/",
+    "to": "/reference/web/changelog/"
+  },
+  {
+    "from": "/reference/web/1.29.x/debugging/",
+    "to": "/reference/web/debugging/"
+  },
+  {
+    "from": "/reference/web/1.29.x/dex-web/",
+    "to": "/reference/web/dex-web/"
+  },
+  {
+    "from": "/reference/web/1.29.x/flow-visualization/",
+    "to": "/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/reference/web/1.29.x/",
+    "to": "/reference/web/"
+  },
+  {
+    "from": "/reference/web/1.29.x/local-connector-setup/",
+    "to": "/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/changelog/",
+    "to": "/zh-Hans/reference/web/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/debugging/",
+    "to": "/zh-Hans/reference/web/debugging/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/dex-web/",
+    "to": "/zh-Hans/reference/web/dex-web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/flow-visualization/",
+    "to": "/zh-Hans/reference/web/flow-visualization/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/",
+    "to": "/zh-Hans/reference/web/"
+  },
+  {
+    "from": "/zh-Hans/reference/web/1.29.x/local-connector-setup/",
+    "to": "/zh-Hans/reference/web/local-connector-setup/"
+  },
+  {
+    "from": "/reference/cli/1.33.x/changelog/",
+    "to": "/reference/cli/changelog/"
+  },
+  {
+    "from": "/reference/cli/1.33.x/",
+    "to": "/reference/cli/"
+  },
+  {
+    "from": "/zh-Hans/reference/cli/1.33.x/changelog/",
+    "to": "/zh-Hans/reference/cli/changelog/"
+  },
+  {
+    "from": "/zh-Hans/reference/cli/1.33.x/",
+    "to": "/zh-Hans/reference/cli/"
   }
 ]
