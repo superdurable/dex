@@ -802,7 +802,11 @@ angle constant in `HorizontalTimeline.tsx`. The icon shows the event kind, with
 a quiet tint per family: Step methods, external inputs, and Flow lifecycle.
 Only waiting, failed, and canceled events get a status color, and a failure
 also carries a cross. A Step counts as waiting from its WaitFor return until
-its Execute starts on the newest page; a Flow close cancels it. The overview
+its Execute starts on the newest page. A cancel decision from a Step or RPC, or
+a Flow close, cancels the wait, and a Pending record shows a method the close
+interrupted. Each event's accessible name states its derived status, such as
+still waiting or canceled. Only an event's dot and label take clicks, so a long
+label never selects its neighbor. The overview
 above the strip shows one tick per event and drags or steps the view. Left and
 Right move the selection, Page Up and Page Down move by a screen, and wheel
 input over the strip scrolls it without scrolling the page. Narrower screens

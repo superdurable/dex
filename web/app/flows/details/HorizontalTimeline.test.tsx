@@ -8,6 +8,7 @@
 
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
 import { useState } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -227,7 +228,8 @@ describe('horizontal Timeline', () => {
     // Review-1 moved on to Execute, so its wait is normal; Ship-1 is still waiting.
     expect(dot(2)?.className).toContain('htl-family-step htl-status-normal');
     expect(dot(2)?.querySelector('svg')?.getAttribute('class')).toContain('lucide-hourglass');
-    expect(option(2)?.getAttribute('aria-label')).toBe('Waiting for conditions, Review, #2');
+    expect(option(2)?.getAttribute('aria-label')).toBe('Waiting for conditions, Review, conditions met, #2');
+    expect(option(7)?.getAttribute('aria-label')).toBe('Waiting for conditions, Ship, still waiting, #7');
     expect(dot(7)?.className).toContain('htl-status-waiting');
     expect(dot(3)?.className).toContain('htl-family-input htl-status-normal');
     expect(dot(3)?.querySelector('svg')?.getAttribute('class')).toContain('lucide-send');
@@ -301,5 +303,86 @@ describe('horizontal Timeline', () => {
     expect(overview.getAttribute('aria-valuenow')).toBe('5');
     expect(onPageWheel).not.toHaveBeenCalled();
     document.removeEventListener('wheel', onPageWheel);
+  });
+  it('lets only the dot and label of each event take clicks, so a long label never selects its neighbor', () => {
+    const designCss = readFileSync('app/v1-design.css', 'utf8');
+    const block = (selector: string) => {
+      const start = designCss.indexOf(`${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return designCss.slice(start, designCss.indexOf('}', start));
+    };
+    expect(block('.htl-event')).toContain('pointer-events: none');
+    expect(block('.htl-event :is(.htl-dot, .htl-label)')).toContain('pointer-events: auto');
+
+    render(<Harness pageEvents={events(100)} />);
+    fireEvent.click(option(94)!.querySelector('.htl-label')!);
+    expect(option(94)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(95)?.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('cancels waits that a Step or RPC decision cancels, and Pending records a Flow close interrupted', () => {
+    const at = (second: number) => `2026-10-24T17:00:${String(second).padStart(2, '0')}Z`;
+    const step = (stepType: string, id: string, from: string) => ({ context: { stepType, stepExecutionId: id, fromStepExecutionId: from } });
+    const decide = (eventId: number, id: string, from: string, decision: Record<string, unknown>): FlowHistoryEvent => ({
+      eventId,
+      eventTime: at(eventId),
+      type: 'StepExecuteCompleted',
+      payload: { ...step('Decide', id, from), output: { stepDecision: decision } },
+    });
+    const pageEvents: FlowHistoryEvent[] = [
+      { eventId: 1, eventTime: at(1), type: 'StepWaitForCompleted', payload: step('Ship', 'Ship-1', 'Root-1') },
+      { eventId: 2, eventTime: at(2), type: 'StepWaitForCompleted', payload: step('Notify', 'Notify-1', 'Root-1') },
+      { eventId: 3, eventTime: at(3), type: 'StepWaitForCompleted', payload: step('Notify', 'Notify-2', 'Other-1') },
+      { eventId: 4, eventTime: at(4), type: 'StepWaitForCompleted', payload: step('Audit', 'Audit-1', 'Root-1') },
+      decide(5, 'Decide-1', 'Root-1', { cancelStepTypes: ['Ship'], cancelSiblingStepTypes: ['Notify'] }),
+      { eventId: 6, eventTime: at(6), type: 'RpcExecutionCompleted', payload: { rpcName: 'cancelAudit', stepDecision: { cancelStepTypes: ['Audit'] } } },
+    ];
+    const { rerender } = render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
+    const dotClass = (eventId: number) => option(eventId)?.querySelector('.htl-dot')?.className;
+    expect(dotClass(1)).toContain('htl-status-canceled');
+    expect(option(1)?.getAttribute('aria-label')).toBe('Waiting for conditions, Ship, canceled, #1');
+    expect(dotClass(2)).toContain('htl-status-canceled');
+    // Notify-2 has another parent, so the sibling selector leaves it waiting.
+    expect(dotClass(3)).toContain('htl-status-waiting');
+    expect(dotClass(4)).toContain('htl-status-canceled');
+
+    const closing: FlowHistoryEvent[] = [
+      { eventId: 1, eventTime: at(1), type: 'StepExecutePending', payload: { ...step('Charge', 'Charge-1', 'Root-1'), phase: 2 } },
+      { eventId: 2, eventTime: at(2), type: 'FlowClosed', payload: { flowStatus: 6 } },
+    ];
+    rerender(<HorizontalTimeline events={closing} selectedEvent={null} onSelectEvent={() => {}} />);
+    expect(dotClass(1)).toContain('htl-status-canceled');
+    expect(option(1)?.getAttribute('aria-label')).toBe('Execute running, Charge, interrupted by the Flow close, #1');
+    expect(option(2)?.getAttribute('aria-label')).toBe('Flow closed, canceled, #2');
+  });
+
+  it('centers a jump once and keeps the reader\'s view across later data refreshes', () => {
+    const pageEvents = events(1000);
+    const { rerender } = render(
+      <HorizontalTimeline events={pageEvents} selectedEvent={pageEvents[49]} highlightedEventId={50} onSelectEvent={() => {}} />,
+    );
+    expect(option(50)).not.toBeNull();
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'End' });
+    expect(option(1000)).not.toBeNull();
+
+    const refreshed = events(1000);
+    rerender(<HorizontalTimeline events={refreshed} selectedEvent={refreshed[49]} highlightedEventId={50} onSelectEvent={() => {}} />);
+    expect(option(1000)).not.toBeNull();
+    expect(option(50)).toBeNull();
+  });
+
+  it('points the listbox only at a rendered active option', () => {
+    render(<Harness pageEvents={events(1000)} initialEventId={1000} />);
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    expect(strip.getAttribute('aria-activedescendant')).toBe('htl-event-1000');
+
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    expect(option(1000)).toBeNull();
+    expect(strip.getAttribute('aria-activedescendant')).toBeNull();
+  });
+
+  it('lists the Channel message deleted kind in the legend', () => {
+    render(<Harness pageEvents={events(10)} />);
+    expect(screen.getByRole('list', { name: 'Event kinds' }).textContent).toContain('Channel message deleted');
   });
 });

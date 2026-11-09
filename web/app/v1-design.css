@@ -2043,12 +2043,24 @@ body:has(.v1-page) {
   background: var(--ui-hairline);
 }
 
+/* Slots overlap their neighbors' slanted labels, so only the dot and label take clicks. */
 .htl-event {
   position: absolute;
   top: 0;
   bottom: 62px;
   width: var(--htl-slot-width, 40px);
+  pointer-events: none;
+}
+
+.htl-event :is(.htl-dot, .htl-label) {
   cursor: pointer;
+  pointer-events: auto;
+}
+
+.htl-dot::before {
+  position: absolute;
+  inset: -8px;
+  content: '';
 }
 
 .htl-dot {

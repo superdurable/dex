@@ -105,33 +105,91 @@ const statusNames: Record<Exclude<EventStatus, 'normal'>, string> = {
   canceled: 'Canceled',
 };
 
-function stepExecutionIdOf(event: FlowHistoryEvent): string | undefined {
+function contextOf(event: FlowHistoryEvent): Record<string, unknown> {
   const context = event.payload.context;
-  const id = context && typeof context === 'object' ? (context as Record<string, unknown>).stepExecutionId : undefined;
-  return typeof id === 'string' && id ? id : undefined;
+  return context && typeof context === 'object' ? context as Record<string, unknown> : {};
 }
 
-/** A Step stays Waiting from its WaitFor return until Execute starts; a Flow close cancels it. */
-function eventStatuses(chronological: FlowHistoryEvent[], hasNewer: boolean): Map<number, EventStatus> {
-  const statuses = new Map<number, EventStatus>();
-  const openWaits = new Map<string, number>();
+function stringField(record: Record<string, unknown>, field: string): string {
+  const value = record[field];
+  return typeof value === 'string' ? value : '';
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+/** An event's derived status, and how its accessible name states it. */
+interface EventState {
+  status: EventStatus;
+  /** Spoken after the subject, such as still waiting or canceled; empty when the title says it. */
+  spoken: string;
+}
+
+interface OpenWait {
+  eventId: number;
+  stepType: string;
+  fromStepExecutionId: string;
+}
+
+const normalState: EventState = { status: 'normal', spoken: '' };
+const canceledState: EventState = { status: 'canceled', spoken: 'canceled' };
+
+/** A wait lasts until its Execute starts; cancel decisions, Flow close, and close-time Pending records cancel. */
+function eventStates(chronological: FlowHistoryEvent[], hasNewer: boolean): Map<number, EventState> {
+  const states = new Map<number, EventState>();
+  const openWaits = new Map<string, OpenWait>();
+  const cancelOpenWaits = (isTarget: (wait: OpenWait) => boolean) => {
+    for (const [stepExecutionId, wait] of openWaits) {
+      if (!isTarget(wait)) continue;
+      states.set(wait.eventId, canceledState);
+      openWaits.delete(stepExecutionId);
+    }
+  };
   for (const event of chronological) {
-    const stepExecutionId = stepExecutionIdOf(event);
-    if (event.type.endsWith('Failed')) statuses.set(event.eventId, 'failed');
-    else if (event.type.endsWith('Pending')) statuses.set(event.eventId, 'waiting');
-    else statuses.set(event.eventId, 'normal');
-    if (event.type === 'StepWaitForCompleted' && stepExecutionId) openWaits.set(stepExecutionId, event.eventId);
-    if (event.type.startsWith('StepExecute') && stepExecutionId) openWaits.delete(stepExecutionId);
+    const context = contextOf(event);
+    const stepExecutionId = stringField(context, 'stepExecutionId');
+    if (event.type.endsWith('Failed')) states.set(event.eventId, { status: 'failed', spoken: '' });
+    else if (event.type.endsWith('Pending')) states.set(event.eventId, { status: 'canceled', spoken: 'interrupted by the Flow close' });
+    else states.set(event.eventId, normalState);
+
+    if (event.type === 'StepWaitForCompleted' && stepExecutionId) {
+      openWaits.set(stepExecutionId, {
+        eventId: event.eventId,
+        stepType: stringField(context, 'stepType'),
+        fromStepExecutionId: stringField(context, 'fromStepExecutionId'),
+      });
+    }
+    if (event.type.startsWith('StepExecute') && stepExecutionId) {
+      const wait = openWaits.get(stepExecutionId);
+      if (wait) states.set(wait.eventId, { status: 'normal', spoken: 'conditions met' });
+      openWaits.delete(stepExecutionId);
+    }
+    const output = event.payload.output && typeof event.payload.output === 'object'
+      ? event.payload.output as Record<string, unknown>
+      : {};
+    const decision = (event.type === 'StepExecuteCompleted' ? output.stepDecision : event.payload.stepDecision);
+    if (decision && typeof decision === 'object') {
+      const flowWide = stringList((decision as Record<string, unknown>).cancelStepTypes);
+      // Sibling selectors match Steps of the deciding Step's parent; RPC decisions have none.
+      const siblings = event.type === 'StepExecuteCompleted'
+        ? stringList((decision as Record<string, unknown>).cancelSiblingStepTypes)
+        : [];
+      const parent = stringField(context, 'fromStepExecutionId');
+      cancelOpenWaits((wait) => flowWide.includes(wait.stepType)
+        || (siblings.includes(wait.stepType) && wait.fromStepExecutionId === parent));
+    }
     if (event.type === 'FlowClosed') {
       const flowStatus = flowStatusLabel(event.payload.flowStatus);
-      if (flowStatus === 'Failed' || flowStatus.includes('timeout')) statuses.set(event.eventId, 'failed');
-      if (flowStatus === 'Canceled' || flowStatus === 'Terminated') statuses.set(event.eventId, 'canceled');
-      for (const waitEventId of openWaits.values()) statuses.set(waitEventId, 'canceled');
-      openWaits.clear();
+      if (flowStatus === 'Failed' || flowStatus.includes('timeout')) states.set(event.eventId, { status: 'failed', spoken: flowStatus.toLowerCase() });
+      if (flowStatus === 'Canceled' || flowStatus === 'Terminated') states.set(event.eventId, { status: 'canceled', spoken: flowStatus.toLowerCase() });
+      cancelOpenWaits(() => true);
     }
   }
-  if (!hasNewer) for (const waitEventId of openWaits.values()) statuses.set(waitEventId, 'waiting');
-  return statuses;
+  if (!hasNewer) {
+    for (const wait of openWaits.values()) states.set(wait.eventId, { status: 'waiting', spoken: 'still waiting' });
+  }
+  return states;
 }
 
 function namesIn(values: unknown, field: string): string[] {
@@ -161,7 +219,7 @@ function EventKindLegend() {
   return (
     <div className="htl-legend">
       <ul aria-label="Event kinds">
-        {(['waitfor', 'execute', 'channel-publish', 'rpc', 'attributes', 'flow-start', 'flow-close', 'fork'] as EventKind[]).map((kind) => {
+        {(['waitfor', 'execute', 'channel-publish', 'channel-delete', 'rpc', 'attributes', 'flow-start', 'flow-close', 'fork'] as EventKind[]).map((kind) => {
           const Icon = eventKinds[kind].icon;
           return (
             <li key={kind}>
@@ -211,7 +269,7 @@ export function HorizontalTimeline({
   isFollowingLatest?: boolean;
 }) {
   const chronological = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
-  const statuses = useMemo(() => eventStatuses(chronological, paging?.hasNewer ?? false), [chronological, paging?.hasNewer]);
+  const states = useMemo(() => eventStates(chronological, paging?.hasNewer ?? false), [chronological, paging?.hasNewer]);
   const indexByEventId = useMemo(
     () => new Map(chronological.map((event, index) => [event.eventId, index])),
     [chronological],
@@ -247,11 +305,14 @@ export function HorizontalTimeline({
     return () => observer.disconnect();
   }, []);
 
+  const centeredHighlightId = useRef<number | null>(null);
   // A new page, or Live adding events, keeps the newest end in view unless the reader moved away from it.
   useEffect(() => {
-    const target = highlightedEventId ?? selectedEvent?.eventId;
-    const targetIndex = target === undefined ? undefined : indexByEventId.get(target);
-    if (targetIndex !== undefined && highlightedEventId !== null) {
+    const targetIndex = highlightedEventId === null ? undefined : indexByEventId.get(highlightedEventId);
+    if (highlightedEventId === null) centeredHighlightId.current = null;
+    // A jump centers its event once; later refreshes keep wherever the reader moved the view.
+    if (targetIndex !== undefined && centeredHighlightId.current !== highlightedEventId) {
+      centeredHighlightId.current = highlightedEventId;
       centerOn(targetIndex);
       return;
     }
@@ -395,7 +456,7 @@ export function HorizontalTimeline({
       >
         <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${chronological.length} ${minimapHeight}`}>
           {chronological.map((event, index) => {
-            const status = statuses.get(event.eventId) ?? 'normal';
+            const status = states.get(event.eventId)?.status ?? 'normal';
             const isProminent = status !== 'normal' || index === selectedIndex;
             const tickHeight = isProminent ? minimapHeight : neutralTickHeight;
             return (
@@ -420,7 +481,9 @@ export function HorizontalTimeline({
       </div>
 
       <div
-        aria-activedescendant={selectedEvent && selectedIndex >= 0 ? `htl-event-${selectedEvent.eventId}` : undefined}
+        aria-activedescendant={selectedEvent && selectedIndex >= firstRendered && selectedIndex <= lastRendered
+          ? `htl-event-${selectedEvent.eventId}`
+          : undefined}
         aria-describedby={helpId}
         aria-label="Timeline events, oldest on the left"
         className="htl-strip"
@@ -438,7 +501,8 @@ export function HorizontalTimeline({
         {renderedEvents.map((event, offset) => {
           const index = firstRendered + offset;
           const kind = eventKindOf(event);
-          const status = statuses.get(event.eventId) ?? 'normal';
+          const state = states.get(event.eventId) ?? normalState;
+          const status = state.status;
           const KindIcon = eventKinds[kind].icon;
           const subject = eventSubject(event);
           const isSelected = index === selectedIndex;
@@ -451,7 +515,12 @@ export function HorizontalTimeline({
           ].filter(Boolean).join(' ');
           return (
             <div
-              aria-label={`${eventTitle(event)}${subject !== eventTitle(event) ? `, ${subject}` : ''}, #${event.eventId}`}
+              aria-label={[
+                eventTitle(event),
+                subject !== eventTitle(event) ? subject : '',
+                state.spoken,
+                `#${event.eventId}`,
+              ].filter(Boolean).join(', ')}
               aria-selected={isSelected}
               className={classes}
               data-event-id={event.eventId}
