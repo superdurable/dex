@@ -23,17 +23,18 @@ The ratings use the scheme of the published evaluations.
 
 - **+** means direct support. One Dex construct meets every part of the
   definition. The application keeps no extra state for it.
-- **+/-** means partial support. The pattern needs application bookkeeping,
-  such as Channel signals for a join, an Attribute counter, a lock, an RPC
-  guard, or a reset Step. Or one part of the definition holds only in a
-  limited form.
+- **+/-** means indirect support. Dex implements the pattern by composing
+  several constructs, such as Channel signals for a join, an Attribute
+  counter, a lock, an RPC guard, or a reset Step. In a few rows, one part of
+  the definition holds in a limited form, and the row says which. The
+  published evaluations call this rating partial support.
 - **-** means no support.
 
-## Why many joins are partial {#why-many-joins-are-partial}
+## Why many joins are indirect {#why-many-joins-are-indirect}
 
-A Flow has no native wait on the completion of another Step. So a join waits
-for Channel signals that the branches publish, and the application supplies
-the branch count. That bookkeeping makes most joins **+/-**. When the work runs
+Dex expresses a join inside one Flow with Channel signals. Each branch
+publishes a signal when it finishes, and the join Step waits for the count it
+needs. That bookkeeping makes most joins **+/-**. When the work runs
 in child Flows, a **SubFlow** wait with **AllOf** is the native join.
 
 ## How the ratings were checked {#how-the-ratings-were-checked}
@@ -46,7 +47,7 @@ test sends two competing responses and checks that exactly one branch runs.
 ## Summary {#summary}
 
 - 19 patterns have direct support (**+**).
-- 24 patterns have partial support (**+/-**).
+- 24 patterns have indirect support (**+/-**).
 - No pattern is unsupported (**-**).
 
 ## Results {#results}
@@ -100,7 +101,7 @@ example in one SDK language.
 | WCP-42 | Thread Split | + | **GoToMany** of one Step type | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ThreadSplitMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
 | WCP-43 | Explicit Termination | + | **ForceComplete** closes the Flow and cancels other Steps | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs) |
 
-## Partial support {#partial-support}
+## Indirect support {#indirect-support}
 
 Each **+/-** rating has a reason.
 

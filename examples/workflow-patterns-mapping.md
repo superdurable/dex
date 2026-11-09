@@ -21,7 +21,7 @@ Data, resource, and exception-handling patterns are out of scope.
 
 - `+` direct support: one documented Dex construct satisfies every defining
   clause of the pattern, with no application bookkeeping.
-- `+/-` partial support: the pattern needs application bookkeeping, such as
+- `+/-` indirect support (the literature's partial support): the pattern needs application bookkeeping, such as
   Channel signals that branches publish for a join, Attribute counters or flags,
   an RPC guard, an extra reset Step, a lock used as a mutex, or a Channel used as
   a token, or one defining clause holds only in a restricted form.

@@ -15,12 +15,12 @@ Workflow Patterns 是一组业务流程中反复出现的行为。它们由 Work
 评级沿用已发表评估的标准。
 
 - **+** 表示直接支持。一个 Dex 构件就满足定义的每一部分，应用无需为它保存额外状态。
-- **+/-** 表示部分支持。该模式需要应用自己做记账，例如为汇合发布 Channel 信号、Attribute 计数、锁、RPC 检查或 reset Step；或者定义中的某一部分只能以受限形式成立。
+- **+/-** 表示间接支持。Dex 通过组合几个构件来实现该模式，例如为汇合发布 Channel 信号、Attribute 计数、锁、RPC 检查或 reset Step。少数几行中，定义的某一部分以受限形式成立，该行会写明是哪一部分。已发表的评估把这一档称为 partial support。
 - **-** 表示不支持。
 
-## 为什么许多汇合是部分支持 {#why-many-joins-are-partial}
+## 为什么许多汇合是间接支持 {#why-many-joins-are-indirect}
 
-Flow 没有原生的"等待另一个 Step 完成"。因此汇合要等待各分支发布的 Channel 信号，分支数也由应用提供。这种记账让大多数汇合成为 **+/-**。当工作在子 Flow 中运行时，用 **AllOf** 等待 **SubFlow** 就是原生的汇合。
+Dex 在一个 Flow 内用 Channel 信号表达汇合：每个分支结束时发布一个信号，汇合 Step 等待它需要的数量。这种记账让大多数汇合成为 **+/-**。当工作在子 Flow 中运行时，用 **AllOf** 等待 **SubFlow** 就是原生的汇合。
 
 ## 评级如何验证 {#how-the-ratings-were-checked}
 
@@ -29,7 +29,7 @@ Flow 没有原生的"等待另一个 Step 完成"。因此汇合要等待各分�
 ## 汇总 {#summary}
 
 - 19 个模式直接支持（**+**）。
-- 24 个模式部分支持（**+/-**）。
+- 24 个模式间接支持（**+/-**）。
 - 没有不支持（**-**）的模式。
 
 ## 结果 {#results}
@@ -82,7 +82,7 @@ Flow 没有原生的"等待另一个 Step 完成"。因此汇合要等待各分�
 | WCP-42 | Thread Split | + | **GoToMany** 启动同一 Step type 的多个执行 | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/and-join-and-threads.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/and_join_and_threads.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/and_join_and_threads.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ThreadSplitMergeFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/and_join_and_threads.rs) |
 | WCP-43 | Explicit Termination | + | **ForceComplete** 立即关闭 Flow，并取消其他 Step | [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/termination.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/termination.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/termination.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/ExplicitTerminationFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/termination.rs) |
 
-## 部分支持 {#partial-support}
+## 间接支持 {#indirect-support}
 
 每个 **+/-** 评级都有原因。
 
