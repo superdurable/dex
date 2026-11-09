@@ -8,18 +8,16 @@
 
 //! Search document and partition indexes derived from current run state.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use dexzd_keyspace::row_keys::{flow_list_index_key, tenant_run_index_key};
 use dexzd_keyspace::{ColumnFamily, IndexKind, TenantId};
 use dexzd_protocol::attribute_index::{
     MAX_SEARCH_VALUE_BYTES, indexed_keyword_strings, inferred_index_type, search_value_payload_size,
 };
-use dexzd_protocol::dex::{
-    ActiveStepSearchMode, EncodedObject, FlowStatus, IndexConfig, IndexType, Value, value,
-};
+use dexzd_protocol::dex::{EncodedObject, FlowStatus, IndexConfig, IndexType, Value, value};
 use dexzd_protocol::dexzd::v1::{
-    SearchAttributeValue, SearchDocumentRecord, StepExecutionPhase, flow_command::Command,
+    SearchAttributeValue, SearchDocumentRecord, flow_command::Command,
 };
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
@@ -27,6 +25,9 @@ use time::{OffsetDateTime, UtcOffset};
 use crate::ApplyError;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
+use crate::projections::active_step_type_counts::{
+    search_active_step_types, update_active_step_type_counts,
+};
 use crate::projections::work_queue_permissions;
 use crate::read_model::search_order_index_keys_of_document;
 use crate::state_access::FlowTransaction;
@@ -34,10 +35,11 @@ use crate::values::load_stored_value;
 
 pub(crate) fn refresh_search_document(
     transaction: &mut FlowTransaction<'_>,
-    cursor: &RunCursor,
+    cursor: &mut RunCursor,
     scope: &CommandScope<'_>,
 ) -> Result<(), ApplyError> {
     let old_document = cursor.rows.search_document(transaction)?;
+    update_active_step_type_counts(transaction, cursor, scope)?;
     if old_document.is_some()
         && matches!(
             scope.command.command.as_ref(),
@@ -51,40 +53,7 @@ pub(crate) fn refresh_search_document(
         return Ok(());
     }
     let record = &cursor.record;
-    let mode = record
-        .flow_config
-        .as_ref()
-        .and_then(|config| config.active_step_search_mode)
-        .and_then(|mode| ActiveStepSearchMode::try_from(mode).ok())
-        .unwrap_or(ActiveStepSearchMode::Unspecified);
-    let active_step_types: BTreeSet<String> = cursor
-        .rows
-        .step_executions(transaction)?
-        .into_iter()
-        .filter(|(_, step)| {
-            if step.is_timeout_handler {
-                return false;
-            }
-            let is_active = matches!(
-                StepExecutionPhase::try_from(step.phase),
-                Ok(StepExecutionPhase::WaitFor
-                    | StepExecutionPhase::Waiting
-                    | StepExecutionPhase::Execute)
-            );
-            let has_wait_for = !step
-                .options
-                .as_ref()
-                .is_some_and(|options| options.skip_wait_for);
-            is_active
-                && match mode {
-                    ActiveStepSearchMode::Disabled => false,
-                    ActiveStepSearchMode::EnabledForAll => true,
-                    ActiveStepSearchMode::Unspecified
-                    | ActiveStepSearchMode::EnabledForStepsWithWaitFor => has_wait_for,
-                }
-        })
-        .map(|(_, step)| step.step_type)
-        .collect();
+    let active_step_types = search_active_step_types(record);
     // Time travel replaces Attribute rows, so indexed values are rebuilt from the restored rows.
     let is_time_travel = matches!(scope.command.command.as_ref(), Some(Command::TimeTravel(_)));
     let mut indexed: BTreeMap<String, SearchAttributeValue> = old_document
@@ -163,7 +132,7 @@ pub(crate) fn refresh_search_document(
         started_at_micros: record.started_at_micros,
         closed_at_micros: record.closed_at_micros,
         parent_flow_id,
-        active_step_types: active_step_types.into_iter().collect(),
+        active_step_types,
         work_queue_permissions: permissions,
         attributes: indexed.into_values().collect(),
     };

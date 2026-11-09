@@ -494,6 +494,9 @@ impl Harness {
                         .expect("garbage decodes")
                         .size_bytes;
                 }
+                RunTable::RunRecord => {
+                    usage.state_row_bytes += row_bytes - run_record_search_cache_bytes(value);
+                }
                 _ => usage.state_row_bytes += row_bytes,
             }
         }
@@ -687,6 +690,14 @@ fn settings(is_deletion_enabled: bool) -> RunSettings {
         delete_expired_history_objects: is_deletion_enabled,
         superseded_value_grace_micros: 0,
     }
+}
+
+/// Bytes of a run record's active Step type counts, which run storage never counts.
+fn run_record_search_cache_bytes(value: &[u8]) -> u64 {
+    let mut record = RunRecord::decode(value).expect("run record decodes");
+    let full_size = record.encoded_len();
+    record.search_active_step_type_counts = None;
+    (full_size - record.encoded_len()) as u64
 }
 
 fn is_ok(reply: &CommandReply) -> bool {

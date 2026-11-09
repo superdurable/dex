@@ -86,12 +86,19 @@ fn usage_after_changes(
             })?;
         match change.column_family {
             ColumnFamily::Flow => {
-                let row_delta = if parsed.table == RunTable::AttributeSyncOutbox {
-                    accounted_outbox_row_size(change.current.as_ref(), &change.key)?
-                        - accounted_outbox_row_size(change.previous.as_ref(), &change.key)?
-                } else {
-                    row_size(change.current.as_ref(), &change.key)
-                        - row_size(change.previous.as_ref(), &change.key)
+                let row_delta = match parsed.table {
+                    RunTable::AttributeSyncOutbox => {
+                        accounted_outbox_row_size(change.current.as_ref(), &change.key)?
+                            - accounted_outbox_row_size(change.previous.as_ref(), &change.key)?
+                    }
+                    RunTable::RunRecord => {
+                        accounted_run_record_row_size(change.current.as_ref(), &change.key)?
+                            - accounted_run_record_row_size(change.previous.as_ref(), &change.key)?
+                    }
+                    _ => {
+                        row_size(change.current.as_ref(), &change.key)
+                            - row_size(change.previous.as_ref(), &change.key)
+                    }
                 };
                 match parsed.table {
                     // An offloaded value's birth row only locates history, so it counts as history.
@@ -239,6 +246,18 @@ fn accounted_outbox_row_size(value: Option<&Vec<u8>>, key: &[u8]) -> Result<i128
     let full_record_size = record.encoded_len();
     record.sync_item = None;
     // The snapshot is additional storage; it does not change the established run-state limit.
+    Ok((key.len() + bytes.len()) as i128 - (full_record_size - record.encoded_len()) as i128)
+}
+
+/// Returns the accounted size of a run record row: its stored size without the active Step type
+/// counts, an internal search cache that the run-state limit never counts.
+fn accounted_run_record_row_size(value: Option<&Vec<u8>>, key: &[u8]) -> Result<i128, ApplyError> {
+    let Some(bytes) = value else {
+        return Ok(0);
+    };
+    let mut record = decode_record::<RunRecord>(bytes, "run record")?;
+    let full_record_size = record.encoded_len();
+    record.search_active_step_type_counts = None;
     Ok((key.len() + bytes.len()) as i128 - (full_record_size - record.encoded_len()) as i128)
 }
 

@@ -202,6 +202,23 @@ message RunRecord {
   // Command time from which local history cleanup is due; set exactly while the
   // HistoryLocalCleanupPending row exists.
   optional int64 history_local_cleanup_due_micros = 73;
+  // Search cache, kept unless active Step search is DISABLED; older runs recount once.
+  // RunStorageUsage.state_row_bytes excludes it.
+  ActiveStepTypeCounts search_active_step_type_counts = 74;
+}
+
+// Active Step executions by Step type: WAIT_FOR, WAITING, or EXECUTE, never the timeout handler.
+message ActiveStepTypeCounts {
+  // A Step type without active Step executions has no entry.
+  map<string, ActiveStepTypeCount> step_types = 1;
+}
+
+// Active Step executions of one Step type.
+message ActiveStepTypeCount {
+  // Step executions whose options run WaitFor.
+  uint64 with_wait_for = 1;
+  // Step executions whose options skip WaitFor.
+  uint64 without_wait_for = 2;
 }
 
 // A staged TimeTravel result of a run; see TimeTravelStageCommand.

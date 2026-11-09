@@ -225,6 +225,22 @@ impl<'reader> FlowTransaction<'reader> {
             .map_err(|error| corrupt_row(table, key, &error))
     }
 
+    /// Decodes the protobuf row at `key` as the reader holds it, ignoring this call's writes.
+    pub(crate) fn get_committed_message<RowMessage: Message + Default>(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+        table: &'static str,
+    ) -> Result<Option<RowMessage>, ApplyError> {
+        self.check_key_scope(column_family, key);
+        let Some(bytes) = self.reader.get(column_family, key)? else {
+            return Ok(None);
+        };
+        RowMessage::decode(bytes.as_slice())
+            .map(Some)
+            .map_err(|error| corrupt_row(table, key, &error))
+    }
+
     /// Decodes every protobuf row with keys in `[start, end)`, up to `limit` rows.
     pub(crate) fn scan_messages<RowMessage: Message + Default>(
         &self,

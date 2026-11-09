@@ -24,6 +24,12 @@ seconds. Workers there also report `STARTED_ATTEMPT_INTERRUPTED` failures, fence
 on the running task ID, and return attempts they never ran. SearchOrder rows must match the
 search documents (SO1).
 
+A run record's active Step type counts must equal a count of its active Step executions, and
+exist only while its active Step search mode is not DISABLED. Its search document must list the
+Step types that count selects (SA1). The model never changes the mode, so the deterministic
+`dexzd-apply` test `random_command_sequences_keep_counts_equal_to_a_full_count` covers mode
+switches.
+
 The Attribute Sync stream also attaches permission mappings to its plain
 Attribute batches. They compare post-batch values and accumulate one inline
 permission, preserving the main stream's pinned trajectories. Coverage counts
