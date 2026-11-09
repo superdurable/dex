@@ -16,12 +16,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from dex import (
+    AsyncClient,
+    AsyncContext,
     Attribute,
     Channel,
     Context,
+    FlowNotActiveOrNotFoundError,
+    FlowNotFoundError,
     Flow,
     PersistenceSchema,
     RPCResult,
@@ -30,8 +34,12 @@ from dex import (
     StepList,
     StepMovement,
     StepOptions,
+    StopFlowOptions,
+    StopType,
+    SubFlow,
     Wait,
     dead_end,
+    force_fail,
     go_to,
     go_to_many,
     graceful_complete,
@@ -80,9 +88,41 @@ class CancelTaskFlow(Flow[None]):
         ).with_canceling_steps(AwaitCourierPickup)
 
 
-# WCP-20 Cancel Case: the Client stops the Flow. A running SubFlow keeps running.
+# WCP-20 Cancel Case: Client StopFlow alone leaves a running SubFlow alive.
 
+# So the Step that owns the child also waits for cancelCase and stops the child itself.
+
+STOPPED_CHILD_FLOW_IDS = Attribute("stoppedChildFlowIds", list[str])
 APPLICATION_REVIEWED = Channel("applicationReviewed", str)
+CANCEL_CASE = Channel("cancelCase", str)
+BACKGROUND_CHECK_COMPLETED = Channel("backgroundCheckCompleted", str)
+
+
+class AwaitBackgroundCheck(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.until(BACKGROUND_CHECK_COMPLETED.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete("AwaitBackgroundCheck")
+
+
+class BackgroundCheckFlow(Flow[None]):
+    def __init__(self) -> None:
+        self.await_background_check = AwaitBackgroundCheck()
+
+    def get_steps(self) -> StepList[None]:
+        return StepList.start_step(self.await_background_check)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(BACKGROUND_CHECK_COMPLETED)
+
+
+class StartApplication(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return go_to_many(
+            StepMovement.of(ReviewApplication, None),
+            StepMovement.of(RunBackgroundCheck, None),
+        )
 
 
 class ReviewApplication(Step[None]):
@@ -93,15 +133,79 @@ class ReviewApplication(Step[None]):
         return graceful_complete("ReviewApplication")
 
 
+class RunBackgroundCheck(Step[None]):
+    def __init__(
+        self,
+        background_check_flow: BackgroundCheckFlow,
+        client_provider: Callable[[], AsyncClient],
+    ) -> None:
+        self.background_check_flow = background_check_flow
+        self.client_provider = client_provider
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.any_of(
+            SubFlow.run(self.background_check_flow, None), CANCEL_CASE.for_one()
+        )
+
+    async def execute(  # type: ignore[override]
+        self, context: AsyncContext, input: None
+    ) -> StepDecision:
+        cancel_reasons = CANCEL_CASE.results(context)
+        if not cancel_reasons:
+            return go_to(WatchCaseCancellation, None)
+        # The child keeps running after this AnyOf; its ID is still readable here.
+        child_flow_id = SubFlow.get_flow_id(context)
+        await stop_flow_if_active(self.client_provider(), child_flow_id)
+        STOPPED_CHILD_FLOW_IDS.set(context, [child_flow_id])
+        return force_fail(f"case canceled: {cancel_reasons[0]}")
+
+
+class WatchCaseCancellation(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.until(CANCEL_CASE.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return force_fail(f"case canceled: {CANCEL_CASE.results(context)[0]}")
+
+
+# A retried Execute stops the same child again; a closed child counts as stopped.
+async def stop_flow_if_active(client: AsyncClient, flow_id: str) -> None:
+    try:
+        await client.stop_flow(
+            flow_id, StopFlowOptions(type=StopType.CANCEL, reason="parent case canceled")
+        )
+    except (FlowNotFoundError, FlowNotActiveOrNotFoundError):
+        return
+
+
 class CancelCaseFlow(Flow[None]):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        background_check_flow: BackgroundCheckFlow,
+        client_provider: Callable[[], AsyncClient],
+    ) -> None:
+        self.start_application = StartApplication()
         self.review_application = ReviewApplication()
+        self.run_background_check = RunBackgroundCheck(
+            background_check_flow, client_provider
+        )
+        self.watch_case_cancellation = WatchCaseCancellation()
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.review_application)
+        return StepList.start_step(self.start_application).other_steps(
+            self.review_application,
+            self.run_background_check,
+            self.watch_case_cancellation,
+        )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(APPLICATION_REVIEWED)
+        return PersistenceSchema.of(
+            STOPPED_CHILD_FLOW_IDS, APPLICATION_REVIEWED, CANCEL_CASE
+        )
+
+    @rpc
+    def cancel_case(self, context: Context, input: str) -> None:
+        CANCEL_CASE.publish(context, input)
 
 
 # WCP-25 Cancel Region: one RPC withdraws two Step types and keeps the third.

@@ -26,6 +26,7 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StepOptions,
     Wait,
     go_to,
     graceful_complete,
@@ -37,6 +38,7 @@ from dex import (
 IS_AWAITING_MOTION_EVENT = Attribute("isAwaitingMotionEvent", bool)
 MOTION_SENSOR_ARMED = Channel("motionSensorArmed", str)
 MOTION_EVENT = Channel("motionEvent", int)
+MOTION_MONITORING_STOPPED = Channel("motionMonitoringStopped", str)
 
 
 class AwaitMotionSensorArmed(Step[None]):
@@ -48,28 +50,42 @@ class AwaitMotionSensorArmed(Step[None]):
 
 
 class AwaitMotionEvent(Step[None]):
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(wait_for_lock_attributes=(IS_AWAITING_MOTION_EVENT.lock(),))
+
     def wait_for(self, context: Context, input: None) -> Wait:
         IS_AWAITING_MOTION_EVENT.set(context, True)
         return Wait.until(MOTION_EVENT.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        IS_AWAITING_MOTION_EVENT.set(context, False)
-        return graceful_complete(MOTION_EVENT.results(context)[0])
+        return go_to(AwaitMonitoringStop, MOTION_EVENT.results(context)[0])
+
+
+class AwaitMonitoringStop(Step[int]):
+    def wait_for(self, context: Context, input: int) -> Wait:
+        return Wait.until(MOTION_MONITORING_STOPPED.for_one())
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        return graceful_complete(input)
 
 
 class TransientTriggerFlow(Flow[None]):
     def __init__(self) -> None:
         self.await_motion_sensor_armed = AwaitMotionSensorArmed()
         self.await_motion_event = AwaitMotionEvent()
+        self.await_monitoring_stop = AwaitMonitoringStop()
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.await_motion_sensor_armed).other_steps(
-            self.await_motion_event
+            self.await_motion_event, self.await_monitoring_stop
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(
-            IS_AWAITING_MOTION_EVENT, MOTION_SENSOR_ARMED, MOTION_EVENT
+            IS_AWAITING_MOTION_EVENT,
+            MOTION_SENSOR_ARMED,
+            MOTION_EVENT,
+            MOTION_MONITORING_STOPPED,
         )
 
     @rpc
@@ -77,9 +93,15 @@ class TransientTriggerFlow(Flow[None]):
         MOTION_SENSOR_ARMED.publish(context, "armed")
 
     @rpc
+    def stop_motion_monitoring(self, context: Context) -> None:
+        MOTION_MONITORING_STOPPED.publish(context, "stopped")
+
+    # Clearing the guard in the same locked commit makes the first trigger the only one.
+    @rpc(lock_attributes=(IS_AWAITING_MOTION_EVENT.lock(),))
     def send_motion_event(self, context: Context, input: int) -> RPCResult[bool]:
         if not IS_AWAITING_MOTION_EVENT.get(context):
             return RPCResult(False)
+        IS_AWAITING_MOTION_EVENT.set(context, False)
         MOTION_EVENT.publish(context, input)
         return RPCResult(True)
 

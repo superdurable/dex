@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from dex import (
     Context,
@@ -31,17 +31,19 @@ from dex import (
     graceful_complete,
 )
 
-# WCP-10 Arbitrary Cycles: the Draft and Edit cycle has two entry points.
+# WCP-10 Arbitrary Cycles: the Draft and Edit cycle has two entries and two exits.
 
 
 @dataclass(frozen=True)
 class ArticleSubmission:
     has_draft: bool
+    should_abandon: bool
 
 
 @dataclass(frozen=True)
 class ArticleRevision:
     revision: int
+    should_abandon: bool
     trail: list[str]
 
 
@@ -50,7 +52,7 @@ LAST_ARTICLE_REVISION = 1
 
 class RouteSubmission(Step[ArticleSubmission]):
     def execute(self, context: Context, input: ArticleSubmission) -> StepDecision:
-        revision = ArticleRevision(0, ["RouteSubmission"])
+        revision = ArticleRevision(0, input.should_abandon, ["RouteSubmission"])
         if input.has_draft:
             return go_to(EditArticle, revision)
         return go_to(DraftArticle, revision)
@@ -58,9 +60,10 @@ class RouteSubmission(Step[ArticleSubmission]):
 
 class DraftArticle(Step[ArticleRevision]):
     def execute(self, context: Context, input: ArticleRevision) -> StepDecision:
-        return go_to(
-            EditArticle, ArticleRevision(input.revision, [*input.trail, "DraftArticle"])
-        )
+        trail = [*input.trail, "DraftArticle"]
+        if input.should_abandon and input.revision >= LAST_ARTICLE_REVISION:
+            return go_to(AbandonArticle, trail)
+        return go_to(EditArticle, replace(input, trail=trail))
 
 
 class EditArticle(Step[ArticleRevision]):
@@ -68,12 +71,19 @@ class EditArticle(Step[ArticleRevision]):
         trail = [*input.trail, "EditArticle"]
         if input.revision >= LAST_ARTICLE_REVISION:
             return go_to(PublishArticle, trail)
-        return go_to(DraftArticle, ArticleRevision(input.revision + 1, trail))
+        return go_to(
+            DraftArticle, replace(input, revision=input.revision + 1, trail=trail)
+        )
 
 
 class PublishArticle(Step[list[str]]):
     def execute(self, context: Context, input: list[str]) -> StepDecision:
         return graceful_complete([*input, "PublishArticle"])
+
+
+class AbandonArticle(Step[list[str]]):
+    def execute(self, context: Context, input: list[str]) -> StepDecision:
+        return graceful_complete([*input, "AbandonArticle"])
 
 
 class ArbitraryCyclesFlow(Flow[ArticleSubmission]):
@@ -82,47 +92,62 @@ class ArbitraryCyclesFlow(Flow[ArticleSubmission]):
         self.draft_article = DraftArticle()
         self.edit_article = EditArticle()
         self.publish_article = PublishArticle()
+        self.abandon_article = AbandonArticle()
 
     def get_steps(self) -> StepList[ArticleSubmission]:
         return StepList.start_step(self.route_submission).other_steps(
-            self.draft_article, self.edit_article, self.publish_article
+            self.draft_article,
+            self.edit_article,
+            self.publish_article,
+            self.abandon_article,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of()
 
 
-# WCP-21 Structured Loop: ProcessBatches tests its condition before each pass.
+# WCP-21 Structured Loop: CheckBatches tests before each pass; ProcessBatch is the body.
 
 
 @dataclass(frozen=True)
 class BatchProgress:
     remaining_batches: int
-    processed_batches: int
+    processed_batches: list[str]
 
 
-class ProcessBatches(Step[BatchProgress]):
+class CheckBatches(Step[BatchProgress]):
     def execute(self, context: Context, input: BatchProgress) -> StepDecision:
         if input.remaining_batches == 0:
             return go_to(FinishBatches, input.processed_batches)
+        return go_to(ProcessBatch, input)
+
+
+class ProcessBatch(Step[BatchProgress]):
+    def execute(self, context: Context, input: BatchProgress) -> StepDecision:
         return go_to(
-            ProcessBatches,
-            BatchProgress(input.remaining_batches - 1, input.processed_batches + 1),
+            CheckBatches,
+            BatchProgress(
+                input.remaining_batches - 1,
+                [*input.processed_batches, f"batch-{input.remaining_batches}"],
+            ),
         )
 
 
-class FinishBatches(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
+class FinishBatches(Step[list[str]]):
+    def execute(self, context: Context, input: list[str]) -> StepDecision:
         return graceful_complete(input)
 
 
 class StructuredLoopFlow(Flow[BatchProgress]):
     def __init__(self) -> None:
-        self.process_batches = ProcessBatches()
+        self.check_batches = CheckBatches()
+        self.process_batch = ProcessBatch()
         self.finish_batches = FinishBatches()
 
     def get_steps(self) -> StepList[BatchProgress]:
-        return StepList.start_step(self.process_batches).other_steps(self.finish_batches)
+        return StepList.start_step(self.check_batches).other_steps(
+            self.process_batch, self.finish_batches
+        )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of()

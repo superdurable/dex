@@ -31,14 +31,16 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-// WCP-10 Arbitrary Cycles: the Draft and Edit cycle has two entry points.
+// WCP-10 Arbitrary Cycles: the Draft and Edit cycle has two entries and two exits.
 
 export interface ArticleSubmission {
   readonly hasDraft: boolean;
+  readonly shouldAbandon: boolean;
 }
 
 export interface ArticleRevision {
   readonly revision: number;
+  readonly shouldAbandon: boolean;
   readonly trail: string[];
 }
 
@@ -50,7 +52,11 @@ class RouteSubmission implements Step<ArticleSubmission> {
   }
 
   public execute(_context: Context, submission: ArticleSubmission): StepDecision {
-    const revision: ArticleRevision = { revision: 0, trail: ["RouteSubmission"] };
+    const revision: ArticleRevision = {
+      revision: 0,
+      shouldAbandon: submission.shouldAbandon,
+      trail: ["RouteSubmission"],
+    };
     if (submission.hasDraft) {
       return goTo(EditArticle, revision);
     }
@@ -64,7 +70,11 @@ class DraftArticle implements Step<ArticleRevision> {
   }
 
   public execute(_context: Context, article: ArticleRevision): StepDecision {
-    return goTo(EditArticle, { revision: article.revision, trail: [...article.trail, "DraftArticle"] });
+    const trail = [...article.trail, "DraftArticle"];
+    if (article.shouldAbandon && article.revision >= LAST_ARTICLE_REVISION) {
+      return goTo(AbandonArticle, trail);
+    }
+    return goTo(EditArticle, { ...article, trail });
   }
 }
 
@@ -78,7 +88,7 @@ class EditArticle implements Step<ArticleRevision> {
     if (article.revision >= LAST_ARTICLE_REVISION) {
       return goTo(PublishArticle, trail);
     }
-    return goTo(DraftArticle, { revision: article.revision + 1, trail });
+    return goTo(DraftArticle, { ...article, revision: article.revision + 1, trail });
   }
 }
 
@@ -92,11 +102,22 @@ class PublishArticle implements Step<string[]> {
   }
 }
 
+class AbandonArticle implements Step<string[]> {
+  public getStepType(): string {
+    return "AbandonArticle";
+  }
+
+  public execute(_context: Context, trail: string[]): StepDecision {
+    return gracefulComplete([...trail, "AbandonArticle"]);
+  }
+}
+
 export class ArbitraryCyclesFlow implements Flow<ArticleSubmission> {
   private readonly routeSubmission = new RouteSubmission();
   private readonly draftArticle = new DraftArticle();
   private readonly editArticle = new EditArticle();
   private readonly publishArticle = new PublishArticle();
+  private readonly abandonArticle = new AbandonArticle();
 
   public getFlowType(): string {
     return "ArbitraryCyclesFlow";
@@ -107,6 +128,7 @@ export class ArbitraryCyclesFlow implements Flow<ArticleSubmission> {
       this.draftArticle,
       this.editArticle,
       this.publishArticle,
+      this.abandonArticle,
     );
   }
 
@@ -115,44 +137,52 @@ export class ArbitraryCyclesFlow implements Flow<ArticleSubmission> {
   }
 }
 
-// WCP-21 Structured Loop: ProcessBatches tests its condition before each pass
-// and goes to itself until no batch remains.
+// WCP-21 Structured Loop: CheckBatches tests before each pass; ProcessBatch is the body.
 
 export interface BatchProgress {
   readonly remainingBatches: number;
-  readonly processedBatches: number;
+  readonly processedBatches: string[];
 }
 
-class ProcessBatches implements Step<BatchProgress> {
+class CheckBatches implements Step<BatchProgress> {
   public getStepType(): string {
-    return "ProcessBatches";
+    return "CheckBatches";
   }
 
   public execute(_context: Context, progress: BatchProgress): StepDecision {
     if (progress.remainingBatches === 0) {
       return goTo(FinishBatches, progress.processedBatches);
     }
-    return goTo(ProcessBatches, {
+    return goTo(ProcessBatch, progress);
+  }
+}
+
+class ProcessBatch implements Step<BatchProgress> {
+  public getStepType(): string {
+    return "ProcessBatch";
+  }
+
+  public execute(_context: Context, progress: BatchProgress): StepDecision {
+    return goTo(CheckBatches, {
       remainingBatches: progress.remainingBatches - 1,
-      processedBatches: progress.processedBatches + 1,
+      processedBatches: [...progress.processedBatches, `batch-${progress.remainingBatches}`],
     });
   }
 }
 
-class FinishBatches implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class FinishBatches implements Step<string[]> {
   public getStepType(): string {
     return "FinishBatches";
   }
 
-  public execute(_context: Context, processedBatches: number): StepDecision {
+  public execute(_context: Context, processedBatches: string[]): StepDecision {
     return gracefulComplete(processedBatches);
   }
 }
 
 export class StructuredLoopFlow implements Flow<BatchProgress> {
-  private readonly processBatches = new ProcessBatches();
+  private readonly checkBatches = new CheckBatches();
+  private readonly processBatch = new ProcessBatch();
   private readonly finishBatches = new FinishBatches();
 
   public getFlowType(): string {
@@ -160,7 +190,7 @@ export class StructuredLoopFlow implements Flow<BatchProgress> {
   }
 
   public getSteps(): StepList<BatchProgress> {
-    return StepList.startStep(this.processBatches).otherSteps(this.finishBatches);
+    return StepList.startStep(this.checkBatches).otherSteps(this.processBatch, this.finishBatches);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

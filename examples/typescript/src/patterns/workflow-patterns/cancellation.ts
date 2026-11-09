@@ -19,14 +19,20 @@
 import {
   Attribute,
   Channel,
+  FlowNotActiveOrNotFoundError,
+  FlowNotFoundError,
   StepList,
   StepMovement,
+  StopType,
+  SubFlow,
   Wait,
   deadEnd,
   doubleCodec,
+  forceFail,
   goTo,
   goToMany,
   gracefulComplete,
+  jsonCodec,
   rpc,
   stringCodec,
   voidCodec,
@@ -38,6 +44,8 @@ import {
   type StepDecision,
   type StepOptions,
 } from "@superdurable/dex";
+
+import { getClient } from "../../client-holder.js";
 
 // WCP-19 Cancel Task: an RPC withdraws the waiting pickup Step and starts
 // another Step in the same commit.
@@ -99,9 +107,57 @@ export class CancelTaskFlow implements Flow<void> {
   }
 }
 
-// WCP-20 Cancel Case: StopFlow cancels every active Step. A running SubFlow keeps running.
+// WCP-20 Cancel Case: Client StopFlow alone leaves a running SubFlow alive.
 
+// So the Step that owns the child also waits for cancelCase and stops the child itself.
+
+const stoppedChildFlowIds = new Attribute("stoppedChildFlowIds", jsonCodec<string[]>({ typeName: "FlowIds" }));
 const applicationReviewed = new Channel("applicationReviewed", stringCodec);
+const cancelCase = new Channel("cancelCase", stringCodec);
+const backgroundCheckCompleted = new Channel("backgroundCheckCompleted", stringCodec);
+
+class AwaitBackgroundCheck implements Step<void> {
+  public getStepType(): string {
+    return "AwaitBackgroundCheck";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(backgroundCheckCompleted.forOne());
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return gracefulComplete("AwaitBackgroundCheck");
+  }
+}
+
+export class BackgroundCheckFlow implements Flow<void> {
+  private readonly awaitBackgroundCheck = new AwaitBackgroundCheck();
+
+  public getFlowType(): string {
+    return "BackgroundCheckFlow";
+  }
+
+  public getSteps(): StepList<void> {
+    return StepList.startStep(this.awaitBackgroundCheck);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { channels: [backgroundCheckCompleted] };
+  }
+}
+
+class StartApplication implements Step<void> {
+  public getStepType(): string {
+    return "StartApplication";
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return goToMany(
+      StepMovement.of(ReviewApplication, undefined),
+      StepMovement.of(RunBackgroundCheck, undefined),
+    );
+  }
+}
 
 class ReviewApplication implements Step<void> {
   public getStepType(): string {
@@ -117,21 +173,88 @@ class ReviewApplication implements Step<void> {
   }
 }
 
+class RunBackgroundCheck implements Step<void> {
+  public constructor(private readonly backgroundCheckFlow: BackgroundCheckFlow) {}
+
+  public getStepType(): string {
+    return "RunBackgroundCheck";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(SubFlow.run(this.backgroundCheckFlow, undefined), cancelCase.forOne());
+  }
+
+  public async execute(context: Context, _input: void): Promise<StepDecision> {
+    const cancelReasons = cancelCase.results(context);
+    if (cancelReasons.length === 0) {
+      return goTo(WatchCaseCancellation, undefined);
+    }
+    // The child keeps running after this AnyOf; its ID is still readable here.
+    const childFlowId = SubFlow.getFlowId(context);
+    await stopFlowIfActive(childFlowId);
+    stoppedChildFlowIds.set(context, [childFlowId]);
+    return forceFail(`case canceled: ${cancelReasons[0]}`);
+  }
+}
+
+class WatchCaseCancellation implements Step<void> {
+  public getStepType(): string {
+    return "WatchCaseCancellation";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(cancelCase.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    return forceFail(`case canceled: ${cancelCase.results(context)[0]}`);
+  }
+}
+
+// A retried Execute stops the same child again; a closed child counts as stopped.
+async function stopFlowIfActive(flowId: string): Promise<void> {
+  try {
+    await getClient().stopFlow(flowId, { type: StopType.CANCEL, reason: "parent case canceled" });
+  } catch (error) {
+    if (!(error instanceof FlowNotFoundError) && !(error instanceof FlowNotActiveOrNotFoundError)) {
+      throw error;
+    }
+  }
+}
+
 export class CancelCaseFlow implements Flow<void> {
+  private readonly startApplication = new StartApplication();
   private readonly reviewApplication = new ReviewApplication();
+  private readonly runBackgroundCheck: RunBackgroundCheck;
+  private readonly watchCaseCancellation = new WatchCaseCancellation();
+
+  public constructor(backgroundCheckFlow: BackgroundCheckFlow) {
+    this.runBackgroundCheck = new RunBackgroundCheck(backgroundCheckFlow);
+  }
 
   public getFlowType(): string {
     return "CancelCaseFlow";
   }
 
   public getSteps(): StepList<void> {
-    return StepList.startStep(this.reviewApplication);
+    return StepList.startStep(this.startApplication).otherSteps(
+      this.reviewApplication,
+      this.runBackgroundCheck,
+      this.watchCaseCancellation,
+    );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [applicationReviewed] };
+    return { attributes: [stoppedChildFlowIds], channels: [applicationReviewed, cancelCase] };
+  }
+
+  @rpc({ inputCodec: stringCodec })
+  public cancelCase(context: Context, reason: string): void {
+    cancelCase.publish(context, reason);
   }
 }
+
+export { stoppedChildFlowIds };
 
 // WCP-25 Cancel Region: one RPC withdraws two Step types and leaves the
 // sanctions screening running.
@@ -450,7 +573,8 @@ export class CompleteMultipleInstanceTaskFlow implements Flow<number> {
 }
 
 export const cancelTaskFlow = new CancelTaskFlow();
-export const cancelCaseFlow = new CancelCaseFlow();
+export const backgroundCheckFlow = new BackgroundCheckFlow();
+export const cancelCaseFlow = new CancelCaseFlow(backgroundCheckFlow);
 export const cancelRegionFlow = new CancelRegionFlow();
 export const cancelMultipleInstanceTaskFlow = new CancelMultipleInstanceTaskFlow();
 export const completeMultipleInstanceTaskFlow = new CompleteMultipleInstanceTaskFlow();

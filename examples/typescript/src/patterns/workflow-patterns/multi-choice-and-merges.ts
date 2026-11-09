@@ -18,16 +18,17 @@
 // merges), WCP-8 (multi-merge), and WCP-38 (general synchronizing merge).
 
 import {
+  Attribute,
   Channel,
   StepList,
   StepMovement,
-  SubFlow,
   Wait,
   deadEnd,
   doubleCodec,
   goTo,
   goToMany,
   gracefulComplete,
+  jsonCodec,
   stringCodec,
   type Context,
   type Flow,
@@ -35,6 +36,7 @@ import {
   type Step,
   type StepClass,
   type StepDecision,
+  type StepOptions,
 } from "@superdurable/dex";
 
 // WCP-6, WCP-7, and WCP-37: the choosing Step passes the branch count to the join.
@@ -217,122 +219,172 @@ export class MultiMergeFlow implements Flow<void> {
   }
 }
 
-// WCP-38: the region runs as a SubFlow, which completes once none of its Steps can run.
+// WCP-38: an Attribute counts the threads that can still reach PublishDocument.
 
-class DraftProposal implements Step<number> {
-  public readonly inputCodec = doubleCodec;
+// The commit that brings the count to 0 publishes the sentinel the merge waits for.
 
+export interface DocumentReviewPlan {
+  readonly isLegalCheckNeeded: boolean;
+  readonly isFinanceCheckNeeded: boolean;
+  readonly financeReworkRounds: number;
+  readonly isFinanceArchived: boolean;
+}
+
+export interface DocumentDraft {
+  readonly plan: DocumentReviewPlan;
+  readonly revision: number;
+}
+
+const liveBranchCount = new Attribute("liveBranchCount", doubleCodec);
+const mergedReviews = new Attribute("mergedReviews", jsonCodec<string[]>({ typeName: "Reviews" }));
+const mergeSentinel = new Channel("mergeSentinel", stringCodec);
+const liveBranchCountLock: StepOptions = { executeLockAttributes: [liveBranchCount.lock()] };
+
+// Call only from a Step that holds the liveBranchCount lock.
+function changeLiveBranchCount(context: Context, delta: number): void {
+  const count = liveBranchCount.get(context) + delta;
+  liveBranchCount.set(context, count);
+  if (count === 0) {
+    mergeSentinel.publish(context, "done");
+  }
+}
+
+function recordArrival(context: Context, review: string): void {
+  mergedReviews.set(context, [...(mergedReviews.get(context) ?? []), review]);
+  changeLiveBranchCount(context, -1);
+}
+
+class StartDocumentReview implements Step<DocumentReviewPlan> {
   public getStepType(): string {
-    return "DraftProposal";
+    return "StartDocumentReview";
   }
 
-  public execute(_context: Context, revision: number): StepDecision {
+  public getStepOptions(): StepOptions {
+    return liveBranchCountLock;
+  }
+
+  public execute(context: Context, plan: DocumentReviewPlan): StepDecision {
+    liveBranchCount.set(context, 1);
     return goToMany(
-      StepMovement.of(ReviewProposal, revision),
-      StepMovement.of(TranslateProposal, revision),
+      StepMovement.of(DraftDocument, { plan, revision: 0 }),
+      StepMovement.of(PublishDocument, undefined),
     );
   }
 }
 
-class ReviewProposal implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class DraftDocument implements Step<DocumentDraft> {
   public getStepType(): string {
-    return "ReviewProposal";
+    return "DraftDocument";
   }
 
-  public execute(_context: Context, revision: number): StepDecision {
-    if (revision < 1) {
-      return goTo(DraftProposal, revision + 1);
+  public getStepOptions(): StepOptions {
+    return liveBranchCountLock;
+  }
+
+  public execute(context: Context, draft: DocumentDraft): StepDecision {
+    const isRework = draft.revision > 0;
+    const movements: StepMovement<any>[] = [];
+    if (isRework || draft.plan.isLegalCheckNeeded) {
+      movements.push(StepMovement.of(CheckLegalTerms, draft.revision));
     }
-    return gracefulComplete(`ReviewProposal-${revision}`);
+    if (isRework || draft.plan.isFinanceCheckNeeded) {
+      movements.push(StepMovement.of(CheckFinanceTerms, draft));
+    }
+    changeLiveBranchCount(context, movements.length - 1);
+    return movements.length === 0 ? deadEnd() : goToMany(...movements);
   }
 }
 
-class TranslateProposal implements Step<number> {
+class CheckLegalTerms implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "TranslateProposal";
+    return "CheckLegalTerms";
   }
 
-  public execute(_context: Context, revision: number): StepDecision {
-    return gracefulComplete(`TranslateProposal-${revision}`);
-  }
-}
-
-export class ReviewRegionFlow implements Flow<number> {
-  private readonly draftProposal = new DraftProposal();
-  private readonly reviewProposal = new ReviewProposal();
-  private readonly translateProposal = new TranslateProposal();
-
-  public getFlowType(): string {
-    return "ReviewRegionFlow";
+  public getStepOptions(): StepOptions {
+    return liveBranchCountLock;
   }
 
-  public getSteps(): StepList<number> {
-    return StepList.startStep(this.draftProposal).otherSteps(
-      this.reviewProposal,
-      this.translateProposal,
-    );
-  }
-
-  public getPersistenceSchema(): PersistenceSchema {
-    return {};
+  public execute(context: Context, revision: number): StepDecision {
+    recordArrival(context, `CheckLegalTerms-${revision}`);
+    return deadEnd();
   }
 }
 
-class RunReviewRegion implements Step<void> {
-  public constructor(private readonly reviewRegionFlow: ReviewRegionFlow) {}
-
+class CheckFinanceTerms implements Step<DocumentDraft> {
   public getStepType(): string {
-    return "RunReviewRegion";
+    return "CheckFinanceTerms";
+  }
+
+  public getStepOptions(): StepOptions {
+    return liveBranchCountLock;
+  }
+
+  public execute(context: Context, draft: DocumentDraft): StepDecision {
+    if (draft.revision < draft.plan.financeReworkRounds) {
+      return goTo(DraftDocument, { plan: draft.plan, revision: draft.revision + 1 });
+    }
+    if (draft.plan.isFinanceArchived) {
+      changeLiveBranchCount(context, -1);
+      return goTo(ArchiveDocument, undefined);
+    }
+    recordArrival(context, `CheckFinanceTerms-${draft.revision}`);
+    return deadEnd();
+  }
+}
+
+class ArchiveDocument implements Step<void> {
+  public getStepType(): string {
+    return "ArchiveDocument";
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return gracefulComplete("ArchiveDocument");
+  }
+}
+
+class PublishDocument implements Step<void> {
+  public getStepType(): string {
+    return "PublishDocument";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(SubFlow.run(this.reviewRegionFlow, 0));
+    return Wait.until(mergeSentinel.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    const regionOutputs = SubFlow.getConditionResults(context).completions.map((completion) =>
-      completion.decode(stringCodec),
-    );
-    return goTo(PublishDecision, regionOutputs.sort());
+    return gracefulComplete([...(mergedReviews.get(context) ?? [])].sort());
   }
 }
 
-class PublishDecision implements Step<string[]> {
-  public getStepType(): string {
-    return "PublishDecision";
-  }
-
-  public execute(_context: Context, regionOutputs: string[]): StepDecision {
-    return gracefulComplete(regionOutputs);
-  }
-}
-
-export class GeneralSynchronizingMergeFlow implements Flow<void> {
-  private readonly runReviewRegion: RunReviewRegion;
-  private readonly publishDecision = new PublishDecision();
-
-  public constructor(reviewRegionFlow: ReviewRegionFlow) {
-    this.runReviewRegion = new RunReviewRegion(reviewRegionFlow);
-  }
+export class GeneralSynchronizingMergeFlow implements Flow<DocumentReviewPlan> {
+  private readonly startDocumentReview = new StartDocumentReview();
+  private readonly draftDocument = new DraftDocument();
+  private readonly checkLegalTerms = new CheckLegalTerms();
+  private readonly checkFinanceTerms = new CheckFinanceTerms();
+  private readonly archiveDocument = new ArchiveDocument();
+  private readonly publishDocument = new PublishDocument();
 
   public getFlowType(): string {
     return "GeneralSynchronizingMergeFlow";
   }
 
-  public getSteps(): StepList<void> {
-    return StepList.startStep(this.runReviewRegion).otherSteps(this.publishDecision);
+  public getSteps(): StepList<DocumentReviewPlan> {
+    return StepList.startStep(this.startDocumentReview).otherSteps(
+      this.draftDocument,
+      this.checkLegalTerms,
+      this.checkFinanceTerms,
+      this.archiveDocument,
+      this.publishDocument,
+    );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return {};
+    return { attributes: [liveBranchCount, mergedReviews], channels: [mergeSentinel] };
   }
 }
 
 export const multiChoiceSynchronizingMergeFlow = new MultiChoiceSynchronizingMergeFlow();
 export const multiMergeFlow = new MultiMergeFlow();
-export const reviewRegionFlow = new ReviewRegionFlow();
-export const generalSynchronizingMergeFlow = new GeneralSynchronizingMergeFlow(reviewRegionFlow);
+export const generalSynchronizingMergeFlow = new GeneralSynchronizingMergeFlow();

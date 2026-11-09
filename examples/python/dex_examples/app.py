@@ -195,7 +195,7 @@ class ExampleApp:
         self.customer_directory = CustomerDirectoryFlow()
         self.timeout = FlowGracefulTimeout()
         self.wait_for_step_completion = WaitForStepCompletionFlow(pattern_service)
-        self.workflow_patterns = WorkflowPatternFlows()
+        self.workflow_patterns = WorkflowPatternFlows(client_provider)
 
         self.example_flow = ExampleFlow()
         self.step = StepFlow()

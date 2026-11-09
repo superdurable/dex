@@ -23,6 +23,7 @@ import {
   sequenceFlow,
 } from "./basic-control-flow.js";
 import {
+  backgroundCheckFlow,
   cancelCaseFlow,
   cancelMultipleInstanceTaskFlow,
   cancelRegionFlow,
@@ -34,7 +35,6 @@ import {
   generalSynchronizingMergeFlow,
   multiChoiceSynchronizingMergeFlow,
   multiMergeFlow,
-  reviewRegionFlow,
 } from "./multi-choice-and-merges.js";
 import {
   cancellingPartialJoinForMultipleInstancesFlow,
@@ -67,7 +67,6 @@ export const workflowPatternFlows: readonly Flow<any>[] = [
   exclusiveChoiceSimpleMergeFlow,
   multiChoiceSynchronizingMergeFlow,
   multiMergeFlow,
-  reviewRegionFlow,
   generalSynchronizingMergeFlow,
   structuredPartialJoinFlow,
   blockingPartialJoinFlow,
@@ -87,6 +86,7 @@ export const workflowPatternFlows: readonly Flow<any>[] = [
   criticalSectionFlow,
   interleavedRoutingFlow,
   cancelTaskFlow,
+  backgroundCheckFlow,
   cancelCaseFlow,
   cancelRegionFlow,
   cancelMultipleInstanceTaskFlow,

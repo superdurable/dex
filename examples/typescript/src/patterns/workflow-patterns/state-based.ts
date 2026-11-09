@@ -64,8 +64,23 @@ async function runTimedTask(task: string, durationMillis: number): Promise<TaskI
 // WCP-16 Deferred Choice: AnyOf waits for whichever response comes first.
 // Dex consumes only the selected Channel condition.
 
+const offerPresented = new Channel("offerPresented", stringCodec);
 const offerAccepted = new Channel("offerAccepted", stringCodec);
 const offerDeclined = new Channel("offerDeclined", stringCodec);
+
+class PresentOffer implements Step<void> {
+  public getStepType(): string {
+    return "PresentOffer";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(offerPresented.forOne());
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return goTo(AwaitCustomerResponse, undefined);
+  }
+}
 
 class AwaitCustomerResponse implements Step<void> {
   public getStepType(): string {
@@ -105,6 +120,7 @@ class ArchiveOffer implements Step<void> {
 }
 
 export class DeferredChoiceFlow implements Flow<void> {
+  private readonly presentOfferStep = new PresentOffer();
   private readonly awaitCustomerResponse = new AwaitCustomerResponse();
   private readonly fulfillOffer = new FulfillOffer();
   private readonly archiveOffer = new ArchiveOffer();
@@ -114,14 +130,20 @@ export class DeferredChoiceFlow implements Flow<void> {
   }
 
   public getSteps(): StepList<void> {
-    return StepList.startStep(this.awaitCustomerResponse).otherSteps(
+    return StepList.startStep(this.presentOfferStep).otherSteps(
+      this.awaitCustomerResponse,
       this.fulfillOffer,
       this.archiveOffer,
     );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [offerAccepted, offerDeclined] };
+    return { channels: [offerPresented, offerAccepted, offerDeclined] };
+  }
+
+  @rpc()
+  public presentOffer(context: Context): void {
+    offerPresented.publish(context, "presented");
   }
 
   @rpc()
@@ -135,8 +157,9 @@ export class DeferredChoiceFlow implements Flow<void> {
   }
 }
 
-// WCP-17 Interleaved Parallel Routing: one shared Execute lock keeps the tasks
-// from overlapping. GoTo orders PrepareContract before SignContract.
+// WCP-17: one shared Execute lock keeps the tasks apart; GoTo orders two of them.
+
+// The lock covers one Execute, not a WaitFor or a task that spans Steps.
 
 const onboardingTaskLock = new Attribute("onboardingTaskLock", booleanCodec);
 const onboardingTaskFinished = new Channel("onboardingTaskFinished", taskIntervalCodec);
@@ -480,7 +503,9 @@ export class CriticalSectionFlow implements Flow<void> {
   }
 }
 
-// WCP-40 Interleaved Routing: each audit runs once, in any order, one at a time.
+// WCP-40 (+/-): each audit runs once, in any order, one at a time.
+
+// The lock covers one Execute, not a WaitFor or a task that spans Steps.
 
 const auditLock = new Attribute("auditLock", booleanCodec);
 const auditFinished = new Channel("auditFinished", taskIntervalCodec);

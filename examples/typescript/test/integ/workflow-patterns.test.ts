@@ -22,7 +22,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   StepExecutionId,
-  StopType,
   ValueMappingError,
   doubleCodec,
   stringCodec,
@@ -50,6 +49,7 @@ import {
   cancelTaskFlow,
   completeMultipleInstanceTaskFlow,
   finishedTranslationCount,
+  stoppedChildFlowIds,
 } from "../../src/patterns/workflow-patterns/cancellation.js";
 import {
   arbitraryCyclesFlow,
@@ -65,6 +65,7 @@ import {
   cancellingPartialJoinForMultipleInstancesFlow,
   designTimeMultipleInstancesFlow,
   dynamicPartialJoinForMultipleInstancesFlow,
+  isBidAdmissionClosed,
   multipleInstancesWithoutSynchronizationFlow,
   noPriorKnowledgeMultipleInstancesFlow,
   runTimeMultipleInstancesFlow,
@@ -181,6 +182,10 @@ async function waitForAttributeValue<T>(
   );
 }
 
+async function awaitRpcValue<T>(load: () => Promise<T>, expected: T): Promise<void> {
+  await awaitCondition(load, (value) => value === expected, WAIT_TIMEOUT_MS, `never reached ${String(expected)}`);
+}
+
 // The RPC fails fast while a Step holds the same Attribute lock.
 async function retryOnLockConflict<T>(invoke: () => Promise<T>): Promise<T> {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
@@ -254,38 +259,99 @@ test("WCP-8 Multi-Merge runs the merged Step once per arrival", async () => {
   assert.deepEqual(outputsOf(completions, "RecordReview").sort(), ["FinanceReview", "LegalReview"]);
 });
 
-test("WCP-38 General Synchronizing Merge continues once the SubFlow region has no runnable Step", async () => {
-  const flowId = await startPatternFlow(generalSynchronizingMergeFlow, "general-merge", undefined);
+test("WCP-38 General Synchronizing Merge waits for a review added by rework", async () => {
+  const flowId = await startPatternFlow(generalSynchronizingMergeFlow, "general-merge-rework", {
+    isLegalCheckNeeded: true,
+    isFinanceCheckNeeded: true,
+    financeReworkRounds: 1,
+    isFinanceArchived: false,
+  });
   assert.deepEqual(await waitForCompletedFlow(flowId), [
     {
-      stepType: "PublishDecision",
-      output: ["ReviewProposal-1", "TranslateProposal-0", "TranslateProposal-1"],
+      stepType: "PublishDocument",
+      output: ["CheckFinanceTerms-1", "CheckLegalTerms-0", "CheckLegalTerms-1"],
     },
   ]);
 });
 
-test("WCP-9 Structured Discriminator fires on the first quote and resets on the rest", async () => {
-  const flowId = await startPatternFlow(structuredPartialJoinFlow, "discriminator", 1);
-  await environment.client.invokeRPC(structuredPartialJoinFlow.releaseSupplierQuote, flowId, "A");
-  await waitForStep(flowId, "PlaceOrder");
-  await environment.client.invokeRPC(structuredPartialJoinFlow.releaseSupplierQuote, flowId, "B");
-  await environment.client.invokeRPC(structuredPartialJoinFlow.releaseSupplierQuote, flowId, "C");
+test("WCP-38 General Synchronizing Merge is not blocked by an archived branch", async () => {
+  const flowId = await startPatternFlow(generalSynchronizingMergeFlow, "general-merge-archive", {
+    isLegalCheckNeeded: true,
+    isFinanceCheckNeeded: true,
+    financeReworkRounds: 0,
+    isFinanceArchived: true,
+  });
   const completions = await waitForCompletedFlow(flowId);
-  assert.deepEqual(outputsOf(completions, "PlaceOrder"), [["A"]]);
-  assert.deepEqual(outputsOf(completions, "ResetQuoteJoin"), [["B", "C"]]);
+  assert.deepEqual(stepTypesOf(completions), ["ArchiveDocument", "PublishDocument"]);
+  assert.deepEqual(outputsOf(completions, "PublishDocument"), [["CheckLegalTerms-0"]]);
 });
 
-test("WCP-30 Structured Partial Join fires after two of three quotes", async () => {
-  const flowId = await startPatternFlow(structuredPartialJoinFlow, "partial-join", 2);
-  await environment.client.invokeRPC(structuredPartialJoinFlow.releaseSupplierQuote, flowId, "A");
-  await waitForStep(flowId, "QuoteFromSupplierA");
-  await environment.client.invokeRPC(structuredPartialJoinFlow.releaseSupplierQuote, flowId, "B");
-  await waitForStep(flowId, "PlaceOrder");
-  await environment.client.invokeRPC(structuredPartialJoinFlow.releaseSupplierQuote, flowId, "C");
-  const completions = await waitForCompletedFlow(flowId);
-  assert.deepEqual(outputsOf(completions, "PlaceOrder"), [["A", "B"]]);
-  assert.deepEqual(outputsOf(completions, "ResetQuoteJoin"), [["C"]]);
+test("WCP-38 General Synchronizing Merge fires once, after the last thread", async () => {
+  const flowId = await startPatternFlow(generalSynchronizingMergeFlow, "general-merge-once", {
+    isLegalCheckNeeded: false,
+    isFinanceCheckNeeded: true,
+    financeReworkRounds: 2,
+    isFinanceArchived: false,
+  });
+  assert.deepEqual(await waitForCompletedFlow(flowId), [
+    {
+      stepType: "PublishDocument",
+      output: ["CheckFinanceTerms-2", "CheckLegalTerms-1", "CheckLegalTerms-2"],
+    },
+  ]);
 });
+
+test("WCP-9 Structured Discriminator fires on the first quote and resets for a second round", async () => {
+  const flowId = await startPatternFlow(structuredPartialJoinFlow, "discriminator", {
+    requiredQuotes: 1,
+    round: 1,
+    roundCount: 2,
+  });
+  await releaseSupplierQuotes(flowId, "A");
+  await waitForStep(flowId, "PlaceOrder");
+  await releaseSupplierQuotes(flowId, "B", "C");
+  await waitForStep(flowId, "RequestQuotes", 2);
+  await releaseSupplierQuotes(flowId, "B");
+  await waitForStep(flowId, "PlaceOrder", 2);
+  await releaseSupplierQuotes(flowId, "A", "C");
+  const completions = await waitForCompletedFlow(flowId);
+  assert.deepEqual(outputsOf(completions, "PlaceOrder"), [
+    { round: 1, acceptedQuotes: ["A"] },
+    { round: 2, acceptedQuotes: ["B"] },
+  ]);
+  assert.deepEqual(outputsOf(completions, "ResetQuoteJoin"), [{ round: 2, ignoredQuotes: ["A", "C"] }]);
+});
+
+test("WCP-30 Structured Partial Join fires after two of three quotes in each round", async () => {
+  const flowId = await startPatternFlow(structuredPartialJoinFlow, "partial-join", {
+    requiredQuotes: 2,
+    round: 1,
+    roundCount: 2,
+  });
+  await releaseSupplierQuotes(flowId, "A");
+  await waitForStep(flowId, "QuoteFromSupplierA");
+  await releaseSupplierQuotes(flowId, "B");
+  await waitForStep(flowId, "PlaceOrder");
+  await releaseSupplierQuotes(flowId, "C");
+  await waitForStep(flowId, "RequestQuotes", 2);
+  await releaseSupplierQuotes(flowId, "C");
+  await waitForStep(flowId, "QuoteFromSupplierC", 2);
+  await releaseSupplierQuotes(flowId, "A");
+  await waitForStep(flowId, "PlaceOrder", 2);
+  await releaseSupplierQuotes(flowId, "B");
+  const completions = await waitForCompletedFlow(flowId);
+  assert.deepEqual(outputsOf(completions, "PlaceOrder"), [
+    { round: 1, acceptedQuotes: ["A", "B"] },
+    { round: 2, acceptedQuotes: ["A", "C"] },
+  ]);
+  assert.deepEqual(outputsOf(completions, "ResetQuoteJoin"), [{ round: 2, ignoredQuotes: ["B"] }]);
+});
+
+async function releaseSupplierQuotes(flowId: string, ...suppliers: string[]): Promise<void> {
+  for (const supplier of suppliers) {
+    await environment.client.invokeRPC(structuredPartialJoinFlow.releaseSupplierQuote, flowId, supplier);
+  }
+}
 
 async function sendBranchSignals(flowId: string, ...branches: string[]): Promise<void> {
   for (const branch of branches) {
@@ -293,14 +359,19 @@ async function sendBranchSignals(flowId: string, ...branches: string[]): Promise
   }
 }
 
-test("WCP-28 Blocking Discriminator holds a second signal until the join resets", async () => {
+test("WCP-28 Blocking Discriminator blocks a next-round signal until the join resets", async () => {
   const flowId = await startPatternFlow(blockingPartialJoinFlow, "blocking-discriminator", {
     requiredSignals: 1,
     round: 1,
   });
   await sendBranchSignals(flowId, "A");
   await waitForStep(flowId, "ProcessRound");
-  await sendBranchSignals(flowId, "A", "B", "C");
+  await sendBranchSignals(flowId, "A");
+  assert.equal(
+    await environment.client.invokeRPC(blockingPartialJoinFlow.getQueuedBranchSignalCount, flowId),
+    1,
+  );
+  await sendBranchSignals(flowId, "B", "C");
   await waitForStep(flowId, "ProcessRound", 2);
   await sendBranchSignals(flowId, "B", "C");
   const completions = await waitForCompletedFlow(flowId);
@@ -310,14 +381,19 @@ test("WCP-28 Blocking Discriminator holds a second signal until the join resets"
   ]);
 });
 
-test("WCP-31 Blocking Partial Join holds second-round signals until the join resets", async () => {
+test("WCP-31 Blocking Partial Join blocks next-round signals until the join resets", async () => {
   const flowId = await startPatternFlow(blockingPartialJoinFlow, "blocking-partial-join", {
     requiredSignals: 2,
     round: 1,
   });
   await sendBranchSignals(flowId, "A", "B");
   await waitForStep(flowId, "ProcessRound");
-  await sendBranchSignals(flowId, "A", "B", "C");
+  await sendBranchSignals(flowId, "A", "B");
+  assert.equal(
+    await environment.client.invokeRPC(blockingPartialJoinFlow.getQueuedBranchSignalCount, flowId),
+    2,
+  );
+  await sendBranchSignals(flowId, "C");
   await waitForStep(flowId, "ProcessRound", 2);
   await sendBranchSignals(flowId, "C");
   const completions = await waitForCompletedFlow(flowId);
@@ -327,19 +403,36 @@ test("WCP-31 Blocking Partial Join holds second-round signals until the join res
   ]);
 });
 
-test("WCP-29 Cancelling Discriminator cancels the other carriers after the first bid", async () => {
+test("WCP-29 Cancelling Discriminator stops the other carriers from running", async () => {
   const flowId = await startPatternFlow(cancellingPartialJoinFlow, "cancelling-discriminator", 1);
   await environment.client.invokeRPC(cancellingPartialJoinFlow.releaseCarrierBid, flowId, "B");
-  assert.deepEqual(await waitForCompletedFlow(flowId), [{ stepType: "AcceptBids", output: ["B"] }]);
+  await waitForStep(flowId, "AcceptBids");
+  await environment.client.invokeRPC(cancellingPartialJoinFlow.releaseCarrierBid, flowId, "A");
+  await environment.client.invokeRPC(cancellingPartialJoinFlow.releaseCarrierBid, flowId, "C");
+  assert.equal(
+    await environment.client.invokeRPC(cancellingPartialJoinFlow.getQueuedCarrierReleaseCount, flowId),
+    2,
+  );
+  await environment.client.invokeRPC(cancellingPartialJoinFlow.confirmCarrierBooking, flowId);
+  assert.deepEqual(await waitForCompletedFlow(flowId), [
+    { stepType: "ConfirmCarrierBooking", output: ["B"] },
+  ]);
 });
 
-test("WCP-32 Cancelling Partial Join cancels the last carrier after two bids", async () => {
+test("WCP-32 Cancelling Partial Join stops the last carrier from running", async () => {
   const flowId = await startPatternFlow(cancellingPartialJoinFlow, "cancelling-partial-join", 2);
   await environment.client.invokeRPC(cancellingPartialJoinFlow.releaseCarrierBid, flowId, "A");
   await waitForStep(flowId, "BidFromCarrierA");
   await environment.client.invokeRPC(cancellingPartialJoinFlow.releaseCarrierBid, flowId, "C");
+  await waitForStep(flowId, "AcceptBids");
+  await environment.client.invokeRPC(cancellingPartialJoinFlow.releaseCarrierBid, flowId, "B");
+  assert.equal(
+    await environment.client.invokeRPC(cancellingPartialJoinFlow.getQueuedCarrierReleaseCount, flowId),
+    1,
+  );
+  await environment.client.invokeRPC(cancellingPartialJoinFlow.confirmCarrierBooking, flowId);
   assert.deepEqual(await waitForCompletedFlow(flowId), [
-    { stepType: "AcceptBids", output: ["A", "C"] },
+    { stepType: "ConfirmCarrierBooking", output: ["A", "C"] },
   ]);
 });
 
@@ -386,107 +479,138 @@ test("WCP-12 Multiple Instances without Synchronization continue without waiting
   assert.deepEqual(outputsOf(completions, "ConfirmRegistration"), ["ConfirmRegistration"]);
 });
 
-test("WCP-13 Multiple Instances with Design-Time Knowledge synchronize three reviews", async () => {
+test("WCP-13 Multiple Instances with Design-Time Knowledge run three reviews at once", async () => {
   const flowId = await startPatternFlow(designTimeMultipleInstancesFlow, "instances-design", undefined);
+  await awaitRpcValue(
+    () => environment.client.invokeRPC(designTimeMultipleInstancesFlow.getStartedDesignTimeReviewCount, flowId),
+    3,
+  );
+  await assertRunning(flowId);
+  await environment.client.invokeRPC(designTimeMultipleInstancesFlow.openDesignTimeReviewGate, flowId, 3);
   assert.deepEqual(await waitForCompletedFlow(flowId), [
     { stepType: "CollectReviews", output: ["finance", "legal", "security"] },
   ]);
 });
 
-test("WCP-14 Multiple Instances with Run-Time Knowledge synchronize every reviewer", async () => {
+test("WCP-14 Multiple Instances with Run-Time Knowledge run every review at once", async () => {
   const flowId = await startPatternFlow(runTimeMultipleInstancesFlow, "instances-runtime", [
     "dee",
     "ana",
     "cy",
     "ben",
   ]);
+  await awaitRpcValue(
+    () => environment.client.invokeRPC(runTimeMultipleInstancesFlow.getStartedRunTimeReviewCount, flowId),
+    4,
+  );
+  await assertRunning(flowId);
+  await environment.client.invokeRPC(runTimeMultipleInstancesFlow.openRunTimeReviewGate, flowId, 4);
   assert.deepEqual(await waitForCompletedFlow(flowId), [
     { stepType: "CollectReviews", output: ["ana", "ben", "cy", "dee"] },
   ]);
 });
 
-test("WCP-15 Multiple Instances without a priori Run-Time Knowledge accept instances until intake closes", async () => {
-  const flowId = await startPatternFlow(noPriorKnowledgeMultipleInstancesFlow, "instances-open", []);
-  for (const sampleId of ["s1", "s2", "s3"]) {
-    assert.equal(
-      await environment.client.invokeRPC(noPriorKnowledgeMultipleInstancesFlow.addSample, flowId, sampleId),
-      true,
-    );
-  }
-  await environment.client.invokeRPC(noPriorKnowledgeMultipleInstancesFlow.closeSampleIntake, flowId);
+test("WCP-15 Multiple Instances without a priori Run-Time Knowledge add instances while others run", async () => {
+  const flow = noPriorKnowledgeMultipleInstancesFlow;
+  const flowId = await startPatternFlow(flow, "instances-open", []);
+  assert.equal(await environment.client.invokeRPC(flow.addSample, flowId, "s1"), true);
+  assert.equal(await environment.client.invokeRPC(flow.addSample, flowId, "s2"), true);
+  await awaitRpcValue(() => environment.client.invokeRPC(flow.getStartedAnalysisCount, flowId), 2);
+  assert.equal(await environment.client.invokeRPC(flow.addSample, flowId, "s3"), true);
+  await awaitRpcValue(() => environment.client.invokeRPC(flow.getStartedAnalysisCount, flowId), 3);
+  await environment.client.invokeRPC(flow.closeSampleIntake, flowId);
+  assert.equal(await environment.client.invokeRPC(flow.addSample, flowId, "s4"), false);
+  await assertRunning(flowId);
+  await environment.client.invokeRPC(flow.openSampleGate, flowId, 3);
   assert.deepEqual(await waitForCompletedFlow(flowId), [
     { stepType: "ReportSamples", output: ["s1", "s2", "s3"] },
   ]);
 });
 
-test("WCP-34 Static Partial Join for Multiple Instances fires after two of three inspections", async () => {
-  const flowId = await startPatternFlow(staticPartialJoinForMultipleInstancesFlow, "instances-static-join", {
+test("WCP-34 Static Partial Join for Multiple Instances fires after two of three inspections each round", async () => {
+  const flow = staticPartialJoinForMultipleInstancesFlow;
+  const flowId = await startPatternFlow(flow, "instances-static-join", {
+    inspectionCount: 3,
+    requiredInspections: 2,
+    round: 1,
+    roundCount: 2,
+  });
+  await environment.client.invokeRPC(flow.releaseInspections, flowId, 2);
+  await waitForStep(flowId, "ApproveBatch");
+  await assertRunning(flowId);
+  await environment.client.invokeRPC(flow.releaseInspections, flowId, 1);
+  await waitForStep(flowId, "StartInspections", 2);
+  await environment.client.invokeRPC(flow.releaseInspections, flowId, 2);
+  await waitForStep(flowId, "ApproveBatch", 2);
+  await environment.client.invokeRPC(flow.releaseInspections, flowId, 1);
+  const completions = await waitForCompletedFlow(flowId);
+  const approved = outputsOf(completions, "ApproveBatch") as { round: number; unitIndexes: number[] }[];
+  assert.deepEqual(approved.map((batch) => batch.round), [1, 2]);
+  for (const batch of approved) {
+    assert.equal(new Set(batch.unitIndexes).size, 2);
+  }
+  const reset = outputsOf(completions, "ResetInspectionJoin") as { round: number; unitIndexes: number[] }[];
+  assert.equal(reset.length, 1);
+  assert.equal(reset[0]!.round, 2);
+  assert.deepEqual([...approved[1]!.unitIndexes, ...reset[0]!.unitIndexes].sort(), [0, 1, 2]);
+});
+
+test("WCP-35 Cancelling Partial Join for Multiple Instances stops the last inspection from running", async () => {
+  const flow = cancellingPartialJoinForMultipleInstancesFlow;
+  const flowId = await startPatternFlow(flow, "instances-cancelling-join", {
     inspectionCount: 3,
     requiredInspections: 2,
   });
-  await environment.client.invokeRPC(
-    staticPartialJoinForMultipleInstancesFlow.releaseInspections,
-    flowId,
-    2,
-  );
-  await waitForStep(flowId, "ApproveBatch");
-  await assertRunning(flowId);
-  await environment.client.invokeRPC(
-    staticPartialJoinForMultipleInstancesFlow.releaseInspections,
-    flowId,
-    1,
-  );
+  await environment.client.invokeRPC(flow.releaseQuorumInspections, flowId, 2);
+  await waitForStep(flowId, "AcceptQuorumInspections");
+  await environment.client.invokeRPC(flow.releaseQuorumInspections, flowId, 1);
+  assert.equal(await environment.client.invokeRPC(flow.getQueuedQuorumReleaseCount, flowId), 1);
+  await environment.client.invokeRPC(flow.certifyQuorum, flowId);
   const completions = await waitForCompletedFlow(flowId);
-  const approved = outputsOf(completions, "ApproveBatch")[0] as number[];
-  const reset = outputsOf(completions, "ResetInspectionJoin")[0] as number[];
-  assert.equal(approved.length, 2);
-  assert.equal(reset.length, 1);
-  assert.deepEqual([...approved, ...reset].sort(), [0, 1, 2]);
+  assert.deepEqual(stepTypesOf(completions), ["CertifyQuorum"]);
+  assert.equal(new Set(outputsOf(completions, "CertifyQuorum")[0] as number[]).size, 2);
 });
 
-test("WCP-35 Cancelling Partial Join for Multiple Instances cancels the last inspection", async () => {
-  const flowId = await startPatternFlow(
-    cancellingPartialJoinForMultipleInstancesFlow,
-    "instances-cancelling-join",
-    { inspectionCount: 3, requiredInspections: 2 },
-  );
-  await environment.client.invokeRPC(
-    cancellingPartialJoinForMultipleInstancesFlow.releaseQuorumInspections,
-    flowId,
-    2,
-  );
-  const completions = await waitForCompletedFlow(flowId);
-  assert.deepEqual(stepTypesOf(completions), ["AcceptQuorumInspections"]);
-  assert.equal(new Set(outputsOf(completions, "AcceptQuorumInspections")[0] as number[]).size, 2);
-});
-
-test("WCP-36 Dynamic Partial Join for Multiple Instances completes once two bids are accepted", async () => {
-  const flowId = await startPatternFlow(dynamicPartialJoinForMultipleInstancesFlow, "instances-dynamic-join", {
+test("WCP-36 Dynamic Partial Join for Multiple Instances closes admission once two bids are accepted", async () => {
+  const flow = dynamicPartialJoinForMultipleInstancesFlow;
+  const flowId = await startPatternFlow(flow, "instances-dynamic-join", {
     requiredAcceptedBids: 2,
     acceptedBids: [],
   });
-  for (const amount of [500, 1500, 700]) {
-    const isAdmitted = await retryOnLockConflict(() =>
-      environment.client.invokeRPC(dynamicPartialJoinForMultipleInstancesFlow.addBid, flowId, amount),
-    );
-    assert.equal(isAdmitted, true);
-  }
+  const addBid = (amount: number) =>
+    retryOnLockConflict(() => environment.client.invokeRPC(flow.addBid, flowId, amount));
+  assert.equal(await addBid(500), true);
+  assert.equal(await addBid(1500), true);
+  await awaitRpcValue(() => environment.client.invokeRPC(flow.getStartedEvaluationCount, flowId), 2);
+  assert.equal(await addBid(700), true);
+  await awaitRpcValue(() => environment.client.invokeRPC(flow.getStartedEvaluationCount, flowId), 3);
+  await environment.client.invokeRPC(flow.openBidGate, flowId, 3);
+  await waitForAttributeValue(flowId, isBidAdmissionClosed, true);
+  assert.equal(await addBid(400), false);
+  await environment.client.invokeRPC(flow.signContract, flowId);
   assert.deepEqual(await waitForCompletedFlow(flowId), [
     { stepType: "AwardContract", output: [500, 700] },
   ]);
 });
 
-test("WCP-16 Deferred Choice runs only the branch of the first response", async () => {
-  const declinedFlowId = await startPatternFlow(deferredChoiceFlow, "deferred-decline", undefined);
-  await environment.client.invokeRPC(deferredChoiceFlow.declineOffer, declinedFlowId);
-  assert.deepEqual(await waitForCompletedFlow(declinedFlowId), [
+test("WCP-16 Deferred Choice runs the branch of the response that arrives", async () => {
+  const flowId = await startPatternFlow(deferredChoiceFlow, "deferred-decline", undefined);
+  await environment.client.invokeRPC(deferredChoiceFlow.presentOffer, flowId);
+  await waitForStep(flowId, "PresentOffer");
+  await environment.client.invokeRPC(deferredChoiceFlow.declineOffer, flowId);
+  assert.deepEqual(await waitForCompletedFlow(flowId), [
     { stepType: "ArchiveOffer", output: "ArchiveOffer" },
   ]);
-  const acceptedFlowId = await startPatternFlow(deferredChoiceFlow, "deferred-accept", undefined);
-  await environment.client.invokeRPC(deferredChoiceFlow.acceptOffer, acceptedFlowId);
-  assert.deepEqual(await waitForCompletedFlow(acceptedFlowId), [
-    { stepType: "FulfillOffer", output: "FulfillOffer" },
-  ]);
+});
+
+test("WCP-16 Deferred Choice runs exactly one branch when responses compete", async () => {
+  const flowId = await startPatternFlow(deferredChoiceFlow, "deferred-competing", undefined);
+  await environment.client.invokeRPC(deferredChoiceFlow.acceptOffer, flowId);
+  await environment.client.invokeRPC(deferredChoiceFlow.declineOffer, flowId);
+  await environment.client.invokeRPC(deferredChoiceFlow.presentOffer, flowId);
+  const completions = await waitForCompletedFlow(flowId);
+  assert.equal(completions.length, 1);
+  assert.ok(["FulfillOffer", "ArchiveOffer"].includes(completions[0]!.stepType));
 });
 
 test("WCP-17 Interleaved Parallel Routing never overlaps tasks and keeps their order", async () => {
@@ -550,12 +674,21 @@ test("WCP-19 Cancel Task withdraws the waiting pickup", async () => {
   ]);
 });
 
-test("WCP-20 Cancel Case closes the Flow as canceled", async () => {
+test("WCP-20 Cancel Case stops the running child Flow and the parent's other Steps", async () => {
   const flowId = await startPatternFlow(cancelCaseFlow, "cancel-case", undefined);
-  await environment.client.stopFlow(flowId, { type: StopType.CANCEL, reason: "applicant withdrew" });
+  await waitForStep(flowId, "StartApplication");
+  await environment.client.invokeRPC(cancelCaseFlow.cancelCase, flowId, "applicant withdrew");
   const result = await environment.client.waitForFlow(flowId, WAIT_TIMEOUT_MS);
-  assert.equal(result.status, "cancelled");
-  assert.deepEqual(result.completions, []);
+  assert.equal(result.status, "failed");
+  assert.ok(!result.completions.some((completion) => completion.stepType === "ReviewApplication"));
+  const [childFlowIds] = await environment.client.getAttributes(flowId, stoppedChildFlowIds);
+  assert.equal(childFlowIds?.length, 1);
+  await awaitCondition(
+    async () => (await environment.client.describeFlow(childFlowIds![0]!)).status,
+    (status) => status === "cancelled",
+    WAIT_TIMEOUT_MS,
+    "the child Flow was never stopped",
+  );
 });
 
 test("WCP-25 Cancel Region withdraws two checks and keeps the third", async () => {
@@ -598,8 +731,11 @@ test("WCP-27 Complete Multiple Instance Activity withdraws the rest and continue
   assert.equal((outputsOf(completions, "PublishReviewResults")[0] as number[]).length, 1);
 });
 
-test("WCP-10 Arbitrary Cycles enter the cycle at either Step", async () => {
-  const newFlowId = await startPatternFlow(arbitraryCyclesFlow, "cycles-new", { hasDraft: false });
+test("WCP-10 Arbitrary Cycles enter at either Step and leave at either exit", async () => {
+  const newFlowId = await startPatternFlow(arbitraryCyclesFlow, "cycles-new", {
+    hasDraft: false,
+    shouldAbandon: false,
+  });
   assert.deepEqual(await waitForCompletedFlow(newFlowId), [
     {
       stepType: "PublishArticle",
@@ -613,11 +749,24 @@ test("WCP-10 Arbitrary Cycles enter the cycle at either Step", async () => {
       ],
     },
   ]);
-  const draftFlowId = await startPatternFlow(arbitraryCyclesFlow, "cycles-draft", { hasDraft: true });
+  const draftFlowId = await startPatternFlow(arbitraryCyclesFlow, "cycles-draft", {
+    hasDraft: true,
+    shouldAbandon: false,
+  });
   assert.deepEqual(await waitForCompletedFlow(draftFlowId), [
     {
       stepType: "PublishArticle",
       output: ["RouteSubmission", "EditArticle", "DraftArticle", "EditArticle", "PublishArticle"],
+    },
+  ]);
+  const abandonFlowId = await startPatternFlow(arbitraryCyclesFlow, "cycles-abandon", {
+    hasDraft: false,
+    shouldAbandon: true,
+  });
+  assert.deepEqual(await waitForCompletedFlow(abandonFlowId), [
+    {
+      stepType: "AbandonArticle",
+      output: ["RouteSubmission", "DraftArticle", "EditArticle", "DraftArticle", "AbandonArticle"],
     },
   ]);
 });
@@ -625,14 +774,16 @@ test("WCP-10 Arbitrary Cycles enter the cycle at either Step", async () => {
 test("WCP-21 Structured Loop tests its condition before each pass", async () => {
   const threeFlowId = await startPatternFlow(structuredLoopFlow, "loop-three", {
     remainingBatches: 3,
-    processedBatches: 0,
+    processedBatches: [],
   });
-  assert.deepEqual(await waitForCompletedFlow(threeFlowId), [{ stepType: "FinishBatches", output: 3 }]);
+  assert.deepEqual(await waitForCompletedFlow(threeFlowId), [
+    { stepType: "FinishBatches", output: ["batch-3", "batch-2", "batch-1"] },
+  ]);
   const zeroFlowId = await startPatternFlow(structuredLoopFlow, "loop-zero", {
     remainingBatches: 0,
-    processedBatches: 0,
+    processedBatches: [],
   });
-  assert.deepEqual(await waitForCompletedFlow(zeroFlowId), [{ stepType: "FinishBatches", output: 0 }]);
+  assert.deepEqual(await waitForCompletedFlow(zeroFlowId), [{ stepType: "FinishBatches", output: [] }]);
 });
 
 test("WCP-22 Recursion computes a factorial through SubFlows of the same Flow type", async () => {
@@ -662,13 +813,17 @@ test("WCP-43 Explicit Termination completes at once and withdraws waiting Steps"
   ]);
 });
 
-test("WCP-23 Transient Trigger drops a motion event that no Step waits for", async () => {
+test("WCP-23 Transient Trigger accepts one event only while a Step waits", async () => {
   const flowId = await startPatternFlow(transientTriggerFlow, "transient-trigger", undefined);
-  assert.equal(await environment.client.invokeRPC(transientTriggerFlow.sendMotionEvent, flowId, 1), false);
+  const sendMotionEvent = (value: number) =>
+    retryOnLockConflict(() => environment.client.invokeRPC(transientTriggerFlow.sendMotionEvent, flowId, value));
+  assert.equal(await sendMotionEvent(1), false);
   await environment.client.invokeRPC(transientTriggerFlow.armMotionSensor, flowId);
   await waitForAttributeValue(flowId, isAwaitingMotionEvent, true);
-  assert.equal(await environment.client.invokeRPC(transientTriggerFlow.sendMotionEvent, flowId, 2), true);
-  assert.deepEqual(await waitForCompletedFlow(flowId), [{ stepType: "AwaitMotionEvent", output: 2 }]);
+  assert.equal(await sendMotionEvent(2), true);
+  assert.equal(await sendMotionEvent(3), false);
+  await environment.client.invokeRPC(transientTriggerFlow.stopMotionMonitoring, flowId);
+  assert.deepEqual(await waitForCompletedFlow(flowId), [{ stepType: "AwaitMonitoringStop", output: 2 }]);
 });
 
 test("WCP-24 Persistent Trigger keeps a label sent before the Step waits", async () => {

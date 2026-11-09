@@ -16,9 +16,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
-from dex import Flow
+from dex import AsyncClient, Flow
 
 from dex_examples.patterns.workflow_patterns.and_join_and_threads import (
     GeneralizedAndJoinFlow,
@@ -30,6 +30,7 @@ from dex_examples.patterns.workflow_patterns.basic_control_flow import (
     SequenceFlow,
 )
 from dex_examples.patterns.workflow_patterns.cancellation import (
+    BackgroundCheckFlow,
     CancelCaseFlow,
     CancelMultipleInstanceTaskFlow,
     CancelRegionFlow,
@@ -45,7 +46,6 @@ from dex_examples.patterns.workflow_patterns.multi_choice_and_merges import (
     GeneralSynchronizingMergeFlow,
     MultiChoiceSynchronizingMergeFlow,
     MultiMergeFlow,
-    ReviewRegionFlow,
 )
 from dex_examples.patterns.workflow_patterns.multiple_instances import (
     CancellingPartialJoinForMultipleInstancesFlow,
@@ -81,16 +81,13 @@ from dex_examples.patterns.workflow_patterns.triggers import (
 class WorkflowPatternFlows:
     """Holds one registered instance of each Workflow Patterns Flow."""
 
-    def __init__(self) -> None:
+    def __init__(self, client_provider: Callable[[], AsyncClient]) -> None:
         self.sequence = SequenceFlow()
         self.parallel_split_synchronization = ParallelSplitSynchronizationFlow()
         self.exclusive_choice_simple_merge = ExclusiveChoiceSimpleMergeFlow()
         self.multi_choice_synchronizing_merge = MultiChoiceSynchronizingMergeFlow()
         self.multi_merge = MultiMergeFlow()
-        self.review_region = ReviewRegionFlow()
-        self.general_synchronizing_merge = GeneralSynchronizingMergeFlow(
-            self.review_region
-        )
+        self.general_synchronizing_merge = GeneralSynchronizingMergeFlow()
         self.structured_partial_join = StructuredPartialJoinFlow()
         self.blocking_partial_join = BlockingPartialJoinFlow()
         self.cancelling_partial_join = CancellingPartialJoinFlow()
@@ -119,7 +116,8 @@ class WorkflowPatternFlows:
         self.critical_section = CriticalSectionFlow()
         self.interleaved_routing = InterleavedRoutingFlow()
         self.cancel_task = CancelTaskFlow()
-        self.cancel_case = CancelCaseFlow()
+        self.background_check = BackgroundCheckFlow()
+        self.cancel_case = CancelCaseFlow(self.background_check, client_provider)
         self.cancel_region = CancelRegionFlow()
         self.cancel_multiple_instance_task = CancelMultipleInstanceTaskFlow()
         self.complete_multiple_instance_task = CompleteMultipleInstanceTaskFlow()
@@ -139,7 +137,6 @@ class WorkflowPatternFlows:
             self.exclusive_choice_simple_merge,
             self.multi_choice_synchronizing_merge,
             self.multi_merge,
-            self.review_region,
             self.general_synchronizing_merge,
             self.structured_partial_join,
             self.blocking_partial_join,
@@ -159,6 +156,7 @@ class WorkflowPatternFlows:
             self.critical_section,
             self.interleaved_routing,
             self.cancel_task,
+            self.background_check,
             self.cancel_case,
             self.cancel_region,
             self.cancel_multiple_instance_task,

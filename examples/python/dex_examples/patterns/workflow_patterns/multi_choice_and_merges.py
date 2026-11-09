@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from dex import (
+    Attribute,
     Channel,
     Context,
     Flow,
@@ -28,7 +29,7 @@ from dex import (
     StepDecision,
     StepList,
     StepMovement,
-    SubFlow,
+    StepOptions,
     Wait,
     dead_end,
     go_to,
@@ -151,74 +152,126 @@ class MultiMergeFlow(Flow[None]):
         return PersistenceSchema.of()
 
 
-# WCP-38 General Synchronizing Merge: the region runs as a SubFlow that completes
-# once none of its Steps can run.
+# WCP-38: an Attribute counts the threads that can still reach PublishDocument.
+
+# The commit that brings the count to 0 publishes the sentinel the merge waits for.
 
 
-class DraftProposal(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
+@dataclass(frozen=True)
+class DocumentReviewPlan:
+    is_legal_check_needed: bool
+    is_finance_check_needed: bool
+    finance_rework_rounds: int
+    is_finance_archived: bool
+
+
+@dataclass(frozen=True)
+class DocumentDraft:
+    plan: DocumentReviewPlan
+    revision: int
+
+
+LIVE_BRANCH_COUNT = Attribute("liveBranchCount", int)
+MERGED_REVIEWS = Attribute("mergedReviews", list[str])
+MERGE_SENTINEL = Channel("mergeSentinel", str)
+LIVE_BRANCH_COUNT_LOCK = StepOptions(execute_lock_attributes=(LIVE_BRANCH_COUNT.lock(),))
+
+
+# Call only from a Step that holds the liveBranchCount lock.
+def change_live_branch_count(context: Context, delta: int) -> None:
+    count = LIVE_BRANCH_COUNT.get(context) + delta
+    LIVE_BRANCH_COUNT.set(context, count)
+    if count == 0:
+        MERGE_SENTINEL.publish(context, "done")
+
+
+def record_arrival(context: Context, review: str) -> None:
+    MERGED_REVIEWS.set(context, [*(MERGED_REVIEWS.get(context) or []), review])
+    change_live_branch_count(context, -1)
+
+
+class StartDocumentReview(Step[DocumentReviewPlan]):
+    def get_step_options(self) -> StepOptions:
+        return LIVE_BRANCH_COUNT_LOCK
+
+    def execute(self, context: Context, input: DocumentReviewPlan) -> StepDecision:
+        LIVE_BRANCH_COUNT.set(context, 1)
         return go_to_many(
-            StepMovement.of(ReviewProposal, input),
-            StepMovement.of(TranslateProposal, input),
+            StepMovement.of(DraftDocument, DocumentDraft(input, 0)),
+            StepMovement.of(PublishDocument, None),
         )
 
 
-class ReviewProposal(Step[int]):
+class DraftDocument(Step[DocumentDraft]):
+    def get_step_options(self) -> StepOptions:
+        return LIVE_BRANCH_COUNT_LOCK
+
+    def execute(self, context: Context, input: DocumentDraft) -> StepDecision:
+        is_rework = input.revision > 0
+        movements: list[StepMovement[Any]] = []
+        if is_rework or input.plan.is_legal_check_needed:
+            movements.append(StepMovement.of(CheckLegalTerms, input.revision))
+        if is_rework or input.plan.is_finance_check_needed:
+            movements.append(StepMovement.of(CheckFinanceTerms, input))
+        change_live_branch_count(context, len(movements) - 1)
+        if not movements:
+            return dead_end()
+        return go_to_many(*movements)
+
+
+class CheckLegalTerms(Step[int]):
+    def get_step_options(self) -> StepOptions:
+        return LIVE_BRANCH_COUNT_LOCK
+
     def execute(self, context: Context, input: int) -> StepDecision:
-        if input < 1:
-            return go_to(DraftProposal, input + 1)
-        return graceful_complete(f"ReviewProposal-{input}")
+        record_arrival(context, f"CheckLegalTerms-{input}")
+        return dead_end()
 
 
-class TranslateProposal(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(f"TranslateProposal-{input}")
+class CheckFinanceTerms(Step[DocumentDraft]):
+    def get_step_options(self) -> StepOptions:
+        return LIVE_BRANCH_COUNT_LOCK
+
+    def execute(self, context: Context, input: DocumentDraft) -> StepDecision:
+        if input.revision < input.plan.finance_rework_rounds:
+            return go_to(DraftDocument, DocumentDraft(input.plan, input.revision + 1))
+        if input.plan.is_finance_archived:
+            change_live_branch_count(context, -1)
+            return go_to(ArchiveDocument, None)
+        record_arrival(context, f"CheckFinanceTerms-{input.revision}")
+        return dead_end()
 
 
-class ReviewRegionFlow(Flow[int]):
-    def __init__(self) -> None:
-        self.draft_proposal = DraftProposal()
-        self.review_proposal = ReviewProposal()
-        self.translate_proposal = TranslateProposal()
-
-    def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.draft_proposal).other_steps(
-            self.review_proposal, self.translate_proposal
-        )
-
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of()
+class ArchiveDocument(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete("ArchiveDocument")
 
 
-class RunReviewRegion(Step[None]):
-    def __init__(self, review_region_flow: ReviewRegionFlow) -> None:
-        self.review_region_flow = review_region_flow
-
+class PublishDocument(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:
-        return Wait.until(SubFlow.run(self.review_region_flow, 0))
+        return Wait.until(MERGE_SENTINEL.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        region_result = SubFlow.get_condition_results(context)
-        region_outputs = [
-            completion.decode(str) for completion in region_result.completions
-        ]
-        return go_to(PublishDecision, sorted(region_outputs))
+        return graceful_complete(sorted(MERGED_REVIEWS.get(context) or []))
 
 
-class PublishDecision(Step[list[str]]):
-    def execute(self, context: Context, input: list[str]) -> StepDecision:
-        return graceful_complete(input)
+class GeneralSynchronizingMergeFlow(Flow[DocumentReviewPlan]):
+    def __init__(self) -> None:
+        self.start_document_review = StartDocumentReview()
+        self.draft_document = DraftDocument()
+        self.check_legal_terms = CheckLegalTerms()
+        self.check_finance_terms = CheckFinanceTerms()
+        self.archive_document = ArchiveDocument()
+        self.publish_document = PublishDocument()
 
-
-class GeneralSynchronizingMergeFlow(Flow[None]):
-    def __init__(self, review_region_flow: ReviewRegionFlow) -> None:
-        self.run_review_region = RunReviewRegion(review_region_flow)
-        self.publish_decision = PublishDecision()
-
-    def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.run_review_region).other_steps(
-            self.publish_decision
+    def get_steps(self) -> StepList[DocumentReviewPlan]:
+        return StepList.start_step(self.start_document_review).other_steps(
+            self.draft_document,
+            self.check_legal_terms,
+            self.check_finance_terms,
+            self.archive_document,
+            self.publish_document,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of()
+        return PersistenceSchema.of(LIVE_BRANCH_COUNT, MERGED_REVIEWS, MERGE_SENTINEL)

@@ -21,6 +21,7 @@ import { join } from "node:path";
 
 import { Client, Registry, openBlobCache, type Flow } from "@superdurable/dex";
 
+import { setClient } from "../../src/client-holder.js";
 import { HOUR_MS } from "../../src/config/env.js";
 import {
   startExampleWorker,
@@ -111,6 +112,8 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   const client = new Client(registry, blobCache, {
     serverAddress,
   });
+  // Steps that stop child Flows read the Client from the holder.
+  setClient(client);
   return {
     client,
     failureRecoveryFlow,

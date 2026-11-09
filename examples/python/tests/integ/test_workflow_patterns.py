@@ -41,21 +41,30 @@ from dex_examples.patterns.workflow_patterns.and_join_and_threads import (
 )
 from dex_examples.patterns.workflow_patterns.cancellation import (
     FINISHED_TRANSLATION_COUNT,
+    STOPPED_CHILD_FLOW_IDS,
 )
 from dex_examples.patterns.workflow_patterns.iteration import (
     ArticleSubmission,
     BatchProgress,
 )
 from dex_examples.patterns.workflow_patterns.multi_choice_and_merges import (
+    DocumentReviewPlan,
     NotificationChoice,
 )
 from dex_examples.patterns.workflow_patterns.multiple_instances import (
+    IS_BID_ADMISSION_CLOSED,
     BidJoin,
+    InspectedUnits,
+    InspectionRound,
     PartialInspection,
 )
 from dex_examples.patterns.workflow_patterns.partial_joins import (
+    AcceptedQuotes,
     BlockingJoinRound,
+    IgnoredQuotes,
     ProcessedRound,
+    QuoteRound,
+    StructuredPartialJoinFlow,
 )
 from dex_examples.patterns.workflow_patterns.state_based import (
     IS_CHANGE_WINDOW_OPEN,
@@ -65,7 +74,12 @@ from dex_examples.patterns.workflow_patterns.triggers import IS_AWAITING_MOTION_
 from dex_examples.patterns.workflow_patterns.workflow_pattern_flows import (
     WorkflowPatternFlows,
 )
-from tests.integ.conftest import WAIT_TIMEOUT, flow_status_or_none, wait_until
+from tests.integ.conftest import (
+    WAIT_TIMEOUT,
+    flow_status_or_none,
+    wait_for_flow_status,
+    wait_until,
+)
 
 pytestmark = pytest.mark.integ
 
@@ -132,6 +146,13 @@ async def wait_for_attribute_value(
         return bool(values.get(attribute) == expected)
 
     await wait_until(f"{attribute.name} to become {expected}", has_expected_value)
+
+
+async def await_rpc_value(load: Callable[[], Awaitable[object]], expected: object) -> None:
+    async def has_expected_value() -> bool:
+        return bool(await load() == expected)
+
+    await wait_until(f"an RPC value of {expected}", has_expected_value)
 
 
 async def retry_on_lock_conflict(invoke: Callable[[], Awaitable[OutputT]]) -> OutputT:
@@ -241,53 +262,120 @@ async def test_wcp8_multi_merge_runs_the_merged_step_once_per_arrival(
     ]
 
 
-async def test_wcp38_general_synchronizing_merge_waits_for_the_subflow_region(
+async def test_wcp38_general_synchronizing_merge_waits_for_rework(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = await start_pattern_flow(
-        client, new_flow_id, patterns.general_synchronizing_merge, "general-merge", None
+        client,
+        new_flow_id,
+        patterns.general_synchronizing_merge,
+        "general-merge-rework",
+        DocumentReviewPlan(True, True, 1, False),
     )
     result = await wait_for_completed_flow(client, flow_id)
-    assert step_types_of(result) == ["PublishDecision"]
-    assert outputs_of(result, "PublishDecision", list[str]) == [
-        ["ReviewProposal-1", "TranslateProposal-0", "TranslateProposal-1"]
+    assert step_types_of(result) == ["PublishDocument"]
+    assert outputs_of(result, "PublishDocument", list[str]) == [
+        ["CheckFinanceTerms-1", "CheckLegalTerms-0", "CheckLegalTerms-1"]
     ]
 
 
-async def test_wcp9_structured_discriminator_fires_on_the_first_quote(
+async def test_wcp38_general_synchronizing_merge_ignores_an_archived_branch(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow = patterns.structured_partial_join
-    flow_id = await start_pattern_flow(client, new_flow_id, flow, "discriminator", 1)
-    await client.invoke_rpc(flow.release_supplier_quote, flow_id, "A")
-    await wait_for_step(client, flow_id, "PlaceOrder")
-    await client.invoke_rpc(flow.release_supplier_quote, flow_id, "B")
-    await client.invoke_rpc(flow.release_supplier_quote, flow_id, "C")
+    flow_id = await start_pattern_flow(
+        client,
+        new_flow_id,
+        patterns.general_synchronizing_merge,
+        "general-merge-archive",
+        DocumentReviewPlan(True, True, 0, True),
+    )
     result = await wait_for_completed_flow(client, flow_id)
-    assert outputs_of(result, "PlaceOrder", list[str]) == [["A"]]
-    assert outputs_of(result, "ResetQuoteJoin", list[str]) == [["B", "C"]]
+    assert step_types_of(result) == ["ArchiveDocument", "PublishDocument"]
+    assert outputs_of(result, "PublishDocument", list[str]) == [["CheckLegalTerms-0"]]
 
 
-async def test_wcp30_structured_partial_join_fires_after_two_quotes(
+async def test_wcp38_general_synchronizing_merge_fires_once_after_the_last_thread(
+    patterns: WorkflowPatternFlows,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = await start_pattern_flow(
+        client,
+        new_flow_id,
+        patterns.general_synchronizing_merge,
+        "general-merge-once",
+        DocumentReviewPlan(False, True, 2, False),
+    )
+    result = await wait_for_completed_flow(client, flow_id)
+    assert step_types_of(result) == ["PublishDocument"]
+    assert outputs_of(result, "PublishDocument", list[str]) == [
+        ["CheckFinanceTerms-2", "CheckLegalTerms-1", "CheckLegalTerms-2"]
+    ]
+
+async def test_wcp9_structured_discriminator_resets_for_a_second_round(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow = patterns.structured_partial_join
-    flow_id = await start_pattern_flow(client, new_flow_id, flow, "partial-join", 2)
-    await client.invoke_rpc(flow.release_supplier_quote, flow_id, "A")
+    flow_id = await start_pattern_flow(
+        client, new_flow_id, flow, "discriminator", QuoteRound(1, 1, 2)
+    )
+    await release_supplier_quotes(client, flow, flow_id, "A")
+    await wait_for_step(client, flow_id, "PlaceOrder")
+    await release_supplier_quotes(client, flow, flow_id, "B", "C")
+    await wait_for_step(client, flow_id, "RequestQuotes", 2)
+    await release_supplier_quotes(client, flow, flow_id, "B")
+    await wait_for_step(client, flow_id, "PlaceOrder", 2)
+    await release_supplier_quotes(client, flow, flow_id, "A", "C")
+    result = await wait_for_completed_flow(client, flow_id)
+    assert outputs_of(result, "PlaceOrder", AcceptedQuotes) == [
+        AcceptedQuotes(1, ["A"]),
+        AcceptedQuotes(2, ["B"]),
+    ]
+    assert outputs_of(result, "ResetQuoteJoin", IgnoredQuotes) == [
+        IgnoredQuotes(2, ["A", "C"])
+    ]
+
+async def test_wcp30_structured_partial_join_fires_after_two_quotes_each_round(
+    patterns: WorkflowPatternFlows,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow = patterns.structured_partial_join
+    flow_id = await start_pattern_flow(
+        client, new_flow_id, flow, "partial-join", QuoteRound(2, 1, 2)
+    )
+    await release_supplier_quotes(client, flow, flow_id, "A")
     await wait_for_step(client, flow_id, "QuoteFromSupplierA")
-    await client.invoke_rpc(flow.release_supplier_quote, flow_id, "B")
+    await release_supplier_quotes(client, flow, flow_id, "B")
     await wait_for_step(client, flow_id, "PlaceOrder")
-    await client.invoke_rpc(flow.release_supplier_quote, flow_id, "C")
+    await release_supplier_quotes(client, flow, flow_id, "C")
+    await wait_for_step(client, flow_id, "RequestQuotes", 2)
+    await release_supplier_quotes(client, flow, flow_id, "C")
+    await wait_for_step(client, flow_id, "QuoteFromSupplierC", 2)
+    await release_supplier_quotes(client, flow, flow_id, "A")
+    await wait_for_step(client, flow_id, "PlaceOrder", 2)
+    await release_supplier_quotes(client, flow, flow_id, "B")
     result = await wait_for_completed_flow(client, flow_id)
-    assert outputs_of(result, "PlaceOrder", list[str]) == [["A", "B"]]
-    assert outputs_of(result, "ResetQuoteJoin", list[str]) == [["C"]]
+    assert outputs_of(result, "PlaceOrder", AcceptedQuotes) == [
+        AcceptedQuotes(1, ["A", "B"]),
+        AcceptedQuotes(2, ["A", "C"]),
+    ]
+    assert outputs_of(result, "ResetQuoteJoin", IgnoredQuotes) == [
+        IgnoredQuotes(2, ["B"])
+    ]
 
+
+async def release_supplier_quotes(
+    client: AsyncClient, flow: StructuredPartialJoinFlow, flow_id: str, *suppliers: str
+) -> None:
+    for supplier in suppliers:
+        await client.invoke_rpc(flow.release_supplier_quote, flow_id, supplier)
 
 async def send_branch_signals(
     client: AsyncClient, patterns: WorkflowPatternFlows, flow_id: str, *branches: str
@@ -298,21 +386,20 @@ async def send_branch_signals(
         )
 
 
-async def test_wcp28_blocking_discriminator_holds_a_second_signal_until_reset(
+async def test_wcp28_blocking_discriminator_blocks_a_next_round_signal(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
+    flow = patterns.blocking_partial_join
     flow_id = await start_pattern_flow(
-        client,
-        new_flow_id,
-        patterns.blocking_partial_join,
-        "blocking-discriminator",
-        BlockingJoinRound(required_signals=1, round=1),
+        client, new_flow_id, flow, "blocking-discriminator", BlockingJoinRound(1, 1)
     )
     await send_branch_signals(client, patterns, flow_id, "A")
     await wait_for_step(client, flow_id, "ProcessRound")
-    await send_branch_signals(client, patterns, flow_id, "A", "B", "C")
+    await send_branch_signals(client, patterns, flow_id, "A")
+    assert await client.invoke_rpc(flow.get_queued_branch_signal_count, flow_id) == 1
+    await send_branch_signals(client, patterns, flow_id, "B", "C")
     await wait_for_step(client, flow_id, "ProcessRound", 2)
     await send_branch_signals(client, patterns, flow_id, "B", "C")
     result = await wait_for_completed_flow(client, flow_id)
@@ -321,22 +408,20 @@ async def test_wcp28_blocking_discriminator_holds_a_second_signal_until_reset(
         ProcessedRound(2, ["A"]),
     ]
 
-
-async def test_wcp31_blocking_partial_join_holds_second_round_signals_until_reset(
+async def test_wcp31_blocking_partial_join_blocks_next_round_signals(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
+    flow = patterns.blocking_partial_join
     flow_id = await start_pattern_flow(
-        client,
-        new_flow_id,
-        patterns.blocking_partial_join,
-        "blocking-partial-join",
-        BlockingJoinRound(required_signals=2, round=1),
+        client, new_flow_id, flow, "blocking-partial-join", BlockingJoinRound(2, 1)
     )
     await send_branch_signals(client, patterns, flow_id, "A", "B")
     await wait_for_step(client, flow_id, "ProcessRound")
-    await send_branch_signals(client, patterns, flow_id, "A", "B", "C")
+    await send_branch_signals(client, patterns, flow_id, "A", "B")
+    assert await client.invoke_rpc(flow.get_queued_branch_signal_count, flow_id) == 2
+    await send_branch_signals(client, patterns, flow_id, "C")
     await wait_for_step(client, flow_id, "ProcessRound", 2)
     await send_branch_signals(client, patterns, flow_id, "C")
     result = await wait_for_completed_flow(client, flow_id)
@@ -345,8 +430,7 @@ async def test_wcp31_blocking_partial_join_holds_second_round_signals_until_rese
         ProcessedRound(2, ["A", "B"]),
     ]
 
-
-async def test_wcp29_cancelling_discriminator_cancels_the_other_carriers(
+async def test_wcp29_cancelling_discriminator_stops_the_other_carriers(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
@@ -356,12 +440,16 @@ async def test_wcp29_cancelling_discriminator_cancels_the_other_carriers(
         client, new_flow_id, flow, "cancelling-discriminator", 1
     )
     await client.invoke_rpc(flow.release_carrier_bid, flow_id, "B")
+    await wait_for_step(client, flow_id, "AcceptBids")
+    await client.invoke_rpc(flow.release_carrier_bid, flow_id, "A")
+    await client.invoke_rpc(flow.release_carrier_bid, flow_id, "C")
+    assert await client.invoke_rpc(flow.get_queued_carrier_release_count, flow_id) == 2
+    await client.invoke_rpc(flow.confirm_carrier_booking, flow_id)
     result = await wait_for_completed_flow(client, flow_id)
-    assert step_types_of(result) == ["AcceptBids"]
-    assert outputs_of(result, "AcceptBids", list[str]) == [["B"]]
+    assert step_types_of(result) == ["ConfirmCarrierBooking"]
+    assert outputs_of(result, "ConfirmCarrierBooking", list[str]) == [["B"]]
 
-
-async def test_wcp32_cancelling_partial_join_cancels_the_last_carrier(
+async def test_wcp32_cancelling_partial_join_stops_the_last_carrier(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
@@ -373,10 +461,13 @@ async def test_wcp32_cancelling_partial_join_cancels_the_last_carrier(
     await client.invoke_rpc(flow.release_carrier_bid, flow_id, "A")
     await wait_for_step(client, flow_id, "BidFromCarrierA")
     await client.invoke_rpc(flow.release_carrier_bid, flow_id, "C")
+    await wait_for_step(client, flow_id, "AcceptBids")
+    await client.invoke_rpc(flow.release_carrier_bid, flow_id, "B")
+    assert await client.invoke_rpc(flow.get_queued_carrier_release_count, flow_id) == 1
+    await client.invoke_rpc(flow.confirm_carrier_booking, flow_id)
     result = await wait_for_completed_flow(client, flow_id)
-    assert step_types_of(result) == ["AcceptBids"]
-    assert outputs_of(result, "AcceptBids", list[str]) == [["A", "C"]]
-
+    assert step_types_of(result) == ["ConfirmCarrierBooking"]
+    assert outputs_of(result, "ConfirmCarrierBooking", list[str]) == [["A", "C"]]
 
 async def test_wcp33_generalized_and_join_keeps_an_extra_invoice(
     patterns: WorkflowPatternFlows,
@@ -430,37 +521,41 @@ async def test_wcp12_multiple_instances_without_synchronization(
     assert outputs_of(result, "ConfirmRegistration", str) == ["ConfirmRegistration"]
 
 
-async def test_wcp13_multiple_instances_with_design_time_knowledge(
+async def test_wcp13_multiple_instances_with_design_time_knowledge_run_at_once(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = await start_pattern_flow(
-        client, new_flow_id, patterns.design_time_multiple_instances, "instances-design", None
+    flow = patterns.design_time_multiple_instances
+    flow_id = await start_pattern_flow(client, new_flow_id, flow, "instances-design", None)
+    await await_rpc_value(
+        lambda: client.invoke_rpc(flow.get_started_design_time_review_count, flow_id), 3
     )
+    await assert_running(client, flow_id)
+    await client.invoke_rpc(flow.open_design_time_review_gate, flow_id, 3)
     result = await wait_for_completed_flow(client, flow_id)
     assert outputs_of(result, "CollectReviews", list[str]) == [
         ["finance", "legal", "security"]
     ]
 
-
-async def test_wcp14_multiple_instances_with_run_time_knowledge(
+async def test_wcp14_multiple_instances_with_run_time_knowledge_run_at_once(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
+    flow = patterns.run_time_multiple_instances
     flow_id = await start_pattern_flow(
-        client,
-        new_flow_id,
-        patterns.run_time_multiple_instances,
-        "instances-runtime",
-        ["dee", "ana", "cy", "ben"],
+        client, new_flow_id, flow, "instances-runtime", ["dee", "ana", "cy", "ben"]
     )
+    await await_rpc_value(
+        lambda: client.invoke_rpc(flow.get_started_run_time_review_count, flow_id), 4
+    )
+    await assert_running(client, flow_id)
+    await client.invoke_rpc(flow.open_run_time_review_gate, flow_id, 4)
     result = await wait_for_completed_flow(client, flow_id)
     assert outputs_of(result, "CollectReviews", list[str]) == [
         ["ana", "ben", "cy", "dee"]
     ]
-
 
 async def test_wcp15_multiple_instances_without_a_priori_run_time_knowledge(
     patterns: WorkflowPatternFlows,
@@ -469,33 +564,46 @@ async def test_wcp15_multiple_instances_without_a_priori_run_time_knowledge(
 ) -> None:
     flow = patterns.no_prior_knowledge_multiple_instances
     flow_id = await start_pattern_flow(client, new_flow_id, flow, "instances-open", [])
-    for sample_id in ("s1", "s2", "s3"):
-        assert await client.invoke_rpc(flow.add_sample, flow_id, sample_id) is True
+    assert await client.invoke_rpc(flow.add_sample, flow_id, "s1") is True
+    assert await client.invoke_rpc(flow.add_sample, flow_id, "s2") is True
+    await await_rpc_value(
+        lambda: client.invoke_rpc(flow.get_started_analysis_count, flow_id), 2
+    )
+    assert await client.invoke_rpc(flow.add_sample, flow_id, "s3") is True
+    await await_rpc_value(
+        lambda: client.invoke_rpc(flow.get_started_analysis_count, flow_id), 3
+    )
     await client.invoke_rpc(flow.close_sample_intake, flow_id)
+    assert await client.invoke_rpc(flow.add_sample, flow_id, "s4") is False
+    await assert_running(client, flow_id)
+    await client.invoke_rpc(flow.open_sample_gate, flow_id, 3)
     result = await wait_for_completed_flow(client, flow_id)
     assert outputs_of(result, "ReportSamples", list[str]) == [["s1", "s2", "s3"]]
 
-
-async def test_wcp34_static_partial_join_for_multiple_instances(
+async def test_wcp34_static_partial_join_for_multiple_instances_two_rounds(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow = patterns.static_partial_join_for_multiple_instances
     flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "instances-static-join", PartialInspection(3, 2)
+        client, new_flow_id, flow, "instances-static-join", InspectionRound(3, 2, 1, 2)
     )
     await client.invoke_rpc(flow.release_inspections, flow_id, 2)
     await wait_for_step(client, flow_id, "ApproveBatch")
     await assert_running(client, flow_id)
     await client.invoke_rpc(flow.release_inspections, flow_id, 1)
+    await wait_for_step(client, flow_id, "StartInspections", 2)
+    await client.invoke_rpc(flow.release_inspections, flow_id, 2)
+    await wait_for_step(client, flow_id, "ApproveBatch", 2)
+    await client.invoke_rpc(flow.release_inspections, flow_id, 1)
     result = await wait_for_completed_flow(client, flow_id)
-    approved = outputs_of(result, "ApproveBatch", list[int])[0]
-    reset = outputs_of(result, "ResetInspectionJoin", list[int])[0]
-    assert len(approved) == 2
-    assert len(reset) == 1
-    assert sorted([*approved, *reset]) == [0, 1, 2]
-
+    approved = outputs_of(result, "ApproveBatch", InspectedUnits)
+    assert [batch.round for batch in approved] == [1, 2]
+    assert all(len(set(batch.unit_indexes)) == 2 for batch in approved)
+    reset = outputs_of(result, "ResetInspectionJoin", InspectedUnits)
+    assert [batch.round for batch in reset] == [2]
+    assert sorted([*approved[1].unit_indexes, *reset[0].unit_indexes]) == [0, 1, 2]
 
 async def test_wcp35_cancelling_partial_join_for_multiple_instances(
     patterns: WorkflowPatternFlows,
@@ -507,10 +615,13 @@ async def test_wcp35_cancelling_partial_join_for_multiple_instances(
         client, new_flow_id, flow, "instances-cancelling-join", PartialInspection(3, 2)
     )
     await client.invoke_rpc(flow.release_quorum_inspections, flow_id, 2)
+    await wait_for_step(client, flow_id, "AcceptQuorumInspections")
+    await client.invoke_rpc(flow.release_quorum_inspections, flow_id, 1)
+    assert await client.invoke_rpc(flow.get_queued_quorum_release_count, flow_id) == 1
+    await client.invoke_rpc(flow.certify_quorum, flow_id)
     result = await wait_for_completed_flow(client, flow_id)
-    assert step_types_of(result) == ["AcceptQuorumInspections"]
-    assert len(set(outputs_of(result, "AcceptQuorumInspections", list[int])[0])) == 2
-
+    assert step_types_of(result) == ["CertifyQuorum"]
+    assert len(set(outputs_of(result, "CertifyQuorum", list[int])[0])) == 2
 
 async def test_wcp36_dynamic_partial_join_for_multiple_instances(
     patterns: WorkflowPatternFlows,
@@ -521,35 +632,56 @@ async def test_wcp36_dynamic_partial_join_for_multiple_instances(
     flow_id = await start_pattern_flow(
         client, new_flow_id, flow, "instances-dynamic-join", BidJoin(2, [])
     )
-    for amount in (500, 1500, 700):
 
-        async def add_bid(bid_amount: int = amount) -> bool:
-            return await client.invoke_rpc(flow.add_bid, flow_id, bid_amount)
+    async def add_bid(amount: int) -> bool:
+        async def invoke() -> bool:
+            return await client.invoke_rpc(flow.add_bid, flow_id, amount)
 
-        assert await retry_on_lock_conflict(add_bid) is True
+        return await retry_on_lock_conflict(invoke)
+
+    assert await add_bid(500) is True
+    assert await add_bid(1500) is True
+    await await_rpc_value(
+        lambda: client.invoke_rpc(flow.get_started_evaluation_count, flow_id), 2
+    )
+    assert await add_bid(700) is True
+    await await_rpc_value(
+        lambda: client.invoke_rpc(flow.get_started_evaluation_count, flow_id), 3
+    )
+    await client.invoke_rpc(flow.open_bid_gate, flow_id, 3)
+    await wait_for_attribute_value(client, flow_id, IS_BID_ADMISSION_CLOSED, True)
+    assert await add_bid(400) is False
+    await client.invoke_rpc(flow.sign_contract, flow_id)
     result = await wait_for_completed_flow(client, flow_id)
     assert outputs_of(result, "AwardContract", list[int]) == [[500, 700]]
 
-
-async def test_wcp16_deferred_choice_runs_only_the_first_response_branch(
+async def test_wcp16_deferred_choice_runs_the_branch_of_the_response(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow = patterns.deferred_choice
-    declined_flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "deferred-decline", None
-    )
-    await client.invoke_rpc(flow.decline_offer, declined_flow_id)
-    declined = await wait_for_completed_flow(client, declined_flow_id)
-    assert step_types_of(declined) == ["ArchiveOffer"]
-    accepted_flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "deferred-accept", None
-    )
-    await client.invoke_rpc(flow.accept_offer, accepted_flow_id)
-    accepted = await wait_for_completed_flow(client, accepted_flow_id)
-    assert step_types_of(accepted) == ["FulfillOffer"]
+    flow_id = await start_pattern_flow(client, new_flow_id, flow, "deferred-decline", None)
+    await client.invoke_rpc(flow.present_offer, flow_id)
+    await wait_for_step(client, flow_id, "PresentOffer")
+    await client.invoke_rpc(flow.decline_offer, flow_id)
+    result = await wait_for_completed_flow(client, flow_id)
+    assert step_types_of(result) == ["ArchiveOffer"]
 
+
+async def test_wcp16_deferred_choice_runs_one_branch_when_responses_compete(
+    patterns: WorkflowPatternFlows,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow = patterns.deferred_choice
+    flow_id = await start_pattern_flow(client, new_flow_id, flow, "deferred-competing", None)
+    await client.invoke_rpc(flow.accept_offer, flow_id)
+    await client.invoke_rpc(flow.decline_offer, flow_id)
+    await client.invoke_rpc(flow.present_offer, flow_id)
+    result = await wait_for_completed_flow(client, flow_id)
+    assert len(result.completions) == 1
+    assert result.completions[0].step_type in ("FulfillOffer", "ArchiveOffer")
 
 async def test_wcp17_interleaved_parallel_routing_never_overlaps_and_keeps_order(
     patterns: WorkflowPatternFlows,
@@ -631,21 +763,22 @@ async def test_wcp19_cancel_task_withdraws_the_waiting_pickup(
     assert step_types_of(result) == ["ArrangeSelfDelivery"]
 
 
-async def test_wcp20_cancel_case_closes_the_flow_as_canceled(
+async def test_wcp20_cancel_case_stops_the_running_child_flow(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = await start_pattern_flow(
-        client, new_flow_id, patterns.cancel_case, "cancel-case", None
-    )
-    await client.stop_flow(
-        flow_id, StopFlowOptions(type=StopType.CANCEL, reason="applicant withdrew")
-    )
+    flow = patterns.cancel_case
+    flow_id = await start_pattern_flow(client, new_flow_id, flow, "cancel-case", None)
+    await wait_for_step(client, flow_id, "StartApplication")
+    await client.invoke_rpc(flow.cancel_case, flow_id, "applicant withdrew")
     result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-    assert result.status is FlowStatus.CANCELED
-    assert result.completions == ()
-
+    assert result.status is FlowStatus.FAILED
+    assert "ReviewApplication" not in step_types_of(result)
+    values = await client.get_attributes(flow_id, STOPPED_CHILD_FLOW_IDS)
+    child_flow_ids = values.get(STOPPED_CHILD_FLOW_IDS)
+    assert child_flow_ids is not None and len(child_flow_ids) == 1
+    await wait_for_flow_status(client, child_flow_ids[0], FlowStatus.CANCELED)
 
 async def test_wcp25_cancel_region_withdraws_two_checks_and_keeps_the_third(
     patterns: WorkflowPatternFlows,
@@ -700,14 +833,14 @@ async def test_wcp27_complete_multiple_instance_activity_continues_early(
     assert len(outputs_of(result, "PublishReviewResults", list[int])[0]) == 1
 
 
-async def test_wcp10_arbitrary_cycles_enter_the_cycle_at_either_step(
+async def test_wcp10_arbitrary_cycles_enter_and_leave_at_either_step(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow = patterns.arbitrary_cycles
     new_article_flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "cycles-new", ArticleSubmission(has_draft=False)
+        client, new_flow_id, flow, "cycles-new", ArticleSubmission(False, False)
     )
     new_article = await wait_for_completed_flow(client, new_article_flow_id)
     assert outputs_of(new_article, "PublishArticle", list[str]) == [
@@ -721,13 +854,19 @@ async def test_wcp10_arbitrary_cycles_enter_the_cycle_at_either_step(
         ]
     ]
     drafted_flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "cycles-draft", ArticleSubmission(has_draft=True)
+        client, new_flow_id, flow, "cycles-draft", ArticleSubmission(True, False)
     )
     drafted = await wait_for_completed_flow(client, drafted_flow_id)
     assert outputs_of(drafted, "PublishArticle", list[str]) == [
         ["RouteSubmission", "EditArticle", "DraftArticle", "EditArticle", "PublishArticle"]
     ]
-
+    abandoned_flow_id = await start_pattern_flow(
+        client, new_flow_id, flow, "cycles-abandon", ArticleSubmission(False, True)
+    )
+    abandoned = await wait_for_completed_flow(client, abandoned_flow_id)
+    assert outputs_of(abandoned, "AbandonArticle", list[str]) == [
+        ["RouteSubmission", "DraftArticle", "EditArticle", "DraftArticle", "AbandonArticle"]
+    ]
 
 async def test_wcp21_structured_loop_tests_its_condition_before_each_pass(
     patterns: WorkflowPatternFlows,
@@ -736,16 +875,17 @@ async def test_wcp21_structured_loop_tests_its_condition_before_each_pass(
 ) -> None:
     flow = patterns.structured_loop
     three_flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "loop-three", BatchProgress(3, 0)
+        client, new_flow_id, flow, "loop-three", BatchProgress(3, [])
     )
     three = await wait_for_completed_flow(client, three_flow_id)
-    assert outputs_of(three, "FinishBatches", int) == [3]
+    assert outputs_of(three, "FinishBatches", list[str]) == [
+        ["batch-3", "batch-2", "batch-1"]
+    ]
     zero_flow_id = await start_pattern_flow(
-        client, new_flow_id, flow, "loop-zero", BatchProgress(0, 0)
+        client, new_flow_id, flow, "loop-zero", BatchProgress(0, [])
     )
     zero = await wait_for_completed_flow(client, zero_flow_id)
-    assert outputs_of(zero, "FinishBatches", int) == [0]
-
+    assert outputs_of(zero, "FinishBatches", list[str]) == [[]]
 
 async def test_wcp22_recursion_computes_a_factorial_through_subflows(
     patterns: WorkflowPatternFlows,
@@ -795,20 +935,28 @@ async def test_wcp43_explicit_termination_completes_at_once(
     assert step_types_of(result) == ["ResolveIncident"]
 
 
-async def test_wcp23_transient_trigger_drops_an_event_no_step_waits_for(
+async def test_wcp23_transient_trigger_accepts_one_event_while_a_step_waits(
     patterns: WorkflowPatternFlows,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow = patterns.transient_trigger
     flow_id = await start_pattern_flow(client, new_flow_id, flow, "transient-trigger", None)
-    assert await client.invoke_rpc(flow.send_motion_event, flow_id, 1) is False
+
+    async def send_motion_event(value: int) -> bool:
+        async def invoke() -> bool:
+            return await client.invoke_rpc(flow.send_motion_event, flow_id, value)
+
+        return await retry_on_lock_conflict(invoke)
+
+    assert await send_motion_event(1) is False
     await client.invoke_rpc(flow.arm_motion_sensor, flow_id)
     await wait_for_attribute_value(client, flow_id, IS_AWAITING_MOTION_EVENT, True)
-    assert await client.invoke_rpc(flow.send_motion_event, flow_id, 2) is True
+    assert await send_motion_event(2) is True
+    assert await send_motion_event(3) is False
+    await client.invoke_rpc(flow.stop_motion_monitoring, flow_id)
     result = await wait_for_completed_flow(client, flow_id)
-    assert outputs_of(result, "AwaitMotionEvent", int) == [2]
-
+    assert outputs_of(result, "AwaitMonitoringStop", int) == [2]
 
 async def test_wcp24_persistent_trigger_keeps_a_label_sent_early(
     patterns: WorkflowPatternFlows,

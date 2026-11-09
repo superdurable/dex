@@ -34,6 +34,7 @@ import {
   type RPCResult,
   type Step,
   type StepDecision,
+  type StepOptions,
 } from "@superdurable/dex";
 
 // WCP-23: Channels keep messages, so the RPC drops events while no Step waits.
@@ -41,6 +42,7 @@ import {
 const isAwaitingMotionEvent = new Attribute("isAwaitingMotionEvent", booleanCodec);
 const motionSensorArmed = new Channel("motionSensorArmed", stringCodec);
 const motionEvent = new Channel("motionEvent", doubleCodec);
+const motionMonitoringStopped = new Channel("motionMonitoringStopped", stringCodec);
 
 class AwaitMotionSensorArmed implements Step<void> {
   public getStepType(): string {
@@ -61,31 +63,57 @@ class AwaitMotionEvent implements Step<void> {
     return "AwaitMotionEvent";
   }
 
+  public getStepOptions(): StepOptions {
+    return { waitForLockAttributes: [isAwaitingMotionEvent.lock()] };
+  }
+
   public waitFor(context: Context, _input: void): Wait {
     isAwaitingMotionEvent.set(context, true);
     return Wait.until(motionEvent.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    isAwaitingMotionEvent.set(context, false);
-    return gracefulComplete(motionEvent.results(context)[0]);
+    return goTo(AwaitMonitoringStop, motionEvent.results(context)[0]!);
+  }
+}
+
+class AwaitMonitoringStop implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "AwaitMonitoringStop";
+  }
+
+  public waitFor(_context: Context, _motionEventValue: number): Wait {
+    return Wait.until(motionMonitoringStopped.forOne());
+  }
+
+  public execute(_context: Context, motionEventValue: number): StepDecision {
+    return gracefulComplete(motionEventValue);
   }
 }
 
 export class TransientTriggerFlow implements Flow<void> {
   private readonly awaitMotionSensorArmed = new AwaitMotionSensorArmed();
   private readonly awaitMotionEvent = new AwaitMotionEvent();
+  private readonly awaitMonitoringStop = new AwaitMonitoringStop();
 
   public getFlowType(): string {
     return "TransientTriggerFlow";
   }
 
   public getSteps(): StepList<void> {
-    return StepList.startStep(this.awaitMotionSensorArmed).otherSteps(this.awaitMotionEvent);
+    return StepList.startStep(this.awaitMotionSensorArmed).otherSteps(
+      this.awaitMotionEvent,
+      this.awaitMonitoringStop,
+    );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [isAwaitingMotionEvent], channels: [motionSensorArmed, motionEvent] };
+    return {
+      attributes: [isAwaitingMotionEvent],
+      channels: [motionSensorArmed, motionEvent, motionMonitoringStopped],
+    };
   }
 
   @rpc()
@@ -93,11 +121,22 @@ export class TransientTriggerFlow implements Flow<void> {
     motionSensorArmed.publish(context, "armed");
   }
 
-  @rpc({ inputCodec: doubleCodec, outputCodec: booleanCodec })
+  @rpc()
+  public stopMotionMonitoring(context: Context): void {
+    motionMonitoringStopped.publish(context, "stopped");
+  }
+
+  // Clearing the guard in the same locked commit makes the first trigger the only one.
+  @rpc({
+    inputCodec: doubleCodec,
+    outputCodec: booleanCodec,
+    lockAttributes: [isAwaitingMotionEvent.lock()],
+  })
   public sendMotionEvent(context: Context, value: number): RPCResult<boolean> {
     if (!isAwaitingMotionEvent.get(context)) {
       return { output: false };
     }
+    isAwaitingMotionEvent.set(context, false);
     motionEvent.publish(context, value);
     return { output: true };
   }

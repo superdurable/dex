@@ -19,7 +19,9 @@
 
 import {
   Attribute,
+  AttributeMap,
   Channel,
+  ChannelMap,
   StepList,
   StepMovement,
   Wait,
@@ -44,6 +46,12 @@ import {
 
 function sortNumbers(values: readonly number[]): number[] {
   return [...values].sort((left, right) => left - right);
+}
+
+function openGate(context: Context, gate: Channel<string>, count: number): void {
+  for (let index = 0; index < count; index++) {
+    gate.publish(context, "opened");
+  }
 }
 
 // WCP-12 Multiple Instances without Synchronization: nothing waits for the
@@ -118,8 +126,13 @@ export class MultipleInstancesWithoutSynchronizationFlow implements Flow<string[
   }
 }
 
+
 // WCP-13 and WCP-14: the count is known when instances start, so ForN joins them.
 
+// Each instance marks itself started, then waits at a gate, so all run at once.
+
+const startedReviewers = new AttributeMap("startedReviewers", booleanCodec);
+const reviewGateOpened = new Channel("reviewGateOpened", stringCodec);
 const reviewCompleted = new Channel("reviewCompleted", stringCodec);
 const DESIGN_TIME_REVIEWERS = ["legal", "finance", "security"];
 
@@ -128,6 +141,11 @@ class ReviewDocument implements Step<string> {
 
   public getStepType(): string {
     return "ReviewDocument";
+  }
+
+  public waitFor(context: Context, reviewer: string): Wait {
+    startedReviewers.set(context, reviewer, true);
+    return Wait.until(reviewGateOpened.forOne());
   }
 
   public execute(context: Context, reviewer: string): StepDecision {
@@ -196,7 +214,17 @@ export class DesignTimeMultipleInstancesFlow implements Flow<void> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [reviewCompleted] };
+    return { attributes: [startedReviewers], channels: [reviewGateOpened, reviewCompleted] };
+  }
+
+  @rpc({ loadAttributeMaps: [startedReviewers], outputCodec: doubleCodec })
+  public getStartedDesignTimeReviewCount(context: Context): RPCResult<number> {
+    return { output: startedReviewers.getMapSize(context) };
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public openDesignTimeReviewGate(context: Context, count: number): void {
+    openGate(context, reviewGateOpened, count);
   }
 }
 
@@ -217,7 +245,17 @@ export class RunTimeMultipleInstancesFlow implements Flow<string[]> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [reviewCompleted] };
+    return { attributes: [startedReviewers], channels: [reviewGateOpened, reviewCompleted] };
+  }
+
+  @rpc({ loadAttributeMaps: [startedReviewers], outputCodec: doubleCodec })
+  public getStartedRunTimeReviewCount(context: Context): RPCResult<number> {
+    return { output: startedReviewers.getMapSize(context) };
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public openRunTimeReviewGate(context: Context, count: number): void {
+    openGate(context, reviewGateOpened, count);
   }
 }
 
@@ -227,8 +265,10 @@ export class RunTimeMultipleInstancesFlow implements Flow<string[]> {
 
 const startedSampleCount = new Attribute("startedSampleCount", doubleCodec);
 const isSampleIntakeClosed = new Attribute("isSampleIntakeClosed", booleanCodec);
+const analysisStartedSamples = new AttributeMap("analysisStartedSamples", booleanCodec);
 const sampleAnalyzed = new Channel("sampleAnalyzed", stringCodec);
 const sampleIntakeClosed = new Channel("sampleIntakeClosed", stringCodec);
+const sampleGateOpened = new Channel("sampleGateOpened", stringCodec);
 
 class JoinSamples implements Step<string[]> {
   public getStepType(): string {
@@ -262,6 +302,11 @@ class AnalyzeSample implements Step<string> {
     return "AnalyzeSample";
   }
 
+  public waitFor(context: Context, sampleId: string): Wait {
+    analysisStartedSamples.set(context, sampleId, true);
+    return Wait.until(sampleGateOpened.forOne());
+  }
+
   public execute(context: Context, sampleId: string): StepDecision {
     sampleAnalyzed.publish(context, sampleId);
     return deadEnd();
@@ -293,8 +338,8 @@ export class NoPriorKnowledgeMultipleInstancesFlow implements Flow<string[]> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [startedSampleCount, isSampleIntakeClosed],
-      channels: [sampleAnalyzed, sampleIntakeClosed],
+      attributes: [startedSampleCount, isSampleIntakeClosed, analysisStartedSamples],
+      channels: [sampleAnalyzed, sampleIntakeClosed, sampleGateOpened],
     };
   }
 
@@ -316,98 +361,131 @@ export class NoPriorKnowledgeMultipleInstancesFlow implements Flow<string[]> {
     isSampleIntakeClosed.set(context, true);
     sampleIntakeClosed.publish(context, "closed");
   }
+
+  @rpc({ loadAttributeMaps: [analysisStartedSamples], outputCodec: doubleCodec })
+  public getStartedAnalysisCount(context: Context): RPCResult<number> {
+    return { output: analysisStartedSamples.getMapSize(context) };
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public openSampleGate(context: Context, count: number): void {
+    openGate(context, sampleGateOpened, count);
+  }
 }
 
-// WCP-34 Static Partial Join for Multiple Instances: ForN(required) triggers the
-// next Step. A reset Step consumes the remaining results.
+// WCP-34: instances publish to their round's ChannelMap instance; a reset re-enables the join.
 
-export interface PartialInspection {
+export interface InspectionRound {
   readonly inspectionCount: number;
   readonly requiredInspections: number;
+  readonly round: number;
+  readonly roundCount: number;
+}
+
+export interface UnitInspection {
+  readonly round: number;
+  readonly unitIndex: number;
+}
+
+export interface InspectedUnits {
+  readonly round: number;
+  readonly unitIndexes: number[];
 }
 
 const inspectionReleased = new Channel("inspectionReleased", stringCodec);
-const unitInspected = new Channel("unitInspected", doubleCodec);
+const unitInspected = new ChannelMap("unitInspected", doubleCodec);
 
-class StartInspections implements Step<PartialInspection> {
+function inspectionRoundInstance(round: number): string {
+  return `round-${round}`;
+}
+
+class StartInspections implements Step<InspectionRound> {
   public getStepType(): string {
     return "StartInspections";
   }
 
-  public execute(_context: Context, inspection: PartialInspection): StepDecision {
+  public execute(_context: Context, inspection: InspectionRound): StepDecision {
     return goToMany(
-      ...Array.from({ length: inspection.inspectionCount }, (_, index) =>
-        StepMovement.of(InspectUnit, index),
+      ...Array.from({ length: inspection.inspectionCount }, (_, unitIndex) =>
+        StepMovement.of(InspectUnit, { round: inspection.round, unitIndex }),
       ),
       StepMovement.of(AcceptInspections, inspection),
     );
   }
 }
 
-class InspectUnit implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class InspectUnit implements Step<UnitInspection> {
   public getStepType(): string {
     return "InspectUnit";
   }
 
-  public waitFor(_context: Context, _unitIndex: number): Wait {
+  public waitFor(_context: Context, _unit: UnitInspection): Wait {
     return Wait.until(inspectionReleased.forOne());
   }
 
-  public execute(context: Context, unitIndex: number): StepDecision {
-    unitInspected.publish(context, unitIndex);
+  public execute(context: Context, unit: UnitInspection): StepDecision {
+    unitInspected.publish(context, inspectionRoundInstance(unit.round), unit.unitIndex);
     return deadEnd();
   }
 }
 
-class AcceptInspections implements Step<PartialInspection> {
+class AcceptInspections implements Step<InspectionRound> {
   public getStepType(): string {
     return "AcceptInspections";
   }
 
-  public waitFor(_context: Context, inspection: PartialInspection): Wait {
-    return Wait.until(unitInspected.forN(inspection.requiredInspections));
+  public waitFor(_context: Context, inspection: InspectionRound): Wait {
+    const instance = inspectionRoundInstance(inspection.round);
+    return Wait.until(unitInspected.forN(instance, inspection.requiredInspections));
   }
 
-  public execute(context: Context, inspection: PartialInspection): StepDecision {
+  public execute(context: Context, inspection: InspectionRound): StepDecision {
+    const instance = inspectionRoundInstance(inspection.round);
+    const approved: InspectedUnits = {
+      round: inspection.round,
+      unitIndexes: sortNumbers(unitInspected.results(context, instance)),
+    };
     return goToMany(
-      StepMovement.of(ApproveBatch, sortNumbers(unitInspected.results(context))),
-      StepMovement.of(
-        ResetInspectionJoin,
-        inspection.inspectionCount - inspection.requiredInspections,
-      ),
+      StepMovement.of(ApproveBatch, approved),
+      StepMovement.of(ResetInspectionJoin, inspection),
     );
   }
 }
 
-class ApproveBatch implements Step<number[]> {
+class ApproveBatch implements Step<InspectedUnits> {
   public getStepType(): string {
     return "ApproveBatch";
   }
 
-  public execute(_context: Context, unitIndexes: number[]): StepDecision {
-    return gracefulComplete(unitIndexes);
+  public execute(_context: Context, approved: InspectedUnits): StepDecision {
+    return gracefulComplete(approved);
   }
 }
 
-class ResetInspectionJoin implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
+class ResetInspectionJoin implements Step<InspectionRound> {
   public getStepType(): string {
     return "ResetInspectionJoin";
   }
 
-  public waitFor(_context: Context, remainingInspections: number): Wait {
-    return Wait.until(unitInspected.forN(remainingInspections));
+  public waitFor(_context: Context, inspection: InspectionRound): Wait {
+    const instance = inspectionRoundInstance(inspection.round);
+    const remaining = inspection.inspectionCount - inspection.requiredInspections;
+    return Wait.until(unitInspected.forN(instance, remaining));
   }
 
-  public execute(context: Context, _remainingInspections: number): StepDecision {
-    return gracefulComplete(sortNumbers(unitInspected.results(context)));
+  public execute(context: Context, inspection: InspectionRound): StepDecision {
+    if (inspection.round < inspection.roundCount) {
+      return goTo(StartInspections, { ...inspection, round: inspection.round + 1 });
+    }
+    const remainingUnits: InspectedUnits = {
+      round: inspection.round,
+      unitIndexes: sortNumbers(unitInspected.results(context, inspectionRoundInstance(inspection.round))),
+    };
+    return gracefulComplete(remainingUnits);
   }
 }
 
-export class StaticPartialJoinForMultipleInstancesFlow implements Flow<PartialInspection> {
+export class StaticPartialJoinForMultipleInstancesFlow implements Flow<InspectionRound> {
   private readonly startInspections = new StartInspections();
   private readonly inspectUnit = new InspectUnit();
   private readonly acceptInspections = new AcceptInspections();
@@ -418,7 +496,7 @@ export class StaticPartialJoinForMultipleInstancesFlow implements Flow<PartialIn
     return "StaticPartialJoinForMultipleInstancesFlow";
   }
 
-  public getSteps(): StepList<PartialInspection> {
+  public getSteps(): StepList<InspectionRound> {
     return StepList.startStep(this.startInspections).otherSteps(
       this.inspectUnit,
       this.acceptInspections,
@@ -439,11 +517,16 @@ export class StaticPartialJoinForMultipleInstancesFlow implements Flow<PartialIn
   }
 }
 
-// WCP-35 Cancelling Partial Join for Multiple Instances: the join cancels the
-// instances that have not finished.
+// WCP-35: the join cancels the instances that have not finished.
+
+export interface PartialInspection {
+  readonly inspectionCount: number;
+  readonly requiredInspections: number;
+}
 
 const quorumInspectionReleased = new Channel("quorumInspectionReleased", stringCodec);
 const quorumUnitInspected = new Channel("quorumUnitInspected", doubleCodec);
+const quorumCertified = new Channel("quorumCertified", stringCodec);
 
 class StartQuorumInspections implements Step<PartialInspection> {
   public getStepType(): string {
@@ -490,9 +573,23 @@ class AcceptQuorumInspections implements Step<number> {
 
   public execute(context: Context, _requiredInspections: number): StepDecision {
     return withCancelingSteps(
-      gracefulComplete(sortNumbers(quorumUnitInspected.results(context))),
+      goTo(CertifyQuorum, sortNumbers(quorumUnitInspected.results(context))),
       InspectQuorumUnit,
     );
+  }
+}
+
+class CertifyQuorum implements Step<number[]> {
+  public getStepType(): string {
+    return "CertifyQuorum";
+  }
+
+  public waitFor(_context: Context, _unitIndexes: number[]): Wait {
+    return Wait.until(quorumCertified.forOne());
+  }
+
+  public execute(_context: Context, unitIndexes: number[]): StepDecision {
+    return gracefulComplete(unitIndexes);
   }
 }
 
@@ -500,6 +597,7 @@ export class CancellingPartialJoinForMultipleInstancesFlow implements Flow<Parti
   private readonly startQuorumInspections = new StartQuorumInspections();
   private readonly inspectQuorumUnit = new InspectQuorumUnit();
   private readonly acceptQuorumInspections = new AcceptQuorumInspections();
+  private readonly certifyQuorumStep = new CertifyQuorum();
 
   public getFlowType(): string {
     return "CancellingPartialJoinForMultipleInstancesFlow";
@@ -509,11 +607,12 @@ export class CancellingPartialJoinForMultipleInstancesFlow implements Flow<Parti
     return StepList.startStep(this.startQuorumInspections).otherSteps(
       this.inspectQuorumUnit,
       this.acceptQuorumInspections,
+      this.certifyQuorumStep,
     );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [quorumInspectionReleased, quorumUnitInspected] };
+    return { channels: [quorumInspectionReleased, quorumUnitInspected, quorumCertified] };
   }
 
   @rpc({ inputCodec: doubleCodec })
@@ -521,6 +620,17 @@ export class CancellingPartialJoinForMultipleInstancesFlow implements Flow<Parti
     for (let index = 0; index < count; index++) {
       quorumInspectionReleased.publish(context, "released");
     }
+  }
+
+  // A canceled instance no longer waits, so its late release stays queued.
+  @rpc({ loadChannels: [quorumInspectionReleased], outputCodec: doubleCodec })
+  public getQueuedQuorumReleaseCount(context: Context): RPCResult<number> {
+    return { output: quorumInspectionReleased.size(context) };
+  }
+
+  @rpc()
+  public certifyQuorum(context: Context): void {
+    quorumCertified.publish(context, "certified");
   }
 }
 
@@ -540,7 +650,10 @@ export interface EvaluatedBid {
 
 const MAXIMUM_ACCEPTED_BID_AMOUNT = 1000;
 const isBidAdmissionClosed = new Attribute("isBidAdmissionClosed", booleanCodec);
+const evaluationStartedBids = new AttributeMap("evaluationStartedBids", booleanCodec);
 const bidEvaluated = new Channel("bidEvaluated", jsonCodec<EvaluatedBid>({ typeName: "EvaluatedBid" }));
+const bidGateOpened = new Channel("bidGateOpened", stringCodec);
+const contractSigned = new Channel("contractSigned", stringCodec);
 
 class JoinBids implements Step<BidJoin> {
   public getStepType(): string {
@@ -575,6 +688,11 @@ class EvaluateBid implements Step<number> {
     return "EvaluateBid";
   }
 
+  public waitFor(context: Context, amount: number): Wait {
+    evaluationStartedBids.set(context, String(amount), true);
+    return Wait.until(bidGateOpened.forOne());
+  }
+
   public execute(context: Context, amount: number): StepDecision {
     bidEvaluated.publish(context, { amount, isAccepted: amount <= MAXIMUM_ACCEPTED_BID_AMOUNT });
     return deadEnd();
@@ -584,6 +702,10 @@ class EvaluateBid implements Step<number> {
 class AwardContract implements Step<number[]> {
   public getStepType(): string {
     return "AwardContract";
+  }
+
+  public waitFor(_context: Context, _acceptedBids: number[]): Wait {
+    return Wait.until(contractSigned.forOne());
   }
 
   public execute(_context: Context, acceptedBids: number[]): StepDecision {
@@ -605,7 +727,10 @@ export class DynamicPartialJoinForMultipleInstancesFlow implements Flow<BidJoin>
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [isBidAdmissionClosed], channels: [bidEvaluated] };
+    return {
+      attributes: [isBidAdmissionClosed, evaluationStartedBids],
+      channels: [bidEvaluated, bidGateOpened, contractSigned],
+    };
   }
 
   @rpc({
@@ -619,7 +744,24 @@ export class DynamicPartialJoinForMultipleInstancesFlow implements Flow<BidJoin>
     }
     return { output: true, nextSteps: [StepMovement.of(EvaluateBid, amount)] };
   }
+
+  @rpc({ loadAttributeMaps: [evaluationStartedBids], outputCodec: doubleCodec })
+  public getStartedEvaluationCount(context: Context): RPCResult<number> {
+    return { output: evaluationStartedBids.getMapSize(context) };
+  }
+
+  @rpc({ inputCodec: doubleCodec })
+  public openBidGate(context: Context, count: number): void {
+    openGate(context, bidGateOpened, count);
+  }
+
+  @rpc()
+  public signContract(context: Context): void {
+    contractSigned.publish(context, "signed");
+  }
 }
+
+export { isBidAdmissionClosed };
 
 export const multipleInstancesWithoutSynchronizationFlow =
   new MultipleInstancesWithoutSynchronizationFlow();

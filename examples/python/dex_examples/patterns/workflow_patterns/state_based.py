@@ -67,8 +67,17 @@ async def run_timed_task(task: str, duration_seconds: float) -> TaskInterval:
 
 # WCP-16 Deferred Choice: AnyOf takes whichever response comes first.
 
+OFFER_PRESENTED = Channel("offerPresented", str)
 OFFER_ACCEPTED = Channel("offerAccepted", str)
 OFFER_DECLINED = Channel("offerDeclined", str)
+
+
+class PresentOffer(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.until(OFFER_PRESENTED.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return go_to(AwaitCustomerResponse, None)
 
 
 class AwaitCustomerResponse(Step[None]):
@@ -93,17 +102,22 @@ class ArchiveOffer(Step[None]):
 
 class DeferredChoiceFlow(Flow[None]):
     def __init__(self) -> None:
+        self.present_offer_step = PresentOffer()
         self.await_customer_response = AwaitCustomerResponse()
         self.fulfill_offer = FulfillOffer()
         self.archive_offer = ArchiveOffer()
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.await_customer_response).other_steps(
-            self.fulfill_offer, self.archive_offer
+        return StepList.start_step(self.present_offer_step).other_steps(
+            self.await_customer_response, self.fulfill_offer, self.archive_offer
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(OFFER_ACCEPTED, OFFER_DECLINED)
+        return PersistenceSchema.of(OFFER_PRESENTED, OFFER_ACCEPTED, OFFER_DECLINED)
+
+    @rpc
+    def present_offer(self, context: Context) -> None:
+        OFFER_PRESENTED.publish(context, "presented")
 
     @rpc
     def accept_offer(self, context: Context) -> None:
@@ -114,7 +128,9 @@ class DeferredChoiceFlow(Flow[None]):
         OFFER_DECLINED.publish(context, "declined")
 
 
-# WCP-17 Interleaved Parallel Routing: one shared Execute lock serializes the tasks.
+# WCP-17: one shared Execute lock keeps the tasks apart; GoTo orders two of them.
+
+# The lock covers one Execute, not a WaitFor or a task that spans Steps.
 
 ONBOARDING_TASK_LOCK = Attribute("onboardingTaskLock", bool)
 ONBOARDING_TASK_FINISHED = Channel("onboardingTaskFinished", TaskInterval)
@@ -361,7 +377,9 @@ class CriticalSectionFlow(Flow[None]):
         return PersistenceSchema.of(CRITICAL_SECTION_TOKEN, CRITICAL_SECTION_FINISHED)
 
 
-# WCP-40 Interleaved Routing: each audit runs once, never two at a time.
+# WCP-40: each audit runs once, in any order, one at a time.
+
+# The lock covers one Execute, not a WaitFor or a task that spans Steps.
 
 AUDIT_LOCK = Attribute("auditLock", bool)
 AUDIT_FINISHED = Channel("auditFinished", TaskInterval)

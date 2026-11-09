@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from dex import (
     Attribute,
+    AttributeMap,
     Channel,
+    ChannelMap,
     Context,
     Flow,
     PersistenceSchema,
@@ -88,8 +90,17 @@ class MultipleInstancesWithoutSynchronizationFlow(Flow[list[str]]):
 
 # WCP-13 and WCP-14: the count is known when instances start, so ForN joins them.
 
+# Each instance marks itself started, then waits at a gate, so all run at once.
+
+STARTED_REVIEWERS = AttributeMap("startedReviewers", bool)
+REVIEW_GATE_OPENED = Channel("reviewGateOpened", str)
 REVIEW_COMPLETED = Channel("reviewCompleted", str)
 DESIGN_TIME_REVIEWERS = ("legal", "finance", "security")
+
+
+def open_gate(context: Context, gate: Channel[str], count: int) -> None:
+    for _ in range(count):
+        gate.publish(context, "opened")
 
 
 def start_reviews(reviewers: list[str]) -> StepDecision:
@@ -101,6 +112,10 @@ def start_reviews(reviewers: list[str]) -> StepDecision:
 
 
 class ReviewDocument(Step[str]):
+    def wait_for(self, context: Context, input: str) -> Wait:
+        STARTED_REVIEWERS.set(context, input, True)
+        return Wait.until(REVIEW_GATE_OPENED.for_one())
+
     def execute(self, context: Context, input: str) -> StepDecision:
         REVIEW_COMPLETED.publish(context, input)
         return dead_end()
@@ -136,7 +151,15 @@ class DesignTimeMultipleInstancesFlow(Flow[None]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(REVIEW_COMPLETED)
+        return PersistenceSchema.of(STARTED_REVIEWERS, REVIEW_GATE_OPENED, REVIEW_COMPLETED)
+
+    @rpc(load_attribute_maps=(STARTED_REVIEWERS,))
+    def get_started_design_time_review_count(self, context: Context) -> RPCResult[int]:
+        return RPCResult(STARTED_REVIEWERS.get_map_size(context))
+
+    @rpc
+    def open_design_time_review_gate(self, context: Context, input: int) -> None:
+        open_gate(context, REVIEW_GATE_OPENED, input)
 
 
 class RunTimeMultipleInstancesFlow(Flow[list[str]]):
@@ -151,16 +174,27 @@ class RunTimeMultipleInstancesFlow(Flow[list[str]]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(REVIEW_COMPLETED)
+        return PersistenceSchema.of(STARTED_REVIEWERS, REVIEW_GATE_OPENED, REVIEW_COMPLETED)
+
+    @rpc(load_attribute_maps=(STARTED_REVIEWERS,))
+    def get_started_run_time_review_count(self, context: Context) -> RPCResult[int]:
+        return RPCResult(STARTED_REVIEWERS.get_map_size(context))
+
+    @rpc
+    def open_run_time_review_gate(self, context: Context, input: int) -> None:
+        open_gate(context, REVIEW_GATE_OPENED, input)
 
 
-# WCP-15: an RPC adds instances while others run. The join re-waits until intake
-# closes and every started sample reported.
+# WCP-15: an RPC adds instances. The join re-waits until intake closes and all report.
+
+# The count is final once intake closes, so the join needs no lock.
 
 STARTED_SAMPLE_COUNT = Attribute("startedSampleCount", int)
 IS_SAMPLE_INTAKE_CLOSED = Attribute("isSampleIntakeClosed", bool)
+ANALYSIS_STARTED_SAMPLES = AttributeMap("analysisStartedSamples", bool)
 SAMPLE_ANALYZED = Channel("sampleAnalyzed", str)
 SAMPLE_INTAKE_CLOSED = Channel("sampleIntakeClosed", str)
+SAMPLE_GATE_OPENED = Channel("sampleGateOpened", str)
 
 
 class JoinSamples(Step[list[str]]):
@@ -182,6 +216,10 @@ class JoinSamples(Step[list[str]]):
 
 
 class AnalyzeSample(Step[str]):
+    def wait_for(self, context: Context, input: str) -> Wait:
+        ANALYSIS_STARTED_SAMPLES.set(context, input, True)
+        return Wait.until(SAMPLE_GATE_OPENED.for_one())
+
     def execute(self, context: Context, input: str) -> StepDecision:
         SAMPLE_ANALYZED.publish(context, input)
         return dead_end()
@@ -207,8 +245,10 @@ class NoPriorKnowledgeMultipleInstancesFlow(Flow[list[str]]):
         return PersistenceSchema.of(
             STARTED_SAMPLE_COUNT,
             IS_SAMPLE_INTAKE_CLOSED,
+            ANALYSIS_STARTED_SAMPLES,
             SAMPLE_ANALYZED,
             SAMPLE_INTAKE_CLOSED,
+            SAMPLE_GATE_OPENED,
         )
 
     @rpc(lock_attributes=(STARTED_SAMPLE_COUNT.lock(),))
@@ -223,66 +263,105 @@ class NoPriorKnowledgeMultipleInstancesFlow(Flow[list[str]]):
         IS_SAMPLE_INTAKE_CLOSED.set(context, True)
         SAMPLE_INTAKE_CLOSED.publish(context, "closed")
 
+    @rpc(load_attribute_maps=(ANALYSIS_STARTED_SAMPLES,))
+    def get_started_analysis_count(self, context: Context) -> RPCResult[int]:
+        return RPCResult(ANALYSIS_STARTED_SAMPLES.get_map_size(context))
 
-# WCP-34 Static Partial Join for Multiple Instances: ForN(required) continues and a
-# reset Step consumes the remaining results.
+    @rpc
+    def open_sample_gate(self, context: Context, input: int) -> None:
+        open_gate(context, SAMPLE_GATE_OPENED, input)
+
+
+# WCP-34: instances publish to their round's ChannelMap instance; a reset re-enables
+# the join.
 
 
 @dataclass(frozen=True)
-class PartialInspection:
+class InspectionRound:
     inspection_count: int
     required_inspections: int
+    round: int
+    round_count: int
+
+
+@dataclass(frozen=True)
+class UnitInspection:
+    round: int
+    unit_index: int
+
+
+@dataclass(frozen=True)
+class InspectedUnits:
+    round: int
+    unit_indexes: list[int]
 
 
 INSPECTION_RELEASED = Channel("inspectionReleased", str)
-UNIT_INSPECTED = Channel("unitInspected", int)
+UNIT_INSPECTED = ChannelMap("unitInspected", int)
 
 
-class StartInspections(Step[PartialInspection]):
-    def execute(self, context: Context, input: PartialInspection) -> StepDecision:
+def inspection_round_instance(round: int) -> str:
+    return f"round-{round}"
+
+
+class StartInspections(Step[InspectionRound]):
+    def execute(self, context: Context, input: InspectionRound) -> StepDecision:
         movements: list[StepMovement[Any]] = [
-            StepMovement.of(InspectUnit, index) for index in range(input.inspection_count)
+            StepMovement.of(InspectUnit, UnitInspection(input.round, unit_index))
+            for unit_index in range(input.inspection_count)
         ]
         movements.append(StepMovement.of(AcceptInspections, input))
         return go_to_many(*movements)
 
 
-class InspectUnit(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
+class InspectUnit(Step[UnitInspection]):
+    def wait_for(self, context: Context, input: UnitInspection) -> Wait:
         return Wait.until(INSPECTION_RELEASED.for_one())
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        UNIT_INSPECTED.publish(context, input)
+    def execute(self, context: Context, input: UnitInspection) -> StepDecision:
+        UNIT_INSPECTED.publish(
+            context, inspection_round_instance(input.round), input.unit_index
+        )
         return dead_end()
 
 
-class AcceptInspections(Step[PartialInspection]):
-    def wait_for(self, context: Context, input: PartialInspection) -> Wait:
-        return Wait.until(UNIT_INSPECTED.for_n(input.required_inspections))
+class AcceptInspections(Step[InspectionRound]):
+    def wait_for(self, context: Context, input: InspectionRound) -> Wait:
+        instance = inspection_round_instance(input.round)
+        return Wait.until(UNIT_INSPECTED.for_n(instance, input.required_inspections))
 
-    def execute(self, context: Context, input: PartialInspection) -> StepDecision:
+    def execute(self, context: Context, input: InspectionRound) -> StepDecision:
+        instance = inspection_round_instance(input.round)
+        approved = InspectedUnits(
+            input.round, sorted(UNIT_INSPECTED.results(context, instance))
+        )
         return go_to_many(
-            StepMovement.of(ApproveBatch, sorted(UNIT_INSPECTED.results(context))),
-            StepMovement.of(
-                ResetInspectionJoin, input.inspection_count - input.required_inspections
-            ),
+            StepMovement.of(ApproveBatch, approved),
+            StepMovement.of(ResetInspectionJoin, input),
         )
 
 
-class ApproveBatch(Step[list[int]]):
-    def execute(self, context: Context, input: list[int]) -> StepDecision:
+class ApproveBatch(Step[InspectedUnits]):
+    def execute(self, context: Context, input: InspectedUnits) -> StepDecision:
         return graceful_complete(input)
 
 
-class ResetInspectionJoin(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.until(UNIT_INSPECTED.for_n(input))
+class ResetInspectionJoin(Step[InspectionRound]):
+    def wait_for(self, context: Context, input: InspectionRound) -> Wait:
+        instance = inspection_round_instance(input.round)
+        remaining = input.inspection_count - input.required_inspections
+        return Wait.until(UNIT_INSPECTED.for_n(instance, remaining))
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(sorted(UNIT_INSPECTED.results(context)))
+    def execute(self, context: Context, input: InspectionRound) -> StepDecision:
+        if input.round < input.round_count:
+            return go_to(StartInspections, replace(input, round=input.round + 1))
+        instance = inspection_round_instance(input.round)
+        return graceful_complete(
+            InspectedUnits(input.round, sorted(UNIT_INSPECTED.results(context, instance)))
+        )
 
 
-class StaticPartialJoinForMultipleInstancesFlow(Flow[PartialInspection]):
+class StaticPartialJoinForMultipleInstancesFlow(Flow[InspectionRound]):
     def __init__(self) -> None:
         self.start_inspections = StartInspections()
         self.inspect_unit = InspectUnit()
@@ -290,7 +369,7 @@ class StaticPartialJoinForMultipleInstancesFlow(Flow[PartialInspection]):
         self.approve_batch = ApproveBatch()
         self.reset_inspection_join = ResetInspectionJoin()
 
-    def get_steps(self) -> StepList[PartialInspection]:
+    def get_steps(self) -> StepList[InspectionRound]:
         return StepList.start_step(self.start_inspections).other_steps(
             self.inspect_unit,
             self.accept_inspections,
@@ -307,10 +386,18 @@ class StaticPartialJoinForMultipleInstancesFlow(Flow[PartialInspection]):
             INSPECTION_RELEASED.publish(context, "released")
 
 
-# WCP-35 Cancelling Partial Join for Multiple Instances: the join cancels the rest.
+# WCP-35: the join cancels the instances that have not finished.
+
+
+@dataclass(frozen=True)
+class PartialInspection:
+    inspection_count: int
+    required_inspections: int
+
 
 QUORUM_INSPECTION_RELEASED = Channel("quorumInspectionReleased", str)
 QUORUM_UNIT_INSPECTED = Channel("quorumUnitInspected", int)
+QUORUM_CERTIFIED = Channel("quorumCertified", str)
 
 
 class StartQuorumInspections(Step[PartialInspection]):
@@ -319,7 +406,9 @@ class StartQuorumInspections(Step[PartialInspection]):
             StepMovement.of(InspectQuorumUnit, index)
             for index in range(input.inspection_count)
         ]
-        movements.append(StepMovement.of(AcceptQuorumInspections, input.required_inspections))
+        movements.append(
+            StepMovement.of(AcceptQuorumInspections, input.required_inspections)
+        )
         return go_to_many(*movements)
 
 
@@ -337,9 +426,17 @@ class AcceptQuorumInspections(Step[int]):
         return Wait.until(QUORUM_UNIT_INSPECTED.for_n(input))
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(
-            sorted(QUORUM_UNIT_INSPECTED.results(context))
+        return go_to(
+            CertifyQuorum, sorted(QUORUM_UNIT_INSPECTED.results(context))
         ).with_canceling_steps(InspectQuorumUnit)
+
+
+class CertifyQuorum(Step[list[int]]):
+    def wait_for(self, context: Context, input: list[int]) -> Wait:
+        return Wait.until(QUORUM_CERTIFIED.for_one())
+
+    def execute(self, context: Context, input: list[int]) -> StepDecision:
+        return graceful_complete(input)
 
 
 class CancellingPartialJoinForMultipleInstancesFlow(Flow[PartialInspection]):
@@ -347,19 +444,33 @@ class CancellingPartialJoinForMultipleInstancesFlow(Flow[PartialInspection]):
         self.start_quorum_inspections = StartQuorumInspections()
         self.inspect_quorum_unit = InspectQuorumUnit()
         self.accept_quorum_inspections = AcceptQuorumInspections()
+        self.certify_quorum_step = CertifyQuorum()
 
     def get_steps(self) -> StepList[PartialInspection]:
         return StepList.start_step(self.start_quorum_inspections).other_steps(
-            self.inspect_quorum_unit, self.accept_quorum_inspections
+            self.inspect_quorum_unit,
+            self.accept_quorum_inspections,
+            self.certify_quorum_step,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(QUORUM_INSPECTION_RELEASED, QUORUM_UNIT_INSPECTED)
+        return PersistenceSchema.of(
+            QUORUM_INSPECTION_RELEASED, QUORUM_UNIT_INSPECTED, QUORUM_CERTIFIED
+        )
 
     @rpc
     def release_quorum_inspections(self, context: Context, input: int) -> None:
         for _ in range(input):
             QUORUM_INSPECTION_RELEASED.publish(context, "released")
+
+    # A canceled instance no longer waits, so its late release stays queued.
+    @rpc(load_channels=(QUORUM_INSPECTION_RELEASED,))
+    def get_queued_quorum_release_count(self, context: Context) -> RPCResult[int]:
+        return RPCResult(QUORUM_INSPECTION_RELEASED.size(context))
+
+    @rpc
+    def certify_quorum(self, context: Context) -> None:
+        QUORUM_CERTIFIED.publish(context, "certified")
 
 
 # WCP-36: the join tests its condition after each bid, then closes admission.
@@ -381,7 +492,10 @@ class EvaluatedBid:
 
 MAXIMUM_ACCEPTED_BID_AMOUNT = 1000
 IS_BID_ADMISSION_CLOSED = Attribute("isBidAdmissionClosed", bool)
+EVALUATION_STARTED_BIDS = AttributeMap("evaluationStartedBids", bool)
 BID_EVALUATED = Channel("bidEvaluated", EvaluatedBid)
+BID_GATE_OPENED = Channel("bidGateOpened", str)
+CONTRACT_SIGNED = Channel("contractSigned", str)
 
 
 class JoinBids(Step[BidJoin]):
@@ -403,6 +517,10 @@ class JoinBids(Step[BidJoin]):
 
 
 class EvaluateBid(Step[int]):
+    def wait_for(self, context: Context, input: int) -> Wait:
+        EVALUATION_STARTED_BIDS.set(context, str(input), True)
+        return Wait.until(BID_GATE_OPENED.for_one())
+
     def execute(self, context: Context, input: int) -> StepDecision:
         BID_EVALUATED.publish(
             context, EvaluatedBid(input, input <= MAXIMUM_ACCEPTED_BID_AMOUNT)
@@ -411,6 +529,9 @@ class EvaluateBid(Step[int]):
 
 
 class AwardContract(Step[list[int]]):
+    def wait_for(self, context: Context, input: list[int]) -> Wait:
+        return Wait.until(CONTRACT_SIGNED.for_one())
+
     def execute(self, context: Context, input: list[int]) -> StepDecision:
         return graceful_complete(sorted(input))
 
@@ -427,10 +548,28 @@ class DynamicPartialJoinForMultipleInstancesFlow(Flow[BidJoin]):
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(IS_BID_ADMISSION_CLOSED, BID_EVALUATED)
+        return PersistenceSchema.of(
+            IS_BID_ADMISSION_CLOSED,
+            EVALUATION_STARTED_BIDS,
+            BID_EVALUATED,
+            BID_GATE_OPENED,
+            CONTRACT_SIGNED,
+        )
 
     @rpc(lock_attributes=(IS_BID_ADMISSION_CLOSED.lock(),))
     def add_bid(self, context: Context, input: int) -> RPCResult[bool]:
         if IS_BID_ADMISSION_CLOSED.get(context):
             return RPCResult(False)
         return RPCResult(True, next_steps=(StepMovement.of(EvaluateBid, input),))
+
+    @rpc(load_attribute_maps=(EVALUATION_STARTED_BIDS,))
+    def get_started_evaluation_count(self, context: Context) -> RPCResult[int]:
+        return RPCResult(EVALUATION_STARTED_BIDS.get_map_size(context))
+
+    @rpc
+    def open_bid_gate(self, context: Context, input: int) -> None:
+        open_gate(context, BID_GATE_OPENED, input)
+
+    @rpc
+    def sign_contract(self, context: Context) -> None:
+        CONTRACT_SIGNED.publish(context, "signed")
