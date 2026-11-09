@@ -26,7 +26,7 @@ use crate::projections::history_event_links::{
 };
 use crate::projections::search_document;
 use crate::state_access::{FlowTransaction, RunRows};
-use crate::steps::delete_ended_step_rows;
+use crate::steps::{delete_ended_step_rows, sweep_ended_step_rows};
 use crate::values::{ValueIdAllocator, ValueLimits};
 use crate::values::{enforce_superseded_byte_cap, reconcile_run_storage};
 use crate::{ApplyEffect, ApplyError, WaitableChange};
@@ -285,6 +285,7 @@ impl RunCursor {
             window_event_count_before,
         );
         delete_ended_step_rows(transaction, self.rows)?;
+        sweep_ended_step_rows(transaction, self.rows, &mut self.record)?;
         search_document::refresh_search_document(transaction, &mut self, scope)?;
         stamp_superseded_values(transaction, self.rows, scope.now_micros)?;
         history::after_command(transaction, &mut self, window_events)?;

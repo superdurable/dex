@@ -8,12 +8,18 @@
 
 //! Deletes StepExecution rows that ended Steps no longer need, so Step rows grow with active Steps.
 
+use dexzd_keyspace::row_keys::{prefix_range, run_named_key};
 use dexzd_keyspace::{ColumnFamily, RunTable, parse_run_key, run_table_prefix};
-use dexzd_protocol::dexzd::v1::{StepExecutionPhase, StepExecutionRecord};
+use dexzd_protocol::dexzd::v1::{
+    EndedStepRowSweep, RunRecord, StepExecutionPhase, StepExecutionRecord,
+};
 use prost::Message;
 
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::{ApplyError, StateWrite};
+
+/// Most Step rows one command visits while it deletes the ended rows older binaries kept.
+const SWEEP_ROWS_PER_COMMAND: usize = 256;
 
 /// Whether WaitForStepCompletion answers Completed for this ended Step with or without its row.
 pub(crate) fn is_deletable_ended_step(step: &StepExecutionRecord) -> bool {
@@ -39,13 +45,7 @@ pub(crate) fn delete_ended_step_rows(
     let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::StepExecution);
     let mut deletable_keys = Vec::new();
     for (key, value) in transaction.buffered_puts_with_prefix(ColumnFamily::Flow, &prefix) {
-        let step =
-            StepExecutionRecord::decode(value).map_err(|error| ApplyError::CorruptState {
-                table: "step execution",
-                key: key.iter().map(|byte| format!("{byte:02x}")).collect(),
-                detail: error.to_string(),
-            })?;
-        if is_deletable_ended_step(&step) {
+        if is_deletable_ended_step(&decode_step(key, value)?) {
             deletable_keys.push(key.to_vec());
         }
     }
@@ -54,6 +54,68 @@ pub(crate) fn delete_ended_step_rows(
         transaction.delete(ColumnFamily::Flow, key);
     }
     Ok(())
+}
+
+/// Deletes the deletable ended rows that a run kept from older binaries, visiting at most
+/// [`SWEEP_ROWS_PER_COMMAND`] Step rows after where the previous command stopped.
+///
+/// Live commands only: a replay cannot know the sweep progress of the command it repeats.
+/// Returns an error when a visited row does not decode.
+pub(crate) fn sweep_ended_step_rows(
+    transaction: &mut FlowTransaction<'_>,
+    rows: RunRows,
+    record: &mut RunRecord,
+) -> Result<(), ApplyError> {
+    let sweep = match &record.ended_step_row_sweep {
+        Some(sweep) if sweep.is_complete => return Ok(()),
+        Some(sweep) => sweep.clone(),
+        None => EndedStepRowSweep::default(),
+    };
+    let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::StepExecution);
+    let (mut start, end) = prefix_range(&prefix);
+    if !sweep.last_visited_step_execution_id.is_empty() {
+        start = run_named_key(
+            rows.flow_hash,
+            rows.run_id,
+            RunTable::StepExecution,
+            &sweep.last_visited_step_execution_id,
+        );
+        start.push(0);
+    }
+    let page = transaction.scan(ColumnFamily::Flow, &start, &end, SWEEP_ROWS_PER_COMMAND)?;
+    let is_complete = page.len() < SWEEP_ROWS_PER_COMMAND;
+    let mut last_visited_step_execution_id = String::new();
+    for (key, value) in page {
+        let step = decode_step(&key, &value)?;
+        last_visited_step_execution_id =
+            String::from_utf8(key[prefix.len()..].to_vec()).map_err(|error| {
+                ApplyError::CorruptState {
+                    table: "step execution",
+                    key: key.iter().map(|byte| format!("{byte:02x}")).collect(),
+                    detail: error.to_string(),
+                }
+            })?;
+        if is_deletable_ended_step(&step) {
+            transaction.delete(ColumnFamily::Flow, key);
+        }
+    }
+    record.ended_step_row_sweep = Some(EndedStepRowSweep {
+        last_visited_step_execution_id: if is_complete {
+            String::new()
+        } else {
+            last_visited_step_execution_id
+        },
+        is_complete,
+    });
+    Ok(())
+}
+
+fn decode_step(key: &[u8], value: &[u8]) -> Result<StepExecutionRecord, ApplyError> {
+    StepExecutionRecord::decode(value).map_err(|error| ApplyError::CorruptState {
+        table: "step execution",
+        key: key.iter().map(|byte| format!("{byte:02x}")).collect(),
+        detail: error.to_string(),
+    })
 }
 
 /// Returns whether `writes` put a row [`delete_ended_step_rows`] deletes: a command bypassed it.

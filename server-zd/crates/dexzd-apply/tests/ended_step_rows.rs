@@ -22,18 +22,20 @@ use dexzd_keyspace::row_keys::{
 };
 use dexzd_keyspace::{ColumnFamily, PartitionHasher, RunId, RunTable, TenantId, run_table_prefix};
 use dexzd_protocol::dex::{
-    CloseDecision, CloseDecisionType, ExecuteMethodFailurePolicy, FlowResetType, FlowStartOptions,
-    FlowTimeoutHandlerOptions, FlowTimeoutPolicy, InvokeExecuteMethodResponse, InvokeRpcRequest,
-    InvokeWorkerRpcResponse, ResetFlowRequest, StartFlowRequest, StepDecision, StepMovement,
-    StepOptions, StopFlowRequest, StopType, Value, WorkerErrorResponse, WorkerTarget, value,
+    AttributeWrite, CloseDecision, CloseDecisionType, ExecuteMethodFailurePolicy, FlowResetType,
+    FlowStartOptions, FlowTimeoutHandlerOptions, FlowTimeoutPolicy, InvokeExecuteMethodResponse,
+    InvokeRpcRequest, InvokeWorkerRpcResponse, ResetFlowRequest, SetAttributesRequest,
+    StartFlowRequest, StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType, Value,
+    WorkerErrorResponse, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, CheckpointRecord, CheckpointRow, FlowCommand, FlowStartCommand, FlowStopCommand,
-    FlowTimeoutTimerId, RpcCommittedCommand, RunRecord, RunSettings, StepAttemptFailedCommand,
-    StepAttemptFailureKind, StepAttemptQueuedCommand, StepAttemptStartedCommand,
-    StepExecutionPhase, StepExecutionRecord, StepInvocationKey, StepMethod,
-    StepMethodCompletedCommand, TimeTravelCommand, TimerId, TimersFiredCommand, command_reply,
-    flow_command::Command, step_method_completed_command, timer_id,
+    AttemptRecord, AttributesSetCommand, CheckpointRecord, CheckpointRow, EndedStepRowSweep,
+    FlowCommand, FlowStartCommand, FlowStopCommand, FlowTimeoutTimerId, RpcCommittedCommand,
+    RunRecord, RunSettings, StepAttemptFailedCommand, StepAttemptFailureKind,
+    StepAttemptQueuedCommand, StepAttemptStartedCommand, StepCounterRecord, StepExecutionPhase,
+    StepExecutionRecord, StepInvocationKey, StepMethod, StepMethodCompletedCommand,
+    TimeTravelCommand, TimerId, TimersFiredCommand, command_reply, flow_command::Command,
+    step_method_completed_command, timer_id,
 };
 use prost::Message;
 
@@ -778,4 +780,323 @@ fn a_reapplied_rpc_cancellation_deletes_the_row_and_keeps_its_event_links() {
         harness.completion("WaitingStep", 1),
         StepCompletionState::Completed
     );
+}
+
+/// The ended rows besides Completed ones that [`Harness::inject_rows_of_an_older_binary`] writes.
+const OLDER_BINARY_KEPT_STEPS: [(&str, StepExecutionPhase, Option<bool>); 4] = [
+    ("PlainCancelStep", StepExecutionPhase::Canceled, Some(false)),
+    ("UnmarkedCancelStep", StepExecutionPhase::Canceled, None),
+    ("CloseCancelStep", StepExecutionPhase::Canceled, Some(true)),
+    ("OldFailedStep", StepExecutionPhase::Failed, None),
+];
+
+impl Harness {
+    /// Writes ended rows an older binary kept, in state and checkpoint, and clears the sweep.
+    ///
+    /// The rows are `completed_count` Completed OldStep rows, `unmarked_count` unmarked Canceled
+    /// LegacyCancelStep rows, and one row of each [`OLDER_BINARY_KEPT_STEPS`] entry.
+    fn inject_rows_of_an_older_binary(&mut self, completed_count: u32, unmarked_count: u32) {
+        let completed_seq = self.run_record().next_run_seq - 1;
+        let mut rows = Vec::new();
+        for number in 1..=completed_count {
+            rows.push(ended_row(
+                "OldStep",
+                number,
+                StepExecutionPhase::Completed,
+                None,
+                completed_seq,
+            ));
+        }
+        for number in 1..=unmarked_count {
+            rows.push(ended_row(
+                "LegacyCancelStep",
+                number,
+                StepExecutionPhase::Canceled,
+                None,
+                completed_seq,
+            ));
+        }
+        for (step_type, phase, is_canceled_by_flow_close) in OLDER_BINARY_KEPT_STEPS {
+            rows.push(ended_row(
+                step_type,
+                1,
+                phase,
+                is_canceled_by_flow_close,
+                completed_seq,
+            ));
+        }
+        let (mut checkpoint, _) = self.latest_checkpoint();
+        let mut injected_bytes = 0;
+        for step in &rows {
+            let key = self.step_key(&step.step_execution_id);
+            injected_bytes += key.len() + step.encoded_len();
+            self.state
+                .rows
+                .insert((ColumnFamily::Flow, key), step.encode_to_vec());
+            checkpoint.rows.push(CheckpointRow {
+                table: u32::from(RunTable::StepExecution as u8),
+                key_suffix: step.step_execution_id.as_bytes().to_vec(),
+                value: step.encode_to_vec(),
+            });
+        }
+        let mut counters = BTreeMap::new();
+        for step in &rows {
+            let counter = counters.entry(step.step_type.clone()).or_insert(0_u32);
+            *counter = (*counter).max(step.step_number);
+        }
+        for (step_type, last_step_number) in counters {
+            let key = run_named_key(
+                self.context.flow_hash,
+                RUN_ID,
+                RunTable::StepCounter,
+                &step_type,
+            );
+            let counter = StepCounterRecord { last_step_number }.encode_to_vec();
+            injected_bytes += key.len() + counter.len();
+            self.state
+                .rows
+                .insert((ColumnFamily::Flow, key), counter.clone());
+            checkpoint.rows.push(CheckpointRow {
+                table: u32::from(RunTable::StepCounter as u8),
+                key_suffix: step_type.as_bytes().to_vec(),
+                value: counter,
+            });
+        }
+        checkpoint.rows.sort_by(|left, right| {
+            (left.table, &left.key_suffix).cmp(&(right.table, &right.key_suffix))
+        });
+        let key = checkpoint_key(
+            self.context.flow_hash,
+            RUN_ID,
+            checkpoint.attempt,
+            checkpoint.seq,
+        );
+        self.state
+            .rows
+            .insert((ColumnFamily::History, key), checkpoint.encode_to_vec());
+        let mut record = self.run_record();
+        record.ended_step_row_sweep = None;
+        let storage = record.storage.get_or_insert_default();
+        storage.state_row_bytes += u64::try_from(injected_bytes).expect("row bytes fit a u64");
+        let key = run_singleton_key(self.context.flow_hash, RUN_ID, RunTable::RunRecord);
+        self.state
+            .rows
+            .insert((ColumnFamily::Flow, key), record.encode_to_vec());
+    }
+
+    /// Writes an Attribute, a live command that changes no Step.
+    fn touch(&mut self, index: u32) -> ApplyOutcome {
+        let outcome = self.apply(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                attributes: vec![AttributeWrite {
+                    key: "touch".to_owned(),
+                    value: Some(string_value(&index.to_string())),
+                    ..AttributeWrite::default()
+                }],
+                ..SetAttributesRequest::default()
+            }),
+            ..AttributesSetCommand::default()
+        }));
+        assert_not_rejected(&outcome, "the Attribute write applies");
+        outcome
+    }
+
+    /// Every Step answer for the Step types of [`Self::inject_rows_of_an_older_binary`].
+    fn older_binary_answers(&self, completed_count: u32) -> Vec<StepCompletionState> {
+        let mut answers: Vec<StepCompletionState> = (1..=completed_count)
+            .map(|number| self.completion("OldStep", number))
+            .collect();
+        for (step_type, _, _) in OLDER_BINARY_KEPT_STEPS {
+            answers.push(self.completion(step_type, 1));
+        }
+        answers
+    }
+}
+
+fn ended_row(
+    step_type: &str,
+    step_number: u32,
+    phase: StepExecutionPhase,
+    is_canceled_by_flow_close: Option<bool>,
+    completed_seq: u64,
+) -> StepExecutionRecord {
+    StepExecutionRecord {
+        step_execution_id: format!("{step_type}-{step_number}"),
+        step_type: step_type.to_owned(),
+        step_number,
+        phase: phase as i32,
+        completed_seq,
+        is_canceled_by_flow_close,
+        ..StepExecutionRecord::default()
+    }
+}
+
+fn deleted_step_rows(outcome: &ApplyOutcome) -> usize {
+    outcome
+        .writes
+        .iter()
+        .filter(|write| {
+            matches!(
+                write,
+                StateWrite::Delete { column_family: ColumnFamily::Flow, key }
+                    if dexzd_keyspace::parse_run_key(key)
+                        .is_ok_and(|parsed| parsed.table == RunTable::StepExecution)
+            )
+        })
+        .count()
+}
+
+#[test]
+fn a_new_run_records_that_it_needs_no_sweep() {
+    let mut harness = Harness::new();
+    harness.start(None);
+    assert_eq!(
+        harness.run_record().ended_step_row_sweep,
+        Some(EndedStepRowSweep {
+            is_complete: true,
+            ..EndedStepRowSweep::default()
+        })
+    );
+}
+
+#[test]
+fn an_older_run_deletes_its_kept_ended_rows_256_per_command() {
+    const COMPLETED_COUNT: u32 = 1_000;
+    let mut harness = Harness::new();
+    harness.start(None);
+    harness.execute("ChargeStep-1", go_to(&["ShipStep"]));
+    harness.inject_rows_of_an_older_binary(COMPLETED_COUNT, 0);
+    let answers = harness.older_binary_answers(COMPLETED_COUNT);
+    assert_eq!(
+        answers
+            .iter()
+            .filter(|answer| **answer != StepCompletionState::Completed)
+            .count(),
+        1,
+        "only the failure ends without completion while the run runs"
+    );
+    let mut commands = 0;
+    while harness
+        .run_record()
+        .ended_step_row_sweep
+        .is_none_or(|sweep| !sweep.is_complete)
+    {
+        commands += 1;
+        let outcome = harness.touch(commands);
+        assert!(deleted_step_rows(&outcome) <= 256);
+        assert_eq!(
+            harness.older_binary_answers(COMPLETED_COUNT),
+            answers,
+            "answers stay the same after sweep command {commands}"
+        );
+        assert!(commands <= 5, "the sweep visits 256 rows per command");
+    }
+    assert_eq!(commands, 4, "1,005 rows take four pages of 256");
+    assert_eq!(
+        harness.step_ids(),
+        [
+            "CloseCancelStep-1",
+            "OldFailedStep-1",
+            "ShipStep-1",
+            "UnmarkedCancelStep-1"
+        ]
+    );
+    harness.stop(StopType::Terminate);
+    assert_eq!(harness.older_binary_answers(COMPLETED_COUNT), {
+        let mut terminated = vec![StepCompletionState::Completed; COMPLETED_COUNT as usize];
+        // The unmarked cancel's record has no FlowClosed, so only the close cancel and the
+        // failure end without completion.
+        terminated.extend([
+            StepCompletionState::Completed,
+            StepCompletionState::Completed,
+            StepCompletionState::EndedWithoutCompletion,
+            StepCompletionState::EndedWithoutCompletion,
+        ]);
+        terminated
+    });
+}
+
+#[test]
+fn a_rebuild_during_the_sweep_hashes_like_the_live_state() {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_row_write_bytes_threshold: 1 << 30,
+        ..RunSettings::default()
+    });
+    harness.start(None);
+    harness.inject_rows_of_an_older_binary(600, 0);
+    harness.touch(1);
+    let command = harness.command(Command::AttributesSet(AttributesSetCommand {
+        request: Some(SetAttributesRequest {
+            attributes: vec![AttributeWrite {
+                key: "touch".to_owned(),
+                value: Some(string_value("2")),
+                ..AttributeWrite::default()
+            }],
+            ..SetAttributesRequest::default()
+        }),
+        ..AttributesSetCommand::default()
+    }));
+    harness.apply_command(command.clone());
+    let target_micros = harness.now_micros;
+    let live_hash = harness.last_semantic_point_hash(&command);
+    assert!(
+        harness.step_ids().len() < 600,
+        "two sweep commands deleted rows that replay keeps"
+    );
+    harness.touch(3);
+    let travel = harness.time_travel_command(target_micros);
+    let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &travel)
+        .expect("the rebuild runs")
+        .expect("the target exists");
+    assert_eq!(rebuilt.state_hash, live_hash);
+}
+
+#[test]
+fn time_travel_runs_the_sweep_again() {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_row_write_bytes_threshold: 1 << 30,
+        ..RunSettings::default()
+    });
+    harness.start(None);
+    harness.execute("ChargeStep-1", go_to(&["ShipStep"]));
+    let target_micros = harness.now_micros;
+    // 300 kept unmarked cancels make a sweep take two commands.
+    harness.inject_rows_of_an_older_binary(300, 300);
+    for index in 1..=3 {
+        harness.touch(index);
+    }
+    let is_sweep_complete = |harness: &Harness| {
+        harness
+            .run_record()
+            .ended_step_row_sweep
+            .is_some_and(|sweep| sweep.is_complete)
+    };
+    assert!(is_sweep_complete(&harness));
+    harness.travel_to(target_micros);
+    assert_eq!(harness.run_record().current_attempt, 2);
+    assert!(
+        !is_sweep_complete(&harness),
+        "the TimeTravel restarted the sweep, and its first page did not reach the end"
+    );
+    assert!(
+        !harness
+            .step_ids()
+            .iter()
+            .any(|id| id.starts_with("OldStep-")),
+        "the TimeTravel deleted the Completed rows it restored"
+    );
+    harness.touch(4);
+    assert!(is_sweep_complete(&harness));
+    let mut kept = harness.step_ids();
+    kept.retain(|id| !id.starts_with("LegacyCancelStep-"));
+    assert_eq!(
+        kept,
+        [
+            "CloseCancelStep-1",
+            "OldFailedStep-1",
+            "ShipStep-1",
+            "UnmarkedCancelStep-1"
+        ]
+    );
+    assert_eq!(harness.step_ids().len(), 304);
 }

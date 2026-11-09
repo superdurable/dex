@@ -53,6 +53,15 @@ restores, in its own command. The debug semantic hash that compares a TimeTravel
 target with the live state skips them on both sides, because a deletable row
 answers every read as an absent row does.
 
+A run recorded before this deletion keeps such rows. The run record's
+`ended_step_row_sweep` tracks deleting them: each live command visits at most
+256 Step rows after the last one the previous command visited, deletes the
+deletable ones, and marks the sweep complete when a page ends short. FlowStart
+records it complete, and a TimeTravel starts it again because its restored rows
+may come from an older checkpoint. A replay never sweeps, since the progress is
+run-scoped, so a rebuilt state may keep rows the live state deleted, which the
+debug semantic hash also skips.
+
 ## Search outbox
 
 While a partition's `SearchProjectionModeRecord` is enabled, every search

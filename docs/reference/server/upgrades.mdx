@@ -53,8 +53,10 @@ before the first start with 0.1.22. See
 [History offload](/reference/server/configuration#history-offload).
 
 Changed in 0.1.23: apply deletes the state row of a Step that completed, or that
-a cancellation without a Flow close ended, in the command that ends it.
-Upgrade the active process and the standby together, as above.
+a cancellation without a Flow close ended, in the command that ends it. A run
+that started on an older release deletes the rows it kept, visiting at most 256
+Step rows in each of its later commands. Upgrade the active process and the
+standby together, as above.
 WaitForStepCompletion answers stay the same.
 
 A later release that raises the minimum protocol needs the same care. Stop old
