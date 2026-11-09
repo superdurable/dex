@@ -12,6 +12,9 @@
 //! references it (plan section 5.11), and the HistoryLocalCleanup command that finishes local
 //! deletion and window pruning for runs that stop receiving commands.
 
+#[path = "support/prune_cursors.rs"]
+mod prune_cursors;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::read_model::{
@@ -198,6 +201,13 @@ impl Harness {
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("apply succeeds");
         self.state.commit(&outcome);
+        if let Ok(run_id) = RunId::from_slice(&self.run_id) {
+            prune_cursors::assert_prune_cursors_skip_no_rows(
+                &self.state.rows,
+                self.context.flow_hash,
+                run_id,
+            );
+        }
         self.log.push(command);
         outcome
     }
@@ -2376,5 +2386,68 @@ fn each_run_offloads_after_the_grace_period_it_recorded_at_start() {
         None,
         "offloaded after the recorded 30 seconds"
     );
+    harness.assert_storage_recounts();
+}
+
+// Turning offload on stops pruning below the prune cursors, which must not move back.
+#[test]
+fn prune_cursors_wait_at_the_uploaded_seq_and_never_move_back() {
+    let mut harness = Harness::not_offloading(RunSettings {
+        history_window_events: 50,
+        history_prune_chunk_events: 5,
+        checkpoint_command_threshold: 7,
+        ..settings(4 << 10)
+    });
+    for round in 0..200 {
+        harness.set_attribute("profile", large_text(&format!("off-{round}"), 300));
+    }
+    let before_offload = harness.run_record();
+    assert!(before_offload.history_metadata_pruned_before_seq > 100);
+    assert!(before_offload.value_garbage_pruned_before_seq > 100);
+
+    harness.set_offload_mode(true);
+    for round in 0..200 {
+        harness.set_attribute("profile", large_text(&format!("on-{round}"), 300));
+    }
+    let unacknowledged = harness.run_record();
+    assert_eq!(unacknowledged.history_uploaded_through_seq, 0);
+    assert!(unacknowledged.window_start_seq > before_offload.window_start_seq + 150);
+    assert_eq!(
+        (
+            unacknowledged.history_metadata_pruned_before_seq,
+            unacknowledged.value_garbage_pruned_before_seq
+        ),
+        (
+            before_offload.history_metadata_pruned_before_seq,
+            before_offload.value_garbage_pruned_before_seq
+        ),
+        "nothing uploaded, so nothing more is pruned"
+    );
+
+    let mut previous = unacknowledged.clone();
+    for round in 0..300 {
+        if round % 25 == 0 {
+            harness.ack_all();
+        }
+        harness.set_attribute("profile", large_text(&format!("acked-{round}"), 300));
+        let record = harness.run_record();
+        assert!(
+            record.history_metadata_pruned_before_seq
+                >= previous.history_metadata_pruned_before_seq
+        );
+        assert!(record.value_garbage_pruned_before_seq >= previous.value_garbage_pruned_before_seq);
+        let first_unuploaded_seq = record
+            .history_uploaded_through_seq
+            .max(before_offload.history_metadata_pruned_before_seq)
+            + 1;
+        assert!(record.history_metadata_pruned_before_seq <= first_unuploaded_seq);
+        assert!(record.value_garbage_pruned_before_seq <= first_unuploaded_seq);
+        previous = record;
+    }
+    assert!(
+        previous.history_metadata_pruned_before_seq > unacknowledged.window_start_seq,
+        "pruning resumed once uploads passed the window start"
+    );
+    assert!(previous.value_garbage_pruned_before_seq > unacknowledged.window_start_seq);
     harness.assert_storage_recounts();
 }

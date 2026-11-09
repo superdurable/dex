@@ -339,6 +339,18 @@ impl<'reader> FlowTransaction<'reader> {
             .collect()
     }
 
+    /// Returns the first key in `[start, end)` that this call put, without reading the reader.
+    pub(crate) fn first_buffered_put_key(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+    ) -> Option<&[u8]> {
+        self.rows
+            .range((column_family, start.to_vec())..(column_family, end.to_vec()))
+            .find_map(|((_, key), value)| value.is_some().then_some(key.as_slice()))
+    }
+
     /// Returns the rows this call put in `column_family`, in key order.
     pub(crate) fn buffered_puts(
         &self,

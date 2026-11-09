@@ -8,6 +8,9 @@
 
 //! History, checkpoints, the window, and time travel over an in-memory state.
 
+#[path = "support/prune_cursors.rs"]
+mod prune_cursors;
+
 use std::collections::BTreeMap;
 
 use dexzd_apply::diagnostics::{
@@ -203,6 +206,13 @@ impl Harness {
             "effects must be deterministic"
         );
         self.state.commit(&outcome);
+        if let Ok(run_id) = RunId::from_slice(&self.run_id) {
+            prune_cursors::assert_prune_cursors_skip_no_rows(
+                &self.state.rows,
+                self.context.flow_hash,
+                run_id,
+            );
+        }
         outcome
     }
 

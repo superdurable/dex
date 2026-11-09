@@ -200,6 +200,51 @@ pub(crate) fn check_window_frontier(
     Ok(())
 }
 
+/// Checks that no record metadata after genesis and no value garbage lie below the prune cursors
+/// (H18).
+pub(crate) fn check_prune_cursors(
+    context: &RunContext<'_>,
+    run: &RunView,
+) -> Result<(), InvariantViolation> {
+    let Some(record) = &run.record else {
+        return Ok(());
+    };
+    let Some(genesis_seq) = run.attempts.get(&1).map(|attempt| attempt.start_seq) else {
+        return Ok(());
+    };
+    let metadata_cursor = record.history_metadata_pruned_before_seq;
+    let skipped_metadata = (metadata_cursor > genesis_seq + 1)
+        .then(|| {
+            run.history_record_metadata
+                .range(genesis_seq + 1..metadata_cursor)
+                .next()
+        })
+        .flatten();
+    if let Some((seq, _)) = skipped_metadata {
+        return Err(violation(
+            "H18-prune-cursor",
+            context,
+            format!("record {seq} keeps metadata below the metadata cursor {metadata_cursor}"),
+        ));
+    }
+    let garbage_cursor = record.value_garbage_pruned_before_seq;
+    if let Some((seq, value_id, _)) = run
+        .value_garbage
+        .iter()
+        .find(|(seq, _, _)| *seq < garbage_cursor)
+    {
+        return Err(violation(
+            "H18-prune-cursor",
+            context,
+            format!(
+                "value {}/{} keeps garbage at seq {seq}, below the garbage cursor {garbage_cursor}",
+                value_id.run_seq, value_id.index_in_command
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Checks the run's expiry cursors and its HistoryObjectDeletePending index row (H15).
 ///
 /// Only segments that window pruning passed expire, objects are deleted only after expiry, and

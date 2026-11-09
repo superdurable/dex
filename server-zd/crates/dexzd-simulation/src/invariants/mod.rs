@@ -178,6 +178,7 @@ pub fn check_flow(
             memory.history_offload_gaps.get(run_id),
         )?;
         history_segment_invariants::check_window_frontier(&context, run)?;
+        history_segment_invariants::check_prune_cursors(&context, run)?;
         history_segment_invariants::check_segment_expiry(&context, run, view)?;
         local_cleanup_invariants::check_cleanup_index(&context, run, view)?;
     }
