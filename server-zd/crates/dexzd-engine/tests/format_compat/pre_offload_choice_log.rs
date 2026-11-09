@@ -29,6 +29,7 @@ use crate::old_log_replay::{
     ExpectedDeletion, OlderRows, StoredRows, decode_hex, deleted_ended_step_rows,
     is_expected_deletion, read_pinned_rows, replay_with_checks,
 };
+use crate::older_backend_error::replay_with_older_backend_errors;
 use crate::state_dump::{StateDump, dumped_value, hex, parse_state_dump};
 use crate::testdata_tree::{OBJECTS_DIRECTORY, STATE_DUMP_FILE, read_files, testdata_root};
 
@@ -76,12 +77,13 @@ async fn an_older_staged_time_travel_passes_the_debug_replay_checks() {
 /// recorded state row for row, except for what later apply changes compute from recorded rows:
 /// the rows of ended Steps that apply deletes since #1429, the checkpoints and byte counters
 /// without them, and the prune cursors that apply maintains since #1427.
+/// Failure text is compared as the recording binary wrote it; see `older_backend_error`.
 #[tokio::test]
 async fn the_log_recorded_before_runs_chose_offload_replays_to_its_recorded_state() {
     let directory = testdata_root().join(OFFLOAD_CHOICE_LOG_DIRECTORY);
     let log = read_recorded_log();
     for snapshot_use in [SnapshotUse::Restore, SnapshotUse::Ignore] {
-        let (replayed, stored) = replay_with_checks(&directory, snapshot_use, true).await;
+        let (replayed, stored) = replay_with_older_backend_errors(&directory, snapshot_use).await;
         log.compare(&replayed, &stored, snapshot_use)
             .unwrap_or_else(|error| panic!("{snapshot_use:?}: {error}"));
     }
@@ -93,7 +95,8 @@ async fn the_log_recorded_before_runs_chose_offload_replays_to_its_recorded_stat
 async fn the_offload_choice_comparison_rejects_stale_derived_values() {
     let directory = testdata_root().join(OFFLOAD_CHOICE_LOG_DIRECTORY);
     let log = read_recorded_log();
-    let (replayed, stored) = replay_with_checks(&directory, SnapshotUse::Ignore, true).await;
+    let (replayed, stored) =
+        replay_with_older_backend_errors(&directory, SnapshotUse::Ignore).await;
     log.compare(&replayed, &stored, SnapshotUse::Ignore)
         .expect("the unchanged replay matches");
     let deleted = deleted_ended_step_rows(
@@ -261,7 +264,8 @@ async fn the_offload_choice_comparison_rejects_stale_derived_values() {
 async fn the_offload_choice_comparison_requires_every_deletion_after_a_restored_snapshot() {
     let directory = testdata_root().join(OFFLOAD_CHOICE_LOG_DIRECTORY);
     let log = read_recorded_log();
-    let (replayed, stored) = replay_with_checks(&directory, SnapshotUse::Restore, true).await;
+    let (replayed, stored) =
+        replay_with_older_backend_errors(&directory, SnapshotUse::Restore).await;
     log.compare(&replayed, &stored, SnapshotUse::Restore)
         .expect("the unchanged replay matches");
     let deleted = deleted_ended_step_rows(

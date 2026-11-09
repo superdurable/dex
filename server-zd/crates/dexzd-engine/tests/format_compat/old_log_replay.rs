@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use dexzd_apply::read_model::{StepCompletionState, step_completion_state};
 use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
-use dexzd_engine::SystemEngineIdSource;
+use dexzd_engine::{CommandApplier, DeterministicCommandApplier, SystemEngineIdSource};
 use dexzd_keyspace::row_keys::{history_record_key, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueReference, parse_run_key};
 use dexzd_protocol::dex::flow_started_or_continued_history_event::StartOrContinue;
@@ -29,9 +29,10 @@ use dexzd_protocol::dexzd::v1::{
 };
 use prost::Message;
 
-use crate::compat_node::{engine_node_config, start_engine_node};
+use crate::compat_node::{engine_node_config, start_engine_node_with_applier};
 use crate::format_decoding::decode_objects;
 use crate::golden_replay::{RESTART_DELAY_MICROS, SnapshotUse, forget_snapshots};
+use crate::older_backend_error::history_with_older_backend_errors;
 use crate::scripted_clock::ScriptedClock;
 use crate::state_dump::{StateDump, dump_committed_state, dumped_value, hex, parse_state_dump};
 use crate::testdata_tree::{
@@ -561,6 +562,7 @@ impl FlowStateReader for OverlayReader<'_> {
 /// and in attempt checkpoints.
 /// Run records are compared without their byte counters, which count the bytes of those
 /// fields. History row metadata, which records checkpoint sizes, is not compared.
+/// History rows are compared with `backend_error` mapped back to the older raw failure text.
 fn matches_without_new_fields(
     column_family: &str,
     hex_key: &str,
@@ -589,7 +591,7 @@ fn matches_without_new_fields(
         }
         (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
             history_without_scheduled_time(&history_with_inline_effect_values(
-                value,
+                &history_with_older_backend_errors(value),
                 parsed.flow_hash,
                 parsed.run_id,
                 stored,
@@ -808,6 +810,23 @@ pub(crate) async fn replay_with_checks(
     snapshot_use: SnapshotUse,
     debug_replay_checks: bool,
 ) -> (StateDump, StoredRows) {
+    replay_with_applier(
+        directory,
+        snapshot_use,
+        debug_replay_checks,
+        Arc::new(DeterministicCommandApplier),
+    )
+    .await
+}
+
+/// Replays the recorded objects as `replay_with_checks` does, applying every command with
+/// `applier`.
+pub(crate) async fn replay_with_applier(
+    directory: &std::path::Path,
+    snapshot_use: SnapshotUse,
+    debug_replay_checks: bool,
+    applier: Arc<dyn CommandApplier>,
+) -> (StateDump, StoredRows) {
     let decoded = decode_objects(&read_files(&directory.join(OBJECTS_DIRECTORY)));
     let object_store = Arc::new(load_objects(directory).await);
     if snapshot_use == SnapshotUse::Ignore {
@@ -834,8 +853,14 @@ pub(crate) async fn replay_with_checks(
         decoded.cluster.partition_count,
     );
     config.commit.debug_replay_checks = debug_replay_checks;
-    let engine =
-        start_engine_node(&config, object_store, clock, Arc::new(SystemEngineIdSource)).await;
+    let engine = start_engine_node_with_applier(
+        &config,
+        object_store,
+        clock,
+        Arc::new(SystemEngineIdSource),
+        applier,
+    )
+    .await;
     let view = engine
         .committer()
         .committed_view()
