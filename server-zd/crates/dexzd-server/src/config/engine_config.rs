@@ -318,10 +318,10 @@ pub struct HistoryConfig {
     /// a configuration that sets only a smaller `uploadConcurrency` keeps a fixed limit.
     /// Since 0.1.23.
     pub upload_min_concurrency: u32,
-    /// Defaults to 128 MiB; from 1 MiB to 64 GiB. Most encoded history segment bytes that the
-    /// lease holder's uploads in flight hold at once. Each upload reserves its segment's bytes
-    /// before it reads and encodes the segment; a segment larger than this uploads alone.
-    /// Since 0.1.23.
+    /// Defaults to 128 MiB; from 1 MiB to 64 GiB. Most bytes that the lease holder's uploads in
+    /// flight hold at once for encoding history segments and keeping the encoded objects. Each
+    /// upload reserves the most memory its encoding can allocate before it encodes; a segment
+    /// larger than this uploads alone. Since 0.1.23.
     pub upload_max_in_flight_bytes: u64,
     /// Defaults to 1 GiB; most bytes of uploaded history the node keeps in its disk read cache,
     /// the sibling directory `<localStorage.directory>-history-read-cache`, such as

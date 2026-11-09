@@ -365,7 +365,7 @@ value you set wins in every command.
 | **history.supersededValueGracePeriod** | 10m | Experimental. Since 0.1.22. How long a superseded value of an uploaded segment stays on local disk after the command that superseded it, measured in command time. Must be at least 1 microsecond. Each run records the value when it starts, so a new value applies only to runs that start after the node restarts with it. Runs that started before 0.1.22 keep 10 minutes. |
 | **history.uploadConcurrency** | 256 | Experimental. Since 0.1.21. Most sealed history segments the lease holder reads, encodes, and uploads at once. From 1 to 1024. Each upload in flight holds about one encoded segment in memory, and **history.uploadMaxInFlightBytes** bounds their total. The limit adapts between **history.uploadMinConcurrency** and this value; see [Upload concurrency](#history-upload-concurrency). Changed in 0.1.23: the default was 16, and the limit stayed fixed at this value. |
 | **history.uploadMinConcurrency** | 16 | Experimental. Since 0.1.23. Uploads the lease holder allows at once while no upload waits. From 1 to 1024. A value above **history.uploadConcurrency** counts as **history.uploadConcurrency**, so a configuration that sets only a smaller **history.uploadConcurrency** keeps a fixed limit. |
-| **history.uploadMaxInFlightBytes** | 134217728 (128 MiB) | Experimental. Since 0.1.23. Most encoded history segment bytes that the lease holder's uploads in flight hold at once. From 1048576 (1 MiB) to 68719476736 (64 GiB). Each upload reserves its segment's bytes before it reads and encodes the segment, and waits while the budget is used. A segment larger than the budget uploads alone. |
+| **history.uploadMaxInFlightBytes** | 134217728 (128 MiB) | Experimental. Since 0.1.23. Most bytes that the lease holder's uploads in flight hold at once for encoding history segments and keeping the encoded objects. From 1048576 (1 MiB) to 68719476736 (64 GiB). Each upload reserves the most memory its encoding can allocate before it encodes, and waits while the budget is used. A segment larger than the budget uploads alone. See [Upload concurrency](#history-upload-concurrency). |
 | **history.readCacheMaxBytes** | 1073741824 (1 GiB) | Experimental. Since 0.1.22. Most bytes of uploaded history that the node keeps in its disk read cache. 0 disables the cache. |
 | **history.readCacheDirectory** | **localStorage.directory** with the suffix **-history-read-cache**, such as **/var/lib/dex-server-zd/store-history-read-cache** | Experimental. Since 0.1.22. Directory of the disk read cache, which the cache owns. It must be outside **localStorage.directory**, which a local store rebuild sets aside, and must not contain **..** components; startup fails otherwise. If the node cannot create it, the node logs one warning and reads from object storage without a cache. |
 | **history.objectReadConcurrency** | 32 | Experimental. Since 0.1.22. Most object storage reads of uploaded history segments that the node runs at once. From 1 to 1024. A history read beyond it waits for a free read. |
@@ -472,11 +472,15 @@ before the last reduction do not reduce it again. After a reduction, the limit
 grows again only after as many successful uploads as the reduced limit. The
 failed upload retries with backoff, as before.
 
-Memory stays bounded by **history.uploadMaxInFlightBytes**. Each upload reserves
-its segment's estimated encoded size before it reads and encodes the segment,
-then keeps only the encoded size. An upload waits while the reservations use
-the budget, and a segment larger than the budget uploads alone. Encoding also
-briefly holds the segment's uncompressed content.
+Memory stays bounded by **history.uploadMaxInFlightBytes**. After an upload reads
+a segment's rows, it computes the most memory encoding them can allocate: the
+block buffers, the compressed frames, the header, and the object. It reserves
+that much before it encodes, then keeps only the encoded object's size until
+the upload ends. An upload waits while the reservations use the budget.
+Reservations count whole KiB. Only a segment larger than the whole budget
+exceeds it, and that segment uploads alone. The budget does not count the rows
+an upload reads from local disk before it reserves, or the compressor's working
+state.
 
 **dexzd_history_upload_concurrency_limit** shows the current limit and
 **dexzd_history_upload_in_flight_bytes** the reserved bytes. To keep the limit

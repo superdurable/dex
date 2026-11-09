@@ -185,7 +185,7 @@ pub struct NodeMetrics {
     pub history_upload_backlog: HistoryUploadBacklog,
     /// History segment uploads the uploader currently allows at once.
     pub history_upload_concurrency_limit: Gauge,
-    /// Encoded history segment bytes reserved by uploads in flight.
+    /// Bytes that history segment uploads in flight reserve for encoding and encoded objects.
     pub history_upload_in_flight_bytes: Gauge,
     /// History segment uploads by outcome: each upload once its acknowledgment committed, and
     /// each failed attempt.
@@ -602,7 +602,7 @@ impl NodeMetrics {
         );
         registry.register(
             "dexzd_history_upload_in_flight_bytes",
-            "Encoded history segment bytes reserved by uploads in flight.",
+            "Bytes that history segment uploads in flight reserve for encoding and encoded objects.",
             metrics.history_upload_in_flight_bytes.clone(),
         );
         registry.register(

@@ -19,7 +19,7 @@ use dexzd_apply::read_model::{
 };
 use dexzd_history_segment::{
     HistorySegmentCodecError, decode_history_segment, decode_history_segment_header,
-    encode_history_segment, history_segment_object_key,
+    encode_history_segment, history_segment_object_key, max_history_segment_encoding_bytes,
 };
 use dexzd_keyspace::{RunId, TenantId};
 use dexzd_metrics::HistoryUploadOutcome;
@@ -42,8 +42,8 @@ use crate::flow_coordination::{CommitUrgency, FlowAddress};
 const GRPC_NOT_FOUND: i32 = 5;
 /// First reservation of an upload; it covers a short run's segment without a second read.
 const INITIAL_RESERVATION_BYTES: u64 = 64 * 1024;
-/// Fixed reservation headroom over a segment's row bytes, for block framing and the trailer.
-const RESERVATION_FRAMING_BYTES: u64 = 4 * 1024;
+/// Headroom of the first guess over three times a segment's row bytes, for headers and framing.
+const RESERVATION_GUESS_HEADROOM_BYTES: u64 = 16 * 1024;
 /// Conditional writes one upload attempt makes before it backs off; each extra write means the
 /// object changed between our read and write.
 const MAX_CONDITIONAL_WRITES: usize = 4;
@@ -218,13 +218,9 @@ async fn upload_run_segments(
         if !is_run_uploading {
             return Ok(());
         }
-        let partition = context
-            .hasher
-            .partition_of_flow(flow.tenant_id, &flow.flow_id);
         context
-            .metrics
             .history_upload_backlog
-            .remove_uploaded_segment(usize::from(partition.0));
+            .record_uploaded(flow, run_id, stored.identity.first_seq);
         acknowledged_first_seq = Some(stored.identity.first_seq);
     }
 }
@@ -252,8 +248,8 @@ fn failed_until_rescan(
 /// Reads the run's oldest SEALED segment from committed state and encodes it on a blocking
 /// thread, so zstd compression never stalls async tasks.
 ///
-/// The slot reserves the segment's bytes before the read. A segment that needs more releases
-/// what it read and reserves again.
+/// The slot reserves the most memory the encoding can allocate before it encodes. A segment
+/// that needs more drops what it read and reserves again.
 ///
 /// Returns `None` when no SEALED segment remains or the run is gone or purging. Returns an
 /// error, and writes nothing, when the segment's content cannot be read or encoded.
@@ -264,17 +260,16 @@ async fn encode_oldest_sealed_segment(
     mut upload_slot: UploadSlot,
 ) -> Result<Option<EncodedSealedSegment>, EffectError> {
     let limiter = &context.history_upload_limiter;
-    let max_reservation = limiter.max_reservation_bytes();
     let mut wanted_bytes = INITIAL_RESERVATION_BYTES;
     loop {
-        let reserved = limiter
+        let granted = limiter
             .reserve_bytes(&mut upload_slot, wanted_bytes, &context.shutdown)
             .await?;
         // A reservation of the whole budget lets any segment proceed alone.
-        let reservation_limit = if reserved >= max_reservation {
+        let reservation_limit = if granted.is_whole_budget {
             u64::MAX
         } else {
-            reserved
+            granted.bytes
         };
         let reader = context
             .flow_effect_operations
@@ -306,7 +301,7 @@ async fn encode_oldest_sealed_segment(
     }
 }
 
-/// Encodes the oldest SEALED segment when its estimate and its encoding fit in
+/// Encodes the oldest SEALED segment when the most memory its encoding can allocate fits in
 /// `reservation_limit` bytes.
 ///
 /// Returns what it found: no segment, the reservation the segment needs, or the encoding.
@@ -323,13 +318,13 @@ fn encode_from_committed_state(
         }
         Err(error) => return Err(read_model_error(error)),
     };
-    let row_bytes = sealed_segment_bytes(reader, run, &segment)?;
-    // zstd output stays within about 1/128 of its input; framing adds a fixed amount.
-    let estimate = row_bytes
-        .saturating_add(row_bytes / 64)
-        .saturating_add(RESERVATION_FRAMING_BYTES);
-    if estimate > reservation_limit {
-        return Ok(SealedSegmentEncoding::NeedsReservation(estimate));
+    // A first guess from row sizes avoids reading a large segment's content under a small
+    // reservation; the bound below decides.
+    let guess = sealed_segment_bytes(reader, run, &segment)?
+        .saturating_mul(3)
+        .saturating_add(RESERVATION_GUESS_HEADROOM_BYTES);
+    if guess > reservation_limit {
+        return Ok(SealedSegmentEncoding::NeedsReservation(guess));
     }
     let content =
         read_history_segment_content(reader, run.flow_hash, run.run_id, segment.first_seq)
@@ -340,12 +335,12 @@ fn encode_from_committed_state(
                     segment.first_seq, segment.last_seq, run.run_id
                 ),
             })?;
+    let encoding_bound = max_history_segment_encoding_bytes(&content);
+    if encoding_bound > reservation_limit {
+        return Ok(SealedSegmentEncoding::NeedsReservation(encoding_bound));
+    }
     let encoded = encode_history_segment(&content)
         .map_err(|error| encoding_error(run.run_id, segment.first_seq, &error))?;
-    let encoded_size = encoded.bytes.len() as u64;
-    if encoded_size > reservation_limit {
-        return Ok(SealedSegmentEncoding::NeedsReservation(encoded_size));
-    }
     let identity = SealedSegmentIdentity {
         first_seq: segment.first_seq,
         last_seq: segment.last_seq,

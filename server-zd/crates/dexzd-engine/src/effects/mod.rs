@@ -76,7 +76,7 @@ use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
 use dispatch::{AttemptEntries, DispatchScheduler, HandoutEnd, InterruptedAttempt};
-use history_uploads::{HistoryUploadLimiter, SealedSegmentCounter};
+use history_uploads::{HistoryUploadLimiter, UploadBacklogTracker};
 use method_request::MethodAttemptKey;
 use timer_service::TimerServices;
 
@@ -339,6 +339,7 @@ pub(crate) struct EffectContext {
     pub(crate) history_object_store: Arc<dyn ObjectStore>,
     /// Permits for history segment uploads; see [`EffectsConfig::history_upload_limits`].
     pub(crate) history_upload_limiter: Arc<HistoryUploadLimiter>,
+    pub(crate) history_upload_backlog: Arc<UploadBacklogTracker>,
     /// Runs whose upload failed without a retry; only the rescan clears an entry, so every
     /// trigger retries such a run at most once per rescan.
     pub(crate) history_upload_failed_runs: std::sync::Mutex<BTreeSet<RunId>>,
@@ -493,13 +494,14 @@ impl RetryBackoff {
 #[derive(Clone)]
 pub struct EffectRunner {
     router: mpsc::UnboundedSender<RouterMessage>,
-    sealed_segments: SealedSegmentCounter,
+    upload_backlog: Arc<UploadBacklogTracker>,
 }
 
 /// The effect runner's tasks, started once the runtime exists.
 pub struct EffectTasks {
     config: EffectsConfig,
     dependencies: EffectDependencies,
+    upload_backlog: Arc<UploadBacklogTracker>,
     router_sender: mpsc::UnboundedSender<RouterMessage>,
     router_receiver: mpsc::UnboundedReceiver<RouterMessage>,
 }
@@ -509,6 +511,7 @@ pub struct EffectTasksHandle {
     router: mpsc::UnboundedSender<RouterMessage>,
     shutdown: CancellationToken,
     tracker: TaskTracker,
+    upload_backlog: Arc<UploadBacklogTracker>,
     /// Lets tests inspect and drive the shared effect state.
     #[cfg(test)]
     context: Arc<EffectContext>,
@@ -536,13 +539,15 @@ impl EffectRunner {
     /// Creates the runner handle and its not yet started tasks.
     pub fn new(config: &EffectsConfig, dependencies: EffectDependencies) -> (Self, EffectTasks) {
         let (router_sender, router_receiver) = mpsc::unbounded_channel();
+        let upload_backlog = UploadBacklogTracker::new(&dependencies);
         let runner = Self {
             router: router_sender.clone(),
-            sealed_segments: SealedSegmentCounter::new(&dependencies),
+            upload_backlog: Arc::clone(&upload_backlog),
         };
         let tasks = EffectTasks {
             config: config.clone(),
             dependencies,
+            upload_backlog,
             router_sender,
             router_receiver,
         };
@@ -580,7 +585,7 @@ impl FlowCoordinationEffectSink for EffectRunner {
             return;
         }
         if is_committed {
-            self.sealed_segments.count_committed(flow, effects);
+            self.upload_backlog.record_committed_effects(flow, effects);
         }
         let message = RouterMessage::Effects {
             flow: flow.clone(),
@@ -603,7 +608,7 @@ impl FlowCoordinationEffectSink for EffectRunner {
         if effects.is_empty() {
             return;
         }
-        self.sealed_segments.count_committed(flow, effects);
+        self.upload_backlog.record_committed_effects(flow, effects);
         let message = RouterMessage::Effects {
             flow: flow.clone(),
             effects: effects.to_vec(),
@@ -668,6 +673,7 @@ impl EffectTasks {
             hard_delete_objects: self.dependencies.hard_delete_objects,
             history_object_store: self.dependencies.history_object_store,
             history_upload_limiter,
+            history_upload_backlog: Arc::clone(&self.upload_backlog),
             history_upload_backlog_rebuilds,
             history_upload_failed_runs: std::sync::Mutex::new(BTreeSet::new()),
             hasher: self.dependencies.partition_hasher,
@@ -711,6 +717,7 @@ impl EffectTasks {
             router: router_sender,
             shutdown,
             tracker,
+            upload_backlog: self.upload_backlog,
             #[cfg(test)]
             context: test_context,
         }
@@ -746,11 +753,12 @@ impl EffectTasksHandle {
             .map_err(|_| EffectError::Stopped)
     }
 
-    /// Cancels every effect task and waits until all of them ended.
+    /// Cancels every effect task, waits until all of them ended, then stops backlog accounting.
     pub async fn shutdown(self) {
         self.shutdown.cancel();
         self.tracker.close();
         self.tracker.wait().await;
+        self.upload_backlog.deactivate();
     }
 }
 
@@ -942,7 +950,7 @@ impl EffectRouter {
             ApplyEffect::PendingCloseHeldByRpcs { run_id } => {
                 self.spawn_tracked(flow, TrackedWork::PendingCloseCheck { run_id });
             }
-            ApplyEffect::HistorySegmentSealed { run_id } => {
+            ApplyEffect::HistorySegmentSealed { run_id, .. } => {
                 self.spawn_tracked(flow, TrackedWork::HistoryUpload { run_id });
             }
             ApplyEffect::HistorySegmentsExpired { run_id } => {

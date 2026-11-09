@@ -113,7 +113,7 @@ pub(crate) fn check_history_migration(
 ) -> Result<HistoryMigrationCounts, InvariantViolation> {
     let mut seals = BTreeMap::<RunId, usize>::new();
     for effect in &outcome.effects {
-        if let ApplyEffect::HistorySegmentSealed { run_id } = effect {
+        if let ApplyEffect::HistorySegmentSealed { run_id, .. } = effect {
             *seals.entry(*run_id).or_default() += 1;
         }
     }

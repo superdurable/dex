@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use dexzd_apply::FlowStateReader;
+use dexzd_apply::{ApplyEffect, FlowStateReader};
 use dexzd_history_segment::HISTORY_SEGMENT_OBJECT_KEY_PREFIX;
 use dexzd_keyspace::row_keys::prefix_range;
 use dexzd_keyspace::{ColumnFamily, IndexKind, PartitionId, RunId, partition_index_prefix};
@@ -22,13 +22,13 @@ use dexzd_object_store::{
     FaultAction, FaultInjector, InMemoryObjectStore, ObjectStore, ObjectStoreOperation,
 };
 use dexzd_protocol::dex::{AttributeWrite, SetAttributesRequest};
-use dexzd_protocol::dexzd::v1::{AttributesSetCommand, FlowCommand, flow_command};
+use dexzd_protocol::dexzd::v1::{AttributesSetCommand, FlowCommand, LogPosition, flow_command};
 use prometheus_client::metrics::gauge::Gauge;
 
 use super::history_upload_tests::{close_run, enable_history_offload, wait_until};
 use super::{DurableState, EffectHarness, is_error_reply, settings, start_request, string_value};
 use crate::effects::{EffectsConfig, HistoryUploadLimits};
-use crate::flow_coordination::CommitUrgency;
+use crate::flow_coordination::{CommitUrgency, FlowCoordinationEffectSink};
 
 /// One object storage write round trip, as measured against S3.
 const PUT_LATENCY: Duration = Duration::from_millis(30);
@@ -384,6 +384,78 @@ fn write_attribute(harness: &EffectHarness, flow_id: &str, run_id: RunId, text: 
         )
         .expect("the write commits");
     assert!(!is_error_reply(&reply), "the write failed: {reply:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn many_small_superseded_values_stay_within_the_in_flight_byte_budget() {
+    let budget = 512 * 1024;
+    let (harness, faults) = remote_store_harness(HistoryUploadLimits {
+        max_in_flight_bytes: budget,
+        ..HistoryUploadLimits::default()
+    });
+    harness.rebuild_all_partitions().await;
+    enable_history_offload(&harness);
+    let run_count = 8;
+    for index in 0..run_count {
+        let flow_id = format!("small-values-{index}");
+        let run_id = harness.start_flow(start_request(&flow_id), settings());
+        // Each rewrite supersedes one small stored value; the closing segment holds them all.
+        for round in 0..300 {
+            write_attribute(
+                &harness,
+                &flow_id,
+                run_id,
+                &noise_text(index * 1000 + round, 160),
+            );
+        }
+        close_run(&harness, &flow_id, run_id);
+    }
+    wait_until_backlog_drains(&harness).await;
+
+    assert_eq!(uploads(&harness), run_count as u64);
+    let max_seen = faults.max_in_flight_bytes_seen.load(Ordering::SeqCst);
+    assert!(max_seen > 0);
+    assert!(
+        u64::try_from(max_seen).expect("positive") <= budget,
+        "in-flight bytes {max_seen} exceed the budget {budget}"
+    );
+    assert_eq!(harness.metrics.history_upload_in_flight_bytes.get(), 0);
+    harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn seals_reported_after_effect_shutdown_leave_no_backlog_behind() {
+    let (harness, _faults) = remote_store_harness(HistoryUploadLimits::default());
+    harness.rebuild_all_partitions().await;
+    enable_history_offload(&harness);
+    let held_slots = harness
+        .effect_context()
+        .history_upload_limiter
+        .hold_every_slot_for_test()
+        .await;
+    let run_id = harness.start_flow(start_request("stepping-down"), settings());
+    close_run(&harness, "stepping-down", run_id);
+    assert_eq!(harness.metrics.history_upload_backlog.segments(), 1);
+    let runner = harness.runner.clone();
+    let metrics = Arc::clone(&harness.metrics);
+    drop(held_slots);
+    harness.shutdown().await;
+    assert_eq!(metrics.history_upload_backlog.segments(), 0);
+
+    // A close that committed before the engine stopped reports its seal afterward.
+    let late_seal = [ApplyEffect::HistorySegmentSealed {
+        run_id: RunId([9; 16]),
+        first_seq: 3,
+    }];
+    let flow = EffectHarness::flow("stepping-down");
+    runner.handle_committed(&flow, &late_seal, &LogPosition::default());
+    runner.handle(&flow, &late_seal, true);
+    assert_eq!(metrics.history_upload_backlog.segments(), 0);
+    assert_eq!(metrics.history_upload_backlog.bytes(), 0);
+    assert_eq!(
+        metrics.history_upload_backlog.oldest_sealed_at_micros(),
+        None
+    );
 }
 
 /// Returns `length` hexadecimal characters of xorshift output, which zstd barely compresses.

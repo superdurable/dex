@@ -175,7 +175,7 @@ impl EncodeMetric for SearchOutboxOldestEntryAge {
 
 /// Sealed history segments waiting for upload in each partition.
 ///
-/// The count follows commits; bytes and age come from scans. Each scan corrects the count.
+/// The uploader publishes the count as segments commit; bytes and age come from its scans.
 #[derive(Clone, Debug)]
 pub struct HistoryUploadBacklog {
     partitions: Arc<Vec<Mutex<PartitionHistoryUploadBacklog>>>,
@@ -188,8 +188,6 @@ struct PartitionHistoryUploadBacklog {
     bytes: u64,
     /// Seal time of the oldest waiting segment, the sealing command's proposed_at_micros; 0 when none.
     oldest_sealed_at_micros: i64,
-    /// Seals minus acknowledgments counted since the partition's running scan began.
-    segment_change_since_scan: i64,
 }
 
 impl HistoryUploadBacklog {
@@ -203,36 +201,20 @@ impl HistoryUploadBacklog {
         }
     }
 
-    /// Counts one segment whose seal committed.
-    pub fn add_sealed_segment(&self, partition: usize) {
+    /// Sets the waiting segment count of `partition`; zero also clears its bytes and seal time.
+    pub fn set_partition_segments(&self, partition: usize, segments: u64) {
         self.update_partition(partition, |backlog| {
-            backlog.segments = backlog.segments.saturating_add(1);
-            backlog.segment_change_since_scan = backlog.segment_change_since_scan.saturating_add(1);
-        });
-    }
-
-    /// Removes one acknowledged segment; the last one also clears bytes and the oldest seal time.
-    pub fn remove_uploaded_segment(&self, partition: usize) {
-        self.update_partition(partition, |backlog| {
-            backlog.segments = backlog.segments.saturating_sub(1);
-            backlog.segment_change_since_scan = backlog.segment_change_since_scan.saturating_sub(1);
-            if backlog.segments == 0 {
+            backlog.segments = segments;
+            if segments == 0 {
                 backlog.bytes = 0;
                 backlog.oldest_sealed_at_micros = 0;
             }
         });
     }
 
-    /// Marks a scan's start, before it reads; [`Self::set_partition`] adds changes counted since.
-    pub fn begin_partition_scan(&self, partition: usize) {
-        self.update_partition(partition, |backlog| backlog.segment_change_since_scan = 0);
-    }
-
     /// Records what the uploader's last scan of `partition` found waiting: the segment count,
     /// their uncompressed bytes, and the seal time of the oldest one, or `None` when none waits.
     /// Ignores a partition outside the configured count.
-    ///
-    /// The count also adds changes counted since [`Self::begin_partition_scan`].
     pub fn set_partition(
         &self,
         partition: usize,
@@ -241,13 +223,7 @@ impl HistoryUploadBacklog {
         oldest_sealed_at_micros: Option<i64>,
     ) {
         self.update_partition(partition, |backlog| {
-            let change = backlog.segment_change_since_scan;
-            backlog.segments = if change >= 0 {
-                segments.saturating_add(change.unsigned_abs())
-            } else {
-                segments.saturating_sub(change.unsigned_abs())
-            };
-            backlog.segment_change_since_scan = 0;
+            backlog.segments = segments;
             backlog.bytes = bytes;
             backlog.oldest_sealed_at_micros = oldest_sealed_at_micros.unwrap_or(0);
         });
@@ -388,29 +364,17 @@ mod tests {
     }
 
     #[test]
-    fn history_upload_backlog_keeps_changes_counted_while_a_scan_runs() {
+    fn history_upload_backlog_clears_bytes_and_age_with_the_last_segment() {
         let backlog = HistoryUploadBacklog::new(2);
-        backlog.add_sealed_segment(0);
-        backlog.add_sealed_segment(0);
-        assert_eq!(backlog.segments(), 2);
-        backlog.begin_partition_scan(0);
-        // One seal and two acknowledgments commit after the scan read committed state.
-        backlog.add_sealed_segment(0);
-        backlog.remove_uploaded_segment(0);
-        backlog.remove_uploaded_segment(0);
         backlog.set_partition(0, 2, 100, Some(5));
+        backlog.set_partition_segments(0, 1);
         assert_eq!(backlog.segments(), 1);
         assert_eq!(backlog.bytes(), 100);
-        backlog.remove_uploaded_segment(0);
-        backlog.remove_uploaded_segment(0);
+        backlog.set_partition_segments(0, 0);
         assert_eq!(backlog.segments(), 0);
         assert_eq!(backlog.bytes(), 0);
         assert_eq!(backlog.oldest_sealed_at_micros(), None);
-        backlog.begin_partition_scan(1);
-        backlog.remove_uploaded_segment(1);
-        backlog.set_partition(1, 0, 0, None);
-        assert_eq!(backlog.segments(), 0);
-        backlog.add_sealed_segment(9);
+        backlog.set_partition_segments(9, 4);
         assert_eq!(backlog.segments(), 0);
     }
 }

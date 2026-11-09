@@ -30,10 +30,11 @@ pub struct HistoryUploadLimits {
     /// to this value. A retryable object storage failure halves the limit. Values below 1 count
     /// as 1; values above `max_concurrency` count as `max_concurrency`.
     pub min_concurrency: usize,
-    /// Default 128 MiB, `history.uploadMaxInFlightBytes`. Most encoded segment bytes that uploads
-    /// in flight reserve at once. Each upload reserves its segment's bytes before it reads and
-    /// encodes the segment. A segment larger than this reserves all of it and uploads alone.
-    /// Values below 1 count as 1.
+    /// Default 128 MiB, `history.uploadMaxInFlightBytes`. Most bytes that uploads in flight
+    /// reserve at once for encoding segments and holding the encoded objects. Each upload reserves
+    /// the most memory its encoding can allocate before it encodes, then keeps only its object's
+    /// size. A segment larger than this reserves all of it and uploads alone. Reservations count
+    /// whole KiB. Values below 1 KiB count as 1 KiB; values above 4 TiB count as 4 TiB.
     pub max_in_flight_bytes: u64,
 }
 
@@ -51,10 +52,10 @@ impl Default for HistoryUploadLimits {
 pub(crate) struct HistoryUploadLimiter {
     min_concurrency: usize,
     max_concurrency: usize,
-    /// Most bytes one reservation takes: the byte budget, at most `u32::MAX`.
-    max_reservation_bytes: u64,
-    budget_bytes: usize,
+    /// The byte budget in permits of [`BYTES_PER_PERMIT`], rounded up.
+    budget_permits: u32,
     slots: Arc<Semaphore>,
+    /// Byte budget permits; one permit stands for [`BYTES_PER_PERMIT`] bytes.
     bytes: Arc<Semaphore>,
     state: Mutex<LimiterState>,
     concurrency_limit_gauge: Gauge,
@@ -78,10 +79,27 @@ struct LimiterState {
 pub(crate) struct UploadSlot {
     limiter: Arc<HistoryUploadLimiter>,
     permit: Option<OwnedSemaphorePermit>,
-    reserved_bytes: Option<OwnedSemaphorePermit>,
+    reserved_bytes: Option<ByteReservation>,
     /// Reductions made before this slot was granted.
     granted_after_reductions: u64,
 }
+
+/// Byte budget permits that the in-flight bytes gauge counts until they drop.
+struct ByteReservation {
+    permits: OwnedSemaphorePermit,
+    in_flight_bytes_gauge: Gauge,
+}
+
+/// The bytes a reservation holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GrantedBytes {
+    pub(crate) bytes: u64,
+    /// Whether it holds the whole budget, which lets a segment of any size proceed alone.
+    pub(crate) is_whole_budget: bool,
+}
+
+/// Bytes per byte budget permit; a 32-bit permit count then covers budgets up to 4 TiB.
+const BYTES_PER_PERMIT: u64 = 1024;
 
 impl HistoryUploadLimiter {
     pub(crate) fn new(limits: HistoryUploadLimits, metrics: &NodeMetrics) -> Arc<Self> {
@@ -89,19 +107,17 @@ impl HistoryUploadLimiter {
         let in_flight_bytes_gauge = metrics.history_upload_in_flight_bytes.clone();
         let max_concurrency = limits.max_concurrency.clamp(1, Semaphore::MAX_PERMITS);
         let min_concurrency = limits.min_concurrency.clamp(1, max_concurrency);
-        let budget_bytes = usize::try_from(limits.max_in_flight_bytes)
-            .unwrap_or(usize::MAX)
-            .clamp(1, Semaphore::MAX_PERMITS);
-        let max_reservation_bytes = (budget_bytes as u64).min(u64::from(u32::MAX));
+        let budget_permits = u32::try_from(permits_for(limits.max_in_flight_bytes))
+            .unwrap_or(u32::MAX)
+            .max(1);
         concurrency_limit_gauge.set(i64::try_from(min_concurrency).unwrap_or(i64::MAX));
         in_flight_bytes_gauge.set(0);
         Arc::new(Self {
             min_concurrency,
             max_concurrency,
-            max_reservation_bytes,
-            budget_bytes,
+            budget_permits,
             slots: Arc::new(Semaphore::new(min_concurrency)),
-            bytes: Arc::new(Semaphore::new(budget_bytes)),
+            bytes: Arc::new(Semaphore::new(budget_permits as usize)),
             state: Mutex::new(LimiterState {
                 limit: min_concurrency,
                 debt: 0,
@@ -140,48 +156,40 @@ impl HistoryUploadLimiter {
         })
     }
 
-    /// Returns the most bytes one reservation takes; a segment needing more uploads alone.
-    pub(crate) fn max_reservation_bytes(&self) -> u64 {
-        self.max_reservation_bytes
-    }
-
-    /// Replaces the slot's reservation with one of `bytes`, releasing the old one before waiting.
+    /// Replaces the slot's reservation with one of at least `bytes`, releasing the old one before
+    /// waiting. A request above the budget takes the whole budget.
     ///
-    /// Returns the bytes now reserved, at most [`Self::max_reservation_bytes`], or
-    /// [`EffectError::Stopped`] once `shutdown` fires.
+    /// Returns what the slot now holds, or [`EffectError::Stopped`] once `shutdown` fires.
     pub(crate) async fn reserve_bytes(
         &self,
         slot: &mut UploadSlot,
         bytes: u64,
         shutdown: &CancellationToken,
-    ) -> Result<u64, EffectError> {
+    ) -> Result<GrantedBytes, EffectError> {
         slot.reserved_bytes = None;
-        self.publish_in_flight_bytes();
-        let wanted = u32::try_from(bytes.clamp(1, self.max_reservation_bytes))
-            .expect("a reservation is at most u32::MAX bytes");
+        let wanted = u32::try_from(permits_for(bytes).clamp(1, u64::from(self.budget_permits)))
+            .expect("a reservation is at most the budget, which fits in u32");
         // Biased for reproducible simulation; shutdown fires once.
-        let reservation = tokio::select! {
+        let permits = tokio::select! {
             biased;
             () = shutdown.cancelled() => return Err(EffectError::Stopped),
-            reservation = Arc::clone(&self.bytes).acquire_many_owned(wanted) => {
-                reservation.map_err(|_| EffectError::Stopped)?
+            permits = Arc::clone(&self.bytes).acquire_many_owned(wanted) => {
+                permits.map_err(|_| EffectError::Stopped)?
             }
         };
+        let reservation = ByteReservation::new(permits, self.in_flight_bytes_gauge.clone());
         slot.reserved_bytes = Some(reservation);
-        self.publish_in_flight_bytes();
-        Ok(u64::from(wanted))
+        Ok(GrantedBytes {
+            bytes: u64::from(wanted) * BYTES_PER_PERMIT,
+            is_whole_budget: wanted == self.budget_permits,
+        })
     }
 
-    /// Shrinks the slot's reservation to `bytes`, the size of its encoded segment.
+    /// Shrinks the slot's reservation to cover `bytes`, the size of its encoded segment.
     pub(crate) fn trim_reservation(&self, slot: &mut UploadSlot, bytes: u64) {
         if let Some(reservation) = slot.reserved_bytes.as_mut() {
-            let kept = usize::try_from(bytes.max(1)).unwrap_or(usize::MAX);
-            let excess = reservation.num_permits().saturating_sub(kept);
-            if excess > 0 {
-                drop(reservation.split(excess));
-            }
+            reservation.shrink_to(permits_for(bytes).max(1));
         }
-        self.publish_in_flight_bytes();
     }
 
     /// Records an upload that object storage accepted. Grows the limit by one while uploads wait.
@@ -244,14 +252,6 @@ impl HistoryUploadLimiter {
             .set(i64::try_from(state.limit).unwrap_or(i64::MAX));
     }
 
-    fn publish_in_flight_bytes(&self) {
-        let in_flight = self
-            .budget_bytes
-            .saturating_sub(self.bytes.available_permits());
-        self.in_flight_bytes_gauge
-            .set(i64::try_from(in_flight).unwrap_or(i64::MAX));
-    }
-
     fn lock_state(&self) -> MutexGuard<'_, LimiterState> {
         self.state
             .lock()
@@ -278,13 +278,47 @@ impl UploadSlot {
 
 impl Drop for UploadSlot {
     fn drop(&mut self) {
-        if self.reserved_bytes.take().is_some() {
-            self.limiter.publish_in_flight_bytes();
-        }
+        self.reserved_bytes = None;
         if let Some(permit) = self.permit.take() {
             self.limiter.release_slot(permit);
         }
     }
+}
+
+impl ByteReservation {
+    fn new(permits: OwnedSemaphorePermit, in_flight_bytes_gauge: Gauge) -> Self {
+        in_flight_bytes_gauge.inc_by(gauge_bytes(permits.num_permits()));
+        Self {
+            permits,
+            in_flight_bytes_gauge,
+        }
+    }
+
+    /// Releases every permit beyond `permits`.
+    fn shrink_to(&mut self, permits: u64) {
+        let kept = usize::try_from(permits).unwrap_or(usize::MAX);
+        let excess = self.permits.num_permits().saturating_sub(kept);
+        if excess > 0 {
+            drop(self.permits.split(excess));
+            self.in_flight_bytes_gauge.dec_by(gauge_bytes(excess));
+        }
+    }
+}
+
+impl Drop for ByteReservation {
+    fn drop(&mut self) {
+        self.in_flight_bytes_gauge
+            .dec_by(gauge_bytes(self.permits.num_permits()));
+    }
+}
+
+/// Returns the permits that cover `bytes`, rounded up.
+fn permits_for(bytes: u64) -> u64 {
+    bytes.div_ceil(BYTES_PER_PERMIT)
+}
+
+fn gauge_bytes(permits: usize) -> i64 {
+    i64::try_from(permits as u64 * BYTES_PER_PERMIT).unwrap_or(i64::MAX)
 }
 
 /// Counts an upload as waiting until it gets a slot or stops waiting.
@@ -309,12 +343,22 @@ impl Drop for WaitingForSlot<'_> {
 mod tests {
     use super::*;
 
+    const GIB: u64 = 1024 * 1024 * 1024;
+
     fn limiter(min_concurrency: usize, max_concurrency: usize) -> Arc<HistoryUploadLimiter> {
+        limiter_with_budget(min_concurrency, max_concurrency, 8 * 1024)
+    }
+
+    fn limiter_with_budget(
+        min_concurrency: usize,
+        max_concurrency: usize,
+        max_in_flight_bytes: u64,
+    ) -> Arc<HistoryUploadLimiter> {
         HistoryUploadLimiter::new(
             HistoryUploadLimits {
                 max_concurrency,
                 min_concurrency,
-                max_in_flight_bytes: 1024,
+                max_in_flight_bytes,
             },
             &NodeMetrics::unregistered_with_partitions(1),
         )
@@ -378,11 +422,104 @@ mod tests {
             .reserve_bytes(&mut slot, 10_000, &shutdown)
             .await
             .expect("the budget is free");
-        assert_eq!(reserved, 1024);
-        assert_eq!(limiter.in_flight_bytes_gauge.get(), 1024);
+        assert_eq!(
+            reserved,
+            GrantedBytes {
+                bytes: 8 * 1024,
+                is_whole_budget: true
+            }
+        );
+        assert_eq!(limiter.in_flight_bytes_gauge.get(), 8 * 1024);
         limiter.trim_reservation(&mut slot, 100);
-        assert_eq!(limiter.in_flight_bytes_gauge.get(), 100);
+        assert_eq!(limiter.in_flight_bytes_gauge.get(), 1024);
         drop(slot);
         assert_eq!(limiter.in_flight_bytes_gauge.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn reservations_above_four_gib_share_a_larger_budget_without_overlapping() {
+        let limiter = limiter_with_budget(2, 2, 8 * GIB);
+        let shutdown = CancellationToken::new();
+        let mut first = limiter.acquire_slot(&shutdown).await.expect("a free slot");
+        let mut second = limiter.acquire_slot(&shutdown).await.expect("a free slot");
+        let granted = limiter
+            .reserve_bytes(&mut first, 5 * GIB, &shutdown)
+            .await
+            .expect("the budget is free");
+        assert_eq!(
+            granted,
+            GrantedBytes {
+                bytes: 5 * GIB,
+                is_whole_budget: false
+            }
+        );
+        assert!(
+            futures::FutureExt::now_or_never(limiter.reserve_bytes(
+                &mut second,
+                5 * GIB,
+                &shutdown
+            ))
+            .is_none(),
+            "two 5 GiB reservations never fit an 8 GiB budget"
+        );
+        drop(first);
+        let granted = limiter
+            .reserve_bytes(&mut second, 9 * GIB, &shutdown)
+            .await
+            .expect("the budget is free again");
+        assert_eq!(
+            granted,
+            GrantedBytes {
+                bytes: 8 * GIB,
+                is_whole_budget: true
+            }
+        );
+        assert_eq!(
+            limiter.in_flight_bytes_gauge.get(),
+            i64::try_from(8 * GIB).expect("fits")
+        );
+
+        let largest = limiter_with_budget(1, 1, 64 * GIB);
+        let mut slot = largest.acquire_slot(&shutdown).await.expect("a free slot");
+        let granted = largest
+            .reserve_bytes(&mut slot, 100 * GIB, &shutdown)
+            .await
+            .expect("the budget is free");
+        assert_eq!(granted.bytes, 64 * GIB);
+        assert!(granted.is_whole_budget);
+    }
+
+    #[test]
+    fn concurrent_releases_leave_the_in_flight_bytes_gauge_at_zero() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a test runtime starts");
+        let limiter = limiter_with_budget(2, 2, 1024 * 1024);
+        let shutdown = CancellationToken::new();
+        for _ in 0..2_000 {
+            let slots: Vec<UploadSlot> = runtime.block_on(async {
+                let mut slots = Vec::new();
+                for bytes in [3_000, 70_000] {
+                    let mut slot = limiter.acquire_slot(&shutdown).await.expect("a free slot");
+                    limiter
+                        .reserve_bytes(&mut slot, bytes, &shutdown)
+                        .await
+                        .expect("the budget is free");
+                    slots.push(slot);
+                }
+                slots
+            });
+            let barrier = std::sync::Barrier::new(slots.len());
+            std::thread::scope(|scope| {
+                for slot in slots {
+                    let barrier = &barrier;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        drop(slot);
+                    });
+                }
+            });
+            assert_eq!(limiter.in_flight_bytes_gauge.get(), 0);
+        }
     }
 }

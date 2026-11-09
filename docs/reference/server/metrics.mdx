@@ -90,7 +90,7 @@ the segment count also came only from that rescan, so a backlog that grew
 after a rescan did not show until the next one. A node that ran for less than
 a minute showed 0. **dexzd_history_upload_concurrency_limit** is the number of uploads the
 node currently allows at once, and **dexzd_history_upload_in_flight_bytes** is
-the encoded segment bytes those uploads reserve; both are since 0.1.23. See
+the bytes those uploads reserve for encoding and encoded objects; both are since 0.1.23. See
 [Upload concurrency](/reference/server/configuration#history-upload-concurrency). **outcome** of **dexzd_history_uploads_total** is one of
 **created**, **already_present** (a repeated upload found the same content),
 **replaced** (an existing object had other content), each counted once the
