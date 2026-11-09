@@ -1428,6 +1428,30 @@ body:has(.v1-page) {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
+.v1-page .react-flow__node.step-flow-node.graph-node-current {
+  border-color: var(--tone-accent);
+  box-shadow: 0 0 0 2px var(--tone-accent);
+}
+
+/* The selected method uses an ink ring, so it never reads as a status color. */
+.v1-page .graph-method.is-selected {
+  box-shadow: inset 0 0 0 2px var(--ui-ink);
+}
+
+.v1-page .graph-method.is-selected strong {
+  font-weight: 750;
+}
+
+.v1-page .graph-method:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
+/* The WaitFor arrow is clipped, so its focus ring sits inside the shape. */
+.v1-page .graph-method-waitfor:focus-visible {
+  outline-offset: -4px;
+}
+
 .v1-page .graph-step-heading code {
   font-size: 11px;
 }
@@ -1541,6 +1565,15 @@ body:has(.v1-page) {
 
 .v1-page .related-events ul {
   gap: 4px;
+}
+
+/* The narrower Execution graph panel puts the relation label above its target. */
+.v1-page .run-content:not(.run-content--timeline) .related-event {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.v1-page .run-content:not(.run-content--timeline) .related-event-relation {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 760px) {
