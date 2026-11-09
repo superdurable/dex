@@ -1,0 +1,86 @@
+---
+id: index
+title: Concepts
+sidebar_label: Overview
+slug: /concepts
+---
+
+# Concepts
+
+Dex has a small programming model. A Flow is a durable program. Steps move it
+forward. Primitives hold its state and connect it to the outside world. Your
+application drives Flows through a Client. This page shows how the pieces fit
+together. Each concept has its own page.
+
+## Flow and Step
+
+| Concept | What it is | Use it to |
+| --- | --- | --- |
+| [Flow](/concepts/flow) | A durable program with a business ID. It owns its Steps, state, and messages. | Model one business process or entity. |
+| [Step](/concepts/step) | A unit of work in a Flow. It waits, executes, and decides what runs next. | Do work and move the process forward. |
+
+## Primitives {#the-primitives}
+
+Primitives are the building blocks a Flow uses. Each one belongs to a Flow.
+
+| Primitive | What it is | Use it to |
+| --- | --- | --- |
+| [Attribute](/concepts/primitives/attribute) | Durable state that belongs to one Flow. | Keep data between Steps, read it from outside, and search on it. |
+| [RPC](/concepts/primitives/rpc) | A synchronous call into a Flow. | Send commands and read views from your application. |
+| [Channel](/concepts/primitives/channel) | A durable message queue in a Flow. | Deliver messages that Steps wait for. |
+| [Stream](/concepts/primitives/stream) | A best-effort feed that a reader can resume. | Push live progress to a UI. |
+| [Timer](/concepts/primitives/timer) | A durable wait until a time. | Set deadlines, reminders, and schedules. |
+| [SubFlow](/concepts/primitives/subflow) | A Flow that another Flow starts as a child. | Split large or parallel work into child Flows. |
+
+## Client
+
+The [Client](/concepts/client) is the API your application uses outside a
+Worker. Use it to start, call, read, wait for, and operate Flows.
+
+## How they fit together
+
+```text
+ Your application                      One Flow (one Flow ID)
+ ┌────────────┐   StartFlow, RPC      ┌──────────────────────────────────┐
+ │   Client   │ ────────────────────▶ │  Step ──▶ Step ──▶ Step ...      │
+ │            │   GetAttributes, wait │   waits on Channel, Timer,       │
+ │            │ ◀──────────────────── │   SubFlow; calls Connectors      │
+ │            │   Stream (live)       │                                  │
+ │            │ ◀──────────────────── │  Attributes  Channels  Streams   │
+ └────────────┘                       └──────────────────────────────────┘
+```
+
+A **Flow** is the container. A Flow ID, such as an order number, has at most
+one active run at a time.
+
+**Steps** move the Flow forward. A Step can wait for a Channel message, a Timer,
+or a SubFlow. It then executes its work, such as a call through a Connector. It
+returns a decision that names the next Steps or closes the Flow. Dex retries a
+failed Step.
+
+**Attributes** and **Channels** are the Flow's durable state. Steps and RPCs
+read and write them. Each Step method and RPC commits its state changes with
+its result. See [Step guarantees](/concepts/step#guarantees).
+
+Your application uses a **Client** to start Flows, invoke RPCs, read
+Attributes, and wait for changes. RPCs are the write boundary into a running
+Flow. A **Stream** carries live updates back to a UI.
+
+## Components
+
+Concepts are the programming model. [Components](/components) are the
+processes that run it:
+
+- Your **application** hosts the Flow code in Workers and calls Dex through
+  Clients.
+- **server-zd** stores Flow state and hands Steps and RPCs to Workers.
+- **dexcli** runs a local Dex, and **Dex Web** lets operators inspect Flows.
+
+## Where to go next
+
+- Read [Flow](/concepts/flow) and [Step](/concepts/step) first. The
+  Primitives build on them.
+- [Design patterns](/design-patterns) show how to combine these concepts for
+  common problems.
+- The [Developer reference](/reference) holds parameters, defaults, limits,
+  and version details.

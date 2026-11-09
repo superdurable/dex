@@ -122,9 +122,9 @@ A retry of one **Execute** call reuses the
 [state snapshot](#selective-state-loading) that Dex took when it handed the
 first attempt to a Worker, so it does not see Attribute writes made after that.
 To wait for an external write, have the writer also publish a
-[Channel](/primitives/channel) message, directly or from an RPC handler, and
+[Channel](/concepts/primitives/channel) message, directly or from an RPC handler, and
 wait on that message in the **WaitFor** of the next Step. Alternatively, the
-next Step can wait on a [Timer](/primitives/timer) and read fresh state when it
+next Step can wait on a [Timer](/concepts/primitives/timer) and read fresh state when it
 runs.
 
 ```java
@@ -230,7 +230,7 @@ For a long wait on an external system, see
 ## Heartbeat {#heartbeat}
 
 During an attempt, the Worker must send a heartbeat or a
-[Stream message](/primitives/stream) before the **HeartbeatTimeout** expires.
+[Stream message](/concepts/primitives/stream) before the **HeartbeatTimeout** expires.
 Sending a Stream message is an implicit heartbeat.
 
 For example, an **Execute** method timeout of 60 seconds and a
@@ -343,4 +343,4 @@ separate lock sets. Set them by returning **StepOptions**.
 
 See [Attribute locks](/reference/server/runtime-data#attribute-locks) for when
 a Step attempt takes and holds its locks, with **WaitFor** and **Execute**
-examples. See [Locks](/primitives/attribute#locking) for the lock model.
+examples. See [Locks](/concepts/primitives/attribute#locking) for the lock model.

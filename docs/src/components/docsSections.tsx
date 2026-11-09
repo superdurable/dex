@@ -25,7 +25,7 @@ import {useActivePlugin, useSidebarBreadcrumbs} from '@docusaurus/plugin-content
 /** A top-level docs section. Each has its own icon and accent color, defined in refresh.css. */
 export type DocsSectionKey =
   | 'intro'
-  | 'primitives'
+  | 'concepts'
   | 'components'
   | 'agent-frameworks'
   | 'agent-skills'
@@ -36,7 +36,7 @@ export type DocsSectionKey =
 
 export const docsSectionIcons: Record<DocsSectionKey, LucideIcon> = {
   intro: Rocket,
-  primitives: Shapes,
+  concepts: Shapes,
   components: Boxes,
   'agent-frameworks': Layers,
   'agent-skills': Sparkles,

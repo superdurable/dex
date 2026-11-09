@@ -8,9 +8,9 @@ sidebar_label: Data primitives
 This page holds the detailed rules for Attributes, RPCs, Channels, Streams, and
 SubFlows: parameters, defaults, limits, errors, and edge cases. The concept
 pages explain what each primitive is and when to use it:
-[Attribute](/primitives/attribute), [RPC](/primitives/rpc),
-[Channel](/primitives/channel), [Stream](/primitives/stream),
-[Timer](/primitives/timer), and [SubFlow](/primitives/subflow). The SDK doc
+[Attribute](/concepts/primitives/attribute), [RPC](/concepts/primitives/rpc),
+[Channel](/concepts/primitives/channel), [Stream](/concepts/primitives/stream),
+[Timer](/concepts/primitives/timer), and [SubFlow](/concepts/primitives/subflow). The SDK doc
 comments describe each API in its own language.
 
 ## Attributes {#attributes}
@@ -441,7 +441,7 @@ stored objects. Other writes to a closed run return NOT_FOUND.
 Dex Server lets only one Step execution or RPC invocation hold an Attribute lock
 at a time. A Step declares locks separately for **WaitFor** and **Execute** in
 its Step options. An RPC declares its locks when it is registered. The
-[Attribute](/primitives/attribute#locking) page shows an **Execute** lock.
+[Attribute](/concepts/primitives/attribute#locking) page shows an **Execute** lock.
 
 Lock **WaitFor**:
 

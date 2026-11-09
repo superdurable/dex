@@ -7,7 +7,7 @@ alwaysApply: true
 
 Every docs page outside the Developer reference ships in **English** and
 **Simplified Chinese** (`zh-Hans`). This includes Intro, Quick start,
-Primitives, Components, Design patterns, and Use cases. The navbar language
+Concepts, Components, Design patterns, and Use cases. The navbar language
 control (top right) persists the choice in `localStorage` (`docs-locale`) and
 cookie `superdurable-docs-locale`.
 

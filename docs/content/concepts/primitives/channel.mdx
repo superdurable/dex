@@ -1,0 +1,297 @@
+---
+title: Channel
+slug: /concepts/primitives/channel
+---
+
+import ChannelScopeDiagram from '@site/src/components/primitives/channel/ChannelScopeDiagram';
+
+# Channel
+
+A **Channel** is a durable first-in, first-out (FIFO) queue inside one Flow
+execution. Steps and RPCs publish typed messages to it. A Step consumes messages
+by waiting on the Channel in **WaitFor**.
+
+A Channel is scoped to one Flow execution. Messages never cross between Flow
+executions.
+
+<ChannelScopeDiagram markdownDescription="A Flow execution owns a FIFO Channel shared by its Steps and RPCs. Publishers add messages, and a waiting consumer Step consumes each message once." />
+
+## When to use a Channel
+
+Use a Channel for events that a Step waits for, such as an approval, a user
+reply, or a new work item. Use an [Attribute](/concepts/primitives/attribute) for state
+that you overwrite and read many times. Use a [Stream](/concepts/primitives/stream) for
+live progress that a user can afford to lose.
+
+## Guarantees
+
+- Dex stores every message durably with the Flow.
+- Messages stay in arrival order.
+- One wait consumes a message, once. Dex does not copy it to other waiting
+  Steps.
+- A message can arrive before a Step starts waiting. Dex keeps it until a later
+  wait consumes it.
+- A publication commits together with the Step or RPC result that made it.
+
+## Define, publish, and wait {#persistence-schema}
+
+A Channel has a stable name and a message type. Define it and add it to the
+Flow persistence schema.
+
+In this example, the start Step waits for one message on the
+**ApprovalMessages** Channel, or for a Timer. The
+**publishApprovalMessage** RPC publishes the approval.
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+go: 'examples/go/primitives/channel/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+rust: 'examples/rust/src/primitives/channel/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+class ChannelWait(Step[int]):
+    def __init__(
+        self,
+        approval_messages: Channel[str],
+        queued_messages: Channel[str],
+    ) -> None:
+        self.approval_messages = approval_messages
+        self.queued_messages = queued_messages
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_load_channels=(self.queued_messages,))
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        return Wait.any_of(
+            self.approval_messages.for_one(),
+            Timer.by_duration(timedelta(seconds=input)),
+        )
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        pending_queued_messages = self.queued_messages.pending_messages(context)
+        if pending_queued_messages:
+            self.queued_messages.delete(context, pending_queued_messages[0].message_id)
+            return graceful_complete(pending_queued_messages[0].value)
+        if context.has_timer_fired():
+            return graceful_complete("approval timed out")
+        approval_message_values = self.approval_messages.results(context)
+        return graceful_complete(approval_message_values[0])
+
+class ChannelFlow(Flow[int]):
+    approval_messages = Channel("ApprovalMessages", str)
+
+    @rpc
+    def publish_approval_message(self, context: Context) -> None:
+        self.approval_messages.publish(context, "approved")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+var (
+	ApprovalMessages    = dex.DefineChannel[string]("ApprovalMessages")
+	QueuedMessages      = dex.DefineChannel[string]("QueuedMessages")
+	PrioritizedMessages = dex.DefineChannel[string]("PrioritizedMessages")
+)
+
+func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+	return dex.AnyOf(
+		ApprovalMessages.ForOne(),
+		dex.Timer(time.Duration(input)*time.Second),
+	), nil
+}
+
+func (channelWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	pendingQueuedMessages, err := QueuedMessages.PendingMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(pendingQueuedMessages) > 0 {
+		if err := QueuedMessages.Delete(ctx, pendingQueuedMessages[0].MessageID); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete(pendingQueuedMessages[0].Value), nil
+	}
+	if ctx.HasTimerFired() {
+		return dex.GracefulComplete("approval timed out"), nil
+	}
+	approvalMessageValues, err := ApprovalMessages.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(approvalMessageValues[0]), nil
+}
+
+func (*ChannelFlow) PublishApprovalMessage(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	if err := ApprovalMessages.Publish(ctx, "approved"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public final Channel<String> approvalMessages =
+        Channel.define("ApprovalMessages", String.class);
+
+@Override
+public Wait waitFor(final Context context, final Integer input) {
+    return Wait.anyOf(
+            approvalMessages.forOne(),
+            Timer.byDuration(Duration.ofSeconds(input)));
+}
+
+@Override
+public StepDecision execute(final Context context, final Integer input) {
+    final List<ChannelMessage<String>> pendingQueuedMessages =
+            queuedMessages.pendingMessages(context);
+    if (!pendingQueuedMessages.isEmpty()) {
+        queuedMessages.delete(context, pendingQueuedMessages.get(0).getMessageId());
+        return StepDecision.gracefulComplete(pendingQueuedMessages.get(0).getValue());
+    }
+    if (context.hasTimerFired()) {
+        return StepDecision.gracefulComplete("approval timed out");
+    }
+    final List<String> approvalMessageValues =
+            approvalMessages.getConditionResults(context);
+    return StepDecision.gracefulComplete(approvalMessageValues.get(0));
+}
+
+@RPC
+public void publishApprovalMessage(final Context context) {
+    approvalMessages.publish(context, "approved");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const approvalMessages = new Channel("ApprovalMessages", stringCodec);
+
+public waitFor(_context: Context, input: number): Wait {
+  return Wait.anyOf(
+    approvalMessages.forOne(),
+    Timer.byDuration(input * 1000),
+  );
+}
+
+public execute(context: Context, _input: number): StepDecision {
+  const pendingQueuedMessages = queuedMessages.pendingMessages(context);
+  if (pendingQueuedMessages.length > 0) {
+    queuedMessages.delete(context, pendingQueuedMessages[0]!.messageId);
+    return gracefulComplete(pendingQueuedMessages[0]!.value);
+  }
+  if (context.hasTimerFired()) {
+    return gracefulComplete("approval timed out");
+  }
+  const approvalMessageValues = approvalMessages.results(context);
+  return gracefulComplete(approvalMessageValues[0]!);
+}
+
+@rpc()
+public publishApprovalMessage(context: Context): void {
+  approvalMessages.publish(context, "approved");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+static APPROVAL_MESSAGES: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("ApprovalMessages"));
+
+fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+    Ok(Wait::any_of([
+        APPROVAL_MESSAGES.for_one(),
+        Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+    ]))
+}
+
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let pending_queued_messages = QUEUED_MESSAGES.pending_messages(context)?;
+    if let Some(queued_message) = pending_queued_messages.first() {
+        QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
+        return Ok(StepDecision::graceful_complete(
+            queued_message.value.clone(),
+        ));
+    }
+    if context.has_any_timer_fired() {
+        return Ok(StepDecision::graceful_complete(
+            "approval timed out".to_owned(),
+        ));
+    }
+    let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
+    Ok(StepDecision::graceful_complete(
+        approval_message_values[0].clone(),
+    ))
+}
+
+fn publish_approval_message(&self, context: &mut Context) -> HandlerResult<()> {
+    APPROVAL_MESSAGES.publish(context, "approved".to_string())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+**Execute** first takes a message that an RPC queued on a second Channel,
+**QueuedMessages**, if one is pending. See
+[Manage pending messages](#manage-pending-messages). The Timer branch returns
+before it reads Channel results. If the approval wins,
+the Channel condition has consumed one message, so the first result is present.
+The full example also loads **QueuedMessages** in the Step options, registers
+the Channels in the persistence schema, and registers the RPC.
+
+## Wait and consume {#wait-and-consume}
+
+A Channel condition in **WaitFor** waits until enough messages are queued. Dex
+then removes the selected messages in FIFO order and passes them to **Execute**
+as Channel results.
+
+| Condition | When it proceeds | What it consumes |
+| --- | --- | --- |
+| **ForOne** | At least one message is queued. | Exactly one message. |
+| **ForN** | At least the requested number is queued. | Exactly that number of messages. |
+| **AtLeast** | At least the requested number is queued. | Every message currently available. |
+| **AtMost** | Immediately, including when the queue is empty. | Up to the requested number of currently queued messages. |
+| **AtLeastAtMost** | At least the lower bound is queued. | From the lower bound up to the upper bound of currently queued messages. |
+
+## Publish messages {#publish-messages}
+
+Inside a Step or RPC, publish with the handler **Context**. Code outside a
+Worker calls a Flow RPC that publishes. This keeps validation, authorization,
+and related state changes inside the Flow.
+
+## Manage pending messages {#manage-pending-messages}
+
+Each message gets an ID when Dex accepts it. A Step or RPC can load the pending
+messages, read them in FIFO order, and delete one by ID. Reading does not
+consume a message. Other Steps and RPCs can change the queue while a handler
+runs, so a loaded list can be stale.
+
+Inside a Step or a non-transactional RPC, deleting a message that is gone is a
+no-op. A transactional RPC fails instead and commits nothing. A direct delete
+from dexcli or Dex Web fails with a not-found error. See
+[Pending messages](/reference/server/runtime-data#manage-pending-messages).
+
+## ChannelMap {#channelmap}
+
+Use a **ChannelMap** when one Flow needs many independent queues, such as one
+per order, customer, or job. A ChannelMap has one name and one message type.
+Each instance key has its own FIFO queue.
+
+## Reference
+
+[Data primitive semantics](/reference/server/runtime-data#channels) covers wait
+conditions, pending messages, deletion, state loading, and ChannelMap keys in
+detail.

@@ -37,7 +37,7 @@ class ExternalUrlTest(unittest.TestCase):
 
     def test_rejects_pins_and_other_destinations(self):
         for url in (
-            "https://docs.superdurable.io/primitives/flow",
+            "https://docs.superdurable.io/concepts/flow",
             "https://docs.superdurable.io/design-patterns/polling",
             "https://docs.superdurable.io/build-with-ai/dex-developer-skill",
             "https://docs.superdurable.io/reference/go/1.35/",
@@ -59,8 +59,8 @@ class ExternalUrlTest(unittest.TestCase):
             "https://api.github.com/repos/superdurable/dex/releases/latest",
             "https://connectors.superdurable.io/",
             "https://connectors.superdurable.io/connectors/slack",
-            "https://docs.superdurable.io/reference/../primitives/flow",
-            "https://docs.superdurable.io/reference/%2e%2e/primitives/flow",
+            "https://docs.superdurable.io/reference/../concepts/flow",
+            "https://docs.superdurable.io/reference/%2e%2e/concepts/flow",
             "https://docs.superdurable.io/reference/%2E%2E/design-patterns/polling",
             "https://github.com/superdurable/dex/tree/main/examples/./../sdk-go",
         ):

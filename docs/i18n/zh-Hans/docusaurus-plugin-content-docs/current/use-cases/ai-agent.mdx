@@ -110,7 +110,7 @@ Turn 运行期间发送的 message 会在 durable **QueuedUserMessages** queue �
 
 内置 **ask_user** tool 会向用户提问，并在 **AwaitQuestionAnswer** 中等待。UI 会用选择按钮或文本框显示问题，答案会在同一个 turn 中成为该 tool 的 result。
 
-内置 **durable_wait** tool 会在 **AwaitTimer** 中等待一个 [Timer](/primitives/timer)。等待期间不占用模型调用或 Worker，并且可以跨 Worker 与 engine 重启。Steer 或 **Stop** 会中断等待，queued message 不会。
+内置 **durable_wait** tool 会在 **AwaitTimer** 中等待一个 [Timer](/concepts/primitives/timer)。等待期间不占用模型调用或 Worker，并且可以跨 Worker 与 engine 重启。Steer 或 **Stop** 会中断等待，queued message 不会。
 
 ## Durable plan {#durable-plans}
 
@@ -126,7 +126,7 @@ Tool 的 effect 决定它如何运行。当 server 的 annotation 受信任时�
 
 ## 实时 event {#live-events}
 
-文本、reasoning summary、tool activity、approval 与 plan 更新会出现在 session 的 **AgentEvents** [Stream](/primitives/stream) 上。Python example 使用库提供的 browser stream helper，把它以 Server-Sent Events 的形式提供给浏览器。TypeScript example 把它作为供 **useChat** 使用的 AI SDK UI message stream：一个 route 发送用户消息或 tool 审批，并把这一轮的内容流式写入浏览器中的 chat。
+文本、reasoning summary、tool activity、approval 与 plan 更新会出现在 session 的 **AgentEvents** [Stream](/concepts/primitives/stream) 上。Python example 使用库提供的 browser stream helper，把它以 Server-Sent Events 的形式提供给浏览器。TypeScript example 把它作为供 **useChat** 使用的 AI SDK UI message stream：一个 route 发送用户消息或 tool 审批，并把这一轮的内容流式写入浏览器中的 chat。
 
 <SdkTabs
   examples={{
@@ -265,8 +265,8 @@ TypeScript example 的 Flow、route 与 React UI 位于 [examples/typescript/src
 ## 相关内容
 
 - [Agent Framework](/agent-frameworks)
-- [Attribute](/primitives/attribute)
-- [Channel](/primitives/channel)
-- [Stream](/primitives/stream)
-- [Timer](/primitives/timer)
+- [Attribute](/concepts/primitives/attribute)
+- [Channel](/concepts/primitives/channel)
+- [Stream](/concepts/primitives/stream)
+- [Timer](/concepts/primitives/timer)
 - [Durable Agents](/agent-frameworks/deploy-agents)

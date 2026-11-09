@@ -1,0 +1,67 @@
+---
+title: Application（Worker 和 Client）
+sidebar_label: Application
+---
+
+# Application（Worker 和 Client）
+
+Dex 应用就是你部署的代码。它包含两部分：
+
+- **Worker** 承载 Flow 定义。Dex 分配工作时，它运行 **WaitFor**、**Execute** 和 RPC handler。
+- **Client** 启动 Flow、调用 RPC、读取 Attribute 和搜索 Flow。见 [Client](/concepts/client)。
+
+一个进程可以只运行 Worker，只运行 Client，也可以两者都运行。
+
+## 与其他组件的关系
+
+Worker 和 Client 连接 Dex Server（server-zd）。每个 Worker 都是拉取模式 Worker：它主动向 server 建立出站任务 stream，从不监听调用。因此 Worker 不需要开放入站端口，可以运行在 NAT 或防火墙后面。
+
+Dex 把所有 Flow、SubFlow、Step 和 RPC 调用都发给你的 Worker，不需要配置 Worker 地址。[Dex Web](/components/web) 或 **dexcli** 启动的 Flow 也在你的 Worker 上运行。
+
+<a id="启用拉取模式"></a>
+
+## 启动 Worker {#enable-pull-mode}
+
+给 Worker 配置 server 地址。Client 也只需要 server 地址。pull 选项是可选的，用来调整任务容量、注册和关闭行为。
+
+各 SDK 参考都有可运行的启动示例：[Go](/reference/go/workers)、[Python](/reference/python/workers)、[Java](/reference/java/workers)、[TypeScript](/reference/typescript/workers) 和 [Rust](/reference/rust/workers)。
+
+## 容量和关闭
+
+Worker 为每个任务槽位建立一个 stream。Dex 只把任务发给空闲的槽位，所以 Worker 不会因为容量不足而拒绝工作。没有 Worker 接手的 Step 会在持久任务队列中等待。RPC 如果在限定时间内没有 Worker 接手，就会失败。部署时要优雅地停止 Worker，让正在运行的任务完成。
+
+就绪检查、路由、容量、关闭和网络设置见英文的 [Workers and the task queue](/reference/server/workers)。
+
+## 在生产环境中运维
+
+像运维其他生产服务一样运维你的应用：记录部署的版本，输出有用的日志，保持它到 server 的网络畅通。
+
+Flow 不再推进或失败时，按英文的 [Troubleshoot a Flow run](/reference/web/debugging) 排查。
+
+## Flow 代码版本控制 {#versioning-flow-code}
+
+Dex 不会重新执行你的 Flow handler 代码来决定后续转换，所以部署新代码不会引起重放不一致的错误。但兼容性问题依然存在。正在运行的 Flow 仍可能遇到业务规则变了、Step 实现没有了、RPC 改名了，或者数据不兼容。
+
+### 在 Flow 启动时锁定业务行为
+
+Flow 启动时，把一个业务版本值持久化下来，例如放在一个 Attribute 或启动状态的字段里。之后按这个保存的值分支，而不是按当前处理调用的 Worker 版本分支。这样已有的 Flow 保持旧行为，新 Flow 在部署后使用新行为。
+
+如果改动会影响决策、支付规则、重试策略、截止时间或其他客户能看到的含义，就使用这种做法。只发布新代码不算版本控制，因为长时间运行的 Flow 之后可能会调用新部署的 Worker。
+
+### 以增量方式演进数据与契约
+
+只新增可选字段。读取方要能处理旧运行中缺少的字段，也要忽略新组件发来的未知字段。缺少的字段要有安全的默认值，已有字段的值要保持原来的含义。如果输入或输出的格式必须不兼容地改变，就新建一个 Step type 或 RPC 名称，不要悄悄修改旧的。
+
+### 在旧 Flow 结束前保留旧定义
+
+只要还有正在运行的 Flow 可能调用某个 Flow type、Step type 或 RPC，就不要删除或重命名它的实现。把新定义和旧定义一起部署，只让新版本的 Flow 使用新定义。旧实现要一直保留，直到重试和经过批准的 Time Travel 恢复都不再需要它。
+
+滚动部署期间，如果一个拉取模式 Worker 缺少被请求的 Step 或 RPC，它可以把调用交给另一个能处理的 Worker，而且不消耗 Step attempt。见英文的 [Routing and availability](/reference/server/workers#routing-and-availability)。
+
+删除旧定义之前，先搜索旧的 Flow type，确认没有正在运行、等待、重试或可恢复的已结束 Flow 还需要它。把搜索结果记录在变更记录里。具体查询取决于 visibility store 的字段。可以先从一个限定 Flow type 的查询开始：
+
+~~~bash
+dexcli flow search --query 'FlowType = "OldFlowType"'
+~~~
+
+只有在搜索结果为空，或者剩下的每个 Flow 都有明确批准的退役计划时，才删除旧代码。

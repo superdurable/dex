@@ -21,7 +21,7 @@
 
   /* One accent per section. Each meets WCAG AA as text on white and on its own tint. */
   --accent-intro: #9a3412;
-  --accent-primitives: #047857;
+  --accent-concepts: #047857;
   --accent-components: #1d4ed8;
   --accent-agent-frameworks: #a21caf;
   --accent-agent-skills: #be185d;
@@ -44,7 +44,7 @@ html[data-theme='dark'] {
   --docs-code-bg: #141417;
 
   --accent-intro: #fb923c;
-  --accent-primitives: #34d399;
+  --accent-concepts: #34d399;
   --accent-components: #60a5fa;
   --accent-agent-frameworks: #e879f9;
   --accent-agent-skills: #f472b6;
@@ -55,7 +55,7 @@ html[data-theme='dark'] {
 }
 
 [data-docs-section='intro'] { --section-accent: var(--accent-intro); }
-[data-docs-section='primitives'] { --section-accent: var(--accent-primitives); }
+[data-docs-section='concepts'] { --section-accent: var(--accent-concepts); }
 [data-docs-section='components'] { --section-accent: var(--accent-components); }
 [data-docs-section='agent-frameworks'] { --section-accent: var(--accent-agent-frameworks); }
 [data-docs-section='agent-skills'] { --section-accent: var(--accent-agent-skills); }
@@ -69,7 +69,7 @@ html[data-theme='dark'] {
   --section-accent: var(--ifm-color-primary);
 }
 .main-wrapper:has([data-docs-section='intro'] > .theme-doc-markdown) { --section-accent: var(--accent-intro); }
-.main-wrapper:has([data-docs-section='primitives'] > .theme-doc-markdown) { --section-accent: var(--accent-primitives); }
+.main-wrapper:has([data-docs-section='concepts'] > .theme-doc-markdown) { --section-accent: var(--accent-concepts); }
 .main-wrapper:has([data-docs-section='components'] > .theme-doc-markdown) { --section-accent: var(--accent-components); }
 .main-wrapper:has([data-docs-section='agent-frameworks'] > .theme-doc-markdown) { --section-accent: var(--accent-agent-frameworks); }
 .main-wrapper:has([data-docs-section='agent-skills'] > .theme-doc-markdown) { --section-accent: var(--accent-agent-skills); }
@@ -473,7 +473,7 @@ html[data-theme='dark'] {
 /* ---------- Docs home ---------- */
 
 .theme-doc-markdown:has(.docs-home-sections) h1 {
-  background: linear-gradient(100deg, var(--docs-heading) 30%, var(--accent-primitives) 62%, var(--accent-components) 100%);
+  background: linear-gradient(100deg, var(--docs-heading) 30%, var(--accent-concepts) 62%, var(--accent-components) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -591,7 +591,7 @@ html[data-theme='dark'] {
 }
 
 .exec-node-accent {
-  background: color-mix(in srgb, var(--accent-primitives) 10%, var(--surface-solid));
+  background: color-mix(in srgb, var(--accent-concepts) 10%, var(--surface-solid));
 }
 
 .exec-node-warn {

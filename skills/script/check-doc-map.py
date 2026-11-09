@@ -29,7 +29,7 @@ DOC_MAP = SKILLS_ROOT / "doc-map.yaml"
 DOC_MAP_PATH = "skills/doc-map.yaml"
 SKILL_DIRECTORIES = ("dex-app-builder/", "dex-sdk/", "dex-connector-contributor/")
 # Skills CI triggers on these folders; keep them in step with .github/workflows/skills-ci.yml.
-DOCS_DIRECTORIES = ("docs/content/primitives/", "docs/content/design-patterns/")
+DOCS_DIRECTORIES = ("docs/content/concepts/", "docs/content/components/", "docs/content/design-patterns/")
 OPT_OUT = re.compile(r"^\s*(?:[-*]\s+)?doc-map:\s*no change needed:[ \t]*\S", re.IGNORECASE | re.MULTILINE)
 SECTION_LINE = re.compile(r"^(mappings|unmapped):\s*$")
 SKILL_LINE = re.compile(r"^  - skill:\s*(\S+)\s*$")

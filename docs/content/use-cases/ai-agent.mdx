@@ -109,7 +109,7 @@ A message sent while a turn runs waits in the durable **QueuedUserMessages** que
 
 The **ask_user** built-in tool asks the user a question and waits in **AwaitQuestionAnswer**. The UI shows the question with choice buttons or a text box, and the answer becomes the tool's result in the same turn.
 
-The **durable_wait** built-in tool waits in **AwaitTimer** on a [Timer](/primitives/timer). No model call or Worker holds the wait, and it survives Worker and engine restarts. Steering or **Stop** interrupts it. A queued message does not.
+The **durable_wait** built-in tool waits in **AwaitTimer** on a [Timer](/concepts/primitives/timer). No model call or Worker holds the wait, and it survives Worker and engine restarts. Steering or **Stop** interrupts it. A queued message does not.
 
 ## Durable plans
 
@@ -125,7 +125,7 @@ With **resource_and_prompt_tools_enabled**, the tool source also offers three re
 
 ## Live events
 
-Text, reasoning summaries, tool activity, approvals, and plan updates arrive on the session's **AgentEvents** [Stream](/primitives/stream). The Python example serves it to the browser as Server-Sent Events with the library's browser stream helpers. The TypeScript example serves it as an AI SDK UI message stream for **useChat**: a route sends the user message or the tool approvals and streams the turn into the browser's chat.
+Text, reasoning summaries, tool activity, approvals, and plan updates arrive on the session's **AgentEvents** [Stream](/concepts/primitives/stream). The Python example serves it to the browser as Server-Sent Events with the library's browser stream helpers. The TypeScript example serves it as an AI SDK UI message stream for **useChat**: a route sends the user message or the tool approvals and streams the turn into the browser's chat.
 
 <SdkTabs
   examples={{
@@ -264,8 +264,8 @@ The TypeScript example's Flow, routes, and React UI are under [examples/typescri
 ## Related
 
 - [Agent Frameworks](/agent-frameworks)
-- [Attribute](/primitives/attribute)
-- [Channel](/primitives/channel)
-- [Stream](/primitives/stream)
-- [Timer](/primitives/timer)
+- [Attribute](/concepts/primitives/attribute)
+- [Channel](/concepts/primitives/channel)
+- [Stream](/concepts/primitives/stream)
+- [Timer](/concepts/primitives/timer)
 - [Durable Agents](/agent-frameworks/deploy-agents)

@@ -61,7 +61,7 @@ Polling Step 可以使用任一种 durability。见 [Step options](/reference/py
 
 新的 attempt 从上一个 checkpoint 继续，用 **GetLastHeartbeatValue** 读取它。示例中的 checkpoint 是上一次报告的 job 状态，所以 retry 不会重复发送进度消息。
 
-只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。状态没变的轮次不应占用 Stream。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) 和 [Stream](/primitives/stream)。
+只在观察到的状态变化时写入一条 Stream message，其余轮次记录 heartbeat。状态没变的轮次不应占用 Stream。Stream message 是 best-effort，所以消费方从 durable 状态恢复，例如 Attribute、读取 RPC 或 Flow 结果。见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) 和 [Stream](/concepts/primitives/stream)。
 
 ## 锁
 
@@ -454,6 +454,6 @@ impl Step for RecordJobWaitFailure {
 ## 相关内容
 
 - [Step options](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration)
-- [Stream](/primitives/stream)
+- [Stream](/concepts/primitives/stream)
 - [Failure Handling](/design-patterns/failure-handling)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)

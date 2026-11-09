@@ -277,7 +277,7 @@ and start a new task.
 ## Dex SDK
 
 `dex-sdk` is the coding-agent version of the Dex stable layer: the same scope
-as the docs Primitives, Components, and Design patterns, written as mental
+as the docs Concepts, Components, and Design patterns, written as mental
 models, decision tables, rules, anti-patterns, code skeletons, and a
 self-check list. It uses progressive disclosure. Shared semantics live under
 `dex-sdk/references/core/`, and each supported language has its own folder.

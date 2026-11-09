@@ -1,0 +1,276 @@
+---
+title: Stream
+slug: /concepts/primitives/stream
+---
+
+# Stream
+
+A **Stream** delivers messages from a Flow to a reader in real time. A Step or a
+Client writes messages. A Client reads them in order and can resume where it
+stopped. Dex keeps Stream messages only on a best-effort basis.
+
+## When to use a Stream
+
+Use a Stream for data that improves the user experience but is not
+business-critical:
+
+- LLM reasoning summaries, generated-text chunks, and agent progress
+- progress bars, diagnostic events, and live previews
+- transient status shown while a Step is still running
+
+Use a [Channel](/concepts/primitives/channel) or an [Attribute](/concepts/primitives/attribute)
+for data that must not be lost.
+
+<a id="semantics"></a>
+<a id="write-semantics"></a>
+<a id="approximate-capacity"></a>
+<a id="best-effort-storage"></a>
+
+## Guarantees
+
+A Stream gives up durability for speed:
+
+- Dex keeps messages in the memory of the server. A server restart or a standby
+  takeover loses them.
+- Each Stream has a capacity in bytes. When it fills up, Dex removes the oldest
+  messages. A slow reader can miss them.
+- A Step write goes out at once, while the Step still runs. A later Step failure
+  does not roll it back.
+- A failed Stream write never fails the Step.
+- A reader sees messages in the order Dex stored them.
+
+The capacity is shared by all Flow executions with the same Flow type and
+Stream name. It is not a limit for each Flow ID. See [Write semantics](/reference/server/runtime-data#stream-write-semantics),
+[Capacity and trimming](/reference/server/runtime-data#stream-capacity), and
+[Best-effort storage](/reference/server/runtime-data#stream-storage).
+
+<a id="define-and-register-a-stream"></a>
+
+## Define and write a Stream
+
+A Stream has a stable name, a message type, and a capacity. Add it to the Flow
+persistence schema.
+
+<a id="buffer-text-chunks"></a>
+
+This example writes progress text through a buffered text writer. Dex flushes
+the buffered text before the Step result. The Step does not wait for the server
+to store the text. See [Buffer text chunks](/reference/server/runtime-data#stream-buffered-text).
+
+<SdkTabs examples={{
+python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
+go: 'examples/go/primitives/stream/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java',
+typescript: 'examples/typescript/src/primitives/stream/stream-flow.ts',
+rust: 'examples/rust/src/primitives/stream/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+class RenderPreview(Step[str]):
+    def __init__(self, progress: Stream[str]) -> None:
+        self.progress = progress
+
+    async def execute(self, context: AsyncContext, input: str) -> StepDecision:
+        progress = self.progress.buffered_text(context)
+        progress.write(f"Rendering preview for {input}")
+        progress.write(f"Preview ready for {input}")
+        return graceful_complete(f"Rendered {input}")
+
+
+class StreamFlow(Flow[str]):
+    progress = Stream("Progress", str, 10 * 1024 * 1024)
+
+    def __init__(self) -> None:
+        self.render_preview = RenderPreview(self.progress)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.render_preview)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(self.progress)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Progress = dex.DefineStream[string]("Progress", 10<<20)
+
+type StreamFlow struct {
+	dex.FlowDefaults
+}
+
+func (*StreamFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep[string](renderPreview{})}
+}
+
+func (*StreamFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Streams: []dex.StreamDef{Progress}}
+}
+
+type renderPreview struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	progress, err := dex.NewBufferedTextStream(ctx, Progress)
+	if err != nil {
+		return nil, err
+	}
+	if err := progress.Write("Rendering preview for " + input); err != nil {
+		return nil, err
+	}
+	if err := progress.Write("Preview ready for " + input); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("Rendered " + input), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public final class StreamFlow implements Flow<String> {
+    public final Stream<String> progress =
+            Stream.define("Progress", String.class, 10L * 1024L * 1024L);
+    private final RenderPreview renderPreview = new RenderPreview();
+
+    @Override
+    public StepList<String> getSteps() {
+        return StepList.startStep(renderPreview);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(progress);
+    }
+
+    final class RenderPreview implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            final BufferedTextStream writer = BufferedTextStream.create(context, progress);
+            writer.write("Rendering preview for " + input);
+            writer.write("Preview ready for " + input);
+            return StepDecision.gracefulComplete("Rendered " + input);
+        }
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const progress = new Stream("Progress", stringCodec, 10 * 1024 * 1024);
+
+class RenderPreview implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RenderPreview";
+  }
+
+  public async execute(context: Context, input: string): Promise<StepDecision> {
+    const writer = progress.bufferedText(context, { flushIntervalMs: 500 });
+    writer.write(`Rendering preview for ${input}`);
+    writer.write(`Preview ready for ${input}`);
+    return gracefulComplete(`Rendered ${input}`);
+  }
+}
+
+const renderPreview = new RenderPreview();
+
+export class StreamFlow implements Flow<string> {
+  public getFlowType(): string {
+    return "StreamFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(renderPreview);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { streams: [progress] };
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub static PROGRESS: LazyLock<Stream<String>> =
+    LazyLock::new(|| Stream::new("Progress", 10 * 1024 * 1024));
+
+#[derive(Default)]
+pub struct StreamFlow {
+    render_preview: RenderPreview,
+}
+
+impl Flow for StreamFlow {
+    type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.render_preview)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().stream(&PROGRESS)
+    }
+}
+
+#[derive(Default)]
+struct RenderPreview;
+
+impl Step for RenderPreview {
+    type Input = String;
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        input: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        let progress = PROGRESS.buffered_text_with_options(
+            context,
+            BufferedTextStreamOptions::new(Duration::from_millis(500), 16 * 1024),
+        )?;
+        progress.write(format!("Rendering preview for {input}"))?;
+        progress.write(format!("Preview ready for {input}"))?;
+        Ok(StepDecision::graceful_complete(format!(
+            "Rendered {input}"
+        )))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Read a Stream
+
+A Client has two ways to read a Stream:
+
+- <a id="resumable-reads"></a>**ReadStream** reads forward, one message at a time. Each message carries a
+  resume token. Pass the token back to read the next message. When no new
+  message exists, the call waits for one.
+- <a id="listing-messages"></a>**ListStreamMessages** pages backward from the
+  newest message. It returns at once.
+
+See [Resumable reads](/reference/server/runtime-data#stream-resumable-reads) and
+[List messages](/reference/server/runtime-data#stream-listing).
+
+A Client can also write to a Stream, even when the Flow has closed. An RPC
+handler writes through an injected Client.
+
+## Reference
+
+[Data primitive semantics](/reference/server/runtime-data#streams) covers write
+semantics, buffered text, reads, listing, capacity, and storage in detail. The
+server settings are in [Streams](/reference/server/configuration#streams).

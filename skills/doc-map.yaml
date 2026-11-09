@@ -1,13 +1,13 @@
 # Maps each skills file to the docs pages that hold the same stable knowledge.
-# Skills are the coding-agent copy of the docs Primitives, Components, and
+# Skills are the coding-agent copy of the docs Concepts, Components, and
 # Design patterns. A pull request that changes a file on one side must change
 # a mapped file on the other side, or its description must contain a line
 # 'doc-map: no change needed: <reason>'. script/check-doc-map.py enforces it.
 #
 # Format: 'mappings' lists entries. 'skill' is relative to skills/; each 'docs'
 # path is relative to the repository root and lives under
-# docs/content/primitives/ or docs/content/design-patterns/, the folders that
-# trigger Skills CI. Only the English docs pages are listed.
+# docs/content/concepts/, docs/content/components/, or
+# docs/content/design-patterns/, the folders that trigger Skills CI. Only the English docs pages are listed.
 #
 # 'unmapped' classifies files with no counterpart, by repository path or
 # fnmatch pattern. Every Markdown file in the three skills and every page in
@@ -17,64 +17,64 @@
 mappings:
   - skill: dex-sdk/references/core/flow.md
     docs:
-      - docs/content/primitives/flow/index.mdx
+      - docs/content/concepts/flow/index.mdx
 
   - skill: dex-sdk/references/core/step.md
     docs:
-      - docs/content/primitives/step/index.mdx
+      - docs/content/concepts/step/index.mdx
 
   - skill: dex-sdk/references/core/attribute.md
     docs:
-      - docs/content/primitives/attribute.mdx
+      - docs/content/concepts/primitives/attribute.mdx
 
   - skill: dex-sdk/references/core/rpc.md
     docs:
-      - docs/content/primitives/rpc.mdx
+      - docs/content/concepts/primitives/rpc.mdx
 
   - skill: dex-sdk/references/core/channel.md
     docs:
-      - docs/content/primitives/channel.mdx
+      - docs/content/concepts/primitives/channel.mdx
 
   - skill: dex-sdk/references/core/stream.md
     docs:
-      - docs/content/primitives/stream.mdx
+      - docs/content/concepts/primitives/stream.mdx
 
   - skill: dex-sdk/references/core/timer.md
     docs:
-      - docs/content/primitives/timer.mdx
+      - docs/content/concepts/primitives/timer.mdx
 
   - skill: dex-sdk/references/core/subflow.md
     docs:
-      - docs/content/primitives/subflow.mdx
+      - docs/content/concepts/primitives/subflow.mdx
 
   - skill: dex-sdk/references/core/connector.md
     docs:
-      - docs/content/primitives/components/connector.mdx
+      - docs/content/components/connector.mdx
 
   - skill: dex-sdk/references/core/client.md
     docs:
-      - docs/content/primitives/client.mdx
+      - docs/content/concepts/client.mdx
 
   - skill: dex-sdk/references/core/application.md
     docs:
-      - docs/content/primitives/components/index.mdx
-      - docs/content/primitives/components/application.mdx
+      - docs/content/components/index.mdx
+      - docs/content/components/application.mdx
 
   - skill: dex-sdk/references/core/server.md
     docs:
-      - docs/content/primitives/components/server.mdx
+      - docs/content/components/server.mdx
 
   - skill: dex-sdk/references/core/cli.md
     docs:
-      - docs/content/primitives/components/cli.mdx
+      - docs/content/components/cli.mdx
 
   - skill: dex-sdk/references/core/web.md
     docs:
-      - docs/content/primitives/components/web.mdx
+      - docs/content/components/web.mdx
 
   - skill: dex-sdk/references/core/external-attribute-sync.md
     docs:
-      - docs/content/primitives/components/external-attribute-sync.mdx
+      - docs/content/components/external-attribute-sync.mdx
 
   - skill: dex-sdk/references/core/patterns.md
     docs:
@@ -117,33 +117,33 @@ mappings:
 
   - skill: dex-app-builder/references/backend-implementation.md
     docs:
-      - docs/content/primitives/components/application.mdx
+      - docs/content/components/application.mdx
 
   - skill: dex-app-builder/references/connector-architecture.md
     docs:
-      - docs/content/primitives/components/connector.mdx
+      - docs/content/components/connector.mdx
 
   - skill: dex-app-builder/references/dex-web-v2.md
     docs:
-      - docs/content/primitives/components/web.mdx
+      - docs/content/components/web.mdx
 
   - skill: dex-app-builder/references/fdg-authoring.md
     docs:
-      - docs/content/primitives/components/web.mdx
+      - docs/content/components/web.mdx
 
   - skill: dex-app-builder/references/ui-workflow.md
     docs:
-      - docs/content/primitives/components/web.mdx
+      - docs/content/components/web.mdx
 
   - skill: dex-app-builder/references/verification-handoff.md
     docs:
-      - docs/content/primitives/components/cli.mdx
-      - docs/content/primitives/components/web.mdx
-      - docs/content/primitives/components/server.mdx
+      - docs/content/components/cli.mdx
+      - docs/content/components/web.mdx
+      - docs/content/components/server.mdx
 
   - skill: dex-app-builder/references/workspace-bootstrap.md
     docs:
-      - docs/content/primitives/components/application.mdx
+      - docs/content/components/application.mdx
 
 unmapped:
   # Entry points and skill-only guidance.
@@ -165,5 +165,5 @@ unmapped:
   - skills/dex-app-builder/references/workflow-import.md
   - skills/dex-app-builder/references/n8n-semantics.md
   - skills/dex-connector-contributor/SKILL.md
-  # The Primitives overview; dex-sdk/SKILL.md holds the agent mental model.
-  - docs/content/primitives/index.mdx
+  # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
+  - docs/content/concepts/index.mdx
