@@ -168,10 +168,6 @@ four hours.
 
 ## Search flows
 
-`SearchFlowsRequest.include_continued_as_new` has no effect because the
-Server does not create Continue-as-New runs. Keep the query unchanged across
-pages.
-
 `SearchFlows` returns each execution's flow ID, run ID, flow type, status,
 start/close times, and all Indexed Attributes supplied by Dex visibility as
 `indexed_attributes`. Indexed Attribute values use the `Value` oneof; the response does not

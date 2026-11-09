@@ -39,10 +39,6 @@
     "message": "{version}（最新）",
     "description": "Label of the latest Developer reference version"
   },
-  "reference.version.open": {
-    "message": "前往",
-    "description": "Button that opens the Developer reference version chosen in the sidebar selector"
-  },
   "reference.version.banner": {
     "message": "当前查看的是 {version}。最新版本为 {latest}。",
     "description": "Notice on an older Developer reference version"

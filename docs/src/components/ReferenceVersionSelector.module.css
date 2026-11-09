@@ -20,15 +20,6 @@
   font-size: 0.875rem;
 }
 
-.controls {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.controls button {
-  min-height: 2.75rem;
-}
-
 .selector select {
   flex: 1;
   min-width: 0;

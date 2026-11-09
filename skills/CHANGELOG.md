@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.2 - 2026-11-07
+
+- Remove obsolete Server migration guidance.
+
 ## 1.0.1 - 2026-11-06
 
 - Classify Connector as a Component alongside the other Dex Components.

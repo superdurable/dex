@@ -1,5 +1,16 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
+const referenceComponents = [
+  {component: 'server', label: 'Server (server-zd)'},
+  {component: 'cli', label: 'CLI (dexcli)'},
+  {component: 'web', label: 'Web (Dex Web)'},
+  {component: 'go', label: 'Go SDK'},
+  {component: 'python', label: 'Python SDK'},
+  {component: 'java', label: 'Java SDK'},
+  {component: 'typescript', label: 'TypeScript SDK'},
+  {component: 'rust', label: 'Rust SDK'},
+];
+
 const sidebars: SidebarsConfig = {
   docs: [
     'index',
@@ -158,16 +169,13 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Developer Reference',
       link: {type: 'doc', id: 'reference/index'},
-      items: [
-        {type: 'link', label: 'Server (server-zd)', href: '/reference/server/'},
-        {type: 'link', label: 'CLI (dexcli)', href: '/reference/cli/'},
-        {type: 'link', label: 'Web (Dex Web)', href: '/reference/web/'},
-        {type: 'link', label: 'Go SDK', href: '/reference/go/'},
-        {type: 'link', label: 'Python SDK', href: '/reference/python/'},
-        {type: 'link', label: 'Java SDK', href: '/reference/java/'},
-        {type: 'link', label: 'TypeScript SDK', href: '/reference/typescript/'},
-        {type: 'link', label: 'Rust SDK', href: '/reference/rust/'},
-      ],
+      // Each entry expands into that component's own versioned sidebar. See plugins/shared-docs-sidebar.
+      items: referenceComponents.map(({component, label}) => ({
+        type: 'link' as const,
+        label,
+        href: `/reference/${component}/`,
+        customProps: {referenceComponent: component},
+      })),
     },
     'glossary',
   ],

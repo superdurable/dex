@@ -101,11 +101,11 @@
   },
   {
     "from": "/primitives/flow/flow-options",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/flow/flow-options",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/step/basic",
@@ -117,27 +117,27 @@
   },
   {
     "from": "/primitives/step/waiting-condition",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/step/waiting-condition",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/step/step-decision",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/step/step-decision",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/step/step-options",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/step/step-options",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/client/basic",
@@ -197,7 +197,7 @@
   },
   {
     "from": "/reference/server/0.1.15/runtime-steps/",
-    "to": "/reference/server/runtime-steps/"
+    "to": "/reference/python/flows-and-steps/"
   },
   {
     "from": "/reference/server/0.1.15/search/",
@@ -253,7 +253,7 @@
   },
   {
     "from": "/zh-Hans/reference/server/0.1.15/runtime-steps/",
-    "to": "/zh-Hans/reference/server/runtime-steps/"
+    "to": "/zh-Hans/reference/python/flows-and-steps/"
   },
   {
     "from": "/zh-Hans/reference/server/0.1.15/search/",
@@ -402,5 +402,13 @@
   {
     "from": "/zh-Hans/primitives/connector",
     "to": "/zh-Hans/primitives/components/connector"
+  },
+  {
+    "from": "/reference/server/runtime-steps",
+    "to": "/reference/python/flows-and-steps"
+  },
+  {
+    "from": "/zh-Hans/reference/server/runtime-steps",
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   }
 ]

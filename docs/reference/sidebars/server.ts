@@ -4,7 +4,6 @@ const sidebars: SidebarsConfig = {
   reference: [
     {type: 'link', label: '← Developer Reference', href: '/reference/'},
     'index',
-    'runtime-steps',
     'runtime-data',
     'runtime-client',
     'configuration',
@@ -17,6 +16,7 @@ const sidebars: SidebarsConfig = {
     'attribute-store-sync',
     'metrics',
     'upgrades',
+    'changelog',
   ],
 };
 
