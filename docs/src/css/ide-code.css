@@ -160,10 +160,6 @@
   color: var(--ide-keyword);
 }
 
-.ide-code__gutter-fold {
-  color: var(--ide-muted);
-}
-
 .ide-code__gutter-collapse {
   padding: 0;
   border: 0;
@@ -185,7 +181,6 @@
 }
 
 .theme-code-block.ide-code .ide-code__scroll {
-  position: relative;
   flex: 1;
   min-width: 0;
   margin: 0;
@@ -232,24 +227,39 @@
   user-select: none;
 }
 
-.ide-code__fold-button {
-  position: absolute;
-  height: 1lh;
-  padding: 0 0.55rem;
-  border: 0;
-  border-radius: 6px;
-  background: var(--ide-bar);
-  color: var(--ide-muted);
-  font: inherit;
+.ide-code__fold-row {
   cursor: pointer;
 }
 
-.ide-code__fold-button:hover,
-.ide-code__fold-button:focus-visible {
+.ide-code__fold-hint {
+  display: inline-block;
+  height: 1lh;
+  padding: 0 0.55rem;
+  border-radius: 6px;
+  background: var(--ide-bar);
+  color: var(--ide-muted);
+}
+
+.ide-code__fold-row:hover .ide-code__fold-hint {
   color: var(--ide-text);
 }
 
-.ide-code__fold-button:focus-visible,
+.ide-code__gutter-expand {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ide-muted);
+  font: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.ide-code__gutter-expand:hover,
+.ide-code__gutter-expand:focus-visible {
+  color: var(--ide-text);
+}
+
+.ide-code__gutter-expand:focus-visible,
 .ide-code__gutter-collapse:focus-visible {
   outline: 2px solid var(--ide-focus);
   outline-offset: 1px;

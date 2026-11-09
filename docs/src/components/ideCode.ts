@@ -102,9 +102,9 @@ const importLine: Record<string, RegExp> = {
   rust: /^(use |extern crate )/,
 };
 
-/** Drops string literals and line comments, whose brackets do not open or close a statement. */
+/** Drops string literals and comments, whose brackets do not open or close a statement. */
 function codeWithoutStringsAndComments(line: string, language: string): string {
-  const withoutStrings = line.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""');
+  const withoutStrings = line.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""').replace(/\/\*.*?\*\//g, '');
   const commentStart = language === 'python' || language === 'py' ? '#' : '//';
   const commentIndex = withoutStrings.indexOf(commentStart);
   return commentIndex === -1 ? withoutStrings : withoutStrings.slice(0, commentIndex);
