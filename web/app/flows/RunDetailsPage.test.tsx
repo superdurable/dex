@@ -684,7 +684,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
 
     const stub = await screen.findByText('↓ from Step-2000 WaitFor completed (removed by the history window)');
     expect(stub.tagName).toBe('SPAN');
-    expect(stub.querySelector('.timeline-pruned-badge')?.textContent).toBe('pruned');
+    expect(stub.querySelector('.timeline-pruned-badge')?.textContent).toBe('Pruned');
     expect(stub.getAttribute('title')).toContain('The server keeps only the most recent window of history');
     expect(stub.getAttribute('title')).toContain('Step execution ID: Step-2000.');
   });

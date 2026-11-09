@@ -235,7 +235,7 @@ function RPCDetails({ payload, isPull }: { payload: Data; isPull: boolean }) {
   return (
     <>
       <DetailSection title="RPC call">
-        <Fields values={[['RPC name', payload.rpcName], ['Serving app Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined]]} />
+        <Fields values={[['RPC name', payload.rpcName], ['Serving Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined]]} />
         <ValueBlock label="Input" value={payload.input} />
         <ValueBlock label="Output" value={payload.output} />
       </DetailSection>

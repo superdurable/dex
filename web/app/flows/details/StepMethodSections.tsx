@@ -1088,9 +1088,9 @@ export function PullRouting({ value, label = 'Pull routing' }: { value: unknown;
   return <div className="semantic-subsection">
     <h5>{label}</h5>
     <Fields compact values={[
-      ['Serving app Worker ID', routing.servedByAppWorkerId || '—'],
+      ['Serving Worker ID', routing.servedByAppWorkerId || '—'],
       ['Queue source', routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Flow type queue' : '—'],
-      ['Dispatch sticky app Worker ID', routing.stickyAppWorkerId || '—'],
+      ['Dispatch sticky Worker ID', routing.stickyAppWorkerId || '—'],
     ]} />
   </div>;
 }

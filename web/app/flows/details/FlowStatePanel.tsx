@@ -178,7 +178,7 @@ function RelatedEventAction({
   if (related.location === 'pruned') {
     return (
       <span className="timeline-pruned-badge related-event-action" title={prunedRelatedEventTooltip(related)}>
-        pruned
+        Pruned
       </span>
     );
   }

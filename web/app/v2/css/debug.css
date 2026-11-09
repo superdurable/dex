@@ -59,8 +59,6 @@
 .v2-debug-label {
   color: var(--p-ink-0);
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .v2-debug-note {
@@ -95,8 +93,7 @@
 
 .v2-debug .eyebrow {
   color: var(--p-ink-3);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
 }
 
 .v2-debug .muted {

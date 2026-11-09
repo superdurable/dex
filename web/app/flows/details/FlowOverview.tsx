@@ -116,10 +116,10 @@ export function FlowOverview({
           <div className="section-heading">
             <div>
               <p className="eyebrow">{state ? 'Current' : summary.flowStatus || 'Unavailable'}</p>
-              <h2>Live Flow State</h2>
+              <h2>Live Flow state</h2>
             </div>
           </div>
-          <FlowRouting routing={flowRoutingData(state, events)} flowType={summary.flowType} />
+          <FlowRouting routing={flowRoutingData(state, events)} flowType={summary.flowType} showFlowType />
           {!state && <p className="muted">Live state is queried only while this run is active.</p>}
           {state && (
             <>
@@ -234,7 +234,7 @@ export function FlowOverview({
 
               <div className="live-state-block">
                 <div className="live-state-block-heading">
-                  <p className="eyebrow">Channels & Others Internals</p>
+                  <p className="eyebrow">Channels & others internals</p>
                   <div className="live-state-block-actions">
                     {onOpenStateWrite && (
                       <button

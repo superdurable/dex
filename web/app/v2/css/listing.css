@@ -56,8 +56,6 @@
 .sv-chooselabel {
   color: var(--p-ink-2);
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .sv-flow {
@@ -113,16 +111,13 @@
 
 .sq-title {
   font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--p-ink-2);
 }
 
 /* The opposite marker from everywhere else in this repo: this one has to say it IS real. */
 .sq-live {
   color: var(--p-ink-2);
-  font-size: 10px;
-  letter-spacing: 0.06em;
+  font-size: 11px;
 }
 
 .sq-refresh {
@@ -265,8 +260,6 @@
   margin-bottom: 5px;
   color: var(--p-ink-2);
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 /*

@@ -224,10 +224,8 @@ a {
 
 .brand-name > span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.115em;
-  text-transform: uppercase;
 }
 
 .header-nav {
@@ -607,10 +605,9 @@ a {
   border-radius: 999px;
   color: var(--pass);
   background: var(--pass-subtle);
-  font-size: 8px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .flow-definition-file-list em.is-invalid {
@@ -699,10 +696,8 @@ h3 {
 .eyebrow {
   margin-bottom: 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .card {
@@ -836,7 +831,6 @@ h3 {
 .saved-query-panel strong {
   margin-bottom: 5px;
   font-size: 12px;
-  text-transform: uppercase;
 }
 
 .saved-query-panel button {
@@ -943,8 +937,6 @@ h3 {
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .query-preview code {
@@ -1079,9 +1071,7 @@ h3 {
   color: var(--muted);
   text-align: left;
   background: var(--raised);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .flow-table td {
@@ -1138,10 +1128,8 @@ pre {
   border-radius: 999px;
   color: var(--ink-dim);
   background: var(--hover);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
 .status-running {
@@ -1305,8 +1293,6 @@ pre {
   color: var(--muted);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .summary-strip b {
@@ -2139,9 +2125,8 @@ pre {
 .phase {
   padding: 3px 6px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .phase-active {
@@ -2668,9 +2653,8 @@ pre {
 
 .semantic-run-link-row > span:first-child {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
 }
 
 .timeline-dot.tone-waiting {
@@ -2720,10 +2704,8 @@ pre {
   color: var(--door);
   content: "Linked event";
   background: var(--door-subtle);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .timeline-row.step-method-wait-for.link-counterpart .event-card {
@@ -2850,8 +2832,6 @@ button.timeline-edge-stub:focus-visible {
   border-radius: 999px;
   color: var(--muted);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .timeline-stub-link {
@@ -2897,8 +2877,6 @@ button.timeline-edge-stub:focus-visible {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .related-event-label {
