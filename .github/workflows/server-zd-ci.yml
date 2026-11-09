@@ -84,14 +84,15 @@ jobs:
         suite: >-
           ${{ fromJSON(
             github.event.action == 'labeled'
-              && '[{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests"}]'
+              && '[{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests","postgres_image":"postgres:16"}]'
               || (contains(github.event.pull_request.labels.*.name, 'db9-tests')
-                && '[{"name":"workspace","target":"test"},{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests"}]'
-                || '[{"name":"workspace","target":"test"}]')
+                && '[{"name":"workspace","target":"test","postgres_image":""},{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests","postgres_image":"postgres:16"}]'
+                || '[{"name":"workspace","target":"test","postgres_image":""}]')
           ) }}
     services:
+      # An empty image skips the service, so only the db9 suite starts PostgreSQL.
       postgres:
-        image: postgres:16
+        image: ${{ matrix.suite.postgres_image }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
