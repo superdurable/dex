@@ -17,7 +17,8 @@ brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev
 ```
 
-**dexcli** starts Dex Server, Dex Web, and the internal workflow backend. Defaults
+**dexcli dev** starts **Dex Server** (server-zd) and **Dex Web**. State is stored
+on local disk in **RocksDB** and an embedded **s3local** object store. Defaults
 when those ports are free:
 
 | Service | Address |
@@ -26,7 +27,7 @@ when those ports are free:
 | Dex Server | **127.0.0.1:8801** |
 
 A second **dexcli dev** on the same machine binds other free ports and uses its
-own SQLite database. Use the printed Dex Server address with
+own state directory. Use the printed **Dex Server** address with
 **--server**. See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
 for flags and persistence options.
 
@@ -1297,6 +1298,6 @@ The Timeline tab shows the same run's events from left to right. Select an event
 
 ## Next
 
-- [Primitives](/concepts)
+- [Concepts](/concepts)
 - [Why Dex?](/intro/what-is-dex)
 - [Product Examples](/use-cases)
