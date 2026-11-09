@@ -1,6 +1,6 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: draft for owner review, revision 3 (after two adversarial reviews;
+Status: draft for owner review, revision 4 (after three adversarial reviews;
 see [Review log](#10-review-log)). No Lean yet.
 
 Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
@@ -934,17 +934,26 @@ RPC IDs) and client operations that L has no counterpart for. The theorem is
 stated over a projection, under a restricted environment.
 
 **Admissible environment `E_adm`** (the only inputs the theorem allows). An
-admissible input word is a finite or infinite sequence of input events, in
-commit order, of this shape:
+admissible input word is a finite or infinite sequence of **attempted client
+requests**, in commit order, accepted and rejected alike. Each request in the
+word is attempted exactly once, in the word's order, and its commit produces
+exactly one input-side event: the input event when apply accepts it, or
+`rejected(request, err)` when apply rejects it (Section 4.6). The word has
+this shape:
 
-- It **begins** with exactly one `start(f, T₀, v, ∅)`, with a fresh Flow ID
-  `f`, the program's entry Step `T₀`, and the L program's input `v`. No Flow
-  timeout, no UpdateFlowConfig, no initial Attributes. No other `start`
-  follows.
-- **Every later** input is a `pub(f, [(c, v)])` where `c` is one of the
-  program's **external** Channels (the translations of L's external input
-  channels, Section 8), each with one message. No publication precedes the
-  start: one would be rejected with NOT_FOUND
+- It **begins** with exactly one StartFlow request `start(f, T₀, v, ∅)`, with
+  a fresh Flow ID `f`, the program's entry Step `T₀`, and the L program's
+  input `v`. No Flow timeout, no UpdateFlowConfig, no initial Attributes. No
+  other StartFlow follows. Its Flow ID is fresh, so it is always accepted.
+- **Every later** request is a PublishToChannel request `pub(f, [(c, v)])`
+  where `c` is one of the program's **external** Channels (the translations of
+  L's external input channels, Section 8), each with one message. While the
+  root Flow is RUNNING it is accepted and produces `pub(f, [(c, v)])`; after
+  the close it is rejected with NOT_FOUND and produces
+  `rejected(pub(f, [(c, v)]), NOT_FOUND)`
+  (`server-zd/crates/dexzd-apply/src/command_handlers/client_writes.rs:206-215`).
+  Both are outcomes of the same request in `w`.
+- No publication precedes the start: one would be rejected with NOT_FOUND
   (`server-zd/crates/dexzd-apply/src/command_handlers/run_cursor.rs:111-113`)
   and would project to a `refused` before `begin`, which L has no
   counterpart for.
@@ -1003,9 +1012,9 @@ liveness statement in Section 5.5 closes that gap.
 ### 5.5 Equivalence: termination and divergence (fair maximal traces)
 
 Maximal traces are defined **relative to a fixed admissible input word** `w`
-(Section 5.3). A run **for `w`** is an infinite run whose input events, in
-order, are exactly `w`. ([TICK] is always enabled, so no maximal run is
-finite.) [TICK] steps are time passing, not progress: they
+(Section 5.3). A run **for `w`** is an infinite run whose client-request
+commits, accepted or rejected, are exactly the requests of `w`, each once and
+in order. ([TICK] is always enabled, so no maximal run is finite.) [TICK] steps are time passing, not progress: they
 carry no event in the untimed trace, and the classification below counts only
 the other transitions, which this section calls **progress steps** (inputs,
 commits, and engine and Worker steps).
@@ -1014,7 +1023,8 @@ A run for `w` is **fair** when every condition below holds. [assumption]
 These are the fairness assumptions the theorem needs; the rules themselves are
 unfair.
 
-- **F0 Inputs arrive.** Every input of `w` eventually occurs, in order.
+- **F0 Requests arrive.** Every request of `w` is eventually attempted, in
+  order, and committed as accepted or rejected.
 - **F1 Time diverges.** In an infinite run, every partition clock exceeds every
   bound.
 - **F2 Timers fire.** A timer that stays armed and due is eventually fired by
@@ -1335,7 +1345,9 @@ the task named; the rest were found on the way or in review.
       whole-second durations in L.
     - Stance: untimed by default (Section 5.4). L gets an explicit late
       `fire` action, so races between a timer and a message or cancel are
-      decided by firing order on both sides (Section 8.1).
+      decided by firing order on both sides, and L fires timers in the same
+      `(deadline, timer number)` order that Dex's index gives translated
+      programs (Sections 8.1, 8.2).
 
 13. **SubFlow completion delivery and child identity.**
     - Code: the child result travels through the child's outbox and a
@@ -1492,20 +1504,34 @@ does; they are L design decisions for the owner.
 - **External input.** Each external channel is a FIFO queue. Threads blocked
   in `recv(c)` on it are served in FIFO order of blocking. Input that arrives
   after exit is `refused`. (Items 4, 21.)
-- **Timers fire late, by an explicit action.** `sleep(d)` and the `after(d)`
-  branch of `select` arm a timer when the thread blocks. The timer completes
-  only by a separate, nondeterministic internal action `fire`, enabled at any
-  time no earlier than the deadline and possibly much later (fairness: an
-  enabled `fire` eventually happens). A timer is never complete at the moment
-  it is armed, even for `d = 0`. A blocked operation is decided by whichever
-  happens first: its `fire`, the arrival of its message, or a cancel. So a
+- **Clock.** L has an internal clock in microseconds. It advances by idle
+  ticks, and it strictly increases between any two L actions, as Dex commit
+  timestamps strictly increase within a partition (`command.proto:39-40`). A
+  translated program uses no SubFlows, so it lives in one partition.
+- **Timers fire late, in order, by an explicit action.** A timed operation,
+  `sleep(d)` or `select` with an `after(d)` branch, takes two actions. *Enter*
+  gives it the next **timer number** `n` from one program-wide counter.
+  *Arm*, later, sets its deadline to `now + d` and blocks the thread; other
+  actions may come between Enter and Arm. The timer completes only by the
+  internal action `fire`, which:
+  - is enabled at any time no earlier than the deadline, and possibly much
+    later (fairness: a timer that stays due is eventually fired);
+  - fires only the **least** due timer in the order `(deadline, n)`. So the
+    timers of one program fire in deadline order, and timers with equal
+    deadlines fire in timer-number order. A later-due timer never fires while
+    an earlier-due one is still armed and due.
+  A timer is never complete at the moment it is armed, even for `d = 0`. A
+  blocked timed operation is decided by whichever happens first: its `fire`,
+  the arrival of its message, or a cancel; the loser's timer is disarmed. So a
   message or cancel that arrives after the deadline but before `fire` wins.
-  This mirrors [TIMER-FIRE], which runs only when the timer service gets to
-  it (`server-zd/crates/dexzd-engine/src/effects/timer_service.rs:116-155`),
-  and the per-change evaluation of a waiting Step
-  (`server-zd/crates/dexzd-apply/src/steps/wait_conditions/mod.rs:167-188`,
-  `wait_conditions/mod.rs:140-164`). Durations are whole seconds for a timed
-  theorem. (Item 12.)
+  This mirrors [TIMER-FIRE], which fires an ordered prefix of a run's due
+  timers only when the timer service gets to it
+  (`server-zd/crates/dexzd-engine/src/effects/timer_service.rs:116-155`), and
+  the per-change evaluation of a waiting Step
+  (`server-zd/crates/dexzd-apply/src/steps/wait_conditions/mod.rs:166-188`,
+  `wait_conditions/mod.rs:140-164`). Section 8.2 shows that Dex's order is
+  exactly `(deadline, n)` for translated programs. Durations are whole
+  seconds. (Item 12.)
 - Each thread is joined at most once.
 
 ### 8.2 General scheme
@@ -1521,6 +1547,33 @@ Compile each L thread to continuation-passing Steps.
 - Each `emit` is the only effect of its own Execute. The issue is
   [STEP-START], `out(a)` is [WORKER-EFFECT], and the thread continues at
   [STEP-COMPLETE-EXECUTE].
+- **One Step type for every timed operation.** Every `sleep` and every
+  `select` with an `after` branch runs in one generic Step type, `Timed`,
+  whose input carries the duration, the Channels to wait on, and the
+  continuation. Its WaitFor returns a wait with exactly one timer, at index 0,
+  and its Execute dispatches on the result and GoTos the continuation. Then:
+  - L's *Enter* is the commit that creates the `Timed` Step, and the timer
+    number `n` is its Step number: the ID is `Timed-n`, from the per-type
+    counter in creation order (`server-zd/crates/dexzd-apply/src/steps/step_creation.rs:40-52`).
+  - L's *Arm* is the WaitFor completion commit, which sets the fire time to
+    its own timestamp plus `d` seconds (`wait_conditions/mod.rs:89-108`). So
+    the L deadline and the Dex fire time are equal.
+  - Dex fires due timers of the run in index order `(fire time, encoded
+    TimerId bytes)` (`server-zd/crates/dexzd-keyspace/src/row_keys.rs:303-314`).
+    All the program's timers are wait timers of one run, of run attempt 1, at
+    index 0, with IDs `Timed-n`. Their encoded TimerIds are
+    `08 01 12 ℓ 0a len(id) id`, with the index field omitted because it is 0
+    and `ℓ = len(id) + 2`. Bytes compare first by `ℓ`, so fewer digits come
+    first, and then, for equal length, by the decimal digits of `n`. For
+    `n < 2³²` (the Step number is a `uint32`, `state.proto:385`), `ℓ < 128`
+    fits one varint byte, and the byte order is exactly numeric order on `n`.
+    [assumption, from the protobuf encoding rules] So for equal fire times
+    Dex's order is timer-number order, as in L.
+  - [TIMER-FIRE] fires a non-empty prefix of the due timers in that order
+    (Section 4.5), processing them one after another in one commit. L's
+    one-at-a-time `fire` of the least due timer produces the same states:
+    a prefix of size `k` is `k` consecutive `fire` actions with nothing in
+    between, and each L `fire` is a prefix of size 1.
 - The translation never uses CancelSteps, CancelSiblingSteps, GracefulComplete,
   RPCs, SubFlows, or Attribute locks. The only Step cancellation is the Flow
   close, after which nothing observable happens except effects already in
@@ -1547,8 +1600,8 @@ Compile each L thread to continuation-passing Steps.
 | `wait(cv, m)` | One Execute, under `m`: append the waiter ID `w` to the Attribute `waiters/cv` and publish `m`'s token. Then a Step that waits `Until(cv/w.ForOne())` on the per-waiter Channel instance `cv/w`, then `lock(m)` again. | 1, 4 |
 | `signal(cv)` | One Execute, under `m`: if `waiters/cv` is not empty, remove its head `h` and publish to `cv/h`. | 1 |
 | `broadcast(cv)` | As `signal`, for every waiter in order. | 1 |
-| `sleep(d)` | WaitFor `AnyOf(Timer(d), cancel/self.ForOne())`. | 12 |
-| `select { recv(c) → s₁ \| after(d) → s₂ }` | WaitFor `AnyOf(Timer(d), c.ForOne(), cancel/self.ForOne())`. Only the winner consumes. | 5, 12 |
+| `sleep(d)` | GoTo a `Timed` Step (Enter); its WaitFor returns `AnyOf(Timer(d), cancel/self.ForOne())` (Arm). | 12 |
+| `select { recv(c) → s₁ \| after(d) → s₂ }` | GoTo a `Timed` Step; its WaitFor returns `AnyOf(Timer(d), c.ForOne(), cancel/self.ForOne())`. Only the winner consumes. A `select` without `after` uses an ordinary Step. | 5, 12 |
 | `recv(c)` on an external channel | WaitFor `AnyOf(c.ForOne(), cancel/self.ForOne())`. The environment's `pub` fills `c`. | 4, 5 |
 | `emit(a)` | An Execute whose only effect is `a`. | 9, 18 |
 | `throw` / `try` | The handler stack lives in the Step input. `throw` is a GoTo to the innermost handler's Step. No Worker errors. | 19 |
@@ -1605,7 +1658,7 @@ decisions. Each finding was checked against the code before the spec changed.
 | Owner Q3 | Model RPC cancellation with the graceful-completion check. | Accepted. [RPC-COMMIT] runs `gcheck()` after cancellations and new Steps, marked "follows #1450, not yet merged"; Open question 3 resolved. |
 | Owner Q11 | ABORTED is observable; RPC entry points out of the core theorem. | Accepted. `ret(id, ABORTED)` in `Obs`; RPCs excluded from `E_adm` (5.3); Open question 11 resolved; L external input is Channel publications only (8). |
 | 1 | RPC ABORT and early NOT_FOUND paths never released RL or decremented Tx. | Confirmed: the guards are scoped values and drop on every exit (`registry.rs:809-846`, `rpc_invocation.rs:179-200`, `:287-301`). Added [RPC-FINISH] for every path; Call, Snap, Read-only, and Commit now only set `Done(result)`. [PENDING-CLOSE-CHECK] runs after the guard drops (4.7, 4.9). |
-| 2 | Finite weak traces cannot tell DeadEnd-and-RUNNING from an unscheduled close. | Accepted. Added fair maximal traces with markers `✓`, `δ`, `∞`, and fairness assumptions F1 to F6 (5.5), alongside the safety statement (5.4). |
+| 2 | Finite weak traces cannot tell DeadEnd-and-RUNNING from an unscheduled close. | Accepted. Added fair maximal traces with markers `✓`, `δ`, `∞`, and fairness assumptions F1 to F6 (5.5), alongside the safety statement (5.4). Revision 3 added F0, so the current list is F0 to F6. |
 | 3 | [TIMER-FIRE] allows only a prefix; retry delay can let a later timer fire first. | **Rejected for failure-free runs; the spec keeps the prefix and explains why.** A row enters the retry delay only after its TimersFired command committed (`timer_service.rs:158-184`, `:283-287`; `effects/mod.rs:427-455`), and that commit disarmed it (`step_commands.rs:156-163`). So skipping it never lets a later timer overtake an unfired one. A subset abstraction would add runs the code cannot produce (example in 4.5), which is unsafe for the L ⊆ Dex direction. AnyOf outcomes are unchanged. |
 | 4 | One label per transition cannot express StopFlow or an RPC commit that closes. | Accepted. Transitions carry an ordered event sequence (4.1); [STOP] emits `[stop, closed]`; RPC return is its own step [RPC-FINISH]. |
 | 5 | `Obs` exposes raw IDs and client operations L lacks. | Accepted. Added the admissible environment `E_adm` and the projection `π` to `Obs_L` (5.3). |
@@ -1629,6 +1682,15 @@ findings 1 and 4 to 13. Its five new findings, all checked against the code:
 | R2-3 | `E_adm` does not put the start first. | Confirmed: a publication with no run is rejected with NOT_FOUND (`run_cursor.rs:111-113`). An admissible input word now begins with the unique start, and every later input is a publication (5.3). |
 | R2-4 | `dec` is undefined for `exit(null)`; `fail(err)` does not extract the message. | Confirmed: `collect` drops absent and null outputs (`step_decisions.rs:186-196`); FF stores its string input as the message with STEP_DECISION_FAILING_FLOW (`step_decisions.rs:92-119`). Exit values are encoded as the tagged non-null value `{"exit": enc(v)}`, and `π` maps a failed close to `fail(msg)` read from that structured error (5.3, 8.3). |
 | R2-5 | L timers fire exactly at the deadline, but Dex fires arbitrarily late. | Confirmed (`timer_service.rs:116-155`; `wait_conditions/mod.rs:167-188`). L now has an explicit nondeterministic `fire` action, enabled no earlier than the deadline, and blocked operations are decided by the order of `fire`, message arrival, and cancel (8.1, Open question 12). |
+
+Revision 4 answers the third review of revision 3. Its two findings, both
+checked against the code:
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| R3-1 | The input word counts only accepted input events; a publication after the close produces only `rejected(...)`, so an L run that exits and then refuses an input has no matching Dex run. | Confirmed: a publication to a closed run is rejected with NOT_FOUND and emits no `pub` event (`client_writes.rs:206-215`). The input word is now a sequence of attempted requests, accepted and rejected alike; each request occurs exactly once, in order, and its commit produces either the input event or `rejected(...)` (5.3). Runs for `w` and F0 are restated over request commits (5.5). |
+| R3-2 | Independent late `fire` actions in L let a later-due timer fire before an earlier-due one, which Dex's ordered prefix forbids. | Confirmed (`timer_service.rs:140-155`, `row_keys.rs:303-314`, `wait_conditions/mod.rs:166-188`). L's `fire` now fires only the least due timer in the order `(deadline, timer number)`, the timer number coming from a program-wide counter at Enter, and L's clock strictly increases between actions (8.1). The translation runs every timed operation in one Step type `Timed` with one timer at index 0, so the timer number is the Step number, the deadline is the fire time, and the encoded-TimerId tie-break is numeric order on the Step number; a Dex prefix of size `k` equals `k` consecutive L `fire` actions (8.2). |
+| R3-3 | The revision-2 log row still says "F1 to F6". | Fixed: that row now notes that revision 3 added F0, so the current list is F0 to F6. |
 
 ## Appendix A. Assumptions and decisions in one list
 
@@ -1664,8 +1726,13 @@ findings 1 and 4 to 13. Its five new findings, all checked against the code:
     a timed theorem needs it (Open question 22).
 23. L adopts the semantics of Section 8.1 (FIFO mutex and condition variable,
     cooperative cancellation, asynchronous emit, exit stops all threads,
-    explicit late timer `fire`).
-24. An admissible input word begins with the unique start; every later input
-    is a publication to an external Channel (5.3).
+    explicit late timer `fire` of the least due timer in `(deadline, timer
+    number)` order, a clock that strictly increases between actions).
+24. An admissible input word is a sequence of attempted requests, accepted or
+    rejected, each exactly once and in order; it begins with the unique start,
+    and every later request is a publication to an external Channel (5.3).
 25. The translation encodes exit values as `{"exit": enc(v)}` and failure
     messages as FF's string input (5.3).
+26. Every timed L operation runs in the single Step type `Timed`, with one
+    timer at index 0, so Dex's TimerId tie-break is numeric order on the Step
+    number; derived from the protobuf encoding rules (8.2).
