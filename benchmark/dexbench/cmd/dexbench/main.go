@@ -201,7 +201,7 @@ func run(args []string) error {
 	flags.Float64Var(&config.TimeoutSeconds, "timeout", 30, "timeout seconds per operation")
 	flags.StringVar(&concurrencyValues, "concurrency", "1,8,32,128", "comma-separated concurrent client counts")
 	flags.IntVar(&config.WorkerPool, "workers", 0, "pull Worker task pool size; defaults to concurrency")
-	flags.IntVar(&config.Steps, "steps", 10, "Steps per chain Flow")
+	flags.IntVar(&config.Steps, "steps", 10, "unused: sequential-steps runs a long-lived chain per client; kept so existing scripts still parse")
 	flags.IntVar(&config.Connections, "connections", 1, "Client and Worker pairs, each with its own gRPC connections; clients are spread round-robin")
 	flags.IntVar(&config.Trial, "trial", 0, "trial number of a repeated point; 0 when not repeated")
 	flags.StringVar(&serverTunables, "server-tunables", "", "semicolon-separated KEY=VALUE server settings to record in the result")

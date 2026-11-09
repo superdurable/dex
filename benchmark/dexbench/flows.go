@@ -241,7 +241,8 @@ func (step wakeWaitStep) Execute(ctx dex.Context, input wakeInput) (*dex.StepDec
 	if len(values) != 1 {
 		return dex.ForceFail("expected one wake message"), nil
 	}
-	return dex.GracefulComplete(nil), nil
+	// The run stays open: each wake moves to a new wait for the client's next sequence.
+	return dex.GoTo(step, wakeInput{Client: input.Client, Sequence: input.Sequence + 1}), nil
 }
 
 // attributeFlow holds the Attributes that clients read directly from the server.
