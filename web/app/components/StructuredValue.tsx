@@ -368,9 +368,11 @@ function ArrayStructured({ value, expandValues }: { value: unknown[]; expandValu
       {value.map((entry, index) => (
         <div className="semantic-record" key={index}>
           <strong>Item {index + 1}</strong>
-          {entry && typeof entry === 'object' && !isDexValue(entry)
-            ? <ObjectStructured value={asData(entry)} expandValues={expandValues} />
-            : <ValueChip value={entry} expandValues={expandValues} />}
+          {Array.isArray(entry)
+            ? <StructuredValue value={entry} expandValues={expandValues} />
+            : entry && typeof entry === 'object' && !isDexValue(entry)
+              ? <ObjectStructured value={asData(entry)} expandValues={expandValues} />
+              : <ValueChip value={entry} expandValues={expandValues} />}
         </div>
       ))}
     </div>

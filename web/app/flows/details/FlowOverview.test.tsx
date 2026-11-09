@@ -458,3 +458,69 @@ describe('decoded Channel values and close failures', () => {
     expect(markup).not.toContain('Close result');
   });
 });
+
+describe('nested arrays in decoded values', () => {
+  const summary: FlowSummary = {
+    flowId: 'flow-1',
+    runId: 'run-1',
+    firstRunId: 'run-1',
+    requestId: 'request-1',
+    flowType: 'PaymentFlow',
+    flowStatus: 'Running',
+    flowStatusCode: 1,
+    startTime: '2026-08-10T00:00:00Z',
+    closeTime: null,
+  };
+  const jsonValue = (value: unknown) => ({ objValue: { encoding: 'json', payload: btoa(JSON.stringify(value)) } });
+  const cases: Array<[string, unknown, string[]]> = [
+    ['an array of arrays', [[11, 22]], ['11', '22']],
+    ['an array of objects with arrays', [{ a: [33, 44] }], ['33', '44']],
+    ['an object of nested arrays', { x: [[55], [66]] }, ['55', '66']],
+  ];
+
+  function stateWith(overrides: Partial<FlowState>): FlowState {
+    return {
+      flowConfig: {},
+      attributes: [],
+      activeStepExecutions: [],
+      queuedSteps: [],
+      pendingChannelMessages: {},
+      completedSteps: [],
+      ...overrides,
+    };
+  }
+
+  it.each(cases)('keeps %s in a Channel message', (_name, value, numbers) => {
+    const markup = renderToStaticMarkup(
+      <FlowOverview
+        summary={summary}
+        events={[]}
+        state={stateWith({
+          pendingChannelMessages: {
+            nested: { messages: [{ channelName: 'nested', messageId: `nested-${numbers[0]}`, value: jsonValue(value) }] },
+          },
+        })}
+      />,
+    );
+    expect(markup).not.toContain('Empty object');
+    for (const number of numbers) expect(markup).toContain(number);
+  });
+
+  it.each(cases)('keeps %s in an Attribute value', (_name, value, numbers) => {
+    const markup = renderToStaticMarkup(
+      <FlowOverview
+        summary={summary}
+        events={[]}
+        state={stateWith({ attributes: [{ key: `nested-${numbers[0]}`, value: jsonValue(value) }] })}
+      />,
+    );
+    expect(markup).not.toContain('Empty object');
+    for (const number of numbers) expect(markup).toContain(number);
+  });
+
+  it('renders each inner array of an array of arrays as its own list', () => {
+    const markup = renderToStaticMarkup(<StructuredValue value={jsonValue([[11, 22]])} />);
+    expect(markup).toContain('>11<');
+    expect(markup).toContain('>22<');
+  });
+});
