@@ -4,11 +4,11 @@ const sidebars: SidebarsConfig = {
   reference: [
     {type: 'link', label: '← Developer Reference', href: '/reference/'},
     'index',
-    'changes',
     'dex-web',
     'flow-visualization',
     'local-connector-setup',
     'debugging',
+    'changelog',
   ],
 };
 

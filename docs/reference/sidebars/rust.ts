@@ -4,9 +4,23 @@ const sidebars: SidebarsConfig = {
   reference: [
     {type: 'link', label: '← Developer Reference', href: '/reference/'},
     'index',
-    'changes',
-    'flows-and-steps',
+    {
+      type: 'category',
+      label: 'Flows and Steps',
+      link: {type: 'doc', id: 'flows-and-steps/index'},
+      items: [
+        'flows-and-steps/flow-definition',
+        'flows-and-steps/start-flow-options',
+        'flows-and-steps/flow-config',
+        'flows-and-steps/step-methods',
+        'flows-and-steps/waits',
+        'flows-and-steps/step-decisions',
+        'flows-and-steps/step-options',
+        'flows-and-steps/failure-and-redelivery',
+      ],
+    },
     'workers',
+    'changelog',
   ],
 };
 
