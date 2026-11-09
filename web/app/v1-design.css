@@ -1967,11 +1967,9 @@ body:has(.v1-page) {
 }
 
 .htl-minimap {
-  height: 34px;
   margin-bottom: 10px;
-  padding: 1px 0;
+  padding: 4px 0;
   border-radius: var(--ui-radius-control);
-  background: var(--ui-well);
   cursor: pointer;
   touch-action: none;
 }
@@ -1985,12 +1983,12 @@ body:has(.v1-page) {
 .htl-minimap svg {
   display: block;
   width: 100%;
-  height: 32px;
+  height: 10px;
 }
 
 .htl-tick {
   fill: var(--ui-ink-3);
-  opacity: 0.45;
+  opacity: 0.22;
 }
 
 .htl-tick.htl-status-waiting {
@@ -2003,9 +2001,14 @@ body:has(.v1-page) {
   opacity: 1;
 }
 
+.htl-tick.htl-status-canceled {
+  fill: var(--tone-canceled);
+  opacity: 1;
+}
+
 .htl-tick.is-linked {
   fill: var(--tone-accent);
-  opacity: 0.8;
+  opacity: 0.55;
 }
 
 .htl-tick.is-selected {
@@ -2014,7 +2017,7 @@ body:has(.v1-page) {
 }
 
 .htl-minimap-window {
-  fill: color-mix(in srgb, var(--tone-accent) 14%, transparent);
+  fill: color-mix(in srgb, var(--tone-accent) 8%, transparent);
   stroke: var(--tone-accent);
   stroke-width: 1.5px;
   vector-effect: non-scaling-stroke;
@@ -2172,8 +2175,12 @@ body:has(.v1-page) {
 }
 
 .htl-event:hover .htl-label,
-.htl-event.selected .htl-label,
 .htl-event.linked .htl-label {
+  color: var(--ui-ink);
+}
+
+/* Only the selection gets the strong label, so it reads apart from linked events. */
+.htl-event.selected .htl-label {
   color: var(--ui-ink);
   font-weight: 600;
 }

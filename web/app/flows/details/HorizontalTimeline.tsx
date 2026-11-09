@@ -63,6 +63,9 @@ const { slotWidth, labelRunWidth } = horizontalTimelineLayout;
 const overscanSlots = 6;
 const fallbackStripWidth = 1200;
 const arcBandHeight = 44;
+/** The overview track is 10 px; neutral ticks form a 4 px density line inside it. */
+const minimapHeight = 10;
+const neutralTickHeight = 4;
 
 type EventKind = 'waitfor' | 'execute' | 'channel-publish' | 'channel-delete' | 'flow-start' | 'flow-close'
   | 'rpc' | 'attributes' | 'fork';
@@ -195,6 +198,7 @@ export function HorizontalTimeline({
   paging,
   prunedEventIdRange,
   highlightedEventId = null,
+  isFollowingLatest = false,
 }: {
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
@@ -203,6 +207,8 @@ export function HorizontalTimeline({
   paging?: TimelinePaging;
   prunedEventIdRange?: EventIdRange;
   highlightedEventId?: number | null;
+  /** The selection is the newest event by default, so Live moving it must not move the view. */
+  isFollowingLatest?: boolean;
 }) {
   const chronological = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
   const statuses = useMemo(() => eventStatuses(chronological, paging?.hasNewer ?? false), [chronological, paging?.hasNewer]);
@@ -273,7 +279,7 @@ export function HorizontalTimeline({
 
   const selectedIndex = selectedEvent ? indexByEventId.get(selectedEvent.eventId) ?? -1 : -1;
   useEffect(() => {
-    if (selectedIndex < 0) return;
+    if (selectedIndex < 0 || isFollowingLatest) return;
     // Selecting an older event stops Live from sliding the view toward newer events.
     isAtNewestEnd.current = selectedIndex === chronological.length - 1;
     if (selectedIndex < windowStart || selectedIndex >= windowStart + visibleCount) centerOn(selectedIndex);
@@ -354,6 +360,11 @@ export function HorizontalTimeline({
   const xOf = (index: number) => (index - windowStart) * slotWidth + slotWidth / 2;
   // Ticks stay about 3 px wide, so a short page does not read as solid blocks.
   const tickWidth = Math.min(1, (3 * chronological.length) / Math.max(1, stripWidth));
+  // The view window stays at least 12 px wide, so a long page keeps it findable.
+  const windowWidth = Math.min(
+    chronological.length,
+    Math.max(visibleCount, (12 * chronological.length) / Math.max(1, stripWidth)),
+  );
 
   return (
     <div className="timeline-wrap htl">
@@ -382,22 +393,29 @@ export function HorizontalTimeline({
         role="slider"
         tabIndex={0}
       >
-        <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${chronological.length} 32`}>
+        <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${chronological.length} ${minimapHeight}`}>
           {chronological.map((event, index) => {
             const status = statuses.get(event.eventId) ?? 'normal';
-            const isProminent = status === 'failed' || status === 'waiting';
+            const isProminent = status !== 'normal' || index === selectedIndex;
+            const tickHeight = isProminent ? minimapHeight : neutralTickHeight;
             return (
               <rect
                 className={`htl-tick htl-status-${status}${linkedEventIds.has(event.eventId) ? ' is-linked' : ''}${index === selectedIndex ? ' is-selected' : ''}`}
-                height={isProminent || index === selectedIndex ? 26 : 14}
+                height={tickHeight}
                 key={event.eventId}
                 width={tickWidth}
                 x={index + (1 - tickWidth) / 2}
-                y={isProminent || index === selectedIndex ? 3 : 15}
+                y={(minimapHeight - tickHeight) / 2}
               />
             );
           })}
-          <rect className="htl-minimap-window" height={30} width={Math.min(visibleCount, chronological.length)} x={windowStart} y={1} />
+          <rect
+            className="htl-minimap-window"
+            height={minimapHeight - 1}
+            width={windowWidth}
+            x={Math.min(windowStart, chronological.length - windowWidth)}
+            y={0.5}
+          />
         </svg>
       </div>
 

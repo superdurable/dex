@@ -925,16 +925,17 @@ export function RunDetailsPage({
               events={pageEventsWithFlowStart}
               hasEarlierEvents={pageHasEarlierEvents}
               state={state}
-              selectedEvent={selectedEvent}
+              selectedEvent={selectedRaw}
               onSelectEvent={setSelectedEvent}
             />
           )}
           {tab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
             <HorizontalTimeline
               events={displayedTimelineEvents}
-              selectedEvent={selectedEvent}
+              selectedEvent={selectedRaw}
+              isFollowingLatest={selectedEvent === null}
               onSelectEvent={selectTimelineEvent}
-              relations={selectedEvent ? selectedRelations : undefined}
+              relations={selectedRaw ? selectedRelations : undefined}
               paging={{
                 hasOlder: timelineWindow?.hasOlder ?? false,
                 hasNewer: runHistory.timelineHasNewer,
@@ -948,9 +949,9 @@ export function RunDetailsPage({
             <Timeline
               flowId={flowId}
               events={displayedTimelineEvents}
-              selectedEvent={selectedEvent}
+              selectedEvent={selectedRaw}
               onSelectEvent={selectTimelineEvent}
-              relations={selectedEvent ? selectedRelations : undefined}
+              relations={selectedRaw ? selectedRelations : undefined}
               paging={{
                 hasOlder: timelineWindow?.hasOlder ?? false,
                 hasNewer: runHistory.timelineHasNewer,

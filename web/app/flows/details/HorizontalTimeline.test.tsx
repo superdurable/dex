@@ -184,6 +184,30 @@ describe('horizontal Timeline', () => {
     rerender(<HorizontalTimeline events={events(1000)} selectedEvent={null} onSelectEvent={() => {}} />);
     expect(document.querySelectorAll('.htl-tick')).toHaveLength(1000);
   });
+
+  it('keeps neutral overview ticks to a thin line and gives the selection and failures the full track', () => {
+    const pageEvents = events(50);
+    pageEvents[9] = { ...pageEvents[9], type: 'StepExecuteFailed' };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={pageEvents[44]} onSelectEvent={() => {}} />);
+    const ticks = [...document.querySelectorAll('.htl-tick')];
+    expect(ticks[0].getAttribute('height')).toBe('4');
+    expect(ticks[9].getAttribute('class')).toContain('htl-status-failed');
+    expect(ticks[9].getAttribute('height')).toBe('10');
+    expect(ticks[44].getAttribute('class')).toContain('is-selected');
+    expect(ticks[44].getAttribute('height')).toBe('10');
+  });
+
+  it('leaves the view where the reader moved it while the default selection follows Live', () => {
+    const { rerender } = render(
+      <HorizontalTimeline events={events(100)} selectedEvent={events(100)[99]} isFollowingLatest onSelectEvent={() => {}} />,
+    );
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    rerender(
+      <HorizontalTimeline events={events(101)} selectedEvent={events(101)[100]} isFollowingLatest onSelectEvent={() => {}} />,
+    );
+    expect(option(1)).not.toBeNull();
+    expect(option(101)).toBeNull();
+  });
   it('tints icons by kind family and colors only waiting, failed, and canceled events', () => {
     const at = (second: number) => `2026-10-24T17:00:${String(second).padStart(2, '0')}Z`;
     const step = (stepType: string, id: string) => ({ context: { stepType, stepExecutionId: id } });

@@ -732,6 +732,32 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(horizontalOption(3000)?.getAttribute('aria-selected')).toBe('true'));
   });
 
+  it('marks the event the panel shows on the horizontal Timeline, before and after keyboard moves', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 761px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const server = historyTestServer(sequentialStepHistory(30));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    const selectedOption = () => document.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
+    // With no click, the panel shows the newest event, and the strip marks the same one.
+    await waitFor(() => expect(selectedOption()).not.toBeNull());
+    const newestEventId = Number(selectedOption()!.dataset.eventId);
+    expect(selectedOption()!.className).toContain('selected');
+    expect(document.querySelector('.sidebar-stack')?.textContent).toContain(`#${newestEventId}`);
+    expect([...document.querySelectorAll('.htl-axis-label.selected')].map((label) => label.textContent))
+      .toEqual([`#${newestEventId}`]);
+
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' }), { key: 'ArrowLeft' });
+    await waitFor(() => expect(selectedOption()?.dataset.eventId).toBe(String(newestEventId - 1)));
+    expect(selectedOption()!.className).toContain('selected');
+    expect(document.querySelector('.htl-axis-label.selected')?.textContent).toBe(`#${newestEventId - 1}`);
+  });
+
   it('renders the whole event panel below the horizontal Timeline, through its last section', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: query === '(min-width: 761px)',
