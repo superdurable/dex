@@ -45,6 +45,7 @@ import { chunkedSubscriberFlow } from "./patterns/sequentially-chunked-attribute
 import { inactivenessTrackerFlow } from "./patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.js";
 import { flowGracefulTimeout } from "./patterns/timeout/flow-graceful-timeout.js";
 import { waitForStepCompletionFlow } from "./patterns/wait-for-step-completion/wait-for-step-completion-flow.js";
+import { workflowPatternFlows } from "./patterns/workflow-patterns/workflow-pattern-flows.js";
 import { attributeFlow } from "./primitives/attribute/attribute-flow.js";
 import { channelFlow } from "./primitives/channel/channel-flow.js";
 import { clientApisFlow } from "./primitives/client-apis/client-apis-flow.js";
@@ -136,6 +137,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   subFlowChildFlow,
   subFlowParentFlow,
   clientApisFlow,
+  ...workflowPatternFlows,
 ];
 
 export function createExampleRegistry(): Registry {

@@ -20,6 +20,7 @@ pub mod production;
 pub mod products;
 pub mod server;
 pub mod shared;
+pub mod workflow_patterns;
 
 use std::sync::Arc;
 
@@ -64,10 +65,51 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "WaitForStepCompletionFlow",
 ];
 
+/// Workflow Patterns Flows, in `examples/workflow-patterns-mapping.md` group order.
+pub const WORKFLOW_PATTERN_FLOW_TYPES: [&str; 36] = [
+    "SequenceFlow",
+    "ParallelSplitSynchronizationFlow",
+    "ExclusiveChoiceSimpleMergeFlow",
+    "MultiChoiceSynchronizingMergeFlow",
+    "MultiMergeFlow",
+    "GeneralSynchronizingMergeFlow",
+    "StructuredPartialJoinFlow",
+    "BlockingPartialJoinFlow",
+    "CancellingPartialJoinFlow",
+    "GeneralizedAndJoinFlow",
+    "ThreadSplitMergeFlow",
+    "MultipleInstancesWithoutSynchronizationFlow",
+    "DesignTimeMultipleInstancesFlow",
+    "RunTimeMultipleInstancesFlow",
+    "NoPriorKnowledgeMultipleInstancesFlow",
+    "StaticPartialJoinForMultipleInstancesFlow",
+    "CancellingPartialJoinForMultipleInstancesFlow",
+    "DynamicPartialJoinForMultipleInstancesFlow",
+    "DeferredChoiceFlow",
+    "InterleavedParallelRoutingFlow",
+    "MilestoneFlow",
+    "CriticalSectionFlow",
+    "InterleavedRoutingFlow",
+    "CancelTaskFlow",
+    "CancelCaseFlow",
+    "BackgroundCheckFlow",
+    "CancelRegionFlow",
+    "CancelMultipleInstanceTaskFlow",
+    "CompleteMultipleInstanceTaskFlow",
+    "ArbitraryCyclesFlow",
+    "StructuredLoopFlow",
+    "FactorialRecursionFlow",
+    "ImplicitTerminationFlow",
+    "ExplicitTerminationFlow",
+    "TransientTriggerFlow",
+    "PersistentTriggerFlow",
+];
+
 pub fn create_example_registry(polling_jobs: Arc<FakeJobService>) -> SdkResult<Registry> {
     products::register(Registry::new())
         .and_then(|registry| patterns::register(registry, polling_jobs))
         .and_then(primitives::register)
+        .and_then(workflow_patterns::register)
 }
 
 pub fn create_worker_registry(
@@ -75,6 +117,7 @@ pub fn create_worker_registry(
     polling_jobs: Arc<FakeJobService>,
 ) -> SdkResult<Registry> {
     products::register(Registry::new())
-        .and_then(|registry| patterns::register_worker(registry, client, polling_jobs))
+        .and_then(|registry| patterns::register_worker(registry, Arc::clone(&client), polling_jobs))
         .and_then(primitives::register)
+        .and_then(|registry| workflow_patterns::register_worker(registry, client))
 }

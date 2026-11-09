@@ -167,3 +167,5 @@ unmapped:
   - skills/dex-connector-contributor/SKILL.md
   # The Concepts overview; dex-sdk/SKILL.md holds the agent mental model.
   - docs/content/concepts/index.mdx
+  # Expressiveness evidence for human readers; no agent rule changes.
+  - docs/content/concepts/correctness-and-expressiveness/*.mdx

@@ -131,6 +131,7 @@ fi
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
 DEX_SERVER_ADDRESS="$dex_address" make integTests
+DEX_SERVER_ADDRESS="$dex_address" make workflowPatternsTests
 DEX_SERVER_ADDRESS="$dex_address" make flowSmokeTests
 
 if $keep_running; then

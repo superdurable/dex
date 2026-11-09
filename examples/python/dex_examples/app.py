@@ -92,6 +92,9 @@ from dex_examples.patterns.timeout.flow_graceful_timeout import FlowGracefulTime
 from dex_examples.patterns.wait_for_step_completion.wait_for_step_completion_flow import (
     WaitForStepCompletionFlow,
 )
+from dex_examples.patterns.workflow_patterns.workflow_pattern_flows import (
+    WorkflowPatternFlows,
+)
 from dex_examples.primitives.attribute.attribute_flow import AttributeFlow
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
 from dex_examples.primitives.client_apis.client_apis_flow import ClientApisFlow
@@ -192,6 +195,7 @@ class ExampleApp:
         self.customer_directory = CustomerDirectoryFlow()
         self.timeout = FlowGracefulTimeout()
         self.wait_for_step_completion = WaitForStepCompletionFlow(pattern_service)
+        self.workflow_patterns = WorkflowPatternFlows(client_provider)
 
         self.example_flow = ExampleFlow()
         self.step = StepFlow()
@@ -257,6 +261,7 @@ class ExampleApp:
             self.customer_directory,
             self.timeout,
             self.wait_for_step_completion,
+            *self.workflow_patterns.all_flows(),
             self.example_flow,
             self.step,
             self.step_retry,
