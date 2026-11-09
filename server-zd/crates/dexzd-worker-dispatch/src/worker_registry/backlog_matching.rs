@@ -90,6 +90,13 @@ pub(super) struct PartitionSearches {
     searches: HashMap<PartitionId, HashMap<u64, Arc<PartitionSearch>>>,
 }
 
+#[cfg(test)]
+impl PartitionSearches {
+    pub(super) fn search_count_for_test(&self) -> usize {
+        self.searches.values().map(HashMap::len).sum()
+    }
+}
+
 /// Durable queue state guarded by the registry lock.
 #[derive(Default)]
 pub(super) struct QueueMatching {
@@ -103,6 +110,11 @@ pub(super) struct QueueMatching {
 }
 
 impl QueueMatching {
+    #[cfg(test)]
+    pub(super) fn pending_claim_count_for_test(&self) -> usize {
+        self.claims.len()
+    }
+
     pub(super) fn add_step_stream(&mut self, worker: &WorkerStream) {
         for flow_type in &worker.backlog_flow_types {
             self.step_workers
@@ -247,6 +259,21 @@ impl WorkerDispatch {
     /// A frame sent during the removal is an ordinary hand-out: its result commits through the
     /// owner, or the successor fails it as interrupted (plan D68).
     pub fn remove_partition(&self, partition: PartitionId) {
+        let undelivered = self.remove_partition_matching_state(partition);
+        self.end_partition_searches(partition);
+        // Freed slots go to waiters first, then to other partitions' backlog.
+        for pending in undelivered {
+            self.make_idle(&pending.worker);
+        }
+    }
+
+    /// Removes `partition`'s refs and undelivered Claims under the registry lock.
+    ///
+    /// Returns the removed undelivered Claims, whose streams the caller must make idle.
+    pub(super) fn remove_partition_matching_state(
+        &self,
+        partition: PartitionId,
+    ) -> VecDeque<PendingClaim> {
         let mut registry = self.lock_registry();
         *registry
             .queue_matching
@@ -260,7 +287,11 @@ impl WorkerDispatch {
             .drain(..)
             .partition(|pending| pending.task.partition == partition);
         registry.queue_matching.claims = kept;
-        drop(registry);
+        undelivered
+    }
+
+    /// Ends every in-memory search registered for `partition` as if matching were closing.
+    pub(super) fn end_partition_searches(&self, partition: PartitionId) {
         let searches = self
             .lock_partition_searches()
             .searches
@@ -269,10 +300,6 @@ impl WorkerDispatch {
         for search in searches.into_values() {
             search.is_removed.store(true, Ordering::Release);
             search.wakeup.notify_one();
-        }
-        // Freed slots go to waiters first, then to other partitions' backlog.
-        for pending in undelivered {
-            self.make_idle(&pending.worker);
         }
     }
 

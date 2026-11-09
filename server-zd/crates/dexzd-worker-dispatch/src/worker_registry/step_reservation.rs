@@ -359,7 +359,7 @@ impl ReservedStepStream {
         })
     }
 
-    fn worker(&self) -> &Arc<WorkerStream> {
+    pub(super) fn worker(&self) -> &Arc<WorkerStream> {
         self.worker
             .as_ref()
             .expect("a reservation keeps its stream until it is sent or dropped")
