@@ -883,6 +883,8 @@ body:has(.v1-page) {
 }
 
 .v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields dd:not(:has(pre, details, .value-expand-button)) {
+  max-width: 100%;
+  align-self: stretch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
