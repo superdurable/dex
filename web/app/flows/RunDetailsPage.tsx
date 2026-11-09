@@ -701,6 +701,7 @@ export function RunDetailsPage({
               deletingChannelMessage={deletingChannelMessage}
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
+              onFlowConfigSaved={() => loadState(summary.flowStatusCode)}
             />
           )}
           {tab === 'steps' && !isWaitingForHistory && runHistory.newest?.hasOlder && (

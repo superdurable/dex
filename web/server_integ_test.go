@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	dexweb "github.com/superdurable/dex/web"
 	"github.com/superdurable/dex/web/assets"
@@ -30,6 +31,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -47,6 +49,7 @@ type flowService struct {
 	timeTravelRequests chan *dexpb.ResetFlowRequest
 	publishRequests    chan *dexpb.PublishToChannelRequest
 	setRequests        chan *dexpb.SetAttributesRequest
+	configRequests     chan *dexpb.UpdateFlowConfigRequest
 }
 
 func TestWebServerProtectsUnsafeAPIRequests(t *testing.T) {
@@ -116,6 +119,7 @@ func TestWebServerProtectsUnsafeAPIRequests(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/v2/start"},
 		{http.MethodPut, "/api/flows/attributes"},
+		{http.MethodPut, "/api/flows/config/history"},
 		{http.MethodDelete, "/api/flows/channels/messages"},
 	} {
 		request, err := http.NewRequest(route.method, harness.http.URL+route.path, strings.NewReader(`{}`))
@@ -198,6 +202,97 @@ func TestWebServerWritesLiveFlowState(t *testing.T) {
 		if response.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s %s %s: status=%d body=%q", invalid.method, invalid.path, invalid.body, response.StatusCode, body)
 		}
+	}
+}
+
+func TestWebServerUpdatesOnlyEditedHistoryConfigFields(t *testing.T) {
+	service := &flowService{configRequests: make(chan *dexpb.UpdateFlowConfigRequest, 1)}
+	harness := newHarness(t, service)
+
+	for _, scenario := range []struct {
+		name                string
+		body                string
+		historyWindowEvents *int32
+		deleteExpired       *bool
+	}{
+		{
+			name:                "window only",
+			body:                `{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":500}`,
+			historyWindowEvents: ptr.Any(int32(500)),
+		},
+		{
+			name:          "delete only",
+			body:          `{"flowId":"checkout-1","runId":"run-1","deleteExpiredHistoryObjects":false}`,
+			deleteExpired: ptr.Any(false),
+		},
+		{
+			name:                "both fields",
+			body:                `{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":20,"deleteExpiredHistoryObjects":true}`,
+			historyWindowEvents: ptr.Any(int32(20)),
+			deleteExpired:       ptr.Any(true),
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			response := sendJSON(t, http.MethodPut, harness.http.URL+"/api/flows/config/history", scenario.body)
+			body := readBody(t, response)
+			response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d body=%q", response.StatusCode, body)
+			}
+			update := <-service.configRequests
+			if update.GetFlowId() != "checkout-1" || update.GetRunId() != "run-1" {
+				t.Fatalf("unexpected run target: %+v", update)
+			}
+			// UpdateFlowConfig merges set fields, so every other field must stay unset.
+			expected := &dexpb.FlowConfig{
+				HistoryWindowEvents:         scenario.historyWindowEvents,
+				DeleteExpiredHistoryObjects: scenario.deleteExpired,
+			}
+			if !proto.Equal(update.GetFlowConfig(), expected) {
+				t.Fatalf("flow config = %v, want only %v", update.GetFlowConfig(), expected)
+			}
+		})
+	}
+
+	for _, invalidBody := range []string{
+		`{"runId":"run-1","historyWindowEvents":500}`,
+		`{"flowId":"checkout-1","historyWindowEvents":500}`,
+		`{"flowId":"checkout-1","runId":"run-1"}`,
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":0}`,
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":-5}`,
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":2147483648}`,
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":1.5}`,
+		`{"flowId":"checkout-1","runId":"run-1","deleteExpiredHistoryObjects":"yes"}`,
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":5,"workerTarget":{}}`,
+	} {
+		response := sendJSON(t, http.MethodPut, harness.http.URL+"/api/flows/config/history", invalidBody)
+		body := readBody(t, response)
+		response.Body.Close()
+		if response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s: status=%d body=%q", invalidBody, response.StatusCode, body)
+		}
+	}
+	if len(service.configRequests) != 0 {
+		t.Fatal("rejected history config update reached FlowService")
+	}
+
+	rejected := sendJSON(
+		t,
+		http.MethodPut,
+		harness.http.URL+"/api/flows/config/history",
+		`{"flowId":"checkout-1","runId":"run-1","historyWindowEvents":100001}`,
+	)
+	var rejectedBody struct {
+		Error    string `json:"error"`
+		GRPCCode int32  `json:"grpcCode"`
+	}
+	decodeResponse(t, rejected, &rejectedBody)
+	rejected.Body.Close()
+	<-service.configRequests
+	if rejected.StatusCode != http.StatusBadRequest ||
+		rejectedBody.Error != "history window exceeds history.maxWindowEvents" ||
+		rejectedBody.GRPCCode != int32(codes.InvalidArgument) {
+		t.Fatalf("server rejection status=%d body=%+v", rejected.StatusCode, rejectedBody)
 	}
 }
 
@@ -732,6 +827,17 @@ func (s *flowService) SetAttributes(
 	request *dexpb.SetAttributesRequest,
 ) (*emptypb.Empty, error) {
 	s.setRequests <- request
+	return &emptypb.Empty{}, nil
+}
+
+func (s *flowService) UpdateFlowConfig(
+	_ context.Context,
+	request *dexpb.UpdateFlowConfigRequest,
+) (*emptypb.Empty, error) {
+	s.configRequests <- request
+	if request.GetFlowConfig().GetHistoryWindowEvents() > 100000 {
+		return nil, status.Error(codes.InvalidArgument, "history window exceeds history.maxWindowEvents")
+	}
 	return &emptypb.Empty{}, nil
 }
 
