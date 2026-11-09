@@ -17,11 +17,13 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Intro and Quick Start',
+      customProps: {section: 'intro'},
       items: ['intro/what-is-durable-execution', 'intro/what-is-dex', 'quick-start/index'],
     },
     {
       type: 'category',
       label: 'Primitives',
+      customProps: {section: 'primitives'},
       link: {type: 'doc', id: 'primitives/index'},
       items: [
         'primitives/flow/index',
@@ -38,6 +40,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Components',
+      customProps: {section: 'components'},
       link: {type: 'doc', id: 'primitives/components/index'},
       items: [
         'primitives/components/application',
@@ -51,12 +54,14 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Agent Frameworks',
+      customProps: {section: 'agent-frameworks'},
       link: {type: 'doc', id: 'agent-frameworks'},
       items: ['agent-frameworks/deploy-agents'],
     },
     {
       type: 'category',
       label: 'Agent Skills',
+      customProps: {section: 'agent-skills'},
       collapsed: false,
       items: [
         'build-with-ai/dex-developer-skill',
@@ -68,6 +73,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Design Patterns',
+      customProps: {section: 'design-patterns'},
       link: {type: 'doc', id: 'design-patterns/index'},
       items: [
         {
@@ -152,6 +158,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Product Examples',
+      customProps: {section: 'product-examples'},
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
         'use-cases/ai-agent',
@@ -168,6 +175,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Developer Reference',
+      customProps: {section: 'reference'},
       link: {type: 'doc', id: 'reference/index'},
       // Each entry expands into that component's own versioned sidebar. See plugins/shared-docs-sidebar.
       items: referenceComponents.map(({component, label}) => ({

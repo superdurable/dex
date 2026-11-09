@@ -17,17 +17,17 @@
   gap: 0.4rem;
   min-height: 2.75rem;
   padding: 0.5rem;
-  border: 1px solid var(--ifm-color-emphasis-300);
+  border: 0;
   border-radius: 0.5rem;
-  background: var(--ifm-background-color);
-  color: var(--ifm-font-color-base);
+  background: transparent;
+  color: var(--docs-subtle, var(--ifm-font-color-base));
   font-size: 0.8rem;
   text-decoration: none;
 }
 
 .link:hover {
-  background: var(--ifm-color-emphasis-100);
-  color: var(--ifm-font-color-base);
+  background: var(--docs-tint, var(--ifm-color-emphasis-100));
+  color: var(--section-accent, var(--ifm-font-color-base));
   text-decoration: none;
 }
 

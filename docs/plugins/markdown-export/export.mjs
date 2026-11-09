@@ -266,6 +266,7 @@ async function expandJsx(node, context) {
   }
   if (name === 'DocsFlowDefinitionGraph') return expandGraph(node, context);
   if (name === 'DexSkillHostTabs') return expandHostTabs(node, context);
+  if (name === 'DocsSection') return expandDocsSection(node, context);
   if (name === 'img') {
     const image = {type: 'image', ...imageProperties(node, context)};
     return node.type === 'mdxJsxTextElement' ? [image] : [{type: 'paragraph', children: [image]}];
@@ -276,6 +277,20 @@ async function expandJsx(node, context) {
     children: await transformChildren(node.children, context)}];
   if (name === 'a') return expandAnchorElement(node, context);
   fail(context, node, `Unknown JSX component <${name}>`);
+}
+
+// Mirrors DocsSection.tsx: a linked section name followed by its description.
+async function expandDocsSection(node, context) {
+  const to = attribute(node, 'to', context);
+  const title = attribute(node, 'title', context);
+  if (typeof to !== 'string' || typeof title !== 'string') fail(context, node, 'DocsSection requires string to and title');
+  const description = (await transformChildren(node.children, context))
+    .flatMap(child => child.type === 'paragraph' ? child.children : [child]);
+  return [{type: 'paragraph', children: [
+    {type: 'link', url: rewriteLink(to, context, node), children: [{type: 'text', value: title}]},
+    {type: 'text', value: ': '},
+    ...description,
+  ]}];
 }
 
 async function expandAnchorElement(node, context) {
