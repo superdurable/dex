@@ -28,16 +28,20 @@ const desktopSidebarScrollerSelector = '.theme-doc-sidebar-container nav.menu';
 const categoryAnimationMs = 400;
 
 // Survives the remount that happens when a link crosses into another docs instance.
-let desktopSidebarScrollTop: number | undefined;
+let desktopSidebarScrollTop = 0;
+let hasDesktopSidebarMounted = false;
 
 const useIsomorphicLayoutEffect = ExecutionEnvironment.canUseDOM ? useLayoutEffect : useEffect;
 
-const versionSelectorItem: PropSidebarItem = {
-  type: 'html',
-  value: '',
-  className: 'reference-version-selector-item',
-  defaultStyle: false,
-};
+function versionSelectorItem(component: string): PropSidebarItem {
+  return {
+    type: 'html',
+    value: '',
+    className: 'reference-version-selector-item',
+    defaultStyle: false,
+    customProps: {referencePluginId: `${referencePluginPrefix}${component}`},
+  };
+}
 
 function expandReferenceEntries(
   items: PropSidebar,
@@ -65,7 +69,7 @@ function expandReferenceEntries(
       collapsible: true,
       collapsed: true,
       customProps: item.customProps,
-      items: isActiveComponent ? [versionSelectorItem, ...referenceItems] : referenceItems,
+      items: [versionSelectorItem(component), ...referenceItems],
     };
   });
 }
@@ -107,9 +111,10 @@ function useKeepDesktopSidebarScroll(): void {
     const rememberScroll = () => {
       desktopSidebarScrollTop = scroller.scrollTop;
     };
-    if (desktopSidebarScrollTop !== undefined) {
+    if (hasDesktopSidebarMounted) {
       scroller.scrollTop = desktopSidebarScrollTop;
     } else {
+      hasDesktopSidebarMounted = true;
       // Saved category state opens categories after the first paint, with a short animation.
       const revealTimer = window.setTimeout(() => revealActiveSidebarLink(scroller), categoryAnimationMs);
       scroller.addEventListener('scroll', rememberScroll, {passive: true});
