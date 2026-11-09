@@ -68,29 +68,46 @@ fn flow_config_maps_history_window_events() {
 }
 
 #[test]
-fn flow_config_maps_delete_expired_history_objects() {
-    for (config, expected_deletion) in [
+fn flow_config_maps_offload_history() {
+    for (config, expected_offload_history) in [
         (FlowConfig::new(), None),
-        (
-            FlowConfig::new().delete_expired_history_objects(false),
-            Some(false),
-        ),
-        (
-            FlowConfig::new().delete_expired_history_objects(true),
-            Some(true),
-        ),
+        (FlowConfig::new().offload_history(false), Some(false)),
+        (FlowConfig::new().offload_history(true), Some(true)),
+    ] {
+        assert_eq!(
+            map_pull_flow_config(Some(&config))
+                .expect("map StartFlow config")
+                .offload_history,
+            expected_offload_history
+        );
+        assert_eq!(
+            map_flow_config(Some(&config))
+                .expect("map Flow config update")
+                .offload_history,
+            expected_offload_history
+        );
+    }
+}
+
+#[test]
+#[expect(deprecated, reason = "verify the deprecated builder is not forwarded")]
+fn flow_config_drops_delete_expired_history_objects() {
+    for config in [
+        FlowConfig::new(),
+        FlowConfig::new().delete_expired_history_objects(false),
+        FlowConfig::new().delete_expired_history_objects(true),
     ] {
         assert_eq!(
             map_pull_flow_config(Some(&config))
                 .expect("map StartFlow config")
                 .delete_expired_history_objects,
-            expected_deletion
+            None
         );
         assert_eq!(
             map_flow_config(Some(&config))
                 .expect("map Flow config update")
                 .delete_expired_history_objects,
-            expected_deletion
+            None
         );
     }
 }
