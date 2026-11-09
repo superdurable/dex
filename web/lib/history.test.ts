@@ -11,6 +11,7 @@ import {
   appendToNewestHistoryWindow,
   latestEventIdOfWait,
   loadHistoryWindowAround,
+  loadHistoryWindowBetween,
   loadHistoryWindowFrom,
   loadNewestHistoryWindow,
   loadOlderHistoryWindow,
@@ -122,6 +123,22 @@ describe('history windows', () => {
 
     expect(eventIds(oldest.events)).toEqual([1, ...range(4001, 5000)]);
     expect(oldest).toMatchObject({ hasOlder: false, hasNewer: true, nextInternalEventId: 5001 });
+  });
+
+  it('follows page tokens when a Server ends a page early on Back', async () => {
+    const server = historyTestServer(sequentialStepHistory(3500));
+    const loadCappedPage: typeof server.loadPage = (request) => server.loadPage({
+      ...request,
+      estimatePageSize: Math.min(request.estimatePageSize, 300),
+    });
+
+    const oldest = await loadHistoryWindowBetween(loadCappedPage, 1, 1001);
+    expect(eventIds(oldest.events)).toEqual(range(1, 1001));
+    expect(oldest).toMatchObject({ hasOlder: false, hasNewer: true, nextInternalEventId: 1002 });
+
+    const middle = await loadHistoryWindowBetween(loadCappedPage, 1501, 2500);
+    expect(eventIds(middle.events)).toEqual(range(1501, 2500));
+    expect(middle).toMatchObject({ hasOlder: true, hasNewer: true });
   });
 
   it('adds FlowStart to the page that starts at the oldest retained event', async () => {

@@ -151,10 +151,10 @@ export async function loadHistoryWindowBetween(
   lastEventId: number,
   limit = HISTORY_WINDOW_EVENT_LIMIT,
 ): Promise<HistoryWindow> {
-  const page = await loadHistoryWindowFrom(loadPage, firstEventId, limit + 1);
-  const events = page.events.filter((event) => event.eventId <= lastEventId);
-  if (events.length === 0 || events.length === page.events.length) return page;
-  return { ...page, events, hasNewer: true, nextInternalEventId: events[events.length - 1].eventId + 1 };
+  const read = await readAscendingEvents(loadPage, Math.max(1, firstEventId), limit + 1, lastEventId + 1);
+  const inBounds = read.events.filter((event) => event.eventId <= lastEventId);
+  const events = inBounds.length > 0 ? inBounds : read.events;
+  return boundedHistoryWindow(read, events);
 }
 
 /** Loads a window that holds an event near its middle, for a jump to that event. */
@@ -212,31 +212,64 @@ export async function loadOldestHistoryWindow(
   beforeEventId: number,
   limit = HISTORY_WINDOW_EVENT_LIMIT,
 ): Promise<HistoryWindow> {
-  const pageSize = limit + 1;
+  const read = await readAscendingEvents(loadPage, 1, limit + 1, beforeEventId);
+  const beforeStop = read.events.filter((event) => event.eventId < beforeEventId);
+  return boundedHistoryWindow(read, beforeStop.length <= 1 ? read.events : beforeStop);
+}
+
+interface AscendingEventsRead {
+  /** Up to the requested count of events, in ascending event ID order. */
+  events: FlowHistoryEvent[];
+  /** Whether the lineage holds events after the read ones. */
+  hasMore: boolean;
+  nextInternalEventId: number;
+  reportedRetainedHistory?: ReportedRetainedHistory;
+}
+
+/**
+ * Reads up to `count` events from an event ID, following tokens of short pages until `untilEventId`.
+ *
+ * Returns the read events, whether more follow, and the newest retained-history report.
+ */
+async function readAscendingEvents(
+  loadPage: HistoryPageLoader,
+  startEventId: number,
+  count: number,
+  untilEventId: number,
+): Promise<AscendingEventsRead> {
   const seenPageTokens = new Set<string>();
-  let page = await loadPage(historyPageRequest(1, pageSize));
+  let page = await loadPage(historyPageRequest(startEventId, count));
   let loaded = sortedUniqueEvents(page.events);
   let reportedRetainedHistory = reportedRetainedHistoryOf(page);
   // A Server may end a page early, so short pages continue with their token.
-  while (page.nextPageToken && loaded.length < pageSize && (loaded.at(-1)?.eventId ?? 0) < beforeEventId) {
+  while (page.nextPageToken && loaded.length < count && (loaded.at(-1)?.eventId ?? 0) < untilEventId) {
     if (seenPageTokens.has(page.nextPageToken)) {
       throw new Error('History pagination returned a repeated page token');
     }
     seenPageTokens.add(page.nextPageToken);
-    page = await loadPage(historyPageRequest(page.nextInternalEventId, pageSize, page.nextPageToken));
+    page = await loadPage(historyPageRequest(page.nextInternalEventId, count, page.nextPageToken));
     loaded = sortedUniqueEvents([...loaded, ...page.events]);
     reportedRetainedHistory = reportedRetainedHistoryOf(page) ?? reportedRetainedHistory;
   }
-  const fromStart = loaded.slice(0, pageSize);
-  const beforeStop = fromStart.filter((event) => event.eventId < beforeEventId);
-  const events = beforeStop.length <= 1 ? fromStart : beforeStop;
-  const isClipped = events.length < loaded.length;
+  const events = loaded.slice(0, count);
+  const isTrimmed = events.length < loaded.length;
+  return {
+    events,
+    hasMore: isTrimmed || Boolean(page.nextPageToken),
+    nextInternalEventId: isTrimmed ? events[events.length - 1].eventId + 1 : page.nextInternalEventId,
+    reportedRetainedHistory,
+  };
+}
+
+/** Builds a window from a prefix of the read events. */
+function boundedHistoryWindow(read: AscendingEventsRead, events: FlowHistoryEvent[]): HistoryWindow {
+  const isClipped = events.length < read.events.length;
   return {
     events,
     hasOlder: events.length > 0 && events[0].eventId > 1,
-    hasNewer: isClipped || Boolean(page.nextPageToken),
-    nextInternalEventId: isClipped ? events[events.length - 1].eventId + 1 : page.nextInternalEventId,
-    reportedRetainedHistory,
+    hasNewer: isClipped || read.hasMore,
+    nextInternalEventId: isClipped ? events[events.length - 1].eventId + 1 : read.nextInternalEventId,
+    reportedRetainedHistory: read.reportedRetainedHistory,
   };
 }
 
