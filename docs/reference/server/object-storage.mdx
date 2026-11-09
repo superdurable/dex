@@ -171,6 +171,55 @@ Since 0.1.22, **dexzd_history_expired_objects_deleted_total** and
 **dexzd_history_orphan_objects_deleted_total** count object cleanup. See
 [Metrics and alerts](/reference/server/metrics) for labels and alert thresholds.
 
+## db9 provider {#db9}
+
+Since 0.1.24, **serve** can keep its object storage in db9, a
+PostgreSQL-compatible database, instead of S3. The server stores command logs,
+lease and cluster metadata, snapshots, values, and history objects there.
+Existing configurations keep using S3.
+
+~~~yaml
+objectStore:
+  provider: db9
+  bucket: dex
+  prefix: production/
+  db9PoolSize: 8
+  db9RequestTimeout: 10s
+~~~
+
+Set the connection string in **DEX_ZD_DB9_CONNECTION_STRING**. Do not put it in
+the configuration file. The server never serializes or logs it. For a remote
+database, use **sslmode=verify-full**.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| **objectStore.provider** | **s3** | **db9** selects the db9 provider |
+| **objectStore.bucket** | required | Logical namespace inside the database |
+| **objectStore.prefix** | empty | Key prefix inside the namespace |
+| **objectStore.db9PoolSize** | 8 | Concurrent database transactions, from 1 to 64 |
+| **objectStore.db9RequestTimeout** | 10s | Deadline of each SQL request |
+
+With **db9**, leave **objectStore.endpoint** empty and keep
+**objectStore.credentialsSource** at **defaultChain**. **dev** and **local**
+reject **db9**.
+
+At startup the server creates two tables, **dex_object_metadata** and
+**dex_object_chunks**, in the connection's search path. The database user needs
+permission to create tables and to read, insert, update, and delete their rows.
+Use a dedicated database or schema. The namespace and prefix isolate keys; they
+do not control access.
+
+The server stores each object in 256 KiB chunks and writes it in one
+transaction. The database provides durability and consistency. It must commit
+transactions atomically and durably, support row locks, and read consistently.
+A large object is subject to the database's transaction limits.
+
+Hard-delete Attribute values use the same provider, unless
+**objectStore.hardDeleteStore** selects an S3 destination.
+
+The server does not migrate existing S3 data to db9. Start db9 with a new
+namespace.
+
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The local store is
@@ -203,3 +252,6 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
+
+With the [db9 provider](#db9), the two provider tables hold that state. Back
+them up and restore them together, to one point in time.

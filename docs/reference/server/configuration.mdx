@@ -51,6 +51,8 @@ required. Replace **BUCKET** and **PREFIX** with your bucket and key prefix.
 Leave **objectStore.endpoint** empty to use AWS endpoint resolution. For an
 S3-compatible store, set it to an HTTP or HTTPS URL. Set
 **objectStore.forcePathStyle** when that store needs path-style addressing.
+Since 0.1.24, **objectStore.provider: db9** stores this state in a db9 database
+instead. See [db9 provider](/reference/server/object-storage#db9).
 
 A node ID has 1 to 63 characters. It uses lowercase letters, digits, and
 hyphens, and it starts with a letter or a digit.
