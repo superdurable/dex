@@ -161,13 +161,7 @@ pub(super) async fn reserve_step_stream(
     let sticky_queue = request
         .sticky_app_worker_id
         .as_ref()
-        .filter(|id| *id != &request.flow_type)
-        .filter(|id| {
-            !dispatch
-                .lock_registry()
-                .unsupported_types
-                .contains(&task_type, id)
-        });
+        .filter(|id| *id != &request.flow_type);
     if let Some(queue) = sticky_queue {
         let sticky_end = Instant::now() + config.sticky_wait;
         match reserve_in_queue(
@@ -183,10 +177,12 @@ pub(super) async fn reserve_step_stream(
         {
             QueueReservation::Reserved(worker) => return reserved(dispatch, worker),
             QueueReservation::ServerClosing => return StepStreamReservation::ServerClosing,
-            QueueReservation::Ended => {}
-        }
-        if dispatch.has_qualified_backlog(&queue_name) {
-            return StepStreamReservation::Enqueue;
+            QueueReservation::StickyDeclined => {}
+            QueueReservation::Ended => {
+                if dispatch.has_qualified_backlog(&queue_name) {
+                    return StepStreamReservation::Enqueue;
+                }
+            }
         }
     }
     let sync_end = Instant::now() + config.sync_match_wait;
@@ -203,7 +199,9 @@ pub(super) async fn reserve_step_stream(
     {
         QueueReservation::Reserved(worker) => reserved(dispatch, worker),
         QueueReservation::ServerClosing => StepStreamReservation::ServerClosing,
-        QueueReservation::Ended => StepStreamReservation::Enqueue,
+        QueueReservation::StickyDeclined | QueueReservation::Ended => {
+            StepStreamReservation::Enqueue
+        }
     }
 }
 
@@ -224,8 +222,7 @@ async fn reserve_in_queue(
     queue_end: Instant,
     is_sticky: bool,
 ) -> QueueReservation {
-    let mut queue_lease =
-        QueueLease::acquire(dispatch, request.tenant_id, queue_name, waiter_sequence);
+    let mut queue_lease = QueueLease::new(dispatch, request.tenant_id, queue_name, waiter_sequence);
     let wakeup = queue_lease.wakeup.clone();
     let _queued_task = QueuedTaskMetric::new(dispatch.inner.metrics.matching_queued_tasks.clone());
     let mut shutdown = dispatch.inner.shutdown.subscribe();
@@ -247,6 +244,9 @@ async fn reserve_in_queue(
         );
         if let Some(worker) = picked.worker {
             return QueueReservation::Reserved(worker);
+        }
+        if picked.is_sticky_declined {
+            return QueueReservation::StickyDeclined;
         }
         if (is_sticky && !picked.has_streams) || Instant::now() >= queue_end {
             return QueueReservation::Ended;
@@ -271,6 +271,8 @@ async fn reserve_in_queue(
 
 enum QueueReservation {
     Reserved(Arc<WorkerStream>),
+    /// The sticky Worker declined the Step type, so its queue was not searched.
+    StickyDeclined,
     Ended,
     ServerClosing,
 }

@@ -9,7 +9,7 @@
 //! The durable task queue in matching (plan section 3.2); backlog comes last (plan D56).
 
 use super::*;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 
 use dexzd_metrics::UnservedTaskQueueReason;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -72,14 +72,22 @@ pub(super) struct PartitionSearchGuard {
 
 impl Drop for PartitionSearchGuard {
     fn drop(&mut self) {
-        let mut registry = self.dispatch.lock_registry();
-        if let Some(searches) = registry.queue_matching.searches.get_mut(&self.partition) {
+        let mut partition_searches = self.dispatch.lock_partition_searches();
+        if let Some(searches) = partition_searches.searches.get_mut(&self.partition) {
             searches.remove(&self.search_id);
             if searches.is_empty() {
-                registry.queue_matching.searches.remove(&self.partition);
+                partition_searches.searches.remove(&self.partition);
             }
         }
     }
+}
+
+/// In-memory searches by partition, under their own lock so a search never takes the
+/// registry lock to register.
+#[derive(Default)]
+pub(super) struct PartitionSearches {
+    next_search_id: u64,
+    searches: HashMap<PartitionId, HashMap<u64, Arc<PartitionSearch>>>,
 }
 
 /// Durable queue state guarded by the registry lock.
@@ -88,12 +96,8 @@ pub(super) struct QueueMatching {
     pub(super) backlog: TaskBacklog,
     claims: VecDeque<PendingClaim>,
     claims_ready: Arc<Notify>,
-    next_search_id: u64,
-    searches: HashMap<PartitionId, HashMap<u64, Arc<PartitionSearch>>>,
     /// Connected Step-capable streams per (tenant, Flow type), grouped by app Worker.
     step_workers: HashMap<(u64, String), HashMap<String, HashSet<Uuid>>>,
-    /// Idle Step-capable streams per (tenant, Flow type), in idle order.
-    idle_step_streams: HashMap<(u64, String), BTreeMap<u64, Uuid>>,
     /// How often each partition was removed; a delivered Claim must not start after a removal.
     partition_removals: HashMap<PartitionId, u64>,
 }
@@ -128,32 +132,11 @@ impl QueueMatching {
         }
     }
 
-    pub(super) fn add_idle_step_stream(&mut self, worker: &WorkerStream, position: u64) {
-        for flow_type in &worker.backlog_flow_types {
-            self.idle_step_streams
-                .entry((worker.tenant_id, flow_type.clone()))
-                .or_default()
-                .insert(position, worker.id);
-        }
-    }
-
     fn removals_of(&self, partition: PartitionId) -> u64 {
         self.partition_removals
             .get(&partition)
             .copied()
             .unwrap_or_default()
-    }
-
-    pub(super) fn take_idle_step_stream(&mut self, worker: &WorkerStream, position: u64) {
-        for flow_type in &worker.backlog_flow_types {
-            let key = (worker.tenant_id, flow_type.clone());
-            if let Some(idle) = self.idle_step_streams.get_mut(&key) {
-                idle.remove(&position);
-                if idle.is_empty() {
-                    self.idle_step_streams.remove(&key);
-                }
-            }
-        }
     }
 }
 
@@ -271,11 +254,6 @@ impl WorkerDispatch {
             .entry(partition)
             .or_default() += 1;
         registry.queue_matching.backlog.remove_partition(partition);
-        let searches = registry
-            .queue_matching
-            .searches
-            .remove(&partition)
-            .unwrap_or_default();
         let (undelivered, kept): (VecDeque<PendingClaim>, VecDeque<PendingClaim>) = registry
             .queue_matching
             .claims
@@ -283,6 +261,11 @@ impl WorkerDispatch {
             .partition(|pending| pending.task.partition == partition);
         registry.queue_matching.claims = kept;
         drop(registry);
+        let searches = self
+            .lock_partition_searches()
+            .searches
+            .remove(&partition)
+            .unwrap_or_default();
         for search in searches.into_values() {
             search.is_removed.store(true, Ordering::Release);
             search.wakeup.notify_one();
@@ -417,11 +400,10 @@ impl WorkerDispatch {
             is_removed: AtomicBool::new(false),
             wakeup: Notify::new(),
         });
-        let mut registry = self.lock_registry();
-        registry.queue_matching.next_search_id += 1;
-        let search_id = registry.queue_matching.next_search_id;
-        registry
-            .queue_matching
+        let mut partition_searches = self.lock_partition_searches();
+        partition_searches.next_search_id += 1;
+        let search_id = partition_searches.next_search_id;
+        partition_searches
             .searches
             .entry(partition)
             .or_default()
@@ -452,12 +434,14 @@ impl Registry {
         if self.backlog_service(name) != BacklogService::Served {
             return;
         }
+        // The Flow type's queue holds every idle stream that may claim its backlog.
         let flow_type_key = (name.tenant_id.0, name.flow_type.clone());
         loop {
-            let Some(idle) = self.queue_matching.idle_step_streams.get(&flow_type_key) else {
+            let Some(queue) = self.queues.get(&flow_type_key) else {
                 return;
             };
-            let candidate = idle
+            let candidate = queue
+                .idle
                 .values()
                 .filter_map(|id| self.streams.get(id))
                 .find(|worker| self.may_claim_for(worker, name))
@@ -475,7 +459,8 @@ impl Registry {
     ///
     /// Returns whether it claimed one.
     pub(super) fn claim_backlog_for(&mut self, worker: &Arc<WorkerStream>) -> bool {
-        if self.is_closing
+        if !self.queue_matching.backlog.has_claimable_heads()
+            || self.is_closing
             || !self.idle_positions.contains_key(&worker.id)
             || !worker.slot.may_run_steps()
             || self.is_promised_to_waiter(worker)
@@ -520,15 +505,13 @@ impl Registry {
     /// Returns whether a woken waiter may still take `worker`.
     fn is_promised_to_waiter(&self, worker: &WorkerStream) -> bool {
         self.promised_streams.contains_key(&worker.id)
-            || worker.queues.iter().any(|queue_name| {
-                self.queues
-                    .get(&(worker.tenant_id, queue_name.clone()))
-                    .is_some_and(|queue| {
-                        queue
-                            .woken_waiter_streams
-                            .values()
-                            .any(|id| *id == worker.id)
-                    })
+            || worker.queue_keys.iter().any(|queue_key| {
+                self.queues.get(queue_key).is_some_and(|queue| {
+                    queue
+                        .woken_waiter_streams
+                        .values()
+                        .any(|id| *id == worker.id)
+                })
             })
     }
 

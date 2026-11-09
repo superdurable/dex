@@ -189,6 +189,11 @@ impl TaskBacklog {
             .is_some_and(|queue| !queue.partitions.is_empty())
     }
 
+    /// Returns whether any queue has a head that a stream may claim now.
+    pub(crate) fn has_claimable_heads(&self) -> bool {
+        !self.claimable_step_types.is_empty()
+    }
+
     /// Returns the earliest eligible claimable head among `flow_types`.
     pub(crate) fn earliest_claimable<'a>(
         &self,

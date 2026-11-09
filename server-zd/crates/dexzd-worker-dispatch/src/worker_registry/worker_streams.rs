@@ -324,7 +324,7 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queues: Vec::new(),
+            queue_keys: Vec::new(),
             backlog_flow_types: Vec::new(),
             app_worker_id: app_worker_id.to_owned(),
             slot: StreamSlot::ReservedStepAndRpc,

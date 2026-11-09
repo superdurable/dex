@@ -45,7 +45,7 @@ fn register_busy_stream(dispatch: &WorkerDispatch, app_worker_id: &str) -> Arc<W
     let worker = Arc::new(WorkerStream {
         id: Uuid::now_v7(),
         tenant_id: 7,
-        queues: vec!["Flow".to_owned()],
+        queue_keys: vec![(7, "Flow".to_owned())],
         backlog_flow_types: vec!["Flow".to_owned()],
         app_worker_id: app_worker_id.to_owned(),
         slot: StreamSlot::Legacy,
@@ -112,7 +112,7 @@ async fn a_delivered_claim_of_a_removed_partition_is_untracked_and_its_slot_retu
 fn backoff_callback_preserves_a_promised_rpc_slot() {
     let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
     let worker = register_busy_stream(&dispatch, "worker");
-    let mut lease = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+    let mut lease = QueueLease::new(&dispatch, 7, "Flow", 1);
     let task_type = TaskTypeKey {
         tenant_id: 7,
         flow_type: "Flow".to_owned(),
@@ -180,7 +180,7 @@ fn backlog_service_agrees_with_claim_eligibility_after_an_evicted_decline() {
 fn backoff_callback_leaves_a_stream_woken_for_a_step_waiter() {
     let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
     let worker = register_busy_stream(&dispatch, "worker");
-    let mut lease = QueueLease::acquire(&dispatch, 7, "Flow", 1);
+    let mut lease = QueueLease::new(&dispatch, 7, "Flow", 1);
     let task_type = step_type_key(&queue_name("Ship"));
     let search = TaskSearch {
         task_type: &task_type,
