@@ -77,7 +77,8 @@ export function HistorySettingsCard({
 }: {
   summary: FlowSummary;
   flowConfig: Record<string, unknown> | undefined;
-  onSaved?: (saved: HistorySettingsChange) => Promise<void>;
+  /** Receives the changed fields and the run they were saved to. */
+  onSaved?: (saved: HistorySettingsChange, savedRun: FlowSummary) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [windowText, setWindowText] = useState('');
@@ -104,6 +105,7 @@ export function HistorySettingsCard({
 
   async function save() {
     if (!pending || !onSaved) return;
+    const savedRun = summary;
     if ('error' in pending) {
       setError(pending.error);
       setIsValidationError(true);
@@ -116,7 +118,7 @@ export function HistorySettingsCard({
       await readResponseJSON(await fetch('/api/flows/config/history', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ flowId: summary.flowId, runId: summary.runId, ...pending.update }),
+        body: JSON.stringify({ flowId: savedRun.flowId, runId: savedRun.runId, ...pending.update }),
       }));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'History settings update failed');
@@ -125,7 +127,7 @@ export function HistorySettingsCard({
     }
     setSaving(false);
     setEditing(false);
-    await onSaved(pending.update);
+    await onSaved(pending.update, savedRun);
   }
 
   return (

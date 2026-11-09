@@ -637,25 +637,48 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
 });
 
 
-type StateReply = { historyWindowEvents: number } | 'fail';
+type StateReply = { historyWindowEvents: number; withBlob?: boolean } | 'fail';
 
 interface HistorySettingsDex {
   /** Answers state reads at once while set; null holds each read until the test replies. */
   immediateStateReply: StateReply | null;
+  /** Replies for runs other than run-1. */
+  stateReplyByRunId: Record<string, StateReply>;
+  runAttempt: number;
   heldStateReads: Array<(reply: StateReply) => void>;
+  /** Holds history config updates while set, until the test releases them. */
+  shouldHoldConfigUpdates: boolean;
+  heldConfigUpdates: Array<() => void>;
+  heldBlobLoads: Array<() => void>;
   configUpdates: unknown[];
 }
 
 function historySettingsDex(): HistorySettingsDex {
-  const dex: HistorySettingsDex = { immediateStateReply: { historyWindowEvents: 500 }, heldStateReads: [], configUpdates: [] };
+  const dex: HistorySettingsDex = {
+    immediateStateReply: { historyWindowEvents: 500 },
+    stateReplyByRunId: {},
+    runAttempt: 1,
+    heldStateReads: [],
+    shouldHoldConfigUpdates: false,
+    heldConfigUpdates: [],
+    heldBlobLoads: [],
+    configUpdates: [],
+  };
   const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
-  const stateResponse = (reply: StateReply) => reply === 'fail'
-    ? json({ error: 'GetFlowState failed' }, 502)
-    : json({ ...emptyState, flowConfig: reply });
+  const stateResponse = (reply: StateReply) => {
+    if (reply === 'fail') return json({ error: 'GetFlowState failed' }, 502);
+    const attributes = reply.withBlob
+      ? [{ key: 'note', value: { __dexBlobReference: { id: 'note-blob', kind: 'string' } } }]
+      : [];
+    return json({ ...emptyState, attributes, flowConfig: { historyWindowEvents: reply.historyWindowEvents } });
+  };
   vi.stubGlobal('fetch', vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://dex.test');
-    if (url.pathname === '/api/flows/summary') return json(summary(1));
+    const runId = url.searchParams.get('runId') ?? 'run-1';
+    if (url.pathname === '/api/flows/summary') return json({ ...summary(dex.runAttempt), runId });
     if (url.pathname === '/api/flows/state') {
+      const runReply = dex.stateReplyByRunId[runId];
+      if (runReply) return stateResponse(runReply);
       if (dex.immediateStateReply !== null) return stateResponse(dex.immediateStateReply);
       return new Promise<Response>((resolve) => {
         dex.heldStateReads.push((reply) => resolve(stateResponse(reply)));
@@ -663,7 +686,14 @@ function historySettingsDex(): HistorySettingsDex {
     }
     if (url.pathname === '/api/flows/config/history') {
       dex.configUpdates.push(JSON.parse(init?.body as string));
+      if (dex.shouldHoldConfigUpdates) {
+        await new Promise<void>((resolve) => dex.heldConfigUpdates.push(resolve));
+      }
       return json({ updated: true });
+    }
+    if (url.pathname === '/api/blobs/load') {
+      await new Promise<void>((resolve) => dex.heldBlobLoads.push(resolve));
+      return json({ values: { 'string:note-blob': 'note text' } });
     }
     if (url.pathname === '/api/flows/history') return json(lineagePage(firstAttemptLineage, url.searchParams));
     if (isNewestEventProbe(url)) return json({ eventAvailable: true, availableInternalEventId: '3' });
@@ -671,6 +701,21 @@ function historySettingsDex(): HistorySettingsDex {
     throw new Error(`unexpected request ${input}`);
   }));
   return dex;
+}
+
+function runPage(runId: string) {
+  return (
+    <MemoryRouter initialEntries={['/v1/flows/order-1/run-1']}>
+      <PreferencesProvider>
+        <RunDetailsPage
+          breadcrumb={null}
+          flowId="order-1"
+          runId={runId}
+          runPath={(runID) => `/v1/flows/order-1/${runID}`}
+        />
+      </PreferencesProvider>
+    </MemoryRouter>
+  );
 }
 
 async function saveHistoryWindow(windowEvents: string) {
@@ -753,5 +798,64 @@ describe('history settings on the run page', () => {
 
     expect(screen.getByText('900 events')).toBeTruthy();
     expect(screen.queryByText('700 events')).toBeNull();
+  });
+
+  it('ignores a save on one run that finishes after the page moved to another run', async () => {
+    const dex = historySettingsDex();
+    dex.stateReplyByRunId['run-2'] = { historyWindowEvents: 1500 };
+    const { rerender } = render(runPage('run-1'));
+    await screen.findByText('500 events');
+
+    dex.shouldHoldConfigUpdates = true;
+    await saveHistoryWindow('800');
+    await waitFor(() => expect(dex.heldConfigUpdates).toHaveLength(1));
+    rerender(runPage('run-2'));
+    await screen.findByText('1,500 events');
+
+    dex.immediateStateReply = 'fail';
+    dex.heldConfigUpdates[0]();
+    await settleStateLoads();
+
+    expect(screen.getByText('1,500 events')).toBeTruthy();
+    expect(screen.queryByText('800 events')).toBeNull();
+  });
+
+  it('ignores a save that finishes after the run attempt changed', async () => {
+    const dex = historySettingsDex();
+    renderRun();
+    await screen.findByText('500 events');
+
+    dex.shouldHoldConfigUpdates = true;
+    await saveHistoryWindow('800');
+    await waitFor(() => expect(dex.heldConfigUpdates).toHaveLength(1));
+    dex.runAttempt = 2;
+    dex.immediateStateReply = { historyWindowEvents: 1500 };
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    // The card stays in edit mode while its save is pending, so the new value shows as the placeholder.
+    await screen.findByPlaceholderText('Unchanged: 1,500 events');
+
+    dex.immediateStateReply = 'fail';
+    dex.heldConfigUpdates[0]();
+    await settleStateLoads();
+
+    expect(screen.getByText('1,500 events')).toBeTruthy();
+    expect(screen.queryByText('800 events')).toBeNull();
+  });
+
+  it('keeps saved values when a pre-save load finishes blob hydration after the save', async () => {
+    const dex = historySettingsDex();
+    dex.immediateStateReply = { historyWindowEvents: 500, withBlob: true };
+    renderRun();
+    await screen.findByText('500 events');
+    await waitFor(() => expect(dex.heldBlobLoads).toHaveLength(1));
+
+    dex.immediateStateReply = 'fail';
+    await saveHistoryWindow('800');
+    await screen.findByText('GetFlowState failed');
+    dex.heldBlobLoads[0]();
+    await settleStateLoads();
+
+    expect(screen.getByText('800 events')).toBeTruthy();
+    expect(screen.queryByText('500 events')).toBeNull();
   });
 });

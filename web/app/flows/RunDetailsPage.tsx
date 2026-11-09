@@ -43,8 +43,14 @@ type RunTab = 'overview' | 'steps' | 'timeline' | 'stream';
 
 /** History settings saved on this page, shown until a state load started after the save succeeds. */
 interface SavedHistorySettings {
+  runIdentity: string;
   values: HistorySettingsChange;
   savedAfterStateLoad: number;
+}
+
+/** Names one run attempt, so saved settings never apply to another run or attempt. */
+function runIdentityOf(flowId: string, runId: string, runAttempt: number | undefined): string {
+  return JSON.stringify([flowId, runId, runAttempt ?? 0]);
 }
 
 interface SelectedEventConnector {
@@ -152,6 +158,7 @@ export function RunDetailsPage({
   const [selectedEventConnector, setSelectedEventConnector] = useState<SelectedEventConnector | null>(null);
   const waitGeneration = useRef(0);
   const startedStateLoad = useRef(0);
+  const currentRunIdentity = useRef('');
   const publishedStateLoad = useRef(0);
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
@@ -237,13 +244,20 @@ export function RunDetailsPage({
     }
   }, [addDataWarning, flowId, stateURL]);
 
-  const showSavedHistorySettings = useCallback(async (values: HistorySettingsChange) => {
+  const showSavedHistorySettings = useCallback(async (
+    values: HistorySettingsChange,
+    savedRun: FlowSummary,
+  ) => {
+    const runIdentity = runIdentityOf(savedRun.flowId, savedRun.runId, savedRun.runAttempt);
+    // A save that finishes after the page moved to another run or attempt must not touch it.
+    if (runIdentity !== currentRunIdentity.current) return;
     setSavedHistorySettings((saved) => ({
-      values: { ...saved?.values, ...values },
+      runIdentity,
+      values: { ...(saved?.runIdentity === runIdentity ? saved.values : {}), ...values },
       savedAfterStateLoad: startedStateLoad.current,
     }));
-    if (summary) await loadState(summary.flowStatusCode);
-  }, [loadState, summary]);
+    await loadState(savedRun.flowStatusCode);
+  }, [loadState]);
 
   const deleteChannelMessage = useCallback(async (channelName: string, messageId: string) => {
     if (!summary) return;
@@ -347,6 +361,14 @@ export function RunDetailsPage({
       waitGeneration.current += 1;
     };
   }, [clearLoadedRun, refresh]);
+
+  const runIdentity = runIdentityOf(flowId, runId, summary?.runAttempt);
+  useLayoutEffect(() => {
+    currentRunIdentity.current = runIdentity;
+  }, [runIdentity]);
+  const displayedHistorySettings = savedHistorySettings?.runIdentity === runIdentity
+    ? savedHistorySettings.values
+    : undefined;
 
   const isViewingEarlierRunAttempt = summary !== null && historyRunAttempt(summary) > 0;
   const nextInternalEventId = runHistory.newest?.nextInternalEventId ?? 0;
@@ -729,7 +751,7 @@ export function RunDetailsPage({
               deletingChannelMessage={deletingChannelMessage}
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
-              savedHistorySettings={savedHistorySettings?.values}
+              savedHistorySettings={displayedHistorySettings}
               onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}

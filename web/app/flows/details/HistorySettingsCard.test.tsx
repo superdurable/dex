@@ -94,7 +94,7 @@ describe('history settings card', () => {
     fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: '800' } });
     fireEvent.click(save);
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ historyWindowEvents: 800 }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ historyWindowEvents: 800 }, runningSummary));
     expect(fetchMock.mock.calls[0][0]).toBe('/api/flows/config/history');
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(init.method).toBe('PUT');

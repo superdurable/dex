@@ -72,7 +72,7 @@ export function FlowOverview({
   onDeleteChannelMessage?: (channelName: string, messageId: string) => Promise<void>;
   onOpenStateWrite?: (kind: StateWriteKind) => void;
   savedHistorySettings?: HistorySettingsChange;
-  onHistorySettingsSaved?: (saved: HistorySettingsChange) => Promise<void>;
+  onHistorySettingsSaved?: (saved: HistorySettingsChange, savedRun: FlowSummary) => Promise<void>;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = summary.flowStatus === 'Running'
