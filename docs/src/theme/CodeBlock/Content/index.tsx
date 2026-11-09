@@ -8,7 +8,8 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-import React, {type ReactNode, useMemo, useState} from 'react';
+import React, {type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import ExecutionEnvironment from '@docusaurus/ExecutionEnvironment';
 import clsx from 'clsx';
 import {useCodeBlockContext} from '@docusaurus/theme-common/internal';
 import {usePrismTheme} from '@docusaurus/theme-common';
@@ -69,6 +70,38 @@ function lineText(tokens: {content: string}[]): string {
   return tokens.map((token) => token.content).join('');
 }
 
+const useIsomorphicLayoutEffect = ExecutionEnvironment.canUseDOM ? useLayoutEffect : useEffect;
+
+/** Places each expand button on its placeholder row, following taller rows and reader edits. */
+function useFoldButtonPositions(preRef: React.RefObject<HTMLPreElement>, renderKey: unknown): void {
+  useIsomorphicLayoutEffect(() => {
+    const pre = preRef.current;
+    if (!pre) {
+      return undefined;
+    }
+    const placeButtons = () => {
+      for (const button of Array.from(pre.querySelectorAll<HTMLElement>('.ide-code__fold-button[data-fold-start]'))) {
+        const placeholder = pre.querySelector<HTMLElement>(
+          `.ide-code__fold-row[data-fold-start="${button.dataset.foldStart}"]`);
+        if (placeholder) {
+          button.style.top = `${placeholder.offsetTop}px`;
+        }
+      }
+    };
+    placeButtons();
+    const code = pre.querySelector('code');
+    const resizeObserver = new ResizeObserver(placeButtons);
+    if (code) {
+      resizeObserver.observe(code);
+      code.addEventListener('input', placeButtons);
+    }
+    return () => {
+      resizeObserver.disconnect();
+      code?.removeEventListener('input', placeButtons);
+    };
+  }, [preRef, renderKey]);
+}
+
 /** Which terminal lines get a prompt. Console transcripts carry their own prompts. */
 function terminalPrompts(lines: string[], language: string): boolean[] {
   if (language === 'console') {
@@ -96,12 +129,26 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   // Remount the editable code after a fold change so reader edits cannot desync React.
   const [renderGeneration, setRenderGeneration] = useState(0);
+  const preRef = wordWrap.codeBlockRef;
+  // After a fold toggles, keyboard focus moves to the control that replaced the pressed one.
+  const pendingFocus = useRef<string | null>(null);
+  useFoldButtonPositions(preRef, renderGeneration);
+  useEffect(() => {
+    const selector = pendingFocus.current;
+    pendingFocus.current = null;
+    if (selector) {
+      preRef.current?.closest('.ide-code__body')?.querySelector<HTMLElement>(selector)?.focus();
+    }
+  }, [renderGeneration]);
 
   if (mode === 'plain') {
     return <OriginalContent {...props} />;
   }
   const activeFolds = mode === 'editor' ? foldRanges : [];
   const toggleFold = (start: number) => {
+    pendingFocus.current = expanded.has(start)
+      ? `.ide-code__fold-button[data-fold-start="${start}"]`
+      : `.ide-code__gutter-collapse[data-fold-start="${start}"]`;
     setExpanded((current) => {
       const next = new Set(current);
       if (next.has(start)) {
@@ -130,9 +177,10 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
             gutter.push(<span key={`g${lineNumber}`} className="ide-code__gutter-fold" aria-hidden="true">›</span>);
             // The visible row keeps the line rhythm; the real button sits outside the editable code.
             rows.push(<span key={`f${lineNumber}`} className="ide-code__fold-row" contentEditable={false}
-              aria-hidden="true" />);
+              aria-hidden="true" data-fold-start={fold.start} />);
             expandButtons.push(
               <button key={`b${lineNumber}`} type="button" className="ide-code__fold-button"
+                data-fold-start={fold.start}
                 style={{top: `calc(${rows.length - 1} * 1lh)`, left: `${indentWidth}ch`}}
                 onClick={() => toggleFold(fold.start)} aria-expanded="false" aria-label={showLinesLabel(fold)}>
                 {visibleFoldText(fold)}
@@ -146,7 +194,7 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
           } else if (fold) {
             gutter.push(
               <button key={`g${lineNumber}`} type="button" className="ide-code__gutter-collapse"
-                onClick={() => toggleFold(fold.start)} aria-expanded="true" aria-label={hideLinesLabel(fold)}>
+                data-fold-start={fold.start} onClick={() => toggleFold(fold.start)} aria-expanded="true" aria-label={hideLinesLabel(fold)}>
                 {lineNumber}
               </button>,
             );
@@ -161,7 +209,7 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
         return (
           <div className={clsx('ide-code__body', props.className)} style={style}>
             <div className="ide-code__gutter">{gutter}</div>
-            <pre ref={wordWrap.codeBlockRef} className={clsx(className, 'ide-code__scroll', 'thin-scrollbar')}
+            <pre ref={preRef} className={clsx(className, 'ide-code__scroll', 'thin-scrollbar')}
               tabIndex={-1}>
               <code key={renderGeneration} className="ide-code__code" contentEditable="plaintext-only"
                 suppressContentEditableWarning spellCheck={false} autoCorrect="off" autoCapitalize="off"

@@ -102,9 +102,18 @@ const importLine: Record<string, RegExp> = {
   rust: /^(use |extern crate )/,
 };
 
-function bracketDepthChange(line: string): number {
-  const opened = (line.match(/[({]/g) ?? []).length;
-  const closed = (line.match(/[)}]/g) ?? []).length;
+/** Drops string literals and line comments, whose brackets do not open or close a statement. */
+function codeWithoutStringsAndComments(line: string, language: string): string {
+  const withoutStrings = line.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""');
+  const commentStart = language === 'python' || language === 'py' ? '#' : '//';
+  const commentIndex = withoutStrings.indexOf(commentStart);
+  return commentIndex === -1 ? withoutStrings : withoutStrings.slice(0, commentIndex);
+}
+
+function bracketDepthChange(line: string, language: string): number {
+  const code = codeWithoutStringsAndComments(line, language);
+  const opened = (code.match(/[({]/g) ?? []).length;
+  const closed = (code.match(/[)}]/g) ?? []).length;
   return opened - closed;
 }
 
@@ -126,7 +135,7 @@ export function importFoldRange(lines: string[], language: string): IdeFoldRange
     const line = lines[index];
     if (openBrackets > 0) {
       last = index;
-      openBrackets += bracketDepthChange(line);
+      openBrackets += bracketDepthChange(line, language);
       continue;
     }
     if (line.trim() === '') {
@@ -136,7 +145,7 @@ export function importFoldRange(lines: string[], language: string): IdeFoldRange
       break;
     }
     last = index;
-    openBrackets = Math.max(0, bracketDepthChange(line));
+    openBrackets = Math.max(0, bracketDepthChange(line, language));
   }
   const count = last - start + 1;
   if (last < 0 || count < 3) {
