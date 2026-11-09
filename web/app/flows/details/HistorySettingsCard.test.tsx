@@ -10,7 +10,8 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FlowSummary } from '@/lib/types';
+import type { FlowState, FlowSummary } from '@/lib/types';
+import { FlowOverview } from './FlowOverview';
 import { buildHistorySettingsUpdate, HistorySettingsCard } from './HistorySettingsCard';
 
 const runningSummary: FlowSummary = {
@@ -48,6 +49,22 @@ describe('history settings card', () => {
     );
     expect(screen.getByText('2,500 events')).toBeTruthy();
     expect(screen.getByText('Off')).toBeTruthy();
+  });
+
+  it('treats a running run without a stored config as server defaults', () => {
+    const state = {
+      flowConfig: null,
+      attributes: [],
+      activeStepExecutions: [],
+      queuedSteps: [],
+      pendingChannelMessages: {},
+      completedSteps: [],
+    } as unknown as FlowState;
+    render(
+      <FlowOverview summary={runningSummary} events={[]} state={state} selectedEvent={null} onFlowConfigSaved={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
+    expect(screen.getAllByText('Server default')).toHaveLength(2);
   });
 
   it('offers no editing for a closed run', () => {

@@ -21,10 +21,10 @@ export interface HistorySettings {
 
 /** Reads the two history fields; an absent field means the run uses the server default. */
 export function historySettingsFromFlowConfig(flowConfig: Record<string, unknown>): HistorySettings {
-  const window = flowConfig.historyWindowEvents;
+  const windowEvents = flowConfig.historyWindowEvents;
   const deleteExpired = flowConfig.deleteExpiredHistoryObjects;
   return {
-    historyWindowEvents: typeof window === 'number' ? window : undefined,
+    historyWindowEvents: typeof windowEvents === 'number' ? windowEvents : undefined,
     deleteExpiredHistoryObjects: typeof deleteExpired === 'boolean' ? deleteExpired : undefined,
   };
 }
@@ -178,7 +178,8 @@ export function HistorySettingsCard({
       {current && (
         <p className="muted history-settings-note">
           A saved value overrides the server default for this run. It can be changed later but not
-          cleared back to the server default.
+          cleared back to the server default. A smaller window prunes older events for good, and
+          turning deletion on deletes history objects the window already passed.
         </p>
       )}
     </section>

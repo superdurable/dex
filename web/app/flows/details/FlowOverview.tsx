@@ -382,7 +382,7 @@ export function FlowOverview({
 
         <HistorySettingsCard
           summary={summary}
-          flowConfig={state?.flowConfig}
+          flowConfig={state ? (state.flowConfig ?? {}) : undefined}
           onSaved={onFlowConfigSaved}
         />
       </div>
