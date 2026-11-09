@@ -7,23 +7,19 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { readResponseJSON } from '@/lib/http';
 import { usePreferences } from '../providers';
 import type { FlowDefinitionCatalog } from '@/lib/types';
-import { activeV2Mode, v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
-import { useWebCatalog } from '../v2/WebCatalogProvider';
+import { isWorkQueueApplicable } from '../catalog/applicability';
+import { useWebCatalog } from '../catalog/WebCatalogProvider';
+import { ExperimentalBadge } from './ExperimentalBadge';
+import { CONNECTORS_PATH, WORK_QUEUE_PATH } from '../routes';
 import { DexMark } from './DexMark';
 import { ThemeToggle } from './ThemeToggle';
 
 /** The company site that the header logo opens in the same tab. */
 export const COMPANY_HOME_URL = 'https://superdurable.io';
-
-export const V2_MODES: { mode: V2Mode; label: string }[] = [
-  { mode: 'run', label: 'Run' },
-  { mode: 'work-queue', label: 'Work Queue' },
-  { mode: 'connectors', label: 'Connectors' },
-];
 
 /** Flow Rendering has something to show only when the definitions directory holds at least one JSON file. */
 export function hasLoadedFlowDefinitions(definitions: FlowDefinitionCatalog | null): boolean {
@@ -31,34 +27,65 @@ export function hasLoadedFlowDefinitions(definitions: FlowDefinitionCatalog | nu
 }
 
 /**
- * Reports whether the v1 Flow Rendering link should show.
- * It rereads the catalog on every v1 route change, so a failed read or a changed directory recovers on the next navigation.
+ * Reports whether the Flow Rendering link should show.
+ * It rereads the catalog on every route change, so a failed read or a changed directory recovers on the next navigation.
  */
-function useHasLoadedFlowDefinitions(isV1: boolean, pathname: string): boolean {
+function useHasLoadedFlowDefinitions(pathname: string): boolean {
   const [hasDefinitions, setHasDefinitions] = useState(false);
   useEffect(() => {
-    if (!isV1) return undefined;
     const controller = new AbortController();
     fetch('/api/flow-definitions', { signal: controller.signal })
       .then((response) => readResponseJSON<FlowDefinitionCatalog>(response))
       .then((catalog) => setHasDefinitions(hasLoadedFlowDefinitions(catalog)))
-      // A failed read keeps the last known answer; the next v1 navigation retries.
+      // A failed read keeps the last known answer; the next navigation retries.
       .catch(() => undefined);
     return () => controller.abort();
-  }, [isV1, pathname]);
+  }, [pathname]);
   return hasDefinitions;
+}
+
+/** The part of the local Connector setup listing that says whether the page has anything to show. */
+interface ConnectorSetupListing {
+  enabled: boolean;
+  connections: unknown[];
+}
+
+/** Connector setup is applicable to a local environment whose loaded Flows use at least one Connector. */
+export function isConnectorSetupApplicable(listing: ConnectorSetupListing | null): boolean {
+  return listing?.enabled === true && listing.connections.length > 0;
+}
+
+/**
+ * Reports whether the Connectors link should show.
+ * The listing exists only where Dex Web runs local Connector setup, so other servers never show it.
+ */
+function useHasConnectorSetup(canUseOperatorAPI: boolean): boolean {
+  const [hasConnectors, setHasConnectors] = useState(false);
+  useEffect(() => {
+    if (!canUseOperatorAPI) {
+      setHasConnectors(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    fetch('/api/v2/connector-connections', { signal: controller.signal })
+      .then((response) => readResponseJSON<ConnectorSetupListing>(response))
+      .then((listing) => setHasConnectors(isConnectorSetupApplicable(listing)))
+      // Without local Connector setup the route does not exist, so the link stays hidden.
+      .catch(() => {
+        if (!controller.signal.aborted) setHasConnectors(false);
+      });
+    return () => controller.abort();
+  }, [canUseOperatorAPI]);
+  return hasConnectors;
 }
 
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
-  const { canUseV2 } = useWebCatalog();
+  const { canUseV2, catalog } = useWebCatalog();
   const location = useLocation();
-  const navigate = useNavigate();
-  const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
-  const hasFlowDefinitions = useHasLoadedFlowDefinitions(!isV2, location.pathname);
-  const activeMode = activeV2Mode(location.pathname);
-  // Absolute timestamps are a Deep Dive concern; the other views show relative or local time.
-  const isDebug = location.pathname.includes('/debug');
+  const hasFlowDefinitions = useHasLoadedFlowDefinitions(location.pathname);
+  const hasWorkQueue = isWorkQueueApplicable(catalog, canUseV2);
+  const hasConnectors = useHasConnectorSetup(canUseV2);
   return (
     <header className="app-header">
       <a className="header-brand" href={COMPANY_HOME_URL} aria-label="Super Durable home">
@@ -74,44 +101,25 @@ export function AppHeader() {
           </span>
       </a>
       <nav className="header-nav" aria-label="Primary navigation">
-        {!isV2 && hasFlowDefinitions && (
+        {hasFlowDefinitions && (
           <Link to="/v1/rendering">Flow Rendering</Link>
         )}
-        {isV2 && canUseV2 && (
-          <div className="v2-modes" role="group" aria-label="Dex Web v2 mode">
-            {V2_MODES.map(({ mode, label }) => (
-              <button
-                aria-pressed={mode === activeMode}
-                className="v2-mode"
-                key={mode}
-                onClick={() => navigate(v2ModePath(mode))}
-                type="button"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        {hasWorkQueue && (
+          <NavLink className="header-experimental-link" to={WORK_QUEUE_PATH}>
+            Work Queue
+            <ExperimentalBadge />
+          </NavLink>
+        )}
+        {hasConnectors && (
+          <NavLink className="header-experimental-link" to={CONNECTORS_PATH}>
+            Connectors
+            <ExperimentalBadge />
+          </NavLink>
         )}
         <span className="connection-pill">
             <span className="connection-dot" />
             Dex server
         </span>
-        {canUseV2 && (
-          <label className="timezone-control">
-            <span>Version</span>
-            <select
-              aria-label="Dex Web version"
-              value={isV2 ? 'v2' : 'v1'}
-              onChange={(event) => navigate(
-                event.target.value === 'v2' ? v2HomePath(canUseV2) : '/v1/flows',
-              )}
-            >
-              <option value="v2">v2</option>
-              <option value="v1">v1</option>
-            </select>
-          </label>
-        )}
-        {(!isV2 || isDebug) && (
         <label className="timezone-control">
           <span>Timezone</span>
           <select
@@ -122,7 +130,6 @@ export function AppHeader() {
             <option value="UTC">UTC</option>
           </select>
         </label>
-        )}
         <ThemeToggle />
       </nav>
     </header>

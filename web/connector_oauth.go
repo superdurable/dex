@@ -343,7 +343,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
-	location := "/v2/connectors" +
+	location := "/v1/connectors" +
 		"?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
 		"&connectionName=" + url.QueryEscape(connection.ConnectionName)
 	http.Redirect(response, request, location, http.StatusSeeOther)

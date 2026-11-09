@@ -13,7 +13,7 @@ import { Link, MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreferencesProvider } from '../providers';
 import { ThemeProvider } from '../theme';
-import { WebCatalogProvider } from '../v2/WebCatalogProvider';
+import { WebCatalogProvider } from '../catalog/WebCatalogProvider';
 import { AppHeader } from './AppHeader';
 
 type DefinitionsReply = 'fail' | number;
@@ -51,7 +51,6 @@ function renderHeader(path: string) {
           <AppHeader />
           <Link to="/v1/flows/a">Open run a</Link>
           <Link to="/v1/flows/b">Open run b</Link>
-          <Link to="/v2/run">Open v2</Link>
         </WebCatalogProvider>
         </ThemeProvider>
       </PreferencesProvider>
@@ -84,7 +83,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('Dex Web v1 header Flow Rendering link', () => {
+describe('Dex Web header Flow Rendering link', () => {
   it('stays hidden while loading and never shows a Flows link', async () => {
     const pendingReads: Array<() => void> = [];
     vi.stubGlobal('fetch', vi.fn((input: string) => new Promise<Response>((resolve) => {
@@ -101,7 +100,7 @@ describe('Dex Web v1 header Flow Rendering link', () => {
     await waitFor(() => expect(flowRenderingLink()).not.toBeNull());
   });
 
-  it('recovers after a failed read on the next v1 navigation', async () => {
+  it('recovers after a failed read on the next navigation', async () => {
     const dex = stubDexWeb(['fail', 'fail', 2]);
     renderHeader('/v1/flows');
     await waitFor(() => expect(dex.readCount()).toBe(2));
@@ -122,19 +121,73 @@ describe('Dex Web v1 header Flow Rendering link', () => {
     expect(dex.readCount()).toBe(4);
   });
 
-  it('hides the link on v2 pages', async () => {
-    const dex = stubDexWeb([1]);
+});
+
+function stubOperatorDexWeb({ flows, connectors }: { flows: number; connectors: 'missing' | 'disabled' | number }) {
+  vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+    if (input === '/api/v2/catalog') {
+      return new Response(JSON.stringify({
+        enabled: true,
+        definitionRevision: 'r1',
+        flows: Array.from({ length: flows }, (_, index) => ({ flowType: `Flow${index}`, definition: {} })),
+      }));
+    }
+    if (input === '/api/v2/connector-connections') {
+      if (connectors === 'missing') return new Response('404 page not found', { status: 404 });
+      return new Response(JSON.stringify({
+        enabled: connectors !== 'disabled',
+        definitionRevision: 'r1',
+        csrfToken: 't',
+        connections: Array.from({ length: connectors === 'disabled' ? 0 : connectors }, (_, index) => ({ connectorId: `c${index}` })),
+      }));
+    }
+    return definitionsResponse(1);
+  }));
+}
+
+describe('Dex Web header experimental pages', () => {
+  it('shows Work Queue and Connectors with an Experimental label when they apply', async () => {
+    stubOperatorDexWeb({ flows: 1, connectors: 2 });
+    renderHeader('/v1/flows');
+    const workQueue = await screen.findByRole('link', { name: /Work Queue/ });
+    expect(workQueue.getAttribute('href')).toBe('/v1/work-queue');
+    expect(workQueue.textContent).toContain('Experimental');
+    const connectors = await screen.findByRole('link', { name: /Connectors/ });
+    expect(connectors.getAttribute('href')).toBe('/v1/connectors');
+    expect(connectors.textContent).toContain('Experimental');
+  });
+
+  it('hides both without the operator API', async () => {
+    stubDexWeb([1]);
     renderHeader('/v1/flows');
     await waitFor(() => expect(flowRenderingLink()).not.toBeNull());
-    const readsBeforeV2 = dex.readCount();
-    fireEvent.click(screen.getByText('Open v2'));
-    await waitFor(() => expect(flowRenderingLink()).toBeNull());
-    expect(dex.readCount()).toBe(readsBeforeV2);
+    expect(screen.queryByRole('link', { name: /Work Queue/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Connectors/ })).toBeNull();
+  });
+
+  it.each([
+    ['no valid Flow types and no Connector setup', 0, 'missing' as const],
+    ['Connector setup turned off', 0, 'disabled' as const],
+    ['no Connector in the loaded Flows', 0, 0],
+  ])('hides what does not apply: %s', async (_name, flows, connectors) => {
+    stubOperatorDexWeb({ flows, connectors });
+    renderHeader('/v1/flows');
+    await waitFor(() => expect(flowRenderingLink()).not.toBeNull());
+    expect(screen.queryByRole('link', { name: /Work Queue/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Connectors/ })).toBeNull();
+  });
+
+  it('has no Dex Web version picker', async () => {
+    stubOperatorDexWeb({ flows: 1, connectors: 1 });
+    renderHeader('/v1/flows');
+    await screen.findByRole('link', { name: /Work Queue/ });
+    expect(screen.queryByRole('combobox', { name: 'Dex Web version' })).toBeNull();
+    expect(screen.queryByText('Version')).toBeNull();
   });
 });
 
 describe('Dex Web header logo', () => {
-  it.each(['/v1/flows', '/v2/run'])('opens the company site in the same tab on %s', async (path) => {
+  it.each(['/v1/flows', '/v1/work-queue'])('opens the company site in the same tab on %s', async (path) => {
     stubDexWeb([0]);
     renderHeader(path);
     const logo = screen.getByRole('link', { name: 'Super Durable home' });

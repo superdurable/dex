@@ -1,0 +1,1308 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Sustainable Use License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ */
+
+@import './tokens.css';
+@import '../../design/canvas.css';
+@import './listing.css';
+
+.v2-shell.sv {
+  min-height: 0;
+  height: 100%;
+  font-family: var(--font-sans);
+}
+
+.v2-shell .sv-body {
+  position: relative;
+  grid-template-columns: var(--v2-list-w, 32rem) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.v2-shell .sq {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.v2-list {
+  flex: 1 1 auto;
+  min-height: 8rem;
+  overflow: auto;
+}
+
+.v2-case {
+  flex: 0 0 auto;
+  max-height: 42%;
+  overflow: auto;
+  border-top: 1px solid var(--p-line-soft);
+  padding: 12px 16px 16px;
+}
+
+.v2-shell .sq[data-has-case='true'] .v2-case {
+  flex: 0 0 var(--v2-case-h, 42%);
+  height: var(--v2-case-h, 42%);
+  max-height: none;
+  min-height: 8rem;
+}
+
+.v2-split {
+  position: absolute;
+  z-index: var(--z-canvas-ui);
+  background: transparent;
+  touch-action: none;
+  transition: background-color var(--dur-fast) var(--ease-std);
+}
+
+.v2-split:hover,
+.v2-split:focus-visible {
+  background: var(--accent-wash);
+  outline: none;
+}
+
+.v2-split[data-at-floor='true'],
+.v2-split[data-at-ceiling='true'] {
+  background: var(--accent-wash-strong);
+}
+
+.v2-split[data-axis='column'] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+}
+
+.v2-split[data-axis='column'][data-pane='list'] {
+  left: var(--v2-list-w, 15rem);
+  right: auto;
+  width: 9px;
+  margin-left: -4px;
+  z-index: 7;
+}
+
+.v2-split[data-axis='column'][data-pane='drawer'] {
+  right: var(--v2-drawer-w, 25rem);
+  left: auto;
+  width: 9px;
+  margin-right: -4px;
+  z-index: 7;
+}
+
+.v2-split[data-axis='row'] {
+  left: 0;
+  right: 0;
+  bottom: var(--v2-case-h, 42%);
+  height: 9px;
+  margin-bottom: -4px;
+  cursor: row-resize;
+}
+
+.v2-canvas {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--p-bg);
+}
+
+.v2-canvas .pcanvas,
+.v2-canvas .pstage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.v2-canvas .v2-run-error {
+  margin: 0 12px 8px;
+}
+
+.v2-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.v2-filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr minmax(0, 1.2fr) auto;
+  gap: 4px;
+}
+
+.v2-filter-row select,
+.v2-filter-row input,
+.v2-shell .sq select,
+.v2-shell .sq input,
+.v2-case input,
+.v2-case select,
+.v2-case textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+}
+
+.v2-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.v2-ghost,
+.v2-primary {
+  padding: 4px 9px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.v2-ghost {
+  border: 1px solid var(--p-line);
+  background: transparent;
+  color: var(--p-ink-1);
+}
+
+/**
+ * The one brand green in the product.
+ *
+ * This button was achromatic, so nothing on a v2 screen carried the brand at
+ * all. It is the CTA and the mark, and nothing else: a status hue means "this
+ * is what the run is doing", and an imperative is not a status.
+ */
+.v2-primary {
+  border: 1px solid var(--color-cta);
+  background: var(--color-cta);
+  color: var(--color-cta-on);
+}
+
+.v2-primary:hover:not(:disabled) {
+  border-color: var(--color-cta-hover);
+  background: var(--color-cta-hover);
+}
+
+/**
+ * Disabled is an explicit treatment, not the global `opacity: 0.48`.
+ *
+ * Fading a FILLED button fades its ink with it. White on the CTA green at 48%
+ * over the panel measures 1.99:1 in light and 3.31:1 in dark — both illegible,
+ * and these buttons are disabled whenever the run is not active, which is most
+ * of the time an Action is on screen. Dropping the fill entirely says
+ * "unavailable" more clearly than a washed-out green anyway.
+ */
+.v2-primary:disabled {
+  border-color: var(--p-line);
+  background: var(--p-surface-3);
+  color: var(--p-ink-2);
+  opacity: 1;
+}
+
+.v2-error {
+  margin: 0 0 8px;
+  color: var(--p-run-failed);
+  font-size: 12px;
+}
+
+.v2-window-note {
+  margin: 0 12px 8px;
+  color: var(--p-ink-2);
+  font-size: 12px;
+}
+
+.v2-shell .sq-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.v2-shell .sq-row {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.v2-shell .sq-run {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.v2-shell .t-mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+.v2-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  grid-column: 1 / -1;
+}
+
+.v2-column {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.v2-empty {
+  padding: 18px 8px;
+  color: var(--p-ink-2);
+  font-size: 13px;
+}
+
+.scx-connector {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+  color: var(--p-ink-1);
+  font-size: 12px;
+}
+
+.scx-connector a {
+  color: var(--color-cta);
+  font-weight: 700;
+}
+
+/* ------------------------------ run mode: switcher | canvas | run drawer */
+
+.v2-shell.v2-run {
+  min-height: 0;
+  height: 100%;
+  font-family: var(--font-sans);
+}
+
+.v2-run-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--v2-list-w, 15rem) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.v2-run-body[data-has-drawer='true'] {
+  grid-template-columns: var(--v2-list-w, 15rem) minmax(0, 1fr) var(--v2-drawer-w, 25rem);
+}
+
+.v2-work-queue-case {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Centred rather than hard-left: a capped reading column with a void beside it reads as broken. */
+.v2-work-queue-case .v2-case {
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  max-height: none;
+  height: auto;
+  border-top: 0;
+}
+
+.v2-work-queue-empty {
+  padding: 18px 20px;
+}
+
+/* Collapsed by default so the list reads as a list; the sentence stays visible either way. */
+.fb {
+  margin: 8px 0 6px;
+}
+
+.fb-summary {
+  color: var(--p-ink-2);
+  cursor: pointer;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.fb-summary:hover {
+  color: var(--p-ink-1);
+}
+
+.fb[open] .fb-summary {
+  margin-bottom: 8px;
+  color: var(--p-ink-2);
+}
+
+.rsw {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 12px;
+  border-right: 1px solid var(--p-line-soft);
+}
+
+.rsw[data-collapsed='true'] {
+  padding: 8px 0;
+}
+
+.v2-rail {
+  display: flex;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 0;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-1);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.v2-rail:hover {
+  color: var(--p-ink-0);
+  background: var(--p-surface-2);
+}
+
+.rsw .sv-choose {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.rsw-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* A stronger rule between groups than between rows: the split is the coarser fact. */
+.rsw-group + .rsw-group {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--p-line);
+}
+
+.rsw-grouphead {
+  margin-bottom: 2px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.rsw-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Lines, not boxes: a run is an entry in a list, not a card competing with the canvas. */
+.rsw-item + .rsw-item {
+  border-top: 1px solid var(--p-line-soft);
+}
+
+.rsw-row {
+  display: grid;
+  width: 100%;
+  border: 0;
+  border-left: 2px solid transparent;
+  padding: 7px 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  gap: 1px 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+}
+
+.rsw-row:hover {
+  background: var(--p-surface-2);
+}
+
+.rsw-item[data-selected='true'] .rsw-row {
+  border-left-color: var(--p-run-active);
+  background: var(--p-surface-3);
+}
+
+.rsw-id {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rsw-time {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rsw-state {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  grid-column: 1 / -1;
+}
+
+.rsw-stranded {
+  color: var(--p-run-failed);
+  font-size: 10.5px;
+  grid-column: 1 / -1;
+}
+
+.rsw-item[data-stranded='true'] .rsw-id,
+.rsw-item[data-stranded='true'] .rsw-state {
+  color: var(--p-ink-2);
+}
+
+.rsw-flowtype {
+  width: 100%;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+/* The drawer scrolls; the Actions block does not leave the viewport. */
+.rdw {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--p-line-soft);
+  /* Its column opens at once and the canvas makes room; its content slides in (canvas.css panel-in). */
+  animation: panel-in 220ms var(--ease-glide) backwards;
+}
+
+[data-theme='light'] .v2-shell .rsw,
+[data-theme='light'] .v2-shell .rdw,
+[data-theme='light'] .v2-shell .v2-work-queue-case {
+  background: var(--p-surface-2);
+}
+
+/* Sizes to content: growing it left a gap above whatever follows in the drawer. */
+.rdw .v2-case {
+  flex: 0 0 auto;
+  max-height: none;
+  height: auto;
+  border-top: 0;
+}
+
+
+.rhd {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+  background: var(--p-surface-1);
+}
+
+.rhd-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.rhd-id {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--p-ink-0);
+  font-size: 13.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mono plus a border reads as an engineering surface without a label saying so. */
+.rhd-inspect {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--p-line);
+  border-radius: 4px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.rhd-inspect:hover {
+  border-color: var(--p-ink-3);
+  color: var(--p-ink-0);
+}
+
+.rhd-close {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-3);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rhd-close:hover {
+  color: var(--p-ink-0);
+}
+
+.rhd-facts {
+  display: grid;
+  margin-top: 8px;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+}
+
+.rhd-facts > div {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.rhd-facts dt {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.rhd-facts dd {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rhd-stop {
+  margin-top: 10px;
+  padding: 4px 12px;
+  border: 1px solid var(--p-run-failed);
+  border-radius: 5px;
+  color: var(--p-run-failed);
+  font-size: 12px;
+}
+
+/* Follows the canvas selection; the facts and Actions below it do not move. */
+.rdw-band {
+  display: grid;
+  gap: 2px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--p-line-soft);
+  background: var(--p-surface-2);
+}
+
+.rdw-bandlabel {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.rdw-band[data-tone='blocked'] .rdw-bandlabel {
+  color: var(--p-external);
+}
+
+.rdw-band[data-tone='failed'] .rdw-bandlabel {
+  color: var(--p-run-failed);
+}
+
+.rdw-bandstep {
+  color: var(--p-ink-0);
+  font-size: 12.5px;
+}
+
+.rdw-bandwhy {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/* -------------------------------------------------- queue mode, no canvas */
+
+.v2-shell.v2-queue {
+  display: flex;
+  flex-direction: column;
+}
+
+.v2-queue .sq {
+  border-right: 1px solid var(--p-line-soft);
+}
+
+.v2-queue .v2-case {
+  max-height: none;
+  height: 100%;
+  border-top: none;
+  padding: 16px 20px 20px;
+}
+
+.v2-queue .sc-none {
+  padding: 18px 20px;
+}
+
+.v2-seemore {
+  margin-left: auto;
+  color: var(--p-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.v2-seemore:hover {
+  color: var(--p-ink-1);
+}
+
+
+/* -------------------------------------- flow-level meaning of the open Step */
+
+.scx {
+  padding: 14px 16px 20px;
+  border-top: 1px solid var(--p-line-soft);
+}
+
+/* Standalone: no run selected, so the Step is all the drawer has to say. */
+.rdw[data-step-only='true'] .scx {
+  border-top: 0;
+}
+
+.scx-step {
+  color: var(--p-ink-0);
+  font-size: 12px;
+}
+
+.scx-purpose {
+  margin-top: 3px;
+  color: var(--p-ink-1);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scx-facts {
+  display: grid;
+  margin-top: 10px;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+}
+
+.scx-fact {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.scx-fact dt {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.scx-fact dd {
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.rdw-steponly {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.rdw-steponlylabel {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.rdw-steponly .rhd-close {
+  margin-left: auto;
+}
+
+/* --------------------------------- three zones: pick a Flow, find runs, read the list
+
+   Each is a separate surface because they are separate acts. Stacked controls with no boundary
+   read as one long form, and the list underneath looked like a fourth field. */
+
+.rsw-zone {
+  margin-bottom: 10px;
+}
+
+.rsw-zone[data-zone='find'],
+.rsw-zone[data-zone='store'] {
+  padding: 8px 9px 2px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+}
+
+/* Who the reader is, asked before what they are looking for. */
+.rsw-permission {
+  display: block;
+}
+
+.rsw-permission select {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.rsw-permission-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--p-ink-2);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.rsw-zonehead {
+  margin: 0 0 6px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* The list owns the rest of the panel, and a rule says where the controls stop. */
+.rsw-scroll[data-zone='list'] {
+  padding-top: 8px;
+  border-top: 1px solid var(--p-line);
+}
+
+/* ------------------------------------------ find a run: two controls, three more behind one click */
+
+.rsq {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.rsq-basic {
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.rsq-adv {
+  margin-top: 1px;
+}
+
+.rsq-advhead {
+  padding: 3px 0;
+  color: var(--p-ink-2);
+  cursor: pointer;
+  font-size: 10.5px;
+  list-style: none;
+}
+
+.rsq-advhead::marker,
+.rsq-advhead::-webkit-details-marker {
+  display: none;
+}
+
+/* A caret the reader can see, since the native marker is suppressed. */
+.rsq-advhead::before {
+  display: inline-block;
+  margin-right: 5px;
+  content: '▸';
+  transition: transform 0.12s ease;
+}
+
+.rsq-adv[open] > .rsq-advhead::before {
+  transform: rotate(90deg);
+}
+
+.rsq-advhead:hover {
+  color: var(--p-ink-0);
+}
+
+.rsq-field {
+  display: block;
+  margin-top: 6px;
+}
+
+.rsq-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+/* The operator takes the width of its longest word; the value gets everything left. */
+.rsq-compare {
+  display: grid;
+  gap: 5px;
+  margin-top: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.rsq-compare select {
+  width: auto;
+}
+
+.rsq select,
+.rsq input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.rsq select:disabled,
+.rsq input:disabled {
+  color: var(--p-ink-3);
+}
+
+/* Several exact names: a short list scrolls in place rather than pushing the runs off the panel. */
+.rsq-checks {
+  min-width: 0;
+  margin-inline: 0;
+  padding: 0;
+  border: 0;
+}
+
+.rsq-checks .rsq-label {
+  padding: 0;
+}
+
+.rsq-checklist {
+  display: flex;
+  max-height: 104px;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.rsq-checklist label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--p-ink-0);
+  font-size: 11.5px;
+}
+
+.rsq-checklist span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rsq .rsq-checklist input {
+  width: auto;
+  flex: none;
+  margin: 0;
+}
+
+.rsq-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* ------------------------------ progress through a run's human gates */
+
+.apg {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.apg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.apg-label {
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.apg-count {
+  margin-left: auto;
+  color: var(--p-ink-2);
+  font-size: 10px;
+}
+
+.apg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 7px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apg-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.apg-mark {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--p-line);
+  border-radius: 50%;
+  color: var(--p-ink-3);
+  font-size: 9px;
+}
+
+.apg-name {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+
+/* The open gate is the one thing here worth emphasis. */
+.apg-step[data-state='current'] .apg-mark {
+  border-color: var(--p-external);
+  background: var(--p-external);
+  color: var(--p-surface-1);
+}
+
+.apg-step[data-state='current'] .apg-name {
+  color: var(--p-ink-0);
+  font-weight: 600;
+}
+
+.apg-step[data-state='done'] .apg-mark {
+  border-color: var(--p-run-done);
+  color: var(--p-run-done);
+}
+
+.apg-step[data-state='upcoming'] .apg-name {
+  color: var(--p-ink-2);
+}
+
+/* ------------------------------ start flow */
+
+.sq-start {
+  flex: 0 0 auto;
+  min-height: 26px;
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.sfd {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(820px, calc(100vh - 32px));
+  padding: 0;
+  border: 1px solid var(--p-line);
+  border-radius: 12px;
+  background: var(--p-surface-1);
+  color: var(--p-ink-0);
+  box-shadow: 0 20px 60px rgba(20, 30, 35, 0.28);
+}
+
+.sfd::backdrop {
+  background: rgba(15, 24, 29, 0.48);
+}
+
+.sfd form {
+  display: flex;
+  max-height: inherit;
+  flex-direction: column;
+}
+
+.sfd-head,
+.sfd-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--p-line-soft);
+}
+
+.sfd-head h2,
+.sfd-head p {
+  margin: 0;
+}
+
+.sfd-head h2 {
+  font-size: 17px;
+}
+
+.sfd-head p {
+  margin-top: 3px;
+  color: var(--p-ink-2);
+  font-family: var(--p-mono);
+  font-size: 11px;
+}
+
+.sfd-head button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--p-ink-2);
+  font-size: 22px;
+}
+
+.sfd-scroll {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  overflow: auto;
+}
+
+.sfd-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--p-line-soft);
+  border-bottom: 0;
+}
+
+.sfd-field,
+.sfd-row {
+  display: grid;
+  gap: 6px;
+}
+
+.sfd-field > span,
+.sfd-label,
+.sfd-group > legend,
+.sfd-input > legend {
+  color: var(--p-ink-2);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.sfd input,
+.sfd select {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--p-line);
+  border-radius: 6px;
+  background: var(--p-surface-2);
+  color: var(--p-ink-0);
+}
+
+.sfd-input,
+.sfd-group {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 8px;
+}
+
+.sfd-group .sfd-group {
+  margin-left: 8px;
+}
+
+.sfd-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+}
+
+.sfd-collection,
+.sfd-map {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--p-line-soft);
+  border-radius: 7px;
+}
+
+.sfd-map {
+  grid-template-columns: minmax(110px, 0.35fr) minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.sfd-error {
+  color: var(--p-danger, #b42318);
+}
+
+.sfd-notice {
+  position: fixed;
+  z-index: 30;
+  right: 18px;
+  bottom: 18px;
+  max-width: min(520px, calc(100vw - 36px));
+  padding: 11px 14px;
+  border: 1px solid var(--p-run-done);
+  border-radius: 8px;
+  background: var(--p-surface-1);
+  box-shadow: 0 8px 24px rgba(20, 30, 35, 0.18);
+  color: var(--p-ink-0);
+}
+
+@media (max-width: 640px) {
+  .sfd-map {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------- Work Queue agent mode */
+
+.ai-modes {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--p-line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.ai-modes a {
+  padding: 2px 8px;
+  color: var(--p-ink-2);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.ai-modes a + a {
+  border-left: 1px solid var(--p-line);
+}
+
+.ai-modes a[aria-current='page'] {
+  background: var(--p-surface-3);
+  color: var(--p-ink-0);
+}
+
+.ai-body {
+  display: grid;
+  grid-template-columns: minmax(17rem, 22rem) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.ai-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0 6px;
+  color: var(--p-ink-1);
+  font-size: 12px;
+}
+
+.ai-group + .ai-group {
+  margin-top: 10px;
+}
+
+.ai-grouphead {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--p-line-soft);
+  background: var(--p-surface-2);
+  color: var(--p-ink-1);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.ai-count {
+  color: var(--p-ink-2);
+  font-weight: 500;
+}
+
+.ai-asked {
+  min-width: 0;
+  color: var(--p-ink-0);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ai-row .ai-asked {
+  white-space: normal;
+}
+
+.ai-chip {
+  align-self: start;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--hue-attention-fill);
+  color: var(--hue-attention-ink);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.ai-panel .atc {
+  margin-bottom: 10px;
+}
+
+.ai-message {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--p-line);
+  color: var(--p-ink-1);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.ai-role {
+  color: var(--p-ink-2);
+  font-size: 10.5px;
+}
+
+/* A phone shows one column: the list, or the selected session with its close button. */
+@media (max-width: 640px) {
+  .ai-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ai-body .ai-list {
+    border-right: 0;
+  }
+
+  .ai-body[data-selected='true'] .ai-list,
+  .ai-body:not([data-selected='true']) .ai-case {
+    display: none;
+  }
+
+  .ai-panel.sc {
+    padding: 12px 16px 24px;
+  }
+}

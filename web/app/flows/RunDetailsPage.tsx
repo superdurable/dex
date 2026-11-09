@@ -41,6 +41,9 @@ import {
   Link as LinkIcon,
   RefreshCw,
   Rows3,
+  PencilRuler,
+  Bot,
+  MousePointerClick,
   Square,
   Timer,
   Waves,
@@ -63,8 +66,14 @@ import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { HorizontalTimeline } from './details/HorizontalTimeline';
 import { useRunHistory } from './useRunHistory';
+import { AgentSessionTab, RunActionsTab } from './details/ExperimentalRunTabs';
+import { ExperimentalBadge } from '../components/ExperimentalBadge';
+import { FlowDesignGraph } from '../design/FlowDesignGraph';
+import { useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
+import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
+import { RUN_VIEW_PARAM } from '../routes';
 
-type RunTab = 'overview' | 'steps' | 'timeline' | 'stream';
+type RunTab = 'overview' | 'steps' | 'timeline' | 'design' | 'stream' | 'session' | 'actions';
 
 /** History settings saved on this page, shown until a state load started after the save succeeds. */
 interface SavedHistorySettings {
@@ -106,7 +115,11 @@ function useMediaQuery(query: string): boolean {
   }, [query]);
   return isMatch;
 }
-const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream']);
+const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'design', 'stream', 'session', 'actions']);
+
+function isRunTab(value: string | null): value is RunTab {
+  return value !== null && runTabs.has(value as RunTab);
+}
 const minimumSidebarWidth = 280;
 
 type SidebarKind = 'graph' | 'timeline';
@@ -189,7 +202,19 @@ export function RunDetailsPage({
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
-  const [tab, setTab] = useState<RunTab>(storedRunTab);
+  const requestedView = searchParams.get(RUN_VIEW_PARAM);
+  const [tab, setTab] = useState<RunTab>(() => (isRunTab(requestedView) ? requestedView : storedRunTab()));
+  const webCatalog = useOptionalWebCatalog();
+  const designDefinition = designDefinitionFor(webCatalog?.definitions, summary?.flowType);
+  const catalogEntry = catalogEntryFor(webCatalog?.catalog, webCatalog?.canUseV2 ?? false, summary?.flowType);
+  const sessionSchema = sessionSchemaFor(webCatalog?.definitions, catalogEntry);
+  const hasActionsTab = hasRunActions(catalogEntry);
+  // A remembered or linked tab that does not apply to this run shows the Execution graph instead.
+  const shownTab: RunTab = (tab === 'design' && !designDefinition)
+    || (tab === 'session' && !sessionSchema)
+    || (tab === 'actions' && !hasActionsTab)
+    ? 'steps'
+    : tab;
   const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -217,7 +242,7 @@ export function RunDetailsPage({
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
-  const sidebarKind: SidebarKind = tab === 'timeline' ? 'timeline' : 'graph';
+  const sidebarKind: SidebarKind = shownTab === 'timeline' ? 'timeline' : 'graph';
   const sidebarWidth = sidebarWidths[sidebarKind];
   const sidebarKindRef = useRef(sidebarKind);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -503,11 +528,15 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  const tabs: Array<[RunTab, string, LucideIcon]> = [
-    ['overview', 'Overview', LayoutDashboard],
-    ['steps', 'Execution graph', Workflow],
-    ['timeline', 'Timeline', Rows3],
-    ['stream', 'Streams', Waves],
+  // Experimental tabs appear only when they apply to this run. Design sits between Timeline and Streams.
+  const tabs: Array<{ id: RunTab; label: string; Icon: LucideIcon; isExperimental?: boolean }> = [
+    { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
+    { id: 'steps', label: 'Execution graph', Icon: Workflow },
+    { id: 'timeline', label: 'Timeline', Icon: Rows3 },
+    ...(designDefinition ? [{ id: 'design' as const, label: 'Design', Icon: PencilRuler, isExperimental: true }] : []),
+    { id: 'stream', label: 'Streams', Icon: Waves },
+    ...(sessionSchema ? [{ id: 'session' as const, label: 'Agent session', Icon: Bot, isExperimental: true }] : []),
+    ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true }] : []),
   ];
   const history = runHistory.newest?.events ?? noHistoryEvents;
   const timelineWindow = runHistory.timelineWindow;
@@ -528,7 +557,7 @@ export function RunDetailsPage({
     [hydratedEvents, timelineEvents],
   );
   // The Execution graph and the Timeline share one event page.
-  const isSelectionOnTimeline = tab === 'timeline' || tab === 'steps';
+  const isSelectionOnTimeline = shownTab === 'timeline' || shownTab === 'steps';
   const pageEventsWithFlowStart = useMemo(
     () => withFlowStart(displayedTimelineEvents, flowStartEvent),
     [displayedTimelineEvents, flowStartEvent],
@@ -637,13 +666,13 @@ export function RunDetailsPage({
   }, [hydrateEvent, selectedRaw?.eventId]);
 
   useEffect(() => {
-    if (tab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
-  }, [flowStartEvent, hydrateEvent, tab]);
+    if (shownTab === 'overview' && flowStartEvent) void hydrateEvent(flowStartEvent);
+  }, [flowStartEvent, hydrateEvent, shownTab]);
 
   useLayoutEffect(() => {
     const content = runContent.current;
     const selectedEventID = selectedEvent?.eventId;
-    if (!content || tab !== 'timeline' || !selectedEventID) {
+    if (!content || shownTab !== 'timeline' || !selectedEventID) {
       setSelectedEventConnector(null);
       return;
     }
@@ -691,7 +720,7 @@ export function RunDetailsPage({
       window.removeEventListener('resize', scheduleUpdate);
       window.removeEventListener('scroll', scheduleUpdate, true);
     };
-  }, [selectedEvent, sidebarWidth, tab, timelineEvents]);
+  }, [selectedEvent, sidebarWidth, shownTab, timelineEvents]);
 
   const runChain = useMemo(() => {
     if (!summary) return [];
@@ -864,19 +893,21 @@ export function RunDetailsPage({
       ))}
 
       <div aria-label="Run views" className="run-tabs" role="group">
-        {tabs.map(([id, label, TabIcon]) => (
+        {tabs.map(({ id, label, Icon, isExperimental }) => (
           <button
             key={id}
-            aria-pressed={tab === id}
-            className={tab === id ? 'active' : ''}
+            aria-pressed={shownTab === id}
+            className={shownTab === id ? 'active' : ''}
+            data-tab={id}
             onClick={() => {
               setTab(id);
               persistRunTab(id);
             }}
             type="button"
           >
-            <TabIcon aria-hidden="true" size={15} strokeWidth={2} />
+            <Icon aria-hidden="true" size={15} strokeWidth={2} />
             {label}
+            {isExperimental && <ExperimentalBadge className="run-tab-badge" />}
           </button>
         ))}
       </div>
@@ -884,10 +915,12 @@ export function RunDetailsPage({
       <div
         className={[
           'run-content',
-          tab === 'overview' ? 'run-content--overview' : '',
+          shownTab === 'overview' ? 'run-content--overview' : '',
+          shownTab === 'design' ? 'run-content--design' : '',
+          shownTab === 'session' || shownTab === 'actions' ? 'run-content--experimental' : '',
           resizingSidebar ? 'is-resizing-sidebar' : '',
-          tab === 'timeline' ? 'run-content--timeline' : '',
-          tab === 'timeline' && isHorizontalTimeline ? 'run-content--horizontal-timeline' : '',
+          shownTab === 'timeline' ? 'run-content--timeline' : '',
+          shownTab === 'timeline' && isHorizontalTimeline ? 'run-content--horizontal-timeline' : '',
         ].filter(Boolean).join(' ')}
         ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
@@ -904,10 +937,10 @@ export function RunDetailsPage({
           </svg>
         )}
         <section className="run-primary">
-          {isWaitingForHistory && (tab === 'steps' || tab === 'timeline') && (
+          {isWaitingForHistory && (shownTab === 'steps' || shownTab === 'timeline') && (
             <LoadingIndicator className="card page-loading" label="Loading events…" />
           )}
-          {tab === 'overview' && summary && (
+          {shownTab === 'overview' && summary && (
             <FlowOverview
               summary={summary}
               events={displayedHistory}
@@ -919,7 +952,7 @@ export function RunDetailsPage({
               onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}
-          {tab === 'steps' && !isWaitingForHistory && (
+          {shownTab === 'steps' && !isWaitingForHistory && (
             <ExecutionGraph
               flowId={flowId}
               events={pageEventsWithFlowStart}
@@ -929,7 +962,7 @@ export function RunDetailsPage({
               onSelectEvent={setSelectedEvent}
             />
           )}
-          {tab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
+          {shownTab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
             <HorizontalTimeline
               events={displayedTimelineEvents}
               selectedEvent={selectedRaw}
@@ -945,7 +978,7 @@ export function RunDetailsPage({
               highlightedEventId={runHistory.highlightedEventId}
             />
           )}
-          {tab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
+          {shownTab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
             <Timeline
               flowId={flowId}
               events={displayedTimelineEvents}
@@ -963,11 +996,25 @@ export function RunDetailsPage({
               runStepDurability={runStepDurabilityOf(flowStartEvent)}
             />
           )}
-          {tab === 'stream' && summary && (
+          {shownTab === 'design' && designDefinition && (
+            <FlowDesignGraph key={designDefinition.id} definition={designDefinition} />
+          )}
+          {shownTab === 'stream' && summary && (
             <StreamPanel flowId={flowId} flowType={summary.flowType} />
           )}
+          {shownTab === 'session' && sessionSchema && catalogEntry && (
+            <AgentSessionTab entry={catalogEntry} flowId={flowId} reloadKey={latestEvent?.eventId ?? 0} schema={sessionSchema} />
+          )}
+          {shownTab === 'actions' && catalogEntry && summary && (
+            <RunActionsTab
+              entry={catalogEntry}
+              flowId={flowId}
+              flowStatusCode={summary.flowStatusCode}
+              reloadKey={latestEvent?.eventId ?? 0}
+            />
+          )}
         </section>
-        {(tab === 'steps' || tab === 'timeline') && (
+        {(shownTab === 'steps' || shownTab === 'timeline') && (
           <aside className="run-sidebar">
             <button
               type="button"
