@@ -207,6 +207,11 @@ public class GeneralSynchronizingMergeFlow
         }
 
         @Override
+        public StepOptions getStepOptions() {
+            return liveBranchCountLockOptions();
+        }
+
+        @Override
         public Wait waitFor(final Context context, final Void input) {
             return Wait.until(mergeSentinel.forOne());
         }
