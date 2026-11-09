@@ -151,6 +151,9 @@ same names with underscores for Python, Go, and Rust.
 
 - Every Step type name below is unique across the whole catalog, so Go can keep
   every Step type in one package. Two Flows share Step types only where noted.
+- Every RPC name is unique across the whole catalog and the rest of each
+  example app, because one Client invokes RPCs by name for every registered
+  Flow.
 - A Step with no input takes the language's empty input (void, `None`,
   `struct{}`, `Void`, `()`). An RPC with no input or output does the same.
 - **Trail**: a list of strings, the Step types run so far. A Step appends its
@@ -411,25 +414,31 @@ names (list of strings).
 - Channels: reviewGateOpened (string), reviewCompleted (string). Shares Step
   types ReviewDocument and CollectReviews, the AttributeMap, and the Channels
   with RunTimeMultipleInstancesFlow.
-- RPC getStartedReviewCount() -> int, loads startedReviewers: its map size.
-- RPC openReviewGate(count int): publishes count messages to reviewGateOpened.
+- RPC getStartedDesignTimeReviewCount() -> int, loads startedReviewers: its
+  map size.
+- RPC openDesignTimeReviewGate(count int): publishes count messages to
+  reviewGateOpened.
 - Steps: StartDesignTimeReviews -> GoToMany(ReviewDocument("legal"),
   ReviewDocument("finance"), ReviewDocument("security"), CollectReviews(3)).
   ReviewDocument WaitFor sets startedReviewers[reviewer] = true and waits
   reviewGateOpened.ForOne (the concurrency gate); Execute publishes its
   reviewer to reviewCompleted, DeadEnd. CollectReviews(count) waits
   reviewCompleted.ForN(count), returns GracefulComplete(sorted reviewers).
-- Test: poll getStartedReviewCount until 3 (all three instances are in flight
-  at once, held by the gate); DescribeFlow is RUNNING; openReviewGate(3);
+- Test: poll getStartedDesignTimeReviewCount until 3 (all three instances are
+  in flight at once, held by the gate); DescribeFlow is RUNNING;
+  openDesignTimeReviewGate(3);
   COMPLETED; one CollectReviews completion `["finance", "legal", "security"]`.
 
 **RunTimeMultipleInstancesFlow** (WCP-14). Input: reviewers (list of
 strings).
 - Steps: StartRunTimeReviews -> GoToMany(ReviewDocument per reviewer,
-  CollectReviews(reviewer count)). The same gate, RPCs, AttributeMap, and
-  Channels as DesignTimeMultipleInstancesFlow.
-- Test `["dee", "ana", "cy", "ben"]`: poll getStartedReviewCount until 4;
-  DescribeFlow is RUNNING; openReviewGate(4); COMPLETED; one CollectReviews
+  CollectReviews(reviewer count)). The same gate, AttributeMap, and Channels
+  as DesignTimeMultipleInstancesFlow.
+- RPC getStartedRunTimeReviewCount() -> int and RPC
+  openRunTimeReviewGate(count int), the same as the design-time RPCs.
+- Test `["dee", "ana", "cy", "ben"]`: poll getStartedRunTimeReviewCount until
+  4; DescribeFlow is RUNNING; openRunTimeReviewGate(4); COMPLETED; one
+  CollectReviews
   completion `["ana", "ben", "cy", "dee"]`.
 
 **NoPriorKnowledgeMultipleInstancesFlow** (WCP-15). Input: analyzed sample IDs
@@ -764,19 +773,25 @@ where processedBatches is a list of strings, started empty.
 
 **TransientTriggerFlow** (WCP-23). Input: none.
 - Attribute: isAwaitingMotionEvent (bool).
-- Channels: motionSensorArmed (string), motionEvent (int).
-- RPC armMotionSensor(). RPC sendMotionEvent(value int) -> bool, locks
+- Channels: motionSensorArmed (string), motionEvent (int),
+  motionMonitoringStopped (string).
+- RPC armMotionSensor(). RPC stopMotionMonitoring() publishes to
+  motionMonitoringStopped. RPC sendMotionEvent(value int) -> bool, locks
   isAwaitingMotionEvent: when it is true, set it false, publish, and return
   true; else return false and drop the trigger. Clearing the guard in the same
   locked commit makes the first accepted trigger the only one.
 - Steps: AwaitMotionSensorArmed (start) waits motionSensorArmed.ForOne ->
   GoTo(AwaitMotionEvent). AwaitMotionEvent holds a WaitFor lock on
   isAwaitingMotionEvent; WaitFor sets it true and waits motionEvent.ForOne;
-  Execute returns GracefulComplete(value).
+  Execute returns GoTo(AwaitMonitoringStop, value). AwaitMonitoringStop(value)
+  waits motionMonitoringStopped.ForOne, returns GracefulComplete(value). The
+  Flow stays open after the accepted event, so a later trigger reaches the
+  RPC guard instead of a closed Flow.
 - Test (retry an RPC that fails with the RPC lock conflict error):
   sendMotionEvent(1) returns false; armMotionSensor; poll the Client Attribute
   read until isAwaitingMotionEvent is true; sendMotionEvent(2) returns true;
-  sendMotionEvent(3) returns false; COMPLETED; AwaitMotionEvent output 2.
+  sendMotionEvent(3) returns false; stopMotionMonitoring; COMPLETED;
+  AwaitMonitoringStop output 2.
 
 **PersistentTriggerFlow** (WCP-24). Input: none.
 - Channels: carrierReady (string), shipmentLabel (string).
