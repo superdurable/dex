@@ -40,8 +40,8 @@ pub(crate) use source_config::SINGLE_NODE_PARTITION_COUNT;
 pub use source_config::{ConfigError, SingleNodeProfile};
 pub use standby_config::{StandbyConfig, StandbyMode};
 pub use storage_config::{
-    CredentialSource, DevConfig, DevDurabilityMode, LocalStorageConfig, ObjectStoreConfig,
-    ObjectStoreCredentials, ObjectStoreLocationConfig,
+    CredentialSource, Db9ConnectionString, DevConfig, DevDurabilityMode, LocalStorageConfig,
+    ObjectStoreConfig, ObjectStoreCredentials, ObjectStoreLocationConfig, ObjectStoreProvider,
 };
 
 use serde::{Deserialize, Serialize};

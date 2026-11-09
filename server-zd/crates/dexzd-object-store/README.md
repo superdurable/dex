@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Object storage interface used by server-zd, with an S3 implementation and a fault-injecting in-memory implementation for tests.
+Object storage interface used by server-zd, with S3 and db9 implementations and a fault-injecting in-memory implementation for tests.
 
 ## S3 configuration
 
@@ -23,3 +23,67 @@ File downloads write to a temporary file beside the target and rename after the 
 ## Testing
 
 The shared conformance suite exercises the in-memory implementation and an in-process s3local in strict, process-crash-safe, and relaxed durability modes. It needs no cloud credentials or external service.
+
+## db9 SQL provider
+
+`Db9ObjectStore` uses the PostgreSQL wire protocol directly, with no S3 gateway.
+It creates `dex_object_metadata` and `dex_object_chunks` in the connection's
+search path. Use a dedicated database or schema and keep the search path stable.
+The SQL user needs DDL permission for startup and SELECT/INSERT/UPDATE/DELETE on
+these tables. Bucket and prefix provide logical isolation, not access control.
+
+Each write locks or creates the metadata row, replaces 256 KiB chunks, updates
+size and modification time, and commits in one database transaction. Create-only
+uses `ON CONFLICT DO NOTHING`; ETag replacement uses an atomic conditional UPDATE.
+A new random ETag is assigned on every successful write, including identical
+content and recreation after deletion. Readers hold `FOR SHARE` on metadata
+until every requested chunk has been read. Deletes acquire the metadata lock
+before removing chunks. Missing-key deletes never delete chunks belonging to a
+concurrent new object. Metadata and payload must not be modified outside this
+provider.
+
+The backend must provide atomic durable transactions, unique primary keys,
+row-level locking, read-your-writes, and strongly consistent reads. A successful
+SQL COMMIT is the durability boundary. Distributed replication and availability
+are provided by the database deployment; the provider does not add replication.
+Do not use a read replica, an eventually consistent SQL endpoint, or transaction
+pooling that cannot retain one transaction on a single backend connection.
+
+File uploads and downloads use bounded chunks. Whole-object `get` returns the
+entire body in memory as required by `ObjectStore`; range reads fetch only the
+intersecting chunks. Files are published through `TemporaryDownloadFile` after
+all reads succeed. Large uploads are single transactions: database transaction
+size/duration limits still apply, and readers/writers on that key can block.
+There is no object throughput parity claim with S3.
+
+Connections are bounded and reused, and reconnect after transport closure.
+Each SQL request has a deadline. Write transport failures and timeouts return
+`OutcomeUnknown`, not a false precondition failure; callers must resolve the
+outcome. Deadlocks and serialization failures are transient. SQL error messages
+expose SQLSTATE only, never credentials or object contents. Dropping a store
+aborts its owned connection drivers. Cancellation drops unfinished transactions,
+which enqueue rollback through tokio-postgres.
+
+`Db9ObjectStoreConfig` accepts the connection string, logical bucket, key prefix,
+connection count (default 8, range 1-64), and per-request timeout (default 10 s).
+TLS uses the shared PostgreSQL connection implementation. Use `sslmode=verify-full`
+and trusted roots for remote endpoints; there is no automatic plaintext fallback
+from a configured verified connection.
+
+### Running the database-backed tests
+
+Supply `DEX_ZD_DB9_CONNECTION_STRING` through your secret manager or environment.
+The explicit feature requires a reachable database; missing credentials fail the
+tests rather than skipping them. Test namespaces are unique. The suite includes
+the same object-store conformance checks as S3, independent-client create/CAS
+races, ETag ABA prevention, chunk-boundary reads, namespace isolation, rollback
+on failed upload, and concurrent read/write consistency.
+
+```bash
+make -C server-zd db9ObjectStoreTests
+```
+
+The provider speaks the PostgreSQL wire protocol, so the same tests run against
+PostgreSQL. Server ZD CI adds this suite against PostgreSQL 16 to a pull request
+only while it carries the `db9-tests` label; adding the label starts that suite.
+PostgreSQL checks the provider code, not db9's own locking and isolation.

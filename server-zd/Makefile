@@ -20,3 +20,7 @@ build-server:
 .PHONY: zdIntegTests
 zdIntegTests:
 	$(MAKE) -C integ zdIntegTests $(if $(dexServerZDBinary),dexServerZDBinary=$(abspath $(dexServerZDBinary))) $(if $(totalPartitions),totalPartitions=$(totalPartitions)) $(if $(partitionNum),partitionNum=$(partitionNum)) $(if $(zdIntegTestJSON),zdIntegTestJSON=$(abspath $(zdIntegTestJSON)))
+
+.PHONY: db9ObjectStoreTests
+db9ObjectStoreTests:
+	cargo test --locked -p dexzd-object-store --features db9-integration --test conformance --test db9

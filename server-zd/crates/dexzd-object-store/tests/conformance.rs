@@ -1957,3 +1957,29 @@ async fn s3_requests_to_a_server_that_stops_reading_time_out() {
     assert_eq!(head.kind, ObjectStoreErrorKind::Transient, "{head}");
     stalled_endpoint.abort();
 }
+
+#[cfg(feature = "db9-integration")]
+#[tokio::test]
+async fn db9_conformance() {
+    let connection = std::env::var("DEX_ZD_DB9_CONNECTION_STRING")
+        .expect("db9 integration requires a connection string");
+    let store =
+        dexzd_object_store::Db9ObjectStore::new(dexzd_object_store::Db9ObjectStoreConfig::new(
+            connection,
+            format!("conformance-{}", uuid::Uuid::new_v4()),
+        ))
+        .await
+        .expect("db9 connects");
+    check_store(&store).await;
+    let page = store.list("", None, 1000).await.expect("list cleanup keys");
+    store
+        .delete_many(
+            &page
+                .objects
+                .into_iter()
+                .map(|object| object.key)
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .expect("cleanup");
+}

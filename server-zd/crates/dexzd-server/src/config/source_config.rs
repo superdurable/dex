@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use super::{
     AttributeStoreConfig, Config, CredentialSource, DevConfig, DevDurabilityMode, LifecycleConfig,
-    ObjectStoreCredentials, SearchBackend, StandbyMode,
+    ObjectStoreCredentials, ObjectStoreProvider, SearchBackend, StandbyMode,
 };
 use crate::DevCommandOptions;
 
@@ -239,6 +239,12 @@ impl Config {
             }
             configuration.attribute_store = read_go_attribute_store_section(path)?;
         }
+        if configuration.object_store.provider != ObjectStoreProvider::S3 {
+            return Err(ConfigError::Invalid {
+                field: "objectStore.provider",
+                message: "db9 requires serve mode; dev and local use embedded S3".to_owned(),
+            });
+        }
         if configuration.standby.mode == StandbyMode::Hot {
             return Err(ConfigError::Invalid {
                 field: "standby.mode",
@@ -332,6 +338,13 @@ impl Config {
             )?
         {
             self.search.postgres_connection_string = connection_string;
+        }
+        if self.object_store.provider == ObjectStoreProvider::Db9 {
+            self.object_store.db9_connection_string.0 = read_environment_credential(
+                "DEX_ZD_DB9_CONNECTION_STRING",
+                "objectStore.provider",
+            )?
+            .unwrap_or_default();
         }
         self.object_store.credentials = credentials_from_lookup(
             self.object_store.credentials_source,

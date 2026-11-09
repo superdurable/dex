@@ -1337,12 +1337,15 @@ dependencies = [
  "bytes",
  "dexzd-clock",
  "dexzd-metrics",
+ "dexzd-postgres-connection",
  "s3local",
  "s3local-server",
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-postgres",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

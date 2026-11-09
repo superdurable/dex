@@ -1,0 +1,19 @@
+# Set DEX_ZD_DB9_CONNECTION_STRING outside this file, with verified TLS for remote databases.
+# dex-server-zd serve --config config/dex-server-zd.db9.example.yaml
+cluster:
+  nodeId: db9-node
+  partitionCount: 32
+objectStore:
+  provider: db9
+  bucket: dex
+  prefix: production/
+  db9PoolSize: 8
+  db9RequestTimeout: 10s
+localStorage:
+  directory: ./db9-node-cache
+api:
+  listen: 127.0.0.1:8801
+lease:
+  duration: 15s
+commit:
+  applierLanes: 8
