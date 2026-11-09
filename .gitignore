@@ -69,5 +69,3 @@ web/dex-web
 
 # Benchmark server logs are too large to commit
 benchmark/results/**/*.log.gz
-
-/tmp/dexcli-1438
