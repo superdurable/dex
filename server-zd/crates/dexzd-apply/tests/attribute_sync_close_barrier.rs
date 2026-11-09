@@ -727,10 +727,9 @@ fn natural_close_waits_for_outbox_entries_and_closes_at_once_without_them() {
         })
     );
     assert!(!record.is_graceful_completion_requested);
-    assert_eq!(
-        harness.step("PackStep-1").phase,
-        StepExecutionPhase::Canceled as i32,
-        "the first half cancels active Steps"
+    assert!(
+        !harness.has_step("PackStep-1"),
+        "the first half cancels active Steps, which deletes their rows"
     );
     assert!(!harness.has_timer(&flow_timeout_timer(1)));
     assert!(!harness.has_timer(&retention_timer()));

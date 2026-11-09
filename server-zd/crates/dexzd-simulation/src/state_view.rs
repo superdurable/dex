@@ -25,7 +25,8 @@ use dexzd_protocol::dexzd::v1::{
     ChannelMetaRecord, DispatchQueueRecord, FlowDirectoryRecord, HardDeleteObjectRecord,
     HistoryOffloadModeRecord, HistoryRecord, HistoryRowMetadata, HistorySegmentRecord,
     HistorySegmentValueRecord, LockRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord,
-    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    StepCounterRecord, StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord,
+    ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -94,6 +95,8 @@ pub struct RunView {
     pub channel_metas: BTreeMap<String, ChannelMetaRecord>,
     /// Step executions by Step execution ID.
     pub step_executions: BTreeMap<String, StepExecutionRecord>,
+    /// Step counters by Step type.
+    pub step_counters: BTreeMap<String, StepCounterRecord>,
     /// Lock rows by lock key.
     pub locks: BTreeMap<String, LockRecord>,
     /// Timer rows: encoded TimerId (the key suffix) and record.
@@ -383,6 +386,10 @@ impl FlowView {
                 run.step_executions
                     .insert(name(key, suffix)?, decode(key, value, "Step execution")?);
             }
+            RunTable::StepCounter => {
+                run.step_counters
+                    .insert(name(key, suffix)?, decode(key, value, "Step counter")?);
+            }
             RunTable::LockTable => {
                 run.locks
                     .insert(name(key, suffix)?, decode(key, value, "lock")?);
@@ -493,8 +500,7 @@ impl FlowView {
                     decode(key, value, "history segment value")?,
                 );
             }
-            RunTable::StepCounter
-            | RunTable::Waiter
+            RunTable::Waiter
             | RunTable::Outbox
             | RunTable::InboxDedup
             | RunTable::PermissionSet

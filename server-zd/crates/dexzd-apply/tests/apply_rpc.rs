@@ -522,21 +522,18 @@ fn rpc_step_decision_cancels_existing_steps_and_sources_new_steps() {
         ApplyEffect::InvocationPending { invocation, .. }
             if invocation.step_execution_id == "FollowupStep-1"
     )));
-    let first: StepExecutionRecord = harness
-        .state
-        .row(
-            ColumnFamily::Flow,
-            &run_named_key(
-                harness.context.flow_hash,
-                harness.run_id(),
-                RunTable::StepExecution,
-                "StartStep-1",
-            ),
-        )
-        .expect("first Step exists");
-    assert_eq!(
-        first.phase,
-        dexzd_protocol::dexzd::v1::StepExecutionPhase::Canceled as i32
+    let first: Option<StepExecutionRecord> = harness.state.row(
+        ColumnFamily::Flow,
+        &run_named_key(
+            harness.context.flow_hash,
+            harness.run_id(),
+            RunTable::StepExecution,
+            "StartStep-1",
+        ),
+    );
+    assert!(
+        first.is_none(),
+        "the decision cancels the first Step, which deletes its row"
     );
     let next: StepExecutionRecord = harness
         .state

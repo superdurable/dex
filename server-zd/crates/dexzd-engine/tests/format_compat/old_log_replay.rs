@@ -11,20 +11,23 @@
 //! older-log path: the replay must reach the older binary's state, except for the attempt
 //! fields that only the new binary writes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use dexzd_apply::FlowStateReader;
+use dexzd_apply::read_model::{StepCompletionState, step_completion_state};
+use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
 use dexzd_engine::SystemEngineIdSource;
-use dexzd_keyspace::row_keys::value_row_key;
-use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueReference, parse_run_key};
+use dexzd_keyspace::row_keys::{attempt_record_key, value_row_key};
+use dexzd_keyspace::{
+    ColumnFamily, FlowHash, ParsedRunKey, RunId, RunTable, ValueReference, parse_run_key,
+};
 use dexzd_protocol::dex::flow_started_or_continued_history_event::StartOrContinue;
 use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, FlowStatus, Kv, Value, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, HistoryRecord, RunRecord, StepExecutionRecord, StepInvocationPhase,
-    ValueRecord,
+    AttemptRecord, CheckpointRecord, HistoryRecord, RunRecord, StepExecutionPhase,
+    StepExecutionRecord, StepInvocationPhase, ValueRecord,
 };
 use prost::Message;
 
@@ -54,13 +57,22 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
         let recorded = parse_state_dump(&recorded_text);
         let recorded_run_records = read_run_records(&directory);
         let (replayed, stored) = replay(&directory, snapshot_use).await;
+        let deleted_step_rows = deleted_ended_step_rows(&recorded, &replayed, &stored);
+        assert!(
+            !deleted_step_rows.is_empty(),
+            "{snapshot_use:?}: the older binary kept rows of completed Steps"
+        );
         assert_eq!(
-            recorded.keys().collect::<Vec<_>>(),
+            recorded
+                .keys()
+                .filter(|key| !deleted_step_rows.contains(*key))
+                .collect::<Vec<_>>(),
             replayed.keys().collect::<Vec<_>>(),
             "{snapshot_use:?}: the replay writes and deletes the same rows"
         );
         let changed_rows: Vec<_> = recorded
             .iter()
+            .filter(|(key, _)| !deleted_step_rows.contains(*key))
             .filter(|(key, value)| replayed.get(*key) != Some(*value))
             .filter(|((column_family, key), value)| {
                 !matches_without_new_fields(
@@ -115,6 +127,81 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
     }
 }
 
+/// Returns the recorded Step execution rows that the replay deleted, after checking that
+/// WaitForStepCompletion still answers Completed for each of them.
+///
+/// Newer binaries delete a completed or plainly canceled Step's row in the command that ends it.
+fn deleted_ended_step_rows(
+    recorded: &StateDump,
+    replayed: &StateDump,
+    stored: &StoredRows,
+) -> BTreeSet<(String, String)> {
+    let reader = StoredRowsReader { stored };
+    let mut deleted = BTreeSet::new();
+    for (column_family, hex_key) in recorded.keys() {
+        if column_family != ColumnFamily::Flow.name()
+            || replayed.contains_key(&(column_family.clone(), hex_key.clone()))
+        {
+            continue;
+        }
+        let key = decode_hex(hex_key);
+        let Ok(parsed) = parse_run_key(&key) else {
+            continue;
+        };
+        if parsed.table != RunTable::StepExecution {
+            continue;
+        }
+        let step_execution_id =
+            std::str::from_utf8(parsed.suffix).expect("Step execution IDs are UTF-8");
+        let (step_type, number) = step_execution_id
+            .rsplit_once('-')
+            .expect("a Step execution ID ends with its number");
+        let number: u32 = number.parse().expect("a Step execution number");
+        assert_eq!(
+            step_completion_state(&reader, parsed.flow_hash, parsed.run_id, step_type, number)
+                .expect("the Step completion state reads"),
+            StepCompletionState::Completed,
+            "{step_execution_id} lost its row without completing"
+        );
+        deleted.insert((column_family.clone(), hex_key.clone()));
+    }
+    deleted
+}
+
+/// Reads the rows that a replay committed.
+struct StoredRowsReader<'rows> {
+    stored: &'rows StoredRows,
+}
+
+impl FlowStateReader for StoredRowsReader<'_> {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        Ok(self
+            .stored
+            .get(&(column_family.name().to_owned(), key.to_vec()))
+            .cloned())
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        let name = column_family.name().to_owned();
+        Ok(self
+            .stored
+            .range((name.clone(), start.to_vec())..(name, end.to_vec()))
+            .take(limit)
+            .map(|((_, key), value)| (key.clone(), value.clone()))
+            .collect())
+    }
+}
+
 /// Returns whether the replayed row equals the recorded one after clearing the fields that only
 /// the new binary writes: the attempt progress and the flow close marker on Step executions
 /// and in attempt checkpoints.
@@ -141,12 +228,18 @@ fn matches_without_new_fields(
         (name, RunTable::Checkpoint) if name == ColumnFamily::History.name() => {
             let mut checkpoint =
                 CheckpointRecord::decode(value.as_slice()).expect("checkpoint rows decode");
+            let is_fork_without_ended_steps =
+                is_time_travel_checkpoint_without_ended_steps(&parsed, &checkpoint, stored);
             for row in &mut checkpoint.rows {
                 if row.table == RunTable::StepExecution as u32 {
                     row.value = step_execution_without_new_fields(&row.value);
                 }
             }
-            checkpoint.encode_to_vec()
+            let cleared = checkpoint.encode_to_vec();
+            if dumped_value(&cleared) != recorded_value && is_fork_without_ended_steps {
+                return true;
+            }
+            cleared
         }
         (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
             history_without_scheduled_time(&history_with_inline_effect_values(
@@ -168,6 +261,37 @@ fn matches_without_new_fields(
         _ => return false,
     };
     dumped_value(&cleared) == recorded_value
+}
+
+/// Returns whether `checkpoint` starts a run attempt that a TimeTravel forked and holds no row
+/// of a Step that completed or that a cancellation without a Flow close ended.
+///
+/// Newer binaries delete those restored rows, and `state.txt` only hashes the older checkpoint.
+fn is_time_travel_checkpoint_without_ended_steps(
+    parsed: &ParsedRunKey<'_>,
+    checkpoint: &CheckpointRecord,
+    stored: &StoredRows,
+) -> bool {
+    let attempt_key = attempt_record_key(parsed.flow_hash, parsed.run_id, checkpoint.attempt);
+    let Some(attempt) = stored
+        .get(&(ColumnFamily::Flow.name().to_owned(), attempt_key))
+        .map(|bytes| AttemptRecord::decode(bytes.as_slice()).expect("attempt rows decode"))
+    else {
+        return false;
+    };
+    let is_fork_start = checkpoint.attempt > 1 && attempt.start_seq == checkpoint.seq;
+    is_fork_start
+        && checkpoint
+            .rows
+            .iter()
+            .filter(|row| row.table == RunTable::StepExecution as u32)
+            .map(|row| StepExecutionRecord::decode(row.value.as_slice()).expect("Step rows decode"))
+            .all(|step| {
+                step.is_timeout_handler
+                    || !(step.phase == StepExecutionPhase::Completed as i32
+                        || (step.phase == StepExecutionPhase::Canceled as i32
+                            && step.is_canceled_by_flow_close == Some(false)))
+            })
 }
 
 /// Resolves the effect value references that newer binaries write into history events, as the

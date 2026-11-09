@@ -362,6 +362,18 @@ impl<'reader> FlowTransaction<'reader> {
             .filter_map(|((_, key), value)| value.as_deref().map(|value| (key.as_slice(), value)))
     }
 
+    /// Returns the rows this call put under `prefix` in `column_family`, in key order.
+    pub(crate) fn buffered_puts_with_prefix(
+        &self,
+        column_family: ColumnFamily,
+        prefix: &[u8],
+    ) -> impl Iterator<Item = (&[u8], &[u8])> {
+        let (start, end) = dexzd_keyspace::row_keys::prefix_range(prefix);
+        self.rows
+            .range((column_family, start)..(column_family, end))
+            .filter_map(|((_, key), value)| value.as_deref().map(|value| (key.as_slice(), value)))
+    }
+
     /// Returns the buffered writes in deterministic order.
     pub(crate) fn into_writes(self) -> Vec<StateWrite> {
         let range_deletes = self

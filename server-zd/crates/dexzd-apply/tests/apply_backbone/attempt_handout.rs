@@ -187,7 +187,10 @@ fn heartbeats_and_results_of_another_task_are_ignored_and_older_logs_skip_the_fe
     );
     let completed = harness.apply(result(&TASK_A));
     assert!(!completed.writes.is_empty());
-    assert!(harness.step_execution("ChargeStep-1").invocation.is_none());
+    assert!(
+        harness.step_execution_if_present("ChargeStep-1").is_none(),
+        "the result completes the Step, which deletes its row"
+    );
 }
 
 #[test]

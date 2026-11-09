@@ -1848,19 +1848,10 @@ fn active_step_keeps_wait_for_routing_until_it_finishes() {
     assert!(executing_step.execute_pull_routing.is_none());
 
     harness.complete_execute(StepDecision::default());
-    let step_key = run_named_key(
-        harness.context.flow_hash,
-        harness.run_id,
-        RunTable::StepExecution,
-        "ChargeStep-1",
+    assert!(
+        harness.step_row_if_present("ChargeStep-1").is_none(),
+        "the finished Step's row, with its WaitFor routing, is deleted"
     );
-    let step_row = harness
-        .state
-        .get(ColumnFamily::Flow, &step_key)
-        .unwrap()
-        .expect("Step row exists");
-    let step = StepExecutionRecord::decode(step_row.as_slice()).unwrap();
-    assert!(step.wait_for_pull_routing.is_none());
 }
 
 fn dispatch_routing(sticky_app_worker_id: &str) -> PullRouting {
@@ -2145,18 +2136,44 @@ impl FlowStateReader for NoHistoryReader<'_> {
 
 impl Harness {
     fn step_row(&self, step_execution_id: &str) -> StepExecutionRecord {
+        self.step_row_if_present(step_execution_id)
+            .expect("Step row exists")
+    }
+
+    /// Returns the Step's row, or None after a completion or plain cancellation deleted it.
+    fn step_row_if_present(&self, step_execution_id: &str) -> Option<StepExecutionRecord> {
         let key = run_named_key(
             self.context.flow_hash,
             self.run_id,
             RunTable::StepExecution,
             step_execution_id,
         );
-        let bytes = self
-            .state
+        self.state
             .rows
             .get(&(ColumnFamily::Flow, key))
-            .expect("Step row exists");
-        StepExecutionRecord::decode(bytes.as_slice()).expect("valid Step row")
+            .map(|bytes| StepExecutionRecord::decode(bytes.as_slice()).expect("valid Step row"))
+    }
+
+    /// Writes an unmarked Canceled row, as older binaries kept, for a cancel at `completed_seq`.
+    fn insert_unmarked_canceled_row(&mut self, step_type: &str, completed_seq: u64) {
+        let step_execution_id = format!("{step_type}-1");
+        let key = run_named_key(
+            self.context.flow_hash,
+            self.run_id,
+            RunTable::StepExecution,
+            &step_execution_id,
+        );
+        let step = StepExecutionRecord {
+            step_execution_id,
+            step_type: step_type.to_owned(),
+            step_number: 1,
+            phase: StepExecutionPhase::Canceled as i32,
+            completed_seq,
+            ..StepExecutionRecord::default()
+        };
+        self.state
+            .rows
+            .insert((ColumnFamily::Flow, key), step.encode_to_vec());
     }
 
     /// Clears the flow close marker of every Step row, as rows written before it existed.
@@ -2294,11 +2311,14 @@ impl Harness {
             state: &without_history,
         };
         for step_type in step_types {
-            let step = self.step_row(&format!("{step_type}-1"));
-            if step.phase == StepExecutionPhase::Canceled as i32 {
-                assert!(
-                    step.is_canceled_by_flow_close.is_some(),
-                    "{scenario}: canceled {step_type} carries the marker"
+            let step = self.step_row_if_present(&format!("{step_type}-1"));
+            if let Some(step) =
+                step.filter(|step| step.phase == StepExecutionPhase::Canceled as i32)
+            {
+                assert_eq!(
+                    step.is_canceled_by_flow_close,
+                    Some(true),
+                    "{scenario}: only a Step the close canceled keeps its Canceled row"
                 );
             }
             let expected = self.completion_of(&legacy, step_type);
@@ -2324,9 +2344,9 @@ impl Harness {
         self.assert_markers_match_record_oracle(&step_types, &format!("{scenario}, terminated"));
         assert_eq!(self.travel_to(terminated_at), 2);
         assert_eq!(self.run_record().status, FlowStatus::Terminated as i32);
-        assert_eq!(
-            self.step_row("CancelStep-1").is_canceled_by_flow_close,
-            Some(false)
+        assert!(
+            self.step_row_if_present("CancelStep-1").is_none(),
+            "the decision's cancellation deleted the row"
         );
         assert_eq!(
             self.step_row("WaitingStep-1").is_canceled_by_flow_close,
@@ -2340,9 +2360,9 @@ impl Harness {
         let decided_at = terminated_at - 1000;
         assert_eq!(self.travel_to(decided_at), 3);
         assert_eq!(self.run_record().status, FlowStatus::Running as i32);
-        assert_eq!(
-            self.step_row("CancelStep-1").is_canceled_by_flow_close,
-            Some(false)
+        assert!(
+            self.step_row_if_present("CancelStep-1").is_none(),
+            "the decision's cancellation deleted the row"
         );
         assert_eq!(
             self.step_row("WaitingStep-1").is_canceled_by_flow_close,
@@ -2441,17 +2461,17 @@ fn a_sibling_canceled_by_a_closing_decision_matches_the_record_oracle() {
 fn step_waits_on_a_terminated_flow_read_the_flow_close_marker_without_history() {
     let mut harness = Harness::new();
     harness.cancel_by_decision_then_terminate();
-    assert_eq!(
-        harness.step_row("CancelStep-1").is_canceled_by_flow_close,
-        Some(false)
+    assert!(
+        harness.step_row_if_present("CancelStep-1").is_none(),
+        "the decision's cancellation deleted the row"
     );
     assert_eq!(
         harness.step_row("WaitingStep-1").is_canceled_by_flow_close,
         Some(true)
     );
-    assert_eq!(
-        harness.step_row("DecidingStep-1").is_canceled_by_flow_close,
-        None
+    assert!(
+        harness.step_row_if_present("DecidingStep-1").is_none(),
+        "the completion deleted the row"
     );
     harness.remove_history_rows();
     let reader = NoHistoryReader {
@@ -2475,6 +2495,9 @@ fn step_waits_on_a_terminated_flow_read_the_flow_close_marker_without_history() 
 fn canceled_step_rows_without_the_marker_read_history_or_infer_from_the_close() {
     let mut harness = Harness::new();
     harness.cancel_by_decision_then_terminate();
+    // An older binary kept the row of the Step that the decision before the termination canceled.
+    let decision_seq = harness.run_record().next_run_seq - 2;
+    harness.insert_unmarked_canceled_row("CancelStep", decision_seq);
     harness.strip_flow_close_markers();
     assert_eq!(
         harness.completion_of(&harness.state, "CancelStep"),
@@ -2529,16 +2552,13 @@ fn a_step_canceled_by_a_pending_close_stays_completed_after_terminate() {
         harness.run_record().pending_close.is_some(),
         "the natural close is pending"
     );
-    assert_eq!(
-        harness.step_row("WaitingStep-1").is_canceled_by_flow_close,
-        Some(false)
+    assert!(
+        harness.step_row_if_present("WaitingStep-1").is_none(),
+        "a cancellation without FlowClosed deletes the row"
     );
     harness.stop_with(StopType::Terminate);
     assert_eq!(harness.run_record().status, FlowStatus::Terminated as i32);
-    assert_eq!(
-        harness.step_row("WaitingStep-1").is_canceled_by_flow_close,
-        Some(false)
-    );
+    assert!(harness.step_row_if_present("WaitingStep-1").is_none());
     assert_eq!(
         harness.completion_of(&harness.state, "WaitingStep"),
         StepCompletionState::Completed,
