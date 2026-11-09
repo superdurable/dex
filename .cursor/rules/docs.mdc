@@ -22,7 +22,7 @@ exporter; this rule applies from then on.
 Required shape: one `<SdkTabs>` wrapping `<SdkSnippet>` children (Python, Go,
 Java, TypeScript; add Rust when `examples/rust` has the same sample), each
 containing a fenced block in that language. Copy the pattern from an existing
-page such as `docs/content/primitives/step.mdx`.
+page such as `docs/content/concepts/step/index.mdx`.
 
 Do not use `### Java` / `### Go` headings, stacked fenced blocks per language,
 or a single-language sample when the same API exists in other SDKs.
