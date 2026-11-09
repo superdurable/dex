@@ -116,8 +116,8 @@ func (*DesignTimeMultipleInstancesFlow) GetSteps() []dex.StepDef {
 
 func (flow *DesignTimeMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.GetStartedReviewCount, loadStartedReviewersOptions),
-		dex.DefineRPC(flow.OpenReviewGate, nil),
+		dex.DefineRPC(flow.GetStartedDesignTimeReviewCount, loadStartedReviewersOptions),
+		dex.DefineRPC(flow.OpenDesignTimeReviewGate, nil),
 	}
 }
 
@@ -125,13 +125,13 @@ func (*DesignTimeMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSc
 	return reviewSchema
 }
 
-// GetStartedReviewCount returns how many review instances are in flight or done.
-func (*DesignTimeMultipleInstancesFlow) GetStartedReviewCount(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
+// GetStartedDesignTimeReviewCount returns how many review instances are in flight or done.
+func (*DesignTimeMultipleInstancesFlow) GetStartedDesignTimeReviewCount(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
 	return &dex.RPCResult[int]{Output: StartedReviewersAttributeMap.MapSize(ctx)}, nil
 }
 
-// OpenReviewGate lets count waiting review instances finish.
-func (*DesignTimeMultipleInstancesFlow) OpenReviewGate(ctx dex.Context, count int) (*dex.RPCResult[dex.None], error) {
+// OpenDesignTimeReviewGate lets count waiting review instances finish.
+func (*DesignTimeMultipleInstancesFlow) OpenDesignTimeReviewGate(ctx dex.Context, count int) (*dex.RPCResult[dex.None], error) {
 	return openGate(ctx, ReviewGateOpenedChannel, count)
 }
 
@@ -156,8 +156,8 @@ func (*RunTimeMultipleInstancesFlow) GetSteps() []dex.StepDef {
 
 func (flow *RunTimeMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
-		dex.DefineRPC(flow.GetStartedReviewCount, loadStartedReviewersOptions),
-		dex.DefineRPC(flow.OpenReviewGate, nil),
+		dex.DefineRPC(flow.GetStartedRunTimeReviewCount, loadStartedReviewersOptions),
+		dex.DefineRPC(flow.OpenRunTimeReviewGate, nil),
 	}
 }
 
@@ -165,13 +165,13 @@ func (*RunTimeMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchem
 	return reviewSchema
 }
 
-// GetStartedReviewCount returns how many review instances are in flight or done.
-func (*RunTimeMultipleInstancesFlow) GetStartedReviewCount(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
+// GetStartedRunTimeReviewCount returns how many review instances are in flight or done.
+func (*RunTimeMultipleInstancesFlow) GetStartedRunTimeReviewCount(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
 	return &dex.RPCResult[int]{Output: StartedReviewersAttributeMap.MapSize(ctx)}, nil
 }
 
-// OpenReviewGate lets count waiting review instances finish.
-func (*RunTimeMultipleInstancesFlow) OpenReviewGate(ctx dex.Context, count int) (*dex.RPCResult[dex.None], error) {
+// OpenRunTimeReviewGate lets count waiting review instances finish.
+func (*RunTimeMultipleInstancesFlow) OpenRunTimeReviewGate(ctx dex.Context, count int) (*dex.RPCResult[dex.None], error) {
 	return openGate(ctx, ReviewGateOpenedChannel, count)
 }
 

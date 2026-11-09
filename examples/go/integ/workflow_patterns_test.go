@@ -308,9 +308,9 @@ func TestWorkflowPatternsMultipleInstancesWithoutSynchronization(t *testing.T) {
 func TestWorkflowPatternsDesignTimeMultipleInstances(t *testing.T) {
 	flow := registry.WorkflowPatterns.DesignTimeMultipleInstancesFlow
 	flowID := startWorkflowPattern(t, flow, "wcp-mi-design-time", nil)
-	pollWorkflowPatternCountRPC(t, flowID, flow.GetStartedReviewCount, 3)
+	pollWorkflowPatternCountRPC(t, flowID, flow.GetStartedDesignTimeReviewCount, 3)
 	requireWorkflowPatternRunning(t, flowID)
-	invokeWorkflowPatternRPC(t, flowID, flow.OpenReviewGate, 3, nil)
+	invokeWorkflowPatternRPC(t, flowID, flow.OpenDesignTimeReviewGate, 3, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
 	require.Equal(t,
 		[][]string{{"finance", "legal", "security"}},
@@ -320,9 +320,9 @@ func TestWorkflowPatternsDesignTimeMultipleInstances(t *testing.T) {
 func TestWorkflowPatternsRunTimeMultipleInstances(t *testing.T) {
 	flow := registry.WorkflowPatterns.RunTimeMultipleInstancesFlow
 	flowID := startWorkflowPattern(t, flow, "wcp-mi-run-time", []string{"dee", "ana", "cy", "ben"})
-	pollWorkflowPatternCountRPC(t, flowID, flow.GetStartedReviewCount, 4)
+	pollWorkflowPatternCountRPC(t, flowID, flow.GetStartedRunTimeReviewCount, 4)
 	requireWorkflowPatternRunning(t, flowID)
-	invokeWorkflowPatternRPC(t, flowID, flow.OpenReviewGate, 4, nil)
+	invokeWorkflowPatternRPC(t, flowID, flow.OpenRunTimeReviewGate, 4, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
 	require.Equal(t,
 		[][]string{{"ana", "ben", "cy", "dee"}},
@@ -650,8 +650,10 @@ func TestWorkflowPatternsTransientTrigger(t *testing.T) {
 	pollWorkflowPatternAttribute(t, flowID, workflowpatterns.IsAwaitingMotionEventAttribute, true)
 	require.True(t, sendMotionEvent(2))
 	require.False(t, sendMotionEvent(3))
+	invokeWorkflowPatternRPC(t, flowID, flow.StopMotionMonitoring, nil, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
-	require.Equal(t, []int{2}, decodeStepOutputs[int](t, result, "AwaitMotionEvent"))
+	require.Equal(t, []string{"AwaitMonitoringStop"}, completionStepTypes(result))
+	require.Equal(t, []int{2}, decodeStepOutputs[int](t, result, "AwaitMonitoringStop"))
 }
 
 func TestWorkflowPatternsPersistentTrigger(t *testing.T) {

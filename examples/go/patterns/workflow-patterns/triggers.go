@@ -28,6 +28,7 @@ var (
 	IsAwaitingMotionEventAttribute = dex.DefineAttribute[bool]("isAwaitingMotionEvent")
 	MotionSensorArmedChannel       = dex.DefineChannel[string]("motionSensorArmed")
 	MotionEventChannel             = dex.DefineChannel[int]("motionEvent")
+	MotionMonitoringStoppedChannel = dex.DefineChannel[string]("motionMonitoringStopped")
 )
 
 // TransientTriggerFlow implements WCP-23: the RPC drops motion events nobody waits for.
@@ -37,12 +38,14 @@ func (*TransientTriggerFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(AwaitMotionSensorArmed{}),
 		dex.DefineStep(AwaitMotionEvent{}),
+		dex.DefineStep(AwaitMonitoringStop{}),
 	}
 }
 
 func (flow *TransientTriggerFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.ArmMotionSensor, nil),
+		dex.DefineRPC(flow.StopMotionMonitoring, nil),
 		dex.DefineRPC(flow.SendMotionEvent, &dex.RPCOptions{
 			LockAttributes: []dex.AttributeLock{dex.LockAttribute(IsAwaitingMotionEventAttribute)},
 		}),
@@ -52,13 +55,21 @@ func (flow *TransientTriggerFlow) GetRPCs() []dex.RPCDef {
 func (*TransientTriggerFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{IsAwaitingMotionEventAttribute},
-		Channels:   []dex.ChannelDef{MotionSensorArmedChannel, MotionEventChannel},
+		Channels:   []dex.ChannelDef{MotionSensorArmedChannel, MotionEventChannel, MotionMonitoringStoppedChannel},
 	}
 }
 
 // ArmMotionSensor arms the sensor so the Flow starts waiting for motion.
 func (*TransientTriggerFlow) ArmMotionSensor(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
 	if err := MotionSensorArmedChannel.Publish(ctx, "armed"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// StopMotionMonitoring ends monitoring, which completes the Flow.
+func (*TransientTriggerFlow) StopMotionMonitoring(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	if err := MotionMonitoringStoppedChannel.Publish(ctx, "stopped"); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -112,7 +123,18 @@ func (AwaitMotionEvent) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision,
 	if err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(values[0]), nil
+	return dex.GoTo(AwaitMonitoringStop{}, values[0]), nil
+}
+
+// AwaitMonitoringStop keeps the Flow open so later triggers reach the RPC guard.
+type AwaitMonitoringStop struct{ dex.StepDefaults }
+
+func (AwaitMonitoringStop) WaitFor(dex.Context, int) (*dex.Wait, error) {
+	return dex.Until(MotionMonitoringStoppedChannel.ForOne()), nil
+}
+
+func (AwaitMonitoringStop) Execute(_ dex.Context, value int) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(value), nil
 }
 
 var (
