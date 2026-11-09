@@ -3,6 +3,10 @@
 Release notes for Dex Skills 1.0.0 and later. The notes for 0.1.0 through
 0.69.2 are archived in [CHANGELOG-0.x.md](CHANGELOG-0.x.md).
 
+## 1.0.3 - 2026-11-09
+
+- Correct the Dex Web run page description in `dex-sdk`: the event panel replaced the Details panel, and routing names the task queue.
+
 ## 1.0.2 - 2026-11-07
 
 - Remove obsolete Server migration guidance.
