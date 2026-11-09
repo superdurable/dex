@@ -1,7 +1,7 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: draft for owner review, revision 2 (after the adversarial review; see
-[Review log](#10-review-log)). No Lean yet.
+Status: draft for owner review, revision 3 (after two adversarial reviews;
+see [Review log](#10-review-log)). No Lean yet.
 
 Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
 repository root at that commit.
@@ -933,14 +933,21 @@ sequences of its transitions.
 RPC IDs) and client operations that L has no counterpart for. The theorem is
 stated over a projection, under a restricted environment.
 
-**Admissible environment `E_adm`** (the only inputs the theorem allows):
+**Admissible environment `E_adm`** (the only inputs the theorem allows). An
+admissible input word is a finite or infinite sequence of input events, in
+commit order, of this shape:
 
-- Exactly one `start(f, T₀, v, ∅)` with a fresh Flow ID `f`, the program's
-  entry Step `T₀`, and the L program's input `v`. No Flow timeout, no
-  UpdateFlowConfig, no initial Attributes.
-- Any number of `pub(f, [(c, v)])` where `c` is one of the program's
-  **external** Channels (the translations of L's external input channels,
-  Section 8), each with one message.
+- It **begins** with exactly one `start(f, T₀, v, ∅)`, with a fresh Flow ID
+  `f`, the program's entry Step `T₀`, and the L program's input `v`. No Flow
+  timeout, no UpdateFlowConfig, no initial Attributes. No other `start`
+  follows.
+- **Every later** input is a `pub(f, [(c, v)])` where `c` is one of the
+  program's **external** Channels (the translations of L's external input
+  channels, Section 8), each with one message. No publication precedes the
+  start: one would be rejected with NOT_FOUND
+  (`server-zd/crates/dexzd-apply/src/command_handlers/run_cursor.rs:111-113`)
+  and would project to a `refused` before `begin`, which L has no
+  counterpart for.
 - No `set`, `del`, `skip`, `stop`, or `call`. [owner] RPC entry points are a
   future extension and are outside the core theorem; every external input of
   an L program maps to Channel publications, which never meet RPC lock
@@ -956,13 +963,25 @@ alphabet (Section 8.1):
 | `pub(f, [(c, v)])`, `c` external, root Flow | `in(c, v)` |
 | `rejected(pub(f, [(c, v)]), NOT_FOUND)` | `refused(c, v)` |
 | `fx(f', src, a)` for the root Flow or any of its SubFlows | `out(a)` (the source is dropped) |
-| `closed(f, Completed, _, outs)` for the root Flow | `exit(dec(outs))` |
-| `closed(f, Failed, err, _)` for the root Flow | `fail(err)` |
+| `closed(f, Completed, _, [(T, e, ⟦exit: x⟧)])` for the root Flow | `exit(x)` |
+| `closed(f, Failed, (STEP_DECISION_FAILING_FLOW, msg), _)` for the root Flow | `fail(msg)` |
 | every other event (child Flow starts and closes, internal Channels) | `ε` |
 
-`dec` is part of the translation: it decodes the root Flow's collected outputs
-into L's exit value. The mapping in Section 8 always closes with one FC output,
-so `dec([(T, e, v)]) = v`.
+Encoding of exit values and failure messages:
+
+- FC drops a null output: `collect` appends nothing for an absent or null
+  value (`server-zd/crates/dexzd-apply/src/steps/step_decisions.rs:186-196`).
+  So the translation never passes an L value to FC directly. It passes the
+  **tagged** value `⟦exit: x⟧ = {"exit": enc(x)}`, which is never null, also
+  when `x` is L's null. The translation uses neither GC nor FCE, so the root
+  Flow's `outs` is exactly that one FC output, and `π` decodes `x` from it.
+- FF stores no output. Its string input becomes the close message, and its
+  error type is STEP_DECISION_FAILING_FLOW (`step_decisions.rs:92-119`). The
+  translation always passes `fail(s)` as `FF(s)` with `s` a string (empty
+  allowed), so `π` reads `msg = s` from the structured error. No other failed
+  close (another error type, Canceled, Terminated) can happen under `E_adm`
+  without failures: there is no StopFlow, no Flow timeout, and handler results
+  are well formed (Section 2.5).
 
 ### 5.4 Equivalence: safety
 
@@ -983,9 +1002,19 @@ liveness statement in Section 5.5 closes that gap.
 
 ### 5.5 Equivalence: termination and divergence (fair maximal traces)
 
-A run is **fair** when every condition below holds. [assumption] These are the
-fairness assumptions the theorem needs; the rules themselves are unfair.
+Maximal traces are defined **relative to a fixed admissible input word** `w`
+(Section 5.3). A run **for `w`** is an infinite run whose input events, in
+order, are exactly `w`. ([TICK] is always enabled, so no maximal run is
+finite.) [TICK] steps are time passing, not progress: they
+carry no event in the untimed trace, and the classification below counts only
+the other transitions, which this section calls **progress steps** (inputs,
+commits, and engine and Worker steps).
 
+A run for `w` is **fair** when every condition below holds. [assumption]
+These are the fairness assumptions the theorem needs; the rules themselves are
+unfair.
+
+- **F0 Inputs arrive.** Every input of `w` eventually occurs, in order.
 - **F1 Time diverges.** In an infinite run, every partition clock exceeds every
   bound.
 - **F2 Timers fire.** A timer that stays armed and due is eventually fired by
@@ -994,32 +1023,46 @@ fairness assumptions the theorem needs; the rules themselves are unfair.
   [STEP-START]) eventually starts. In `E_adm` there are no RPC locks, and a
   Step lock queue only shrinks at its head, so a startable invocation stays
   startable until it starts or is canceled; weak fairness suffices.
-- **F4 Workers progress.** Every task of a still-running invocation eventually
-  emits all its effects and returns. [WORKER-ABANDON] applies only to canceled
-  tasks.
+- **F4 Workers settle.** Every task eventually leaves `Θ`. A task of a
+  still-running invocation emits all its effects and returns. A task of a
+  canceled invocation either emits all its effects and returns, or is dropped
+  by [WORKER-ABANDON] after some prefix of its effects.
 - **F5 Results commit.** Every `Returned` task is eventually completed by a
   Complete rule or dropped by [STEP-COMPLETE-STALE].
 - **F6 Messages move.** Every outbox message is eventually sent and delivered;
   [PENDING-CLOSE-CHECK] and [RPC-FINISH] eventually run when enabled.
 
-A fair run ends in one of three ways, and its **maximal trace** carries a
-marker:
+Because time keeps passing (F1), every fair run is infinite. It is classified
+by its progress steps, and its **maximal trace** is its whole untimed trace,
+with a marker:
 
-- `✓` — finite, and the root Flow is closed.
-- `δ` — finite and quiescent: the root Flow is RUNNING, no transition other
-  than an input or [TICK] is enabled, and no timer is armed. (With an armed
-  timer, F1 and F2 force more transitions.) A program whose threads all end
-  with DeadEnd lands here.
-- `∞` — infinite.
+- `✓` — finitely many progress steps, and the root Flow is closed. By F4 and
+  F5, every task has left `Θ` by then, so the trace already contains every
+  effect a canceled Worker emits after the close. A `✓` trace is therefore
+  never a proper prefix of another fair trace for the same `w`.
+- `δ` — finitely many progress steps, and the root Flow is RUNNING. From some
+  point on only [TICK] happens: no Step is startable, no task is in flight,
+  no timer is armed (F2 would fire it), and `w` is used up. A program whose
+  threads all end with DeadEnd, while the Flow stays idle
+  (`step_decisions.rs:120`, `flow_start.rs:204-205`), lands here.
+- `∞` — infinitely many progress steps. An infinite run of only [TICK] after
+  a DeadEnd or after the close is `δ` or `✓`, never `∞`.
 
-The **liveness** statement is equality of fair maximal traces with markers:
+With an infinite `w`, every fair run has infinitely many inputs and is `∞`;
+the theorem then compares the infinite traces themselves.
+
+The **liveness** statement is equality of fair maximal traces with markers,
+for every admissible input word:
 
 ```math
-\pi\big(\mathrm{MaxTr}^{fair}_{E_{adm}}(⟦S⟧)\big) \;=\; \mathrm{MaxTr}^{fair}(S)
+\forall w \in E_{adm}.\;\;
+\pi\big(\mathrm{MaxTr}^{fair}_{w}(⟦S⟧)\big) \;=\; \mathrm{MaxTr}^{fair}_{w}(S)
 ```
 
 L must define the same three outcomes (normal exit or failure, deadlock, and
-divergence) under its own fairness. The theorem states safety (5.4) and
+divergence) the same way: relative to the input word, counting its own
+actions (including timer `fire`, Section 8.1) as progress and idle time as
+not, with `✓` only after every issued emit has delivered or been dropped. The theorem states safety (5.4) and
 liveness (5.5) together. [decision] The alternative, weak bisimilarity, is
 stronger than needed and would distinguish where a choice is made.
 
@@ -1290,7 +1333,9 @@ the task named; the rest were found on the way or in review.
     - Matters: L `sleep(d)` with `d` not a whole number of seconds sleeps at
       least `⌈d⌉` in Dex. Untimed traces are unaffected. A timed theorem needs
       whole-second durations in L.
-    - Stance: untimed by default (Section 5.4).
+    - Stance: untimed by default (Section 5.4). L gets an explicit late
+      `fire` action, so races between a timer and a message or cancel are
+      decided by firing order on both sides (Section 8.1).
 
 13. **SubFlow completion delivery and child identity.**
     - Code: the child result travels through the child's outbox and a
@@ -1440,12 +1485,27 @@ does; they are L design decisions for the owner.
   issue and `out(a)`, `out(a)` may still happen after `exit` or never happen.
   (Items 9, 18.)
 - **Exit.** `exit(v)`, or the return of `main`, ends the program at once:
-  every other thread stops. A thread that ends otherwise just ends. A program
-  whose threads all end without `exit` is stuck forever. (Item 10.)
+  every other thread stops, except that issued emits may still deliver. A
+  thread that ends otherwise just ends. A program whose threads all end
+  without `exit` is stuck forever. `exit(v)` may carry any value, including
+  null; `fail(s)` carries a string. (Item 10.)
 - **External input.** Each external channel is a FIFO queue. Threads blocked
   in `recv(c)` on it are served in FIFO order of blocking. Input that arrives
   after exit is `refused`. (Items 4, 21.)
-- **Sleep** durations are whole seconds for a timed theorem. (Item 12.)
+- **Timers fire late, by an explicit action.** `sleep(d)` and the `after(d)`
+  branch of `select` arm a timer when the thread blocks. The timer completes
+  only by a separate, nondeterministic internal action `fire`, enabled at any
+  time no earlier than the deadline and possibly much later (fairness: an
+  enabled `fire` eventually happens). A timer is never complete at the moment
+  it is armed, even for `d = 0`. A blocked operation is decided by whichever
+  happens first: its `fire`, the arrival of its message, or a cancel. So a
+  message or cancel that arrives after the deadline but before `fire` wins.
+  This mirrors [TIMER-FIRE], which runs only when the timer service gets to
+  it (`server-zd/crates/dexzd-engine/src/effects/timer_service.rs:116-155`),
+  and the per-change evaluation of a waiting Step
+  (`server-zd/crates/dexzd-apply/src/steps/wait_conditions/mod.rs:167-188`,
+  `wait_conditions/mod.rs:140-164`). Durations are whole seconds for a timed
+  theorem. (Item 12.)
 - Each thread is joined at most once.
 
 ### 8.2 General scheme
@@ -1478,8 +1538,8 @@ Compile each L thread to continuation-passing Steps.
 | Call and recursion | Push the return point on an explicit stack in the Step input. No SubFlow. | — |
 | `fork t` | GoToMany: the parent's continuation and `t`'s first Step, with a fresh thread ID derived from the parent's ID and a counter in the input. | — |
 | `join(t)` | `t`'s last Step publishes to the Channel `join/t` and decides DE. The joiner waits `AnyOf(join/t.ForOne(), cancel/self.ForOne())`. | 4, 5 |
-| `exit(v)` / return of `main` | FC(v). | 10, 15 |
-| `fail(s)` / uncaught exception | FF(s). | 15 |
+| `exit(v)` / return of `main` | FC(`{"exit": enc(v)}`): a tagged value, never null, so `collect` keeps it (Section 5.3). | 10, 15 |
+| `fail(s)` / uncaught exception | FF(s) with `s` a string; the close message is `s` (Section 5.3). | 15 |
 | Thread end | DE. | 10 |
 | `lock(m)` | WaitFor `Until(m.ForOne())`: a ForOne waiter on `m`'s token Channel. FIFO by registration. | 4, 6 |
 | `unlock(m)` | Execute publishes one token to `m`. | — |
@@ -1533,7 +1593,7 @@ after exit (18).
   it is relevant to the later crash-transparency proposition.
 - RPC entry points for L, with ABORTED as an observable result [owner].
 - The Lean statement needs the projection of Section 5.3, the two
-  equivalences of Sections 5.4 and 5.5, and the fairness assumptions F1 to F6.
+  equivalences of Sections 5.4 and 5.5, and the fairness assumptions F0 to F6.
 
 ## 10. Review log
 
@@ -1558,6 +1618,18 @@ decisions. Each finding was checked against the code before the spec changed.
 | 12 | Duplicated condition IDs resolve within the first matching kind. | Confirmed (`condition_plan.rs:103-129`). Wording fixed in `plan` (4.2) and Open question 5. |
 | 13 | UpdateFlowConfig has no rule. | Confirmed (`command_handlers/mod.rs:416-418`, `client_writes.rs:366-413`). Run config fixed for the theorem; excluded (1.3). |
 
+Revision 3 answers the re-review of revision 2. The re-review accepted the
+rejection of finding 3 for failure-free runs and verified the fixes for
+findings 1 and 4 to 13. Its five new findings, all checked against the code:
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| R2-1 | F1 lets an idle run of only [TICK] after DeadEnd or after the close count as `∞`. | Confirmed: an idle RUNNING Flow with no active Step does nothing (`step_decisions.rs:120`, `flow_start.rs:204-205`). Maximal traces are now relative to a fixed input word `w`, [TICK] is not a progress step, and the marker is decided by the number of progress steps: `∞` needs infinitely many (5.5). Added F0 (inputs arrive). |
+| R2-2 | `✓` is assigned at the close, but a canceled Worker may still emit afterwards. | Confirmed (`invocations.rs:376-381` only requests cancellation; `step_results.rs:863-872` drops only the result). `✓` now requires finitely many progress steps, and F4 makes every task, canceled or not, leave `Θ`; so a `✓` trace contains every post-close effect and is never a proper prefix of another fair trace. Matches L's asynchronous emit (5.5, 8.1). |
+| R2-3 | `E_adm` does not put the start first. | Confirmed: a publication with no run is rejected with NOT_FOUND (`run_cursor.rs:111-113`). An admissible input word now begins with the unique start, and every later input is a publication (5.3). |
+| R2-4 | `dec` is undefined for `exit(null)`; `fail(err)` does not extract the message. | Confirmed: `collect` drops absent and null outputs (`step_decisions.rs:186-196`); FF stores its string input as the message with STEP_DECISION_FAILING_FLOW (`step_decisions.rs:92-119`). Exit values are encoded as the tagged non-null value `{"exit": enc(v)}`, and `π` maps a failed close to `fail(msg)` read from that structured error (5.3, 8.3). |
+| R2-5 | L timers fire exactly at the deadline, but Dex fires arbitrarily late. | Confirmed (`timer_service.rs:116-155`; `wait_conditions/mod.rs:167-188`). L now has an explicit nondeterministic `fire` action, enabled no earlier than the deadline, and blocked operations are decided by the order of `fire`, message arrival, and cancel (8.1, Open question 12). |
+
 ## Appendix A. Assumptions and decisions in one list
 
 1. User code is a total function with output-only external effects (2.2).
@@ -1577,8 +1649,9 @@ decisions. Each finding was checked against the code before the spec changed.
 12. TimerId byte order as derived from protobuf encoding (Open question 12).
 13. Reads are not observable (5.1).
 14. Equivalence is safety (finite weak traces) plus liveness (fair maximal
-    traces with markers), untimed, under `E_adm` and `π` (5.3-5.5).
-15. Fairness assumptions F1 to F6 (5.5).
+    traces with markers, per admissible input word, [TICK] not counted as
+    progress), untimed, under `E_adm` and `π` (5.3-5.5).
+15. Fairness assumptions F0 to F6 (5.5).
 16. ABORTED is an observable RPC outcome [owner] (Open question 11).
 17. RPCs, SetAttributes, DeleteChannelMessage, SkipTimer, StopFlow,
     UpdateFlowConfig, and Flow timeouts are outside `E_adm` (1.3, 5.3).
@@ -1590,4 +1663,9 @@ decisions. Each finding was checked against the code before the spec changed.
 22. On one node, partition clocks read one wall clock with bounded skew; only
     a timed theorem needs it (Open question 22).
 23. L adopts the semantics of Section 8.1 (FIFO mutex and condition variable,
-    cooperative cancellation, asynchronous emit, exit stops all threads).
+    cooperative cancellation, asynchronous emit, exit stops all threads,
+    explicit late timer `fire`).
+24. An admissible input word begins with the unique start; every later input
+    is a publication to an external Channel (5.3).
+25. The translation encodes exit values as `{"exit": enc(v)}` and failure
+    messages as FF's string input (5.3).
