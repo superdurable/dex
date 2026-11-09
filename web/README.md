@@ -798,8 +798,11 @@ Back remembers up to 20 positions and reloads the page it returns to. A far end
 that Dex Web cannot locate is labeled not on this page and has no jump. A jump
 to an event pruned since the page loaded refreshes the pruned range instead.
 A far end removed by the server-zd history window shows as a muted **pruned**
-stub, and the oldest retained page names the removed event range. Selected
-event lists the same **Related events**. `web/lib/historyRelations.ts` is the
+stub, and the oldest retained page names the removed event range. The
+selected event panel lists the same **Related events**: **Show #N** selects an
+event on the current page, **Go to #N** loads an event on another page and
+hints whether that page is older or newer, and a pruned event reads **Outside
+the retention window** without an action. `web/lib/historyRelations.ts` is the
 only reader of the optional retained-history boundary and related event IDs.
 Without them, Dex Web scans the loaded page, and it infers pruning from a gap
 after FlowStart. Overview and the v2 canvas read the newest window, and the

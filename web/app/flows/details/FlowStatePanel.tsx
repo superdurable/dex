@@ -157,29 +157,35 @@ function RelatedEventAction({
   if (related.location === 'loaded' && eventId !== undefined && onSelectRelatedEvent) {
     return (
       <button className="button ghost related-event-action" onClick={() => onSelectRelatedEvent(eventId)} type="button">
-        Loaded · show
+        Show #{eventId}
       </button>
     );
   }
   if (related.location === 'other-page' && eventId !== undefined && onJumpToEvent) {
+    // A jump loads a window around the event, so only the direction of its page is exact.
+    const pageHint = related.direction === 'older' ? 'older page' : 'newer page';
     return (
-      <button
-        className="button ghost related-event-action"
-        disabled={isJumpDisabled}
-        onClick={() => onJumpToEvent(eventId)}
-        type="button"
-      >
-        {related.direction === 'older' ? 'Older page · jump' : 'Newer page · jump'}
-      </button>
+      <span className="related-event-action related-event-jump">
+        <button
+          aria-describedby={`${related.id}-page-hint`}
+          className="button ghost"
+          disabled={isJumpDisabled}
+          onClick={() => onJumpToEvent(eventId)}
+          type="button"
+        >
+          Go to #{eventId}
+        </button>
+        <span className="related-event-hint" id={`${related.id}-page-hint`}>{pageHint}</span>
+      </span>
     );
   }
   if (related.location === 'pruned') {
     return (
-      <span className="timeline-pruned-badge related-event-action" title={prunedRelatedEventTooltip(related)}>
-        Pruned
+      <span className="related-event-action related-event-unavailable" title={prunedRelatedEventTooltip(related)}>
+        Outside the retention window
       </span>
     );
   }
-  if (related.location === 'loaded') return <span className="muted related-event-action">Loaded</span>;
-  return <span className="muted related-event-action">Not on this page</span>;
+  if (related.location === 'loaded') return <span className="related-event-action related-event-unavailable">On this page</span>;
+  return <span className="related-event-action related-event-unavailable">Not on this page</span>;
 }

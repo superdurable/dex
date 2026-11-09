@@ -188,11 +188,15 @@ export function FlowOverview({
             )}
             {!closed && <p className="overview-quiet">Live state is queried only while this run is active.</p>}
             {closed && (
-              <JsonView
-                value={closed.payload.results ?? []}
-                label="Close result"
-                persistKey="overview:close-result"
-              />
+              <>
+                <h3 className="overview-subheading">Close result</h3>
+                <JsonView
+                  value={closed.payload.results ?? []}
+                  label="Close result"
+                  variant="inline"
+                  persistKey="overview:close-result"
+                />
+              </>
             )}
           </OverviewSection>
         )}

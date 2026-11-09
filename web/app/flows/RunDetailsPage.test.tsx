@@ -655,7 +655,9 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     const stub = await screen.findByRole('button', {
       name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
     });
-    expect(await screen.findByRole('button', { name: 'Older page · jump' })).toBeTruthy();
+    const jump = await screen.findByRole('button', { name: 'Go to #2' });
+    expect(jump.getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.getElementById(jump.getAttribute('aria-describedby') ?? '')?.textContent).toBe('older page');
     fireEvent.click(stub);
 
     await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));

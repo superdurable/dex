@@ -598,6 +598,7 @@ body:has(.v1-page) {
 }
 
 .v1-page .run-tabs {
+  scrollbar-width: none;
   gap: 2px;
   margin-top: 20px;
   border-bottom: 1px solid var(--ui-hairline);
@@ -725,6 +726,13 @@ body:has(.v1-page) {
 .overview-outcome-error svg {
   flex: none;
   margin-top: 2px;
+}
+
+.overview-subheading {
+  margin: 0 0 6px;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+  font-weight: 650;
 }
 
 .overview-quiet {
@@ -1232,10 +1240,6 @@ body:has(.v1-page) {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-.v1-page .graph-step-heading > span {
-  font-size: var(--ui-text-xs);
-}
-
 .v1-page .graph-step-heading code {
   font-size: 11px;
 }
@@ -1297,10 +1301,30 @@ body:has(.v1-page) {
   font-size: var(--ui-text-xs);
 }
 
-.v1-page .related-event-action.button {
+.v1-page .related-event-action.button,
+.v1-page .related-event-jump .button {
   min-height: 28px;
   padding: 4px 10px;
   font-size: var(--ui-text-xs);
+}
+
+.related-event-jump {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.related-event-hint {
+  color: var(--ui-ink-3);
+  font-size: 11px;
+}
+
+.related-event-unavailable {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-style: italic;
+  text-align: right;
 }
 
 /* ---------------------------------------------------------------- streams */

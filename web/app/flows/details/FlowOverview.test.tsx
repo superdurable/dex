@@ -46,7 +46,7 @@ describe('live Flow state failures', () => {
       { eventId: 3, eventTime: null, type: 'FlowClosed', payload: { results: ['newest-result'] } },
     ];
     render(<FlowOverview summary={summary} events={events} state={null} />);
-    fireEvent.click(screen.getByRole('button', { name: /Close result/ }));
+    expect(screen.getByRole('heading', { name: 'Close result' })).toBeTruthy();
     expect(screen.getByText(/newest-result/)).toBeTruthy();
     expect(screen.queryByText(/ancestor-result/)).toBeNull();
   });

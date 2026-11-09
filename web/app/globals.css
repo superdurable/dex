@@ -3033,8 +3033,11 @@ button.timeline-edge-stub:focus-visible {
 }
 
 .graph-node-label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -3048,37 +3051,24 @@ button.timeline-edge-stub:focus-visible {
 .graph-node-label code {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .graph-step-label {
-  min-height: 136px;
-}
-
-.graph-step-label--execute-only {
-  min-height: 114px;
-}
-
-.graph-step-label--execute-only .graph-method {
-  min-height: 58px;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
 }
 
 .graph-step-heading {
   position: relative;
   display: grid;
   padding: 10px 12px 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 8px;
-  border-bottom: 1px solid var(--line);
-}
-
-.graph-step-heading > span {
-  grid-column: 1 / -1;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 600;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .graph-step-heading b,
@@ -3090,19 +3080,23 @@ button.timeline-edge-stub:focus-visible {
 
 .graph-step-heading b {
   font-size: 13.5px;
+  line-height: 18px;
 }
 
 .graph-step-heading code {
+  max-width: 120px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .graph-methods {
   display: grid;
-  padding: 9px 10px 10px;
+  min-height: 0;
+  flex: 1;
+  padding: 0 10px 10px;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: stretch;
-  gap: 16px;
+  gap: 8px;
   background: transparent;
 }
 
@@ -3113,12 +3107,12 @@ button.timeline-edge-stub:focus-visible {
 .graph-method {
   display: flex;
   min-width: 0;
-  min-height: 78px;
-  padding: 9px 11px;
+  padding: 8px 10px;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
-  border: 1px solid var(--line);
+  justify-content: center;
+  gap: 2px;
+  border: 0;
   border-radius: 8px;
   color: inherit;
   text-align: left;
@@ -3128,47 +3122,17 @@ button.timeline-edge-stub:focus-visible {
 
 .graph-method-waitfor {
   position: relative;
-  isolation: isolate;
-  padding-right: 20px;
-  border: 0;
-  border-radius: 0;
-  background: var(--clock-rule);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
-}
-
-.graph-method-waitfor::before {
-  position: absolute;
-  z-index: 0;
-  inset: 1px;
-  content: '';
-  background: var(--raised);
-  clip-path: inherit;
-}
-
-.graph-method-waitfor > * {
-  position: relative;
-  z-index: 1;
+  padding-right: 22px;
+  border-radius: 8px 0 0 8px;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
 }
 
 .graph-method-execute {
-  border-color: var(--pass-rule);
   background: var(--raised);
 }
 
-.graph-method + .graph-method {
-  border-left-width: 1px;
-}
-
-.graph-method-waitfor:hover:not(:disabled)::before {
-  background: var(--paper);
-}
-
-.graph-method-execute.graph-method-failed {
-  border-color: var(--fail-rule);
-}
-
 .graph-method-execute:hover:not(:disabled) {
-  background: var(--pass-subtle);
+  filter: brightness(0.97);
 }
 
 .graph-method:focus-visible {
@@ -3188,12 +3152,17 @@ button.timeline-edge-stub:focus-visible {
 
 .graph-method span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 14px;
 }
 
 .graph-method strong {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .graph-method .graph-conditions {
@@ -3201,7 +3170,7 @@ button.timeline-edge-stub:focus-visible {
   width: 100%;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   margin-top: 2px;
 }
 
@@ -3211,8 +3180,9 @@ button.timeline-edge-stub:focus-visible {
   align-items: center;
   gap: 4px;
   color: var(--clock);
-  font-size: 9px;
+  font-size: 11px;
   font-style: normal;
+  line-height: 14px;
   white-space: nowrap;
 }
 
@@ -3469,4 +3439,44 @@ button.timeline-edge-stub:focus-visible {
     min-height: 520px;
   }
 
+}
+
+/* Method fills carry the method status, so the node needs no inner borders. */
+.graph-method-execute.graph-method-completed {
+  background: var(--pass-subtle);
+}
+
+.graph-method-waitfor.graph-method-started,
+.graph-method-waitfor.graph-method-waiting {
+  background: var(--busy-subtle);
+}
+
+.graph-method-running {
+  background: var(--accent-subtle);
+}
+
+.graph-method-failed {
+  background: var(--fail-subtle);
+}
+
+.graph-step-status {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.graph-step-status.status-tone-active,
+.graph-step-status.status-tone-pending {
+  color: var(--accent);
+}
+
+.graph-step-status.status-tone-waiting {
+  color: var(--clock);
+}
+
+.graph-step-status.status-tone-completed {
+  color: var(--pass);
+}
+
+.graph-step-status.status-tone-failed {
+  color: var(--fail);
 }
