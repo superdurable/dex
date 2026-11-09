@@ -24,7 +24,6 @@ import {
   type ConnectorStudioFrameAppearance,
 } from './connectorStudioTheme';
 import { CONNECTORS_COPY } from './copy';
-import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import './connectors.css';
 
 /** The theme every Studio frame paints; the page provides the Dex Web theme. */
@@ -289,7 +288,6 @@ export function ConnectorsPage() {
                 <div className="sq-head">
                   <span className="sq-title">{CONNECTORS_COPY.heading}</span>
                   <span className="sq-live">{CONNECTORS_COPY.localNote}</span>
-                  <ExperimentalBadge />
                 </div>
                 {catalog.connections.length === 0 && <p className="sq-state">{CONNECTORS_COPY.empty}</p>}
                 <div className="rsw-scroll" data-zone="list">

@@ -18,7 +18,6 @@ import { AGENT_INBOX_VIEW, RUN_VIEW_PARAM, runPath, workQueuePath } from '../rou
 import '../workspace/css/workspace.css';
 import { RUN_COPY } from '../workspace/runCopy';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
-import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { StartFlowDialog } from '../start/StartFlowDialog';
 import { RunList } from '../workspace/RunList';
 import { RunSearch } from '../workspace/RunSearch';
@@ -121,7 +120,6 @@ function RunQueueWorkspace() {
           onExpand={listPane.expand}
           headerAction={(
             <>
-              <ExperimentalBadge />
               {entry.definition.start && (
                 <button className="button primary sq-start" onClick={() => setStartOpen(true)} type="button">
                   Start Flow

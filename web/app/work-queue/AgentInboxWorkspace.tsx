@@ -11,7 +11,6 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { agentInboxPath, sessionRunPath } from '../routes';
 import '../workspace/css/workspace.css';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
-import { ExperimentalBadge } from '../components/ExperimentalBadge';
 import { ACTIVE_STEP_TYPES_FIELD, newFilterRow, type FilterRow } from '../workspace/filters';
 import { flowStatusQueryValue } from '../workspace/runQuery';
 import { useFlowSearch } from '../workspace/useFlowSearch';
@@ -104,7 +103,6 @@ export function AgentInboxWorkspace() {
         <aside className="rsw ai-list" aria-label={AGENT_INBOX_COPY.heading}>
           <div className="sq-head">
             <span className="sq-title">{WORK_QUEUE_COPY.appName}</span>
-            <ExperimentalBadge />
             <WorkQueueModeSwitch hasAgents mode="agents" />
           </div>
           <section className="rsw-zone" data-zone="permission">

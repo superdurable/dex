@@ -469,14 +469,13 @@ html .v2-shell.dg {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--dg-focus) 55%, transparent);
 }
 
-/* The label stays left of the line that enters the stage at its centre. */
 .dg .pband-group > .pband-label {
   top: 8px;
-  left: 14px;
+  left: 12px;
   overflow: hidden;
-  max-width: calc(50% - 24px);
+  max-width: calc(100% - 52px);
   color: var(--dg-ink-1);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
@@ -500,6 +499,24 @@ html .v2-shell.dg {
 .dg .pstage-pane .react-flow__edge.pedge-lit .react-flow__edge-path,
 .dg .pstage-pane .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--dg-focus);
+}
+
+/* ---------- zoom controls ---------- */
+.dg .react-flow__controls {
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: var(--dg-shadow);
+}
+
+.dg .react-flow__controls-button {
+  border: 0;
+  background: var(--dg-surface);
+  color: var(--dg-ink-1);
+  fill: currentColor;
+}
+
+.dg .react-flow__controls-button:hover {
+  background: var(--dg-track);
 }
 
 /* ---------- legend ---------- */
@@ -533,7 +550,6 @@ html .v2-shell.dg {
   overflow-y: auto;
   padding: 22px 22px 28px;
   background: var(--dg-surface);
-  box-shadow: -18px 0 40px -28px rgba(15, 23, 42, 0.45);
 }
 
 .dg .dg-panel-head {
