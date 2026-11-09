@@ -110,6 +110,20 @@ describe('history windows', () => {
     expect(unclipped.hasNewer).toBe(true);
   });
 
+  it('follows page tokens when a Server ends the oldest page early', async () => {
+    const events = sequentialStepHistory(6000).filter((event) => event.eventId === 1 || event.eventId >= 4001);
+    const server = historyTestServer(events);
+    const loadCappedPage: typeof server.loadPage = (request) => server.loadPage({
+      ...request,
+      estimatePageSize: Math.min(request.estimatePageSize, 300),
+    });
+
+    const oldest = await loadOldestHistoryWindow(loadCappedPage, 5001);
+
+    expect(eventIds(oldest.events)).toEqual([1, ...range(4001, 5000)]);
+    expect(oldest).toMatchObject({ hasOlder: false, hasNewer: true, nextInternalEventId: 5001 });
+  });
+
   it('adds FlowStart to the page that starts at the oldest retained event', async () => {
     const events = sequentialStepHistory(1502).filter((event) => event.eventId === 1 || event.eventId >= 1001);
     const server = historyTestServer(events);

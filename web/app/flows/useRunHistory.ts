@@ -228,9 +228,9 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     if (!timelineHasNewer) return;
     const newerWindow = await loadTimelinePage(() => loadHistoryWindowFrom(pageLoader(), timelineLastEventId + 1));
     if (!newerWindow || newerWindow.events.length === 0) return;
-    // The newest page holds every event of a page that reaches the newest event.
+    // The newest page holds every event of a page that ends at its newest event.
     const newestLoadedEventId = newestRef.current?.events.at(-1)?.eventId ?? 0;
-    if (!newerWindow.hasNewer && (newerWindow.events.at(-1)?.eventId ?? 0) >= newestLoadedEventId) {
+    if (!newerWindow.hasNewer && (newerWindow.events.at(-1)?.eventId ?? 0) <= newestLoadedEventId) {
       acceptWindow(newerWindow);
       showTimelinePage(null);
       return;

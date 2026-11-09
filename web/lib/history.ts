@@ -190,33 +190,44 @@ export async function loadOlderHistoryWindow(
 }
 
 /**
- * Loads the oldest retained page: FlowStart and up to `limit` events read from the window start.
+ * Loads FlowStart and up to `limit` events from the window start, stopping before `beforeEventId`.
  *
- * The page stops before `beforeEventId`, the first event of the next newer page.
- * Returns the unclipped page instead when only FlowStart precedes that event.
+ * Returns the page without that stop when only FlowStart precedes `beforeEventId`.
  */
 export async function loadOldestHistoryWindow(
   loadPage: HistoryPageLoader,
   beforeEventId: number,
   limit = HISTORY_WINDOW_EVENT_LIMIT,
 ): Promise<HistoryWindow> {
-  const fromStart = await loadHistoryWindowFrom(loadPage, 1, limit + 1);
-  const events = fromStart.events.filter((event) => event.eventId < beforeEventId);
-  if (events.length === fromStart.events.length || events.length <= 1) return fromStart;
+  const pageSize = limit + 1;
+  const seenPageTokens = new Set<string>();
+  let page = await loadPage(historyPageRequest(1, pageSize));
+  let loaded = sortedUniqueEvents(page.events);
+  let reportedRetainedHistory = reportedRetainedHistoryOf(page);
+  // A Server may end a page early, so short pages continue with their token.
+  while (page.nextPageToken && loaded.length < pageSize && (loaded.at(-1)?.eventId ?? 0) < beforeEventId) {
+    if (seenPageTokens.has(page.nextPageToken)) {
+      throw new Error('History pagination returned a repeated page token');
+    }
+    seenPageTokens.add(page.nextPageToken);
+    page = await loadPage(historyPageRequest(page.nextInternalEventId, pageSize, page.nextPageToken));
+    loaded = sortedUniqueEvents([...loaded, ...page.events]);
+    reportedRetainedHistory = reportedRetainedHistoryOf(page) ?? reportedRetainedHistory;
+  }
+  const fromStart = loaded.slice(0, pageSize);
+  const beforeStop = fromStart.filter((event) => event.eventId < beforeEventId);
+  const events = beforeStop.length <= 1 ? fromStart : beforeStop;
+  const isClipped = events.length < loaded.length;
   return {
     events,
-    hasOlder: events[0].eventId > 1,
-    hasNewer: true,
-    nextInternalEventId: events[events.length - 1].eventId + 1,
-    reportedRetainedHistory: fromStart.reportedRetainedHistory,
+    hasOlder: events.length > 0 && events[0].eventId > 1,
+    hasNewer: isClipped || Boolean(page.nextPageToken),
+    nextInternalEventId: isClipped ? events[events.length - 1].eventId + 1 : page.nextInternalEventId,
+    reportedRetainedHistory,
   };
 }
 
-/**
- * Adds FlowStart to the page that starts at the oldest retained event after it.
- *
- * Only FlowStart precedes that page, so it becomes the oldest page instead of a page of FlowStart alone.
- */
+/** Adds FlowStart to the page that starts at the oldest retained event, making it the oldest page. */
 export function withFlowStartOnOldestRetainedPage(
   page: HistoryWindow,
   oldestRetainedEvents: FlowHistoryEvent[],
@@ -242,12 +253,10 @@ export interface TimelinePagePosition {
 }
 
 /**
- * Numbers the pages that Next page reaches from the newest page, from event IDs alone.
+ * Numbers the pages that Next page reaches from the newest page; callers exclude time travel lineages.
  *
- * Callers pass only lineages without time travel, whose retained event IDs are contiguous outside
- * the pruned range.
- *
- * Returns null when the newest page shows that event IDs are not contiguous.
+ * Returns the page position, or null when the newest page shows event IDs that skip more than the
+ * pruned range.
  */
 export function timelinePagePositionOf(
   displayedPage: HistoryWindow,
@@ -270,7 +279,7 @@ export function timelinePagePositionOf(
   };
 }
 
-/** Mirrors Next page: each older page ends before the newer page and holds up to `limit` events. */
+/** Returns the event ID range of each page that Next page reaches, newest first. */
 function nextPageRangesFromNewest(
   newestEventIds: number[],
   prunedEventIdRange: EventIdRange | undefined,

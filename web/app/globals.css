@@ -1277,7 +1277,7 @@ pre {
 
 .summary-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2.4fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2fr);
   margin-top: 22px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -3541,10 +3541,10 @@ button.timeline-edge-stub:focus-visible {
   }
 
   .summary-strip {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, 1fr);
   }
 
-  .summary-strip > div:nth-child(5) {
+  .summary-strip > div:nth-child(3) {
     border-right: 0;
   }
 
