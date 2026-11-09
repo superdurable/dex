@@ -158,7 +158,7 @@ const config: Config = {
         },
         blog: false,
         theme: {
-          customCss: ['./src/css/custom.css', './src/css/site-header.css'],
+          customCss: ['./src/css/custom.css', './src/css/site-header.css', './src/css/refresh.css'],
         },
         sitemap: {
           changefreq: 'daily',

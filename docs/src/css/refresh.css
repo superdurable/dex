@@ -1,0 +1,723 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
+/* Content-first docs styling, loaded after custom.css. The shared header and footer stay untouched. */
+
+:root {
+  --docs-text: #27272a;
+  --docs-heading: #09090b;
+  --docs-subtle: #71717a;
+  --docs-hairline: #ececee;
+  --docs-tint: #f6f6f7;
+  --docs-code-bg: #f5f6f4;
+  --docs-radius: 10px;
+
+  /* One accent per section. Each meets WCAG AA as text on white and on its own tint. */
+  --accent-intro: #9a3412;
+  --accent-primitives: #047857;
+  --accent-components: #1d4ed8;
+  --accent-agent-frameworks: #a21caf;
+  --accent-agent-skills: #be185d;
+  --accent-design-patterns: #6d28d9;
+  --accent-product-examples: #92400e;
+  --accent-reference: #0f766e;
+  --accent-glossary: #3f6212;
+  --section-accent: var(--ifm-color-primary);
+  --ifm-table-head-background: transparent;
+  --ifm-table-stripe-background: transparent;
+  --ifm-table-border-color: transparent;
+}
+
+html[data-theme='dark'] {
+  --docs-text: #d4d4d8;
+  --docs-heading: #fafafa;
+  --docs-subtle: #a1a1aa;
+  --docs-hairline: #222226;
+  --docs-tint: #16161a;
+  --docs-code-bg: #141417;
+
+  --accent-intro: #fb923c;
+  --accent-primitives: #34d399;
+  --accent-components: #60a5fa;
+  --accent-agent-frameworks: #e879f9;
+  --accent-agent-skills: #f472b6;
+  --accent-design-patterns: #a78bfa;
+  --accent-product-examples: #fbbf24;
+  --accent-reference: #2dd4bf;
+  --accent-glossary: #a3e635;
+}
+
+[data-docs-section='intro'] { --section-accent: var(--accent-intro); }
+[data-docs-section='primitives'] { --section-accent: var(--accent-primitives); }
+[data-docs-section='components'] { --section-accent: var(--accent-components); }
+[data-docs-section='agent-frameworks'] { --section-accent: var(--accent-agent-frameworks); }
+[data-docs-section='agent-skills'] { --section-accent: var(--accent-agent-skills); }
+[data-docs-section='design-patterns'] { --section-accent: var(--accent-design-patterns); }
+[data-docs-section='product-examples'] { --section-accent: var(--accent-product-examples); }
+[data-docs-section='reference'] { --section-accent: var(--accent-reference); }
+[data-docs-section='glossary'] { --section-accent: var(--accent-glossary); }
+
+/* The whole docs layout takes the accent of the page's section. */
+.main-wrapper:has(.theme-doc-markdown) {
+  --section-accent: var(--ifm-color-primary);
+}
+.main-wrapper:has([data-docs-section='intro'] > .theme-doc-markdown) { --section-accent: var(--accent-intro); }
+.main-wrapper:has([data-docs-section='primitives'] > .theme-doc-markdown) { --section-accent: var(--accent-primitives); }
+.main-wrapper:has([data-docs-section='components'] > .theme-doc-markdown) { --section-accent: var(--accent-components); }
+.main-wrapper:has([data-docs-section='agent-frameworks'] > .theme-doc-markdown) { --section-accent: var(--accent-agent-frameworks); }
+.main-wrapper:has([data-docs-section='agent-skills'] > .theme-doc-markdown) { --section-accent: var(--accent-agent-skills); }
+.main-wrapper:has([data-docs-section='design-patterns'] > .theme-doc-markdown) { --section-accent: var(--accent-design-patterns); }
+.main-wrapper:has([data-docs-section='product-examples'] > .theme-doc-markdown) { --section-accent: var(--accent-product-examples); }
+.main-wrapper:has([data-docs-section='reference'] > .theme-doc-markdown) { --section-accent: var(--accent-reference); }
+.main-wrapper:has([data-docs-section='glossary'] > .theme-doc-markdown) { --section-accent: var(--accent-glossary); }
+
+/* ---------- Sidebar ---------- */
+
+.theme-doc-sidebar-container {
+  background: transparent;
+  border-right: 0 !important;
+}
+
+.theme-doc-sidebar-container .menu {
+  padding: 1.25rem 0.75rem 2rem;
+}
+
+.theme-doc-sidebar-menu .menu__link {
+  border-radius: 8px;
+  padding: 0.34rem 0.65rem;
+  color: var(--docs-subtle);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.theme-doc-sidebar-menu .menu__link:hover {
+  background: var(--docs-tint);
+  color: var(--docs-heading);
+}
+
+.theme-doc-sidebar-menu > .theme-doc-sidebar-item-category-level-1 > .menu__list-item-collapsible > .menu__link,
+.theme-doc-sidebar-menu > .theme-doc-sidebar-item-link-level-1 > .menu__link {
+  gap: 0.55rem;
+  color: var(--docs-heading);
+  font-weight: 600;
+}
+
+.theme-doc-sidebar-menu > li + li {
+  margin-top: 0.15rem;
+}
+
+.theme-doc-sidebar-menu .menu__list .menu__list {
+  margin-left: 0.85rem;
+  padding-left: 0.5rem;
+  border-left: 0;
+}
+
+.theme-doc-sidebar-menu .menu__list-item-collapsible:hover {
+  background: transparent;
+}
+
+.theme-doc-sidebar-menu .menu__list-item-collapsible--active {
+  background: transparent;
+}
+
+.theme-doc-sidebar-menu .menu__link--active:not(.menu__link--sublist) {
+  background: transparent;
+  color: var(--docs-heading);
+}
+
+.theme-doc-sidebar-menu .menu__link[aria-current='page'] {
+  background: color-mix(in srgb, var(--section-accent) 8%, transparent);
+  box-shadow: none;
+  color: var(--section-accent);
+  font-weight: 650;
+}
+
+.theme-doc-sidebar-menu .menu__caret::before,
+.theme-doc-sidebar-menu .menu__link--sublist-caret::after {
+  background-size: 1.1rem;
+  opacity: 0.45;
+}
+
+.sidebar-section-icon {
+  display: inline-grid;
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--section-accent) 13%, transparent);
+  color: var(--section-accent);
+}
+
+.reference-version-selector-item {
+  list-style: none;
+  margin: 0.15rem 0 0.35rem;
+}
+
+/* ---------- Content typography ---------- */
+
+.theme-doc-markdown {
+  color: var(--docs-text);
+  font-size: 1rem;
+  line-height: 1.72;
+}
+
+.theme-doc-markdown strong {
+  color: var(--docs-heading);
+  font-weight: 620;
+}
+
+.theme-doc-markdown h1 {
+  margin-bottom: 1.1rem;
+  color: var(--docs-heading);
+  font-size: clamp(2.1rem, 1.6rem + 1.6vw, 2.9rem);
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.theme-doc-markdown h1 + p {
+  color: var(--docs-text);
+  font-size: 1.125rem;
+  line-height: 1.65;
+}
+
+.theme-doc-markdown > h2 {
+  margin-top: 3.25rem;
+  color: var(--docs-heading);
+  font-size: 1.65rem;
+  font-weight: 680;
+  letter-spacing: -0.025em;
+}
+
+.theme-doc-markdown > h2::before {
+  content: '';
+  display: block;
+  width: 1.75rem;
+  height: 3px;
+  margin-bottom: 0.85rem;
+  border-radius: 3px;
+  background: var(--section-accent);
+}
+
+.theme-doc-markdown > h3 {
+  margin-top: 2.25rem;
+  color: var(--docs-heading);
+  font-size: 1.2rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.theme-doc-markdown h4 {
+  color: var(--docs-heading);
+}
+
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry) {
+  color: var(--docs-heading);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--section-accent) 55%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.2em;
+  transition: color 120ms ease, text-decoration-color 120ms ease;
+}
+
+.markdown a:not(.hash-link, .doc-markdown-link, .docs-section-entry):hover {
+  color: var(--section-accent);
+  text-decoration-color: var(--section-accent);
+}
+
+.theme-doc-markdown ul > li::marker {
+  color: var(--section-accent);
+}
+
+.theme-doc-markdown blockquote {
+  border-left: 0;
+  border-radius: var(--docs-radius);
+  background: var(--docs-tint);
+  color: var(--docs-text);
+}
+
+.theme-doc-markdown hr {
+  height: 1px;
+  border: 0;
+  background: var(--docs-hairline);
+}
+
+/* ---------- Tables: row rhythm instead of a grid ---------- */
+
+.theme-doc-markdown table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  border: 0;
+  font-size: 0.925rem;
+}
+
+.theme-doc-markdown table thead tr {
+  border: 0;
+  background: transparent;
+}
+
+.theme-doc-markdown table tr {
+  border: 0;
+  border-bottom: 1px solid var(--docs-hairline);
+  background: transparent;
+}
+
+.theme-doc-markdown table tr:nth-child(2n) {
+  background: transparent;
+}
+
+.theme-doc-markdown table tbody tr:hover {
+  background: var(--docs-tint);
+}
+
+.theme-doc-markdown table th,
+.theme-doc-markdown table td {
+  border: 0;
+  padding: 0.7rem 0.9rem 0.7rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.theme-doc-markdown table th {
+  background: transparent;
+  border-bottom: 1.5px solid color-mix(in srgb, var(--docs-heading) 18%, transparent);
+  color: var(--docs-subtle);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  .theme-doc-markdown table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* ---------- Code ---------- */
+
+.theme-doc-markdown code {
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--section-accent) 8%, var(--docs-code-bg));
+  color: var(--docs-heading);
+  padding: 0.12em 0.38em;
+}
+
+.theme-code-block {
+  border: 0 !important;
+  border-radius: var(--docs-radius) !important;
+  box-shadow: none !important;
+}
+
+.theme-code-block pre,
+.theme-code-block pre code {
+  background: var(--docs-code-bg) !important;
+}
+
+.theme-code-block pre code {
+  padding: 1.1rem 1.25rem;
+}
+
+.theme-code-block [class*='codeBlockTitle'] {
+  border-bottom: 0;
+  background: var(--docs-code-bg);
+  color: var(--docs-subtle);
+  font-size: 0.8rem;
+}
+
+/* ---------- Admonitions: a tint and a colored label, no frame ---------- */
+
+.main-wrapper .alert {
+  border: 0;
+  border-radius: var(--docs-radius);
+  box-shadow: none;
+}
+
+.theme-admonition.alert {
+  border: 0;
+  border-radius: var(--docs-radius);
+  box-shadow: none;
+  padding: 1rem 1.15rem;
+}
+
+.main-wrapper .alert--info { background: color-mix(in srgb, #2563eb 7%, transparent); }
+.main-wrapper .alert--secondary,
+.main-wrapper .alert--note { background: var(--docs-tint); }
+.main-wrapper .alert--success { background: color-mix(in srgb, #059669 8%, transparent); }
+.main-wrapper .alert--warning { background: color-mix(in srgb, #d97706 10%, transparent); }
+.main-wrapper .alert--danger { background: color-mix(in srgb, #dc2626 8%, transparent); }
+
+.theme-admonition [class*='admonitionHeading'] {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- SDK tabs: underline tabs over a quiet panel ---------- */
+
+.sdk-tabs__bar {
+  gap: 1.25rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--docs-hairline);
+}
+
+.sdk-tabs__button {
+  margin-bottom: -1px;
+  padding: 0.45rem 0.05rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--docs-subtle);
+  font-family: var(--ifm-font-family-base);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sdk-tabs__button:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--docs-heading);
+}
+
+.sdk-tabs__button--active,
+.sdk-tabs__button--active:hover {
+  border-bottom-color: var(--section-accent);
+  background: transparent;
+  color: var(--section-accent);
+}
+
+.sdk-tabs__panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.sdk-tabs__example {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* ---------- Page chrome around the content ---------- */
+
+.breadcrumbs__link {
+  border-radius: 6px;
+  background: transparent;
+  color: var(--docs-subtle);
+  font-size: 0.8rem;
+}
+
+.breadcrumbs__item--active .breadcrumbs__link {
+  background: transparent;
+  color: var(--section-accent);
+  font-weight: 600;
+}
+
+.table-of-contents {
+  border-left: 0 !important;
+}
+
+.table-of-contents__link {
+  color: var(--docs-subtle);
+  font-size: 0.8rem;
+}
+
+.table-of-contents__link:hover {
+  background: transparent;
+  color: var(--docs-heading);
+}
+
+.table-of-contents__link--active {
+  background: transparent;
+  color: var(--section-accent);
+  font-weight: 600;
+}
+
+.pagination-nav__link {
+  border: 0 !important;
+  border-radius: var(--docs-radius);
+  background: var(--docs-tint);
+  transition: background-color 150ms ease;
+}
+
+.pagination-nav__link:hover {
+  background: color-mix(in srgb, var(--section-accent) 9%, var(--docs-tint));
+}
+
+.pagination-nav__label {
+  color: var(--docs-heading);
+}
+
+.pagination-nav__link:hover .pagination-nav__label {
+  color: var(--section-accent);
+}
+
+.theme-edit-this-page {
+  color: var(--docs-subtle);
+  font-size: 0.85rem;
+}
+
+/* ---------- Docs home ---------- */
+
+.theme-doc-markdown:has(.docs-home-sections) h1 {
+  background: linear-gradient(100deg, var(--docs-heading) 30%, var(--accent-primitives) 62%, var(--accent-components) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  width: fit-content;
+  font-size: clamp(2.6rem, 1.9rem + 2.4vw, 3.6rem);
+}
+
+.docs-home-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 0.5rem 1.5rem;
+  margin: 2.25rem 0 1rem;
+}
+
+.docs-section-entry {
+  display: flex;
+  gap: 0.95rem;
+  align-items: flex-start;
+  margin: 0 -0.75rem;
+  padding: 0.9rem 0.75rem;
+  border-radius: 14px;
+  color: var(--docs-text);
+  text-decoration: none;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.docs-section-entry,
+.docs-section-entry * {
+  text-decoration: none !important;
+}
+
+.docs-section-entry:hover,
+.docs-section-entry:focus-visible {
+  background: color-mix(in srgb, var(--section-accent) 7%, transparent);
+  color: var(--docs-text);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.docs-section-entry__icon {
+  display: grid;
+  flex: none;
+  width: 2.6rem;
+  height: 2.6rem;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--section-accent) 14%, transparent);
+  color: var(--section-accent);
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.docs-section-entry:hover .docs-section-entry__icon,
+.docs-section-entry:focus-visible .docs-section-entry__icon {
+  background: var(--section-accent);
+  color: var(--ifm-background-color);
+}
+
+.docs-section-entry__text {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.docs-section-entry__text strong {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--docs-heading);
+  font-size: 1.02rem;
+}
+
+.docs-section-entry__arrow {
+  color: var(--section-accent);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.docs-section-entry:hover .docs-section-entry__arrow,
+.docs-section-entry:focus-visible .docs-section-entry__arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-section-entry,
+  .docs-section-entry__arrow,
+  .docs-section-entry__icon {
+    transition: none;
+  }
+
+  .docs-section-entry:hover,
+  .docs-section-entry:focus-visible {
+    transform: none;
+  }
+}
+
+/* ---------- Diagrams: a quiet tinted stage, elevation instead of outlines ---------- */
+
+/* Nodes that mirror the Dex Web Step graph keep their colored outlines: the color encodes the kind. */
+
+.exec-diagram {
+  border: 0;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--section-accent) 9%, transparent), transparent 20rem),
+    var(--docs-tint);
+  box-shadow: none;
+}
+
+.exec-node {
+  border: 0;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 14px rgb(0 0 0 / 0.05);
+}
+
+.exec-node-accent {
+  background: color-mix(in srgb, var(--accent-primitives) 10%, var(--surface-solid));
+}
+
+.exec-node-warn {
+  background: color-mix(in srgb, var(--accent-product-examples) 9%, var(--surface-solid));
+}
+
+.exec-panel,
+.exec-tags span {
+  border: 0;
+  background: var(--surface-solid);
+}
+
+.exec-app {
+  border: 0;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+}
+
+.exec-problems {
+  border-left: 0;
+  border-radius: 10px;
+}
+
+.flow-graph-panel-body {
+  border: 0;
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+}
+
+html[data-theme='dark'] .exec-node {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
+}
+
+/* ---------- Flow Definition Graph ---------- */
+
+.docs-flow-definition-graph .flow-definition-toolbar {
+  border: 0 !important;
+  border-radius: 14px;
+  background: var(--docs-tint) !important;
+}
+
+.docs-flow-definition-graph .flow-definition-canvas,
+.docs-flow-canvas,
+.v2-shell.docs-flow-canvas {
+  border: 0 !important;
+  border-radius: 14px;
+  background: var(--docs-tint);
+}
+
+.docs-flow-definition-graph .docs-flow-definition-graph-actions button {
+  border: 0;
+  background: transparent;
+  color: var(--section-accent);
+}
+
+.docs-flow-definition-graph .docs-flow-definition-graph-actions button:hover {
+  background: color-mix(in srgb, var(--section-accent) 10%, transparent);
+}
+
+.docs-flow-definition-graph.is-expanded {
+  border: 0;
+}
+
+/* ---------- Details ---------- */
+
+.theme-doc-markdown details {
+  border: 0 !important;
+  border-radius: var(--docs-radius);
+  background: var(--docs-tint) !important;
+  box-shadow: none;
+  --docusaurus-details-decoration-color: var(--section-accent);
+}
+
+.theme-doc-markdown details > div > div {
+  border-top: 0 !important;
+}
+
+/* ---------- Phones ---------- */
+
+/* The graph toolbar holds a long source path; let it wrap instead of widening the page. */
+.docs-flow-definition-graph,
+.docs-flow-definition-graph .flow-definition-toolbar,
+.docs-flow-definition-graph .flow-definition-toolbar > *,
+.docs-flow-definition-graph .flow-definition-legend {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.docs-flow-definition-graph .flow-definition-toolbar p {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .docs-flow-definition-graph .flow-definition-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .docs-flow-definition-graph .flow-definition-legend {
+    justify-content: flex-start;
+  }
+
+  /* Tables scroll sideways rather than squeezing every column to a few words. */
+  .theme-doc-markdown table {
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .theme-doc-markdown table th,
+  .theme-doc-markdown table td {
+    min-width: 8.5rem;
+    max-width: 17rem;
+  }
+
+  .theme-doc-markdown table td:first-child,
+  .theme-doc-markdown table th:first-child {
+    min-width: 6rem;
+  }
+
+  .docs-home-sections {
+    gap: 0.25rem;
+    margin-top: 1.5rem;
+  }
+
+  .docs-section-entry {
+    padding: 0.7rem 0.75rem;
+  }
+
+  .theme-doc-markdown > h2 {
+    margin-top: 2.5rem;
+  }
+}

@@ -35,6 +35,19 @@ import {
   readSidebarCategoryState,
   rememberVisibleCategoryCollapsed,
 } from '@site/src/components/sidebarState';
+import {docsSectionIcons, isDocsSectionKey} from '@site/src/components/docsSections';
+
+function SidebarSectionIcon({section}: {section: unknown}): ReactNode {
+  if (!isDocsSectionKey(section)) {
+    return null;
+  }
+  const Icon = docsSectionIcons[section];
+  return (
+    <span className="sidebar-section-icon" data-docs-section={section} aria-hidden="true">
+      <Icon size={15} strokeWidth={2.25} />
+    </span>
+  );
+}
 
 function CollapseButton({
   collapsed,
@@ -184,6 +197,7 @@ export default function DocSidebarItemCategory({
           aria-expanded={collapsible && !href ? !collapsed : undefined}
           href={collapsible ? hrefWithSSRFallback ?? '#' : hrefWithSSRFallback}
           {...props}>
+          <SidebarSectionIcon section={item.customProps?.section} />
           {label}
         </Link>
         {href && collapsible && (

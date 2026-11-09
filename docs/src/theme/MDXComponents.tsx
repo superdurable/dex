@@ -14,6 +14,7 @@ import DexSkillHostTabs from '@site/src/components/DexSkillHostTabs';
 import SdkTabs, {SdkSnippet} from '@site/src/components/SdkTabs';
 import ScreenshotPlaceholder from '@site/src/components/ScreenshotPlaceholder';
 import DocsFlowDefinitionGraph from '@site/src/components/DocsFlowDefinitionGraph';
+import DocsSection from '@site/src/components/DocsSection';
 
 function DocTitleHeading(props: ComponentProps<'h1'>): ReactNode {
   const isDocTitle = useContext(DocMarkdownLinkScope);
@@ -33,4 +34,5 @@ export default {
   SdkSnippet,
   ScreenshotPlaceholder,
   DocsFlowDefinitionGraph,
+  DocsSection,
 };

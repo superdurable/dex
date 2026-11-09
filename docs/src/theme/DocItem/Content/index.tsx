@@ -13,6 +13,7 @@ import Heading from '@theme/Heading';
 import MDXContent from '@theme/MDXContent';
 import type {Props} from '@theme/DocItem/Content';
 import DocMarkdownLink, {DocMarkdownLinkScope} from '@site/src/components/DocMarkdownLink';
+import {useCurrentDocsSection} from '@site/src/components/docsSections';
 import styles from './styles.module.css';
 
 // Mirrors the original DocItem/Content and places the Markdown link right after the page h1.
@@ -20,8 +21,9 @@ export default function DocItemContent({children}: Props): ReactNode {
   const {metadata, frontMatter, contentTitle} = useDoc();
   const hasContentTitle = typeof contentTitle !== 'undefined';
   const syntheticTitle = !frontMatter.hide_title && !hasContentTitle ? metadata.title : null;
+  const section = useCurrentDocsSection();
   return (
-    <div className={styles.content}>
+    <div className={styles.content} data-docs-section={section}>
       <div className={`${ThemeClassNames.docs.docMarkdown} markdown`}>
         {syntheticTitle ? (
           <header>

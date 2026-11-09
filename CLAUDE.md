@@ -180,6 +180,13 @@ These rules add to `.cursor/rules/docs-writing.mdc`,
   which builds and serves both locales. Read every such page from top to
   bottom as a reader, once in English and once in Simplified Chinese. Fix what
   you find. List the pages you read in the pull request's Testing section.
+- Every docs change must work on a phone as well as a desktop. This covers
+  content, components, styles, diagrams, and the sidebar. Check each changed
+  page, or each page type a style or component change affects, at a 390px wide
+  viewport. The page must not scroll sideways. Text stays readable without
+  zooming. Wide tables and code scroll inside their own box. Diagrams fit or
+  scroll inside their own box. The docs menu opens and reaches every page.
+  List the phone checks in the pull request's Testing section.
 - Every docs page outside the Developer reference ships in English and
   Simplified Chinese (`zh-Hans`). This includes Intro, Quick start,
   Primitives, Components, Design patterns, and Use cases. Keep both locales in
