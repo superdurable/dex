@@ -11,7 +11,8 @@ Naming rules:
   byte-identical in every language and use the camelCase strings in this spec,
   such as `"fulfillmentBranchCompleted"`. Never re-case them.
 - Only RPC handler names and code identifiers follow each language's casing
-  convention, for example **approvePayment** in TypeScript, Java, and Go, and
+  convention, for example **approvePayment** in TypeScript and Java,
+  **ApprovePayment** in Go (the Go SDK uses the exported method name), and
   **approve_payment** in Python and Rust.
 
 Data, resource, and exception-handling patterns are out of scope.
