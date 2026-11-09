@@ -23,22 +23,26 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import org.springframework.stereotype.Component;
 
-/** WCP-21 Structured Loop: a Step repeats itself while a pre-test condition holds. */
+import java.util.ArrayList;
+import java.util.List;
+
+/** WCP-21 Structured Loop: a pre-test Step routes to the loop body or the exit. */
 @Component
 public class StructuredLoopFlow implements Flow<StructuredLoopFlow.BatchProgress> {
-    /** How many batches remain and how many have been processed. */
-    public record BatchProgress(int remainingBatches, int processedBatches) {
+    /** How many batches remain and which batches have been processed. */
+    public record BatchProgress(int remainingBatches, List<String> processedBatches) {
     }
 
-    private final ProcessBatches processBatches = new ProcessBatches();
+    private final CheckBatches checkBatches = new CheckBatches();
+    private final ProcessBatch processBatch = new ProcessBatch();
     private final FinishBatches finishBatches = new FinishBatches();
 
     @Override
     public StepList<BatchProgress> getSteps() {
-        return StepList.startStep(processBatches).otherSteps(finishBatches);
+        return StepList.startStep(checkBatches).otherSteps(processBatch, finishBatches);
     }
 
-    static final class ProcessBatches implements Step<BatchProgress> {
+    static final class CheckBatches implements Step<BatchProgress> {
         @Override
         public Class<BatchProgress> getInputType() {
             return BatchProgress.class;
@@ -47,23 +51,36 @@ public class StructuredLoopFlow implements Flow<StructuredLoopFlow.BatchProgress
         @Override
         public StepDecision execute(final Context context, final BatchProgress progress) {
             if (progress.remainingBatches() == 0) {
-                return StepDecision.goTo(FinishBatches.class, progress.processedBatches());
+                return StepDecision.goTo(
+                        FinishBatches.class, progress.processedBatches().toArray(new String[0]));
             }
-            return StepDecision.goTo(
-                    ProcessBatches.class,
-                    new BatchProgress(
-                            progress.remainingBatches() - 1, progress.processedBatches() + 1));
+            return StepDecision.goTo(ProcessBatch.class, progress);
         }
     }
 
-    static final class FinishBatches implements Step<Integer> {
+    static final class ProcessBatch implements Step<BatchProgress> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<BatchProgress> getInputType() {
+            return BatchProgress.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer processedBatches) {
+        public StepDecision execute(final Context context, final BatchProgress progress) {
+            final List<String> processed = new ArrayList<String>(progress.processedBatches());
+            processed.add("batch-" + progress.remainingBatches());
+            return StepDecision.goTo(
+                    CheckBatches.class, new BatchProgress(progress.remainingBatches() - 1, processed));
+        }
+    }
+
+    static final class FinishBatches implements Step<String[]> {
+        @Override
+        public Class<String[]> getInputType() {
+            return String[].class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String[] processedBatches) {
             return StepDecision.gracefulComplete(processedBatches);
         }
     }

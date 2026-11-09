@@ -17,6 +17,7 @@
 package io.superdurable.dex.patterns.workflowpatterns;
 
 import io.superdurable.dex.Channel;
+import io.superdurable.dex.ChannelMap;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -30,18 +31,30 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** WCP-9 and WCP-30: the join fires after requiredQuotes quotes; a reset Step absorbs the rest. */
+/** WCP-9 and WCP-30: the join fires after requiredQuotes quotes; a reset Step re-enables it. */
 @Component
-public class StructuredPartialJoinFlow implements Flow<Integer> {
+public class StructuredPartialJoinFlow implements Flow<StructuredPartialJoinFlow.QuoteRound> {
     public static final Channel<String> supplierAReleased =
             Channel.define("supplierAReleased", String.class);
     public static final Channel<String> supplierBReleased =
             Channel.define("supplierBReleased", String.class);
     public static final Channel<String> supplierCReleased =
             Channel.define("supplierCReleased", String.class);
-    public static final Channel<String> quoteReceived =
-            Channel.define("quoteReceived", String.class);
+    public static final ChannelMap<String> quoteReceived =
+            ChannelMap.define("quoteReceived", String.class);
     private static final int SUPPLIER_COUNT = 3;
+
+    /** One join round: the quotes it needs, its number, and how many rounds run. */
+    public record QuoteRound(int requiredQuotes, int round, int roundCount) {
+    }
+
+    /** The quotes that fired the join in one round. */
+    public record AcceptedQuotes(int round, List<String> acceptedQuotes) {
+    }
+
+    /** The quotes the reset Step absorbed in the last round. */
+    public record IgnoredQuotes(int round, List<String> ignoredQuotes) {
+    }
 
     private final RequestQuotes requestQuotes = new RequestQuotes();
     private final QuoteFromSupplierA quoteFromSupplierA = new QuoteFromSupplierA();
@@ -52,7 +65,7 @@ public class StructuredPartialJoinFlow implements Flow<Integer> {
     private final ResetQuoteJoin resetQuoteJoin = new ResetQuoteJoin();
 
     @Override
-    public StepList<Integer> getSteps() {
+    public StepList<QuoteRound> getSteps() {
         return StepList.startStep(requestQuotes).otherSteps(
                 quoteFromSupplierA,
                 quoteFromSupplierB,
@@ -87,123 +100,144 @@ public class StructuredPartialJoinFlow implements Flow<Integer> {
         throw new IllegalArgumentException("unknown supplier: " + supplier);
     }
 
-    static final class RequestQuotes implements Step<Integer> {
+    static final class RequestQuotes implements Step<QuoteRound> {
+        @Override
+        public Class<QuoteRound> getInputType() {
+            return QuoteRound.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final QuoteRound quoteRound) {
+            return StepDecision.goToMany(
+                    StepMovement.of(QuoteFromSupplierA.class, quoteRound.round()),
+                    StepMovement.of(QuoteFromSupplierB.class, quoteRound.round()),
+                    StepMovement.of(QuoteFromSupplierC.class, quoteRound.round()),
+                    StepMovement.of(AcceptQuotes.class, quoteRound));
+        }
+    }
+
+    static final class QuoteFromSupplierA implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer requiredQuotes) {
-            return StepDecision.goToMany(
-                    StepMovement.of(QuoteFromSupplierA.class, null),
-                    StepMovement.of(QuoteFromSupplierB.class, null),
-                    StepMovement.of(QuoteFromSupplierC.class, null),
-                    StepMovement.of(AcceptQuotes.class, requiredQuotes));
-        }
-    }
-
-    static final class QuoteFromSupplierA implements Step<Void> {
-        @Override
-        public Class<Void> getInputType() {
-            return Void.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Void input) {
+        public Wait waitFor(final Context context, final Integer round) {
             return Wait.until(supplierAReleased.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            quoteReceived.publish(context, "A");
+        public StepDecision execute(final Context context, final Integer round) {
+            quoteReceived.publish(context, JoinRoundInstance.of(round), "A");
             return StepDecision.deadEnd();
         }
     }
 
-    static final class QuoteFromSupplierB implements Step<Void> {
+    static final class QuoteFromSupplierB implements Step<Integer> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<Integer> getInputType() {
+            return Integer.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Void input) {
+        public Wait waitFor(final Context context, final Integer round) {
             return Wait.until(supplierBReleased.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            quoteReceived.publish(context, "B");
+        public StepDecision execute(final Context context, final Integer round) {
+            quoteReceived.publish(context, JoinRoundInstance.of(round), "B");
             return StepDecision.deadEnd();
         }
     }
 
-    static final class QuoteFromSupplierC implements Step<Void> {
+    static final class QuoteFromSupplierC implements Step<Integer> {
         @Override
-        public Class<Void> getInputType() {
-            return Void.class;
+        public Class<Integer> getInputType() {
+            return Integer.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Void input) {
+        public Wait waitFor(final Context context, final Integer round) {
             return Wait.until(supplierCReleased.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Void input) {
-            quoteReceived.publish(context, "C");
+        public StepDecision execute(final Context context, final Integer round) {
+            quoteReceived.publish(context, JoinRoundInstance.of(round), "C");
             return StepDecision.deadEnd();
         }
     }
 
-    static final class AcceptQuotes implements Step<Integer> {
+    static final class AcceptQuotes implements Step<QuoteRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<QuoteRound> getInputType() {
+            return QuoteRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer requiredQuotes) {
-            return Wait.until(quoteReceived.forN(requiredQuotes));
+        public Wait waitFor(final Context context, final QuoteRound quoteRound) {
+            return Wait.until(quoteReceived.forN(
+                    JoinRoundInstance.of(quoteRound.round()), quoteRound.requiredQuotes()));
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer requiredQuotes) {
-            final List<String> accepted = quoteReceived.getConditionResults(context);
+        public StepDecision execute(final Context context, final QuoteRound quoteRound) {
+            final List<String> accepted = quoteReceived
+                    .getConditionResults(context, JoinRoundInstance.of(quoteRound.round()))
+                    .stream()
+                    .sorted()
+                    .toList();
             return StepDecision.goToMany(
-                    StepMovement.of(PlaceOrder.class, accepted.toArray(new String[0])),
-                    StepMovement.of(ResetQuoteJoin.class, SUPPLIER_COUNT - requiredQuotes));
+                    StepMovement.of(
+                            PlaceOrder.class, new AcceptedQuotes(quoteRound.round(), accepted)),
+                    StepMovement.of(ResetQuoteJoin.class, quoteRound));
         }
     }
 
-    static final class PlaceOrder implements Step<String[]> {
+    static final class PlaceOrder implements Step<AcceptedQuotes> {
         @Override
-        public Class<String[]> getInputType() {
-            return String[].class;
+        public Class<AcceptedQuotes> getInputType() {
+            return AcceptedQuotes.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final String[] accepted) {
-            return StepDecision.gracefulComplete(List.of(accepted).stream().sorted().toList());
+        public StepDecision execute(final Context context, final AcceptedQuotes acceptedQuotes) {
+            return StepDecision.gracefulComplete(acceptedQuotes);
         }
     }
 
-    static final class ResetQuoteJoin implements Step<Integer> {
+    static final class ResetQuoteJoin implements Step<QuoteRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<QuoteRound> getInputType() {
+            return QuoteRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer remainingQuotes) {
-            return Wait.until(quoteReceived.forN(remainingQuotes));
+        public Wait waitFor(final Context context, final QuoteRound quoteRound) {
+            return Wait.until(quoteReceived.forN(
+                    JoinRoundInstance.of(quoteRound.round()),
+                    SUPPLIER_COUNT - quoteRound.requiredQuotes()));
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer remainingQuotes) {
-            return StepDecision.gracefulComplete(
-                    quoteReceived.getConditionResults(context).stream().sorted().toList());
+        public StepDecision execute(final Context context, final QuoteRound quoteRound) {
+            if (quoteRound.round() < quoteRound.roundCount()) {
+                return StepDecision.goTo(
+                        RequestQuotes.class,
+                        new QuoteRound(
+                                quoteRound.requiredQuotes(),
+                                quoteRound.round() + 1,
+                                quoteRound.roundCount()));
+            }
+            return StepDecision.gracefulComplete(new IgnoredQuotes(
+                    quoteRound.round(),
+                    quoteReceived
+                            .getConditionResults(context, JoinRoundInstance.of(quoteRound.round()))
+                            .stream()
+                            .sorted()
+                            .toList()));
         }
     }
 }

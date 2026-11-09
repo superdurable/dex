@@ -18,6 +18,7 @@ package io.superdurable.dex.patterns.workflowpatterns;
 
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeLock;
+import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
@@ -37,13 +38,19 @@ import java.util.List;
 
 /** WCP-36: RPCs add instances; the join re-evaluates on each arrival, then closes admission. */
 @Component
-public class DynamicPartialJoinForMultipleInstancesFlow implements Flow<DynamicPartialJoinForMultipleInstancesFlow.BidJoin> {
+public class DynamicPartialJoinForMultipleInstancesFlow
+        implements Flow<DynamicPartialJoinForMultipleInstancesFlow.BidJoin> {
     private static final int ACCEPTED_BID_LIMIT = 1000;
 
     public static final Attribute<Boolean> isBidAdmissionClosed =
             Attribute.define("isBidAdmissionClosed", Boolean.class);
     public static final Channel<BidEvaluation> bidEvaluated =
             Channel.define("bidEvaluated", BidEvaluation.class);
+    public static final AttributeMap<Boolean> evaluationStartedBids =
+            AttributeMap.define("evaluationStartedBids", Boolean.class);
+    public static final Channel<String> bidGateOpened = Channel.define("bidGateOpened", String.class);
+    public static final Channel<String> contractSigned =
+            Channel.define("contractSigned", String.class);
 
     /** The outcome of evaluating one bid. */
     public record BidEvaluation(int amount, boolean isAccepted) {
@@ -64,7 +71,31 @@ public class DynamicPartialJoinForMultipleInstancesFlow implements Flow<DynamicP
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(isBidAdmissionClosed, bidEvaluated);
+        return PersistenceSchema.of(
+                isBidAdmissionClosed,
+                evaluationStartedBids,
+                bidEvaluated,
+                bidGateOpened,
+                contractSigned);
+    }
+
+    /** Counts the EvaluateBid instances that are in flight at the gate. */
+    @RPC(loadAttributeMaps = {"evaluationStartedBids"})
+    public RPCResult<Integer> getStartedEvaluationCount(final Context context) {
+        return RPCResult.of(evaluationStartedBids.getMapSize(context));
+    }
+
+    /** Lets count waiting EvaluateBid instances finish. */
+    @RPC
+    public void openBidGate(final Context context, final Integer count) {
+        for (int index = 0; index < count; index++) {
+            bidGateOpened.publish(context, "opened");
+        }
+    }
+
+    @RPC
+    public void signContract(final Context context) {
+        contractSigned.publish(context, "signed");
     }
 
     /** Starts one more EvaluateBid instance, or returns false once admission is closed. */
@@ -119,6 +150,12 @@ public class DynamicPartialJoinForMultipleInstancesFlow implements Flow<DynamicP
         }
 
         @Override
+        public Wait waitFor(final Context context, final Integer amount) {
+            evaluationStartedBids.set(context, Integer.toString(amount), true);
+            return Wait.until(bidGateOpened.forOne());
+        }
+
+        @Override
         public StepDecision execute(final Context context, final Integer amount) {
             bidEvaluated.publish(context, new BidEvaluation(amount, amount <= ACCEPTED_BID_LIMIT));
             return StepDecision.deadEnd();
@@ -129,6 +166,11 @@ public class DynamicPartialJoinForMultipleInstancesFlow implements Flow<DynamicP
         @Override
         public Class<Integer[]> getInputType() {
             return Integer[].class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final Integer[] acceptedAmounts) {
+            return Wait.until(contractSigned.forOne());
         }
 
         @Override

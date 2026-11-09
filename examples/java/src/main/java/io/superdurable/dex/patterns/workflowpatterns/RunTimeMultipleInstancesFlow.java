@@ -19,6 +19,8 @@ package io.superdurable.dex.patterns.workflowpatterns;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -40,7 +42,21 @@ public class RunTimeMultipleInstancesFlow implements Flow<String[]> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(DesignTimeMultipleInstancesFlow.reviewCompleted);
+        return DesignTimeMultipleInstancesFlow.reviewPersistenceSchema();
+    }
+
+    /** Counts the ReviewDocument instances that are in flight at the gate. */
+    @RPC(loadAttributeMaps = {"startedReviewers"})
+    public RPCResult<Integer> getStartedReviewCount(final Context context) {
+        return RPCResult.of(DesignTimeMultipleInstancesFlow.startedReviewers.getMapSize(context));
+    }
+
+    /** Lets count waiting ReviewDocument instances finish. */
+    @RPC
+    public void openReviewGate(final Context context, final Integer count) {
+        for (int index = 0; index < count; index++) {
+            DesignTimeMultipleInstancesFlow.reviewGateOpened.publish(context, "opened");
+        }
     }
 
     static final class StartRunTimeReviews implements Step<String[]> {

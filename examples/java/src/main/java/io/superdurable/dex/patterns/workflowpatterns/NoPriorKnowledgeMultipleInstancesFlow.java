@@ -17,6 +17,7 @@
 package io.superdurable.dex.patterns.workflowpatterns;
 
 import io.superdurable.dex.Attribute;
+import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
@@ -42,8 +43,12 @@ public class NoPriorKnowledgeMultipleInstancesFlow implements Flow<String[]> {
             Attribute.define("isSampleIntakeClosed", Boolean.class);
     public static final Channel<String> sampleAnalyzed =
             Channel.define("sampleAnalyzed", String.class);
+    public static final AttributeMap<Boolean> analysisStartedSamples =
+            AttributeMap.define("analysisStartedSamples", Boolean.class);
     public static final Channel<String> sampleIntakeClosed =
             Channel.define("sampleIntakeClosed", String.class);
+    public static final Channel<String> sampleGateOpened =
+            Channel.define("sampleGateOpened", String.class);
 
     private final JoinSamples joinSamples = new JoinSamples();
     private final AnalyzeSample analyzeSample = new AnalyzeSample();
@@ -57,7 +62,12 @@ public class NoPriorKnowledgeMultipleInstancesFlow implements Flow<String[]> {
     @Override
     public PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of(
-                startedSampleCount, isSampleIntakeClosed, sampleAnalyzed, sampleIntakeClosed);
+                startedSampleCount,
+                isSampleIntakeClosed,
+                analysisStartedSamples,
+                sampleAnalyzed,
+                sampleIntakeClosed,
+                sampleGateOpened);
     }
 
     /** Starts one more AnalyzeSample instance, or returns false once intake is closed. */
@@ -74,6 +84,20 @@ public class NoPriorKnowledgeMultipleInstancesFlow implements Flow<String[]> {
     public void closeSampleIntake(final Context context) {
         isSampleIntakeClosed.set(context, true);
         sampleIntakeClosed.publish(context, "closed");
+    }
+
+    /** Counts the AnalyzeSample instances that are in flight at the gate. */
+    @RPC(loadAttributeMaps = {"analysisStartedSamples"})
+    public RPCResult<Integer> getStartedAnalysisCount(final Context context) {
+        return RPCResult.of(analysisStartedSamples.getMapSize(context));
+    }
+
+    /** Lets count waiting AnalyzeSample instances finish. */
+    @RPC
+    public void openSampleGate(final Context context, final Integer count) {
+        for (int index = 0; index < count; index++) {
+            sampleGateOpened.publish(context, "opened");
+        }
     }
 
     private static boolean isIntakeClosed(final Context context) {
@@ -119,6 +143,12 @@ public class NoPriorKnowledgeMultipleInstancesFlow implements Flow<String[]> {
         @Override
         public Class<String> getInputType() {
             return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String sampleId) {
+            analysisStartedSamples.set(context, sampleId, true);
+            return Wait.until(sampleGateOpened.forOne());
         }
 
         @Override
