@@ -1,0 +1,69 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to dexcli, newest first; each section covers the changes since the previous release of this component.
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [cli-v1.37.0](https://github.com/superdurable/dex/releases/tag/cli-v1.37.0). Reference: [1.37.x](/reference/cli/1.37.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.20 and creates 32-partition state directories. To retain an older 1024-partition directory, pass **--zd-config** with **cluster.partitionCount** set to 1024. [Reference](/reference/cli/1.37.x/#start-locally).
+
+### Added
+
+- **dexcli web** serves Dex Web against an existing **--server** using the CLI’s TLS and credential settings. It binds loopback by default and accepts **--flow-rendering-dir**. [Reference](/reference/cli/1.37.x/#web).
+
+### Fixed
+
+- Stopping embedded Dex Web no longer waits for an open Flow history long poll to finish. [Reference](/reference/cli/1.37.x/#web).
+
+## 1.36 {#v1-36}
+
+Released 2026-11-06 as [cli-v1.36.0](https://github.com/superdurable/dex/releases/tag/cli-v1.36.0). Reference: [1.36.x](/reference/cli/1.36.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.19, which caps node Stream data at 1 GiB and each requested Stream capacity at 64 MiB by default. Set **streamStore.maxTotalBytes** and **streamStore.maxStreamCapacityBytes** through **--zd-config** for larger buffers. [Reference](/reference/cli/1.37.x/#start-locally).
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [cli-v1.35.0](https://github.com/superdurable/dex/releases/tag/cli-v1.35.0). Reference: [1.35.x](/reference/cli/1.35.x/).
+
+### Breaking
+
+- **dexcli dev** bundles server-zd 0.1.18 and defaults to strict durability, with slower writes that survive host crashes. Pass **--durability process-crash-safe** for the previous behavior. [Reference](/reference/cli/1.37.x/#start-locally).
+- **dexcli dev** refuses data directories left unclean by server-zd releases before 0.1.4. Delete such a directory to start empty. [Reference](/reference/cli/1.37.x/#start-locally).
+
+### Added
+
+- **--durability** accepts **strict**, **process-crash-safe**, or **relaxed**. An explicit flag overrides **dev.durabilityMode** in **--zd-config**. [Reference](/reference/cli/1.37.x/#start-locally).
+
+### Changed
+
+- The bundled server supports protocol version 4, including durable Step queues and planned-stop draining. This CLI release can run SDK 1.35 applications locally. [Reference](/reference/cli/1.37.x/#start-locally).
+- **dexcli visualize** uses **RPCOptions.Name** for Actions and Summary and Display RPCs when the name is a compile-time string. [Reference](/reference/cli/1.37.x/#start-locally).
+
+## 1.34 {#v1-34}
+
+Released 2026-11-02 as [cli-v1.34.0](https://github.com/superdurable/dex/releases/tag/cli-v1.34.0). Reference: [1.34.x](/reference/cli/1.34.x/).
+
+### Changed
+
+- **dexcli dev** now bundles server-zd 0.1.16, including the fix for a process taking its lease back after step-down. [Reference](/reference/cli/1.37.x/#start-locally).
+
+## 1.33 {#v1-33}
+
+Released 2026-11-02 as [cli-v1.33.0](https://github.com/superdurable/dex/releases/tag/cli-v1.33.0). Reference: [1.33.x](/reference/cli/1.33.x/).
+
+### Changed
+
+- **dexcli dev** now bundles server-zd 0.1.15, which supports hot standby takeover and administrative step-down. [Reference](/reference/cli/1.37.x/#start-locally).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=cli-v&expanded=true).

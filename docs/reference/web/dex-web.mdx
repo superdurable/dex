@@ -260,7 +260,7 @@ Only a search of one Flow type uses the builtin search backend's per-type index.
 
 Under **Advanced search**, **Waiting at Step** lists the Step types of the Flow types being searched. Tick several to match a run at any of them. The API takes the built-in filter field **activeStepTypes** with the operator **eq** or **in**. It searches the **ActiveStepTypes** field, the same one that **dexcli flow search --query** reads.
 
-A run appears only if its Flow set **ActiveStepSearchMode**, which the server does not turn on by default. See [FlowConfig](/reference/server/runtime-steps#flow-config). With the wait-for mode, a run appears only at Steps that ran **WaitFor**. A Flow can turn the mode on while it runs with **UpdateFlowConfig**. When this filter finds nothing, the list says that runs may still be waiting, because runs without the mode cannot match.
+A run appears only if its Flow set **ActiveStepSearchMode**, which the server does not turn on by default. See [FlowConfig](/reference/python/flows-and-steps/flow-config). With the wait-for mode, a run appears only at Steps that ran **WaitFor**. A Flow can turn the mode on while it runs with **UpdateFlowConfig**. When this filter finds nothing, the list says that runs may still be waiting, because runs without the mode cannot match.
 
 The field holds the Step types active now. A run leaves the search when it moves on, after the search index catches up.
 

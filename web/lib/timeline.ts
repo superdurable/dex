@@ -244,7 +244,7 @@ function unassignedTimelineLinks(index: TimelineEventIndex): UnassignedTimelineL
     stepExecutionId: link.stepExecutionId,
     fromEventId: link.waitForEventId,
     toEventId: link.executeEventId,
-    label: `${link.stepExecutionId}: WaitForCondition started to Execute`,
+    label: `${link.stepExecutionId}: Waiting for conditions to Execute`,
     elapsedDurationMs: link.conditionWaitDurationMs,
   }));
   index.links = [...lineageLinks(index), ...conditionLinks];

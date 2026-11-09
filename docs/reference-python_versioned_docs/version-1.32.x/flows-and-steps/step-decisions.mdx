@@ -1,0 +1,119 @@
+---
+id: step-decisions
+title: Step decisions
+sidebar_label: Step decisions
+---
+
+# Step decisions
+
+**Execute** returns a **StepDecision**. It moves to next Steps, closes the
+Flow, or both stops this branch and cancels other Steps.
+
+## Multiple next Steps {#gotomulti}
+
+**GoTo** starts one next Step. **GoToMany** starts multiple next Steps. Each
+Step movement has its own input and can also have its own
+[Step options](./step-options.mdx#stepoptions-override-per-stepexecution).
+
+```python
+return go_to_many(
+    StepMovement.of(CarrierA, Quote(carrier="A", price=10)),
+    StepMovement.of(CarrierB, Quote(carrier="B", price=12)),
+    StepMovement.of(Winner, quote),
+)
+```
+
+Example: [examples/python/dex_examples/primitives/step_decision/step_decision_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/step_decision/step_decision_flow.py)
+
+## Close decisions {#close-decisions}
+
+| Decision | What it does |
+| --- | --- |
+| **GracefulComplete** | Stops this branch and triggers the Flow to prepare for completion. When all branches and Steps are stopped, the Flow completes. |
+| **DeadEnd** | Stops this branch only. |
+| **ForceComplete** | Completes the Flow immediately. |
+| **ForceFail** | Fails the Flow immediately. |
+
+**GracefulComplete** and **ForceComplete** can return an output. **ForceFail**
+returns a failure reason. The Flow result returns each output with the Step
+type and Step execution ID. When multiple Steps complete gracefully, all their
+outputs return together.
+
+A Flow can have no active Steps and still keep running. **DeadEnd** stops this
+branch without making a decision that triggers the Flow to complete.
+
+```python
+def execute(self, context: Context, mode: str) -> StepDecision:
+    if mode == "graceful":
+        return graceful_complete("done")
+    if mode == "dead-end":
+        return go_to_many(
+            StepMovement.of(BranchWorker, "left"),
+            StepMovement.of(BranchWorker, "right"),
+        )
+    quote = Quote(carrier="winner", price=9)
+    return go_to_many(
+        StepMovement.of(CarrierA, Quote(carrier="A", price=10)),
+        StepMovement.of(CarrierB, Quote(carrier="B", price=12)),
+        StepMovement.of(Winner, quote),
+    )
+
+def execute(self, context: Context, input: str) -> StepDecision:
+    return dead_end()
+```
+
+Example: [examples/python/dex_examples/primitives/step_decision/step_decision_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/step_decision/step_decision_flow.py)
+
+```python
+def handle_timeout(self, context: Context) -> StepDecision:
+    return force_fail("Workflow did not finish the task in time")
+
+def execute(self, context: Context, input: bool) -> StepDecision:
+    return force_complete("Workflow completed successfully")
+```
+
+Example: [examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py)
+
+## Cancel other Steps {#cancellation-on-stepdecision}
+
+A **StepDecision** can cancel other active Steps.
+
+- **CancelSteps** selects active Steps by Step type.
+- **CancelSiblingSteps** selects active Steps that were triggered by the same
+  parent Step execution.
+
+An RPC can also cancel Steps by type. See
+[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
+running attempt observes cancellation, see [Cancellation](./step-options.mdx#cancellation).
+
+```python
+def execute(self, context: Context, quote: Quote) -> StepDecision:
+    return go_to(RecordQuote, quote).with_canceling_steps(
+        CarrierA,
+        self.flow.carrier_b,
+    )
+```
+
+Example: [examples/python/dex_examples/primitives/step_decision/step_decision_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/step_decision/step_decision_flow.py)
+
+## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+
+**ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels
+are empty. A Channel with queued messages is non-empty. After a message is
+consumed and committed to a Step, that Channel remains non-empty until the Step
+finishes processing **Execute**. If every named Channel is empty, it completes
+the Flow. Otherwise, it goes to other Steps.
+
+Use it to drain Channels and complete the Flow, so the Flow can stay short. See
+[Drain External Channel](/design-patterns/draining-channel-for-external-publishing)
+for the full example.
+
+```python
+return force_complete_if_channels_empty(
+    None,
+    StepMovement.of(ProcessMessage, None),
+    self.queue_channel,
+)
+```
+
+Example: [examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py)

@@ -81,7 +81,7 @@ describe('Flow search query builder and pagination', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await screen.findByText('checkout-1');
-    expect(screen.getByText('flow on page 1', { exact: false }).textContent).toBe('1 flow on page 1');
+    expect(document.querySelector('.results-toolbar > div')?.textContent).toBe('1 flow');
     expect(requests.at(-1)).toEqual(expect.objectContaining({ query: generated, nextPageToken: '' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));

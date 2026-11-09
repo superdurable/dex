@@ -499,9 +499,7 @@ export function ExecutionGraph({
   return (
     <div className="graph-view">
       <div className="view-toolbar">
-        <div>
-          <h2>Execution graph</h2>
-        </div>
+        <h2 className="sr-only">Execution graph</h2>
         <div className="graph-legend">
           <span><i className="legend-source" />Source</span>
           <span><i className="legend-active" />Active / Pending</span>

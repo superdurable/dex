@@ -4,7 +4,7 @@ title: Failure Handling
 
 # Failure Handling
 
-Dex 会对失败的 Step 方法执行指数退避重试。见 [Step options](/reference/server/runtime-steps#retry-and-failure-policies)。如果要等待外部系统，请改用 [Polling](/design-patterns/polling)。
+Dex 会对失败的 Step 方法执行指数退避重试。见 [Step options](/reference/python/flows-and-steps/step-options#retry-and-failure-policies)。如果要等待外部系统，请改用 [Polling](/design-patterns/polling)。
 
 当只靠重试无法满足需求时，选择以下恢复模式之一。
 
@@ -15,5 +15,5 @@ Dex 会对失败的 Step 方法执行指数退避重试。见 [Step options](/re
 
 ## 相关内容
 
-- [Step options](/reference/server/runtime-steps#retry-and-failure-policies)
+- [Step options](/reference/python/flows-and-steps/step-options#retry-and-failure-policies)
 - [Timer](/primitives/timer)

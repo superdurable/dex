@@ -9,6 +9,7 @@
     "dex-web",
     "flow-visualization",
     "local-connector-setup",
-    "debugging"
+    "debugging",
+    "changelog"
   ]
 }

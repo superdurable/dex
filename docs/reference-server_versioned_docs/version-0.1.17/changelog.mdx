@@ -1,0 +1,48 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
+
+## 0.1.17 {#v0-1-17}
+
+Released 2026-11-05 as [server-zd/v0.1.17](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.17). Reference: [0.1.17](/reference/server/0.1.17/).
+
+### Breaking
+
+- Protocol version 4 requires a coordinated server upgrade: stop all old active and standby processes before starting the new version, then upgrade SDKs. After the new binary writes to a storage prefix, roll forward or restore a pre-upgrade backup into a new prefix. [Reference](/reference/server/0.1.17/upgrades).
+- A Step attempt interrupted after its hand-out was committed now fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/python/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
+- Retry total duration starts at the first hand-out and only gates scheduling another retry. Use method timeouts to bound a running attempt. [Reference](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration).
+- Steps with no available or supporting Worker now wait durably instead of failing with **NO_WORKER_AVAILABLE**. Set a Flow timeout when that wait must be bounded; **matching.dispatchWait** now applies only to RPCs. [Reference](/reference/server/0.1.17/workers#step-task-queue).
+- Worker startup fails when its requested concurrency exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower Worker concurrency or raise that cap and **matching.maxStreams** first. [Reference](/reference/server/0.1.17/workers#pull-worker-dispatch).
+- **limits.maxChildFlowResultBytes** now limits child Flow results to 16 MiB by default. Raise it before starting affected runs or reduce result size. [Reference](/reference/server/0.1.17/configuration#limits).
+
+### Added
+
+- Protocol version 4 records Step attempt start at hand-out to a reserved Worker slot and reports **attempt_progress** in recovery errors. The minimum supported protocol remains unchanged, so older SDKs keep working. [Reference](/reference/server/0.1.17/upgrades).
+- **lifecycle.attemptDrainTimeout** lets planned stops and step-downs drain running attempts for 30 seconds by default, or 2 seconds under **dev**. Set Kubernetes **terminationGracePeriodSeconds** longer than this timeout. [Reference](/reference/server/0.1.17/kubernetes#graceful-shutdown).
+- **matching.syncMatchWait**, **matching.headsResyncInterval**, **matching.headsMaxSkippedDeletions**, and **matching.unsupportedTypeCacheEntries** configure durable Step dispatch. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.17).
+- **dexzd_step_task_queue_entries** and **dexzd_step_task_queue_oldest_age_seconds** expose durable backlog. The entries gauge can read low during background counting after recovery; use oldest age meanwhile. [Reference](/reference/server/0.1.17/workers#step-task-queue).
+
+### Changed
+
+- The RPC lock-conflict message now says “a Step” instead of “a running Step”. [Reference](/reference/server/0.1.17/runtime-data#rpc-lock-conflicts).
+
+### Fixed
+
+- **limits.maxFlowStateBytes** now checks state growth across Step attempts and RPCs that change Flow state. [Reference](/reference/server/0.1.17/configuration#limits).
+
+## 0.1.16 {#v0-1-16}
+
+Released 2026-11-02 as [server-zd/v0.1.16](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.16). Reference: [0.1.16](/reference/server/0.1.16/).
+
+### Fixed
+
+- A process that steps down and takes its own lease back resumes serving instead of exiting. Public calls still running after lease release end with **UNAVAILABLE** and may be retried. [Reference](/reference/server/0.1.17/high-availability#step-down).
+- Only the newest gRPC server instance accepts new connections, preventing startup refusals after readiness reports **SERVING** and first-call connection errors. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.16).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=server-zd&expanded=true).

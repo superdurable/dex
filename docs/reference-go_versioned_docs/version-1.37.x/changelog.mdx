@@ -1,0 +1,71 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to the Go SDK, newest first; each section covers the changes since the previous release of this component.
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [sdk-go/v1.37.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.37.0). Reference: [1.37.x](/reference/go/1.37.x/).
+
+This release has no runtime behavior changes; the SDK changes in this interval are API documentation updates.
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [sdk-go/v1.35.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.35.0). Reference: [1.35.x](/reference/go/1.35.x/).
+
+### Breaking
+
+- Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
+- Worker startup fails when **MaxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/go/1.37.x/workers#capacity-and-shutdown).
+- **RetryPolicy.TotalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/go/1.35/dex/#type-retrypolicy).
+- A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/go/1.37.x/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
+
+### Added
+
+- **RecoveryErrorInfo.AttemptProgress** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/go/1.35/dex/#type-recoveryerrorinfo).
+- **RPCOptions.Name** sets an RPC’s protocol name while Go callers continue referring to its bound method. [API reference](pathname:///api/go/1.35/dex/#type-rpcoptions).
+
+### Changed
+
+- Workers open one execution stream per slot; **ReservedRPCTasks** selects RPC-only slots. By default, a Worker with at least two slots reserves one for RPCs. [Reference](/reference/go/1.37.x/workers#capacity-and-shutdown).
+- **Stop** drains running handlers and returns tasks that did not start without consuming a retry. [Reference](/reference/go/1.37.x/workers#capacity-and-shutdown).
+
+### Deprecated
+
+- **IdleStreamsPerQueue** is accepted but ignored, and **PullReservedRPCDeclines()** always reports zero. Use execution-slot capacity and queue metrics instead. [Reference](/reference/go/1.37.x/workers#reserved-rpc-capacity).
+
+### Fixed
+
+- A Worker accepts omitted input for an RPC whose input type is **dex.None**, allowing TypeScript Clients to invoke it. Missing input for other RPC types still fails with **INVALID_ARGUMENT**. [API reference](pathname:///api/go/1.35/dex/).
+
+## 1.32 {#v1-32}
+
+Released 2026-11-01 as [sdk-go/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.32.0). Reference: [1.32.x](/reference/go/1.32.x/).
+
+### Added
+
+- Generated protocol bindings include **AdminService**, with **DescribeActiveNode** and **StepDownActiveNode** for inspecting and stepping down the active server process. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.32.0).
+
+## 1.30 {#v1-30}
+
+Released 2026-10-31 as [sdk-go/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.30.0). Reference: [1.30.x](/reference/go/1.30.x/).
+
+### Added
+
+- Generated protocol bindings add **ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED** and **ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG** for Attribute index admission errors. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.30.0).
+
+## 1.29 {#v1-29}
+
+Released 2026-10-31 as [sdk-go/v1.29.0](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.29.0). Reference: [1.29.x](/reference/go/1.29.x/).
+
+### Added
+
+- Generated history responses expose the pruned event range and first retained event ID. Step event contexts also carry related event IDs and the WaitFor completion time. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-go%2Fv1.29.0).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-go&expanded=true).

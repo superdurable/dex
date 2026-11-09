@@ -1,0 +1,127 @@
+---
+id: step-decisions
+title: Step decisions
+sidebar_label: Step decisions
+---
+
+# Step decisions
+
+**Execute** returns a **StepDecision**. It moves to next Steps, closes the
+Flow, or both stops this branch and cancels other Steps.
+
+## Multiple next Steps {#gotomulti}
+
+**GoTo** starts one next Step. **GoToMany** starts multiple next Steps. Each
+Step movement has its own input and can also have its own
+[Step options](./step-options.mdx#stepoptions-override-per-stepexecution).
+
+```typescript
+return goToMany(
+  StepMovement.of(CarrierA, { carrier: "A", price: 10 }),
+  StepMovement.of(CarrierB, { carrier: "B", price: 12 }),
+  StepMovement.of(Winner, quote),
+);
+```
+
+Example: [examples/typescript/src/primitives/step-decision/step-decision-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/step-decision/step-decision-flow.ts)
+
+## Close decisions {#close-decisions}
+
+| Decision | What it does |
+| --- | --- |
+| **GracefulComplete** | Stops this branch and triggers the Flow to prepare for completion. When all branches and Steps are stopped, the Flow completes. |
+| **DeadEnd** | Stops this branch only. |
+| **ForceComplete** | Completes the Flow immediately. |
+| **ForceFail** | Fails the Flow immediately. |
+
+**GracefulComplete** and **ForceComplete** can return an output. **ForceFail**
+returns a failure reason. The Flow result returns each output with the Step
+type and Step execution ID. When multiple Steps complete gracefully, all their
+outputs return together.
+
+A Flow can have no active Steps and still keep running. **DeadEnd** stops this
+branch without making a decision that triggers the Flow to complete.
+
+```typescript
+public execute(_context: Context, mode: string): StepDecision {
+  if (mode === "graceful") {
+    return gracefulComplete("done");
+  }
+  if (mode === "dead-end") {
+    return goToMany(
+      StepMovement.of(BranchWorker, "left"),
+      StepMovement.of(BranchWorker, "right"),
+    );
+  }
+  const quote: Quote = { carrier: "winner", price: 9 };
+  return goToMany(
+    StepMovement.of(CarrierA, { carrier: "A", price: 10 }),
+    StepMovement.of(CarrierB, { carrier: "B", price: 12 }),
+    StepMovement.of(Winner, quote),
+  );
+}
+
+public execute(_context: Context, _input: string): StepDecision {
+  return deadEnd();
+}
+```
+
+Example: [examples/typescript/src/primitives/step-decision/step-decision-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/step-decision/step-decision-flow.ts)
+
+```typescript
+public handleTimeout(_context: Context): StepDecision {
+  return forceFail("Workflow did not finish the task in time");
+}
+
+public execute(_context: Context, _workflowSuccessful: boolean): StepDecision {
+  return forceComplete("Workflow completed successfully");
+}
+```
+
+Example: [examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts)
+
+## Cancel other Steps {#cancellation-on-stepdecision}
+
+A **StepDecision** can cancel other active Steps.
+
+- **CancelSteps** selects active Steps by Step type.
+- **CancelSiblingSteps** selects active Steps that were triggered by the same
+  parent Step execution.
+
+An RPC can also cancel Steps by type. See
+[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
+running attempt observes cancellation, see [Cancellation](./step-options.mdx#cancellation).
+
+```typescript
+public execute(_context: Context, quote: Quote): StepDecision {
+  return withCancelingSteps(
+    goTo(RecordQuote, quote),
+    CarrierA,
+    CarrierB,
+  );
+}
+```
+
+Example: [examples/typescript/src/primitives/step-decision/step-decision-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/step-decision/step-decision-flow.ts)
+
+## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+
+**ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels
+are empty. A Channel with queued messages is non-empty. After a message is
+consumed and committed to a Step, that Channel remains non-empty until the Step
+finishes processing **Execute**. If every named Channel is empty, it completes
+the Flow. Otherwise, it goes to other Steps.
+
+Use it to drain Channels and complete the Flow, so the Flow can stay short. See
+[Drain External Channel](/design-patterns/draining-channel-for-external-publishing)
+for the full example.
+
+```typescript
+return forceCompleteIfChannelsEmpty(
+  null,
+  StepMovement.of(ProcessMessage, undefined),
+  queueChannel,
+);
+```
+
+Example: [examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts)

@@ -61,6 +61,7 @@ import { ExecutionGraph } from './details/ExecutionGraph';
 import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
+import { HorizontalTimeline } from './details/HorizontalTimeline';
 import { useRunHistory } from './useRunHistory';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream';
@@ -87,6 +88,24 @@ interface SelectedEventConnector {
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const noHistoryEvents: FlowHistoryEvent[] = [];
 const runTabStorageKey = 'dex.run.selected-tab';
+/** The horizontal Timeline needs width; narrow screens keep the vertical one. */
+const horizontalTimelineQuery = '(min-width: 761px)';
+
+/** Follows a media query; without matchMedia, such as in tests, it reports no match. */
+function useMediaQuery(query: string): boolean {
+  const [isMatch, setIsMatch] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches
+  ));
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia(query);
+    const update = () => setIsMatch(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+  return isMatch;
+}
 const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream']);
 const minimumSidebarWidth = 280;
 
@@ -171,6 +190,7 @@ export function RunDetailsPage({
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
   const [tab, setTab] = useState<RunTab>(storedRunTab);
+  const isHorizontalTimeline = useMediaQuery(horizontalTimelineQuery);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingRunRequestCount, setPendingRunRequestCount] = useState(0);
@@ -867,6 +887,7 @@ export function RunDetailsPage({
           tab === 'overview' ? 'run-content--overview' : '',
           resizingSidebar ? 'is-resizing-sidebar' : '',
           tab === 'timeline' ? 'run-content--timeline' : '',
+          tab === 'timeline' && isHorizontalTimeline ? 'run-content--horizontal-timeline' : '',
         ].filter(Boolean).join(' ')}
         ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
@@ -908,7 +929,22 @@ export function RunDetailsPage({
               onSelectEvent={setSelectedEvent}
             />
           )}
-          {tab === 'timeline' && !isWaitingForHistory && (
+          {tab === 'timeline' && !isWaitingForHistory && isHorizontalTimeline && (
+            <HorizontalTimeline
+              events={displayedTimelineEvents}
+              selectedEvent={selectedEvent}
+              onSelectEvent={selectTimelineEvent}
+              relations={selectedEvent ? selectedRelations : undefined}
+              paging={{
+                hasOlder: timelineWindow?.hasOlder ?? false,
+                hasNewer: runHistory.timelineHasNewer,
+                isLoading: runHistory.isLoadingTimelinePage,
+              }}
+              prunedEventIdRange={prunedEventIdRange}
+              highlightedEventId={runHistory.highlightedEventId}
+            />
+          )}
+          {tab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (
             <Timeline
               flowId={flowId}
               events={displayedTimelineEvents}

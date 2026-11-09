@@ -18,6 +18,7 @@
     "search",
     "attribute-store-sync",
     "metrics",
-    "upgrades"
+    "upgrades",
+    "changelog"
   ]
 }

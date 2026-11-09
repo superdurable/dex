@@ -1,0 +1,219 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait** with a wait type and the conditions to wait for.
+Dex persists the waiting state and evaluates the conditions when related state
+changes. [Timer](/primitives/timer), [Channel](/primitives/channel), and
+[SubFlow](/primitives/subflow) are the condition kinds.
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** accept Conditions without condition IDs. Do
+not add IDs merely because a Condition is nested in one of these waits. Read
+Channel results from the Channel definition and inspect Timer outcomes through
+the **Context**. Add IDs only when another API requires them, such as
+**AnyCombinationOf** or a Timer selected by ID.
+
+```typescript
+public waitFor(_context: Context, input: WaitTypesInput): Wait {
+  const timeoutMs = input.timeoutSeconds * 1000;
+  if (input.mode === "any") {
+    return Wait.anyOf(
+      channelA.forOne("signal"),
+      Timer.byDuration(timeoutMs, "timeout"),
+    );
+  }
+  if (input.mode === "all") {
+    return Wait.allOf(
+      channelA.forOne("signal-a"),
+      channelB.forOne("signal-b"),
+    );
+  }
+  if (input.mode === "combo") {
+    return Wait.anyCombinationOf(
+      ConditionCombination.of(
+        channelA.forOne("signal-a"),
+        Timer.byDuration(timeoutMs, "timeout"),
+      ),
+      ConditionCombination.of(channelB.forOne("signal-b")),
+    );
+  }
+  throw new Error(`unknown wait mode ${input.mode}`);
+}
+```
+
+Example: [examples/typescript/src/primitives/wait-types/wait-types-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
+
+```typescript
+public waitFor(_context: Context, input: WaitTypesInput): Wait {
+  const timeoutMs = input.timeoutSeconds * 1000;
+  if (input.mode === "any") {
+    return Wait.anyOf(
+      channelA.forOne("signal"),
+      Timer.byDuration(timeoutMs, "timeout"),
+    );
+  }
+  if (input.mode === "all") {
+    return Wait.allOf(
+      channelA.forOne("signal-a"),
+      channelB.forOne("signal-b"),
+    );
+  }
+  if (input.mode === "combo") {
+    return Wait.anyCombinationOf(
+      ConditionCombination.of(
+        channelA.forOne("signal-a"),
+        Timer.byDuration(timeoutMs, "timeout"),
+      ),
+      ConditionCombination.of(channelB.forOne("signal-b")),
+    );
+  }
+  throw new Error(`unknown wait mode ${input.mode}`);
+}
+```
+
+Example: [examples/typescript/src/primitives/wait-types/wait-types-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/primitives/channel), use **GetConditionResults** / **results** /
+**condition_results** to read published messages. For a
+[SubFlow](/primitives/subflow), use **SubFlowResult** / **getConditionResults**
+/ **condition_result** to decode the child Flow output.
+
+Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes
+messages only from the Channel condition selected to satisfy the Wait. Other
+Channel conditions consume nothing even if they are also ready, so their
+messages remain queued.
+
+When several **AnyOf** alternatives are ready in one evaluation, Dex selects
+the first feasible candidate in canonical order: Timer conditions in
+declaration order, then Channel conditions in declaration order, then SubFlow
+conditions in declaration order. An earlier condition that is not ready does
+not block a later ready condition. Mixed condition kinds therefore do not share
+one global call argument order.
+
+Use **AnyOf** for a race among the current alternatives. For strict priority
+that must keep waiting for a higher-priority input, return only that condition
+until it is resolved.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```typescript
+class ChannelWait implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "ChannelWait";
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeLoadChannels: [queuedMessages] };
+  }
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.anyOf(
+      approvalMessages.forOne(),
+      Timer.byDuration(input * 1000),
+    );
+  }
+
+  public execute(context: Context, _input: number): StepDecision {
+    const pendingQueuedMessages = queuedMessages.pendingMessages(context);
+    if (pendingQueuedMessages.length > 0) {
+      queuedMessages.delete(context, pendingQueuedMessages[0]!.messageId);
+      return gracefulComplete(pendingQueuedMessages[0]!.value);
+    }
+    if (context.hasTimerFired()) {
+      return gracefulComplete("approval timed out");
+    }
+    const approvalMessageValues = approvalMessages.results(context);
+    return gracefulComplete(approvalMessageValues[0]!);
+  }
+}
+```
+
+Example: [examples/typescript/src/primitives/channel/channel-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/channel/channel-flow.ts)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```typescript
+public execute(context: Context, _input: number): StepDecision {
+  const result = SubFlow.getConditionResults(context);
+  const output = result.singleOutput(doubleCodec);
+  const flowId = SubFlow.getFlowId(context);
+  return gracefulComplete(`${flowId}|${output}`);
+}
+```
+
+Example: [examples/typescript/src/primitives/subflow/subflow-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/subflow/subflow-flow.ts)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** expresses an OR of AND groups. Build each inner group as
+an all-of combination.
+
+Channel consumption is not greedy across combinations. Dex consumes messages
+only from Channel conditions in the selected combination. Conditions belonging
+only to other ready combinations consume nothing, so their messages remain
+queued.
+
+Every Condition in its combinations requires a unique **condition ID**.
+
+```typescript
+return Wait.anyCombinationOf(
+  ConditionCombination.of(
+    channelA.forOne("signal-a"),
+    Timer.byDuration(timeoutMs, "timeout"),
+  ),
+  ConditionCombination.of(channelB.forOne("signal-b")),
+);
+```
+
+Example: [examples/typescript/src/primitives/wait-types/wait-types-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/wait-types/wait-types-flow.ts)
+
+## Step execution local {#step-execution-local}
+
+**SetStepExecutionLocal** stores a value on this **StepExecution** so
+**Execute** can read it with **GetStepExecutionLocal**. Use it when **WaitFor**
+computes something **Execute** needs but a Flow-level **Attribute** is
+overkill. Step input is already passed to both methods. Do not copy input into
+a local.
+
+```typescript
+public waitFor(context: Context, input: number): Wait {
+  context.setStepExecutionLocal("note", `approval:${input}`, stringCodec);
+  return Wait.until(approval.forOne());
+}
+
+public execute(context: Context, _input: number): StepDecision {
+  const note = context.getStepExecutionLocal("note", stringCodec) ?? "";
+  return gracefulComplete(note);
+}
+```
+
+Example: [examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it in a dynamic **WaitFor**
+method when one branch must not wait for anything.
+
+```typescript
+return Wait.skipImmediately();
+```
+
+Example: [examples/typescript/src/primitives/flow/example-flow.ts](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/flow/example-flow.ts)

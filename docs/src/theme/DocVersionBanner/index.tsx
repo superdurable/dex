@@ -25,21 +25,21 @@ function ReferenceVersionBanner({pluginId, className}: Props & {pluginId: string
   const {activeVersion, alternateDocVersions} = useActiveDocContext(pluginId);
   const latestVersion = versions.find((version) => version.isLast)!;
   useDropMissingReferenceVersionAnchor();
-  if (!activeVersion || activeVersion.isLast) {
-    return null;
-  }
+  if (!activeVersion) return null;
   const latestDoc = alternateDocVersions[latestVersion.name] ??
     latestVersion.docs.find((doc) => doc.id === latestVersion.mainDocId)!;
-  return <div className={`alert alert--warning margin-bottom--md ${className ?? ''}`}
-    data-reference-version-banner role="note">
-    <Translate id="reference.version.banner"
-      description="Notice on an older Developer reference version"
-      values={{version: activeVersion.label, latest: <Link to={latestDoc.path}>
-        {latestVersion.label.replace(/ \(latest\)$/, '')}
-      </Link>}}>
-      {'You are viewing {version}. The latest is {latest}.'}
-    </Translate>
-  </div>;
+  return <>
+    {!activeVersion.isLast && <div className={`alert alert--warning margin-bottom--md ${className ?? ''}`}
+      data-reference-version-banner role="note">
+      <Translate id="reference.version.banner"
+        description="Notice on an older Developer reference version"
+        values={{version: activeVersion.label, latest: <Link to={latestDoc.path}>
+          {latestVersion.label.replace(/ \(latest\)$/, '')}
+        </Link>}}>
+        {'You are viewing {version}. The latest is {latest}.'}
+      </Translate>
+    </div>}
+  </>;
 }
 
 export default function ReferenceDocVersionBanner(props: Props): ReactNode {

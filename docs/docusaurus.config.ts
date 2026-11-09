@@ -192,6 +192,7 @@ const config: Config = {
         )],
       },
     ]),
+    './plugins/shared-docs-sidebar/index.cjs',
     './plugins/markdown-export/index.cjs',
     (context: LoadContext) =>
       clientRedirects(context, {
