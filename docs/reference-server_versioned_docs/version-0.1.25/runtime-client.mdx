@@ -17,7 +17,7 @@ accepts the request. It takes a registered Flow, a business **Flow ID**, the
 start Step input, and **StartFlowOptions**.
 
 The Flow ID is the identity your application chooses. The server creates the
-Run ID. See [StartFlowOptions](/reference/server/0.1.18/runtime-steps#start-flow-options) for the timeout,
+Run ID. See [StartFlowOptions](/reference/python/flows-and-steps/start-flow-options) for the timeout,
 request idempotency, ID reuse, retry, initial Attributes, and configuration
 overrides.
 
@@ -53,7 +53,7 @@ outside the Flow. Pass one read per value: a singleton Attribute, or one
 AttributeMap instance. The API has only a batch form. To read one value, pass
 one read.
 
-See [Read Attributes from outside a Flow](/reference/server/0.1.18/runtime-data#read-attributes-from-outside-a-flow)
+See [Read Attributes from outside a Flow](/reference/server/0.1.25/runtime-data#read-attributes-from-outside-a-flow)
 for the read semantics: one commit, the current or latest run, no Worker,
 committed state only, no locks, and large and hard-delete values.
 
@@ -291,7 +291,7 @@ Stream long-polls.
   again from the current state.
 - Each Flow allows 1,000 concurrent waits by default. The server setting is
   **limits.maxLongPollWaitersPerFlow**. A wait beyond the limit fails with a
-  resource-exhausted error. See [Limits](/reference/server/0.1.18/configuration#limits).
+  resource-exhausted error. See [Limits](/reference/server/0.1.25/configuration#limits).
 - A waiting call holds one slot until it returns, times out, is cancelled, or
   the caller disconnects.
 - The server caps each transport attempt. The SDK reattaches transparently with
@@ -315,7 +315,7 @@ ID that does not belong to a Flow, returns a typed Flow-not-found error.
 **SearchFlows** returns one page of Flow runs that match a search query.
 Internal server executions are excluded. Pass the returned page token to
 continue a search. Keep the query unchanged across pages. See
-[Search backends](/reference/server/0.1.18/search) for the query backends.
+[Search backends](/reference/server/0.1.25/search) for the query backends.
 
 ## Skip a Timer {#skip-a-timer}
 
@@ -328,22 +328,24 @@ condition index.
 ## Update FlowConfig {#update-flowconfig}
 
 **UpdateFlowConfig** changes the **FlowConfig** of an active Flow. See
-[Update FlowConfig with a Client](/reference/server/0.1.18/runtime-steps#update-flow-config-with-a-client)
+[Update FlowConfig with a Client](/reference/python/flows-and-steps/flow-config#update-flow-config-with-a-client)
 for the merge rules and the fields.
 
 <a id="触发-continue-as-new"></a>
-
-## TriggerContinueAsNew {#trigger-continue-as-new}
-
-**TriggerContinueAsNew** is deprecated. Dex does not continue Flows as new. The
-call always fails with **UNIMPLEMENTED**. Do not call it. A long-running Flow
-needs no rollover, because the server keeps a
-[recent history window](/reference/server/0.1.18/configuration#history-window).
+<a id="trigger-continue-as-new"></a>
 
 ## Time travel {#time-travel}
 
 **TimeTravel** creates a new run attempt from a point in an existing Flow's
 history. The run keeps its Run ID. The point must be inside the
-[recent history window](/reference/server/0.1.18/configuration#history-window).
+[recent history window](/reference/server/0.1.25/configuration#history-window).
 Otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
+
+**ResetFlow** keeps writes after the target in memory when write reapply is
+enabled. Memory grows with the number and size of those writes. A long run
+with large values can exceed the replay budget even when the target state is
+small. The request then fails with **RESOURCE_EXHAUSTED** and changes nothing.
+Set **skip_writes_reapply** to **true** if those writes should not be reapplied,
+or raise [**history.timeTravelReplayMemoryBytes**](/reference/server/0.1.25/configuration#history-checkpoints)
+and restart the node before retrying.

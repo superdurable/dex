@@ -87,6 +87,13 @@ grows. Add a lifecycle rule that expires noncurrent versions. A noncurrent
 version of a hard-delete Attribute value also keeps the deleted value until the
 version expires.
 
+Do not add a rule that expires current objects under **PREFIX/history/**. The
+server reads uploaded run history there for as long as the history window covers
+it, and a lifecycle rule cannot tell which objects the window still needs. A read
+of a missing object fails with UNAVAILABLE. The server deletes old history objects
+of offloaded runs itself once the window has passed them; see
+[History offload](/reference/server/0.1.25/configuration#history-offload).
+
 Add a rule that aborts incomplete multipart uploads after 1 to 7 days, whether or
 not versioning is on. A crash can leave an incomplete upload behind. A
 prefix-confined role cannot list or clean up those uploads.
@@ -114,13 +121,112 @@ unversioned bucket.
 }
 ~~~
 
+## Snapshot uploads after ownership changes
+
+The first snapshot after a takeover or restart uploads the full local checkpoint to a new
+lineage. It cannot reuse objects from the previous lineage, even when the local RocksDB
+directory is reused. Allow for the full checkpoint size, manifest data, upload throughput,
+and per-file request time. Later snapshots from the same owner can reuse unchanged files.
+
+## History offload {#history-offload}
+
+A run that offloads its history seals it into segments and uploads them to the
+primary object store under **PREFIX/history/**. Uploaded segments let the server
+reclaim local history rows and, after a grace period, superseded values.
+Segments expire when the history window passes them, and the server deletes
+their objects about an hour later. Each run chooses at start whether it
+offloads, and it does by default. A run without offload never writes under
+**PREFIX/history/**. See the
+[offload configuration](/reference/server/0.1.25/configuration#history-offload) for the
+per-run choice, the grace periods, and the history window.
+
+Changed in 0.1.23: runs choose history offload one by one, also on **serve**, and
+**history.offloadEnabled** was removed. Runs that started before the upgrade
+keep the offload mode that their partition recorded at the upgrade. A **serve**
+deployment whose offload was off at the upgrade therefore seals no new history of
+its existing runs. This includes one that turned **history.offloadEnabled** on
+and then off again: segments it sealed before can still finish uploading, and
+uploaded history stays readable. One whose offload was on at the upgrade keeps
+uploading the history of its existing runs, and those runs keep migrating.
+Runs that start after the upgrade offload unless they turn it off. Stop the standby and active processes and upgrade both
+together. Start the active process first, then the standby. Do not run an
+earlier release on the prefix afterwards: history that new runs removed from
+local disk needs object storage reads. See
+[Upgrades and compatibility](/reference/server/0.1.25/upgrades).
+Never add lifecycle expiry rules for current objects under **PREFIX/history/**;
+follow the [lifecycle guidance](#versioning-and-lifecycle-rules) above.
+
+Watch **dexzd_history_upload_backlog_segments**,
+**dexzd_history_upload_backlog_bytes**, and
+**dexzd_history_upload_oldest_sealed_age_seconds**. Alert if the oldest sealed
+segment's age keeps growing or uploads fail, as counted by
+**dexzd_history_uploads_total** with **outcome="failed"**. A growing backlog
+means more history stays on local disk. Since 0.1.23, the number of uploads in
+flight adapts to the backlog; see
+[Upload concurrency](/reference/server/0.1.25/configuration#history-upload-concurrency).
+Use **dexzd_history_reads_total** to
+track reads from local disk, cache, and object storage, and
+**dexzd_history_value_revivals_total** to track values restored to local disk.
+Since 0.1.22, **dexzd_history_expired_objects_deleted_total** and
+**dexzd_history_orphan_objects_deleted_total** count object cleanup. See
+[Metrics and alerts](/reference/server/0.1.25/metrics) for labels and alert thresholds.
+
+## db9 provider {#db9}
+
+Since 0.1.24, **serve** can keep its object storage in db9, a
+PostgreSQL-compatible database, instead of S3. The server stores command logs,
+lease and cluster metadata, snapshots, values, and history objects there.
+Existing configurations keep using S3.
+
+~~~yaml
+objectStore:
+  provider: db9
+  bucket: dex
+  prefix: production/
+  db9PoolSize: 8
+  db9RequestTimeout: 10s
+~~~
+
+Set the connection string in **DEX_ZD_DB9_CONNECTION_STRING**. Do not put it in
+the configuration file. The server never serializes or logs it. For a remote
+database, use **sslmode=verify-full**.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| **objectStore.provider** | **s3** | **db9** selects the db9 provider |
+| **objectStore.bucket** | required | Logical namespace inside the database |
+| **objectStore.prefix** | empty | Key prefix inside the namespace |
+| **objectStore.db9PoolSize** | 8 | Concurrent database transactions, from 1 to 64 |
+| **objectStore.db9RequestTimeout** | 10s | Deadline of each SQL request |
+
+With **db9**, leave **objectStore.endpoint** empty and keep
+**objectStore.credentialsSource** at **defaultChain**. **dev** and **local**
+reject **db9**.
+
+At startup the server creates two tables, **dex_object_metadata** and
+**dex_object_chunks**, in the connection's search path. The database user needs
+permission to create tables and to read, insert, update, and delete their rows.
+Use a dedicated database or schema. The namespace and prefix isolate keys; they
+do not control access.
+
+The server stores each object in 256 KiB chunks and writes it in one
+transaction. The database provides durability and consistency. It must commit
+transactions atomically and durably, support row locks, and read consistently.
+A large object is subject to the database's transaction limits.
+
+Hard-delete Attribute values use the same provider, unless
+**objectStore.hardDeleteStore** selects an S3 destination.
+
+The server does not migrate existing S3 data to db9. Start db9 with a new
+namespace.
+
 ## Backup and restore
 
 The object storage prefix is the only source of truth. The local store is
 rebuilt from it. An external search projection is not rebuilt: after a restore,
 configure a new **search.paradeDbSchema** or **search.postgresSchema**, or a new
 database, so the server loads it from the restored state. See
-[Initial load](/reference/server/0.1.18/search#search-projection-initial-load). Reusing the old schema fails:
+[Initial load](/reference/server/0.1.25/search#search-projection-initial-load). Reusing the old schema fails:
 the restored node epoch is older than the one that the schema records, so the
 projection stops and SearchFlows returns **UNAVAILABLE**. With
 **search.backend: postgres**, reusing the old schema can also leave the
@@ -146,3 +252,6 @@ To restore:
    restored prefix.
 
 Writes acknowledged after the restore point are lost.
+
+With the [db9 provider](#db9), the two provider tables hold that state. Back
+them up and restore them together, to one point in time.
