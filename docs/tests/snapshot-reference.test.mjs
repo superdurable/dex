@@ -7,14 +7,18 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import assert from 'node:assert/strict';
-import {cp, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
+import {Globby} from '@docusaurus/utils';
 import {
   droppedVersionRedirects, localizeAllSnapshotLinks, readReferenceDocuments, referenceVersion,
   retargetRedirects, rewriteSnapshotLinks, snapshotReference,
 } from '../scripts/snapshot-reference.mjs';
+
+const docsDirectory = fileURLToPath(new URL('../', import.meta.url));
 
 test('release versions follow component boundaries', () => {
   assert.equal(referenceVersion('go', 'v1.35.2'), '1.35.x');
@@ -208,6 +212,106 @@ test('link rewrites update whole paths in retained snapshots only', async () => 
     ].join('\n'));
     assert.equal(await readFile(join(siteDirectory, 'reference/go/index.mdx'), 'utf8'), '[a](/primitives/old)');
     await assert.rejects(rewriteSnapshotLinks('/a#b', '/c', {siteDirectory}), /without anchors/);
+  } finally {
+    await rm(siteDirectory, {recursive: true, force: true});
+  }
+});
+
+test('pruning points links to dropped versions at their redirect destinations everywhere', async () => {
+  const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-dropped-links-'));
+  try {
+    const latestDirectory = join(siteDirectory, 'reference/cli');
+    await mkdir(latestDirectory, {recursive: true});
+    await writeFile(join(latestDirectory, 'index.mdx'), '---\nslug: /\n---\n# CLI');
+    await writeFile(join(latestDirectory, 'changelog.mdx'), [
+      '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/1.33.x/) [bare](/reference/cli/1.33.x)',
+      '[anchor](/reference/cli/1.33.x/#start-locally) [log](/reference/cli/1.33.x/changelog/#v1-33)',
+      '[gone](</reference/cli/1.33.x/removed>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.33.xy/)',
+    ].join('\n'));
+    await mkdir(join(siteDirectory, 'content'), {recursive: true});
+    await writeFile(join(siteDirectory, 'content/guide.mdx'), '<Link to="/reference/cli/1.33.x/changelog">c</Link>');
+    await writeFile(join(siteDirectory, 'reference/versions.json'), JSON.stringify({cli: '1.37.x'}));
+    await writeFile(join(siteDirectory, 'redirects.json'), '[]');
+    const previousVersions = ['1.37.x', '1.36.x', '1.35.x', '1.34.x', '1.33.x'];
+    await writeFile(join(siteDirectory, 'reference-cli_versions.json'), JSON.stringify(previousVersions));
+    await mkdir(join(siteDirectory, 'reference-cli_versioned_sidebars'));
+    for (const version of previousVersions) {
+      const directory = join(siteDirectory, `reference-cli_versioned_docs/version-${version}`);
+      await cp(latestDirectory, directory, {recursive: true});
+      await writeFile(join(directory, 'removed.mdx'), '# Removed');
+      await writeFile(join(siteDirectory, `reference-cli_versioned_sidebars/version-${version}-sidebars.json`), '{}');
+    }
+    const createSnapshot = async (directory, component, version) => {
+      await cp(latestDirectory, join(directory, `reference-cli_versioned_docs/version-${version}`), {recursive: true});
+      await writeFile(join(directory, `reference-cli_versioned_sidebars/version-${version}-sidebars.json`), '{}');
+    };
+    const result = await snapshotReference('cli', '1.38.0', {siteDirectory, createSnapshot});
+    assert.deepEqual(result.droppedVersions, ['1.33.x']);
+    assert.deepEqual(result.rewrittenFiles, [
+      'content/guide.mdx',
+      'reference-cli_versioned_docs/version-1.34.x/changelog.mdx',
+      'reference-cli_versioned_docs/version-1.35.x/changelog.mdx',
+      'reference-cli_versioned_docs/version-1.36.x/changelog.mdx',
+      'reference-cli_versioned_docs/version-1.37.x/changelog.mdx',
+      'reference-cli_versioned_docs/version-1.38.x/changelog.mdx',
+      'reference/cli/changelog.mdx',
+    ]);
+    const expectedChangelog = [
+      '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/) [bare](/reference/cli/)',
+      '[anchor](/reference/cli/) [log](/reference/cli/changelog/)',
+      '[gone](</reference/cli/>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.33.xy/)',
+    ].join('\n');
+    assert.equal(await readFile(join(latestDirectory, 'changelog.mdx'), 'utf8'), expectedChangelog);
+    assert.equal(await readFile(join(siteDirectory, 'reference-cli_versioned_docs/version-1.34.x/changelog.mdx'), 'utf8'),
+      expectedChangelog);
+    assert.equal(await readFile(join(siteDirectory, 'content/guide.mdx'), 'utf8'),
+      '<Link to="/reference/cli/changelog/">c</Link>');
+    assert.equal(await readFile(join(siteDirectory, 'reference-cli_versioned_docs/version-1.38.x/changelog.mdx'), 'utf8'),
+      [
+        '[1.37.x](/reference/cli/1.37.x/) [1.33.x](/reference/cli/1.38.x/) [bare](/reference/cli/1.38.x/)',
+        '[anchor](/reference/cli/1.38.x/) [log](/reference/cli/1.38.x/changelog/)',
+        '[gone](</reference/cli/1.38.x/>) [other](/reference/go/1.33.x/) [near](/reference/cli/1.38.x/1.33.xy/)',
+      ].join('\n'));
+  } finally {
+    await rm(siteDirectory, {recursive: true, force: true});
+  }
+});
+
+test('the next release of every component leaves no link to a version it prunes', async () => {
+  const siteDirectory = await mkdtemp(join(tmpdir(), 'dex-reference-next-release-'));
+  try {
+    for (const entry of await readdir(docsDirectory)) {
+      if (['reference', 'content', 'i18n', 'src', 'redirects.json'].includes(entry)
+        || /^reference-[a-z]+_(?:versioned_docs|versioned_sidebars|versions\.json)$/.test(entry)) {
+        await cp(join(docsDirectory, entry), join(siteDirectory, entry), {recursive: true});
+      }
+    }
+    const latestVersions = JSON.parse(await readFile(join(siteDirectory, 'reference/versions.json'), 'utf8'));
+    const createSnapshot = async (directory, component, version) => {
+      await cp(join(directory, 'reference', component),
+        join(directory, `reference-${component}_versioned_docs/version-${version}`), {recursive: true});
+      await cp(join(directory, `reference-${component}_versioned_sidebars/version-${latestVersions[component]}-sidebars.json`),
+        join(directory, `reference-${component}_versioned_sidebars/version-${version}-sidebars.json`));
+    };
+    const droppedRoutes = [];
+    for (const [component, latestVersion] of Object.entries(latestVersions)) {
+      const [major, minor, patch] = latestVersion.split('.');
+      const nextRelease = patch === 'x' ? `${major}.${Number(minor) + 1}.0` : `${major}.${minor}.${Number(patch) + 1}`;
+      const {droppedVersions} = await snapshotReference(component, nextRelease, {siteDirectory, createSnapshot});
+      droppedRoutes.push(...droppedVersions.map((version) => `/reference/${component}/${version}`));
+    }
+    assert.ok(droppedRoutes.length > 0, 'the simulated releases must prune at least one version');
+    const remainingLinkPattern = new RegExp(`(?:${droppedRoutes.map((route) => route.replaceAll('.', '\\.')).join('|')})`
+      + '(?=$|[\\s/)"\'\\]#?>])', 'm');
+    const sources = await Globby(['reference/**', 'content/**', 'i18n/**', 'src/**', 'reference-*_versioned_*/**'],
+      {cwd: siteDirectory});
+    const filesWithPrunedLinks = [];
+    for (const source of sources.sort()) {
+      if (remainingLinkPattern.test(await readFile(join(siteDirectory, source), 'utf8'))) {
+        filesWithPrunedLinks.push(source);
+      }
+    }
+    assert.deepEqual(filesWithPrunedLinks, [], `links remain to pruned versions ${droppedRoutes.join(', ')}`);
   } finally {
     await rm(siteDirectory, {recursive: true, force: true});
   }
