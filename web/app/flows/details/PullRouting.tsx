@@ -36,15 +36,10 @@ export function FlowRouting({ routing, flowType, showFlowType = false }: {
   flowType: string;
   showFlowType?: boolean;
 }) {
-  const target = routing.workerTarget;
-  const isPull = target.isPullMode === true;
   return <Fields compact values={[
-    ['Worker target', isPull ? 'Pull' : target.address ? `${target.address}${target.isHeadlessAddress === true ? ' (headless)' : ''}` : '—'],
     ...(showFlowType ? [['Flow type', flowType]] as [string, unknown][] : []),
-    ...(isPull ? [
-      ['Flow type queue', flowType],
-      ['Sticky app Worker ID', routing.stickyAppWorkerId || '—'],
-    ] as [string, unknown][] : []),
+    ['Flow type queue', flowType],
+    ['Sticky Worker ID', routing.stickyAppWorkerId || '—'],
   ]} />;
 }
 

@@ -20,20 +20,22 @@ describe('pull routing', () => {
     expect(fallback).toContain('worker-b');
     expect(fallback).toContain('worker-a');
   });
-  it('shows blanks for old routing and only an address for push targets', () => {
+  it('shows blanks for old routing', () => {
     const missing = renderToStaticMarkup(<PullRouting value={undefined} />);
     expect(missing.match(/—/g)).toHaveLength(3);
-    const push = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={{ workerTarget: { address: 'worker:8803', isHeadlessAddress: true } }} />);
-    expect(push).toContain('worker:8803 (headless)');
-    expect(push).not.toContain('Flow type queue');
-    expect(push).not.toContain('Sticky app Worker ID');
+  });
+  it('shows the queue rows without a Worker target, even when the start event has no target', () => {
+    const markup = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={{ workerTarget: {} }} />);
+    expect(markup).not.toContain('Worker target');
+    expect(markup).toContain('>Flow type queue<');
+    expect(markup).toContain('>Sticky Worker ID<');
   });
   it('shows the Flow type queue and restores closed-run sticky data from Step history', () => {
     const routing = flowRoutingData(null, [{ eventId: 1, eventTime: null, type: 'FlowStartedOrContinued', payload: { flowConfig: { workerTarget: { isPullMode: true } } } }, { eventId: 2, eventTime: null, type: 'StepExecuteCompleted', payload: { context: { pullRouting: { servedByAppWorkerId: 'last-worker' } } } }]);
     const markup = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={routing} />);
     expect(markup).toContain('PaymentFlow');
     expect(markup).toContain('last-worker');
-    expect(markup).toContain('Pull');
+    expect(markup).not.toContain('Worker target');
     expect(markup).not.toContain('>Flow type<');
     const overview = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={routing} showFlowType />);
     expect(overview.indexOf('>Flow type<')).toBeGreaterThan(-1);
