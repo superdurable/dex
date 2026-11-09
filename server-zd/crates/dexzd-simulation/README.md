@@ -460,6 +460,29 @@ The v1 format pin changes from `e345cf25eaaa7b81f4ab41ac8b3ba446` to
 `state.txt` carry the run window counters and the history row metadata field
 `window_event_count_before`. Log objects, the workload, and the fixture README are unchanged.
 
+### Idle log cleanup digest changes
+
+The periodic snapshot cleanup now also deletes log batches that a published snapshot older than
+the deletion delay covers. Before, only a new snapshot ran log cleanup, so an idle node kept
+those batches. The added manifest updates and deletions change later commands. Six engine pins
+moved; `FIRST_SEED + 1`, `FIRST_SEED + 2`, and `FIRST_REDEPLOY_SEED` did not. With only the
+periodic log cleanup disabled, all nine pins keep their previous digests. No apply pin moved.
+
+| Engine seed | Previous digest | Idle-cleanup digest |
+| --- | --- | --- |
+| `3856990760` | `0x216dab7f1c04e0631e1e6f5f8d48fff3` | `0x153b7b678ce434545188c8476452f1f6` |
+| `3856990458` | `0xeb28ce76f9925180180a95aa54e337a8` | `0x17cfb4831963a79bc101209718fa8f49` |
+| `3856990875` | `0x10e0d89bc5919fb6b27ad0d2df8828ed` | `0x6e35d749c9254426e19b14357f2b61d8` |
+| `3856990400` | `0x9677bd868a00836031d6b0d1045fb1ee` | `0x2e2373b12e04a9a7b36aaa5e3eb2bfbb` |
+| `FIRST_SEED` | `0x6835855b420e314659cdaf66091d0703` | `0x835fff9ad57ac0397ae33e500d8162c3` |
+| `FIRST_HOT_STANDBY_SEED` | `0x626b65f0c2f0b58987fa3d4fc568ed56` | `0xd044f526afb51e92d249b21b5c61ba77` |
+
+The four engine regression seeds were already historical baseline cases: they did not reproduce
+the #847 failure before this change. The deterministic tests in
+`effects::tests::outbox_and_purge_tests` keep that coverage. `FIRST_SEED` and
+`FIRST_HOT_STANDBY_SEED` (`1470103552`) pin no regression. The hot standby regression seeds are
+not pinned; they still pass.
+
 ### Running
 
 ```bash
