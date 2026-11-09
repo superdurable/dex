@@ -1109,7 +1109,7 @@ function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     historyWindowEvents: config?.historyWindowEvents,
-    deleteExpiredHistoryObjects: config?.deleteExpiredHistoryObjects,
+    offloadHistory: config?.offloadHistory,
     stepDurability:
       config?.stepDurability === "sync"
         ? ProtoStepDurability.STEP_DURABILITY_SYNC

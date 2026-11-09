@@ -1694,7 +1694,7 @@ function mapFlowConfig(
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     historyWindowEvents: config?.historyWindowEvents,
-    deleteExpiredHistoryObjects: config?.deleteExpiredHistoryObjects,
+    offloadHistory: config?.offloadHistory,
     stepDurability:
       config?.stepDurability === undefined ? undefined : mapDurability(config.stepDurability),
     workerTarget: undefined,

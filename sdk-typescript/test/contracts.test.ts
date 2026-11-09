@@ -348,6 +348,7 @@ test("SubFlows always send the exact pull Worker target with and without config 
     undefined,
     { continueAsNewThreshold: 123 },
     { historyWindowEvents: 2500 },
+    { offloadHistory: false },
     { deleteExpiredHistoryObjects: false },
     { deleteExpiredHistoryObjects: true },
   ] as const) {
@@ -380,15 +381,17 @@ test("SubFlows always send the exact pull Worker target with and without config 
         ? configOverride.continueAsNewThreshold
         : undefined,
     );
-    assert.equal(
-      mappedConfig?.deleteExpiredHistoryObjects,
-      configOverride !== undefined && "deleteExpiredHistoryObjects" in configOverride
-        ? configOverride.deleteExpiredHistoryObjects : undefined,
-    );
+    assert.equal(mappedConfig?.deleteExpiredHistoryObjects, undefined);
     assert.equal(
       mappedConfig?.historyWindowEvents,
       configOverride !== undefined && "historyWindowEvents" in configOverride
         ? configOverride.historyWindowEvents
+        : undefined,
+    );
+    assert.equal(
+      mappedConfig?.offloadHistory,
+      configOverride !== undefined && "offloadHistory" in configOverride
+        ? configOverride.offloadHistory
         : undefined,
     );
   }
