@@ -15,7 +15,7 @@ import type {
 } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
-import { latestEventIdOfWait, withFlowStart } from '@/lib/history';
+import { latestEventIdOfWait, timelinePagePositionOf, withFlowStart } from '@/lib/history';
 import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { buildSelectedTimelineRelations } from '@/lib/timeline';
 import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
@@ -25,6 +25,22 @@ import type {
   FlowState,
   FlowSummary,
 } from '@/lib/types';
+import {
+  CalendarClock,
+  Flag,
+  History,
+  LayoutDashboard,
+  Layers,
+  Link as LinkIcon,
+  RefreshCw,
+  Rows3,
+  Square,
+  Timer,
+  Waves,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react';
+import { CopyButton } from '../components/CopyButton';
 import { StatusBadge } from '../components/StatusBadge';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
@@ -35,6 +51,7 @@ import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDia
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
+import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { useRunHistory } from './useRunHistory';
@@ -62,31 +79,37 @@ interface SelectedEventConnector {
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const noHistoryEvents: FlowHistoryEvent[] = [];
-const sidebarWidthStorageKey = 'dex.run.selected-event-width';
 const runTabStorageKey = 'dex.run.selected-tab';
 const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream']);
-const defaultSidebarWidth = 340;
 const minimumSidebarWidth = 280;
-const maximumSidebarWidth = 720;
 
-function clampSidebarWidth(width: number): number {
-  return Math.min(maximumSidebarWidth, Math.max(minimumSidebarWidth, width));
+type SidebarKind = 'graph' | 'timeline';
+
+/** Timeline rows are short, so its event panel defaults wider; each tab remembers its own width. */
+const sidebarLayouts: Record<SidebarKind, { storageKey: string; defaultWidth: number; maximumWidth: number }> = {
+  graph: { storageKey: 'dex.run.selected-event-width', defaultWidth: 340, maximumWidth: 720 },
+  timeline: { storageKey: 'dex.run.selected-event-width.timeline', defaultWidth: 780, maximumWidth: 1040 },
+};
+
+function clampSidebarWidth(kind: SidebarKind, width: number): number {
+  return Math.min(sidebarLayouts[kind].maximumWidth, Math.max(minimumSidebarWidth, width));
 }
 
-function storedSidebarWidth(): number {
-  if (typeof window === 'undefined') return defaultSidebarWidth;
+function storedSidebarWidth(kind: SidebarKind): number {
+  const { storageKey, defaultWidth } = sidebarLayouts[kind];
+  if (typeof window === 'undefined') return defaultWidth;
   try {
-    const width = Number.parseInt(window.localStorage.getItem(sidebarWidthStorageKey) || '', 10);
-    return Number.isFinite(width) ? clampSidebarWidth(width) : defaultSidebarWidth;
+    const width = Number.parseInt(window.localStorage.getItem(storageKey) || '', 10);
+    return Number.isFinite(width) ? clampSidebarWidth(kind, width) : defaultWidth;
   } catch (storageError) {
     console.warn('Unable to read the selected event width preference.', storageError);
-    return defaultSidebarWidth;
+    return defaultWidth;
   }
 }
 
-function persistSidebarWidth(width: number) {
+function persistSidebarWidth(kind: SidebarKind, width: number) {
   try {
-    window.localStorage.setItem(sidebarWidthStorageKey, String(width));
+    window.localStorage.setItem(sidebarLayouts[kind].storageKey, String(width));
   } catch (storageError) {
     console.warn('Unable to save the selected event width preference.', storageError);
   }
@@ -153,7 +176,10 @@ export function RunDetailsPage({
   const [waitCycle, setWaitCycle] = useState(0);
   const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
-  const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
+  const [sidebarWidths, setSidebarWidths] = useState<Record<SidebarKind, number>>(() => ({
+    graph: storedSidebarWidth('graph'),
+    timeline: storedSidebarWidth('timeline'),
+  }));
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [selectedEventConnector, setSelectedEventConnector] = useState<SelectedEventConnector | null>(null);
   const waitGeneration = useRef(0);
@@ -163,8 +189,13 @@ export function RunDetailsPage({
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
+  const sidebarKind: SidebarKind = tab === 'timeline' ? 'timeline' : 'graph';
+  const sidebarWidth = sidebarWidths[sidebarKind];
+  const sidebarKindRef = useRef(sidebarKind);
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarResizeStart = useRef({ pointerX: 0, width: sidebarWidth });
+  sidebarKindRef.current = sidebarKind;
+  sidebarWidthRef.current = sidebarWidth;
   const runContent = useRef<HTMLDivElement>(null);
   const followedRunAttempt = useRef(0);
 
@@ -174,10 +205,14 @@ export function RunDetailsPage({
     setDataWarnings((current) => current.includes(warning) ? current : [...current, warning]);
   }, []);
   const updateSidebarWidth = useCallback((width: number) => {
-    const nextWidth = clampSidebarWidth(width);
+    const kind = sidebarKindRef.current;
+    const nextWidth = clampSidebarWidth(kind, width);
     sidebarWidthRef.current = nextWidth;
-    setSidebarWidth(nextWidth);
+    setSidebarWidths((current) => ({ ...current, [kind]: nextWidth }));
     return nextWidth;
+  }, []);
+  const saveSidebarWidth = useCallback((width: number) => {
+    persistSidebarWidth(sidebarKindRef.current, width);
   }, []);
   const startSidebarResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
@@ -193,11 +228,11 @@ export function RunDetailsPage({
     if (event.key === 'ArrowLeft') nextWidth += 24;
     else if (event.key === 'ArrowRight') nextWidth -= 24;
     else if (event.key === 'Home') nextWidth = minimumSidebarWidth;
-    else if (event.key === 'End') nextWidth = maximumSidebarWidth;
+    else if (event.key === 'End') nextWidth = sidebarLayouts[sidebarKindRef.current].maximumWidth;
     else return;
     event.preventDefault();
-    persistSidebarWidth(updateSidebarWidth(nextWidth));
-  }, [updateSidebarWidth]);
+    saveSidebarWidth(updateSidebarWidth(nextWidth));
+  }, [saveSidebarWidth, updateSidebarWidth]);
 
   useEffect(() => {
     if (!resizingSidebar) return;
@@ -206,7 +241,7 @@ export function RunDetailsPage({
       updateSidebarWidth(start.width + start.pointerX - event.clientX);
     };
     const finish = () => {
-      persistSidebarWidth(sidebarWidthRef.current);
+      saveSidebarWidth(sidebarWidthRef.current);
       setResizingSidebar(false);
     };
     window.addEventListener('pointermove', resize);
@@ -217,7 +252,7 @@ export function RunDetailsPage({
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
     };
-  }, [resizingSidebar, updateSidebarWidth]);
+  }, [resizingSidebar, saveSidebarWidth, updateSidebarWidth]);
 
   const loadState = useCallback(async (statusCode: number) => {
     const stateLoad = ++startedStateLoad.current;
@@ -440,11 +475,11 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  const tabs: Array<[RunTab, string]> = [
-    ['overview', 'Overview'],
-    ['steps', 'Execution graph'],
-    ['timeline', 'Timeline'],
-    ['stream', 'Streams'],
+  const tabs: Array<[RunTab, string, LucideIcon]> = [
+    ['overview', 'Overview', LayoutDashboard],
+    ['steps', 'Execution graph', Workflow],
+    ['timeline', 'Timeline', Rows3],
+    ['stream', 'Streams', Waves],
   ];
   const history = runHistory.newest?.events ?? noHistoryEvents;
   const timelineWindow = runHistory.timelineWindow;
@@ -464,7 +499,18 @@ export function RunDetailsPage({
     () => timelineEvents.map((event) => hydratedEvents[event.eventId] ?? event),
     [hydratedEvents, timelineEvents],
   );
-  const isSelectionOnTimeline = tab === 'timeline';
+  // The Execution graph and the Timeline share one event page.
+  const isSelectionOnTimeline = tab === 'timeline' || tab === 'steps';
+  const pageEventsWithFlowStart = useMemo(
+    () => withFlowStart(displayedTimelineEvents, flowStartEvent),
+    [displayedTimelineEvents, flowStartEvent],
+  );
+  const pageHasEarlierEvents = (timelineWindow?.hasOlder ?? false) || hasGapAfterFlowStart(timelineEvents);
+  const pagePosition = useMemo(() => (
+    runHistory.hasContiguousEventIds && timelineWindow && runHistory.newestTimelinePage
+      ? timelinePagePositionOf(timelineWindow, runHistory.newestTimelinePage, prunedEventIdRange)
+      : null
+  ), [prunedEventIdRange, runHistory.hasContiguousEventIds, runHistory.newestTimelinePage, timelineWindow]);
   const selectionEvents = isSelectionOnTimeline ? displayedTimelineEvents : displayedHistory;
   const selectionWindow = isSelectionOnTimeline ? timelineWindow : runHistory.newest;
   const selectionHasOlder = selectionWindow?.hasOlder ?? false;
@@ -515,6 +561,29 @@ export function RunDetailsPage({
       if (result.kind === 'restored') setSelectedEvent(result.selectedEvent);
     });
   }, [backInTimeline, navigateTimeline]);
+
+  const pageFirstEventId = timelineEvents[0]?.eventId;
+  const pageLastEventId = timelineEvents.at(-1)?.eventId;
+  const eventsPaging: RunEventsPaging | null = pageFirstEventId === undefined || pageLastEventId === undefined
+    ? null
+    : {
+      firstEventId: pageFirstEventId,
+      lastEventId: pageLastEventId,
+      pageNumber: runHistory.isTimelineOnNewest ? 1 : pagePosition?.pageNumber ?? null,
+      pageCount: pagePosition?.pageCount ?? null,
+      hasOlder: timelineWindow?.hasOlder ?? false,
+      hasNewer: runHistory.timelineHasNewer,
+      isNewest: runHistory.isTimelineOnNewest,
+      isLoading: runHistory.isLoadingTimelinePage,
+      canGoBack: runHistory.canGoBack,
+      onBack: goBackInTimeline,
+      onLatestPage: runHistory.showNewest,
+      onNewerPage: () => navigateTimeline(runHistory.showNewer),
+      onOlderPage: () => navigateTimeline(runHistory.showOlder),
+      onOldestPage: () => navigateTimeline(() => runHistory.showOldest(
+        pagePosition && pagePosition.pageCount > 1 ? pagePosition.oldestPageLastEventId + 1 : undefined,
+      )),
+    };
 
   useEffect(() => {
     if (selectedRaw) void hydrateEvent(selectedRaw);
@@ -625,13 +694,16 @@ export function RunDetailsPage({
   const isWaitingForHistory = history.length === 0 && (loading || pendingRunRequestCount > 0);
 
   return (
-    <div className="run-page">
-      <section className="run-header">
-        {breadcrumb}
-        <div className="run-title-row">
-          <div>
-            <p className="eyebrow">{summary?.flowType || 'Flow execution'}</p>
-            <h1>{flowId}</h1>
+    <div className="run-page v1-page">
+      <header className="run-header">
+        <h1 className="sr-only">Flow {flowId}, run {runId}</h1>
+        <div className="run-header-bar">
+          <div className="run-identity">
+            {breadcrumb}
+            <div className="run-identity-copy">
+              <CopyButton label="Copy Flow ID" value={flowId}>Flow ID</CopyButton>
+              <CopyButton label="Copy run ID" value={runId}>Run ID</CopyButton>
+            </div>
           </div>
           <div className="run-actions">
             {continuedToRunId && (
@@ -639,55 +711,91 @@ export function RunDetailsPage({
                 Next run
               </Link>
             )}
-            <label className="toggle-label">
+            <label
+              className={`live-toggle${autoRefresh && summary && !terminalStatuses.has(summary.flowStatusCode) ? ' is-on' : ''}`}
+            >
               <input
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(event) => setAutoRefresh(event.target.checked)}
               />
+              <span aria-hidden="true" className="live-toggle-dot" />
               Live
             </label>
-            <button className="button ghost" onClick={() => void navigator.clipboard.writeText(window.location.href)}>
+            <CopyButton
+              className="button quiet"
+              icon={LinkIcon}
+              label="Copy link"
+              value={() => window.location.href}
+            >
               Copy link
+            </CopyButton>
+            <button className="button quiet" onClick={() => void refresh()} type="button">
+              <RefreshCw aria-hidden="true" size={15} strokeWidth={2} />
+              Refresh
             </button>
-            <button className="button ghost" onClick={() => void refresh()}>Refresh</button>
             <button
-              className="button danger"
+              className="button quiet danger"
               disabled={!summary || terminalStatuses.has(summary.flowStatusCode)}
               onClick={() => setStopOpen(true)}
+              type="button"
             >
+              <Square aria-hidden="true" size={14} strokeWidth={2.25} />
               Stop
             </button>
             <button
-              className="button danger"
+              className="button quiet danger"
               onClick={() => openTimeTravel(selectedEvent ? selected : null)}
+              type="button"
             >
+              <History aria-hidden="true" size={15} strokeWidth={2} />
               Time Travel
             </button>
           </div>
         </div>
         {summary && (
-          <div className="summary-strip">
-            <div><span>Status</span><StatusBadge status={summary.flowStatus} /></div>
-            <div><span>Started</span><b>{formatDate(summary.startTime, timezone)}</b></div>
-            <div><span>Closed</span><b>{formatDate(summary.closeTime, timezone)}</b></div>
-            <div><span>Duration</span><b>{formatDuration(summary.startTime, summary.closeTime)}</b></div>
-            {currentRunAttempt > 0 ? (
+          <div className="run-summary">
+            <div className="run-summary-status">
+              <span className="sr-only">Status</span>
+              <StatusBadge status={summary.flowStatus} size="large" />
+            </div>
+            <dl className="run-facts">
               <div>
-                <span>Run attempt</span>
-                <RunAttemptSelect
-                  currentRunAttempt={currentRunAttempt}
-                  displayedRunAttempt={displayedRunAttempt}
-                  onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
-                />
+                <dt className="run-fact-label"><CalendarClock aria-hidden="true" size={14} strokeWidth={2} />Started</dt>
+                <dd>{formatDate(summary.startTime, timezone)}</dd>
               </div>
-            ) : (
-              <div><span>Run chain</span><b>{runChain.length}</b></div>
-            )}
-            <div><span>Latest event</span><b>{latestEvent ? `#${latestEvent.eventId}` : 'None'}</b></div>
+              {summary.closeTime && (
+                <div>
+                  <dt className="run-fact-label"><Flag aria-hidden="true" size={14} strokeWidth={2} />Closed</dt>
+                  <dd>{formatDate(summary.closeTime, timezone)}</dd>
+                </div>
+              )}
+              <div>
+                <dt className="run-fact-label"><Timer aria-hidden="true" size={14} strokeWidth={2} />Duration</dt>
+                <dd>{formatDuration(summary.startTime, summary.closeTime)}</dd>
+              </div>
+              {currentRunAttempt > 0 ? (
+                <div>
+                  <dt className="run-fact-label"><Layers aria-hidden="true" size={14} strokeWidth={2} />Run attempt</dt>
+                  <dd>
+                    <RunAttemptSelect
+                      currentRunAttempt={currentRunAttempt}
+                      displayedRunAttempt={displayedRunAttempt}
+                      onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
+                    />
+                  </dd>
+                </div>
+              ) : (
+                <div>
+                  <dt className="run-fact-label"><Layers aria-hidden="true" size={14} strokeWidth={2} />Run chain</dt>
+                  <dd>{runChain.length}</dd>
+                </div>
+              )}
+            </dl>
+            <RunEventsTile latestEventId={latestEvent?.eventId ?? null} paging={eventsPaging} />
           </div>
         )}
-      </section>
+      </header>
 
       {isViewingEarlierRunAttempt && (
         <div className="warning-banner run-error">
@@ -703,16 +811,19 @@ export function RunDetailsPage({
         <div className="warning-banner run-error" key={warning}>{warning}</div>
       ))}
 
-      <div className="run-tabs" role="tablist">
-        {tabs.map(([id, label]) => (
+      <div aria-label="Run views" className="run-tabs" role="group">
+        {tabs.map(([id, label, TabIcon]) => (
           <button
             key={id}
+            aria-pressed={tab === id}
             className={tab === id ? 'active' : ''}
             onClick={() => {
               setTab(id);
               persistRunTab(id);
             }}
+            type="button"
           >
+            <TabIcon aria-hidden="true" size={15} strokeWidth={2} />
             {label}
           </button>
         ))}
@@ -723,6 +834,7 @@ export function RunDetailsPage({
           'run-content',
           tab === 'overview' ? 'run-content--overview' : '',
           resizingSidebar ? 'is-resizing-sidebar' : '',
+          tab === 'timeline' ? 'run-content--timeline' : '',
         ].filter(Boolean).join(' ')}
         ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
@@ -747,7 +859,6 @@ export function RunDetailsPage({
               summary={summary}
               events={displayedHistory}
               state={state}
-              selectedEvent={selected}
               deletingChannelMessage={deletingChannelMessage}
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
@@ -755,17 +866,11 @@ export function RunDetailsPage({
               onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}
-          {tab === 'steps' && !isWaitingForHistory && runHistory.newest?.hasOlder && (
-            <p className="muted run-window-note">
-              The graph shows Steps from events #{history[0]?.eventId} to #{latestEvent?.eventId}. Older events are
-              on earlier Timeline pages.
-            </p>
-          )}
           {tab === 'steps' && !isWaitingForHistory && (
             <ExecutionGraph
               flowId={flowId}
-              events={displayedHistory}
-              hasEarlierEvents={runHistory.newest?.hasOlder ?? false}
+              events={pageEventsWithFlowStart}
+              hasEarlierEvents={pageHasEarlierEvents}
               state={state}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
@@ -781,17 +886,12 @@ export function RunDetailsPage({
               paging={{
                 hasOlder: timelineWindow?.hasOlder ?? false,
                 hasNewer: runHistory.timelineHasNewer,
-                isNewest: runHistory.isTimelineOnNewest,
                 isLoading: runHistory.isLoadingTimelinePage,
-                canGoBack: runHistory.canGoBack,
-                onOlder: () => navigateTimeline(runHistory.showOlder),
-                onNewer: () => navigateTimeline(runHistory.showNewer),
-                onNewest: runHistory.showNewest,
-                onBack: goBackInTimeline,
               }}
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
+              runStepDurability={runStepDurabilityOf(flowStartEvent)}
             />
           )}
           {tab === 'stream' && summary && (
@@ -807,9 +907,9 @@ export function RunDetailsPage({
               aria-label="Resize selected event panel"
               aria-orientation="vertical"
               aria-valuemin={minimumSidebarWidth}
-              aria-valuemax={maximumSidebarWidth}
+              aria-valuemax={sidebarLayouts[sidebarKind].maximumWidth}
               aria-valuenow={sidebarWidth}
-              onDoubleClick={() => persistSidebarWidth(updateSidebarWidth(defaultSidebarWidth))}
+              onDoubleClick={() => saveSidebarWidth(updateSidebarWidth(sidebarLayouts[sidebarKind].defaultWidth))}
               onKeyDown={resizeSidebarWithKeyboard}
               onPointerDown={startSidebarResize}
             />
@@ -817,6 +917,7 @@ export function RunDetailsPage({
               selectedEvent={selected}
               history={withFlowStart(selectionEvents, flowStartEvent)}
               parentFlowId={flowId}
+              runStartTime={summary?.startTime}
               relatedEvents={selectedRelations.related}
               onSelectRelatedEvent={selectRelatedEvent}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
@@ -858,6 +959,17 @@ export function RunDetailsPage({
       )}
     </div>
   );
+}
+
+/** Reads the run's configured Step durability from its start event, when loaded. */
+function runStepDurabilityOf(flowStartEvent: FlowHistoryEvent | null | undefined): unknown {
+  const flowConfig = flowStartEvent?.payload.flowConfig;
+  return flowConfig && typeof flowConfig === 'object' ? (flowConfig as Record<string, unknown>).stepDurability : undefined;
+}
+
+/** Whether event IDs are missing between FlowStart and the next event of a page. */
+function hasGapAfterFlowStart(events: FlowHistoryEvent[]): boolean {
+  return events[0]?.eventId === 1 && events.length > 1 && events[1].eventId > 2;
 }
 
 /** Lists every run attempt of a run, newest first. Run attempts are numbered from 1 without gaps. */

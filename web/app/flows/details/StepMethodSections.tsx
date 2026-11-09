@@ -9,6 +9,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { LongValue } from '@/app/components/StructuredValue';
+import { ChannelRows, messageChannelGroups } from './CompactStateLists';
 import {
   isBlobReferenceValue,
   isStoredValueUnavailable,
@@ -123,7 +125,7 @@ export function Fields({
       {visible.map(([label, value, wide]) => (
         <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
-          <dd>{displayValue(value)}</dd>
+          <dd title={displayValue(value) === '—' ? undefined : displayValue(value)}>{displayValue(value)}</dd>
         </div>
       ))}
     </dl>
@@ -145,8 +147,8 @@ export function ValueBlock({
     <div className="semantic-value">
       <span>{label}</span>
       {decoded && typeof decoded === 'object'
-        ? <pre>{JSON.stringify(decoded, null, 2)}</pre>
-        : <code>{displayValue(decoded)}</code>}
+        ? <LongValue text={JSON.stringify(decoded, null, 2)} isBlock />
+        : <LongValue text={displayValue(decoded)} isBlock={false} />}
     </div>
   );
 }
@@ -202,37 +204,12 @@ export function KeyValues({ values, emptyLabel }: { values: unknown; emptyLabel?
   );
 }
 
+/** Lists event Channel messages grouped by Channel, each with its decoded value and short message ID. */
 export function ChannelMessages({ values }: { values: unknown }) {
-  const messages = asDataArray(values);
-  if (messages.length === 0) return null;
-  const groups = groupPersistenceEntries(messages, (message) => displayValue(message.channelName));
+  const channels = messageChannelGroups(values);
+  if (channels.length === 0) return null;
   return (
-    <div className="semantic-records">
-      {groups.map((group) => group.kind === 'value' ? (
-        <CollapsedValueRecord
-          channel
-          key={`${String(group.entry.channelName)}-${group.index}`}
-          label={displayValue(group.entry.channelName)}
-          value={group.entry.value}
-          valueLabel="Message"
-        />
-      ) : (
-        <details className="semantic-record channel-record semantic-map-record" key={group.name}>
-          <summary><strong><ChannelIcon />{group.name}</strong></summary>
-          <div className="semantic-record-content semantic-map-list">
-            {group.entries.map(({ entry, instance, index }) => (
-              <CollapsedValueRecord
-                channel
-                key={`${instance}-${index}`}
-                label={instance}
-                value={entry.value}
-                valueLabel="Message"
-              />
-            ))}
-          </div>
-        </details>
-      ))}
-    </div>
+    <ChannelRows channels={channels} expandValues={false} />
   );
 }
 
@@ -329,8 +306,6 @@ export function FlowConfigView({ value }: { value: unknown }) {
       <Fields values={[
         ['Step durability', isPresent(config.stepDurability) ? durabilityLabel(config.stepDurability) : undefined],
         ['Active step search', isPresent(config.activeStepSearchMode) ? activeStepSearchModeLabel(config.activeStepSearchMode) : undefined],
-        ['Continue-as-new threshold', config.continueAsNewThreshold],
-        ['Continue-as-new page size', bytes(config.continueAsNewPageSizeInBytes)],
       ]} />
     </DetailSection>
   );
@@ -361,10 +336,6 @@ export function FlowTimeoutHandlerOptionsView({ value }: { value: unknown }) {
       <StepOptionsView value={options.failureProceedStepOptions} />
     </DetailSection>
   );
-}
-
-function bytes(value: unknown): string | undefined {
-  return isPresent(value) ? `${String(value)} bytes` : undefined;
 }
 
 export function WaitingConditionView({
@@ -900,8 +871,8 @@ export function StepMethodInputSection({
         </div>
       ) : hasInput ? (
         <>
-          <ValueBlock label="Step input" value={input.stepInput} showEmpty />
-          {!isWaitFor && (
+          <ValueBlock label="Step input" value={input.stepInput} />
+          {!isWaitFor && (hasData(asData(input.conditionResults)) || subFlowConditions.length > 0) && (
             <div className="semantic-subsection">
               <h5>Condition results</h5>
               <ConditionResultsContent
@@ -913,10 +884,12 @@ export function StepMethodInputSection({
               />
             </div>
           )}
-          <div className="semantic-subsection">
-            <h5>Attributes</h5>
-            <KeyValues values={input.attributes} emptyLabel="No attributes" />
-          </div>
+          {Array.isArray(input.attributes) && input.attributes.length > 0 && (
+            <div className="semantic-subsection">
+              <h5>Attributes</h5>
+              <KeyValues values={input.attributes} />
+            </div>
+          )}
           {!isWaitFor && Array.isArray(input.stepExecutionLocals) && input.stepExecutionLocals.length > 0 && (
             <div className="semantic-subsection">
               <h5>Step locals</h5>
@@ -1083,14 +1056,23 @@ function pullDispatchFailureLabel(reason: unknown, value: unknown): string | und
   return undefined;
 }
 
-export function PullRouting({ value, label = 'Pull routing' }: { value: unknown; label?: string }) {
+/** Shows where a method was routed; hideEmpty omits unknown fields and an empty routing. */
+export function PullRouting({ value, label = 'Pull routing', hideEmpty = false }: {
+  value: unknown;
+  label?: string;
+  hideEmpty?: boolean;
+}) {
   const routing = asData(value);
+  const blank = hideEmpty ? undefined : '—';
+  const queueSource = routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Task queue' : blank;
+  const values: Field[] = [
+    ['Serving Worker ID', routing.servedByAppWorkerId || blank],
+    ['Queue source', queueSource],
+    ['Dispatch sticky Worker ID', routing.stickyAppWorkerId || blank],
+  ];
+  if (hideEmpty && values.every(([, fieldValue]) => !isPresent(fieldValue))) return null;
   return <div className="semantic-subsection">
     <h5>{label}</h5>
-    <Fields compact values={[
-      ['Serving app Worker ID', routing.servedByAppWorkerId || '—'],
-      ['Queue source', routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Flow type queue' : '—'],
-      ['Dispatch sticky app Worker ID', routing.stickyAppWorkerId || '—'],
-    ]} />
+    <Fields compact values={values} />
   </div>;
 }

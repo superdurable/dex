@@ -408,7 +408,7 @@ describe('step graph', () => {
     expect(subFlow).toMatchObject({
       parentStepId: 'Parent-1',
       flowId: 'SubFlow:parent-Parent-1-0',
-      subFlowStatus: 'COMPLETED',
+      subFlowStatus: 'Completed',
       reusePolicy: 'Attach',
     });
     expect(graph.edges).toContainEqual({
@@ -436,7 +436,7 @@ describe('step graph', () => {
 
     expect(graph.nodes.find((node) => node.kind === 'subflow')).toMatchObject({
       status: 'Failed',
-      subFlowStatus: 'FAILED',
+      subFlowStatus: 'Failed',
       flowId: 'SubFlow:parent-Parent-1-0',
     });
   });

@@ -127,7 +127,6 @@ export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
     <section className="stream-panel">
       <div className="stream-panel-header">
         <div>
-          <p className="eyebrow">Resumable stream</p>
           <h2>Stream messages</h2>
           <p>Messages are best effort and may be trimmed as the Stream reaches its configured capacity.</p>
         </div>

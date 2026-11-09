@@ -16,13 +16,13 @@ The FlowService credential never enters the browser.
 
 `GetHistoryEvents` returns the same `input`, `output`, and `context` step-event
 shape for sync, async, and async-fallback execution. Timeline, Execution graph,
-Time Travel and Selected event use that common structure.
+Time Travel and the selected event panel use that common structure.
 
 `POST /api/blobs/load` batches Dex `LoadBlobs` calls. The browser recursively
 hydrates the selected event and current flow state, dedupes by blob kind and ID,
 and caches loaded values across tabs. Missing values are labeled
 `Value blob unavailable`. Terminal async failures without a retained invocation
-snapshot explain the short-retry behavior in Selected event without raising a
+snapshot explain the short-retry behavior in the selected event without raising a
 page-level data warning. Neither state exposes blob IDs or storage paths.
 
 ## Run standalone dex-web
@@ -147,6 +147,13 @@ Dex recursively scans JSON files on every definition-dependent request. Generate
 Dex Web restart. Invalid JSON, unsupported schema versions, and source read
 failures return a typed 503 and make `/readyz` fail.
 
+The **v1** header shows the **Flow Rendering** link only while that directory
+holds at least one definition JSON file. It checks the directory again on every
+**v1** page change, so added or removed files show up after the next
+navigation. The logo and the breadcrumb lead back
+to the Flows list. Opening `/v1/rendering` directly without definitions shows an
+empty state that explains how to load them.
+
 Starting Dex with `--flow-rendering-dir` opens **v2** at `/v2`. The top-right
 Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
 `/v1/flows`. v2 lists current runs for one Flow type on the left and renders
@@ -166,7 +173,7 @@ Rendering but does not appear as a **v2** Flow type.
 
 The v2 status filter sends each status's ExecutionStatus value, such as
 `TimedOut`, and shows its label, such as **Timed out**. The server rejects
-the label in a visibility query.
+the label in a search query.
 
 ### Start Flow
 
@@ -613,7 +620,7 @@ only the Flow ID and Start input; requests can omit Worker target fields.
 On server-zd, Time Travel keeps the run ID and creates a new run attempt. The
 Run page reloads the newest history window when the run attempt changes, because
 events after the fork point no longer belong to the current lineage. The
-summary strip replaces **Run chain** with a **Run attempt** selector. Choosing
+header summary row replaces **Run chain** with a **Run attempt** selector. Choosing
 an earlier attempt adds `?runAttempt=N` to the page URL and shows that
 attempt's lineage. Live history stops for an earlier attempt, and live state
 always belongs to the current attempt. Time Travel from that view searches the
@@ -664,7 +671,7 @@ directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
-The v2 list compiles typed filter controls into visibility queries, including
+The v2 list compiles typed filter controls into search queries, including
 the built-in `activeStepTypes` filter. `POST /api/v2/search` takes `flowTypes`
 in place of `flowType` to search several Flow types in one query; such a search
 accepts built-in filter fields only. The list loads current-run Summary RPCs
@@ -684,7 +691,8 @@ camera is missing, denied, or blocked. Camera access requires HTTPS or localhost
 an embedding host must also allow camera access through its Permissions Policy.
 Scanning does not grant an Action permission or bypass its condition check.
 
-v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page provides Basic and Advanced visibility queries, pagination,
+v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page builds a search query from **Filters** or takes a hand-written
+one in **Query**, with pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
@@ -760,8 +768,30 @@ two-event page, so start details and pull routing stay available. Live appends
 new events to the newest window and drops its oldest events. Refresh reloads
 only the newest window.
 
-Timeline shows one window per page, newest first, with **Older events**,
-**Newer events**, and **Newest**. Event numbers are event IDs, so they stay
+The **Events** tile in the run header names the latest event and pages through
+events. Execution graph and Timeline share its page; Overview and Streams keep
+reading the newest window. The tile reads "Latest #10505" and "Showing
+#9506–#10505 · Page 1 of 11", then offers **Latest page** (the newest page),
+**Newer page** (one page toward newer events), **Older page** (one page toward
+older events), and **Oldest page** (the oldest retained page). **Back** sits before
+them after a link jump. Latest page and Newer page are disabled on the newest
+page; Older page and Oldest page are disabled on the oldest page. Older page reads
+up to 1000 events before the page. Oldest page reads FlowStart and up to 1000
+events from the window start, and stops where Older page would start the next
+newer page. The page that starts at the oldest retained event also shows
+FlowStart, so it is the oldest page, and a retained history that fits one page
+shows on one page. Newer page reads up to 1000 events after the page; a page that
+reaches the newest event is the newest page. Live extends only the newest page.
+An older page stays in place while Live adds events, and Latest page returns to
+the live newest page. The tile shows the page count only when event IDs skip
+nothing but the pruned range: every loaded event reports run attempt 1, and the
+gap after FlowStart matches the pruned range. Servers without run attempts and
+time travel lineages skip event IDs, so they show no count. The page number
+also needs the page to be one that Older page reaches from the current newest
+page; Live moves the newest page, so an older page can lose its number. The
+newest page is always page 1. Back restores the page's first and last event.
+
+Timeline shows one page, newest first. Event numbers are event IDs, so they stay
 stable across pages and pruning. Condition-wait and lineage links are resolved
 by event ID. A link whose far end is on another page ends in an edge stub. The
 stub loads the page that holds the far end, highlights it, and offers **Back**.
@@ -769,13 +799,17 @@ Back remembers up to 20 positions and reloads the page it returns to. A far end
 that Dex Web cannot locate is labeled not on this page and has no jump. A jump
 to an event pruned since the page loaded refreshes the pruned range instead.
 A far end removed by the server-zd history window shows as a muted **pruned**
-stub, and the oldest retained page names the removed event range. Selected
-event lists the same **Related events**. `web/lib/historyRelations.ts` is the
+stub, and the oldest retained page names the removed event range. The
+selected event panel lists the same **Related events**: **Show #N** selects an
+event on the current page, **Go to #N** loads an event on another page and
+hints whether that page is older or newer, and a pruned event reads **Outside
+the retention window** without an action. `web/lib/historyRelations.ts` is the
 only reader of the optional retained-history boundary and related event IDs.
 Without them, Dex Web scans the loaded page, and it infers pruning from a gap
-after FlowStart. Execution graph, Overview, and the v2 canvas read the newest
-window, so Step executions recorded before it do not appear there. The
-Execution graph starts a Step whose source is before the window from an
+after FlowStart. Overview and the v2 canvas read the newest window, and the
+Execution graph reads the selected page, so Step executions recorded before it
+do not appear there. The Execution graph starts a Step whose source is before
+the page from an
 **Earlier events, not loaded** node, never from Flow start. The v2 canvas says
 how many events it shows, marks per-Step counts as lower bounds, and labels a
 WaitFor before the window as earlier, not loaded. Its Step panel loads the
@@ -786,10 +820,19 @@ operator follows **Next run**; Dex Web never combines two runs into one graph or
 Timeline and Execution graph show an animated loading indicator while waiting
 for history. Empty states appear after loading finishes. Refreshing retains
 events already on screen. The loading indicator respects reduced-motion settings.
-The page also provides Live Flow State beside Selected event, Run input beside Identity,
-attributes, timers, queued
-steps, channels, completed outputs, stop, and time travel. Timeline and Execution graph keep
-Selected event in the sidebar, where the critical-action **Review time travel**
+The run header names the Flow ID and run ID once, in the breadcrumb, with
+**Flow ID** and **Run ID** copy buttons; the page heading is visually hidden. A
+summary row leads with the run status, then Started, Closed (only for a closed
+run), Duration, the run attempt, and the **Events** paging control.
+Overview leads with **Active steps**: each Step's phase, Step type, and what it
+waits for. A closed run shows its **Outcome** instead, with any failure message
+and the close result. **Attributes**, **Channels**, **Queued steps**, and
+**Completed outputs** follow; empty ones collapse into one quiet line, and long
+values show a **Show all** control. **Start input** shows the run's start.
+**Details** holds the Flow type, Task queue, sticky Worker ID, request ID, the
+first run ID when it differs from the run ID, and the Flow config. Overview has
+no selected event; Timeline and Execution graph keep the selected event panel
+in the sidebar, where the critical-action **Review time travel**
 entry opens the operation with that Step execution and its WaitFor or Execute
 method already selected. A history event time entered in the dialog is read in
 the page's time zone preference and sent as RFC 3339 UTC. A Time Travel-created run includes a **TimeTravelFork**
@@ -819,26 +862,36 @@ Blob-backed RPC input and output hydrate through the existing selected-event loa
 The Streams tab accepts a Stream name, reads its retained messages from the beginning,
 and then continuously long-polls for the next message. Each message displays its creation
 time and source. Stream retention is best effort, so older messages can be trimmed.
-External attribute writes appear as Attributes updated events, with a
-SetAttributes type label and the changed values in the event details.
+External attribute writes appear as Attributes updated events, with the
+changed values in the event details. A Timeline row shows its event title; the
+event type, such as SetAttributes, shows on hover and in Raw JSON. A row names
+a Step's durability only when it differs from the run's configured durability,
+and its attempt only after a retry. The absolute time shows only when it
+changes from the row above; every row keeps its offset from the run start.
+Channel published events list each message's decoded value with a short
+message ID, grouped by Channel.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.
 SYNC step Context shows the immediately preceding retry failure when available,
 including its backend-native error, worker details, named and numeric gRPC
-status, and an optional Worker-provided stack. Live Flow State shows the latest
-pending failure on its matching active Step and expands that stack by default.
+status, and an optional Worker-provided stack. Overview **Active steps** shows
+the latest pending failure on its matching active Step and expands that stack
+by default.
 While a run is active, **Set attribute** writes one Attribute and **Publish
 message** publishes one Channel message to that run. Each takes a JSON,
 string, int64, double, or boolean value. Int64 values travel as decimal text so
 large values keep their precision.
-The Overview **History** card shows the run's `FlowConfig.history_window_events`
-and `delete_expired_history_objects`. An unset field reads **Server default**.
-While the run is active, **Edit** changes either field through
+The Overview **History settings** section shows the run's
+`FlowConfig.history_window_events` as **Retention window**, read as "Last N
+events". An unset field reads **Server default**. An info icon beside the label
+explains that older events are deleted. The page never shows or sends
+`delete_expired_history_objects`, which the server ignores.
+While the run is active, **Edit** changes the window through
 `PUT /api/flows/config/history`, which calls `UpdateFlowConfig` with only the
-changed fields. `UpdateFlowConfig` merges the fields it receives, so the run's
+changed field. `UpdateFlowConfig` merges the fields it receives, so the run's
 other settings stay unchanged. A saved value cannot be cleared back to the
-server default, so the editor offers only a positive window and On or Off.
+server default, so the editor offers only a positive window.
 Closed runs show no live config and offer no editing.
-Selected event Context uses the same failure view with the stack collapsed.
+The selected event's Context uses the same failure view with the stack collapsed.
 ## License
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their
@@ -846,9 +899,9 @@ original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
 ### Worker routing
 
-Flow detail shows the Worker target. Pull Flows also show the Flow type queue and
-sticky app Worker ID. Active Steps and Step method history show the serving app
-Worker ID, the sticky ID used at dispatch, and the sticky or Flow type queue
-source. Failed dispatches show no available Worker, unknown Step or RPC name,
-or disconnect reasons. Recorded RPC invocations show their serving app Worker ID.
-Missing metadata displays an em dash. Address targets show only their address.
+Flow detail shows the Flow type exactly as registered, the Task queue, which is
+named after the Flow type, and the sticky Worker ID. Active Steps and Step
+method history show the serving Worker ID, the sticky ID used at dispatch, and
+the queue source: Sticky queue or Task queue. Failed dispatches show no available Worker, unknown Step or RPC name,
+or disconnect reasons. Recorded RPC invocations show their serving Worker ID.
+Missing metadata displays an em dash.

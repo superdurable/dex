@@ -618,12 +618,13 @@ describe('RPC event details', () => {
     expect(attributeMarkup).toContain('<details class="semantic-record semantic-map-record">');
     expect(attributeMarkup).toContain('first order');
     expect(attributeMarkup).not.toContain('<details class="semantic-record" open="">');
-    expect(channelMarkup).toContain('<details class="semantic-record channel-record">');
-    expect(channelMarkup).toContain('<details class="semantic-record channel-record semantic-map-record">');
-    expect(channelMarkup).toContain('first order');
-    expect(channelMarkup).not.toContain('<details class="semantic-record channel-record" open="">');
+    // Published messages show decoded values inline, grouped by Channel.
+    expect(channelMarkup).toContain('aria-label="Channel notifications"');
+    expect(channelMarkup).toContain('>sent<');
+    expect(channelMarkup).toContain('>eleven<');
+    expect(channelMarkup).not.toContain('stringValue');
     expectStrongLabelsInOrder(attributeMarkup, ['2', '11', 'first order']);
-    expectStrongLabelsInOrder(channelMarkup, ['2', '11', 'first order']);
+    expectStrongLabelsInOrder(channelMarkup, ['updates / 2', 'updates / 11', 'updates / first order']);
   });
 });
 
@@ -754,7 +755,7 @@ describe('routing context and dispatch failures', () => {
     const markup = renderDetails(event);
     expect(markup).toContain('worker-new');
     expect(markup).toContain('worker-old');
-    expect(markup).toContain('Flow type queue');
+    expect(markup).toContain('Task queue');
   });
   it.each([
     ['no Worker available for queue PaymentFlow', 'No Worker available'],
@@ -780,3 +781,18 @@ describe('routing context and dispatch failures', () => {
     expect(renderDetails(event)).toContain('Unknown Step type: dispatch timed out');
   });
 });
+
+describe('empty step method sections', () => {
+  it('hides condition results and attributes that hold nothing', () => {
+    const event = executeEvent(1);
+    const input = event.payload.input as Record<string, unknown>;
+    input.conditionResults = {};
+    input.attributes = [];
+    const markup = renderDetails(event);
+    expect(markup).not.toContain('>Condition results<');
+    expect(markup).not.toContain('>Attributes<');
+    expect(markup).not.toContain('No attributes');
+    expect(markup).toContain('Step input');
+  });
+});
+

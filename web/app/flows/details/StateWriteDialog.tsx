@@ -130,7 +130,7 @@ export function StateWriteDialog({
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <div><p className="eyebrow">Write live state</p><h2>{copy.title}</h2></div>
+          <h2>{copy.title}</h2>
           <button className="icon-button" aria-label="Close" onClick={onClose}>×</button>
         </div>
         <p>{copy.description}</p>

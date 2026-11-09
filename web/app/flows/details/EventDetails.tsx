@@ -235,7 +235,7 @@ function RPCDetails({ payload, isPull }: { payload: Data; isPull: boolean }) {
   return (
     <>
       <DetailSection title="RPC call">
-        <Fields values={[['RPC name', payload.rpcName], ['Serving app Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined]]} />
+        <Fields values={[['RPC name', payload.rpcName], ['Serving Worker ID', isPull ? payload.servedByAppWorkerId || '—' : undefined]]} />
         <ValueBlock label="Input" value={payload.input} />
         <ValueBlock label="Output" value={payload.output} />
       </DetailSection>
@@ -303,9 +303,9 @@ export function EventDetails({
   return (
     <div className="event-details">
       <div className="event-details-content">
-        <div className="event-detail-tabs" role="tablist" aria-label="Event payload view">
-          <button aria-selected={view === 'details'} className={view === 'details' ? 'active' : ''} role="tab" type="button" onClick={() => setView('details')}>Details</button>
-          <button aria-selected={view === 'raw'} className={view === 'raw' ? 'active' : ''} role="tab" type="button" onClick={() => setView('raw')}>Raw JSON</button>
+        <div className="event-detail-tabs" role="group" aria-label="Event payload view">
+          <button aria-pressed={view === 'details'} className={view === 'details' ? 'active' : ''} type="button" onClick={() => setView('details')}>Details</button>
+          <button aria-pressed={view === 'raw'} className={view === 'raw' ? 'active' : ''} type="button" onClick={() => setView('raw')}>Raw JSON</button>
         </div>
         {view === 'details'
           ? <div className="semantic-event"><SemanticEventDetails event={event} history={history} parentFlowId={parentFlowId} /></div>

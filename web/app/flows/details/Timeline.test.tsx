@@ -85,3 +85,58 @@ describe('Timeline run attempts', () => {
     expect(markup).toContain('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
   });
 });
+
+describe('Timeline row density', () => {
+  const execute = (eventId: number, eventTime: string, context: Record<string, unknown>): FlowHistoryEvent => ({
+    eventId,
+    eventTime,
+    type: 'StepExecuteCompleted',
+    payload: { context: { stepExecutionId: `Charge-${eventId}`, stepType: 'Charge', ...context } },
+    runAttempt: 1,
+  });
+
+  function renderRows(events: FlowHistoryEvent[], runStepDurability?: unknown) {
+    return renderToStaticMarkup(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <Timeline
+            flowId="order-1"
+            events={events}
+            selectedEvent={null}
+            onSelectEvent={() => {}}
+            runStepDurability={runStepDurability}
+          />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it('keeps the event type out of the row and shows only informative chips', () => {
+    const markup = renderRows([
+      execute(2, '2026-10-24T17:00:01Z', { durability: 1, finalAttempt: 1 }),
+      execute(3, '2026-10-24T17:00:01Z', { durability: 2, finalAttempt: 3 }),
+    ], 1);
+    expect(markup).not.toContain('class="event-type');
+    expect(markup).toContain('title="StepExecuteCompleted"');
+    expect(markup.match(/Durability <b>/g)).toHaveLength(1);
+    expect(markup).toContain('Durability <b>async</b>');
+    expect(markup).toContain('Attempt <b>3</b>');
+    expect(markup).not.toContain('Attempt <b>1</b>');
+  });
+
+  it('shows an absolute time only when it changes from the row above', () => {
+    const markup = renderRows([
+      execute(2, '2026-10-24T17:00:01Z', {}),
+      execute(3, '2026-10-24T17:00:01Z', {}),
+      execute(4, '2026-10-24T17:05:00Z', {}),
+    ]);
+    expect(markup.match(/<b class="sr-only">/g)).toHaveLength(1);
+  });
+
+  it.each([undefined, 0, 'STEP_DURABILITY_UNSPECIFIED'])('treats a run durability of %s as the sync default', (runDurability) => {
+    const markup = renderRows([execute(2, '2026-10-24T17:00:01Z', { durability: 1 })], runDurability);
+    expect(markup).not.toContain('Durability <b>');
+    const asyncMarkup = renderRows([execute(3, '2026-10-24T17:00:01Z', { durability: 2 })], runDurability);
+    expect(asyncMarkup).toContain('Durability <b>async</b>');
+  });
+});
