@@ -746,6 +746,14 @@ body:has(.v1-page) {
   overflow-wrap: anywhere;
 }
 
+.overview-outcome-error-type {
+  display: block;
+  margin-top: 2px;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+  font-weight: 500;
+}
+
 .overview-outcome-error svg {
   flex: none;
   margin-top: 2px;

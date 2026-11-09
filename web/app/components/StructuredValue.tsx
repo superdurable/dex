@@ -46,6 +46,15 @@ function displayValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+const dexValueKeys = new Set(['stringValue', 'intValue', 'doubleValue', 'boolValue', 'nullValue', 'objValue']);
+
+/** Whether a value is one Dex Value envelope, such as a Channel message or a stored blob reference. */
+function isDexValue(value: unknown): boolean {
+  if (isBlobReferenceValue(value) || isStoredValueUnavailable(value)) return true;
+  const keys = Object.keys(asData(value));
+  return keys.length === 1 && dexValueKeys.has(keys[0]);
+}
+
 function decodedValue(value: unknown): unknown {
   if (isBlobReferenceValue(value)) return 'Loading stored value…';
   if (isStoredValueUnavailable(value)) return VALUE_BLOB_UNAVAILABLE;
@@ -342,7 +351,7 @@ function ObjectStructured({ value, expandValues = false }: { value: Data; expand
                   ? labeled
                   : decoded && typeof decoded === 'object'
                     ? <LongValue text={JSON.stringify(decoded, storedValueJSONReplacer, 2)} isBlock isForcedOpen={expandValues} />
-                    : displayValue(decoded)}
+                    : <LongValue text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />}
               </dd>
             </div>
           );
@@ -359,9 +368,9 @@ function ArrayStructured({ value, expandValues }: { value: unknown[]; expandValu
       {value.map((entry, index) => (
         <div className="semantic-record" key={index}>
           <strong>Item {index + 1}</strong>
-          {entry && typeof entry === 'object'
+          {entry && typeof entry === 'object' && !isDexValue(entry)
             ? <ObjectStructured value={asData(entry)} expandValues={expandValues} />
-            : <code>{displayValue(entry)}</code>}
+            : <ValueChip value={entry} expandValues={expandValues} />}
         </div>
       ))}
     </div>
@@ -384,6 +393,21 @@ export function StructuredValue({
 }) {
   if (value === undefined || value === null) {
     return <p className="muted">No value</p>;
+  }
+  if (isDexValue(value)) {
+    const decoded = decodedValue(value);
+    // A decoded object renders structurally; a primitive renders as one truncatable value.
+    if (decoded && typeof decoded === 'object' && !isDexValue(decoded)) {
+      return (
+        <StructuredValue
+          value={decoded}
+          parentFlowId={parentFlowId}
+          stepExecutionId={stepExecutionId}
+          expandValues={expandValues}
+        />
+      );
+    }
+    return <div className="structured-value semantic-value"><ValueChip value={value} expandValues={expandValues} /></div>;
   }
   if (Array.isArray(value)) {
     if (value.length === 0) return <p className="muted">Empty list</p>;

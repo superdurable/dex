@@ -8,6 +8,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { ChevronRight, CircleAlert, Hourglass, Play, Plus, Send, Trash2 } from 'lucide-react';
+import { flowErrorTypeLabel } from '@/lib/semantic';
 import type { ActiveStepExecution, FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
 import { StepMethodInvocation } from './StepMethodInvocation';
@@ -127,6 +128,7 @@ export function FlowOverview({
     && activeStepIds.every((stepExecutionId) => !collapsedActiveStepIds.has(stepExecutionId));
   const pendingMessages = pendingChannelEntries(state?.pendingChannelMessages ?? {});
   const flowConfig = state?.flowConfig ? withoutIgnoredFlowConfig(state.flowConfig) : undefined;
+  const failure = closed ? closeFailureOf(closed) : undefined;
 
   const setAllActiveStepsExpanded = (expanded: boolean) => {
     setCollapsedActiveStepIds((current) => {
@@ -180,14 +182,17 @@ export function FlowOverview({
           </OverviewSection>
         ) : (
           <OverviewSection title="Outcome" className={`overview-focus overview-outcome tone-${statusTone(summary.flowStatus)}`}>
-            {closed && typeof closed.payload.errorMessage === 'string' && closed.payload.errorMessage && (
-              <p className="overview-outcome-error">
+            {failure && (
+              <div className="overview-outcome-error" role="note">
                 <CircleAlert aria-hidden="true" size={16} strokeWidth={2.25} />
-                {closed.payload.errorMessage}
-              </p>
+                <div>
+                  <strong>{failure.message || failure.type}</strong>
+                  {failure.message && failure.type && <span className="overview-outcome-error-type">{failure.type}</span>}
+                </div>
+              </div>
             )}
             {!closed && <p className="overview-quiet">Live state is queried only while this run is active.</p>}
-            {closed && !hasCloseResults(closed) && !closed.payload.errorMessage && (
+            {closed && !hasCloseResults(closed) && !failure && (
               <p className="overview-quiet">The run closed without results.</p>
             )}
             {closed && hasCloseResults(closed) && (
@@ -294,9 +299,6 @@ export function FlowOverview({
                     </div>
                   ))}
                 </div>
-                <p className="overview-note">
-                  Temporal deletes are atomic. Cadence deletion is best effort and may race consumption.
-                </p>
                 <JsonView
                   value={state.pendingChannelMessages}
                   label="All pending messages by Channel"
@@ -456,6 +458,15 @@ function listOf(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
     : [];
+}
+
+/** The close failure's message and semantic type; either may be empty, but not both. */
+function closeFailureOf(closed: FlowHistoryEvent): { message: string; type: string } | undefined {
+  const message = typeof closed.payload.errorMessage === 'string' ? closed.payload.errorMessage : '';
+  const errorType = closed.payload.errorType;
+  const typeLabel = errorType === undefined || errorType === null || errorType === '' ? '' : flowErrorTypeLabel(errorType);
+  const type = typeLabel === 'Unspecified' ? '' : typeLabel;
+  return message || type ? { message, type } : undefined;
 }
 
 function hasCloseResults(closed: FlowHistoryEvent): boolean {

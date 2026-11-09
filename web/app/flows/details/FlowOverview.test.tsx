@@ -280,7 +280,8 @@ describe('live Flow state failures', () => {
 
     expect(markup).toContain('0198-message');
     expect(markup).toContain('Delete');
-    expect(markup).toContain('Cadence deletion is best effort');
+    expect(markup).not.toContain('Cadence');
+    expect(markup).not.toContain('Temporal');
   });
 });
 
@@ -359,5 +360,101 @@ describe('redesigned Overview', () => {
     expect(screen.getByRole('button', { name: 'Set attribute' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Publish message' })).toBeTruthy();
     expect(screen.queryByText('Selected event')).toBeNull();
+  });
+});
+
+describe('decoded Channel values and close failures', () => {
+  const summary: FlowSummary = {
+    flowId: 'flow-1',
+    runId: 'run-1',
+    firstRunId: 'run-1',
+    requestId: 'request-1',
+    flowType: 'PaymentFlow',
+    flowStatus: 'Running',
+    flowStatusCode: 1,
+    startTime: '2026-08-10T00:00:00Z',
+    closeTime: null,
+  };
+  const jsonValue = (value: unknown) => ({ objValue: { encoding: 'json', payload: btoa(JSON.stringify(value)) } });
+
+  // Message IDs differ per test because JsonView remembers each value's Details or Raw JSON choice.
+  function renderPending(values: unknown[], idPrefix: string) {
+    const state: FlowState = {
+      flowConfig: {},
+      attributes: [],
+      activeStepExecutions: [],
+      queuedSteps: [],
+      pendingChannelMessages: {
+        approvals: {
+          messages: values.map((value, index) => ({ channelName: 'approvals', messageId: `${idPrefix}-${index}`, value })),
+        },
+      },
+      completedSteps: [],
+    };
+    return render(<FlowOverview summary={summary} events={[]} state={state} />);
+  }
+
+  it('decodes Channel message values the way Attributes do', () => {
+    renderPending([jsonValue(true), { stringValue: 'approved' }, jsonValue({ amount: 42 })], 'decode');
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('objValue');
+    expect(text).not.toContain('dHJ1ZQ==');
+    expect(screen.getByText('true')).toBeTruthy();
+    expect(screen.getByText('approved')).toBeTruthy();
+    expect(screen.getByText('amount')).toBeTruthy();
+    expect(screen.getByText('42')).toBeTruthy();
+  });
+
+  it('keeps the envelope in Raw JSON', () => {
+    renderPending([jsonValue(true)], 'raw');
+    fireEvent.click(screen.getAllByRole('tab', { name: 'Raw JSON' })[0]);
+    expect(document.body.textContent).toContain('dHJ1ZQ==');
+  });
+
+  it('truncates a long Channel string behind Show all', () => {
+    const longText = 'y'.repeat(1200);
+    renderPending([{ stringValue: longText }], 'long');
+    expect(document.body.textContent).not.toContain(longText);
+    fireEvent.click(screen.getByRole('button', { name: /Show all/ }));
+    expect(document.body.textContent).toContain(longText);
+  });
+
+  it('truncates long primitive array items and object fields', () => {
+    const longText = 'z'.repeat(1200);
+    const arrayMarkup = renderToStaticMarkup(<StructuredValue value={[longText, 7]} />);
+    expect(arrayMarkup).not.toContain(longText);
+    expect(arrayMarkup).toContain('Show all');
+    expect(arrayMarkup).toContain('>7<');
+    const objectMarkup = renderToStaticMarkup(<StructuredValue value={{ note: longText }} />);
+    expect(objectMarkup).not.toContain(longText);
+    expect(objectMarkup).toContain('Show all');
+  });
+
+  function renderClosed(flowStatus: FlowSummary['flowStatus'], payload: Record<string, unknown>) {
+    return renderToStaticMarkup(
+      <FlowOverview
+        summary={{ ...summary, flowStatus, flowStatusCode: flowStatus === 'Failed' ? 3 : 2 }}
+        events={[{ eventId: 9, eventTime: null, type: 'FlowClosed', payload }]}
+        state={null}
+      />,
+    );
+  }
+
+  it('shows a failure type without a message', () => {
+    const markup = renderClosed('Failed', { errorType: 1 });
+    expect(markup).toContain('Step decision failed the flow');
+    expect(markup).not.toContain('closed without results');
+  });
+
+  it('shows a failure message with its type', () => {
+    const markup = renderClosed('Failed', { errorType: 3, errorMessage: 'card declined' });
+    expect(markup).toContain('card declined');
+    expect(markup).toContain('Worker method failed');
+  });
+
+  it('says a completed run without results closed without results', () => {
+    const markup = renderClosed('Completed', { results: [] });
+    expect(markup).toContain('The run closed without results.');
+    expect(markup).not.toContain('Close result');
   });
 });
