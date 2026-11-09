@@ -26,7 +26,6 @@ import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.StopFlowOptions;
 import io.superdurable.dex.StopType;
 import io.superdurable.dex.WaitForStepCompletionOptions;
-import io.superdurable.dex.exceptions.FlowNotActiveOrNotFoundException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.patterns.workflowpatterns.ArbitraryCyclesFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BlockingPartialJoinFlow;
@@ -382,9 +381,10 @@ public class WorkflowPatternsIntegTest {
                 startPatternFlow(DesignTimeMultipleInstancesFlow.class, "instances-design", null);
         final DesignTimeMultipleInstancesFlow stub =
                 rpcStub(DesignTimeMultipleInstancesFlow.class, flowId);
-        awaitRpcValue(() -> client().invokeRPC(stub::getStartedReviewCount), 3, "started reviews");
+        awaitRpcValue(
+                () -> client().invokeRPC(stub::getStartedDesignTimeReviewCount), 3, "started reviews");
         assertRunning(flowId);
-        client().invokeRPC(stub::openReviewGate, 3);
+        client().invokeRPC(stub::openDesignTimeReviewGate, 3);
         final List<StepCompletion> completions = waitForCompletedFlow(flowId);
         assertEquals(List.of("CollectReviews"), stepTypesOf(completions));
         assertEquals(List.of("finance", "legal", "security"), stringsOf(completions.get(0)));
@@ -397,9 +397,10 @@ public class WorkflowPatternsIntegTest {
                 "instances-runtime",
                 new String[] {"dee", "ana", "cy", "ben"});
         final RunTimeMultipleInstancesFlow stub = rpcStub(RunTimeMultipleInstancesFlow.class, flowId);
-        awaitRpcValue(() -> client().invokeRPC(stub::getStartedReviewCount), 4, "started reviews");
+        awaitRpcValue(
+                () -> client().invokeRPC(stub::getStartedRunTimeReviewCount), 4, "started reviews");
         assertRunning(flowId);
-        client().invokeRPC(stub::openReviewGate, 4);
+        client().invokeRPC(stub::openRunTimeReviewGate, 4);
         final List<StepCompletion> completions = waitForCompletedFlow(flowId);
         assertEquals(List.of("CollectReviews"), stepTypesOf(completions));
         assertEquals(List.of("ana", "ben", "cy", "dee"), stringsOf(completions.get(0)));
@@ -763,9 +764,11 @@ public class WorkflowPatternsIntegTest {
         client().invokeRPC(stub::armMotionSensor);
         waitForAttributeValue(flowId, TransientTriggerFlow.isAwaitingMotionEvent, true);
         assertTrue(retryOnLockConflict(() -> client().invokeRPC(stub::sendMotionEvent, 2)));
-        assertFalse(isLateMotionEventAccepted(stub, 3));
+        assertFalse(retryOnLockConflict(() -> client().invokeRPC(stub::sendMotionEvent, 3)));
+        client().invokeRPC(stub::stopMotionMonitoring);
         final List<StepCompletion> completions = waitForCompletedFlow(flowId);
-        assertEquals(List.of(2), outputsOf(completions, "AwaitMotionEvent", Integer.class));
+        assertEquals(List.of("AwaitMonitoringStop"), stepTypesOf(completions));
+        assertEquals(List.of(2), outputsOf(completions, "AwaitMonitoringStop", Integer.class));
     }
 
     @Test
@@ -855,15 +858,6 @@ public class WorkflowPatternsIntegTest {
         } catch (final InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("interrupted retrying an RPC", interrupted);
-        }
-    }
-
-    // The accepted event may already have closed the Flow, which also drops the trigger.
-    private static boolean isLateMotionEventAccepted(final TransientTriggerFlow stub, final int value) {
-        try {
-            return retryOnLockConflict(() -> client().invokeRPC(stub::sendMotionEvent, value));
-        } catch (final FlowNotActiveOrNotFoundException closedFlow) {
-            return false;
         }
     }
 

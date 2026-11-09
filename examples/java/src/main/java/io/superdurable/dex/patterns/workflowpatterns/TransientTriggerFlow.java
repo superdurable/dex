@@ -42,23 +42,32 @@ public class TransientTriggerFlow implements Flow<Void> {
     public static final Channel<String> motionSensorArmed =
             Channel.define("motionSensorArmed", String.class);
     public static final Channel<Integer> motionEvent = Channel.define("motionEvent", Integer.class);
+    public static final Channel<String> motionMonitoringStopped =
+            Channel.define("motionMonitoringStopped", String.class);
 
     private final AwaitMotionSensorArmed awaitMotionSensorArmed = new AwaitMotionSensorArmed();
     private final AwaitMotionEvent awaitMotionEvent = new AwaitMotionEvent();
+    private final AwaitMonitoringStop awaitMonitoringStop = new AwaitMonitoringStop();
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(awaitMotionSensorArmed).otherSteps(awaitMotionEvent);
+        return StepList.startStep(awaitMotionSensorArmed).otherSteps(awaitMotionEvent, awaitMonitoringStop);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(isAwaitingMotionEvent, motionSensorArmed, motionEvent);
+        return PersistenceSchema.of(
+                isAwaitingMotionEvent, motionSensorArmed, motionEvent, motionMonitoringStopped);
     }
 
     @RPC
     public void armMotionSensor(final Context context) {
         motionSensorArmed.publish(context, "armed");
+    }
+
+    @RPC
+    public void stopMotionMonitoring(final Context context) {
+        motionMonitoringStopped.publish(context, "stopped");
     }
 
     /** Delivers one event while a Step waits for it; otherwise drops it and returns false. */
@@ -111,7 +120,25 @@ public class TransientTriggerFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.gracefulComplete(motionEvent.getConditionResults(context).get(0));
+            return StepDecision.goTo(
+                    AwaitMonitoringStop.class, motionEvent.getConditionResults(context).get(0));
+        }
+    }
+
+    static final class AwaitMonitoringStop implements Step<Integer> {
+        @Override
+        public Class<Integer> getInputType() {
+            return Integer.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final Integer motionValue) {
+            return Wait.until(motionMonitoringStopped.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer motionValue) {
+            return StepDecision.gracefulComplete(motionValue);
         }
     }
 }
