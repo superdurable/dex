@@ -472,15 +472,11 @@ export function RunDetailsPage({
     [displayedTimelineEvents, flowStartEvent],
   );
   const pageHasEarlierEvents = (timelineWindow?.hasOlder ?? false) || hasGapAfterFlowStart(timelineEvents);
-  const displayedRunAttemptNumber = summary
-    ? historyRunAttempt(summary) || positiveRunAttempt(summary.runAttempt)
-    : 0;
-  // Time travel skips event IDs, so page numbers are exact only for a first run attempt.
   const pagePosition = useMemo(() => (
-    displayedRunAttemptNumber <= 1 && timelineWindow && runHistory.newestTimelinePage
+    runHistory.hasContiguousEventIds && timelineWindow && runHistory.newestTimelinePage
       ? timelinePagePositionOf(timelineWindow, runHistory.newestTimelinePage, prunedEventIdRange)
       : null
-  ), [displayedRunAttemptNumber, prunedEventIdRange, runHistory.newestTimelinePage, timelineWindow]);
+  ), [prunedEventIdRange, runHistory.hasContiguousEventIds, runHistory.newestTimelinePage, timelineWindow]);
   const selectionEvents = isSelectionOnTimeline ? displayedTimelineEvents : displayedHistory;
   const selectionWindow = isSelectionOnTimeline ? timelineWindow : runHistory.newest;
   const selectionHasOlder = selectionWindow?.hasOlder ?? false;
@@ -547,10 +543,10 @@ export function RunDetailsPage({
       isLoading: runHistory.isLoadingTimelinePage,
       canGoBack: runHistory.canGoBack,
       onBack: goBackInTimeline,
-      onFirstPage: runHistory.showNewest,
+      onLatestPage: runHistory.showNewest,
       onPrevPage: () => navigateTimeline(runHistory.showNewer),
       onNextPage: () => navigateTimeline(runHistory.showOlder),
-      onLastPage: () => navigateTimeline(() => runHistory.showOldest(
+      onOldestPage: () => navigateTimeline(() => runHistory.showOldest(
         pagePosition && pagePosition.pageCount > 1 ? pagePosition.oldestPageLastEventId + 1 : undefined,
       )),
     };

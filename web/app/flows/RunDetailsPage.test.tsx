@@ -160,13 +160,13 @@ function eventsRange(): string {
   return document.querySelector('.run-events-range')?.textContent ?? '';
 }
 
-function pageButton(name: 'Back' | 'First page' | 'Prev page' | 'Next page' | 'Last page'): HTMLButtonElement {
+function pageButton(name: 'Back' | 'Latest page' | 'Prev page' | 'Next page' | 'Oldest page'): HTMLButtonElement {
   return screen.getByRole('button', { name }) as HTMLButtonElement;
 }
 
-/** Each entry is [First page, Prev page, Next page, Last page] disabled. */
+/** Each entry is [Latest page, Prev page, Next page, Oldest page] disabled. */
 function pageButtonsDisabled(): boolean[] {
-  return (['First page', 'Prev page', 'Next page', 'Last page'] as const).map((name) => pageButton(name).disabled);
+  return (['Latest page', 'Prev page', 'Next page', 'Oldest page'] as const).map((name) => pageButton(name).disabled);
 }
 
 /** Each pair is [startInternalEventId, estimatePageSize]. */
@@ -350,18 +350,27 @@ interface PagedDex {
   fetch: ReturnType<typeof vi.fn>;
   liveWaits: URLSearchParams[];
   releaseLiveWait: () => void;
+  /** Reads the next history page at once but holds its response until the returned release runs. */
+  holdNextHistoryRead: () => () => void;
 }
 
 /** Serves a run whose history comes from a history test server, with a blocking Live wait. */
-function pagedDex(server: HistoryTestServer): PagedDex {
+function pagedDex(server: HistoryTestServer, summaryRunAttempt = 1): PagedDex {
   const liveWaits: URLSearchParams[] = [];
   let releaseLiveWait: (() => void) | null = null;
+  let heldHistoryRead: Promise<void> | null = null;
   const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://dex.test');
-    if (url.pathname === '/api/flows/summary') return json(summary(1));
+    if (url.pathname === '/api/flows/summary') return json(summary(summaryRunAttempt));
     if (url.pathname === '/api/flows/state') return json(emptyState);
-    if (url.pathname === '/api/flows/history') return json(historyTestServerResponse(server, url));
+    if (url.pathname === '/api/flows/history') {
+      const page = historyTestServerResponse(server, url);
+      const hold = heldHistoryRead;
+      heldHistoryRead = null;
+      if (hold) await hold;
+      return json(page);
+    }
     if (isNewestEventProbe(url)) {
       return json({ eventAvailable: true, availableInternalEventId: String(server.latestEventId()) });
     }
@@ -375,7 +384,16 @@ function pagedDex(server: HistoryTestServer): PagedDex {
     }
     throw new Error(`unexpected request ${input}`);
   });
-  return { fetch: fetchMock, liveWaits, releaseLiveWait: () => releaseLiveWait?.() };
+  return {
+    fetch: fetchMock,
+    liveWaits,
+    releaseLiveWait: () => releaseLiveWait?.(),
+    holdNextHistoryRead: () => {
+      let release = () => {};
+      heldHistoryRead = new Promise<void>((resolve) => { release = resolve; });
+      return release;
+    },
+  };
 }
 
 function timelineRowIDs(): string[] {
@@ -474,7 +492,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
   });
 
-  it('jumps to the oldest page with Last page and back with First page', async () => {
+  it('jumps to the oldest page with Oldest page and back with Latest page', async () => {
     const server = historyTestServer(sequentialStepHistory(3500));
     vi.stubGlobal('fetch', pagedDex(server).fetch);
     renderRun();
@@ -482,11 +500,11 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3500'));
     expect(eventsRange()).toBe('Showing #2501–#3500 · Page 1 of 4');
     server.requests.length = 0;
-    fireEvent.click(pageButton('Last page'));
+    fireEvent.click(pageButton('Oldest page'));
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('500'));
     expect(timelineRowIDs().at(-1)).toBe('1');
-    // Last page reads from the window start and stops where Next page would have started page 3.
+    // Oldest page reads from the window start and stops where Next page would have started page 3.
     expect(server.requests.map((request) => [request.startInternalEventId, request.estimatePageSize])).toEqual([[1, 1001]]);
     expect(eventsRange()).toBe('Showing #1–#500 · Page 4 of 4');
     expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
@@ -494,12 +512,12 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     fireEvent.click(pageButton('Prev page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
     expect(eventsRange()).toBe('Showing #501–#1500 · Page 3 of 4');
-    fireEvent.click(pageButton('First page'));
+    fireEvent.click(pageButton('Latest page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3500'));
     expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
   });
 
-  it('keeps an older page while Live appends, and First page resumes Live', async () => {
+  it('keeps an older page while Live appends, and Latest page resumes Live', async () => {
     const server = historyTestServer(sequentialStepHistory(1500));
     const dex = pagedDex(server);
     vi.stubGlobal('fetch', dex.fetch);
@@ -522,12 +540,56 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(eventsRange()).toBe('Showing #1–#500');
     expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
 
-    fireEvent.click(pageButton('First page'));
+    fireEvent.click(pageButton('Latest page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1501'));
     expect(eventsRange()).toBe('Showing #502–#1501 · Page 1 of 2');
     server.events.push(stepEvent(1502, 'StepExecuteCompleted', { stepExecutionId: 'Step-751' }));
     dex.releaseLiveWait();
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1502'));
+  });
+
+  it('keeps a Prev page that Live passed while it loaded, so no event is skipped', async () => {
+    const server = historyTestServer(sequentialStepHistory(1500));
+    const dex = pagedDex(server);
+    vi.stubGlobal('fetch', dex.fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
+    await waitFor(() => expect(dex.liveWaits.at(-1)?.get('nextInternalEventId')).toBe('1501'));
+    fireEvent.click(pageButton('Next page'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('500'));
+
+    // The Prev page read sees #501 to #1500 as the end; Live then appends #1501 before it returns.
+    const releasePrevPage = dex.holdNextHistoryRead();
+    fireEvent.click(pageButton('Prev page'));
+    await waitFor(() => expect(server.requests.at(-1)?.startInternalEventId).toBe(501));
+    server.events.push(stepEvent(1501, 'StepWaitForCompleted', { stepExecutionId: 'Step-751' }));
+    dex.releaseLiveWait();
+    await waitFor(() => expect(latestEventNumber()).toBe('#1501'));
+    releasePrevPage();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
+    expect(timelineRowIDs().at(-1)).toBe('501');
+    expect(pageButtonsDisabled()).toEqual([false, false, false, false]);
+  });
+
+  it('omits the page count when the Server reports no run attempts', async () => {
+    // The gap after FlowStart lies outside the newest page, and these event IDs prove nothing.
+    const retained = sequentialStepHistory(5500)
+      .filter((event) => event.eventId === 1 || event.eventId >= 4001)
+      .map((event) => ({ ...event, runAttempt: 0 }));
+    const server = historyTestServer(retained);
+    vi.stubGlobal('fetch', pagedDex(server, 0).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('5500'));
+    expect(eventsRange()).toBe('Showing #4501–#5500 · Page 1');
+    fireEvent.click(pageButton('Next page'));
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('4500'));
+    expect(timelineRowIDs().slice(-2)).toEqual(['4001', '1']);
+    expect(eventsRange()).toBe('Showing #1–#4500');
+    expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
   });
 
   it('draws the Execution graph from the selected page', async () => {

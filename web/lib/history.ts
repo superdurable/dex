@@ -144,6 +144,19 @@ export async function loadHistoryWindowFrom(
   };
 }
 
+/** Reloads a page by its first and last event IDs, for Back; the oldest page may hold one extra event. */
+export async function loadHistoryWindowBetween(
+  loadPage: HistoryPageLoader,
+  firstEventId: number,
+  lastEventId: number,
+  limit = HISTORY_WINDOW_EVENT_LIMIT,
+): Promise<HistoryWindow> {
+  const page = await loadHistoryWindowFrom(loadPage, firstEventId, limit + 1);
+  const events = page.events.filter((event) => event.eventId <= lastEventId);
+  if (events.length === 0 || events.length === page.events.length) return page;
+  return { ...page, events, hasNewer: true, nextInternalEventId: events[events.length - 1].eventId + 1 };
+}
+
 /** Loads a window that holds an event near its middle, for a jump to that event. */
 export async function loadHistoryWindowAround(
   loadPage: HistoryPageLoader,

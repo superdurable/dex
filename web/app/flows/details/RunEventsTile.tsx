@@ -22,10 +22,10 @@ export interface RunEventsPaging {
   isLoading: boolean;
   canGoBack: boolean;
   onBack: () => void;
-  onFirstPage: () => void;
+  onLatestPage: () => void;
   onPrevPage: () => void;
   onNextPage: () => void;
-  onLastPage: () => void;
+  onOldestPage: () => void;
 }
 
 /** The run header tile that names the latest event and pages through events. */
@@ -62,8 +62,8 @@ function RunEventsPager({ paging }: { paging: RunEventsPaging }) {
           Back
         </button>
       )}
-      <button className="button ghost" disabled={isNewerDisabled} onClick={paging.onFirstPage} type="button">
-        First page
+      <button className="button ghost" disabled={isNewerDisabled} onClick={paging.onLatestPage} type="button">
+        Latest page
       </button>
       <button
         className="button ghost"
@@ -76,8 +76,8 @@ function RunEventsPager({ paging }: { paging: RunEventsPaging }) {
       <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onNextPage} type="button">
         Next page
       </button>
-      <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onLastPage} type="button">
-        Last page
+      <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onOldestPage} type="button">
+        Oldest page
       </button>
     </div>
   );

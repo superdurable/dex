@@ -11,6 +11,7 @@ import {
   appendToNewestHistoryWindow,
   createHistoryPageLoader,
   loadHistoryWindowAround,
+  loadHistoryWindowBetween,
   loadHistoryWindowFrom,
   loadLatestEventIdHint,
   loadNewestHistoryWindow,
@@ -26,6 +27,7 @@ import {
   type EventIdRange,
   type ReportedRetainedHistory,
 } from '@/lib/historyRelations';
+import { positiveRunAttempt } from '@/lib/timeTravel';
 import type { FlowHistoryEvent } from '@/lib/types';
 
 /** The most Timeline positions that Back remembers. */
@@ -34,6 +36,7 @@ const TIMELINE_BACK_STACK_LIMIT = 20;
 /** A Timeline position that Back reloads. A null start follows the newest window. */
 interface TimelineLocation {
   pageStartEventId: number | null;
+  pageLastEventId: number | null;
   selectedEventId: number | null;
 }
 
@@ -57,6 +60,11 @@ export interface RunHistory {
   /** The newest page as the Timeline shows it, which Live extends. */
   newestTimelinePage: HistoryWindow | null;
   isTimelineOnNewest: boolean;
+  /**
+   * Whether event IDs skip only the pruned range, as page numbering needs.
+   * It holds only for a first run attempt that reports its run attempt.
+   */
+  hasContiguousEventIds: boolean;
   /** Whether events newer than the Timeline page exist, including ones Live added since it loaded. */
   timelineHasNewer: boolean;
   isLoadingTimelinePage: boolean;
@@ -114,6 +122,10 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     [newestTimelinePage, oldestRetainedEvents, timelinePage],
   );
   const timelineLastEventId = timelinePage?.events.at(-1)?.eventId ?? 0;
+  const hasContiguousEventIds = useMemo(
+    () => hasContiguousRetainedHistory(oldestRetainedEvents, prunedEventIdRange, newest?.events ?? []),
+    [newest, oldestRetainedEvents, prunedEventIdRange],
+  );
   const newestLastEventId = newest?.events.at(-1)?.eventId ?? 0;
   const timelineHasNewer = timelinePage !== null
     && (timelinePage.hasNewer || newestLastEventId > timelineLastEventId);
@@ -228,9 +240,12 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     if (!timelineHasNewer) return;
     const newerWindow = await loadTimelinePage(() => loadHistoryWindowFrom(pageLoader(), timelineLastEventId + 1));
     if (!newerWindow || newerWindow.events.length === 0) return;
-    // The newest page holds every event of a page that ends at its newest event.
-    const newestLoadedEventId = newestRef.current?.events.at(-1)?.eventId ?? 0;
-    if (!newerWindow.hasNewer && (newerWindow.events.at(-1)?.eventId ?? 0) <= newestLoadedEventId) {
+    // Live may have moved the newest page past this page's first event while the read ran.
+    const newestEvents = newestRef.current?.events ?? [];
+    const isHeldByNewest = newestEvents.length > 0
+      && newestEvents[0].eventId <= newerWindow.events[0].eventId
+      && newestEvents[newestEvents.length - 1].eventId >= newerWindow.events[newerWindow.events.length - 1].eventId;
+    if (!newerWindow.hasNewer && isHeldByNewest) {
       acceptWindow(newerWindow);
       showTimelinePage(null);
       return;
@@ -241,6 +256,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
   const rememberLocation = useCallback((selectedEvent: FlowHistoryEvent | null) => {
     const location = {
       pageStartEventId: timelinePage?.events[0]?.eventId ?? null,
+      pageLastEventId: timelinePage?.events.at(-1)?.eventId ?? null,
       selectedEventId: selectedEvent?.eventId ?? null,
     };
     setBackStack((stack) => [...stack, location].slice(-TIMELINE_BACK_STACK_LIMIT));
@@ -313,7 +329,10 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
       return { kind: 'restored', selectedEvent: findSelected(newestPage?.events) };
     }
     const startEventId = location.pageStartEventId;
-    const previousWindow = await loadTimelinePage(() => loadHistoryWindowFrom(pageLoader(), startEventId));
+    const lastEventId = location.pageLastEventId ?? Number.MAX_SAFE_INTEGER;
+    const previousWindow = await loadTimelinePage(() => (
+      loadHistoryWindowBetween(pageLoader(), startEventId, lastEventId)
+    ));
     // A superseded reload keeps the entry, so Back still returns there later.
     if (!previousWindow) return { kind: 'superseded' };
     setBackStack((stack) => (stack.at(-1) === location ? stack.slice(0, -1) : stack));
@@ -329,6 +348,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     timelineWindow,
     newestTimelinePage,
     isTimelineOnNewest: timelinePage === null,
+    hasContiguousEventIds,
     timelineHasNewer,
     isLoadingTimelinePage: pendingPageLoadCount > 0,
     canGoBack: backStack.length > 0,
@@ -351,6 +371,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     backStack.length,
     clear,
     flowStartEvent,
+    hasContiguousEventIds,
     highlightedEventId,
     jumpToEvent,
     loadNewest,
@@ -366,4 +387,24 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     timelinePage,
     timelineWindow,
   ]);
+}
+
+/**
+ * server-zd numbers a first run attempt contiguously, so only pruning leaves a gap after FlowStart.
+ *
+ * Returns false unless every known event reports run attempt 1 and the gap matches the pruned range.
+ */
+function hasContiguousRetainedHistory(
+  oldestRetainedEvents: FlowHistoryEvent[],
+  prunedEventIdRange: EventIdRange | undefined,
+  newestEvents: FlowHistoryEvent[],
+): boolean {
+  const [flowStart, oldestRetainedEvent] = oldestRetainedEvents;
+  if (flowStart?.eventId !== 1) return false;
+  const isFirstRunAttempt = (event: FlowHistoryEvent) => positiveRunAttempt(event.runAttempt) === 1;
+  if (!isFirstRunAttempt(flowStart) || !newestEvents.every(isFirstRunAttempt)) return false;
+  if (oldestRetainedEvent === undefined) return true;
+  if (!isFirstRunAttempt(oldestRetainedEvent) || oldestRetainedEvent.type === 'TimeTravelFork') return false;
+  if (oldestRetainedEvent.eventId === 2) return prunedEventIdRange === undefined;
+  return prunedEventIdRange?.firstEventId === 2 && prunedEventIdRange.lastEventId === oldestRetainedEvent.eventId - 1;
 }
