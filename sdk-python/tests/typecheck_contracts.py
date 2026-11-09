@@ -165,6 +165,7 @@ start_options: StartFlowOptions = (
             attribute_store_names=["reporting", "audit"],
             history_window_events=50_000,
             delete_expired_history_objects=False,
+            offload_history=False,
         )
     )
     .with_attribute(status, "ready")

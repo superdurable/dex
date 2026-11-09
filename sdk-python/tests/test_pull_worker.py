@@ -109,21 +109,22 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
     assert not WorkerDispatcher._map_sub_flow_config(FlowConfig()).HasField(
         "history_window_events"
     )
+    local_history_sub_flow = WorkerDispatcher._map_sub_flow_config(
+        FlowConfig(offload_history=False)
+    )
+    assert local_history_sub_flow.HasField("offload_history")
+    assert local_history_sub_flow.offload_history is False
+    assert not WorkerDispatcher._map_sub_flow_config(FlowConfig()).HasField(
+        "offload_history"
+    )
     for should_delete in (True, False):
         config = FlowConfig(delete_expired_history_objects=should_delete)
         mapped = WorkerDispatcher._map_sub_flow_config(config)
-        assert mapped.HasField("delete_expired_history_objects")
-        assert mapped.delete_expired_history_objects == should_delete
+        assert not mapped.HasField("delete_expired_history_objects")
         start = client._map_start_options(
             registry._flow_for_instance(flow), StartFlowOptions(config_override=config)
         )
-        assert start.flow_config_override.HasField("delete_expired_history_objects")
-        assert (
-            start.flow_config_override.delete_expired_history_objects == should_delete
-        )
-    assert not WorkerDispatcher._map_sub_flow_config(FlowConfig()).HasField(
-        "delete_expired_history_objects"
-    )
+        assert not start.flow_config_override.HasField("delete_expired_history_objects")
     assert WorkerOptions().pull == PullWorkerOptions()
     if isinstance(client, AsyncClient):
         await client.close()
@@ -138,6 +139,7 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
         FlowConfig(),
         FlowConfig(continue_as_new_threshold=500),
         FlowConfig(history_window_events=2500),
+        FlowConfig(offload_history=False),
         FlowConfig(delete_expired_history_objects=True),
         FlowConfig(delete_expired_history_objects=False),
     ],
@@ -169,16 +171,14 @@ async def _update_flow_config_leaves_worker_target_unset(
             assert request.flow_config.HasField("history_window_events") == (
                 config.history_window_events is not None
             )
-            assert request.flow_config.HasField("delete_expired_history_objects") == (
-                config.delete_expired_history_objects is not None
-            )
-            if config.delete_expired_history_objects is not None:
-                assert (
-                    request.flow_config.delete_expired_history_objects
-                    == config.delete_expired_history_objects
-                )
+            assert not request.flow_config.HasField("delete_expired_history_objects")
             if config.history_window_events is not None:
                 assert request.flow_config.history_window_events == 2500
+            assert request.flow_config.HasField("offload_history") == (
+                config.offload_history is not None
+            )
+            if config.offload_history is not None:
+                assert request.flow_config.offload_history is False
     finally:
         if isinstance(client, AsyncClient):
             await client.close()
