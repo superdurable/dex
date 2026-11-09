@@ -75,6 +75,13 @@ fn usage_after_changes(
         .transpose()?
         .and_then(|record| record.storage)
         .unwrap_or_default();
+    // Superseded value rows wait for an upload or the window as history in runs since 0.1.23.
+    let counts_superseded_rows_as_history = cursor
+        .record
+        .settings
+        .unwrap_or_default()
+        .offload_history
+        .is_some();
     let mut state_delta = 0_i128;
     let mut history_delta = 0_i128;
     let mut birth_delta = 0_i128;
@@ -103,16 +110,26 @@ fn usage_after_changes(
                 match parsed.table {
                     // An offloaded value's birth row only locates history, so it counts as history.
                     RunTable::ValueBirth => {
-                        let (previous_state, previous_history) =
-                            birth_row_size(change.previous.as_ref(), &change.key)?;
-                        let (current_state, current_history) =
-                            birth_row_size(change.current.as_ref(), &change.key)?;
+                        let (previous_state, previous_history) = birth_row_size(
+                            change.previous.as_ref(),
+                            &change.key,
+                            counts_superseded_rows_as_history,
+                        )?;
+                        let (current_state, current_history) = birth_row_size(
+                            change.current.as_ref(),
+                            &change.key,
+                            counts_superseded_rows_as_history,
+                        )?;
                         state_delta += current_state - previous_state;
                         history_delta += current_history - previous_history;
                         birth_delta += record_size::<ValueBirthRecord>(change, "value birth")?;
                     }
                     RunTable::ValueGarbage => {
-                        state_delta += row_delta;
+                        if counts_superseded_rows_as_history {
+                            history_delta += row_delta;
+                        } else {
+                            state_delta += row_delta;
+                        }
                         garbage_delta +=
                             record_size::<ValueGarbageRecord>(change, "value garbage")?;
                     }
@@ -225,13 +242,19 @@ fn row_size(value: Option<&Vec<u8>>, key: &[u8]) -> i128 {
     value.map_or(0, |value| (key.len() + value.len()) as i128)
 }
 
-/// Returns the state and history bytes of a birth row; an offloaded one counts as history.
-fn birth_row_size(value: Option<&Vec<u8>>, key: &[u8]) -> Result<(i128, i128), ApplyError> {
+/// Returns the state and history bytes of a birth row. An offloaded one counts as history, and
+/// so does a superseded one when `counts_superseded_rows_as_history`.
+fn birth_row_size(
+    value: Option<&Vec<u8>>,
+    key: &[u8],
+    counts_superseded_rows_as_history: bool,
+) -> Result<(i128, i128), ApplyError> {
     let Some(bytes) = value else {
         return Ok((0, 0));
     };
     let size = row_size(Some(bytes), key);
-    if decode_record::<ValueBirthRecord>(bytes, "value birth")?.is_offloaded {
+    let birth = decode_record::<ValueBirthRecord>(bytes, "value birth")?;
+    if birth.is_offloaded || (counts_superseded_rows_as_history && birth.garbage_seq != 0) {
         Ok((0, size))
     } else {
         Ok((size, 0))
@@ -349,7 +372,9 @@ pub(crate) fn active_run_storage_bytes_without_attempts(usage: &RunStorageUsage)
 /// It is the bytes of the current state rows plus the values they hold. History records,
 /// checkpoints, and superseded values are not counted. The state rows still include the small
 /// ValueBirth row of each table value and the ValueGarbage row of each superseded value, so
-/// existing runs need no recount. Birth rows of offloaded values count as history instead.
+/// existing runs need no recount. Birth rows of offloaded values count as history instead. Runs
+/// that record their offload choice, which runs started since server-zd 0.1.23 do, count the
+/// ValueBirth and ValueGarbage rows of superseded values as history from their start too.
 pub(crate) fn active_run_storage_bytes(usage: &RunStorageUsage) -> u64 {
     usage.state_row_bytes.saturating_add(usage.live_value_bytes)
 }

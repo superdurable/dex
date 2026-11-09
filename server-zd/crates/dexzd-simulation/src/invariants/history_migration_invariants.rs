@@ -49,7 +49,7 @@ pub(crate) fn must_migrate(
 ) -> bool {
     let has_older_history =
         previous.history_open_segment_first_seq == 0 || previous.history_migration_started_seq != 0;
-    view.is_history_offload_enabled
+    view.is_run_history_offloaded(current)
         && has_older_history
         && current.next_run_seq == seq + 1
         && current.status == FlowStatus::Running as i32
@@ -96,7 +96,7 @@ pub(crate) fn is_migration_step(
         && current.history_migration_started_seq != 0
         && current.history_open_segment_first_seq == segment.last_seq + 1
         && current.history_open_segment_first_event_id == segment.last_event_id + 1;
-    view.is_history_offload_enabled
+    view.is_run_history_offloaded(current)
         && segment.first_event_id == first_event_id
         && current.history_open_segment_bytes == 0
         && current.history_open_segment_superseded_value_count == 0
@@ -143,7 +143,7 @@ pub(crate) fn check_history_migration(
             && record.history_open_segment_first_seq != 0;
         counts.started += usize::from(has_started);
         if (was_migrating || has_started) && !is_migrating {
-            if view.is_history_offload_enabled {
+            if view.is_run_history_offloaded(record) {
                 counts.completed += 1;
             } else {
                 counts.abandoned += 1;

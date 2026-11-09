@@ -678,8 +678,9 @@ pub(crate) fn apply_flow_config_override(effective: &mut FlowConfig, override_co
     if override_config.history_window_events.is_some() {
         effective.history_window_events = override_config.history_window_events;
     }
-    if override_config.delete_expired_history_objects.is_some() {
-        effective.delete_expired_history_objects = override_config.delete_expired_history_objects;
+    // delete_expired_history_objects is accepted and ignored: expired history is always deleted.
+    if override_config.offload_history.is_some() {
+        effective.offload_history = override_config.offload_history;
     }
 }
 

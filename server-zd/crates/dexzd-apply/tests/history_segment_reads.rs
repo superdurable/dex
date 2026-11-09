@@ -633,6 +633,7 @@ fn settings(segment_target_bytes: u64) -> RunSettings {
         history_segment_target_bytes: segment_target_bytes,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 

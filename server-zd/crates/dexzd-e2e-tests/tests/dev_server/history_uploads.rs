@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! With history offload on, the dev server uploads a closed run's sealed history segment to its
+//! The dev server uploads a closed run's sealed history segment to its
 //! embedded s3local store and acknowledges it in committed state.
 
 use std::io::Read;
@@ -38,7 +38,7 @@ const CREATED_UPLOADS: &str = "dexzd_history_uploads_total{outcome=\"created\"} 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_closed_runs_history_segment_uploads_to_the_embedded_object_store() {
     let metrics = free_loopback_address();
-    let overrides = format!("history:\n  offloadEnabled: true\nmetrics:\n  listen: '{metrics}'\n");
+    let overrides = format!("metrics:\n  listen: '{metrics}'\n");
     let server = DevServer::start_with_config_overrides(Some(&overrides)).await;
     let mut flow_client = server.flow_client();
     let started = start_pull_flow(

@@ -70,8 +70,9 @@ recovery:
   readAheadBatches: 64
   readAheadBytes: 67108864
 history:
-  # Approximate history events kept per run; FlowConfig.history_window_events overrides it per run.
-  windowEvents: 10000
+  # Approximate history events kept per run; dev and local default to 5000.
+  # FlowConfig.history_window_events overrides it per run.
+  windowEvents: 50000
   # Largest number of history events pruned at once.
   pruneChunkSize: 1000
   # Largest window that FlowConfig.history_window_events may set.
@@ -80,14 +81,9 @@ history:
   checkpointRowWriteBytesThreshold: 1048576
   # Commands of any kind since the last checkpoint that trigger a new one.
   checkpointCommandThreshold: 1000
-  maxRetainedSupersededBytes: 268435456
   # Most bytes one time travel holds in memory: replayed history, restored state, reapplied input.
   timeTravelReplayMemoryBytes: 1073741824
-  # Experimental: keep false until the release notes announce history offload; dev and local default to true.
-  offloadEnabled: false
-  # Delete objects of history segments the window passed; dev and local default to true.
-  # FlowConfig.delete_expired_history_objects overrides it per run.
-  deleteExpiredObjects: false
+  # Bytes of history that seal a segment for upload to object storage.
   segmentTargetBytes: 4194304
   # Command time a superseded value stays on local disk before offload deletes it.
   supersededValueGracePeriod: 10m

@@ -93,7 +93,6 @@ impl ComponentConfigs {
         let mut run_settings = default_run_settings();
         run_settings.history_window_events = config.history.window_events;
         run_settings.history_prune_chunk_events = config.history.prune_chunk_size;
-        run_settings.max_retained_superseded_bytes = config.history.max_retained_superseded_bytes;
         run_settings.retention_after_close_micros = duration_micros(
             "retention.closedFlowDuration",
             config.retention.closed_flow_duration,
@@ -113,7 +112,6 @@ impl ComponentConfigs {
         run_settings.max_active_step_executions = config.limits.max_concurrent_steps_per_flow;
         run_settings.max_child_flow_result_bytes = config.limits.max_child_flow_result_bytes;
         run_settings.history_segment_target_bytes = config.history.segment_target_bytes;
-        run_settings.delete_expired_history_objects = config.history.should_delete_expired_objects;
         run_settings.superseded_value_grace_micros = duration_micros(
             "history.supersededValueGracePeriod",
             config.history.superseded_value_grace_period,
@@ -256,8 +254,9 @@ impl ComponentConfigs {
             // Children keep built-in settings; only these newer settings follow configuration.
             child_run_settings: RunSettings {
                 max_child_flow_result_bytes: config.limits.max_child_flow_result_bytes,
+                history_window_events: run_settings.history_window_events,
+                history_prune_chunk_events: run_settings.history_prune_chunk_events,
                 history_segment_target_bytes: config.history.segment_target_bytes,
-                delete_expired_history_objects: config.history.should_delete_expired_objects,
                 superseded_value_grace_micros: run_settings.superseded_value_grace_micros,
                 ..EffectsConfig::default().child_run_settings
             },

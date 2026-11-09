@@ -458,6 +458,7 @@ fn settings(history_window_events: u32, request_dedup_capacity: u32) -> RunSetti
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 

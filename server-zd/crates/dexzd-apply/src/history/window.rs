@@ -22,7 +22,7 @@ use dexzd_protocol::dexzd::v1::{HistoryRowMetadata, RunRecord};
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::lineage::{genesis_seq, required_attempt_record};
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_superseded_byte_cap_applied;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 
@@ -104,7 +104,7 @@ pub(crate) fn advance_window_if_full(
     }
     let settings = cursor.record.settings.unwrap_or_default();
     // Offloaded superseded values leave local disk, so the cap applies only while offload is off.
-    if !is_history_offload_enabled(transaction)?
+    if is_superseded_byte_cap_applied(transaction, &cursor.record)?
         && crate::values::projected_superseded_value_bytes(transaction, cursor)?
             > settings.max_retained_superseded_bytes
     {

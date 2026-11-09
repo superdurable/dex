@@ -875,3 +875,54 @@ async fn a_history_window_override_reaches_the_run_and_out_of_range_windows_are_
     let flow_config = update.request.as_ref().unwrap().flow_config.as_ref();
     assert_eq!(flow_config.unwrap().history_window_events, Some(100_000));
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_deprecated_delete_switch_is_dropped_at_start_and_kept_for_older_runs_on_update() {
+    let harness = FlowCoordinationHarness::new();
+    let mut request = start_request("switched-off");
+    request
+        .flow_start_options
+        .as_mut()
+        .unwrap()
+        .flow_config_override
+        .as_mut()
+        .unwrap()
+        .delete_expired_history_objects = Some(false);
+    harness
+        .drive(harness.registry.start_flow(TENANT, request))
+        .await
+        .unwrap();
+    let submitted = harness.submitted();
+    let Some(flow_command::Command::FlowStart(start)) = submitted[0].command.as_ref() else {
+        panic!("expected FlowStart");
+    };
+    let effective = start.effective_flow_config.as_ref().unwrap();
+    assert_eq!(effective.delete_expired_history_objects, None);
+    harness
+        .drive(harness.registry.update_flow_config(
+            TENANT,
+            UpdateFlowConfigRequest {
+                flow_id: "switched-off".to_owned(),
+                flow_config: Some(FlowConfig {
+                    delete_expired_history_objects: Some(false),
+                    ..FlowConfig::default()
+                }),
+                ..UpdateFlowConfigRequest::default()
+            },
+        ))
+        .await
+        .expect("UpdateFlowConfig accepts the deprecated delete switch");
+    // Runs that started before 0.1.23 still follow the switch, so an update still carries it.
+    let submitted = harness.submitted();
+    let Some(flow_command::Command::FlowConfigUpdate(update)) = submitted
+        .last()
+        .and_then(|command| command.command.as_ref())
+    else {
+        panic!("expected FlowConfigUpdate");
+    };
+    let flow_config = update.request.as_ref().unwrap().flow_config.as_ref();
+    assert_eq!(
+        flow_config.unwrap().delete_expired_history_objects,
+        Some(false)
+    );
+}

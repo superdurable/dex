@@ -20,7 +20,7 @@ use dexzd_protocol::dexzd::v1::{
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, ok_reply};
-use crate::command_handlers::flow_start::{RunStart, start_run};
+use crate::command_handlers::flow_start::{RunStart, run_settings_with_offload_choice, start_run};
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
 use crate::cross_flow::outbox::{report_terminal_to_parent, validate_child_start_parameters};
@@ -170,7 +170,8 @@ fn apply_child_start(
         } else {
             timeout_policy
         };
-    let child_settings = command.settings.unwrap_or_default();
+    let child_settings =
+        run_settings_with_offload_choice(command.settings.unwrap_or_default(), &config);
     // The parent already admitted startup values; restore the child's limit before committing the run.
     let mut admitted_start_settings = child_settings;
     admitted_start_settings.max_value_bytes = u64::MAX;

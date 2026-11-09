@@ -272,11 +272,6 @@ impl Config {
             "must be positive",
         )?;
         ensure(
-            self.history.max_retained_superseded_bytes >= self.values.max_value_bytes,
-            "history.maxRetainedSupersededBytes",
-            "must hold at least one maximum-sized value",
-        )?;
-        ensure(
             (1..=MAX_HISTORY_SEGMENT_TARGET_BYTES).contains(&self.history.segment_target_bytes),
             "history.segmentTargetBytes",
             "must be positive and at most 256 MiB",

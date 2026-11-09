@@ -6,12 +6,16 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! The partition's committed history offload mode; apply cannot read configuration.
+//! Whether a run offloads its history: its own choice recorded at start, or, for a run that
+//! started before runs recorded one, the partition's committed mode. Apply cannot read
+//! configuration.
 
 use dexzd_keyspace::ColumnFamily;
 use dexzd_keyspace::row_keys::history_offload_mode_key;
 use dexzd_protocol::dex::ErrorSubStatus;
-use dexzd_protocol::dexzd::v1::{HistoryOffloadModeRecord, SetHistoryOffloadModeCommand};
+use dexzd_protocol::dexzd::v1::{
+    HistoryOffloadModeRecord, RunRecord, SetHistoryOffloadModeCommand,
+};
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply};
@@ -51,6 +55,32 @@ pub(crate) fn apply_history_offload_mode(
         transaction.delete(ColumnFamily::PartitionIndex, key);
     }
     Ok(applied_partition_command())
+}
+
+/// Returns whether the run offloads its history: the choice its settings recorded at start, or,
+/// for a run without one, whether its partition offloads.
+pub(crate) fn is_run_history_offloaded(
+    transaction: &FlowTransaction<'_>,
+    record: &RunRecord,
+) -> Result<bool, ApplyError> {
+    match record.settings.unwrap_or_default().offload_history {
+        Some(is_offloaded) => Ok(is_offloaded),
+        None => is_history_offload_enabled(transaction),
+    }
+}
+
+/// Returns whether window pruning keeps the run's superseded bytes under its recorded cap: only
+/// a run without a recorded offload choice does, while its partition does not offload.
+pub(crate) fn is_superseded_byte_cap_applied(
+    transaction: &FlowTransaction<'_>,
+    record: &RunRecord,
+) -> Result<bool, ApplyError> {
+    Ok(record
+        .settings
+        .unwrap_or_default()
+        .offload_history
+        .is_none()
+        && !is_history_offload_enabled(transaction)?)
 }
 
 /// Returns whether the transaction's partition offloads run history; an absent record means disabled.

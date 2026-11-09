@@ -67,9 +67,7 @@ async fn a_standby_takeover_finishes_uploads_that_failed_on_the_previous_owner()
         }
         .write_with_snapshot_schedule(&path, "1s", "1h");
         let mut contents = fs::read_to_string(&path).expect("the serve configuration is readable");
-        contents.push_str(&format!(
-            "history:\n  offloadEnabled: true\nmetrics:\n  listen: '{metrics_listen}'\n"
-        ));
+        contents.push_str(&format!("metrics:\n  listen: '{metrics_listen}'\n"));
         fs::write(&path, contents).expect("the serve configuration is written");
         path
     };

@@ -54,7 +54,7 @@ pub struct FlowView {
     pub history_object_delete_pending_runs: BTreeSet<RunId>,
     /// Runs of this Flow named by the partition's HistoryLocalCleanupPending index.
     pub history_local_cleanup_pending_runs: BTreeSet<RunId>,
-    /// True when the Flow's partition offloads history.
+    /// True when the Flow's partition offloads the history of runs without an offload choice.
     pub is_history_offload_enabled: bool,
     /// The partition and Flow hash the view was read for.
     pub location: Option<(PartitionId, FlowHash)>,
@@ -349,6 +349,16 @@ impl FlowView {
     }
 
     /// Returns the last run of the directory and its view.
+    /// Returns whether `record`'s run offloads its history: the choice it recorded at start, or,
+    /// for a run without one, whether the Flow's partition offloads.
+    pub fn is_run_history_offloaded(&self, record: &RunRecord) -> bool {
+        record
+            .settings
+            .unwrap_or_default()
+            .offload_history
+            .unwrap_or(self.is_history_offload_enabled)
+    }
+
     pub fn latest_run(&self) -> Option<(RunId, &RunView)> {
         let directory = self.directory.as_ref()?;
         let run = directory.runs.last()?;

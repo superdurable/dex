@@ -814,7 +814,8 @@ message SearchProjectionModeRecord {
   uint64 enabled_at_seq = 3;
 }
 
-// Singleton of the HistoryOffloadMode partition index. Absent means disabled.
+// Singleton of the HistoryOffloadMode partition index. Absent means disabled. Only runs without
+// RunSettings.offload_history follow it; since server-zd 0.1.23 nothing changes it.
 message HistoryOffloadModeRecord {
   // The partition offloads run history to object storage while enabled.
   bool enabled = 1;

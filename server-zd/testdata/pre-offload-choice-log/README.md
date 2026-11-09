@@ -30,11 +30,24 @@ The workload is that commit's `workload.rs` with these changes:
 None of these runs records an offload choice. A node of a later binary must replay every
 command with the semantics of the binary that recorded it.
 
-The `workload::legacy_history` tests of the `format_compat` target, in
-`crates/dexzd-engine/tests/format_compat/workload/legacy_history.rs`, restore it. They check that
-the log replays to `state.txt` row for row, from the snapshot and from the start of the log;
-that the purge of the reused Flow ID stays applied and its replacement run survives; that runs
-of partition 2 keep their history local and never migrate; and that the small-budget runs keep
+The `pre_offload_choice_log` tests of the `format_compat` target, in
+`crates/dexzd-engine/tests/format_compat/pre_offload_choice_log.rs`, replay it from the snapshot
+and from the start of the log. One checks that the debug replay checks stop no partition, also
+at the `travel-flow` TimeTravel whose staged result still holds the rows of completed Steps.
+The strict one compares the replayed state with `state.txt` row for row, with the long values
+that `pre_offload_choice_rows.txt` pins from the recording binary. It allows only what later
+apply derives from the recorded rows: the rows of ended Steps that apply deletes since #1429,
+the checkpoints, history row metadata, and run record counters without them, the prune
+cursors that apply maintains since #1427, and the ended Step row sweep of #1430. The replay
+must delete exactly the Step rows that later apply drops. A row that the restored snapshot held
+unchanged follows the sweep, which deletes the deletable rows of each run that a replayed
+command reaches and marks that run's sweep complete. Every other row follows the command that
+ended its Step. A checkpoint that a replayed command wrote lacks the same rows.
+
+The `workload::legacy_history` tests, in
+`crates/dexzd-engine/tests/format_compat/workload/legacy_history.rs`, restore it and check that
+the purge of the reused Flow ID stays applied and its replacement run survives; that runs of
+partition 2 keep their history local and never migrate; and that the small-budget runs keep
 the admission results of their release while a run started after recovery never stalls.
 
 It is a test fixture, not a `v<N>` version: the generator never writes it and the version pins do

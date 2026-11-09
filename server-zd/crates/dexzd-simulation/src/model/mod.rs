@@ -412,6 +412,12 @@ impl CommandGenerator {
             if flow_id != HISTORY_OFFLOAD_FLOW_IDS[0] {
                 settings.superseded_value_grace_micros = HISTORY_OFFLOAD_SHORT_GRACE_MICROS;
             }
+            // Runs without a choice follow the partition's mode, as runs of older releases do.
+            settings.offload_history = match self.rng.random_range(0..4) {
+                0 => Some(true),
+                1 => Some(false),
+                _ => None,
+            };
         }
         Ok(command)
     }

@@ -27,7 +27,7 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use crate::command_handlers::run_cursor::RunCursor;
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_run_history_offloaded;
 use crate::state_access::FlowTransaction;
 use crate::{ApplyEffect, ApplyError};
 
@@ -36,13 +36,13 @@ pub(crate) const DEFAULT_HISTORY_SEGMENT_TARGET_BYTES: u64 = 4 * 1024 * 1024;
 /// Bounds the HistorySegmentValue rows one seal writes, so one command stays small.
 pub(crate) const MAX_SEGMENT_SUPERSEDED_VALUES: u64 = 10_000;
 
-/// Opens the first history segment of a run that the command creates, when its partition
-/// offloads history. Runs created while offload is off keep no segment state.
+/// Opens the first history segment of a run that the command creates, when the run offloads
+/// history. Runs that do not offload keep no segment state.
 pub(crate) fn open_first_history_segment(
     transaction: &FlowTransaction<'_>,
     cursor: &mut RunCursor,
 ) -> Result<(), ApplyError> {
-    if !is_history_offload_enabled(transaction)? {
+    if !is_run_history_offloaded(transaction, &cursor.record)? {
         return Ok(());
     }
     cursor.record.history_open_segment_first_seq = cursor.seq;
@@ -66,7 +66,7 @@ pub(crate) fn seal_history_segment_if_due(
     if cursor.record.history_open_segment_first_seq == 0 {
         return Ok(());
     }
-    if !is_history_offload_enabled(transaction)? {
+    if !is_run_history_offloaded(transaction, &cursor.record)? {
         open_segment_after_command(cursor);
         return Ok(());
     }

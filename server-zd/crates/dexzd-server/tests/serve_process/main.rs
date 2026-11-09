@@ -15,7 +15,6 @@ mod dev_abrupt_exit;
 mod dev_restart;
 mod dev_soak;
 mod harness;
-mod history_offload_mode;
 mod history_uploads;
 mod lease_release;
 mod lease_validity;
@@ -24,6 +23,7 @@ mod metrics;
 mod object_store_compatibility;
 mod purging_reads;
 mod queued_restart;
+mod removed_history_keys;
 mod robustness;
 mod search_outbox;
 mod single_node_partition_count;
@@ -866,6 +866,16 @@ async fn start_greeting_worker(channel: Channel) -> PullWorker {
 
 /// Starts `flow_id` on the pull Worker, waits until it completes, and returns its run ID.
 async fn run_greeting_flow(flow_client: &mut FlowServiceClient<Channel>, flow_id: &str) -> String {
+    run_greeting_flow_with_offload(flow_client, flow_id, None).await
+}
+
+/// Runs the greeting Flow like [`run_greeting_flow`], with `offload_history` in its start
+/// override.
+async fn run_greeting_flow_with_offload(
+    flow_client: &mut FlowServiceClient<Channel>,
+    flow_id: &str,
+    offload_history: Option<bool>,
+) -> String {
     let started = flow_client
         .start_flow(StartFlowRequest {
             flow_id: flow_id.to_owned(),
@@ -879,6 +889,7 @@ async fn run_greeting_flow(flow_client: &mut FlowServiceClient<Channel>, flow_id
             flow_start_options: Some(FlowStartOptions {
                 flow_config_override: Some(FlowConfig {
                     worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    offload_history,
                     ..FlowConfig::default()
                 }),
                 ..FlowStartOptions::default()

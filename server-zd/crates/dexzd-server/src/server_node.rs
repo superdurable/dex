@@ -510,7 +510,6 @@ impl ServerNode {
                 &metrics,
                 &partition_hasher,
                 is_search_projection_enabled,
-                config.history.is_offload_enabled,
             );
             let registry = FlowCoordinatorRegistry::new(
                 &components.flow_coordination,

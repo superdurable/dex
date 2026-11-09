@@ -648,6 +648,7 @@ fn legacy_settings() -> RunSettings {
         history_segment_target_bytes: 1_500,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 

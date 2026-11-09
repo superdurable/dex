@@ -73,7 +73,9 @@ pub(crate) use state_reads::{
 use crate::attribute_sync::AttributeSyncWaker;
 use crate::blocking_work::BlockingWorkPlacement;
 use crate::engine_id_source::EngineIdSource;
-use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
+use crate::flow_coordination::{
+    CommitUrgency, FlowAddress, FlowCoordinationEffectSink, default_run_settings,
+};
 use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
 use dispatch::{AttemptEntries, DispatchScheduler, HandoutEnd, InterruptedAttempt};
 use history_uploads::{HistoryUploadLimiter, UploadBacklogTracker};
@@ -161,23 +163,7 @@ impl Default for EffectsConfig {
             retry_initial_backoff: Duration::from_millis(100),
             retry_max_backoff: Duration::from_secs(30),
             max_blocking_state_reads: 64,
-            child_run_settings: RunSettings {
-                history_window_events: 10_000,
-                history_prune_chunk_events: 1_000,
-                max_retained_superseded_bytes: 256 * 1024 * 1024,
-                retention_after_close_micros: 7 * 24 * 60 * 60 * 1_000_000,
-                wire_inline_threshold_bytes: 100,
-                max_value_bytes: 16 * 1024 * 1024,
-                checkpoint_row_write_bytes_threshold: 1024 * 1024,
-                checkpoint_command_threshold: 1_000,
-                request_dedup_capacity: 1_000,
-                max_run_state_bytes: 1024 * 1024 * 1024,
-                max_active_step_executions: 10_000,
-                max_child_flow_result_bytes: 16 * 1024 * 1024,
-                history_segment_target_bytes: 4 * 1024 * 1024,
-                delete_expired_history_objects: false,
-                superseded_value_grace_micros: 10 * 60 * 1_000_000,
-            },
+            child_run_settings: default_run_settings(),
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
             heads_resync_interval: Duration::from_secs(5 * 60),
             heads_max_skipped_deletions: 100_000,

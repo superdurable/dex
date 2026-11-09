@@ -240,6 +240,12 @@ fn validate_update_flow_config(
         .flow_config
         .as_ref()
         .ok_or_else(|| invalid("flow_config", "flow ID and flow config are required"))?;
+    if flow_config.offload_history.is_some() {
+        return Err(invalid(
+            "flow_config.offload_history",
+            "offload_history can be set only when the Flow starts",
+        ));
+    }
     validate_flow_config("flow_config", flow_config, config, false)
 }
 

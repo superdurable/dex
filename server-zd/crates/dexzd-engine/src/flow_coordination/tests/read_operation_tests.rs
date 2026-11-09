@@ -26,7 +26,8 @@ use crate::effects::HardDeleteObjectOwner;
 use crate::flow_coordination::FlowCoordinationError;
 use crate::flow_coordination::grpc_code;
 use crate::flow_coordination::tests::fixtures::{
-    TENANT, attributes_set_command, flow, set_attribute_request, start_flow, string_value,
+    TENANT, attributes_set_command, flow, set_attribute_request, start_flow, start_request,
+    string_value,
 };
 use crate::flow_coordination::tests::test_support::FlowCoordinationHarness;
 
@@ -669,12 +670,23 @@ async fn flow_state_and_history_are_read_through_the_read_model() {
     assert_eq!(missing_history.grpc_code(), grpc_code::NOT_FOUND);
 }
 
-/// LoadBlobs keeps taking any number of entries in a partition that never offloaded history;
-/// the 1000-entry limit applies only while offload is on.
+/// LoadBlobs takes any number of entries of a run that keeps its history local; the 1000-entry
+/// limit counts only entries of runs that offload history.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn load_blobs_takes_more_than_a_thousand_entries_while_offload_is_off() {
+async fn load_blobs_takes_more_than_a_thousand_entries_of_a_run_without_offload() {
     let harness = FlowCoordinationHarness::new();
-    let run_id = start_flow(&harness, "order-1").await.unwrap();
+    let mut request = start_request("order-1");
+    request
+        .flow_start_options
+        .as_mut()
+        .and_then(|options| options.flow_config_override.as_mut())
+        .expect("the start request has an override")
+        .offload_history = Some(false);
+    let response = harness
+        .drive(harness.registry.start_flow(TENANT, request))
+        .await
+        .unwrap();
+    let run_id: RunId = response.run_id.parse().unwrap();
     let value_id = ValueId {
         run_seq: 4,
         index_in_command: 1,
@@ -694,6 +706,47 @@ async fn load_blobs_takes_more_than_a_thousand_entries_while_offload_is_off() {
         .registry
         .load_blobs(TENANT, LoadBlobsRequest { entries })
         .await
-        .expect("1001 entries load while offload is off");
+        .expect("1001 entries of a run without offload load");
+    assert_eq!(response.values[&reference], string_value("large"));
+}
+
+/// The 1000-entry limit applies to entries of a run that offloads, which runs do by default.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn load_blobs_takes_at_most_a_thousand_entries_of_a_run_that_offloads() {
+    let harness = FlowCoordinationHarness::new();
+    let run_id = start_flow(&harness, "order-1").await.unwrap();
+    let value_id = ValueId {
+        run_seq: 4,
+        index_in_command: 1,
+    };
+    seed_table_value(&harness, run_id, value_id, string_value("large"));
+    let reference = ValueReference { run_id, value_id }.to_string();
+    let entry = LoadBlobRequestEntry {
+        flow_id: "order-1".to_owned(),
+        blob_value: Some(Value {
+            kind: Some(value::Kind::InternalBlobIdForObjValue(reference.clone())),
+        }),
+    };
+    let error = harness
+        .registry
+        .load_blobs(
+            TENANT,
+            LoadBlobsRequest {
+                entries: vec![entry.clone(); 1001],
+            },
+        )
+        .await
+        .expect_err("1001 entries of a run that offloads are too many");
+    assert_eq!(error.grpc_code(), grpc_code::INVALID_ARGUMENT, "{error}");
+    let response = harness
+        .registry
+        .load_blobs(
+            TENANT,
+            LoadBlobsRequest {
+                entries: vec![entry; 1000],
+            },
+        )
+        .await
+        .expect("1000 entries load");
     assert_eq!(response.values[&reference], string_value("large"));
 }

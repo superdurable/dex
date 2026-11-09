@@ -203,6 +203,9 @@ fn effective_flow_config(
         if overrides.delete_expired_history_objects.is_some() {
             effective.delete_expired_history_objects = overrides.delete_expired_history_objects;
         }
+        if overrides.offload_history.is_some() {
+            effective.offload_history = overrides.offload_history;
+        }
     }
     effective
 }

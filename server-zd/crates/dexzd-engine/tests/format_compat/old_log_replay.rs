@@ -51,7 +51,7 @@ const OLDER_STEP_AND_CHECKPOINT_ROWS: &str = include_str!("pre_attempt_handout_r
 pub(crate) type StoredRows = BTreeMap<(String, Vec<u8>), Vec<u8>>;
 
 /// Rows of the older binary by column family name and hex key, as `state.txt` names them.
-type OlderRows = BTreeMap<(String, String), Vec<u8>>;
+pub(crate) type OlderRows = BTreeMap<(String, String), Vec<u8>>;
 
 #[tokio::test]
 async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
@@ -272,11 +272,28 @@ async fn the_older_log_oracles_reject_wrong_deletions_and_checkpoint_changes() {
 
 /// Reads the pinned older rows; each must hash to its `state.txt` value, and none may be missing.
 fn read_older_rows(recorded: &StateDump) -> OlderRows {
+    read_pinned_rows(
+        recorded,
+        OLDER_STEP_AND_CHECKPOINT_ROWS,
+        &[
+            (ColumnFamily::Flow, RunTable::StepExecution),
+            (ColumnFamily::History, RunTable::Checkpoint),
+        ],
+    )
+}
+
+/// Reads the full row values that `pinned_text` holds, one `<column family> <key hex> <value
+/// hex>` line each, after `#` comment lines.
+///
+/// Panics unless each value hashes to its `recorded` entry and every recorded row of
+/// `pinned_tables` is pinned, so the values are the recorded ones.
+pub(crate) fn read_pinned_rows(
+    recorded: &StateDump,
+    pinned_text: &str,
+    pinned_tables: &[(ColumnFamily, RunTable)],
+) -> OlderRows {
     let mut older_rows = OlderRows::new();
-    for line in OLDER_STEP_AND_CHECKPOINT_ROWS
-        .lines()
-        .filter(|line| !line.starts_with('#'))
-    {
+    for line in pinned_text.lines().filter(|line| !line.starts_with('#')) {
         let mut fields = line.split(' ');
         let (Some(column_family), Some(hex_key), Some(hex_value), None) =
             (fields.next(), fields.next(), fields.next(), fields.next())
@@ -294,10 +311,9 @@ fn read_older_rows(recorded: &StateDump) -> OlderRows {
     }
     for (column_family, hex_key) in recorded.keys() {
         let table = parse_run_key(&decode_hex(hex_key)).map(|parsed| parsed.table);
-        let is_pinned_table = matches!(
-            (column_family.as_str(), table),
-            ("flow", Ok(RunTable::StepExecution)) | ("history", Ok(RunTable::Checkpoint))
-        );
+        let is_pinned_table = pinned_tables.iter().any(|(pinned_family, pinned_table)| {
+            column_family == pinned_family.name() && table == Ok(*pinned_table)
+        });
         if is_pinned_table {
             assert!(
                 older_rows.contains_key(&(column_family.clone(), hex_key.clone())),
@@ -327,7 +343,7 @@ fn older_step_row(
 
 /// Which eligible older Step rows a replay must have deleted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExpectedDeletion {
+pub(crate) enum ExpectedDeletion {
     /// Every eligible row, because the replay rewrote every row.
     EveryEligibleRow,
     /// Some eligible rows: rows a restored snapshot holds stay until a command rewrites them.
@@ -339,7 +355,7 @@ enum ExpectedDeletion {
 /// Returns an error when the replay deleted an older row that newer binaries keep, when a
 /// deleted row did not answer Completed in the older state and the replayed one, or when
 /// `deletion` requires every eligible row deleted and one remains.
-fn deleted_ended_step_rows(
+pub(crate) fn deleted_ended_step_rows(
     recorded: &StateDump,
     replayed: &StateDump,
     older_rows: &OlderRows,
@@ -414,7 +430,7 @@ fn deleted_ended_step_rows(
 }
 
 /// Whether newer binaries delete this older row: it completed, or a cancel without FlowClosed ended it.
-fn is_expected_deletion(
+pub(crate) fn is_expected_deletion(
     step: &StepExecutionRecord,
     flow_hash: FlowHash,
     run_id: RunId,
@@ -773,7 +789,7 @@ fn decoded_rows<T: Message + Default>(stored: &StoredRows, table: RunTable) -> V
         .collect()
 }
 
-fn decode_hex(hex_key: &str) -> Vec<u8> {
+pub(crate) fn decode_hex(hex_key: &str) -> Vec<u8> {
     (0..hex_key.len())
         .step_by(2)
         .map(|index| u8::from_str_radix(&hex_key[index..index + 2], 16).expect("hex key"))

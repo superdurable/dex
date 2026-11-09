@@ -178,8 +178,6 @@ pub struct NodeMetrics {
     pub search_initial_loads: Counter,
     /// Stopped partitions that kept their previous search projection mode at startup.
     pub search_projection_mode_skipped_partitions: Counter,
-    /// Stopped partitions that kept their previous history offload mode at startup.
-    pub history_offload_mode_skipped_partitions: Counter,
     /// Sealed history segments waiting for upload, per partition; the count follows seals and
     /// acknowledgments, and bytes and age are as of the uploader's last scan.
     pub history_upload_backlog: HistoryUploadBacklog,
@@ -576,11 +574,6 @@ impl NodeMetrics {
             metrics.search_projection_mode_skipped_partitions.clone(),
         );
         registry.register(
-            "dexzd_history_offload_mode_skipped_partitions",
-            "Stopped partitions that kept their previous history offload mode at startup.",
-            metrics.history_offload_mode_skipped_partitions.clone(),
-        );
-        registry.register(
             "dexzd_history_upload_backlog_segments",
             "Sealed history segments waiting for upload.",
             HistoryUploadBacklogSegments(metrics.history_upload_backlog.clone()),
@@ -752,7 +745,6 @@ impl NodeMetrics {
             search_initial_load_documents: Counter::default(),
             search_initial_loads: Counter::default(),
             search_projection_mode_skipped_partitions: Counter::default(),
-            history_offload_mode_skipped_partitions: Counter::default(),
             history_upload_backlog: HistoryUploadBacklog::new(partition_count),
             history_upload_concurrency_limit: Gauge::default(),
             history_upload_in_flight_bytes: Gauge::default(),
