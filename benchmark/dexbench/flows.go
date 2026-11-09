@@ -162,10 +162,10 @@ func (rpcWaitStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, erro
 }
 
 type wakeInput struct {
-	Client   int
-	Sequence int64
+	Client int
 }
 
+// wakeSignal reports the start of a woken Execute and the sequence of the message it consumed.
 type wakeSignal struct {
 	sequence  int64
 	startedAt time.Time
@@ -174,37 +174,37 @@ type wakeSignal struct {
 // wakeSignals reports WaitFor returns and Execute starts to the in-process client of that Flow.
 type wakeSignals struct {
 	channels       []chan wakeSignal
-	waitedChannels []chan int64
+	waitedChannels []chan struct{}
 }
 
 func newWakeSignals(clients int) *wakeSignals {
-	signals := &wakeSignals{channels: make([]chan wakeSignal, clients), waitedChannels: make([]chan int64, clients)}
+	signals := &wakeSignals{channels: make([]chan wakeSignal, clients), waitedChannels: make([]chan struct{}, clients)}
 	for index := range signals.channels {
 		signals.channels[index] = make(chan wakeSignal, 8)
-		signals.waitedChannels[index] = make(chan int64, 8)
+		signals.waitedChannels[index] = make(chan struct{}, 8)
 	}
 	return signals
 }
 
-func (signals *wakeSignals) notifyWaited(input wakeInput) {
-	if input.Client < 0 || input.Client >= len(signals.waitedChannels) {
+func (signals *wakeSignals) notifyWaited(client int) {
+	if client < 0 || client >= len(signals.waitedChannels) {
 		return
 	}
 	select {
-	case signals.waitedChannels[input.Client] <- input.Sequence:
+	case signals.waitedChannels[client] <- struct{}{}:
 	default:
-		// A retried WaitFor can report twice; the client discards stale sequences.
+		// The client confirms the wait through GetFlowState, so a dropped notice only adds a poll.
 	}
 }
 
-func (signals *wakeSignals) notify(input wakeInput, startedAt time.Time) {
-	if input.Client < 0 || input.Client >= len(signals.channels) {
+func (signals *wakeSignals) notify(client int, sequence int64, startedAt time.Time) {
+	if client < 0 || client >= len(signals.channels) {
 		return
 	}
 	select {
-	case signals.channels[input.Client] <- wakeSignal{sequence: input.Sequence, startedAt: startedAt}:
+	case signals.channels[client] <- wakeSignal{sequence: sequence, startedAt: startedAt}:
 	default:
-		// A retried Execute can report twice; the client discards stale sequences.
+		// The client matches signals by sequence and discards stale ones.
 	}
 }
 
@@ -227,13 +227,12 @@ type wakeWaitStep struct {
 }
 
 func (step wakeWaitStep) WaitFor(_ dex.Context, input wakeInput) (*dex.Wait, error) {
-	step.signals.notifyWaited(input)
+	step.signals.notifyWaited(input.Client)
 	return dex.Until(benchmarkWakeChannel.ForOne()), nil
 }
 
 func (step wakeWaitStep) Execute(ctx dex.Context, input wakeInput) (*dex.StepDecision, error) {
 	startedAt := time.Now()
-	step.signals.notify(input, startedAt)
 	values, err := benchmarkWakeChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
@@ -241,8 +240,9 @@ func (step wakeWaitStep) Execute(ctx dex.Context, input wakeInput) (*dex.StepDec
 	if len(values) != 1 {
 		return dex.ForceFail("expected one wake message"), nil
 	}
-	// The run stays open: each wake moves to a new wait for the client's next sequence.
-	return dex.GoTo(step, wakeInput{Client: input.Client, Sequence: input.Sequence + 1}), nil
+	step.signals.notify(input.Client, values[0], startedAt)
+	// The run stays open: each wake moves to a new wait.
+	return dex.GoTo(step, input), nil
 }
 
 // attributeFlow holds the Attributes that clients read directly from the server.
