@@ -7,11 +7,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useRef } from 'react';
+import { formatDate } from '@/lib/format';
 import {
+  formatTimelineOffset,
   prunedRelatedEventTooltip,
   timelineRelatedEventLabel,
   type TimelineRelatedEvent,
 } from '@/lib/timeline';
+import { usePreferences } from '../../providers';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { EventDetails, eventTitle } from './EventDetails';
 
@@ -47,8 +50,11 @@ export function FlowStatePanel({
   onSelectRelatedEvent,
   onJumpToEvent,
   isJumpDisabled = false,
+  runStartTime,
 }: {
   selectedEvent: FlowHistoryEvent | null;
+  /** The run's start time, for each event's offset from it. */
+  runStartTime?: string | null;
   history: FlowHistoryEvent[];
   parentFlowId: string;
   relatedEvents?: TimelineRelatedEvent[];
@@ -58,6 +64,12 @@ export function FlowStatePanel({
   isJumpDisabled?: boolean;
 }) {
   const sidebar = useRef<HTMLDivElement>(null);
+  const { timezone } = usePreferences();
+  const eventMs = selectedEvent?.eventTime ? Date.parse(selectedEvent.eventTime) : Number.NaN;
+  const startMs = runStartTime ? Date.parse(runStartTime) : Number.NaN;
+  const offset = Number.isFinite(eventMs) && Number.isFinite(startMs)
+    ? `+${formatTimelineOffset((eventMs - startMs) / 1000)}`
+    : '';
 
   useEffect(() => {
     const element = sidebar.current;
@@ -74,7 +86,10 @@ export function FlowStatePanel({
             <h3>{eventTitle(selectedEvent)}</h3>
             <div className="event-meta">
               <span className="mono">#{selectedEvent.eventId}</span>
-              <span>{selectedEvent.eventTime || 'No timestamp'}</span>
+              <span title={selectedEvent.eventTime ?? undefined}>
+                {selectedEvent.eventTime ? formatDate(selectedEvent.eventTime, timezone) : 'No timestamp'}
+              </span>
+              {offset && <span>{offset}</span>}
             </div>
           </header>
           {relatedEvents.length > 0 && (
@@ -128,7 +143,9 @@ function RelatedEvents({
         {relatedEvents.map((related) => (
           <li className={`related-event location-${related.location}`} key={related.id}>
             <span className="related-event-relation">{relationTitles[related.relation]}</span>
-            <span className="related-event-label">{timelineRelatedEventLabel(related)}</span>
+            <span className="related-event-label" title={timelineRelatedEventLabel(related)}>
+              {timelineRelatedEventLabel(related)}
+            </span>
             <RelatedEventAction
               related={related}
               isJumpDisabled={isJumpDisabled}

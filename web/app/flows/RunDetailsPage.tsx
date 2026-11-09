@@ -79,31 +79,37 @@ interface SelectedEventConnector {
 
 const terminalStatuses = new Set([2, 3, 4, 5, 6, 7]);
 const noHistoryEvents: FlowHistoryEvent[] = [];
-const sidebarWidthStorageKey = 'dex.run.selected-event-width';
 const runTabStorageKey = 'dex.run.selected-tab';
 const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream']);
-const defaultSidebarWidth = 340;
 const minimumSidebarWidth = 280;
-const maximumSidebarWidth = 720;
 
-function clampSidebarWidth(width: number): number {
-  return Math.min(maximumSidebarWidth, Math.max(minimumSidebarWidth, width));
+type SidebarKind = 'graph' | 'timeline';
+
+/** Timeline rows are short, so its event panel defaults wider; each tab remembers its own width. */
+const sidebarLayouts: Record<SidebarKind, { storageKey: string; defaultWidth: number; maximumWidth: number }> = {
+  graph: { storageKey: 'dex.run.selected-event-width', defaultWidth: 340, maximumWidth: 720 },
+  timeline: { storageKey: 'dex.run.selected-event-width.timeline', defaultWidth: 780, maximumWidth: 1040 },
+};
+
+function clampSidebarWidth(kind: SidebarKind, width: number): number {
+  return Math.min(sidebarLayouts[kind].maximumWidth, Math.max(minimumSidebarWidth, width));
 }
 
-function storedSidebarWidth(): number {
-  if (typeof window === 'undefined') return defaultSidebarWidth;
+function storedSidebarWidth(kind: SidebarKind): number {
+  const { storageKey, defaultWidth } = sidebarLayouts[kind];
+  if (typeof window === 'undefined') return defaultWidth;
   try {
-    const width = Number.parseInt(window.localStorage.getItem(sidebarWidthStorageKey) || '', 10);
-    return Number.isFinite(width) ? clampSidebarWidth(width) : defaultSidebarWidth;
+    const width = Number.parseInt(window.localStorage.getItem(storageKey) || '', 10);
+    return Number.isFinite(width) ? clampSidebarWidth(kind, width) : defaultWidth;
   } catch (storageError) {
     console.warn('Unable to read the selected event width preference.', storageError);
-    return defaultSidebarWidth;
+    return defaultWidth;
   }
 }
 
-function persistSidebarWidth(width: number) {
+function persistSidebarWidth(kind: SidebarKind, width: number) {
   try {
-    window.localStorage.setItem(sidebarWidthStorageKey, String(width));
+    window.localStorage.setItem(sidebarLayouts[kind].storageKey, String(width));
   } catch (storageError) {
     console.warn('Unable to save the selected event width preference.', storageError);
   }
@@ -170,7 +176,10 @@ export function RunDetailsPage({
   const [waitCycle, setWaitCycle] = useState(0);
   const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
-  const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
+  const [sidebarWidths, setSidebarWidths] = useState<Record<SidebarKind, number>>(() => ({
+    graph: storedSidebarWidth('graph'),
+    timeline: storedSidebarWidth('timeline'),
+  }));
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [selectedEventConnector, setSelectedEventConnector] = useState<SelectedEventConnector | null>(null);
   const waitGeneration = useRef(0);
@@ -180,8 +189,13 @@ export function RunDetailsPage({
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
+  const sidebarKind: SidebarKind = tab === 'timeline' ? 'timeline' : 'graph';
+  const sidebarWidth = sidebarWidths[sidebarKind];
+  const sidebarKindRef = useRef(sidebarKind);
   const sidebarWidthRef = useRef(sidebarWidth);
   const sidebarResizeStart = useRef({ pointerX: 0, width: sidebarWidth });
+  sidebarKindRef.current = sidebarKind;
+  sidebarWidthRef.current = sidebarWidth;
   const runContent = useRef<HTMLDivElement>(null);
   const followedRunAttempt = useRef(0);
 
@@ -191,10 +205,14 @@ export function RunDetailsPage({
     setDataWarnings((current) => current.includes(warning) ? current : [...current, warning]);
   }, []);
   const updateSidebarWidth = useCallback((width: number) => {
-    const nextWidth = clampSidebarWidth(width);
+    const kind = sidebarKindRef.current;
+    const nextWidth = clampSidebarWidth(kind, width);
     sidebarWidthRef.current = nextWidth;
-    setSidebarWidth(nextWidth);
+    setSidebarWidths((current) => ({ ...current, [kind]: nextWidth }));
     return nextWidth;
+  }, []);
+  const saveSidebarWidth = useCallback((width: number) => {
+    persistSidebarWidth(sidebarKindRef.current, width);
   }, []);
   const startSidebarResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
@@ -210,11 +228,11 @@ export function RunDetailsPage({
     if (event.key === 'ArrowLeft') nextWidth += 24;
     else if (event.key === 'ArrowRight') nextWidth -= 24;
     else if (event.key === 'Home') nextWidth = minimumSidebarWidth;
-    else if (event.key === 'End') nextWidth = maximumSidebarWidth;
+    else if (event.key === 'End') nextWidth = sidebarLayouts[sidebarKindRef.current].maximumWidth;
     else return;
     event.preventDefault();
-    persistSidebarWidth(updateSidebarWidth(nextWidth));
-  }, [updateSidebarWidth]);
+    saveSidebarWidth(updateSidebarWidth(nextWidth));
+  }, [saveSidebarWidth, updateSidebarWidth]);
 
   useEffect(() => {
     if (!resizingSidebar) return;
@@ -223,7 +241,7 @@ export function RunDetailsPage({
       updateSidebarWidth(start.width + start.pointerX - event.clientX);
     };
     const finish = () => {
-      persistSidebarWidth(sidebarWidthRef.current);
+      saveSidebarWidth(sidebarWidthRef.current);
       setResizingSidebar(false);
     };
     window.addEventListener('pointermove', resize);
@@ -234,7 +252,7 @@ export function RunDetailsPage({
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
     };
-  }, [resizingSidebar, updateSidebarWidth]);
+  }, [resizingSidebar, saveSidebarWidth, updateSidebarWidth]);
 
   const loadState = useCallback(async (statusCode: number) => {
     const stateLoad = ++startedStateLoad.current;
@@ -816,6 +834,7 @@ export function RunDetailsPage({
           'run-content',
           tab === 'overview' ? 'run-content--overview' : '',
           resizingSidebar ? 'is-resizing-sidebar' : '',
+          tab === 'timeline' ? 'run-content--timeline' : '',
         ].filter(Boolean).join(' ')}
         ref={runContent}
         style={{ '--run-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
@@ -888,9 +907,9 @@ export function RunDetailsPage({
               aria-label="Resize selected event panel"
               aria-orientation="vertical"
               aria-valuemin={minimumSidebarWidth}
-              aria-valuemax={maximumSidebarWidth}
+              aria-valuemax={sidebarLayouts[sidebarKind].maximumWidth}
               aria-valuenow={sidebarWidth}
-              onDoubleClick={() => persistSidebarWidth(updateSidebarWidth(defaultSidebarWidth))}
+              onDoubleClick={() => saveSidebarWidth(updateSidebarWidth(sidebarLayouts[sidebarKind].defaultWidth))}
               onKeyDown={resizeSidebarWithKeyboard}
               onPointerDown={startSidebarResize}
             />
@@ -898,6 +917,7 @@ export function RunDetailsPage({
               selectedEvent={selected}
               history={withFlowStart(selectionEvents, flowStartEvent)}
               parentFlowId={flowId}
+              runStartTime={summary?.startTime}
               relatedEvents={selectedRelations.related}
               onSelectRelatedEvent={selectRelatedEvent}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}

@@ -781,3 +781,18 @@ describe('routing context and dispatch failures', () => {
     expect(renderDetails(event)).toContain('Unknown Step type: dispatch timed out');
   });
 });
+
+describe('empty step method sections', () => {
+  it('hides condition results and attributes that hold nothing', () => {
+    const event = executeEvent(1);
+    const input = event.payload.input as Record<string, unknown>;
+    input.conditionResults = {};
+    input.attributes = [];
+    const markup = renderDetails(event);
+    expect(markup).not.toContain('>Condition results<');
+    expect(markup).not.toContain('>Attributes<');
+    expect(markup).not.toContain('No attributes');
+    expect(markup).toContain('Step input');
+  });
+});
+

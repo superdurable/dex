@@ -66,6 +66,28 @@ describe('selected event panel', () => {
     const panel = screen.getByRole('region', { name: 'Selected event details' });
     expect(panel.getAttribute('tabindex')).toBe('0');
     expect(panel.querySelector('.selected-event-anchor')?.textContent).toContain('#7');
+    expect(panel.querySelector('.selected-event-anchor')?.textContent).not.toContain('2026-10-24T17:00:01Z');
+  });
+});
+
+describe('selected event panel header', () => {
+  it('shows the event offset from the run start', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    });
+    const event = { eventId: 9, eventTime: '2026-10-24T17:02:05Z', type: 'StepExecuteCompleted' as const, payload: {} };
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowStatePanel selectedEvent={event} history={[event]} parentFlowId="order-1" runStartTime="2026-10-24T17:00:00Z" />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    const header = screen.getByRole('region', { name: 'Selected event details' }).querySelector('.selected-event-anchor');
+    expect(header?.textContent).toContain('+2m 5s');
   });
 });
 

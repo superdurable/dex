@@ -1434,36 +1434,11 @@ body:has(.v1-page) {
 
 /* The selected event panel beside Timeline and Execution graph. */
 
-/* Scrolls beside a long Timeline; the thin scrollbar shows only on hover or focus. */
 .v1-page .sidebar-stack {
   border: 0;
   border-radius: var(--ui-radius-section);
   background: var(--ui-surface);
   box-shadow: var(--ui-section-shadow);
-  scrollbar-color: transparent transparent;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-}
-
-.v1-page .sidebar-stack:is(:hover, :focus-within) {
-  scrollbar-color: var(--ui-hover) transparent;
-}
-
-.v1-page .sidebar-stack::-webkit-scrollbar {
-  width: 8px;
-}
-
-.v1-page .sidebar-stack::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.v1-page .sidebar-stack::-webkit-scrollbar-thumb {
-  border-radius: 8px;
-  background: transparent;
-}
-
-.v1-page .sidebar-stack:is(:hover, :focus-within)::-webkit-scrollbar-thumb {
-  background: var(--ui-hover);
 }
 
 .v1-page .sidebar-stack:focus-visible {
@@ -1471,8 +1446,37 @@ body:has(.v1-page) {
   outline-offset: 2px;
 }
 
+.v1-page .event-details-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.v1-page .event-details-content > .event-detail-tabs {
+  align-self: flex-end;
+}
+
 .v1-page .event-details-content > .event-detail-tabs + * {
   margin-top: 14px;
+}
+
+/* Timeline rows are short, so the event panel takes most of the width. */
+@media (min-width: 1101px) {
+  .v1-page .run-content--timeline {
+    grid-template-columns: minmax(320px, 1fr) min(var(--run-sidebar-width), 62%);
+  }
+}
+
+.v1-page .run-sidebar .semantic-event {
+  gap: 22px;
+}
+
+.v1-page .run-sidebar .semantic-section h4 {
+  margin-bottom: 10px;
+  font-size: var(--ui-text-md);
+}
+
+.v1-page .run-sidebar .semantic-subsection + .semantic-subsection {
+  margin-top: 12px;
 }
 
 .v1-page .sidebar-section {
@@ -1506,7 +1510,7 @@ body:has(.v1-page) {
 }
 
 .v1-page .run-sidebar .semantic-fields {
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 
 .v1-page .related-events h4 {
@@ -1515,12 +1519,38 @@ body:has(.v1-page) {
 }
 
 .v1-page .related-event {
+  grid-template-columns: minmax(110px, 150px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
   font-size: var(--ui-text-sm);
 }
 
 .v1-page .related-event-relation {
+  grid-column: auto;
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
+}
+
+.v1-page .related-event-label {
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v1-page .related-events ul {
+  gap: 4px;
+}
+
+@media (max-width: 760px) {
+  .v1-page .related-event {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .v1-page .related-event-relation {
+    grid-column: 1 / -1;
+  }
 }
 
 .v1-page .related-event-action.button,

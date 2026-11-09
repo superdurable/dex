@@ -871,8 +871,8 @@ export function StepMethodInputSection({
         </div>
       ) : hasInput ? (
         <>
-          <ValueBlock label="Step input" value={input.stepInput} showEmpty />
-          {!isWaitFor && (
+          <ValueBlock label="Step input" value={input.stepInput} />
+          {!isWaitFor && (hasData(asData(input.conditionResults)) || subFlowConditions.length > 0) && (
             <div className="semantic-subsection">
               <h5>Condition results</h5>
               <ConditionResultsContent
@@ -884,10 +884,12 @@ export function StepMethodInputSection({
               />
             </div>
           )}
-          <div className="semantic-subsection">
-            <h5>Attributes</h5>
-            <KeyValues values={input.attributes} emptyLabel="No attributes" />
-          </div>
+          {Array.isArray(input.attributes) && input.attributes.length > 0 && (
+            <div className="semantic-subsection">
+              <h5>Attributes</h5>
+              <KeyValues values={input.attributes} />
+            </div>
+          )}
           {!isWaitFor && Array.isArray(input.stepExecutionLocals) && input.stepExecutionLocals.length > 0 && (
             <div className="semantic-subsection">
               <h5>Step locals</h5>

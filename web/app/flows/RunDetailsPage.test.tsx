@@ -613,7 +613,11 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
     fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
+    // Timeline rows are short, so its event panel defaults wider than the graph's.
+    const runContent = document.querySelector<HTMLElement>('.run-content');
+    expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
     fireEvent.click(screen.getByRole('button', { name: 'Execution graph' }));
+    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('340px');
 
     const graph = await screen.findByTestId('execution-graph');
     // FlowStart is added for start details; the page holds events #101 to #1100.
