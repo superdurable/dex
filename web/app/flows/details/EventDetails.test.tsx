@@ -754,7 +754,7 @@ describe('routing context and dispatch failures', () => {
     const markup = renderDetails(event);
     expect(markup).toContain('worker-new');
     expect(markup).toContain('worker-old');
-    expect(markup).toContain('Flow type queue');
+    expect(markup).toContain('Task queue');
   });
   it.each([
     ['no Worker available for queue PaymentFlow', 'No Worker available'],

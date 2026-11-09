@@ -23,8 +23,8 @@ export interface RunEventsPaging {
   canGoBack: boolean;
   onBack: () => void;
   onLatestPage: () => void;
-  onPrevPage: () => void;
-  onNextPage: () => void;
+  onNewerPage: () => void;
+  onOlderPage: () => void;
   onOldestPage: () => void;
 }
 
@@ -68,13 +68,13 @@ function RunEventsPager({ paging }: { paging: RunEventsPaging }) {
       <button
         className="button ghost"
         disabled={isNewerDisabled || !paging.hasNewer}
-        onClick={paging.onPrevPage}
+        onClick={paging.onNewerPage}
         type="button"
       >
-        Prev page
+        Newer page
       </button>
-      <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onNextPage} type="button">
-        Next page
+      <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onOlderPage} type="button">
+        Older page
       </button>
       <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onOldestPage} type="button">
         Oldest page

@@ -153,7 +153,7 @@ describe('history windows', () => {
     expect(withFlowStartOnOldestRetainedPage(newest, [events[0], events[2]])).toBe(newest);
   });
 
-  it('numbers the pages that Next page reaches from the newest page', () => {
+  it('numbers the pages that Older page reaches from the newest page', () => {
     const [flowStart] = sequentialStepHistory(1);
     const page = (first: number, last: number, extraEventIds: number[] = []): HistoryWindow => ({
       events: [...extraEventIds, ...range(first, last)].map((eventId) => ({ ...flowStart, eventId })),
@@ -171,7 +171,7 @@ describe('history windows', () => {
     expect(timelinePagePositionOf(page(8506, 9505), newest, undefined)?.pageNumber).toBe(2);
     expect(timelinePagePositionOf(page(8000, 8999), newest, undefined)?.pageNumber).toBeNull();
 
-    // A Next page that starts in the pruned range reads from FlowStart.
+    // A Older page that starts in the pruned range reads from FlowStart.
     const pruned = { firstEventId: 2, lastEventId: 8000 };
     expect(timelinePagePositionOf(newest, newest, pruned)).toMatchObject({ pageCount: 3, oldestPageLastEventId: 8505 });
     expect(timelinePagePositionOf(page(8001, 8505, [1]), newest, pruned)?.pageNumber).toBe(3);

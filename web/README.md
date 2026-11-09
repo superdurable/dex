@@ -771,22 +771,22 @@ The **Events** tile in the run header names the latest event and pages through
 events. Execution graph and Timeline share its page; Overview and Streams keep
 reading the newest window. The tile reads "Latest #10505" and "Showing
 #9506–#10505 · Page 1 of 11", then offers **Latest page** (the newest page),
-**Prev page** (one page toward newer events), **Next page** (one page toward
+**Newer page** (one page toward newer events), **Older page** (one page toward
 older events), and **Oldest page** (the oldest retained page). **Back** sits before
-them after a link jump. Latest page and Prev page are disabled on the newest
-page; Next page and Oldest page are disabled on the oldest page. Next page reads
+them after a link jump. Latest page and Newer page are disabled on the newest
+page; Older page and Oldest page are disabled on the oldest page. Older page reads
 up to 1000 events before the page. Oldest page reads FlowStart and up to 1000
-events from the window start, and stops where Next page would start the next
+events from the window start, and stops where Older page would start the next
 newer page. The page that starts at the oldest retained event also shows
 FlowStart, so it is the oldest page, and a retained history that fits one page
-shows on one page. Prev page reads up to 1000 events after the page; a page that
+shows on one page. Newer page reads up to 1000 events after the page; a page that
 reaches the newest event is the newest page. Live extends only the newest page.
 An older page stays in place while Live adds events, and Latest page returns to
 the live newest page. The tile shows the page count only when event IDs skip
 nothing but the pruned range: every loaded event reports run attempt 1, and the
 gap after FlowStart matches the pruned range. Servers without run attempts and
 time travel lineages skip event IDs, so they show no count. The page number
-also needs the page to be one that Next page reaches from the current newest
+also needs the page to be one that Older page reaches from the current newest
 page; Live moves the newest page, so an older page can lose its number. The
 newest page is always page 1. Back restores the page's first and last event.
 
@@ -877,9 +877,9 @@ original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
 ### Worker routing
 
-Flow detail shows the Flow type exactly as registered, the Flow type queue, and
-the sticky Worker ID. Active Steps and Step method history show the serving
-Worker ID, the sticky ID used at dispatch, and the sticky or Flow type queue
-source. Failed dispatches show no available Worker, unknown Step or RPC name,
+Flow detail shows the Flow type exactly as registered, the Task queue, which is
+named after the Flow type, and the sticky Worker ID. Active Steps and Step
+method history show the serving Worker ID, the sticky ID used at dispatch, and
+the queue source: Sticky queue or Task queue. Failed dispatches show no available Worker, unknown Step or RPC name,
 or disconnect reasons. Recorded RPC invocations show their serving Worker ID.
 Missing metadata displays an em dash.

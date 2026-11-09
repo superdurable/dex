@@ -38,7 +38,7 @@ export function FlowRouting({ routing, flowType, showFlowType = false }: {
 }) {
   return <Fields compact values={[
     ...(showFlowType ? [['Flow type', flowType]] as [string, unknown][] : []),
-    ['Flow type queue', flowType],
+    ['Task queue', flowType],
     ['Sticky Worker ID', routing.stickyAppWorkerId || '—'],
   ]} />;
 }

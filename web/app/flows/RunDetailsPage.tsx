@@ -544,8 +544,8 @@ export function RunDetailsPage({
       canGoBack: runHistory.canGoBack,
       onBack: goBackInTimeline,
       onLatestPage: runHistory.showNewest,
-      onPrevPage: () => navigateTimeline(runHistory.showNewer),
-      onNextPage: () => navigateTimeline(runHistory.showOlder),
+      onNewerPage: () => navigateTimeline(runHistory.showNewer),
+      onOlderPage: () => navigateTimeline(runHistory.showOlder),
       onOldestPage: () => navigateTimeline(() => runHistory.showOldest(
         pagePosition && pagePosition.pageCount > 1 ? pagePosition.oldestPageLastEventId + 1 : undefined,
       )),

@@ -329,8 +329,6 @@ export function FlowConfigView({ value }: { value: unknown }) {
       <Fields values={[
         ['Step durability', isPresent(config.stepDurability) ? durabilityLabel(config.stepDurability) : undefined],
         ['Active step search', isPresent(config.activeStepSearchMode) ? activeStepSearchModeLabel(config.activeStepSearchMode) : undefined],
-        ['Continue-as-new threshold', config.continueAsNewThreshold],
-        ['Continue-as-new page size', bytes(config.continueAsNewPageSizeInBytes)],
       ]} />
     </DetailSection>
   );
@@ -361,10 +359,6 @@ export function FlowTimeoutHandlerOptionsView({ value }: { value: unknown }) {
       <StepOptionsView value={options.failureProceedStepOptions} />
     </DetailSection>
   );
-}
-
-function bytes(value: unknown): string | undefined {
-  return isPresent(value) ? `${String(value)} bytes` : undefined;
 }
 
 export function WaitingConditionView({
@@ -1089,7 +1083,7 @@ export function PullRouting({ value, label = 'Pull routing' }: { value: unknown;
     <h5>{label}</h5>
     <Fields compact values={[
       ['Serving Worker ID', routing.servedByAppWorkerId || '—'],
-      ['Queue source', routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Flow type queue' : '—'],
+      ['Queue source', routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Task queue' : '—'],
       ['Dispatch sticky Worker ID', routing.stickyAppWorkerId || '—'],
     ]} />
   </div>;

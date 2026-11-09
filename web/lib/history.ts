@@ -299,7 +299,7 @@ export interface TimelinePagePosition {
 }
 
 /**
- * Numbers the pages that Next page reaches from the newest page; callers exclude time travel lineages.
+ * Numbers the pages that Older page reaches from the newest page; callers exclude time travel lineages.
  *
  * Returns the page position, or null when the newest page shows event IDs that skip more than the
  * pruned range.
@@ -325,7 +325,7 @@ export function timelinePagePositionOf(
   };
 }
 
-/** Returns the event ID range of each page that Next page reaches, newest first. */
+/** Returns the event ID range of each page that Older page reaches, newest first. */
 function nextPageRangesFromNewest(
   newestEventIds: number[],
   prunedEventIdRange: EventIdRange | undefined,
