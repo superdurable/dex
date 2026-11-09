@@ -454,7 +454,9 @@ func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persist
 	switch runner.config.Scenario {
 	case "start-complete":
 		flowID := runner.newFlowID()
-		if _, err := connection.client.StartFlow(ctx, runner.completion, flowID, nil, dex.StartFlowOptions{}); err != nil {
+		// Short runs keep their history local, so closing one uploads no history segment.
+		options := dex.StartFlowOptions{ConfigOverride: &dex.FlowConfig{OffloadHistory: ptr.Any(false)}}
+		if _, err := connection.client.StartFlow(ctx, runner.completion, flowID, nil, options); err != nil {
 			return 0, err
 		}
 		return 0, runner.waitForCompletion(ctx, connection, flowID)
