@@ -1172,9 +1172,11 @@ fn canceling_a_waiting_sibling_by_step_type_releases_its_registration() {
             ..StepDecision::default()
         },
     );
-    assert_eq!(
-        phase(&harness.step("WaitStep-1")),
-        StepExecutionPhase::Canceled
+    assert!(
+        harness
+            .get::<StepExecutionRecord>(RunTable::StepExecution, "WaitStep-1")
+            .is_none(),
+        "the decision cancels WaitStep-1, which deletes its row"
     );
     assert!(harness.wait_timers().is_empty());
     assert!(harness.table_rows(RunTable::Waiter).is_empty());

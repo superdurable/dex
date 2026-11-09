@@ -52,6 +52,11 @@ reads. To keep the previous behavior, set **history.offloadEnabled: false**
 before the first start with 0.1.22. See
 [History offload](/reference/server/configuration#history-offload).
 
+Changed in 0.1.23: apply deletes the state row of a Step that completed, or that
+a cancellation without a Flow close ended, in the command that ends it.
+Upgrade the active process and the standby together, as above.
+WaitForStepCompletion answers stay the same.
+
 A later release that raises the minimum protocol needs the same care. Stop old
 Workers and their traffic before that server upgrade, or use isolated blue and
 green environments so deployments with disjoint intervals never communicate.

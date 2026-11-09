@@ -279,6 +279,11 @@ fn apply_in_scope(
                 }
             }
             let mut outcome = output.into_outcome(transaction.into_writes());
+            debug_assert!(
+                !crate::steps::has_deletable_ended_step_put(&outcome.writes),
+                "{:?} wrote an ended Step row without deleting it",
+                command.command
+            );
             if let Some(change) = dispatch_queue_change(&outcome.writes) {
                 outcome.effects.push(change);
             }

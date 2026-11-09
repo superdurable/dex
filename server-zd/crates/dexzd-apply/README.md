@@ -28,6 +28,25 @@ execution for search. The counts are an internal cache, so `state_row_bytes` and
 the run-state limit leave them out, and a command is admitted exactly as without
 them.
 
+## Ended Step rows
+
+A command deletes the StepExecution row of every Step it ends when
+WaitForStepCompletion answers Completed for that Step with or without the row:
+a Step that completed, or one that a cancellation without a Flow close ended.
+The deletion runs at the end of the command, live and in a history rebuild,
+after the command resolved its event links and recorded its pending method
+calls and before its checkpoint and storage accounting. Input that a TimeTravel
+reapplies leaves the deletion to the TimeTravel's own end, which resolves the
+reapplied events' links. The TimeTravel also deletes such rows that it restores
+from older checkpoints.
+
+A Failed Step, a Step that a Flow close canceled, a cancellation recorded before
+`is_canceled_by_flow_close` existed, and the Flow timeout handler keep their
+rows, because their answer, or a second handler start, depends on them. Step
+execution numbers come from the StepCounter table, so a deleted row never frees
+its number. The StepExecution table therefore holds the active Steps plus those
+kept rows, and checkpoints and the run state limit grow with them only.
+
 ## Search outbox
 
 While a partition's `SearchProjectionModeRecord` is enabled, every search

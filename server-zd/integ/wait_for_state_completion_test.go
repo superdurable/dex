@@ -40,6 +40,10 @@ func TestWaitForStateCompletionTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionClosed(t)
 		smallWaitForFastTest()
+		doTestWaitForStateCompletionAfterTheFlowCompletes(t)
+		smallWaitForFastTest()
+		doTestWaitForStateCompletionOfStepsAStopCanceled(t)
+		smallWaitForFastTest()
 		doTestWaitForStateCompletionConcurrent(t)
 		smallWaitForFastTest()
 		doTestWaitForStateCompletionInvalidArgs(t)
@@ -289,6 +293,102 @@ func doTestWaitForStateCompletionClosed(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.NotFound, status.Code(err))
+}
+
+// Steps that completed keep answering after the run closes, when their state rows are gone.
+func doTestWaitForStateCompletionAfterTheFlowCompletes(t *testing.T) {
+	workerHandler := wait_for_state_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowId := wait_for_state_completion.WorkflowType + "-completed-" + uuid.NewString()
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowId,
+		FlowType:           wait_for_state_completion.WorkflowType,
+		FlowTimeoutSeconds: 30,
+
+		StartStepType:    wait_for_state_completion.State1,
+		StepInput:        stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+		FlowStartOptions: withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId: flowId,
+	})
+	require.NoError(t, err)
+
+	for _, stepType := range []string{wait_for_state_completion.State1, wait_for_state_completion.State2} {
+		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+			FlowId:                flowId,
+			StepType:              stepType,
+			StepExecutionNumber:   "1",
+			RequestTimeoutSeconds: 5,
+			RequestId:             uuid.NewString(),
+		})
+		require.NoError(t, err, "%s-1 completed", stepType)
+	}
+	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+		FlowId:                flowId,
+		StepType:              wait_for_state_completion.State2,
+		StepExecutionNumber:   "2",
+		RequestTimeoutSeconds: 5,
+		RequestId:             uuid.NewString(),
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.NotFound, status.Code(err), "S2-2 never ran in the closed run")
+}
+
+// A Step that a stop canceled counts as completed unless the stop terminated the Flow.
+func doTestWaitForStateCompletionOfStepsAStopCanceled(t *testing.T) {
+	workerHandler := wait_for_state_completion.NewHandler()
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	flowClient := runtime.FlowClient
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	for _, stopType := range []dexpb.StopType{
+		dexpb.StopType_STOP_TYPE_CANCEL,
+		dexpb.StopType_STOP_TYPE_TERMINATE,
+	} {
+		flowId := wait_for_state_completion.WorkflowType + "-stopped-" + uuid.NewString()
+		_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			RequestId:          newRequestID(),
+			FlowId:             flowId,
+			FlowType:           wait_for_state_completion.WorkflowType,
+			FlowTimeoutSeconds: 30,
+
+			StartStepType:    wait_for_state_completion.State1,
+			StepInput:        stringValue(strconv.FormatInt(time.Now().Unix(), 10)),
+			FlowStartOptions: withWorkerTarget(nil, workerTarget),
+		})
+		require.NoError(t, err)
+		_, err = flowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
+			FlowId:   flowId,
+			StopType: stopType,
+		})
+		require.NoError(t, err)
+
+		_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+			FlowId:                flowId,
+			StepType:              wait_for_state_completion.State1,
+			StepExecutionNumber:   "1",
+			RequestTimeoutSeconds: 5,
+			RequestId:             uuid.NewString(),
+		})
+		if stopType == dexpb.StopType_STOP_TYPE_TERMINATE {
+			require.Error(t, err)
+			require.Equal(t, codes.NotFound, status.Code(err), "termination ended S1-1")
+		} else {
+			require.NoError(t, err, "the cancel counts S1-1 as completed")
+		}
+	}
 }
 
 func doTestWaitForStateCompletionConcurrent(t *testing.T) {

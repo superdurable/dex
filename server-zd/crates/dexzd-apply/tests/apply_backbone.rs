@@ -2363,13 +2363,18 @@ impl Harness {
     }
 
     fn step_execution(&self, step_execution_id: &str) -> StepExecutionRecord {
+        self.step_execution_if_present(step_execution_id)
+            .expect("the Step execution exists")
+    }
+
+    /// Returns the Step's row, or None after a completion or plain cancellation deleted it.
+    fn step_execution_if_present(&self, step_execution_id: &str) -> Option<StepExecutionRecord> {
         self.decoded_row(&run_named_key(
             self.context.flow_hash,
             self.harness_run_id(),
             RunTable::StepExecution,
             step_execution_id,
         ))
-        .expect("the Step execution exists")
     }
 
     fn hard_delete_current_object(&self, attribute_key: &str) -> Option<HardDeleteObjectRecord> {
@@ -3209,10 +3214,9 @@ fn canceling_sibling_steps_spares_the_same_type_under_another_parent() {
         },
     );
 
-    assert_eq!(
-        harness.step_execution("WaitingStep-1").phase,
-        StepExecutionPhase::Canceled as i32,
-        "the sibling under FirstParentStep-1 is canceled"
+    assert!(
+        harness.step_execution_if_present("WaitingStep-1").is_none(),
+        "the sibling under FirstParentStep-1 is canceled, which deletes its row"
     );
     assert_ne!(
         harness.step_execution("WaitingStep-2").phase,
