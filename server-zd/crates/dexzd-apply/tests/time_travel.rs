@@ -4557,3 +4557,67 @@ fn value_references(event: &FlowHistoryEvent) -> Vec<String> {
         })
         .collect()
 }
+
+/// A rebuild repeats an RPC's deferred graceful completion, so the recorded finalization replays.
+#[test]
+fn time_travel_replays_a_graceful_completion_that_an_rpc_deferred() {
+    let mut harness = Harness::new();
+    harness.start(start_request());
+    harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
+    harness.complete_wait_for("ChargeStep-1");
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
+    let mut charge_decision = next_steps(&["DeciderStep"]);
+    charge_decision.next_steps.push(StepMovement {
+        step_type: "WaitingStep".to_owned(),
+        ..StepMovement::default()
+    });
+    harness.complete_execute("ChargeStep-1", 1, charge_decision);
+    harness.start_attempt("DeciderStep-1", StepMethod::Execute, 1);
+    harness.complete_execute(
+        "DeciderStep-1",
+        1,
+        StepDecision {
+            close_decision: Some(CloseDecision {
+                close_decision_type: CloseDecisionType::GracefulComplete as i32,
+                close_input: Some(string_value("graceful-output")),
+                ..CloseDecision::default()
+            }),
+            ..StepDecision::default()
+        },
+    );
+    let mut cancel = harness.command(Command::RpcCommitted(RpcCommittedCommand {
+        request: Some(InvokeRpcRequest {
+            flow_id: "order-1".to_owned(),
+            rpc_name: "cancelWaiting".to_owned(),
+            request_id: "rpc-1".to_owned(),
+            ..InvokeRpcRequest::default()
+        }),
+        response: Some(InvokeWorkerRpcResponse {
+            step_decision: Some(StepDecision {
+                cancel_step_types: vec!["WaitingStep".to_owned()],
+                ..StepDecision::default()
+            }),
+            ..InvokeWorkerRpcResponse::default()
+        }),
+        app_worker_id: "worker-rpc".to_owned(),
+        request_fingerprint: b"rpc-1".to_vec(),
+        ..RpcCommittedCommand::default()
+    }));
+    cancel.is_transactional_rpc_in_flight = true;
+    harness.apply_command(cancel);
+    let deferred = harness.run_record();
+    assert_eq!(deferred.status, FlowStatus::Running as i32);
+    assert!(deferred.pending_close.is_some());
+    harness.apply(Command::PendingCloseCheck(
+        dexzd_protocol::dexzd::v1::PendingCloseCheckCommand {},
+    ));
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+    let closed_micros = harness.now_micros;
+
+    harness.travel_to(reset_to_time(closed_micros));
+    let rebuilt = harness.run_record();
+    assert_eq!(rebuilt.status, FlowStatus::Completed as i32);
+    let results = rebuilt.close.expect("the rebuilt run is closed").results;
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].completed_step_execution_id, "DeciderStep-1");
+}
