@@ -124,8 +124,9 @@ node scripts/snapshot-reference.mjs web 1.35.x
 Every component needs a hidden snapshot equal to its label in
 `reference/versions.json`, made from that release's reference content. The
 historical backfill created these snapshots together with the older versions.
-A new component needs one before its first release snapshot. Until then, the
-release snapshot job fails for that component without affecting the release.
+A new component needs one before its first release snapshot. Until then,
+`npm run check` fails, because its `test:reference` case simulates the next
+release of every component in `reference/versions.json`.
 
 ### Editing archived snapshots
 
@@ -174,8 +175,13 @@ locale shells. Each dropped page goes to the latest page with the same document
 ID, or to the component index if that document no longer exists. Existing
 redirects are retargeted to avoid chains. Reference sidebars have no generated
 category pages, so every route of a version is a document route and has a
-redirect. Version-local links exist only inside their own version, so they are
-removed together with it. Archived pages have self-canonical
+redirect. Redirects are not routes, so the build still rejects a link to a
+dropped version. Change logs link to older versions, for example. Pruning
+therefore rewrites every such link in current content, the docs and i18n
+sources, and the retained snapshots to the same redirect destination, without
+its anchor. A `test:reference` case simulates the next release of every
+component on the real tree and fails when a link to a pruned version remains,
+so `npm run check` catches the problem before a release. Archived pages have self-canonical
 URLs and Docusaurus's noindex metadata, and are excluded from the sitemap and
 `llms.txt`. Their Markdown twins still exist. Current pages remain indexable.
 

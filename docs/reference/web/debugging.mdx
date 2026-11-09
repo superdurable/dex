@@ -86,15 +86,16 @@ event numbers were removed.
 
 <img
   src="/img/production/dex-web-timeline-step-input.png"
-  alt="Dex Web Timeline with a WaitForCondition event selected and its Step input visible"
+  alt="Dex Web Timeline with a waiting WaitFor event selected and its Step input visible"
 />
 
 ### 2. Read inputs, Attributes, conditions, and outputs
 
-In **Details**, read **Input** first. The panel shows the Step input, durable
-Attributes, and condition results available at that event. For a completed
-Step, continue to **Output** to inspect the Step decision, the next Step input,
-and resulting Attribute changes. On a wide screen, **Input**, **Output**, and
+Keep **Details** selected and read **Input** first. It shows the Step input and
+the Attributes the method read. For a WaitFor event, **Output** shows the
+WaitFor condition and its results. For a completed Step, **Output** shows the
+Step decision, the next Step input, and resulting Attribute changes. On a wide
+screen, **Input**, **Output**, and
 **Context** sit side by side. Each Step decision target reads as one row, such
 as the next Step type, its input, and its options; **Decision details** expands
 the rest. Attribute rows preview their values, and **Show all** opens a long
@@ -108,7 +109,7 @@ one.
 ### 3. Expand a failed Step's stack trace
 
 For a retrying or failed Step, select the failed event from **Timeline** or the
-failed node from **Step graph**. Under **Failure**, compare the attempt, Worker
+failed node from **Execution graph**. Under **Failure**, compare the attempt, Worker
 error type, error detail, and gRPC status. Expand **Stack trace** before asking
 the owning team to investigate.
 
@@ -117,7 +118,7 @@ the owning team to investigate.
   alt="Dex Web failed Step details with Stack trace expanded"
 />
 
-These screenshots use the repository's synthetic Java examples. They contain
+These screenshots use the repository's synthetic Go examples. They contain
 no credentials or production customer records.
 
 ### 4. Save auditable JSON with dexcli

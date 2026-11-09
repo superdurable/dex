@@ -1,10 +1,10 @@
 {
-  "server": "0.1.20",
-  "cli": "1.37.x",
-  "go": "1.37.x",
-  "python": "1.37.x",
-  "java": "1.37.x",
-  "typescript": "1.37.x",
-  "rust": "1.37.x",
-  "web": "1.37.x"
+  "server": "0.1.23",
+  "cli": "1.40.x",
+  "go": "1.40.x",
+  "python": "1.40.x",
+  "java": "1.40.x",
+  "typescript": "1.40.x",
+  "rust": "1.40.x",
+  "web": "1.40.x"
 }

@@ -18,6 +18,8 @@ import {DefaultNumberPrefixParser, stripPathNumberPrefixes} from '@docusaurus/pl
 const getSlug = slugModule.default;
 const docsDirectory = fileURLToPath(new URL('../', import.meta.url));
 const retainedVersionCount = 5;
+// Route prefixes of the site locales; redirects and link rewrites cover each one.
+const localeRoutePrefixes = ['', '/zh-Hans'];
 // Markdown destinations may be wrapped in angle brackets: [a](</path>) or [ref]: </path>.
 const linkDestinationStart = '(?<=^|[\\s("\'\\[=]|\\(<|\\]:[ \\t]*<)';
 const linkDestinationEndCharacter = '[\\s)"\'\\]#?>]';
@@ -84,10 +86,12 @@ export async function snapshotReference(component, releaseVersion, {
   const droppedVersions = allVersions.slice(retainedVersionCount);
   const latestDocuments = await readReferenceDocuments(join(siteDirectory, 'reference', component));
   const replacements = new Map();
+  const droppedLinkDestinations = new Map();
   for (const droppedVersion of droppedVersions) {
     const droppedDocuments = await readReferenceDocuments(snapshotDirectory(siteDirectory, component, droppedVersion));
     for (const redirect of droppedVersionRedirects(component, droppedVersion, droppedDocuments, latestDocuments)) {
       replacements.set(redirect.from, redirect.to);
+      droppedLinkDestinations.set(redirect.from, redirect.to);
     }
   }
   const redirectsPath = join(siteDirectory, 'redirects.json');
@@ -99,7 +103,57 @@ export async function snapshotReference(component, releaseVersion, {
   for (const droppedVersion of droppedVersions) {
     await removeSnapshot(siteDirectory, component, droppedVersion);
   }
-  return {component, version, retainedVersions, droppedVersions};
+  // Redirects are not routes, so the build rejects links that still name a dropped version.
+  const rewrittenFiles = await rewriteDroppedVersionLinks(component, droppedVersions, droppedLinkDestinations,
+    {siteDirectory});
+  // The rewrite can add links to the current component route, so localize the new snapshot again.
+  await localizeSnapshotLinks(component, version, {siteDirectory});
+  return {component, version, retainedVersions, droppedVersions, rewrittenFiles};
+}
+
+/**
+ * Points every site link to a dropped version of a component at that link's redirect destination:
+ * the latest page with the same document ID, or the component index. Locale-prefixed links keep
+ * their locale. Anchors and queries are dropped, because the latest page may lack them.
+ *
+ * @returns {Promise<string[]>} The changed source files, relative to the site directory.
+ */
+export async function rewriteDroppedVersionLinks(component, droppedVersions, destinationsBySource, {
+  siteDirectory = docsDirectory,
+} = {}) {
+  if (droppedVersions.length === 0) {
+    return [];
+  }
+  const componentRoute = `/reference/${component}`;
+  const versionAlternatives = droppedVersions.map(escapeRegExp).join('|');
+  const localeAlternatives = localeRoutePrefixes.filter(Boolean).map(escapeRegExp).join('|');
+  const linkPattern = new RegExp(`${linkDestinationStart}(?<locale>${localeAlternatives})?`
+    + `${escapeRegExp(componentRoute)}/(?:${versionAlternatives})`
+    + `(?:/[^\\s)"'\\]#?>]*)?(?:[#?][^\\s)"'\\]>]*)?(?=$|${linkDestinationEndCharacter})`, 'gm');
+  const destinationsByKey = new Map([...destinationsBySource].map(([from, to]) => [redirectKey(from), to]));
+  const sources = await Globby([
+    'reference/**/*.{md,mdx,json}',
+    'content/**/*.{md,mdx}',
+    'i18n/**/*.{md,mdx,json}',
+    'src/**/*.{js,jsx,ts,tsx,md,mdx}',
+    'reference-*_versioned_docs/**/*.{md,mdx}',
+    'reference-*_versioned_sidebars/*.json',
+  ], {cwd: siteDirectory});
+  const changedFiles = [];
+  for (const source of sources.sort()) {
+    const path = join(siteDirectory, source);
+    const content = await readFile(path, 'utf8');
+    const rewritten = content.replace(linkPattern, (link, ...matchArguments) => {
+      const {locale = ''} = matchArguments.at(-1);
+      const route = link.replace(/[#?].*$/, '');
+      return destinationsByKey.get(redirectKey(route)) ?? `${locale}${componentRoute}/`;
+    });
+    if (rewritten !== content) {
+      await writeFile(path, rewritten);
+      changedFiles.push(source.split('\\').join('/'));
+    }
+  }
+  return changedFiles;
 }
 
 /**
@@ -193,7 +247,7 @@ function escapeRegExp(value) {
 export function droppedVersionRedirects(component, version, droppedDocuments, latestDocuments) {
   const latestById = new Map(latestDocuments.map((document) => [document.id, document]));
   const redirects = [];
-  for (const localePrefix of ['', '/zh-Hans']) {
+  for (const localePrefix of localeRoutePrefixes) {
     const componentRoute = `${localePrefix}/reference/${component}`;
     for (const document of droppedDocuments) {
       const latestDocument = latestById.get(document.id);

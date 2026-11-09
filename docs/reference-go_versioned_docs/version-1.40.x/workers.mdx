@@ -1,0 +1,152 @@
+---
+title: Go Workers
+sidebar_label: Workers
+---
+
+# Go Workers
+
+This page shows how to start a Go Worker. It lists the Go names for the
+Worker settings and diagnostics. The
+[Workers and the task queue](/reference/server/workers) page describes their
+behavior for every SDK.
+
+## Start a Worker
+
+This example serves a Greeting Flow through a pull Worker. Its Step stores a
+greeting, and the greeting RPC reads it. The Worker allows eight concurrent tasks
+and keeps one slot for RPCs. See the [Go SDK README](https://github.com/superdurable/dex/blob/main/sdk-go/README.md#running-a-worker) for
+startup details.
+
+```go
+type PullGreetingDiagnostics struct {
+	IsReady bool
+}
+
+func StartPullGreeting(cache *blobcache.Cache, serverAddress string) (*GreetingFlow, *dex.Worker, *dex.Client, <-chan error, error) {
+	flow := &GreetingFlow{}
+	registry, err := dex.NewRegistry([]dex.Flow{flow})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+		FlowServiceAddress: serverAddress,
+		Pull: &dex.PullWorkerOptions{
+			MaxConcurrentTasks: 8,
+			// Keep one slot for RPCs so Flows stay responsive.
+			ReservedRPCTasks: ptr.Any(1),
+		},
+	})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	client, err := dex.NewClient(registry, cache, dex.ClientOptions{
+		FlowServiceAddress: serverAddress,
+	})
+	if err != nil {
+		return nil, nil, nil, nil, errors.Join(err, worker.Stop(context.Background()))
+	}
+	workerResult := make(chan error, 1)
+	go reportWorkerResult(worker, workerResult)
+	startupContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := worker.WaitPullRegistered(startupContext); err != nil {
+		return nil, nil, nil, nil, errors.Join(err, StopPullGreeting(context.Background(), worker, client, workerResult))
+	}
+	return flow, worker, client, workerResult, nil
+}
+
+func StopPullGreeting(ctx context.Context, worker *dex.Worker, client *dex.Client, workerResult <-chan error) error {
+	clientCloseErr := client.Close()
+	workerStopErr := worker.Stop(ctx)
+	var workerRunErr error
+	select {
+	case workerRunErr = <-workerResult:
+	case <-ctx.Done():
+		workerRunErr = ctx.Err()
+	}
+	return errors.Join(clientCloseErr, workerStopErr, workerRunErr)
+}
+
+func PullGreetingReadiness(worker *dex.Worker) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !worker.PullRegistrationState().IsReady {
+			http.Error(w, "pull slot registrations unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func GetPullGreetingDiagnostics(worker *dex.Worker) PullGreetingDiagnostics {
+	return PullGreetingDiagnostics{
+		IsReady: worker.PullRegistrationState().IsReady,
+	}
+}
+
+func reportWorkerResult(worker *dex.Worker, workerResult chan<- error) {
+	workerResult <- worker.Start()
+}
+```
+
+Example: [examples/go/production/pull-workers/worker.go](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)
+
+## Readiness
+
+Starting with Go SDK 1.13.0, **WaitPullRegistered** gates startup until the
+Worker's slot streams have registered. **PullRegistrationState** reports the
+current state, and **StopOnPermanentStreamRejection** opts in to stopping on a
+permanent rejection. Start the Go Worker in a goroutine,
+then wait with a startup deadline before activating it or stopping the old
+Worker during a rolling deployment.
+
+A **PullRegistrationError** reports **POLL_WORKER_SLOT_KIND_STEP_AND_RPC** or
+**POLL_WORKER_SLOT_KIND_RPC_ONLY** as its slot kind.
+
+Register the Go HTTP handler at your readiness probe endpoint.
+
+```go
+func PullGreetingReadiness(worker *dex.Worker) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !worker.PullRegistrationState().IsReady {
+			http.Error(w, "pull slot registrations unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+```
+
+Example: [examples/go/production/pull-workers/worker.go](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)
+
+## Capacity and shutdown
+
+| Setting | Go name |
+| --- | --- |
+| Concurrent tasks | **MaxConcurrentTasks** |
+| Reserved RPC slots | **ReservedRPCTasks** |
+| Stop drain timeout | **StopDrainTimeout** |
+| Shutdown | **Stop** |
+
+The idle stream option, **IdleStreamsPerQueue**, is deprecated. It is still accepted and
+has no effect.
+
+## Reserved RPC capacity
+
+The reserve-decline counter, **PullReservedRPCDeclines()**, is deprecated. It remains for
+source compatibility and always reads zero.
+
+This diagnostics helper exposes registration readiness. A full Worker stays ready.
+
+```go
+type PullGreetingDiagnostics struct {
+	IsReady bool
+}
+
+func GetPullGreetingDiagnostics(worker *dex.Worker) PullGreetingDiagnostics {
+	return PullGreetingDiagnostics{
+		IsReady: worker.PullRegistrationState().IsReady,
+	}
+}
+```
+
+Example: [examples/go/production/pull-workers/worker.go](https://github.com/superdurable/dex/blob/main/examples/go/production/pull-workers/worker.go)

@@ -1,0 +1,68 @@
+---
+id: changelog
+title: Change log
+sidebar_label: Change log
+---
+
+# Change log
+
+This page lists user-visible changes to the Java SDK, newest first; each section covers the changes since the previous release of this component.
+
+## 1.37 {#v1-37}
+
+Released 2026-11-06 as [sdk-java/v1.37.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.37.0). Reference: [1.37.x](/reference/java/1.37.x/).
+
+### Added
+
+- **FlowServiceTlsOptions** and **flowServiceTls** on Client and Worker option builders enable verified TLS, with optional extra root CAs and a server-name override. Omitting the option keeps plaintext connections. [API reference](pathname:///api/java/1.37/io/superdurable/dex/FlowServiceTlsOptions.html).
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [sdk-java/v1.35.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.35.0). Reference: [1.35.x](/reference/java/1.35.x/).
+
+### Breaking
+
+- Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
+- Worker startup fails when **maxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/java/1.40.x/workers#capacity-and-shutdown).
+- **RetryPolicy.Builder.totalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/java/1.35/io/superdurable/dex/RetryPolicy.Builder.html).
+- A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/java/1.40.x/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
+
+### Added
+
+- **RecoveryErrorInfo.getAttemptProgress()** distinguishes a failed Step method that never started from one that may have run. [API reference](pathname:///api/java/1.35/io/superdurable/dex/RecoveryErrorInfo.html).
+
+### Changed
+
+- Workers open one execution stream per slot; **reservedRpcTasks** selects RPC-only slots. By default, a Worker with at least two slots reserves one for RPCs. [Reference](/reference/java/1.40.x/workers#capacity-and-shutdown).
+- **stop** drains running handlers and returns tasks that did not start without consuming a retry. [Reference](/reference/java/1.40.x/workers#capacity-and-shutdown).
+
+### Deprecated
+
+- **idleStreamsPerQueue** is accepted but ignored, and **getPullReservedRpcDeclines()** always reports zero. Use execution-slot capacity and queue metrics instead. [Reference](/reference/java/1.40.x/workers#reserved-rpc-capacity).
+
+## 1.32 {#v1-32}
+
+Released 2026-11-01 as [sdk-java/v1.32.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.32.0). Reference: [1.32.x](/reference/java/1.32.x/).
+
+### Added
+
+- Generated protocol bindings include **AdminService**, with **DescribeActiveNode** and **StepDownActiveNode** for inspecting and stepping down the active server process. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.32.0).
+
+## 1.31 {#v1-31}
+
+Released 2026-10-31 as [sdk-java/v1.31.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.31.0). Reference: [1.31.x](/reference/java/1.31.x/).
+
+### Added
+
+- **Client.getAttributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap.instance** selects an instance, and **AttributeValues.get** returns an **Optional** value. [API reference](pathname:///api/java/1.31/io/superdurable/dex/Client.html).
+
+## 1.30 {#v1-30}
+
+Released 2026-10-31 as [sdk-java/v1.30.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.30.0). Reference: [1.30.x](/reference/java/1.40.x/).
+
+### Added
+
+- Generated protocol bindings add **ERROR_SUB_STATUS_ATTRIBUTE_INDEX_CAPACITY_EXCEEDED** and **ERROR_SUB_STATUS_INDEXED_KEYWORD_TOO_LONG** for Attribute index admission errors. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.30.0).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-java&expanded=true).
