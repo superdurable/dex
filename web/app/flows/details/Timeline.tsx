@@ -17,9 +17,11 @@ import { positiveRunAttempt, runAttemptSearch } from '@/lib/timeTravel';
 import {
   buildSelectedTimelineRelations,
   formatElapsedDuration,
+  formatTimelineOffset,
   newestTimelineEvents,
   PRUNED_RELATED_EVENT_EXPLANATION,
   prunedRelatedEventTooltip,
+  rowsShowingAbsoluteTime,
   timelineRelatedEventLabel,
   type TimelineRelatedEvent,
   type TimelineSelectedRelations,
@@ -147,6 +149,7 @@ export function Timeline({
   const eventCards = useRef(new Map<number, HTMLDivElement>());
   const stubElements = useRef(new Map<string, HTMLElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
+  const absoluteTimeRows = useMemo(() => rowsShowingAbsoluteTime(orderedEvents), [orderedEvents]);
   const spansRunAttempts = useMemo(
     () => new Set(events.map((event) => positiveRunAttempt(event.runAttempt))).size > 1,
     [events],
@@ -395,8 +398,7 @@ export function Timeline({
           const linked = activeStepLink?.fromEventId === event.eventId || activeStepLink?.toEventId === event.eventId;
           const selected = selectedEvent?.eventId === event.eventId;
           const absoluteTime = formatDate(event.eventTime, timezone);
-          const previousEvent = orderedEvents[index - 1];
-          const isNewAbsoluteTime = !previousEvent || formatDate(previousEvent.eventTime, timezone) !== absoluteTime;
+          const isNewAbsoluteTime = absoluteTimeRows[index];
           return (
             <TimelineRow
               absoluteTime={absoluteTime}
@@ -471,7 +473,7 @@ const TimelineRow = memo(function TimelineRow({
     >
       <div className="timeline-time" title={absoluteTime}>
         {isNewAbsoluteTime ? <b>{absoluteTime}</b> : <b className="sr-only">{absoluteTime}</b>}
-        {relative !== null && <span>+{relative}s</span>}
+        {relative !== null && <span>+{formatTimelineOffset(relative)}</span>}
       </div>
       <div className="timeline-rail">
         <span
