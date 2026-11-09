@@ -25,6 +25,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Flow closes | **dexzd_flow_closes_total** with **close_status**; **dexzd_flow_end_to_end_latency_seconds** |
 | Dispatch delay | **dexzd_step_schedule_to_start_latency_seconds** |
 | Workers | **dexzd_worker_stream_events_total** with **event**; **dexzd_matching_worker_streams**; **dexzd_matching_queued_tasks** (in-memory waiters only) |
+| Dropped Step Stream writes | **dexzd_step_stream_writes_dropped_total** with **reason** |
 | Step task queue | **dexzd_step_task_queue_entries**; **dexzd_step_task_queue_oldest_age_seconds**; **dexzd_matching_unserved_task_queues** with **reason**; **dexzd_matching_heads_restored_refs_total**; **dexzd_matching_heads_incomplete_scans_total**; **dexzd_step_task_queue_incomplete_seeks_total** |
 | Commit latency | **dexzd_commit_latency_seconds** |
 | Object storage | **dexzd_object_store_requests_total** with **operation** and **object_kind**; **dexzd_object_store_request_errors_total** with **operation** |
@@ -34,8 +35,9 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
-| Attribute Store sync | See [Monitoring](/reference/server/0.1.18/attribute-store-sync#attribute-store-monitoring) |
-| External search projection | See [Monitoring](/reference/server/0.1.18/search#search-projection-monitoring) |
+| History offload | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_upload_concurrency_limit**; **dexzd_history_upload_in_flight_bytes**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source**; **dexzd_history_value_revivals_total**; **dexzd_history_expired_objects_deleted_total**; **dexzd_history_orphan_objects_deleted_total** |
+| Attribute Store sync | See [Monitoring](/reference/server/0.1.25/attribute-store-sync#attribute-store-monitoring) |
+| External search projection | See [Monitoring](/reference/server/0.1.25/search#search-projection-monitoring) |
 
 **rpc_class** is one of **flow_write**, **flow_read**, **search**,
 **worker_poll**, and **worker_respond**. **code** is the gRPC status code in
@@ -76,6 +78,51 @@ Worker polls use one persistent stream, so there is no empty-poll count.
 **dexzd_worker_stream_events_total** counts each stream close and, with
 **event="delivered"**, every task frame sent, including RPC task frames. A returned attempt
 that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
+
+Changed in 0.1.23: **dexzd_history_offload_mode_skipped_partitions_total** was
+removed with the **history.offloadEnabled** switch. Each run now chooses history
+offload when it starts, so partitions no longer record an offload mode.
+
+**dexzd_history_upload_backlog_segments** counts sealed history segments that
+are not uploaded yet. It counts each seal and each recorded upload as it
+commits. **dexzd_history_upload_backlog_bytes** is their uncompressed size.
+That gauge and **dexzd_history_upload_oldest_sealed_age_seconds** come from a
+rescan of every partition each minute, and drop to 0 once the segment count
+does. The rescan also corrects the segment count, for example after a run with
+waiting segments is deleted. Changed in 0.1.23:
+the segment count also came only from that rescan, so a backlog that grew
+after a rescan did not show until the next one. A node that ran for less than
+a minute showed 0. **dexzd_history_upload_concurrency_limit** is the number of uploads the
+node currently allows at once, and **dexzd_history_upload_in_flight_bytes** is
+the bytes those uploads reserve for encoding and encoded objects; both are since 0.1.23. See
+[Upload concurrency](/reference/server/0.1.25/configuration#history-upload-concurrency). **outcome** of **dexzd_history_uploads_total** is one of
+**created**, **already_present** (a repeated upload found the same content),
+**replaced** (an existing object had other content), each counted once the
+upload is recorded, and **failed**. A transient object storage failure is
+retried with backoff; any other failure is retried at the next rescan. Alert when
+**dexzd_history_upload_oldest_sealed_age_seconds** stays above 900, or when
+**dexzd_history_upload_checksum_mismatches_total** or
+**dexzd_history_upload_rescan_errors_total** rises.
+
+Since 0.1.22, **dexzd_history_expired_objects_deleted_total** counts the objects
+of expired history segments that the node deleted, and
+**dexzd_history_orphan_objects_deleted_total** counts the history objects of
+deleted runs that its periodic sweep removed.
+
+**dexzd_history_reads_total** counts history reads. **kind** is **page** for
+GetHistoryEvents and **blob** for LoadBlobs. For a page, **source** is **local**
+when only local disk served it, and otherwise **cache** or **object_store** for
+each part of an uploaded segment, its header or its records, that the read took
+from the disk read cache or from object storage. For LoadBlobs, **source** is
+**local** for each value that local disk served, **cache** for each value from
+the disk read cache, and **object_store** for each value and each segment header
+read from object storage.
+
+**dexzd_history_value_revivals_total** counts values that the lease holder
+restored on local disk from their uploaded segments, because a Worker result,
+client write, or RPC result referenced them after offload deleted them locally.
+The reads behind these restores count as LoadBlobs reads in
+**dexzd_history_reads_total**. Since 0.1.22.
 
 ~~~text
 # Failed API calls by class and code

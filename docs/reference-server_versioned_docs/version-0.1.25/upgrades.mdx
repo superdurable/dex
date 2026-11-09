@@ -1,0 +1,100 @@
+---
+title: Upgrades and compatibility
+sidebar_label: Upgrades and compatibility
+---
+
+# Upgrades and compatibility
+
+server-zd and each SDK release declare inclusive protocol intervals. A Worker
+can start when those intervals overlap. It negotiates the highest common
+protocol, then synchronizes Attribute indexes, then binds WorkerTaskService. The
+server and SDK artifact versions are diagnostic and do not decide compatibility.
+
+server-zd 0.1.17 and later provide protocol version 4. Protocol version 4 does
+not raise the minimum protocol. Workers and Clients on SDKs before 1.35 keep
+working on server-zd 0.1.17 and later. Their capacity rejections
+return the attempt without consuming a retry.
+**dexzd_step_attempts_returned_total** with **reason="legacy_no_capacity"**
+counts them. This compatibility lasts until server-zd 1.0.
+
+SDK 1.35 and later require server-zd 0.1.17 or later. On an older server, an
+SDK 1.35 Worker fails to start and an SDK 1.35 Client fails its first call, each
+with a clear error.
+Upgrade the server first, then the SDKs, one at a time. You do not need to stop
+Workers.
+
+Upgrading to server-zd 0.1.17 or later (protocol version 4) does not support
+mixed versions. Stop every old server
+process, including active, hot standby, and cold standby, before you start the
+new version. After the new version wrote to a storage prefix, an older server
+must not run on it again. Roll forward, or restore a backup taken before the
+upgrade into a new prefix. Set new configuration keys only after every process
+runs the new version, and remove them before any rollback. This applies to
+**matching.syncMatchWait** and **matching.headsResyncInterval**. Matching
+configuration rejects unknown keys.
+
+server-zd 0.1.21 changes apply results: **limits.maxFlowStateBytes** counts
+only active state. Stop the standby and the active process, upgrade both binaries,
+then start the active process first and the standby after it.
+
+Changed in 0.1.22: the lease holder computes each ResetFlow result and writes it
+to the log in new commands before the time travel itself. A server before 0.1.22
+cannot apply these commands, so a standby that still runs the older version
+stops applying the partition at the first ResetFlow. Upgrade the active process
+and the standby together, as above. Log entries that a server before 0.1.22
+wrote still apply after the upgrade.
+
+Changed in 0.1.22: **dev** and **local** turn on history offload by default,
+including in existing data directories at their next start. Once offload has
+been on, do not run an earlier release on that data directory, even after
+turning offload off: history removed from local disk needs object storage
+reads. To keep the previous behavior, set **history.offloadEnabled: false**
+before the first start with 0.1.22. See
+[History offload](/reference/server/0.1.25/configuration#history-offload).
+
+Changed in 0.1.23: apply deletes the state row of a Step that completed, or that
+a cancellation without a Flow close ended, in the command that ends it. A run
+that started on an older release deletes the rows it kept, visiting at most 256
+Step rows in each of its later commands. Upgrade the active process and the
+standby together, as above.
+WaitForStepCompletion answers stay the same.
+
+Changed in 0.1.23: each run chooses at start whether it offloads its history,
+with the **offload_history** field of its Flow configuration. It defaults to
+true in **serve**, **dev**, and **local**, so runs that start after the upgrade
+offload unless they turn it off. Remove **history.offloadEnabled** from the
+configuration before you upgrade: **false** fails startup, and **true** only
+logs a warning. The removed keys **history.deleteExpiredObjects** and
+**history.maxRetainedSupersededBytes** also only log a warning.
+
+Runs that started before the upgrade keep the offload mode that their partition
+recorded at the upgrade. Where offload was off at the upgrade, as on a **serve**
+deployment that never turned **history.offloadEnabled** on, they keep their new
+history on local disk for their whole life, and nothing migrates. A partition
+that turned offload on and then off again is off too: its runs seal no new
+segments and stop migrating. Segments sealed before can still finish uploading,
+and uploaded history stays readable. Where offload was on at the upgrade, such
+as 0.1.22 on **dev** and **local** or a **serve** deployment with the switch on,
+the runs it offloaded stay offloaded. There, a run that recorded history before
+offload was turned on migrates lazily: each command that records history seals
+one more segment of that older history, and the lease holder uploads it in the
+background. An idle
+run keeps that older history on local disk until it receives commands again. A closed run never migrates and keeps its
+local history until its retention ends. See
+[History offload](/reference/server/0.1.25/configuration#history-offload).
+
+After the first start with 0.1.23, do not run an earlier release on that storage
+prefix or data directory: history that new runs removed from local disk needs
+object storage reads. Roll forward, or restore a backup taken before the upgrade
+into a new prefix. The upgrade also changes apply results, so stop the standby
+and the active process, upgrade both binaries, then start the active process
+first and the standby after it.
+
+A later release that raises the minimum protocol needs the same care. Stop old
+Workers and their traffic before that server upgrade, or use isolated blue and
+green environments so deployments with disjoint intervals never communicate.
+Running Workers do not renegotiate after a server upgrade.
+
+Protocol compatibility covers the Worker-to-server API only. It does not
+replace the compatibility rules for open Flows, including Flow type names, Step
+graphs, and persisted payloads.
