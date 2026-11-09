@@ -18,7 +18,7 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use crate::FlowStateReader;
-use crate::history::metadata_identity;
+use crate::history::{genesis_seq, metadata_identity};
 use crate::read_model::history::lineage_cutoffs;
 use crate::read_model::{ReadModelError, RunView};
 
@@ -236,6 +236,7 @@ fn first_lineage_event_id_from(
         return Ok(0);
     }
     let lineage = lineage_cutoffs(view, view.record.current_attempt)?;
+    let genesis_seq = genesis_seq(&view.transaction, view.rows)?;
     let prefix = run_table_prefix(
         view.rows.flow_hash,
         view.rows.run_id,
@@ -270,9 +271,12 @@ fn first_lineage_event_id_from(
             let is_in_lineage = lineage
                 .get(&metadata.attempt)
                 .is_some_and(|cutoff| seq <= *cutoff);
+            // Rows kept only to rebuild the window start are hidden, as GetHistoryEvents hides them.
+            let is_visible = seq <= genesis_seq || seq >= view.record.window_start_seq;
             let last_event_id = metadata.last_assigned_event_id;
             let is_unknown_range = last_event_id == 0;
             if is_in_lineage
+                && is_visible
                 && (is_unknown_range
                     || (last_event_id >= next_event_id && last_event_id > events_after))
             {

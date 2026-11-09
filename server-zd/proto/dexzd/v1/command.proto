@@ -73,6 +73,9 @@ message FlowCommand {
     HardDeleteObjectsDeletedCommand hard_delete_objects_deleted = 80;
     RunPurgeCommand run_purge = 81;
     HistorySegmentUploadedCommand history_segment_uploaded = 82;
+    HistorySegmentObjectsDeletedCommand history_segment_objects_deleted = 83;
+    ValueReviveCommand value_revive = 84;
+    HistoryLocalCleanupCommand history_local_cleanup = 85;
   }
 }
 
@@ -121,6 +124,12 @@ message RunSettings {
   // A history segment is sealed once its history records, checkpoints, and superseded values
   // reach this many bytes (default 4 MiB). Zero, as in records of older binaries, means 4 MiB.
   uint64 history_segment_target_bytes = 13;
+  // Whether the owner deletes the objects of the run's expired history segments (default false;
+  // true in dev and local). A run's FlowConfig.delete_expired_history_objects overrides it.
+  bool delete_expired_history_objects = 14;
+  // Command time a superseded value stays local before offload may delete it (default 10
+  // minutes). Zero means 10 minutes.
+  int64 superseded_value_grace_micros = 15;
 }
 
 // A hard-delete Attribute value that the owner uploaded as its own object before proposing.
@@ -484,6 +493,29 @@ message HistorySegmentUploadedCommand {
   bytes content_checksum = 3;
   uint64 object_size_bytes = 4;
 }
+
+// The owner read an offloaded value of the run from its uploaded history segment, so a command
+// that references it can commit. Apply restores the value locally, unheld, when the run's birth
+// record still marks it offloaded inside the window; otherwise it changes nothing. The command
+// records no history, takes no run seq, and is not bound to an attempt.
+message ValueReviveCommand {
+  // ID of the value: the run seq of the command that stored it and its index in that command.
+  uint64 value_run_seq = 1;
+  uint32 value_index_in_command = 2;
+  // The complete value, as the segment stores it.
+  dex.Value value = 3;
+}
+
+// The owner deleted the objects of these EXPIRED history segments of the run, named by first
+// seq. Apply deletes each named catalog row that is EXPIRED; other names change nothing. The
+// command records no history and takes no run seq.
+message HistorySegmentObjectsDeletedCommand {
+  repeated uint64 first_seqs = 1;
+}
+
+// The owner's local history cleanup of a run, applied only once due. Records no history, takes no
+// run seq.
+message HistoryLocalCleanupCommand {}
 
 // Sets whether this partition offloads run history to object storage.
 message SetHistoryOffloadModeCommand {

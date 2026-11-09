@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use dexzd_keyspace::ColumnFamily;
 
-use crate::rocksdb_store::INFO_LOG_FILES_KEPT;
+use crate::rocksdb_store::{INFO_LOG_FILES_KEPT, VALUE_BLOB_FILE_BYTES};
 use crate::{
     BoundedSeek, LocalReadView, LocalStore, RocksDbLocalStore, RocksDbStoreOptions, WriteBatch,
 };
@@ -287,13 +287,22 @@ fn single_deletes_hide_rows_and_bounded_seeks_give_up_on_tombstone_runs() {
 
 /// Returns the bytes of the table files in `directory`.
 fn table_file_bytes(directory: &Path) -> u64 {
+    bytes_of_files_ending_with(directory, ".sst")
+}
+
+/// Returns the bytes of the blob files in `directory`.
+fn blob_file_bytes(directory: &Path) -> u64 {
+    bytes_of_files_ending_with(directory, ".blob")
+}
+
+fn bytes_of_files_ending_with(directory: &Path, suffix: &str) -> u64 {
     std::fs::read_dir(directory)
         .expect("store directory lists")
         .filter_map(|entry| {
             let entry = entry.expect("store directory entry reads");
-            let is_table = entry.file_name().to_string_lossy().ends_with(".sst");
+            let is_match = entry.file_name().to_string_lossy().ends_with(suffix);
             // RocksDB may delete a file after it was listed.
-            is_table.then(|| entry.metadata().map_or(0, |metadata| metadata.len()))
+            is_match.then(|| entry.metadata().map_or(0, |metadata| metadata.len()))
         })
         .sum()
 }
@@ -369,4 +378,138 @@ fn a_file_of_history_and_value_deletions_compacts_without_a_manual_compaction() 
                 .is_empty()
         );
     }
+}
+
+// Large-value deletions stay below the count trigger, and long-lived values pin shared blob files.
+#[test]
+fn deleted_large_values_release_their_blob_files_without_a_manual_compaction() {
+    const VALUES: u64 = 480;
+    const VALUE_BYTES: usize = 128 * 1024;
+    const LIVE_VALUE_INTERVAL: u64 = 20;
+    let directory = tempfile::tempdir().expect("temporary directory exists");
+    let path = directory.path().join("db");
+    // Sixteen values fill a memtable, so the values span many blob files.
+    let options = RocksDbStoreOptions {
+        write_buffer_bytes: 2 * 1024 * 1024,
+        ..RocksDbStoreOptions::default()
+    };
+    let store = RocksDbLocalStore::open(&path, options).expect("opens");
+    for value in 0..VALUES {
+        let mut batch = WriteBatch::new();
+        batch.put(
+            ColumnFamily::Value,
+            value.to_be_bytes().to_vec(),
+            noise(value, VALUE_BYTES),
+        );
+        store.write(batch).expect("value writes");
+    }
+    store
+        .flush_for_test(ColumnFamily::Value)
+        .expect("values flush");
+    let written_bytes = blob_file_bytes(&path);
+    let value_bytes = u64::try_from(VALUE_BYTES).expect("the value size fits u64");
+    assert!(
+        written_bytes >= VALUES * value_bytes,
+        "{written_bytes} blob file bytes"
+    );
+
+    let mut deletions = WriteBatch::new();
+    for value in (0..VALUES).filter(|value| value % LIVE_VALUE_INTERVAL != 0) {
+        deletions.delete(ColumnFamily::Value, value.to_be_bytes().to_vec());
+    }
+    store.write(deletions).expect("deletions write");
+    // Stands in for the memtable flush of the next snapshot checkpoint.
+    store
+        .flush_for_test(ColumnFamily::Value)
+        .expect("deletions flush");
+    let live_bytes = VALUES / LIVE_VALUE_INTERVAL * value_bytes;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut remaining_bytes = blob_file_bytes(&path);
+    while remaining_bytes > live_bytes * 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+        remaining_bytes = blob_file_bytes(&path);
+    }
+    assert!(
+        remaining_bytes <= live_bytes * 2,
+        "blob files keep {remaining_bytes} of {written_bytes} bytes for {live_bytes} live bytes"
+    );
+    for value in (0..VALUES).step_by(LIVE_VALUE_INTERVAL as usize) {
+        assert_eq!(
+            store
+                .get(ColumnFamily::Value, &value.to_be_bytes())
+                .expect("live value reads"),
+            Some(noise(value, VALUE_BYTES))
+        );
+    }
+}
+
+/// Returns the number of blob files in `directory`.
+fn blob_file_count(directory: &Path) -> usize {
+    std::fs::read_dir(directory)
+        .expect("store directory lists")
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .expect("store directory entry reads")
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".blob")
+        })
+        .count()
+}
+
+// Blob garbage collection never picks among a store's last three blob files, so their size
+// bounds what one live value keeps.
+#[test]
+fn a_live_value_in_a_store_of_few_blob_files_keeps_at_most_one_capped_file() {
+    const VALUES: u64 = 48;
+    const VALUE_BYTES: usize = 1024 * 1024;
+    let directory = tempfile::tempdir().expect("temporary directory exists");
+    let path = directory.path().join("db");
+    let store = RocksDbLocalStore::open(&path, RocksDbStoreOptions::default()).expect("opens");
+    for value in 0..VALUES {
+        let mut batch = WriteBatch::new();
+        batch.put(
+            ColumnFamily::Value,
+            value.to_be_bytes().to_vec(),
+            noise(value, VALUE_BYTES),
+        );
+        store.write(batch).expect("value writes");
+    }
+    store
+        .flush_for_test(ColumnFamily::Value)
+        .expect("values flush");
+    let written_files = blob_file_count(&path);
+    assert!(
+        (1..=3).contains(&written_files),
+        "{written_files} blob files"
+    );
+    let written_bytes = blob_file_bytes(&path);
+
+    let mut deletions = WriteBatch::new();
+    for value in 1..VALUES {
+        deletions.delete(ColumnFamily::Value, value.to_be_bytes().to_vec());
+    }
+    store.write(deletions).expect("deletions write");
+    store
+        .flush_for_test(ColumnFamily::Value)
+        .expect("deletions flush");
+    let value_bytes = u64::try_from(VALUE_BYTES).expect("the value size fits u64");
+    let bound = VALUE_BLOB_FILE_BYTES + value_bytes;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut remaining_bytes = blob_file_bytes(&path);
+    while remaining_bytes > bound && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+        remaining_bytes = blob_file_bytes(&path);
+    }
+    assert!(
+        remaining_bytes <= bound,
+        "blob files keep {remaining_bytes} of {written_bytes} bytes for one live value"
+    );
+    assert_eq!(
+        store
+            .get(ColumnFamily::Value, &0_u64.to_be_bytes())
+            .expect("live value reads"),
+        Some(noise(0, VALUE_BYTES))
+    );
 }

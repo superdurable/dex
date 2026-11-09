@@ -16,17 +16,14 @@ signature of one API, read the [Go SDK API reference](./index.mdx#api-reference)
 
 A Flow registers its Steps, its persistence schema, and its RPC handlers.
 
-- **GetSteps** / **get_steps** / **steps** registers one start Step and every
-  other Step type the Flow may reach through Step decision movements. The
-  start Step input type is also the Flow start input type. An empty Step list,
-  or a list with no start Step, is valid when the Flow is driven entirely by
-  RPCs that later move into Steps.
+- **GetSteps** registers one start Step and every other Step type the Flow
+  may reach through Step decision movements. The start Step input type is also
+  the Flow start input type. An empty Step list, or a list with no start Step,
+  is valid when the Flow is driven entirely by RPCs that later move into Steps.
 - The persistence schema lists every Attribute and Channel used from Steps or
   RPCs. Dex rejects reads and writes to names that are not declared.
-- Each Flow explicitly declares its RPC handlers and their execution options.
-  Go returns direct bound methods from **GetRPCs** with **DefineRPC**. Dex uses
-  the method name as the durable RPC name, except Rust may provide an explicit
-  name.
+- Return direct bound methods from **GetRPCs** with **DefineRPC**. The durable
+  RPC name is the Go method name. **RPCOptions.Name** can override it.
 
 Most SDKs derive the **FlowType** and the **StepType** from the native type
 name unless you override it.

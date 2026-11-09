@@ -370,6 +370,42 @@ RPC handlers can stage `channel.delete(context, message_id)`. Declare the RPC as
 Attribute locks already select transactional execution, but Channel deletion
 itself does not.
 
+## Dex Web Actions
+
+Since 1.39.0, an RPC can declare an **Action**, which Dex Web offers to a person
+on each run while its condition matches. Pass `action=` to `@rpc`:
+
+```python
+from dex import Action, AttributeMatch, rpc, when_attribute_matches
+
+# dex:input field-name:reason value-type:string source:user required:true description:"Reason"
+@rpc(
+    lock_attributes=(case_status.lock(),),
+    action=Action(
+        "Reject refund",
+        required_permission="refund.approve",
+        condition=when_attribute_matches(
+            case_status, AttributeMatch.equal_to("awaiting-manager")
+        ),
+    ),
+)
+def reject_refund(self, context: Context, request: RejectRefundInput) -> RPCResult[str]:
+    if case_status.get(context) != "awaiting-manager":
+        raise ValueError("the case is no longer awaiting a decision")
+    case_status.set(context, "rejected")
+    return RPCResult(f"rejected: {request.reason}")
+```
+
+Registry construction validates the Action against the Flow's persistence
+schema. The Worker then sends the Action permission mappings whenever a handler
+writes a condition Attribute, and Client and SubFlow starts write the initial
+`DexWorkQueuePermissions`, as Go Workers and Clients do. The condition is
+optional; an Action without one is offered on every active run. The handler must
+still check current state, because the condition does not authorize the call.
+`dexcli visualize --schema-version 2.0` reads the declaration and the
+`# dex:input` directives into the Flow Definition Graph. See the `Action` and
+`when_attribute_matches` docstrings and the Dex Web reference for the rules.
+
 ## RPC state loading
 
 RPCs receive ordinary Attributes and all Channel size metadata by default.

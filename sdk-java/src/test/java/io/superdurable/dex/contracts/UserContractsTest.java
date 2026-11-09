@@ -160,6 +160,7 @@ public class UserContractsTest {
         Assertions.assertNotNull(io.superdurable.dex.StartFlowOptions.newBuilder()
                 .configOverride(io.superdurable.dex.FlowConfig.newBuilder()
                         .historyWindowEvents(50_000)
+                        .deleteExpiredHistoryObjects(false)
                         .build())
                 .build());
     }

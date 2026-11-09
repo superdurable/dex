@@ -33,7 +33,9 @@ use dexzd_engine::{
     SystemEngineIdSource, TimeTravelHistoryError, TimeTravelHistoryOpener, TimeTravelRunHistory,
     WorkerRpcInvocation, WorkerRpcResult, grpc_code,
 };
-use dexzd_history_segment::{encode_history_segment, history_segment_object_key};
+use dexzd_history_segment::{
+    HistorySegmentContent, encode_history_segment, history_segment_object_key,
+};
 use dexzd_keyspace::row_keys::{
     attempt_record_key, checkpoint_key, history_record_key, prefix_range, run_singleton_key,
     value_row_key,
@@ -46,15 +48,17 @@ use dexzd_object_store::{InMemoryObjectStore, ObjectStore, ObjectStoreOperation,
 use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, AttributeWrite, FlowConfig,
     FlowResetStepMethod, FlowResetType, FlowStartOptions, LoadBlobRequestEntry, LoadBlobsRequest,
-    ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepOptions, Value, WorkerTarget,
-    value,
+    ResetFlowRequest, SetAttributesRequest, StartFlowRequest, StepOptions, UpdateFlowConfigRequest,
+    Value, WorkerTarget, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, AttributeRecord, AttributesSetCommand, FlowCommand, HardDeleteObjectReference,
-    HistoryRecord, HistorySegmentRecord, HistorySegmentState, HistorySegmentUploadedCommand,
-    LogPosition, RunRecord, RunSettings, StepAttemptHeartbeatCommand, StepAttemptStartedCommand,
-    StepInvocationKey, StepMethod, ValueBirthRecord, ValueRecord, flow_command::Command,
-    step_attempt_heartbeat_command, stored_value,
+    AttemptRecord, AttributeRecord, AttributesSetCommand, FlowCommand, FlowConfigUpdateCommand,
+    HardDeleteObjectReference, HistoryLocalCleanupCommand, HistoryRecord,
+    HistorySegmentObjectsDeletedCommand, HistorySegmentRecord, HistorySegmentState,
+    HistorySegmentUploadedCommand, LogPosition, RunRecord, RunSettings,
+    StepAttemptHeartbeatCommand, StepAttemptStartedCommand, StepInvocationKey, StepMethod,
+    ValueBirthRecord, ValueRecord, flow_command::Command, step_attempt_heartbeat_command,
+    stored_value,
 };
 use dexzd_storage::{LocalStore, RestoredLocalStore, WriteBatch};
 use futures::future::BoxFuture;
@@ -379,6 +383,32 @@ impl TravelNode {
         let flow_hash = self.context().flow_hash;
         // FlowStart is the run's first seq.
         let genesis_seq = 1;
+        for content in self.acknowledge_sealed_history(run_id).await {
+            let mut batch = WriteBatch::new();
+            for record in &content.records {
+                if record.seq != genesis_seq {
+                    batch.delete(
+                        ColumnFamily::History,
+                        history_record_key(flow_hash, run_id, record.seq),
+                    );
+                }
+            }
+            for checkpoint in &content.checkpoints {
+                batch.delete(
+                    ColumnFamily::History,
+                    checkpoint_key(flow_hash, run_id, checkpoint.attempt, checkpoint.seq),
+                );
+            }
+            self.store.write(batch).expect("the local rows are removed");
+        }
+        self.run_record(run_id).history_uploaded_through_seq
+    }
+
+    /// Uploads and acknowledges every SEALED segment of the run as the uploader does, and
+    /// returns the content of each. Only committed commands change the store.
+    async fn acknowledge_sealed_history(&self, run_id: RunId) -> Vec<HistorySegmentContent> {
+        let flow_hash = self.context().flow_hash;
+        let mut acknowledged = Vec::new();
         for segment in self.segments(run_id) {
             if segment.state != HistorySegmentState::Sealed as i32 {
                 continue;
@@ -410,24 +440,9 @@ impl TravelNode {
                 }),
             )
             .await;
-            let mut batch = WriteBatch::new();
-            for record in &content.records {
-                if record.seq != genesis_seq {
-                    batch.delete(
-                        ColumnFamily::History,
-                        history_record_key(flow_hash, run_id, record.seq),
-                    );
-                }
-            }
-            for checkpoint in &content.checkpoints {
-                batch.delete(
-                    ColumnFamily::History,
-                    checkpoint_key(flow_hash, run_id, checkpoint.attempt, checkpoint.seq),
-                );
-            }
-            self.store.write(batch).expect("the local rows are removed");
+            acknowledged.push(content);
         }
-        self.run_record(run_id).history_uploaded_through_seq
+        acknowledged
     }
 
     fn segments(&self, run_id: RunId) -> Vec<HistorySegmentRecord> {
@@ -1279,6 +1294,7 @@ async fn uploaded_history_over_the_memory_budget_fails_before_every_segment_is_r
             .contains("history.timeTravelReplayMemoryBytes"),
         "{error}"
     );
+    assert!(error.to_string().contains("skip_writes_reapply"), "{error}");
     let reads = travel.history_object_reads() - reads_before;
     assert!(
         reads < segment_count,
@@ -1540,6 +1556,213 @@ async fn a_hot_standby_replays_staged_time_travel_to_the_serving_state() {
         .await;
     stage_without_travel(&travel, run_id, reset(FlowResetType::Beginning, false)).await;
     assert!(travel.run_record(run_id).time_travel_staging.is_some());
+    crate::hot_standby::wait_until_caught_up(&cluster, &standby).await;
+    travel.shutdown().await;
+    standby.shutdown().await;
+    crate::hot_standby::assert_same_stores(&serving_directory, &standby_directory);
+}
+
+/// Uploads and acknowledges every SEALED segment of the run through the log only, as the
+/// uploader does; apply then deletes the local history they cover.
+async fn upload_and_acknowledge(travel: &TravelNode, run_id: RunId) {
+    let flow_hash = travel.context().flow_hash;
+    for segment in travel.segments(run_id) {
+        if segment.state != HistorySegmentState::Sealed as i32 {
+            continue;
+        }
+        let content =
+            read_history_segment_content(&travel.view(), flow_hash, run_id, segment.first_seq)
+                .expect("the segment content reads")
+                .expect("the segment exists");
+        let encoded = encode_history_segment(&content).expect("the content encodes");
+        let object_size_bytes = u64::try_from(encoded.bytes.len()).expect("small object");
+        let key = history_segment_object_key(
+            TenantId::DEFAULT,
+            flow_hash,
+            run_id,
+            segment.first_seq,
+            segment.last_seq,
+        );
+        travel
+            .objects
+            .put(&key, Bytes::from(encoded.bytes), WriteCondition::CreateOnly)
+            .await
+            .expect("the object writes");
+        travel
+            .commit(
+                run_id,
+                Command::HistorySegmentUploaded(HistorySegmentUploadedCommand {
+                    first_seq: segment.first_seq,
+                    last_seq: segment.last_seq,
+                    content_checksum: encoded.content_checksum.to_vec(),
+                    object_size_bytes,
+                }),
+            )
+            .await;
+    }
+}
+
+/// A hot standby replays segment expiry, the delete switch, and recorded object deletions to
+/// the serving store's state.
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_replays_segment_expiry_and_recorded_object_deletions() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let serving_directory = directory.path().join("serving");
+    let standby_directory = directory.path().join("standby");
+    let cluster = TestCluster::new();
+    let base = offloading_config();
+    let travel = TravelNode::start(
+        &cluster,
+        crate::hot_standby::rocksdb_store(&serving_directory),
+        segmented_opener(),
+        FlowCoordinationConfig {
+            run_settings: RunSettings {
+                history_window_events: 4,
+                history_prune_chunk_events: 1,
+                delete_expired_history_objects: true,
+                ..base.run_settings
+            },
+            ..base
+        },
+    )
+    .await;
+    let mut standby_config = cluster.config(crate::hot_standby::rocksdb_store(&standby_directory));
+    standby_config.commit.debug_replay_checks = true;
+    let standby = dexzd_engine::HotStandby::start(
+        standby_config,
+        crate::hot_standby::fast_standby_config(),
+        dexzd_engine::HotStandbyDependencies {
+            metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+            object_store: Arc::new(crate::hot_standby::ProcessObjectStore::new(
+                cluster.object_store.clone(),
+            )),
+            clock: cluster.clock.clone(),
+            applier: Arc::new(DeterministicCommandApplier),
+            id_source: Arc::new(SystemEngineIdSource),
+            restart_jitter_seed: 7,
+        },
+    )
+    .expect("the hot standby starts");
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    let expired = |travel: &TravelNode| -> Vec<HistorySegmentRecord> {
+        travel
+            .segments(run_id)
+            .into_iter()
+            .filter(|segment| segment.state == HistorySegmentState::Expired as i32)
+            .collect()
+    };
+    for round in 0..40 {
+        if expired(&travel).len() >= 3 {
+            break;
+        }
+        travel
+            .set_attribute("note", string_value(&format!("note {round}")))
+            .await;
+        upload_and_acknowledge(&travel, run_id).await;
+    }
+    let expired_segments = expired(&travel);
+    assert!(expired_segments.len() >= 3, "{expired_segments:?}");
+    // The owner deletes the oldest objects and records them, as its deletion effect does.
+    travel
+        .commit(
+            run_id,
+            Command::HistorySegmentObjectsDeleted(HistorySegmentObjectsDeletedCommand {
+                first_seqs: vec![expired_segments[0].first_seq],
+            }),
+        )
+        .await;
+    travel
+        .commit(
+            run_id,
+            Command::FlowConfigUpdate(FlowConfigUpdateCommand {
+                request: Some(UpdateFlowConfigRequest {
+                    flow_id: FLOW_ID.to_owned(),
+                    flow_config: Some(FlowConfig {
+                        delete_expired_history_objects: Some(false),
+                        ..FlowConfig::default()
+                    }),
+                    ..UpdateFlowConfigRequest::default()
+                }),
+            }),
+        )
+        .await;
+    let record = travel.run_record(run_id);
+    assert_eq!(
+        record.history_objects_deleted_through_seq,
+        expired_segments[0].last_seq
+    );
+    assert!(record.history_expired_through_seq > record.history_objects_deleted_through_seq);
+    crate::hot_standby::wait_until_caught_up(&cluster, &standby).await;
+    travel.shutdown().await;
+    standby.shutdown().await;
+    crate::hot_standby::assert_same_stores(&serving_directory, &standby_directory);
+}
+
+/// A hot standby replays the local cleanup of an idle run to the serving store's state.
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_replays_the_local_cleanup_of_an_idle_run() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let serving_directory = directory.path().join("serving");
+    let standby_directory = directory.path().join("standby");
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        crate::hot_standby::rocksdb_store(&serving_directory),
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    let mut standby_config = cluster.config(crate::hot_standby::rocksdb_store(&standby_directory));
+    standby_config.commit.debug_replay_checks = true;
+    let standby = dexzd_engine::HotStandby::start(
+        standby_config,
+        crate::hot_standby::fast_standby_config(),
+        dexzd_engine::HotStandbyDependencies {
+            metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+            object_store: Arc::new(crate::hot_standby::ProcessObjectStore::new(
+                cluster.object_store.clone(),
+            )),
+            clock: cluster.clock.clone(),
+            applier: Arc::new(DeterministicCommandApplier),
+            id_source: Arc::new(SystemEngineIdSource),
+            restart_jitter_seed: 7,
+        },
+    )
+    .expect("the hot standby starts");
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel
+        .set_attribute("report", string_value(&"n".repeat(400)))
+        .await;
+    upload_and_acknowledge(&travel, run_id).await;
+    assert!(
+        travel
+            .run_record(run_id)
+            .history_local_cleanup_due_micros
+            .is_some(),
+        "the superseded value waits for its grace period"
+    );
+    assert!(is_value_stored(&travel, run_id, old_value));
+
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .commit(
+            run_id,
+            Command::HistoryLocalCleanup(HistoryLocalCleanupCommand {}),
+        )
+        .await;
+    assert!(value_birth(&travel, run_id, old_value).is_offloaded);
+    assert!(!is_value_stored(&travel, run_id, old_value));
+    assert_eq!(
+        travel.run_record(run_id).history_local_cleanup_due_micros,
+        None
+    );
     crate::hot_standby::wait_until_caught_up(&cluster, &standby).await;
     travel.shutdown().await;
     standby.shutdown().await;
@@ -2098,4 +2321,115 @@ async fn a_cached_offloaded_value_counts_against_the_replay_memory_budget() {
     );
     assert_eq!(travel.committed_count(is_stage), 0, "nothing is staged");
     travel.shutdown().await;
+}
+
+/// A hot standby replays the revive that restores an offloaded value before a write that
+/// references it, and reaches the serving store's state.
+#[tokio::test(start_paused = true)]
+async fn a_hot_standby_replays_the_revive_of_an_offloaded_value_to_the_serving_state() {
+    const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let serving_directory = directory.path().join("serving");
+    let standby_directory = directory.path().join("standby");
+    let cluster = TestCluster::new();
+    let travel = TravelNode::start(
+        &cluster,
+        crate::hot_standby::rocksdb_store(&serving_directory),
+        segmented_opener(),
+        offloading_config(),
+    )
+    .await;
+    let mut standby_config = cluster.config(crate::hot_standby::rocksdb_store(&standby_directory));
+    standby_config.commit.debug_replay_checks = true;
+    let standby = dexzd_engine::HotStandby::start(
+        standby_config,
+        crate::hot_standby::fast_standby_config(),
+        dexzd_engine::HotStandbyDependencies {
+            metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
+            object_store: Arc::new(crate::hot_standby::ProcessObjectStore::new(
+                cluster.object_store.clone(),
+            )),
+            clock: cluster.clock.clone(),
+            applier: Arc::new(DeterministicCommandApplier),
+            id_source: Arc::new(SystemEngineIdSource),
+            restart_jitter_seed: 7,
+        },
+    )
+    .expect("the hot standby starts");
+    travel.enable_history_offload().await;
+    let run_id = travel.start_flow(None).await;
+    travel
+        .set_attribute("report", string_value(&"o".repeat(400)))
+        .await;
+    let old_value = table_value_id(&travel.attribute(run_id, "report").expect("the report"));
+    travel
+        .set_attribute("report", string_value(&"n".repeat(400)))
+        .await;
+    travel.acknowledge_sealed_history(run_id).await;
+    cluster.clock.shift(GRACE_MICROS + 1_000_000);
+    travel
+        .set_attribute("note", string_value("after the grace period"))
+        .await;
+    travel.acknowledge_sealed_history(run_id).await;
+    assert!(value_birth(&travel, run_id, old_value).is_offloaded);
+
+    // Request validation admits no reference, so the write is proposed as a Worker echo would be.
+    let reference = ValueReference {
+        run_id,
+        value_id: old_value,
+    }
+    .to_string();
+    let copy = FlowCommand {
+        flow_id: FLOW_ID.to_owned(),
+        run_id: run_id.as_bytes().to_vec(),
+        command: Some(Command::AttributesSet(AttributesSetCommand {
+            request: Some(SetAttributesRequest {
+                flow_id: FLOW_ID.to_owned(),
+                attributes: vec![AttributeWrite {
+                    key: "copy".to_owned(),
+                    value: Some(Value {
+                        kind: Some(value::Kind::InternalBlobIdForStringValue(reference)),
+                    }),
+                    ..AttributeWrite::default()
+                }],
+                request_id: "copy-report".to_owned(),
+                ..SetAttributesRequest::default()
+            }),
+            hard_delete_objects: Vec::new(),
+            request_fingerprint: b"copy-report".to_vec(),
+        })),
+        ..FlowCommand::default()
+    };
+    let proposal = travel
+        .registry
+        .propose(
+            FlowAddress::new(TenantId::DEFAULT, FLOW_ID.to_owned()),
+            copy,
+            CommitUrgency::Prompt,
+        )
+        .await
+        .expect("the write is proposed");
+    let committed = proposal.ticket.wait().await.expect("the write commits");
+    assert!(
+        matches!(
+            committed.outcome.reply.reply,
+            Some(dexzd_protocol::dexzd::v1::command_reply::Reply::Ok(_))
+        ),
+        "{:?}",
+        committed.outcome.reply
+    );
+    assert_eq!(
+        travel.committed_count(|command| matches!(command, Command::ValueRevive(_))),
+        1
+    );
+    assert_eq!(
+        table_value_id(&travel.attribute(run_id, "copy").expect("the copy")),
+        old_value
+    );
+    assert!(!value_birth(&travel, run_id, old_value).is_offloaded);
+
+    crate::hot_standby::wait_until_caught_up(&cluster, &standby).await;
+    travel.shutdown().await;
+    standby.shutdown().await;
+    crate::hot_standby::assert_same_stores(&serving_directory, &standby_directory);
 }

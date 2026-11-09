@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::diagnostics::time_travel_target_close;
+use dexzd_apply::read_model::offloaded_command_references;
 use dexzd_apply::{
     ApplyContext, ApplyOutcome, StateWrite, apply_flow_command, apply_staged_time_travel_for_test,
     is_unstaged_time_travel_for_test, stage_computed_time_travel_for_test,
@@ -19,8 +20,8 @@ use dexzd_keyspace::{
 };
 use dexzd_protocol::dexzd::v1::{
     CommandErrorReply, CommandReply, FlowCommand, MethodSnapshotRecord, RunRecord,
-    StepInvocationKey, ValueRecord, command_reply, flow_command::Command, inbox_message_command,
-    stored_value,
+    StepInvocationKey, ValueRecord, ValueReviveCommand, command_reply, flow_command::Command,
+    inbox_message_command, stored_value,
 };
 use prost::Message;
 
@@ -29,13 +30,16 @@ use crate::invariants::{
     CheckerMemory, CloseBarrierCounts, HistoryMigrationCounts, InvariantViolation,
     LocalOffloadCounts, OffloadGapsByRun, WindowPointState, check_close_barrier,
     check_deletions_were_uploaded, check_flow, check_fresh_snapshot, check_history_migration,
-    check_open_segment_transitions, check_outbox_writes, check_sealed_segment_encodings,
-    check_value_offloads, check_window_value_content, collect_value_offloads, remember_ack,
-    remember_window_points,
+    check_local_cleanup_drained, check_open_segment_transitions, check_outbox_writes,
+    check_sealed_segment_encodings, check_value_offloads, check_window_value_content,
+    collect_value_offloads, offloaded_value_row, remember_ack, remember_window_points,
 };
 use crate::memory_state::MemoryFlowState;
 use crate::offloaded_history::compute_offloaded_time_travel;
 use crate::state_view::{FlowView, RunSelection};
+
+/// Invariant name of a revive that the checker could not build or that restored nothing.
+const VALUE_REVIVE: &str = "H14-value-revive";
 
 /// Key of the keyed partition hash; any fixed value keeps runs reproducible.
 const PARTITION_HASH_KEY: [u8; 16] = [7; 16];
@@ -150,6 +154,7 @@ impl ApplyChecker {
         &mut self,
         command: &FlowCommand,
     ) -> Result<ApplyOutcome, InvariantViolation> {
+        self.revive_offloaded_references(command)?;
         if !is_unstaged_time_travel_for_test(command) {
             return self.apply_and_check_staged(command);
         }
@@ -190,6 +195,74 @@ impl ApplyChecker {
                 Ok(outcome)
             }
         }
+    }
+
+    /// Applies and checks one ValueRevive for each offloaded value that `command` references,
+    /// read from its segment's object, as an owner proposes them before the command.
+    ///
+    /// Returns the first violated invariant, or a violation when a revive does not restore its
+    /// value.
+    fn revive_offloaded_references(
+        &mut self,
+        command: &FlowCommand,
+    ) -> Result<(), InvariantViolation> {
+        let context = self.context(&command.flow_id);
+        let offloaded = offloaded_command_references(&self.state, context.flow_hash, command)
+            .map_err(|error| InvariantViolation::new("apply-error", error.to_string()))?;
+        if offloaded.is_empty() {
+            return Ok(());
+        }
+        let run_id = RunId::from_slice(&command.run_id)
+            .expect("only a command with a run ID references offloaded values");
+        for reference in offloaded {
+            let object = self
+                .memory
+                .sealed_segment_encodings
+                .get(&(run_id, reference.segment.first_seq))
+                .ok_or_else(|| {
+                    InvariantViolation::new(
+                        VALUE_REVIVE,
+                        format!(
+                            "uploaded segment {} of run {run_id} has no object",
+                            reference.segment.first_seq
+                        ),
+                    )
+                })?;
+            let row = offloaded_value_row(object, reference.value_id)
+                .map_err(|detail| InvariantViolation::new(VALUE_REVIVE, detail))?;
+            let value = ValueRecord::decode(row.as_slice())
+                .map_err(|error| InvariantViolation::new(VALUE_REVIVE, error.to_string()))?
+                .value;
+            let revive = FlowCommand {
+                flow_id: command.flow_id.clone(),
+                run_id: command.run_id.clone(),
+                epoch: command.epoch,
+                behavior_version: command.behavior_version,
+                proposed_at_micros: command.proposed_at_micros,
+                command_id: command.command_id.clone(),
+                tenant_id: command.tenant_id,
+                command: Some(Command::ValueRevive(ValueReviveCommand {
+                    value_run_seq: reference.value_id.run_seq,
+                    value_index_in_command: reference.value_id.index_in_command,
+                    value,
+                })),
+                ..FlowCommand::default()
+            };
+            let outcome = self.apply_and_check_staged(&revive)?;
+            let is_restored = matches!(outcome.reply.reply, Some(command_reply::Reply::Ok(_)))
+                && !outcome.writes.is_empty();
+            if !is_restored {
+                return Err(InvariantViolation::new(
+                    VALUE_REVIVE,
+                    format!(
+                        "reviving value {:?} of run {run_id} did not restore it: {:?}",
+                        reference.value_id, outcome.reply
+                    ),
+                ));
+            }
+            self.local_offload_counts.values_revived += 1;
+        }
+        Ok(())
     }
 
     /// [`Self::apply_and_check`] for a command that needs no staging.
@@ -652,6 +725,54 @@ impl ApplyChecker {
             })
             .collect();
         self.memory.genesis_values.insert(run_id, genesis);
+        Ok(())
+    }
+
+    /// Returns the Flow, run, and due time of the earliest due cleanup of a run that is not
+    /// purging, or `None`.
+    pub(crate) fn first_due_local_cleanup(
+        &self,
+    ) -> Result<Option<(String, RunId, i64)>, InvariantViolation> {
+        let mut first: Option<(String, RunId, i64)> = None;
+        for (key, value) in self.state.rows_with_prefix(ColumnFamily::Flow, &[]) {
+            let Ok(parsed) = parse_run_key(key) else {
+                continue;
+            };
+            if parsed.table != RunTable::RunRecord {
+                continue;
+            }
+            let record = RunRecord::decode(value)
+                .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
+            let Some(due_micros) = record
+                .history_local_cleanup_due_micros
+                .filter(|_| !record.is_purging)
+            else {
+                continue;
+            };
+            if first
+                .as_ref()
+                .is_none_or(|(_, _, first_due_micros)| due_micros < *first_due_micros)
+            {
+                first = Some((record.flow_id, parsed.run_id, due_micros));
+            }
+        }
+        Ok(first)
+    }
+
+    /// Requires that no run of any Flow keeps local cleanup a command could still do (H17).
+    pub(crate) fn check_local_cleanup_drained(&self) -> Result<(), InvariantViolation> {
+        let mut flow_ids = BTreeSet::new();
+        for (key, value) in self.state.rows_with_prefix(ColumnFamily::Flow, &[]) {
+            if parse_run_key(key).is_ok_and(|parsed| parsed.table == RunTable::RunRecord) {
+                let record = RunRecord::decode(value)
+                    .map_err(|error| InvariantViolation::new("row-decoding", error.to_string()))?;
+                flow_ids.insert(record.flow_id);
+            }
+        }
+        for flow_id in flow_ids {
+            let view = self.view(&flow_id, RunSelection::All)?;
+            check_local_cleanup_drained(&flow_id, &view)?;
+        }
         Ok(())
     }
 

@@ -8,8 +8,9 @@
 
 use dexzd_keyspace::row_keys::{
     HARD_DELETE_PENDING_OBJECT, active_work_index_key, flow_list_index_key,
-    hard_delete_pending_key, history_upload_pending_index_key, prefix_range, retention_index_key,
-    run_item_index_key, tenant_run_index_key, timer_index_key,
+    hard_delete_pending_key, history_local_cleanup_pending_index_key,
+    history_object_delete_pending_index_key, history_upload_pending_index_key, prefix_range,
+    retention_index_key, run_item_index_key, tenant_run_index_key, timer_index_key,
 };
 use dexzd_keyspace::{
     ColumnFamily, IndexKind, RunId, RunTable, TenantId, run_prefix, run_table_prefix,
@@ -137,6 +138,19 @@ pub(crate) fn apply_run_purge(
         .is_some()
     {
         transaction.delete(ColumnFamily::PartitionIndex, upload_pending_key);
+    }
+    let delete_pending_key = history_object_delete_pending_index_key(partition, flow_hash, run_id);
+    if transaction
+        .get(ColumnFamily::PartitionIndex, &delete_pending_key)?
+        .is_some()
+    {
+        transaction.delete(ColumnFamily::PartitionIndex, delete_pending_key);
+    }
+    if record.history_local_cleanup_due_micros.is_some() {
+        transaction.delete(
+            ColumnFamily::PartitionIndex,
+            history_local_cleanup_pending_index_key(partition, flow_hash, run_id),
+        );
     }
     transaction.delete(
         ColumnFamily::PartitionIndex,

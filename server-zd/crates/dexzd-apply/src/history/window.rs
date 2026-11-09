@@ -26,13 +26,11 @@ use crate::history_offload::offload_mode::is_history_offload_enabled;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 
-const HISTORY_ROWS_PER_COMMAND: usize = 128;
+/// History metadata rows one command prunes or scans per page.
+pub(crate) const HISTORY_ROWS_PER_COMMAND: usize = 128;
 
 /// Metadata pages one command may scan to prune an event chunk; covers the default 1000-event chunk.
 const EVENT_CHUNK_PAGES_PER_COMMAND: usize = 16;
-
-/// FlowStart records event 1 of every run, and the window always keeps it.
-const FLOW_START_EVENT_ID: i64 = 1;
 
 pub(crate) enum WindowAdvanceTarget {
     /// Window events to prune; W stops at the first semantic point that prunes at least this many.
@@ -137,14 +135,11 @@ pub(crate) fn advance_window(
     let Some(pruned) = find_new_window_start(transaction, cursor, target)? else {
         return Ok(false);
     };
-    let genesis = genesis_seq(transaction, cursor.rows)?;
     let record = &mut cursor.record;
-    // Before W first passes FlowStart nothing was pruned, so the watermark can start exact.
-    if record.window_start_seq <= genesis + 1 && record.max_pruned_event_id == 0 {
-        record.max_pruned_event_id = FLOW_START_EVENT_ID;
-    }
+    record.max_pruned_event_id = pruned.last_event_id_before_window_start;
     record.window_start_seq = pruned.window_start_seq;
     record.window_scan_seq = 0;
+    record.window_scan_last_event_id = 0;
     record.pruned_semantic_event_count += pruned.semantic_points;
     record.pruned_window_event_count = record
         .pruned_window_event_count
@@ -166,6 +161,8 @@ struct PrunedChunk {
     window_event_count_before: u64,
     max_external_input_seq: u64,
     max_semantic_timestamp_micros: i64,
+    /// Newest event ID of the record before the new W; zero when the scan did not see it.
+    last_event_id_before_window_start: i64,
 }
 
 /// Skips up to one page of history metadata; the next semantic record becomes the new W.
@@ -210,6 +207,12 @@ fn find_new_window_start(
     let mut semantic_points = 0;
     let mut candidate = None;
     let mut last_scanned_seq = None;
+    // A resumed scan starts after the rows an earlier command inspected; the W row seeds a new one.
+    let mut last_record_event_id = if start_seq > current_start {
+        cursor.record.window_scan_last_event_id
+    } else {
+        0
+    };
     let page_count = match target {
         WindowAdvanceTarget::Events(_) => EVENT_CHUNK_PAGES_PER_COMMAND,
         WindowAdvanceTarget::GarbageSeq(_) => 1,
@@ -232,11 +235,13 @@ fn find_new_window_start(
         for (key, metadata) in page {
             let (seq, history_table, _) = metadata_identity(&key, &prefix)?;
             last_scanned_seq = Some(seq);
-            if history_table != RunTable::HistoryRecord
-                || !metadata.is_semantic
-                || seq <= current_start
-                || seq > cursor.seq
-            {
+            if history_table != RunTable::HistoryRecord {
+                continue;
+            }
+            // Offload deletes only rows without events, so the newest row seen ends the events.
+            let last_event_id_before_row =
+                std::mem::replace(&mut last_record_event_id, metadata.last_assigned_event_id);
+            if !metadata.is_semantic || seq <= current_start || seq > cursor.seq {
                 continue;
             }
             if was_previous_external {
@@ -255,6 +260,7 @@ fn find_new_window_start(
                 window_event_count_before,
                 max_external_input_seq,
                 max_semantic_timestamp_micros,
+                last_event_id_before_window_start: last_event_id_before_row,
             });
             previous_semantic_seq = seq;
             previous_semantic_timestamp_micros = metadata.timestamp_micros;
@@ -278,15 +284,15 @@ fn find_new_window_start(
         && let Some(last_seq) = last_scanned_seq
     {
         cursor.record.window_scan_seq = last_seq.saturating_add(1);
+        cursor.record.window_scan_last_event_id = last_record_event_id;
     }
     Ok(candidate)
 }
 
 /// Deletes history records and checkpoints older than the checkpoint that rebuilds W.
 ///
-/// Their metadata rows go too, and they alone advance `max_pruned_event_id`. A row that offload
-/// already deleted leaves only its metadata row to delete. Moves the run's
-/// `history_window_pruned_through_seq` past what is deleted.
+/// Their metadata rows go too. A row that offload already deleted leaves only its metadata row
+/// to delete. Moves the run's `history_window_pruned_through_seq` past what is deleted.
 ///
 /// Rows after the run's uploaded seq stay while the partition offloads history or the run has a
 /// SEALED segment.
@@ -359,17 +365,8 @@ pub(crate) fn prune_window_history(
         .history_window_pruned_through_seq
         .max(pruned_through_seq);
     let mut identities = Vec::with_capacity(count);
-    let mut max_pruned_event_id = cursor.record.max_pruned_event_id;
     for (key, metadata) in &page {
         let (seq, history_table, attempt) = metadata_identity(key, &prefix)?;
-        if history_table == RunTable::HistoryRecord {
-            // A row without the field may hold unseen events; reads scan until a newer row is pruned.
-            max_pruned_event_id = if metadata.last_assigned_event_id > 0 {
-                max_pruned_event_id.max(metadata.last_assigned_event_id)
-            } else {
-                0
-            };
-        }
         // Offload deleted the row of uploaded history and zeroed its size; only metadata remains.
         identities.push((
             key,
@@ -379,7 +376,6 @@ pub(crate) fn prune_window_history(
             metadata.row_size_bytes > 0,
         ));
     }
-    cursor.record.max_pruned_event_id = max_pruned_event_id;
     for (metadata_key, seq, history_table, attempt, has_row) in identities {
         transaction.delete(ColumnFamily::Flow, metadata_key.clone());
         match history_table {

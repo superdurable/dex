@@ -13,6 +13,7 @@ import DocSidebar from '@theme-original/DocSidebar';
 import {usePluginData} from '@docusaurus/useGlobalData';
 import ExecutionEnvironment from '@docusaurus/ExecutionEnvironment';
 import {useActiveDocContext, useActivePlugin} from '@docusaurus/plugin-content-docs/client';
+import {useWindowSize} from '@docusaurus/theme-common';
 import type {PropSidebar, PropSidebarItem} from '@docusaurus/plugin-content-docs';
 import type {Props} from '@theme/DocSidebar';
 import {markSidebarHydrated} from '@site/src/components/sidebarState';
@@ -24,18 +25,25 @@ type SharedDocsSidebarData = {
 
 const referencePluginPrefix = 'reference-';
 const desktopSidebarScrollerSelector = '.theme-doc-sidebar-container nav.menu';
+// Longer than the Docusaurus Collapsible animation.
+const categoryAnimationMs = 400;
 
 // Survives the remount that happens when a link crosses into another docs instance.
-let desktopSidebarScrollTop: number | undefined;
+let desktopSidebarScrollTop = 0;
+// The first desktop sidebar of a visit reveals the current page instead of restoring scroll.
+let hasDesktopSidebarMounted = false;
 
 const useIsomorphicLayoutEffect = ExecutionEnvironment.canUseDOM ? useLayoutEffect : useEffect;
 
-const versionSelectorItem: PropSidebarItem = {
-  type: 'html',
-  value: '',
-  className: 'reference-version-selector-item',
-  defaultStyle: false,
-};
+function versionSelectorItem(component: string): PropSidebarItem {
+  return {
+    type: 'html',
+    value: '',
+    className: 'reference-version-selector-item',
+    defaultStyle: false,
+    customProps: {referencePluginId: `${referencePluginPrefix}${component}`},
+  };
+}
 
 function expandReferenceEntries(
   items: PropSidebar,
@@ -56,14 +64,18 @@ function expandReferenceEntries(
     }
     const isActiveComponent = component === activeComponent;
     const versionName = isActiveComponent && activeVersionName ? activeVersionName : 'current';
-    const referenceItems = references[component]?.[versionName] ?? references[component]?.current ?? [];
+    const versions = references[component];
+    if (!versions) {
+      return item;
+    }
+    const referenceItems = versions[versionName] ?? versions.current ?? [];
     return {
       type: 'category',
       label: item.label,
       collapsible: true,
       collapsed: true,
       customProps: item.customProps,
-      items: isActiveComponent ? [versionSelectorItem, ...referenceItems] : referenceItems,
+      items: [versionSelectorItem(component), ...referenceItems],
     };
   });
 }
@@ -85,7 +97,8 @@ function useSharedDocsSidebar(): PropSidebar {
 // On the first page of a visit, bring the current page's link into view.
 function revealActiveSidebarLink(scroller: HTMLElement): void {
   const activeLink = scroller.querySelector<HTMLElement>('a[aria-current="page"]');
-  if (!activeLink) {
+  // The reader already scrolled the sidebar.
+  if (!activeLink || scroller.scrollTop !== 0) {
     return;
   }
   const scrollerBox = scroller.getBoundingClientRect();
@@ -96,22 +109,36 @@ function revealActiveSidebarLink(scroller: HTMLElement): void {
 }
 
 function useKeepDesktopSidebarScroll(): void {
+  // Docusaurus swaps the desktop and mobile sidebars at the breakpoint, so rerun for a new scroller.
+  const windowSize = useWindowSize();
   useIsomorphicLayoutEffect(() => {
-    const scroller = document.querySelector<HTMLElement>(desktopSidebarScrollerSelector);
+    // The first client render reports "ssr" even on a phone; wait for the real breakpoint.
+    const scroller = windowSize === 'desktop'
+      ? document.querySelector<HTMLElement>(desktopSidebarScrollerSelector)
+      : null;
     if (!scroller) {
       return undefined;
-    }
-    if (desktopSidebarScrollTop !== undefined) {
-      scroller.scrollTop = desktopSidebarScrollTop;
-    } else {
-      revealActiveSidebarLink(scroller);
     }
     const rememberScroll = () => {
       desktopSidebarScrollTop = scroller.scrollTop;
     };
+    if (hasDesktopSidebarMounted) {
+      scroller.scrollTop = desktopSidebarScrollTop;
+    } else {
+      // Saved category state opens categories after the first paint, with a short animation.
+      const revealTimer = window.setTimeout(() => {
+        hasDesktopSidebarMounted = true;
+        revealActiveSidebarLink(scroller);
+      }, categoryAnimationMs);
+      scroller.addEventListener('scroll', rememberScroll, {passive: true});
+      return () => {
+        window.clearTimeout(revealTimer);
+        scroller.removeEventListener('scroll', rememberScroll);
+      };
+    }
     scroller.addEventListener('scroll', rememberScroll, {passive: true});
     return () => scroller.removeEventListener('scroll', rememberScroll);
-  }, []);
+  }, [windowSize]);
 }
 
 /** Shows the same docs sidebar on every docs instance, including the Developer Reference. */

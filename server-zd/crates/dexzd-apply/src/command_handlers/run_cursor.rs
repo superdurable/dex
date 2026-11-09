@@ -17,6 +17,7 @@ use crate::command_handlers::{
     CommandScope, HandlerOutput, ReplayedCommandCounters, ReplayedCommandOutput,
 };
 use crate::history;
+use crate::history::LocalCleanupCaller;
 use crate::history_offload::local_deletion::{delete_uploaded_history, stamp_superseded_values};
 use crate::history_offload::segment_migration::seal_or_migrate_history_segment;
 use crate::projections::history_event_links::{
@@ -287,13 +288,23 @@ impl RunCursor {
         history::after_command(transaction, &mut self, window_events)?;
         seal_or_migrate_history_segment(transaction, &mut self, scope.now_micros, has_closed_run)?;
         history::delete_idle_staging(transaction, &mut self, scope.now_micros);
-        delete_uploaded_history(transaction, &mut self, scope.now_micros)?;
+        let mut backlog = delete_uploaded_history(transaction, &mut self, scope.now_micros)?;
         self.rows.put_run_record(transaction, &self.record);
-        if scope.is_replay {
-            reconcile_run_storage(transaction, &mut self)?;
-        } else {
-            enforce_superseded_byte_cap(transaction, &mut self)?;
+        if !scope.is_replay {
+            backlog.merge(enforce_superseded_byte_cap(
+                transaction,
+                &mut self,
+                scope.now_micros,
+            )?);
+            history::schedule_local_cleanup(
+                transaction,
+                &mut self,
+                backlog,
+                scope.now_micros,
+                LocalCleanupCaller::RunCommand,
+            )?;
         }
+        reconcile_run_storage(transaction, &mut self)?;
         if let Some(last_event_id) = last_event_id {
             self.wake(WaitableChange::HistoryAppended { last_event_id });
         }

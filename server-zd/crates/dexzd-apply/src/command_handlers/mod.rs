@@ -143,8 +143,23 @@ fn apply_in_scope(
                 uploaded,
             )?
         }
+        Command::HistorySegmentObjectsDeleted(deleted) => {
+            crate::history_offload::segment_expiry::apply_history_segment_objects_deleted(
+                &mut transaction,
+                scope,
+                deleted,
+            )?
+        }
         Command::TimeTravelStage(stage) => {
             crate::history::apply_time_travel_stage(&mut transaction, scope, stage)?
+        }
+        Command::ValueRevive(revive) => crate::history_offload::value_revive::apply_value_revive(
+            &mut transaction,
+            scope,
+            revive,
+        )?,
+        Command::HistoryLocalCleanup(cleanup) => {
+            crate::history::apply_history_local_cleanup(&mut transaction, scope, cleanup)?
         }
         Command::FlowStart(start) => flow_start::apply_flow_start(&mut transaction, scope, start)?,
         Command::InboxMessage(message) => {
@@ -304,8 +319,14 @@ fn should_enforce_run_state_limit(body: &Command) -> bool {
         Command::SetHistoryOffloadMode(_) => false,
         // An upload acknowledgment changes only history segment state, outside the limit.
         Command::HistorySegmentUploaded(_) => false,
+        // Recording deleted objects only deletes history segment rows.
+        Command::HistorySegmentObjectsDeleted(_) => false,
         // Staged time travel results live outside run storage.
         Command::TimeTravelStage(_) => false,
+        // A revived value is superseded, so active state never grows.
+        Command::ValueRevive(_) => false,
+        // Local cleanup only deletes history and superseded values.
+        Command::HistoryLocalCleanup(_) => false,
         _ => false,
     }
 }
@@ -438,7 +459,10 @@ pub(crate) fn apply_run_command(
         | Command::SearchOutboxAck(_)
         | Command::StepAttemptQueued(_)
         | Command::HistorySegmentUploaded(_)
+        | Command::HistorySegmentObjectsDeleted(_)
         | Command::TimeTravelStage(_)
+        | Command::ValueRevive(_)
+        | Command::HistoryLocalCleanup(_)
         | Command::InboxMessage(_)
         | Command::RunPurge(_) => Err(ApplyError::InvariantViolation {
             detail: "cross-Flow or partition command routed to the wrong handler".to_owned(),

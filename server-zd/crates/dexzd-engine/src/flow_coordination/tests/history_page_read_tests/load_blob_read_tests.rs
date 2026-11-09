@@ -24,7 +24,7 @@ const GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
 const VALUE_BYTES: usize = 300;
 
 impl OffloadedRun {
-    fn set_text(&mut self, key: &str, text: String) {
+    pub(super) fn set_text(&mut self, key: &str, text: String) {
         self.request_count += 1;
         let request_id = format!("{key}-{}", self.request_count);
         let outcome = self.apply(Command::AttributesSet(AttributesSetCommand {
@@ -49,7 +49,7 @@ impl OffloadedRun {
         );
     }
 
-    fn profile_value_id(&self) -> ValueId {
+    pub(super) fn profile_value_id(&self) -> ValueId {
         use dexzd_apply::FlowStateReader;
         let key = run_named_key(
             self.context.flow_hash,
@@ -75,7 +75,7 @@ impl OffloadedRun {
         }
     }
 
-    fn reference(&self, value_id: ValueId) -> String {
+    pub(super) fn reference(&self, value_id: ValueId) -> String {
         ValueReference {
             run_id: self.run_id,
             value_id,
@@ -83,7 +83,7 @@ impl OffloadedRun {
         .to_string()
     }
 
-    fn locate(&self, value_id: ValueId) -> OffloadedValueLocation {
+    pub(super) fn locate(&self, value_id: ValueId) -> OffloadedValueLocation {
         locate_offloaded_value(
             &self.store.view(),
             self.context.flow_hash,
@@ -101,11 +101,25 @@ async fn offloaded_profiles(
     rewrites: usize,
     segment_target_bytes: u64,
 ) -> (OffloadedRun, Vec<(String, String)>) {
-    let mut run = OffloadedRun::start(RunSettings {
+    let mut run = OffloadedRun::start(offloading_settings(segment_target_bytes));
+    let offloaded = offload_profiles(&mut run, rewrites).await;
+    (run, offloaded)
+}
+
+pub(super) fn offloading_settings(segment_target_bytes: u64) -> RunSettings {
+    RunSettings {
         history_segment_target_bytes: segment_target_bytes,
         wire_inline_threshold_bytes: 100,
         ..default_run_settings()
-    });
+    }
+}
+
+/// Rewrites the run's profile `rewrites` times and lets offload delete every superseded
+/// profile locally. Returns the offloaded value references with their texts, oldest first.
+pub(super) async fn offload_profiles(
+    run: &mut OffloadedRun,
+    rewrites: usize,
+) -> Vec<(String, String)> {
     let mut superseded = Vec::new();
     for round in 0..=rewrites {
         let text = format!("profile {round} {}", "x".repeat(VALUE_BYTES));
@@ -120,14 +134,13 @@ async fn offloaded_profiles(
     run.now_micros += GRACE_MICROS;
     run.set_text("note", "after the grace period".to_owned());
     run.upload_all().await;
-    let offloaded = superseded
+    superseded
         .into_iter()
         .filter(|(value_id, _)| {
             matches!(run.locate(*value_id), OffloadedValueLocation::Uploaded(_))
         })
         .map(|(value_id, text)| (run.reference(value_id), text))
-        .collect();
-    (run, offloaded)
+        .collect()
 }
 
 fn blob_request(references: impl IntoIterator<Item = String>) -> LoadBlobsRequest {
@@ -407,4 +420,114 @@ async fn an_uploaded_value_missing_from_object_storage_is_unavailable() {
         .await
         .expect_err("a missing object fails the read");
     assert_eq!(error.grpc_code(), grpc_code::UNAVAILABLE, "{error}");
+}
+
+/// A run whose every command seals, whose window can later shrink past its segments, and whose
+/// superseded profiles are offloaded. Returns the run and each offloaded value's reference with
+/// the segment that holds it.
+async fn expirable_profiles() -> (OffloadedRun, Vec<(String, HistorySegmentRecord)>) {
+    let mut run = OffloadedRun::start(RunSettings {
+        history_segment_target_bytes: 1,
+        wire_inline_threshold_bytes: 100,
+        history_window_events: 1000,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 2,
+        ..default_run_settings()
+    });
+    let mut superseded = Vec::new();
+    for round in 0..3 {
+        run.set_text(
+            "profile",
+            format!("profile {round} {}", "x".repeat(VALUE_BYTES)),
+        );
+        superseded.push(run.profile_value_id());
+    }
+    superseded.pop();
+    run.upload_all().await;
+    run.now_micros += GRACE_MICROS;
+    run.set_text("note", "after the grace period".to_owned());
+    run.upload_all().await;
+    let offloaded = superseded
+        .into_iter()
+        .map(|value_id| match run.locate(value_id) {
+            OffloadedValueLocation::Uploaded(segment) => (run.reference(value_id), segment),
+            OffloadedValueLocation::Absent => panic!("{value_id:?} is offloaded"),
+        })
+        .collect();
+    (run, offloaded)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_whose_segment_expires_and_is_deleted_while_it_is_read_is_omitted() {
+    let (mut run, offloaded) = expirable_profiles().await;
+    let (reference, segment) = offloaded.first().expect("a value is offloaded").clone();
+    let harness = run.harness(run.reader(
+        &HistoryReadsConfig::default(),
+        Arc::new(NodeMetrics::unregistered()),
+    ));
+    run.objects.close_gate();
+    let registry = harness.registry.clone();
+    let request = blob_request([reference]);
+    let read = tokio::spawn(async move { registry.load_blobs(TENANT, request).await });
+    wait_for_waiting_read(&run.objects).await;
+    // The window passes the segment, and the owner deletes its object after the expiry.
+    run.shrink_window(2);
+    run.write_until_expired(&[segment.first_seq]).await;
+    run.objects
+        .inner
+        .delete(&run.object_key(&segment))
+        .await
+        .expect("the object deletes");
+    run.objects.open_gate();
+    let response = read
+        .await
+        .expect("the read task finishes")
+        .expect("a value of an expired segment is omitted, not an error");
+    assert!(response.values.is_empty(), "{response:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expired_values_are_never_read_from_the_read_cache_or_their_kept_objects() {
+    let (mut run, offloaded) = expirable_profiles().await;
+    let cache_directory = tempfile::tempdir().expect("a temporary directory");
+    let metrics = Arc::new(NodeMetrics::unregistered());
+    let harness = run.harness(run.reader(
+        &cache_config(cache_directory.path(), 1 << 30),
+        metrics.clone(),
+    ));
+    let request = blob_request(offloaded.iter().map(|(reference, _)| reference.clone()));
+    let warm = harness
+        .registry
+        .load_blobs(TENANT, request.clone())
+        .await
+        .expect("the values load");
+    assert_eq!(warm.values.len(), offloaded.len());
+    let cache_reads = blob_reads(&metrics, HistoryReadSource::Cache);
+
+    // With deletion off the objects stay, yet no read returns what the window passed.
+    run.shrink_window(2);
+    let first_seqs: Vec<u64> = offloaded
+        .iter()
+        .map(|(_, segment)| segment.first_seq)
+        .collect();
+    run.write_until_expired(&first_seqs).await;
+    for (_, segment) in &offloaded {
+        assert!(
+            run.objects
+                .inner
+                .get(&run.object_key(segment))
+                .await
+                .expect("the store reads")
+                .is_some()
+        );
+    }
+    let object_reads = run.objects.history_reads();
+    let after = harness
+        .registry
+        .load_blobs(TENANT, request)
+        .await
+        .expect("the values of expired segments are omitted");
+    assert!(after.values.is_empty(), "{after:?}");
+    assert_eq!(run.objects.history_reads(), object_reads);
+    assert_eq!(blob_reads(&metrics, HistoryReadSource::Cache), cache_reads);
 }

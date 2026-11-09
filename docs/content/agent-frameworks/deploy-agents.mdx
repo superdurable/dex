@@ -289,10 +289,9 @@ conversation with **get_agent_snapshot** or **list_agent_messages**, not from
 Flow history. [Time travel](/reference/server/runtime-client#time-travel) can target
 only a point inside the [history window](/reference/server/configuration#history-window).
 Time travel to the beginning is always available. A session that rewrites large
-values, such as **FrameworkRunState**, can have a shorter window: the window
-also removes old events once the superseded values exceed
-**history.maxRetainedSupersededBytes**, 256 MiB by default. This never fails
-the session.
+values, such as **FrameworkRunState**, may have a shorter time travel range.
+Operators can tune **history.windowEvents** and the per-run history window; see
+[history window configuration](/reference/server/configuration#history-window).
 
 A session never completes by itself. Stop it with **StopFlow** when it is done.
 A stopped session, and its **get_agent_snapshot** RPC, stays available for the
@@ -412,6 +411,11 @@ wins.
 **resolve_interrupt** can fail with **RpcLockConflictError** while a Step holds
 the same lock. A retry is safe. The Python **AgentSessionClient** retries for up
 to 5 seconds.
+
+The caller of an RPC sends its locks. SDK Clients and Dex Web send the locks
+the RPC declares. A raw **InvokeRPC** request, such as **dexcli api call**,
+must list them in **lock_attribute_keys**. Without them the RPC runs unlocked,
+and two answers to one approval can both succeed.
 
 ## Find sessions that need a person {#find-sessions}
 

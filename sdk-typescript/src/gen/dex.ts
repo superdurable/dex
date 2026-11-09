@@ -762,7 +762,39 @@ export interface FlowConfig {
    *
    * Since server-zd 0.1.21.
    */
-  historyWindowEvents?: number | undefined;
+  historyWindowEvents?:
+    | number
+    | undefined;
+  /**
+   * Whether Dex deletes the run's history objects from object storage once the history window
+   * has passed them.
+   *
+   * It applies only while the server offloads run history to object storage, which the
+   * server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+   * objects. Once the window passes a whole segment, no read returns its events or values any
+   * more. When this is true, Dex deletes such a segment's object about one hour later. When it
+   * is false, the object stays in object storage until the run is deleted after its retention.
+   * Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+   * true for dev and local servers and to false otherwise. The run records that default when it
+   * starts.
+   *
+   * Set it to true for a run whose old history must not stay in object storage, such as a
+   * long-running session that holds sensitive values. A run that never closes otherwise keeps
+   * every history object it ever wrote. Set it to false to keep old history objects for audit
+   * or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+   * that the window passed, whatever this value is.
+   *
+   * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+   * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+   * window already passed. Changing it from true to false stops the deletions that have not
+   * started; a deletion request already sent to object storage may still complete, and objects
+   * already deleted never come back. Once set, the value can be changed
+   * but not cleared back to the server default. A child Flow inherits it from its parent unless
+   * its own override sets it.
+   *
+   * Since server-zd 0.1.22.
+   */
+  deleteExpiredHistoryObjects?: boolean | undefined;
 }
 
 export interface AttributeStoreNames {
@@ -4571,6 +4603,7 @@ function createBaseFlowConfig(): FlowConfig {
     workerTarget: undefined,
     attributeStoreNames: undefined,
     historyWindowEvents: undefined,
+    deleteExpiredHistoryObjects: undefined,
   };
 }
 
@@ -4596,6 +4629,9 @@ export const FlowConfig: MessageFns<FlowConfig> = {
     }
     if (message.historyWindowEvents !== undefined) {
       writer.uint32(56).int32(message.historyWindowEvents);
+    }
+    if (message.deleteExpiredHistoryObjects !== undefined) {
+      writer.uint32(64).bool(message.deleteExpiredHistoryObjects);
     }
     return writer;
   },
@@ -4663,6 +4699,14 @@ export const FlowConfig: MessageFns<FlowConfig> = {
           message.historyWindowEvents = reader.int32();
           continue;
         }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.deleteExpiredHistoryObjects = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4688,6 +4732,7 @@ export const FlowConfig: MessageFns<FlowConfig> = {
       ? AttributeStoreNames.fromPartial(object.attributeStoreNames)
       : undefined;
     message.historyWindowEvents = object.historyWindowEvents ?? undefined;
+    message.deleteExpiredHistoryObjects = object.deleteExpiredHistoryObjects ?? undefined;
     return message;
   },
 };

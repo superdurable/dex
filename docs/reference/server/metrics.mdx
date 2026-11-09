@@ -35,7 +35,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
-| History offload (experimental) | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source** |
+| History offload (experimental) | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source**; **dexzd_history_value_revivals_total**; **dexzd_history_expired_objects_deleted_total**; **dexzd_history_orphan_objects_deleted_total** |
 | Attribute Store sync | See [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring) |
 | External search projection | See [Monitoring](/reference/server/search#search-projection-monitoring) |
 
@@ -91,6 +91,11 @@ retried with backoff; any other failure is retried at the next rescan. Alert whe
 **dexzd_history_upload_checksum_mismatches_total** or
 **dexzd_history_upload_rescan_errors_total** rises.
 
+Since 0.1.22, **dexzd_history_expired_objects_deleted_total** counts the objects
+of expired history segments that the node deleted, and
+**dexzd_history_orphan_objects_deleted_total** counts the history objects of
+deleted runs that its periodic sweep removed.
+
 **dexzd_history_reads_total** counts history reads. **kind** is **page** for
 GetHistoryEvents and **blob** for LoadBlobs. For a page, **source** is **local**
 when only local disk served it, and otherwise **cache** or **object_store** for
@@ -99,6 +104,12 @@ from the disk read cache or from object storage. For LoadBlobs, **source** is
 **local** for each value that local disk served, **cache** for each value from
 the disk read cache, and **object_store** for each value and each segment header
 read from object storage.
+
+**dexzd_history_value_revivals_total** counts values that the lease holder
+restored on local disk from their uploaded segments, because a Worker result,
+client write, or RPC result referenced them after offload deleted them locally.
+The reads behind these restores count as LoadBlobs reads in
+**dexzd_history_reads_total**. Since 0.1.22.
 
 ~~~text
 # Failed API calls by class and code

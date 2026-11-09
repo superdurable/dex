@@ -18,7 +18,10 @@ use dexzd_apply::read_model::{
 };
 use dexzd_keyspace::{ValueId, run_prefix};
 use dexzd_protocol::dex::{FlowStatus, GetHistoryEventsResponse};
-use dexzd_protocol::dexzd::v1::{AttributeRecord, HistoryRecord, RunRecord, stored_value};
+use dexzd_protocol::dexzd::v1::{
+    AttributeRecord, HistoryRecord, HistorySegmentObjectsDeletedCommand, HistorySegmentState,
+    RunRecord, stored_value,
+};
 
 use super::*;
 use crate::compat_node::{engine_node_config, start_engine_node};
@@ -33,6 +36,9 @@ const LATE_OFFLOADED_PARTITION: PartitionId = PartitionId(3);
 const RUNNING_FLOW_PREFIX: &str = "legacy-running";
 const CLOSED_FLOW_PREFIX: &str = "legacy-closed";
 const MIGRATING_FLOW_PREFIX: &str = "legacy-migrating";
+const EXPIRING_FLOW_PREFIX: &str = "expiring";
+/// Offloads history from before the snapshot to the end of the recording.
+const OFFLOADED_PARTITION: PartitionId = PartitionId(1);
 /// Enough commands for the eight-event window to prune and for several migration segments.
 const LEGACY_ROUNDS: usize = 30;
 /// Most commands a migration may take in these tests.
@@ -83,6 +89,51 @@ impl Workload<'_> {
             let outcome = self.apply_legacy_round(&migrating, round).await;
             assert_eq!(sealed_segment_count(&outcome), 1, "the run migrates");
         }
+    }
+
+    /// `expiring`, in partition 1, which offloads history: with a four-event window and a
+    /// segment per command, pruning expires the oldest segments, and the owner records the
+    /// deletion of the oldest one's object. The rest stay EXPIRED with the run's delete pending
+    /// index row.
+    pub(super) async fn expired_history_segment_object_is_deleted(&self) {
+        let run = self
+            .start_legacy_run(
+                EXPIRING_FLOW_PREFIX,
+                OFFLOADED_PARTITION,
+                RunSettings {
+                    history_window_events: 4,
+                    history_segment_target_bytes: 1,
+                    delete_expired_history_objects: true,
+                    ..legacy_run_settings()
+                },
+            )
+            .await;
+        for round in 0..LEGACY_ROUNDS {
+            self.apply_legacy_round(&run, round).await;
+            self.acknowledge_sealed_segments(&run).await;
+            let segments = self.history_segments(&run).await;
+            let expired: Vec<&HistorySegmentRecord> = segments
+                .iter()
+                .filter(|segment| segment.state == HistorySegmentState::Expired as i32)
+                .collect();
+            if expired.len() < 2 {
+                continue;
+            }
+            let outcome = self
+                .commit(
+                    &run,
+                    Command::HistorySegmentObjectsDeleted(HistorySegmentObjectsDeletedCommand {
+                        first_seqs: vec![expired[0].first_seq],
+                    }),
+                )
+                .await;
+            assert!(
+                !outcome.writes.is_empty(),
+                "the oldest expired row is deleted"
+            );
+            return;
+        }
+        panic!("no segment of {} expired", run.flow_id);
     }
 
     async fn start_legacy_run(
@@ -525,21 +576,26 @@ async fn a_recorded_running_run_migrates_one_segment_per_command_once_offload_is
     let uploaded = workload.acknowledge_sealed_segments(&run).await;
 
     let after = workload.history_events_with_uploads(&run, &uploaded).await;
-    assert_eq!(
-        after.pruned_event_id_range,
-        Some(pruned_range),
+    // The migration's own commands move the window, so the range may grow but never shrinks.
+    let after_range = after
+        .pruned_event_id_range
+        .expect("pruned events are still reported");
+    assert_eq!(after_range.start_event_id, 2);
+    assert!(
+        after_range.end_event_id >= pruned_range.end_event_id,
         "events pruned before the migration are still reported as pruned"
     );
-    let before_ids: Vec<i64> = before.events.iter().map(|event| event.event_id).collect();
     let after_ids: Vec<i64> = after.events.iter().map(|event| event.event_id).collect();
+    assert_eq!(after_ids[1], after_range.end_event_id + 1);
+    let before_ids_in_window: Vec<i64> = before
+        .events
+        .iter()
+        .map(|event| event.event_id)
+        .filter(|event_id| *event_id == 1 || *event_id > after_range.end_event_id)
+        .collect();
     assert!(
-        after_ids.starts_with(&before_ids),
+        after_ids.starts_with(&before_ids_in_window),
         "the migration keeps every event"
-    );
-    assert!(
-        after_ids
-            .iter()
-            .all(|event_id| *event_id == 1 || *event_id > pruned_range.end_event_id)
     );
     restored.shutdown().await;
 }

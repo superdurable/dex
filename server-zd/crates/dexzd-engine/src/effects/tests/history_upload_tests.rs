@@ -118,12 +118,12 @@ fn rescan_config() -> EffectsConfig {
 
 /// Commits the enabled offload mode to every partition, as a node with `history.offloadEnabled`
 /// does.
-fn enable_history_offload(harness: &EffectHarness) {
+pub(super) fn enable_history_offload(harness: &EffectHarness) {
     set_history_offload_mode(harness, true);
 }
 
 /// Commits the offload mode to every partition.
-fn set_history_offload_mode(harness: &EffectHarness, is_enabled: bool) {
+pub(super) fn set_history_offload_mode(harness: &EffectHarness, is_enabled: bool) {
     for (partition, flow_id) in harness
         .hasher
         .partition_command_flow_ids()
@@ -166,7 +166,7 @@ async fn hold_upload_slots(harness: &EffectHarness) -> OwnedSemaphorePermit {
 }
 
 /// Terminates the run; the closing command seals its open segment.
-fn close_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
+pub(super) fn close_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
     let command = FlowCommand {
         flow_id: flow_id.to_owned(),
         run_id: run_id.as_bytes().to_vec(),
@@ -190,7 +190,7 @@ fn close_run(harness: &EffectHarness, flow_id: &str, run_id: RunId) {
     assert!(!is_error_reply(&reply), "stop failed: {reply:?}");
 }
 
-fn short_retention_settings() -> RunSettings {
+pub(super) fn short_retention_settings() -> RunSettings {
     RunSettings {
         retention_after_close_micros: 60 * SECOND_MICROS,
         ..settings()
@@ -198,7 +198,11 @@ fn short_retention_settings() -> RunSettings {
 }
 
 /// Returns the run's committed history segments in seq order.
-fn segments(harness: &EffectHarness, flow_id: &str, run_id: RunId) -> Vec<HistorySegmentRecord> {
+pub(super) fn segments(
+    harness: &EffectHarness,
+    flow_id: &str,
+    run_id: RunId,
+) -> Vec<HistorySegmentRecord> {
     let run = harness.run_location(flow_id, run_id);
     let prefix = run_table_prefix(run.flow_hash, run.run_id, RunTable::HistorySegment);
     let (start, end) = prefix_range(&prefix);
@@ -235,7 +239,7 @@ fn is_fully_uploaded(harness: &EffectHarness, flow_id: &str, run_id: RunId) -> b
         && !is_upload_pending(harness, flow_id, run_id)
 }
 
-fn object_key(
+pub(super) fn object_key(
     harness: &EffectHarness,
     flow_id: &str,
     run_id: RunId,
@@ -286,7 +290,7 @@ fn sealed_contents(
         .collect()
 }
 
-async fn stored_object(harness: &EffectHarness, key: &str) -> Option<Bytes> {
+pub(super) async fn stored_object(harness: &EffectHarness, key: &str) -> Option<Bytes> {
     harness
         .durable
         .objects
@@ -296,7 +300,7 @@ async fn stored_object(harness: &EffectHarness, key: &str) -> Option<Bytes> {
         .map(|content| content.bytes)
 }
 
-async fn object_keys_with_prefix(harness: &EffectHarness, prefix: &str) -> Vec<String> {
+pub(super) async fn object_keys_with_prefix(harness: &EffectHarness, prefix: &str) -> Vec<String> {
     harness
         .durable
         .objects
@@ -324,14 +328,14 @@ fn acknowledged_first_seq(recorded: &RecordedCommand) -> u64 {
     }
 }
 
-fn run_purges(harness: &EffectHarness) -> Vec<RecordedCommand> {
+pub(super) fn run_purges(harness: &EffectHarness) -> Vec<RecordedCommand> {
     harness
         .flow_effect_operations
         .commands_matching(|command| matches!(command, flow_command::Command::RunPurge(_)))
 }
 
 /// Waits until `condition` holds, letting tasks and paused time advance.
-async fn wait_until(harness: &EffectHarness, what: &str, condition: impl Fn() -> bool) {
+pub(super) async fn wait_until(harness: &EffectHarness, what: &str, condition: impl Fn() -> bool) {
     for _ in 0..WAIT_ROUNDS {
         harness.settle().await;
         if condition() {
@@ -650,6 +654,116 @@ async fn an_object_store_outage_grows_the_backlog_without_blocking_commands_then
     assert_eq!(backlog.oldest_sealed_at_micros(), None);
     assert_eq!(acknowledgments(&harness).len(), 4);
     harness.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn backlog_gauges_rebuild_during_an_outage_and_track_recovery() {
+    let faults = Arc::new(HistoryWriteFaults::default());
+    faults.set(HistoryWriteFaults::FAIL_PERMANENTLY);
+    let durable = durable_with_faults(Arc::clone(&faults));
+    let first = EffectHarness::with_config(durable.clone(), rescan_config());
+    first.rebuild_all_partitions().await;
+    enable_history_offload(&first);
+    let flow_id = "backlog-restart";
+    let run_id = first.start_flow(
+        start_request(flow_id),
+        RunSettings {
+            history_segment_target_bytes: 1,
+            ..settings()
+        },
+    );
+    for round in 0..3 {
+        set_long_attribute(&first, flow_id, run_id, "notes", &format!("v{round}"));
+    }
+    close_run(&first, flow_id, run_id);
+    tokio::time::sleep(RESCAN_INTERVAL).await;
+    first.settle().await;
+    let expected_segments = segments(&first, flow_id, run_id)
+        .iter()
+        .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+        .count() as u64;
+    let backlog = &first.metrics.history_upload_backlog;
+    assert_eq!(backlog.segments(), expected_segments);
+    let expected_bytes = backlog.bytes();
+    let expected_oldest = backlog.oldest_sealed_at_micros();
+    assert!(expected_bytes > 0);
+    assert!(expected_oldest.is_some());
+    first.shutdown().await;
+
+    let disabled = EffectHarness::with_config(
+        durable.clone(),
+        EffectsConfig {
+            history_upload_rescan_interval: Duration::ZERO,
+            ..rescan_config()
+        },
+    );
+    disabled.rebuild_all_partitions().await;
+    disabled.settle().await;
+    assert_eq!(disabled.metrics.history_upload_backlog.segments(), 0);
+    assert_eq!(disabled.metrics.history_upload_backlog.bytes(), 0);
+    assert_eq!(
+        disabled
+            .metrics
+            .history_upload_backlog
+            .oldest_sealed_at_micros(),
+        None
+    );
+    disabled.shutdown().await;
+
+    let second = EffectHarness::with_config(durable, rescan_config());
+    // Consume the initial tick before any partition belongs to the restarted owner.
+    second.settle().await;
+    let rebuilt_at = tokio::time::Instant::now();
+    second.rebuild_all_partitions().await;
+    let backlog = &second.metrics.history_upload_backlog;
+    wait_until(&second, "rebuilt backlog gauges publish", || {
+        backlog.segments() == expected_segments
+    })
+    .await;
+    assert!(rebuilt_at.elapsed() < RESCAN_INTERVAL);
+    assert_eq!(backlog.segments(), expected_segments);
+    assert_eq!(backlog.bytes(), expected_bytes);
+    assert_eq!(backlog.oldest_sealed_at_micros(), expected_oldest);
+
+    let later_flow_id = "backlog-after-restart";
+    let later_run_id = second.start_flow(
+        start_request(later_flow_id),
+        RunSettings {
+            history_segment_target_bytes: 1,
+            ..settings()
+        },
+    );
+    set_long_attribute(
+        &second,
+        later_flow_id,
+        later_run_id,
+        "notes",
+        "after restart",
+    );
+    close_run(&second, later_flow_id, later_run_id);
+    tokio::time::sleep(RESCAN_INTERVAL).await;
+    second.settle().await;
+    assert_eq!(
+        backlog.segments(),
+        segments(&second, flow_id, run_id)
+            .iter()
+            .chain(segments(&second, later_flow_id, later_run_id).iter())
+            .filter(|segment| segment.state == HistorySegmentState::Sealed as i32)
+            .count() as u64
+    );
+    assert!(backlog.segments() > expected_segments);
+    assert!(backlog.bytes() > expected_bytes);
+    assert_eq!(backlog.oldest_sealed_at_micros(), expected_oldest);
+
+    faults.set(HistoryWriteFaults::PROCEED);
+    wait_until_uploaded(&second, flow_id, run_id).await;
+    wait_until_uploaded(&second, later_flow_id, later_run_id).await;
+    tokio::time::sleep(RESCAN_INTERVAL).await;
+    second.settle().await;
+    assert_eq!(backlog.segments(), 0);
+    assert_eq!(backlog.bytes(), 0);
+    assert_eq!(backlog.oldest_sealed_at_micros(), None);
+    second.shutdown().await;
 }
 
 #[tokio::test(start_paused = true)]

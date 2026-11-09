@@ -341,3 +341,11 @@ history. The run keeps its Run ID. The point must be inside the
 [recent history window](/reference/server/configuration#history-window).
 Otherwise the call fails with **FAILED_PRECONDITION**. Time travel to the
 beginning is always available.
+
+**ResetFlow** keeps writes after the target in memory when write reapply is
+enabled. Memory grows with the number and size of those writes. A long run
+with large values can exceed the replay budget even when the target state is
+small. The request then fails with **RESOURCE_EXHAUSTED** and changes nothing.
+Set **skip_writes_reapply** to **true** if those writes should not be reapplied,
+or raise [**history.timeTravelReplayMemoryBytes**](/reference/server/configuration#history-checkpoints)
+and restart the node before retrying.

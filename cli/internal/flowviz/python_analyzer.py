@@ -45,6 +45,8 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
         self.step_resources = {}
         self.failure_transitions = set()
         self.node_ids = set()
+        self.actions = []
+        self.rpc_lock_errors = []
         self.initialize_connectors()
 
     def analyze(self):
@@ -538,11 +540,190 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                 self.analyze_resources(node_id, statement, "timeout")
             elif any(self.is_dex_reference(decorator.func if isinstance(decorator, ast.Call) else decorator, "rpc") for decorator in statement.decorator_list):
                 node_id = f"rpc:{statement.name}"
+                rpc_name = self.rpc_protocol_name(statement)
                 self.add_node({"id": node_id, "kind": "rpc", "name": statement.name, "span": self.span(statement)})
-                self.analyze_locks(node_id, statement.decorator_list, {"lock_attributes": "rpc"})
+                self.analyze_locks(node_id, statement.decorator_list, {"lock_attributes": "rpc"}, {"rpcName": rpc_name})
+                self.analyze_rpc_action(node_id, rpc_name, statement)
                 self.analyze_decisions(node_id, statement, rpc=True)
                 self.analyze_resources(node_id, statement, "rpc")
                 self.analyze_rpc_state_loads(node_id, statement.decorator_list)
+
+    # Dex Web invokes an Action RPC, so its Action fields and lock list must be read statically.
+    PYTHON_ACTION_VALUE_TYPES = {"str": "string", "int": "int64", "float": "double", "bool": "bool", "datetime": "datetime", "datetime.datetime": "datetime"}
+
+    def rpc_decorator(self, method):
+        for decorator in method.decorator_list:
+            if isinstance(decorator, ast.Call) and self.is_dex_reference(decorator.func, "rpc"):
+                return decorator
+        return None
+
+    def rpc_protocol_name(self, method):
+        decorator = self.rpc_decorator(method)
+        for keyword in decorator.keywords if decorator else []:
+            if keyword.arg == "name":
+                name = self.static_python_string(keyword.value)
+                if name:
+                    return name
+        return method.name
+
+    def static_python_string(self, expression):
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            return expression.value
+        if isinstance(expression, ast.Name):
+            return self.module_constant(expression.id)
+        return None
+
+    def static_python_scalar(self, expression):
+        if isinstance(expression, ast.Name):
+            expression = self.module_assignment(expression.id) or expression
+        if isinstance(expression, ast.UnaryOp) and isinstance(expression.op, ast.USub) and isinstance(expression.operand, ast.Constant):
+            value = expression.operand.value
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return True, -value
+            return False, None
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, (str, bool, int, float)):
+            return True, expression.value
+        return False, None
+
+    def module_assignment(self, name):
+        for statement in self.tree.body:
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name) and statement.targets[0].id == name:
+                return statement.value
+            if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name) and statement.target.id == name:
+                return statement.value
+        return None
+
+    def python_action_value_type(self, annotation_text):
+        text = annotation_text.replace(" ", "")
+        for wrapper in ("Optional[", "typing.Optional["):
+            if text.startswith(wrapper) and text.endswith("]"):
+                text = text[len(wrapper):-1]
+        members = [member for member in text.split("|") if member != "None"]
+        if len(members) == 1:
+            text = members[0]
+        return self.PYTHON_ACTION_VALUE_TYPES.get(text, text)
+
+    def rpc_directives(self, method):
+        first_line = min([method.lineno, *(decorator.lineno for decorator in method.decorator_list)]) - 1
+        directives = []
+        lines = self.source.splitlines()
+        while first_line > 0 and lines[first_line - 1].lstrip().startswith("#"):
+            text = lines[first_line - 1].lstrip()[1:].strip()
+            if text.startswith("dex:"):
+                directives.insert(0, text)
+            first_line -= 1
+        return directives
+
+    def analyze_rpc_action(self, node_id, rpc_name, method):
+        decorator = self.rpc_decorator(method)
+        keywords = {keyword.arg: keyword.value for keyword in decorator.keywords} if decorator else {}
+        expression = keywords.get("action")
+        if expression is None or (isinstance(expression, ast.Constant) and expression.value is None):
+            return
+        entry = {
+            "rpcNodeId": node_id, "rpcName": rpc_name, "span": self.span(expression), "error": "",
+            "label": "", "requiredPermission": "", "condition": None,
+            "directives": self.rpc_directives(method), "input": self.rpc_action_input(method),
+        }
+        try:
+            self.read_action_expression(entry, expression)
+        except ValueError as error:
+            entry["error"] = f"RPC {rpc_name} Action {error}"
+        self.actions.append(entry)
+        self.check_action_rpc_locks(node_id, rpc_name, keywords.get("lock_attributes"))
+
+    def unreadable(self, expression, construct, instead):
+        return ValueError(f"{construct} is not static ({self.unparse(expression)} at line {getattr(expression, 'lineno', 0)}); {instead}")
+
+    def read_action_expression(self, entry, expression):
+        call = expression
+        if isinstance(call, ast.Name):
+            call = self.module_assignment(call.id) or call
+        if not isinstance(call, ast.Call) or not self.is_dex_reference(call.func, "Action"):
+            raise self.unreadable(expression, "action", "pass dex.Action(...) directly or through a module-level constant")
+        arguments = {keyword.arg: keyword.value for keyword in call.keywords}
+        if call.args:
+            arguments.setdefault("label", call.args[0])
+        if len(call.args) > 1 or None in arguments:
+            raise self.unreadable(call, "Action arguments", "pass the label first and the other fields by keyword")
+        label = self.static_python_string(arguments.get("label"))
+        if not label:
+            raise self.unreadable(arguments.get("label", call), "label", "use a string literal or a module-level string constant")
+        permission = self.static_python_string(arguments.get("required_permission"))
+        if permission is None:
+            raise self.unreadable(arguments.get("required_permission", call), "required_permission", "use a string literal or a module-level string constant")
+        entry["label"], entry["requiredPermission"] = label, permission
+        condition = arguments.get("condition")
+        if condition is None or (isinstance(condition, ast.Constant) and condition.value is None):
+            return
+        entry["condition"] = self.read_action_condition(condition)
+
+    def read_action_condition(self, expression):
+        call = expression
+        if isinstance(call, ast.Name):
+            call = self.module_assignment(call.id) or call
+        if not isinstance(call, ast.Call) or not self.is_dex_reference(call.func, "when_attribute_matches") or not call.args or call.keywords:
+            raise self.unreadable(expression, "condition", "call dex.when_attribute_matches(attribute, AttributeMatch.equal_to(value), ...) directly")
+        resource_id = self.resource_for(call.args[0], "")
+        node = next((node for node in self.graph["nodes"] if node["id"] == resource_id), None)
+        if node is None or node["kind"] != "attribute":
+            raise self.unreadable(call.args[0], "condition Attribute", "reference an Attribute declared in this file")
+        values = []
+        for match in call.args[1:]:
+            if not (isinstance(match, ast.Call) and isinstance(match.func, ast.Attribute) and match.func.attr == "equal_to" and self.is_dex_reference(match.func.value, "AttributeMatch") and len(match.args) == 1 and not match.keywords):
+                raise self.unreadable(match, "condition match", "use AttributeMatch.equal_to(value); Actions support only equality")
+            is_static, value = self.static_python_scalar(match.args[0])
+            if not is_static:
+                raise self.unreadable(match.args[0], "condition value", "use a str, bool, int, or float literal or module-level constant")
+            values.append(value)
+        return {"attributeKey": node["name"], "values": values, "span": self.span(call)}
+
+    def rpc_action_input(self, method):
+        parameters = [*method.args.posonlyargs, *method.args.args]
+        if len(parameters) <= 2:
+            return {"kind": "none", "typeName": "", "error": "", "fields": []}
+        annotation = parameters[2].annotation
+        type_name = self.unparse(annotation) if annotation is not None else ""
+        declaration = self.classes.get(type_name)
+        if declaration is None or not any(self.unparse(decorator.func if isinstance(decorator, ast.Call) else decorator) in {"dataclass", "dataclasses.dataclass"} for decorator in declaration.decorator_list):
+            return {"kind": "object", "typeName": type_name, "fields": [], "error": f"input {type_name or 'without an annotation'} must be a dataclass declared in the Flow file"}
+        fields = []
+        for statement in declaration.body:
+            if not isinstance(statement, ast.AnnAssign) or not isinstance(statement.target, ast.Name):
+                continue
+            if self.unparse(statement.annotation).startswith(("ClassVar", "typing.ClassVar")):
+                continue
+            fields.append({
+                "fieldName": statement.target.id,
+                "valueType": self.python_action_value_type(self.unparse(statement.annotation)),
+                "required": statement.value is None or self.is_required_dataclass_field(statement.value),
+            })
+        return {"kind": "object", "typeName": type_name, "error": "", "fields": fields}
+
+    def is_required_dataclass_field(self, value):
+        return isinstance(value, ast.Call) and self.unparse(value.func) in {"field", "dataclasses.field"} and not any(keyword.arg in {"default", "default_factory"} for keyword in value.keywords)
+
+    def check_action_rpc_locks(self, node_id, rpc_name, expression):
+        if expression is None:
+            return
+        locks = expression
+        if isinstance(locks, ast.Name):
+            locks = self.module_assignment(locks.id) or locks
+        if not isinstance(locks, (ast.List, ast.Set, ast.Tuple)):
+            self.rpc_lock_errors.append({"rpcNodeId": node_id, "rpcName": rpc_name, "span": self.span(expression), "message": f"dexcli cannot resolve the lock_attributes of RPC {rpc_name} ({self.unparse(expression)} at line {expression.lineno}); Dex Web must take them to invoke it. List Attribute lock() calls in the rpc decorator."})
+            return
+        for lock in locks.elts:
+            is_lock_call = isinstance(lock, ast.Call) and isinstance(lock.func, ast.Attribute) and lock.func.attr == "lock"
+            if not is_lock_call or not self.resource_for(lock.func.value, node_id):
+                self.rpc_lock_errors.append({"rpcNodeId": node_id, "rpcName": rpc_name, "span": self.span(lock), "message": f"dexcli cannot resolve the lock_attributes of RPC {rpc_name} ({self.unparse(lock)} at line {lock.lineno}); Dex Web must take them to invoke it. List Attribute lock() calls in the rpc decorator."})
+                return
+
+    def action_analysis_result(self):
+        attributes = [
+            {"key": node["name"], "valueType": self.python_action_value_type(node.get("resource", {}).get("valueType", "unknown")), "isMap": bool(node.get("resource", {}).get("map"))}
+            for node in self.graph["nodes"] if node["kind"] == "attribute"
+        ]
+        return {"attributes": attributes, "actions": self.actions, "rpcLockErrors": self.rpc_lock_errors}
 
     def analyze_rpc_state_loads(self, owner_id, decorators):
         option_methods = {
@@ -583,7 +764,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
             metadata={"phase": "rpc"},
         )
 
-    def analyze_locks(self, owner_id, expressions, phases):
+    def analyze_locks(self, owner_id, expressions, phases, extra_metadata=None):
         seen = set()
         for expression in expressions:
             if not isinstance(expression, ast.Call):
@@ -607,7 +788,7 @@ class Analyzer(ConnectorAnalyzer, StepBindingAnalyzer):
                         resource_id,
                         label="lock",
                         span=self.span(lock),
-                        metadata={"phase": phase},
+                        metadata={"phase": phase, **(extra_metadata or {})},
                     )
 
     def analyze_decisions(self, owner_id, method, rpc):
@@ -1385,7 +1566,9 @@ def main():
     request = json.load(sys.stdin)
     analyzer = Analyzer(request["path"], request["source"])
     graph = analyzer.analyze()
-    json.dump(analyzer.connector_analysis_result(graph), sys.stdout, ensure_ascii=False, separators=(",", ":"))
+    result = analyzer.connector_analysis_result(graph)
+    result.update(analyzer.action_analysis_result())
+    json.dump(result, sys.stdout, ensure_ascii=False, separators=(",", ":"))
 
 
 main()

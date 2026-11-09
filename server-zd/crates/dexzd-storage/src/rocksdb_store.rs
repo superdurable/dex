@@ -38,6 +38,12 @@ const PARTITION_INDEX_DELETION_TRIGGER: usize = 32 * 1024;
 const OFFLOADED_HISTORY_DELETION_WINDOW: usize = 16 * 1024;
 /// Deletions within one window that mark a History or Value file for compaction.
 const OFFLOADED_HISTORY_DELETION_TRIGGER: usize = 4 * 1024;
+/// Deletion share marking a Value file for compaction; above one half, so steady flushes await L0.
+const VALUE_DELETION_RATIO: f64 = 0.8;
+/// Garbage share of the oldest Value blob files that forces a compaction relocating their live blobs.
+const VALUE_BLOB_GC_FORCE_THRESHOLD: f64 = 0.5;
+/// Largest Value blob file; the default age cutoff never collects a store's last three files.
+pub(crate) const VALUE_BLOB_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RocksDbStoreOptions {
@@ -458,13 +464,19 @@ fn column_family_descriptors(options: RocksDbStoreOptions) -> Vec<ColumnFamilyDe
                 cf_options.add_compact_on_deletion_collector_factory(
                     OFFLOADED_HISTORY_DELETION_WINDOW,
                     OFFLOADED_HISTORY_DELETION_TRIGGER,
-                    0.0,
+                    if cf == ColumnFamily::Value {
+                        VALUE_DELETION_RATIO
+                    } else {
+                        0.0
+                    },
                 );
             }
             if cf == ColumnFamily::Value {
                 cf_options.set_enable_blob_files(true);
                 cf_options.set_min_blob_size(64 * 1024);
                 cf_options.set_enable_blob_gc(true);
+                cf_options.set_blob_gc_force_threshold(VALUE_BLOB_GC_FORCE_THRESHOLD);
+                cf_options.set_blob_file_size(VALUE_BLOB_FILE_BYTES);
             }
             ColumnFamilyDescriptor::new(cf.name(), cf_options)
         })

@@ -348,6 +348,8 @@ test("SubFlows always send the exact pull Worker target with and without config 
     undefined,
     { continueAsNewThreshold: 123 },
     { historyWindowEvents: 2500 },
+    { deleteExpiredHistoryObjects: false },
+    { deleteExpiredHistoryObjects: true },
   ] as const) {
     class StartPullChildStep implements Step<void> {
       public readonly inputCodec = voidCodec;
@@ -377,6 +379,11 @@ test("SubFlows always send the exact pull Worker target with and without config 
       configOverride !== undefined && "continueAsNewThreshold" in configOverride
         ? configOverride.continueAsNewThreshold
         : undefined,
+    );
+    assert.equal(
+      mappedConfig?.deleteExpiredHistoryObjects,
+      configOverride !== undefined && "deleteExpiredHistoryObjects" in configOverride
+        ? configOverride.deleteExpiredHistoryObjects : undefined,
     );
     assert.equal(
       mappedConfig?.historyWindowEvents,

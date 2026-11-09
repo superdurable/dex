@@ -121,6 +121,14 @@ type setAttributeRequest struct {
 	Value     interface{} `json:"value"`
 }
 
+// updateFlowHistoryConfigRequest leaves a nil field unchanged on the run.
+type updateFlowHistoryConfigRequest struct {
+	FlowID                      string `json:"flowId"`
+	RunID                       string `json:"runId"`
+	HistoryWindowEvents         *int32 `json:"historyWindowEvents"`
+	DeleteExpiredHistoryObjects *bool  `json:"deleteExpiredHistoryObjects"`
+}
+
 type deleteChannelMessageRequest struct {
 	FlowID      string `json:"flowId"`
 	RunID       string `json:"runId"`

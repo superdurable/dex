@@ -109,6 +109,9 @@ class WorkerDispatcher:
                 raise TypeError("wait_for must return Wait")
             response = pb.InvokeWaitForMethodResponse(
                 upsert_attributes=self._result_attribute_writes(context),
+                action_permission_mappings=self._result_action_permission_mappings(
+                    context
+                ),
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 record_events=context.events,
                 publish_to_channel=context.publications,
@@ -173,6 +176,9 @@ class WorkerDispatcher:
                 result=pb.InvokeExecuteMethodResponse(
                     step_decision=self._map_decision(flow, decision),
                     upsert_attributes=self._result_attribute_writes(context),
+                    action_permission_mappings=self._result_action_permission_mappings(
+                        context
+                    ),
                     record_events=context.events,
                     upsert_step_exe_locals=list(context.local_writes.values()),
                     publish_to_channel=context.publications,
@@ -246,6 +252,9 @@ class WorkerDispatcher:
             return pb.InvokeExecuteMethodResponse(
                 step_decision=self._map_decision(flow, decision),
                 upsert_attributes=self._result_attribute_writes(context),
+                action_permission_mappings=self._result_action_permission_mappings(
+                    context
+                ),
                 record_events=context.events,
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 publish_to_channel=context.publications,
@@ -288,6 +297,9 @@ class WorkerDispatcher:
         try:
             response = pb.InvokeWorkerRPCResponse(
                 upsert_attributes=self._result_attribute_writes(context),
+                action_permission_mappings=self._result_action_permission_mappings(
+                    context
+                ),
                 record_events=context.events,
                 delete_from_channel=context.channel_deletions,
                 publish_to_channel=context.publications,
@@ -712,6 +724,9 @@ class WorkerDispatcher:
             _apply_attribute_store_sync(write, definition)
             _apply_hard_delete_on_null(write, definition)
             mapped.attributes.append(write)
+        mapped.attributes.extend(
+            target.initial_work_queue_permissions_writes(mapped.attributes)
+        )
         self._server_protocol.require_hard_delete_attribute_support(mapped.attributes)
         if options.config_override is not None:
             mapped.flow_config_override.CopyFrom(
@@ -729,6 +744,14 @@ class WorkerDispatcher:
         writes = list(context.attribute_writes.values())
         self._server_protocol.require_hard_delete_attribute_support(writes)
         return writes
+
+    @staticmethod
+    def _result_action_permission_mappings(
+        context: InvocationContext,
+    ) -> pb.ActionPermissionMappings | None:
+        return context._flow.action_permission_mappings_for_writes(
+            list(context.attribute_writes.values())
+        )
 
     @staticmethod
     def _map_flow_retry(retry: RetryPolicy) -> pb.FlowRetryPolicy:
@@ -777,6 +800,10 @@ class WorkerDispatcher:
             )
         if config.history_window_events is not None:
             mapped.history_window_events = config.history_window_events
+        if config.delete_expired_history_objects is not None:
+            mapped.delete_expired_history_objects = (
+                config.delete_expired_history_objects
+            )
         return mapped
 
     def _map_decision(

@@ -13,7 +13,6 @@ import {useHistory, useLocation} from '@docusaurus/router';
 import {translate} from '@docusaurus/Translate';
 import {
   useActiveDocContext,
-  useActivePlugin,
   useVersions,
 } from '@docusaurus/plugin-content-docs/client';
 import {useNavbarMobileSidebar} from '@docusaurus/theme-common/internal';
@@ -21,8 +20,8 @@ import styles from './ReferenceVersionSelector.module.css';
 
 const referenceVersionSwitchState = 'referenceVersionSwitch';
 
-export default function ReferenceVersionSelector(): ReactNode {
-  const {pluginId} = useActivePlugin({failfast: true})!;
+/** Chooses a version of one reference. Outside that reference it shows the latest and opens a version's index. */
+export default function ReferenceVersionSelector({pluginId}: {pluginId: string}): ReactNode {
   const versions = useVersions(pluginId);
   const {activeVersion, alternateDocVersions} = useActiveDocContext(pluginId);
   const history = useHistory();

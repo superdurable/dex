@@ -32,6 +32,7 @@ use crate::command_handlers::flow_data::{
 };
 use crate::command_handlers::run_cursor::{HistoryKind, RunCursor};
 use crate::command_handlers::{CommandScope, HandlerResult};
+use crate::history_offload::segment_expiry::update_history_object_delete_pending;
 use crate::projections::history_events::reference_effect_values;
 use crate::state_access::FlowTransaction;
 use crate::steps::wait_conditions;
@@ -397,6 +398,11 @@ pub(crate) fn apply_flow_config_update(
     }
     if update.history_window_events.is_some() {
         config.history_window_events = update.history_window_events;
+    }
+    if update.delete_expired_history_objects.is_some() {
+        config.delete_expired_history_objects = update.delete_expired_history_objects;
+        // Turning deletion on deletes what already expired; turning it off keeps the rest.
+        update_history_object_delete_pending(transaction, &mut cursor, false)?;
     }
     Ok(HandlerResult::Applied(cursor.finish(
         transaction,

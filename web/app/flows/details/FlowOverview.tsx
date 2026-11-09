@@ -10,6 +10,7 @@ import { useState } from 'react';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
 import { StepMethodInvocation } from './StepMethodInvocation';
+import { HistorySettingsCard, type HistorySettingsChange } from './HistorySettingsCard';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
 import type { StateWriteKind } from './StateWriteDialog';
@@ -60,6 +61,8 @@ export function FlowOverview({
   deletingChannelMessage,
   onDeleteChannelMessage,
   onOpenStateWrite,
+  savedHistorySettings,
+  onHistorySettingsSaved,
 }: {
   summary: FlowSummary;
   events: FlowHistoryEvent[];
@@ -68,6 +71,8 @@ export function FlowOverview({
   deletingChannelMessage?: string;
   onDeleteChannelMessage?: (channelName: string, messageId: string) => Promise<void>;
   onOpenStateWrite?: (kind: StateWriteKind) => void;
+  savedHistorySettings?: HistorySettingsChange;
+  onHistorySettingsSaved?: (saved: HistorySettingsChange, savedRun: FlowSummary) => Promise<void>;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = summary.flowStatus === 'Running'
@@ -376,6 +381,12 @@ export function FlowOverview({
             <div><dt>Flow type</dt><dd>{summary.flowType || '—'}</dd></div>
           </dl>
         </section>
+
+        <HistorySettingsCard
+          summary={summary}
+          flowConfig={state ? { ...state.flowConfig, ...savedHistorySettings } : undefined}
+          onSaved={onHistorySettingsSaved}
+        />
       </div>
     </div>
   );

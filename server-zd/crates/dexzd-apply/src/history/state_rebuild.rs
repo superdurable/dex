@@ -404,8 +404,8 @@ pub(crate) fn replay_memory_exceeded_reply(
         ErrorSubStatus::Uncategorized,
         format!(
             "time travel to run attempt {} at run seq {} needs more than {memory_budget_bytes} \
-             bytes of memory to hold {held}; choose a later target point, travel without \
-             reapplying writes, or raise history.timeTravelReplayMemoryBytes",
+             bytes of memory to hold {held}; choose a later target point, set \
+             skip_writes_reapply to true, or raise history.timeTravelReplayMemoryBytes",
             point.attempt, point.seq
         ),
     )
@@ -488,6 +488,33 @@ fn replayed_command(history_record: &HistoryRecord) -> Result<Option<FlowCommand
             return Err(ApplyError::InvariantViolation {
                 detail: format!(
                     "history record {} holds a HistorySegmentUploaded command",
+                    history_record.seq
+                ),
+            });
+        }
+        // Local history cleanup never records history.
+        Command::HistoryLocalCleanup(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a HistoryLocalCleanup command",
+                    history_record.seq
+                ),
+            });
+        }
+        // Reviving an offloaded value never records history.
+        Command::ValueRevive(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a ValueRevive command",
+                    history_record.seq
+                ),
+            });
+        }
+        // Recording deleted history objects never records history.
+        Command::HistorySegmentObjectsDeleted(_) => {
+            return Err(ApplyError::InvariantViolation {
+                detail: format!(
+                    "history record {} holds a HistorySegmentObjectsDeleted command",
                     history_record.seq
                 ),
             });

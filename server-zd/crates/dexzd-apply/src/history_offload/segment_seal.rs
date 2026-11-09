@@ -208,6 +208,7 @@ pub(crate) fn write_sealed_segment(
             superseded_value_count,
             content_checksum: Vec::new(),
             object_size_bytes: 0,
+            expired_at_micros: 0,
         },
     );
     let partition = transaction.context().partition;

@@ -87,6 +87,13 @@ grows. Add a lifecycle rule that expires noncurrent versions. A noncurrent
 version of a hard-delete Attribute value also keeps the deleted value until the
 version expires.
 
+Do not add a rule that expires current objects under **PREFIX/history/**. The
+server reads uploaded run history there for as long as the history window covers
+it, and a lifecycle rule cannot tell which objects the window still needs. A read
+of a missing object fails with UNAVAILABLE. To delete old history objects, turn on
+**history.deleteExpiredObjects** or a run's **delete_expired_history_objects**;
+see [History offload](/reference/server/configuration#history-offload).
+
 Add a rule that aborts incomplete multipart uploads after 1 to 7 days, whether or
 not versioning is on. A crash can leave an incomplete upload behind. A
 prefix-confined role cannot list or clean up those uploads.
@@ -120,6 +127,39 @@ The first snapshot after a takeover or restart uploads the full local checkpoint
 lineage. It cannot reuse objects from the previous lineage, even when the local RocksDB
 directory is reused. Allow for the full checkpoint size, manifest data, upload throughput,
 and per-file request time. Later snapshots from the same owner can reuse unchanged files.
+
+## History offload {#history-offload}
+
+History offload is experimental. It is off by default for **serve**.
+Changed in 0.1.22: it is on by default for **dev** and **local**. To opt out
+there, set **history.offloadEnabled: false**. It seals run history into
+segments and uploads them to the primary object store under **PREFIX/history/**.
+Uploaded segments let the server reclaim local history rows and, after a grace
+period, superseded values. Segments expire when the history window passes them.
+The server can also delete their objects. See the
+[offload configuration](/reference/server/configuration#history-offload) for the
+switches, grace periods, and retention consequences.
+
+Before enabling it on **serve**, stop the standby and active processes and upgrade both
+together. Start the active process first, then the standby. Do not downgrade
+after enabling offload, even if you later turn it off: history already removed
+from local disk still needs object storage reads. This also applies to a **dev**
+or **local** data directory that started with the default. See
+[Upgrades and compatibility](/reference/server/upgrades).
+Never add lifecycle expiry rules for current objects under **PREFIX/history/**;
+follow the [lifecycle guidance](#versioning-and-lifecycle-rules) above.
+
+Watch **dexzd_history_upload_backlog_segments**,
+**dexzd_history_upload_backlog_bytes**, and
+**dexzd_history_upload_oldest_sealed_age_seconds**. Alert if the oldest sealed
+segment's age keeps growing or uploads fail, as counted by
+**dexzd_history_uploads_total** with **outcome="failed"**. A growing backlog
+means more history stays on local disk. Use **dexzd_history_reads_total** to
+track reads from local disk, cache, and object storage, and
+**dexzd_history_value_revivals_total** to track values restored to local disk.
+Since 0.1.22, **dexzd_history_expired_objects_deleted_total** and
+**dexzd_history_orphan_objects_deleted_total** count object cleanup. See
+[Metrics and alerts](/reference/server/metrics) for labels and alert thresholds.
 
 ## Backup and restore
 

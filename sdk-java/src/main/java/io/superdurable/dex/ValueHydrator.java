@@ -45,6 +45,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 final class ValueHydrator {
+    // The server rejects more than 1000 entries while history offload is on.
+    private static final int MAX_LOAD_BLOBS_ENTRIES = 1000;
+
     private static final Logger LOGGER = Logger.getLogger(ValueHydrator.class.getName());
 
     private final FlowServiceGrpc.FlowServiceBlockingStub service;
@@ -308,6 +311,12 @@ final class ValueHydrator {
     }
 
     private void loadMisses(final List<PendingBlob> misses) {
+        if (misses.size() > MAX_LOAD_BLOBS_ENTRIES) {
+            for (int start = 0; start < misses.size(); start += MAX_LOAD_BLOBS_ENTRIES) {
+                loadMisses(misses.subList(start, Math.min(start + MAX_LOAD_BLOBS_ENTRIES, misses.size())));
+            }
+            return;
+        }
         if (misses.isEmpty()) {
             return;
         }

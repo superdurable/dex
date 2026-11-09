@@ -3353,6 +3353,40 @@
     },
     {
       "id": "edge:0085",
+      "kind": "resource_lock",
+      "from": "rpc:ApproveRefund",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Lock",
+      "span": {
+        "startLine": 254,
+        "startColumn": 5,
+        "endLine": 254,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "ApproveRefund"
+      }
+    },
+    {
+      "id": "edge:0086",
+      "kind": "resource_lock",
+      "from": "rpc:ApproveRefund",
+      "to": "resource:attribute:agenticGateRequestKey",
+      "label": "Lock",
+      "span": {
+        "startLine": 255,
+        "startColumn": 5,
+        "endLine": 255,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "ApproveRefund"
+      }
+    },
+    {
+      "id": "edge:0087",
       "kind": "resource_publish",
       "from": "rpc:ApproveRefund",
       "to": "resource:channel:agenticManagerApproval",
@@ -3368,7 +3402,58 @@
       }
     },
     {
-      "id": "edge:0086",
+      "id": "edge:0088",
+      "kind": "resource_lock",
+      "from": "rpc:ConfirmCustomerMessage",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Lock",
+      "span": {
+        "startLine": 283,
+        "startColumn": 5,
+        "endLine": 283,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "ConfirmCustomerMessage"
+      }
+    },
+    {
+      "id": "edge:0089",
+      "kind": "resource_lock",
+      "from": "rpc:ConfirmCustomerMessage",
+      "to": "resource:attribute:agenticCustomerMessageDraft",
+      "label": "Lock",
+      "span": {
+        "startLine": 285,
+        "startColumn": 5,
+        "endLine": 285,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "ConfirmCustomerMessage"
+      }
+    },
+    {
+      "id": "edge:0090",
+      "kind": "resource_lock",
+      "from": "rpc:ConfirmCustomerMessage",
+      "to": "resource:attribute:agenticGateRequestKey",
+      "label": "Lock",
+      "span": {
+        "startLine": 284,
+        "startColumn": 5,
+        "endLine": 284,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "ConfirmCustomerMessage"
+      }
+    },
+    {
+      "id": "edge:0091",
       "kind": "resource_publish",
       "from": "rpc:ConfirmCustomerMessage",
       "to": "resource:channel:agenticMessageApproval",
@@ -3384,7 +3469,41 @@
       }
     },
     {
-      "id": "edge:0087",
+      "id": "edge:0092",
+      "kind": "resource_lock",
+      "from": "rpc:EditCustomerMessage",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Lock",
+      "span": {
+        "startLine": 298,
+        "startColumn": 5,
+        "endLine": 298,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "EditCustomerMessage"
+      }
+    },
+    {
+      "id": "edge:0093",
+      "kind": "resource_lock",
+      "from": "rpc:EditCustomerMessage",
+      "to": "resource:attribute:agenticCustomerMessageDraft",
+      "label": "Lock",
+      "span": {
+        "startLine": 300,
+        "startColumn": 5,
+        "endLine": 300,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "EditCustomerMessage"
+      }
+    },
+    {
+      "id": "edge:0094",
       "kind": "resource_write",
       "from": "rpc:EditCustomerMessage",
       "to": "resource:attribute:agenticCustomerMessageDraft",
@@ -3400,7 +3519,24 @@
       }
     },
     {
-      "id": "edge:0088",
+      "id": "edge:0095",
+      "kind": "resource_lock",
+      "from": "rpc:EditCustomerMessage",
+      "to": "resource:attribute:agenticGateRequestKey",
+      "label": "Lock",
+      "span": {
+        "startLine": 299,
+        "startColumn": 5,
+        "endLine": 299,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "EditCustomerMessage"
+      }
+    },
+    {
+      "id": "edge:0096",
       "kind": "resource_publish",
       "from": "rpc:EditCustomerMessage",
       "to": "resource:channel:agenticMessageApproval",
@@ -3416,7 +3552,41 @@
       }
     },
     {
-      "id": "edge:0089",
+      "id": "edge:0097",
+      "kind": "resource_lock",
+      "from": "rpc:RejectRefund",
+      "to": "resource:attribute:agenticCaseStatus",
+      "label": "Lock",
+      "span": {
+        "startLine": 269,
+        "startColumn": 5,
+        "endLine": 269,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "RejectRefund"
+      }
+    },
+    {
+      "id": "edge:0098",
+      "kind": "resource_lock",
+      "from": "rpc:RejectRefund",
+      "to": "resource:attribute:agenticGateRequestKey",
+      "label": "Lock",
+      "span": {
+        "startLine": 270,
+        "startColumn": 5,
+        "endLine": 270,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "RejectRefund"
+      }
+    },
+    {
+      "id": "edge:0099",
       "kind": "resource_write",
       "from": "rpc:RejectRefund",
       "to": "resource:attribute:agenticManagerRejectionReason",
@@ -3432,7 +3602,7 @@
       }
     },
     {
-      "id": "edge:0090",
+      "id": "edge:0100",
       "kind": "resource_publish",
       "from": "rpc:RejectRefund",
       "to": "resource:channel:agenticManagerApproval",
@@ -3448,7 +3618,7 @@
       }
     },
     {
-      "id": "edge:0091",
+      "id": "edge:0101",
       "kind": "resource_write",
       "from": "step:GenerateCustomerMessageStep",
       "to": "resource:attribute:agenticGeneratedCustomerMessage",
@@ -3458,7 +3628,7 @@
       }
     },
     {
-      "id": "edge:0092",
+      "id": "edge:0102",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticStoreGeneratedCustomerMessage",
@@ -3474,7 +3644,7 @@
       }
     },
     {
-      "id": "edge:0093",
+      "id": "edge:0103",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticUseFallbackCustomerMessage",
@@ -3490,7 +3660,7 @@
       }
     },
     {
-      "id": "edge:0094",
+      "id": "edge:0104",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticUseFallbackCustomerMessage",
@@ -3506,7 +3676,7 @@
       }
     },
     {
-      "id": "edge:0095",
+      "id": "edge:0105",
       "kind": "transition",
       "from": "step:GenerateCustomerMessageStep",
       "to": "step:agenticUseFallbackCustomerMessage",
@@ -3522,7 +3692,7 @@
       }
     },
     {
-      "id": "edge:0096",
+      "id": "edge:0106",
       "kind": "resource_write",
       "from": "step:agenticApplySubscription",
       "to": "resource:attribute:agenticSubscriptionApplied",
@@ -3538,7 +3708,7 @@
       }
     },
     {
-      "id": "edge:0097",
+      "id": "edge:0107",
       "kind": "failure_transition",
       "from": "step:agenticApplySubscription",
       "to": "step:agenticSubscriptionFailed",
@@ -3554,7 +3724,7 @@
       }
     },
     {
-      "id": "edge:0098",
+      "id": "edge:0108",
       "kind": "resource_write",
       "from": "step:agenticBillingFailed",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -3570,7 +3740,7 @@
       }
     },
     {
-      "id": "edge:0099",
+      "id": "edge:0109",
       "kind": "resource_write",
       "from": "step:agenticBillingFailed",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3586,7 +3756,7 @@
       }
     },
     {
-      "id": "edge:0100",
+      "id": "edge:0110",
       "kind": "resource_write",
       "from": "step:agenticCheckIdentity",
       "to": "resource:attribute:agenticIdentityStatus",
@@ -3602,7 +3772,7 @@
       }
     },
     {
-      "id": "edge:0101",
+      "id": "edge:0111",
       "kind": "resource_write",
       "from": "step:agenticCheckIncidents",
       "to": "resource:attribute:agenticEvidenceState",
@@ -3618,7 +3788,7 @@
       }
     },
     {
-      "id": "edge:0102",
+      "id": "edge:0112",
       "kind": "resource_write",
       "from": "step:agenticCheckIncidents",
       "to": "resource:attribute:agenticIncidentDays",
@@ -3634,7 +3804,7 @@
       }
     },
     {
-      "id": "edge:0103",
+      "id": "edge:0113",
       "kind": "resource_write",
       "from": "step:agenticCheckIncidents",
       "to": "resource:attribute:agenticIncidentStatus",
@@ -3650,7 +3820,7 @@
       }
     },
     {
-      "id": "edge:0104",
+      "id": "edge:0114",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3666,7 +3836,7 @@
       }
     },
     {
-      "id": "edge:0105",
+      "id": "edge:0115",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticDecisionRounds",
@@ -3682,7 +3852,7 @@
       }
     },
     {
-      "id": "edge:0106",
+      "id": "edge:0116",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticRationale",
@@ -3698,7 +3868,7 @@
       }
     },
     {
-      "id": "edge:0107",
+      "id": "edge:0117",
       "kind": "resource_write",
       "from": "step:agenticDecision",
       "to": "resource:attribute:agenticRecommendedAction",
@@ -3714,7 +3884,7 @@
       }
     },
     {
-      "id": "edge:0108",
+      "id": "edge:0118",
       "kind": "resource_write",
       "from": "step:agenticEmailFailed",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3730,7 +3900,7 @@
       }
     },
     {
-      "id": "edge:0109",
+      "id": "edge:0119",
       "kind": "resource_write",
       "from": "step:agenticEmailFailed",
       "to": "resource:attribute:agenticEmailSent",
@@ -3746,7 +3916,7 @@
       }
     },
     {
-      "id": "edge:0110",
+      "id": "edge:0120",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticPaymentAgeDays",
@@ -3762,7 +3932,7 @@
       }
     },
     {
-      "id": "edge:0111",
+      "id": "edge:0121",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticPaymentAmount",
@@ -3778,7 +3948,7 @@
       }
     },
     {
-      "id": "edge:0112",
+      "id": "edge:0122",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticPaymentStatus",
@@ -3794,7 +3964,7 @@
       }
     },
     {
-      "id": "edge:0113",
+      "id": "edge:0123",
       "kind": "resource_write",
       "from": "step:agenticGetPayment",
       "to": "resource:attribute:agenticRefundAmount",
@@ -3810,7 +3980,7 @@
       }
     },
     {
-      "id": "edge:0114",
+      "id": "edge:0124",
       "kind": "resource_write",
       "from": "step:agenticGetSubscription",
       "to": "resource:attribute:agenticSubscriptionStatus",
@@ -3826,7 +3996,7 @@
       }
     },
     {
-      "id": "edge:0115",
+      "id": "edge:0125",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticCancellationPending",
@@ -3842,7 +4012,7 @@
       }
     },
     {
-      "id": "edge:0116",
+      "id": "edge:0126",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticHistoryStatus",
@@ -3858,7 +4028,7 @@
       }
     },
     {
-      "id": "edge:0117",
+      "id": "edge:0127",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticPriorRefunds",
@@ -3874,7 +4044,7 @@
       }
     },
     {
-      "id": "edge:0118",
+      "id": "edge:0128",
       "kind": "resource_write",
       "from": "step:agenticGetSupportHistory",
       "to": "resource:attribute:agenticTenureYears",
@@ -3890,7 +4060,7 @@
       }
     },
     {
-      "id": "edge:0119",
+      "id": "edge:0129",
       "kind": "resource_write",
       "from": "step:agenticGetUsage",
       "to": "resource:attribute:agenticUsagePercent",
@@ -3906,7 +4076,7 @@
       }
     },
     {
-      "id": "edge:0120",
+      "id": "edge:0130",
       "kind": "resource_write",
       "from": "step:agenticGetUsage",
       "to": "resource:attribute:agenticUsageStatus",
@@ -3922,7 +4092,7 @@
       }
     },
     {
-      "id": "edge:0121",
+      "id": "edge:0131",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticBoundAction",
@@ -3938,7 +4108,7 @@
       }
     },
     {
-      "id": "edge:0122",
+      "id": "edge:0132",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticCaseStatus",
@@ -3954,7 +4124,7 @@
       }
     },
     {
-      "id": "edge:0123",
+      "id": "edge:0133",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGateEntries",
@@ -3970,7 +4140,7 @@
       }
     },
     {
-      "id": "edge:0124",
+      "id": "edge:0134",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGateRequestKey",
@@ -3986,7 +4156,7 @@
       }
     },
     {
-      "id": "edge:0125",
+      "id": "edge:0135",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGuardrailRule",
@@ -4002,7 +4172,7 @@
       }
     },
     {
-      "id": "edge:0126",
+      "id": "edge:0136",
       "kind": "resource_write",
       "from": "step:agenticGuardrail",
       "to": "resource:attribute:agenticGuardrailVerdict",
@@ -4018,7 +4188,7 @@
       }
     },
     {
-      "id": "edge:0127",
+      "id": "edge:0137",
       "kind": "resource_write",
       "from": "step:agenticIssueRefund",
       "to": "resource:attribute:agenticBillingKey",
@@ -4034,7 +4204,7 @@
       }
     },
     {
-      "id": "edge:0128",
+      "id": "edge:0138",
       "kind": "resource_write",
       "from": "step:agenticIssueRefund",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -4050,7 +4220,7 @@
       }
     },
     {
-      "id": "edge:0129",
+      "id": "edge:0139",
       "kind": "resource_write",
       "from": "step:agenticIssueRefund",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4066,7 +4236,7 @@
       }
     },
     {
-      "id": "edge:0130",
+      "id": "edge:0140",
       "kind": "failure_transition",
       "from": "step:agenticIssueRefund",
       "to": "step:agenticBillingFailed",
@@ -4082,7 +4252,7 @@
       }
     },
     {
-      "id": "edge:0131",
+      "id": "edge:0141",
       "kind": "resource_write",
       "from": "step:agenticNonConvergence",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4098,7 +4268,7 @@
       }
     },
     {
-      "id": "edge:0132",
+      "id": "edge:0142",
       "kind": "resource_write",
       "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticBillingKey",
@@ -4114,7 +4284,7 @@
       }
     },
     {
-      "id": "edge:0133",
+      "id": "edge:0143",
       "kind": "resource_write",
       "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -4130,7 +4300,7 @@
       }
     },
     {
-      "id": "edge:0134",
+      "id": "edge:0144",
       "kind": "resource_write",
       "from": "step:agenticOfferAccountCredit",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4146,7 +4316,7 @@
       }
     },
     {
-      "id": "edge:0135",
+      "id": "edge:0145",
       "kind": "resource_write",
       "from": "step:agenticPrepareCustomerMessage",
       "to": "resource:attribute:agenticCustomerMessageContext",
@@ -4162,7 +4332,7 @@
       }
     },
     {
-      "id": "edge:0136",
+      "id": "edge:0146",
       "kind": "resource_write",
       "from": "step:agenticReCheck",
       "to": "resource:attribute:agenticBoundAction",
@@ -4178,7 +4348,7 @@
       }
     },
     {
-      "id": "edge:0137",
+      "id": "edge:0147",
       "kind": "resource_write",
       "from": "step:agenticReCheck",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4194,7 +4364,7 @@
       }
     },
     {
-      "id": "edge:0138",
+      "id": "edge:0148",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4210,7 +4380,7 @@
       }
     },
     {
-      "id": "edge:0139",
+      "id": "edge:0149",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticChargeReference",
@@ -4226,7 +4396,7 @@
       }
     },
     {
-      "id": "edge:0140",
+      "id": "edge:0150",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticCustomerEmail",
@@ -4242,7 +4412,7 @@
       }
     },
     {
-      "id": "edge:0141",
+      "id": "edge:0151",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticInputEmail",
@@ -4258,7 +4428,7 @@
       }
     },
     {
-      "id": "edge:0142",
+      "id": "edge:0152",
       "kind": "resource_write",
       "from": "step:agenticReceiveRequest",
       "to": "resource:attribute:agenticOperatorNote",
@@ -4274,7 +4444,7 @@
       }
     },
     {
-      "id": "edge:0143",
+      "id": "edge:0153",
       "kind": "resource_write",
       "from": "step:agenticRequestHumanApproval",
       "to": "resource:attribute:agenticManagerVerdict",
@@ -4290,7 +4460,7 @@
       }
     },
     {
-      "id": "edge:0144",
+      "id": "edge:0154",
       "kind": "resource_write",
       "from": "step:agenticSendCustomerMessage",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4306,7 +4476,7 @@
       }
     },
     {
-      "id": "edge:0145",
+      "id": "edge:0155",
       "kind": "resource_write",
       "from": "step:agenticSendCustomerMessage",
       "to": "resource:attribute:agenticEmailSent",
@@ -4322,7 +4492,7 @@
       }
     },
     {
-      "id": "edge:0146",
+      "id": "edge:0156",
       "kind": "failure_transition",
       "from": "step:agenticSendCustomerMessage",
       "to": "step:agenticEmailFailed",
@@ -4338,7 +4508,7 @@
       }
     },
     {
-      "id": "edge:0147",
+      "id": "edge:0157",
       "kind": "resource_write",
       "from": "step:agenticStoreGeneratedCustomerMessage",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4356,7 +4526,7 @@
       }
     },
     {
-      "id": "edge:0148",
+      "id": "edge:0158",
       "kind": "resource_write",
       "from": "step:agenticStoreGeneratedCustomerMessage",
       "to": "resource:attribute:agenticCustomerMessageDraft",
@@ -4374,7 +4544,7 @@
       }
     },
     {
-      "id": "edge:0149",
+      "id": "edge:0159",
       "kind": "resource_write",
       "from": "step:agenticStoreGeneratedCustomerMessage",
       "to": "resource:attribute:agenticGateEntries",
@@ -4392,7 +4562,7 @@
       }
     },
     {
-      "id": "edge:0150",
+      "id": "edge:0160",
       "kind": "resource_write",
       "from": "step:agenticStoreGeneratedCustomerMessage",
       "to": "resource:attribute:agenticGateRequestKey",
@@ -4410,7 +4580,7 @@
       }
     },
     {
-      "id": "edge:0151",
+      "id": "edge:0161",
       "kind": "resource_write",
       "from": "step:agenticSubscriptionFailed",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4426,7 +4596,7 @@
       }
     },
     {
-      "id": "edge:0152",
+      "id": "edge:0162",
       "kind": "resource_write",
       "from": "step:agenticSubscriptionFailed",
       "to": "resource:attribute:agenticSubscriptionApplied",
@@ -4442,7 +4612,7 @@
       }
     },
     {
-      "id": "edge:0153",
+      "id": "edge:0163",
       "kind": "resource_write",
       "from": "step:agenticUseFallbackCustomerMessage",
       "to": "resource:attribute:agenticCaseStatus",
@@ -4460,7 +4630,7 @@
       }
     },
     {
-      "id": "edge:0154",
+      "id": "edge:0164",
       "kind": "resource_write",
       "from": "step:agenticUseFallbackCustomerMessage",
       "to": "resource:attribute:agenticCustomerMessageDraft",
@@ -4478,7 +4648,7 @@
       }
     },
     {
-      "id": "edge:0155",
+      "id": "edge:0165",
       "kind": "resource_write",
       "from": "step:agenticUseFallbackCustomerMessage",
       "to": "resource:attribute:agenticGateEntries",
@@ -4496,7 +4666,7 @@
       }
     },
     {
-      "id": "edge:0156",
+      "id": "edge:0166",
       "kind": "resource_write",
       "from": "step:agenticUseFallbackCustomerMessage",
       "to": "resource:attribute:agenticGateRequestKey",
@@ -4514,7 +4684,7 @@
       }
     },
     {
-      "id": "edge:0157",
+      "id": "edge:0167",
       "kind": "resource_write",
       "from": "step:agenticVerifyBilling",
       "to": "resource:attribute:agenticBillingOutcome",
@@ -4530,7 +4700,7 @@
       }
     },
     {
-      "id": "edge:0158",
+      "id": "edge:0168",
       "kind": "resource_write",
       "from": "step:agenticVerifyBilling",
       "to": "resource:attribute:agenticCaseStatus",

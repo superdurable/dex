@@ -2680,12 +2680,13 @@ const (
 )
 
 type FlowConfig struct {
-	ActiveStepSearchMode       *ActiveStepSearchMode
-	AttributeStoreNames        []string
-	ContinueAsNewThreshold     *int32
-	ContinueAsNewPageSizeBytes *int32
-	StepDurability             *StepDurability
-	HistoryWindowEvents        *int32
+	ActiveStepSearchMode        *ActiveStepSearchMode
+	AttributeStoreNames         []string
+	ContinueAsNewThreshold      *int32
+	ContinueAsNewPageSizeBytes  *int32
+	StepDurability              *StepDurability
+	HistoryWindowEvents         *int32
+	DeleteExpiredHistoryObjects *bool
 }
 
 type StartFlowOptions struct {

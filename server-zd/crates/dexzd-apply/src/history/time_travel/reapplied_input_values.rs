@@ -13,17 +13,16 @@ use std::collections::BTreeSet;
 
 use dexzd_keyspace::row_keys::value_row_key;
 use dexzd_keyspace::{ColumnFamily, RunTable, ValueId, ValueReference};
-use dexzd_protocol::dex::{ActionPermissionMappings, ErrorSubStatus, Value};
+use dexzd_protocol::dex::ErrorSubStatus;
 use dexzd_protocol::dexzd::v1::{
-    CommandReply, FlowCommand, StoredValueId, TimeTravelStagedInput, TimeTravelStagedValue,
-    ValueBirthRecord, flow_command::Command,
+    CommandReply, StoredValueId, TimeTravelStagedInput, TimeTravelStagedValue, ValueBirthRecord,
 };
 
 use crate::ApplyError;
 use crate::command_handlers::command_replies::{error_reply, grpc_code};
 use crate::history::state_rebuild::{HistoryPoint, ReplayResources, replay_memory_exceeded_reply};
 use crate::state_access::{FlowTransaction, RunRows};
-use crate::values::{is_stored_value, own_referenced_value_id};
+use crate::values::{RpcOutputValue, command_values, is_stored_value, own_referenced_value_id};
 
 /// Returns the IDs of the run's values that `inputs` name by value reference.
 pub(super) fn reapplied_input_value_ids<'input>(
@@ -33,7 +32,7 @@ pub(super) fn reapplied_input_value_ids<'input>(
     inputs
         .into_iter()
         .filter_map(|input| input.command.as_ref())
-        .flat_map(reapplied_input_values)
+        .flat_map(|command| command_values(command, RpcOutputValue::Excluded))
         .filter_map(|value| own_referenced_value_id(value, rows))
         .collect()
 }
@@ -101,80 +100,6 @@ pub(super) fn unstored_input_values(
         return Ok(Err(unavailable_input_value_reply(rows, value_id)));
     }
     Ok(Ok(values))
-}
-
-/// Returns every value of a reapplied input that apply may resolve as a value reference.
-///
-/// An RPC's output is left out: a reapplied RPC returns no output.
-fn reapplied_input_values(command: &FlowCommand) -> Vec<&Value> {
-    let mut values: Vec<&Value> = Vec::new();
-    match &command.command {
-        Some(Command::AttributesSet(set)) => {
-            if let Some(request) = set.request.as_ref() {
-                values.extend(
-                    request
-                        .attributes
-                        .iter()
-                        .filter_map(|write| write.value.as_ref()),
-                );
-                values.extend(permission_values(
-                    request.action_permission_mappings.as_ref(),
-                ));
-            }
-        }
-        Some(Command::ChannelPublish(publish)) => {
-            if let Some(request) = publish.request.as_ref() {
-                values.extend(
-                    request
-                        .messages
-                        .iter()
-                        .filter_map(|message| message.value.as_ref()),
-                );
-            }
-        }
-        Some(Command::RpcCommitted(rpc)) => {
-            if let Some(response) = rpc.response.as_ref() {
-                values.extend(
-                    response
-                        .upsert_attributes
-                        .iter()
-                        .filter_map(|write| write.value.as_ref()),
-                );
-                values.extend(
-                    response
-                        .record_events
-                        .iter()
-                        .filter_map(|kv| kv.value.as_ref()),
-                );
-                values.extend(
-                    response
-                        .publish_to_channel
-                        .iter()
-                        .filter_map(|message| message.value.as_ref()),
-                );
-                values.extend(permission_values(
-                    response.action_permission_mappings.as_ref(),
-                ));
-                if let Some(decision) = response.step_decision.as_ref() {
-                    values.extend(
-                        decision
-                            .next_steps
-                            .iter()
-                            .filter_map(|movement| movement.step_input.as_ref()),
-                    );
-                }
-            }
-        }
-        _ => {}
-    }
-    values
-}
-
-fn permission_values(mappings: Option<&ActionPermissionMappings>) -> impl Iterator<Item = &Value> {
-    mappings
-        .into_iter()
-        .flat_map(|mappings| mappings.mappings.iter())
-        .flat_map(|mapping| mapping.equal_values.iter())
 }
 
 fn unavailable_input_value_reply(rows: RunRows, value_id: ValueId) -> CommandReply {

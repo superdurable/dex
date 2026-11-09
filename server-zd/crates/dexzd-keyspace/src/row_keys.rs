@@ -495,6 +495,32 @@ pub fn history_upload_pending_index_key(
     )
 }
 
+/// Key of a run's HistoryObjectDeletePending index row: Flow hash, run ID.
+pub fn history_object_delete_pending_index_key(
+    partition: PartitionId,
+    flow_hash: FlowHash,
+    run_id: RunId,
+) -> Vec<u8> {
+    partition_index_key(
+        partition,
+        IndexKind::HistoryObjectDeletePending,
+        &flow_run_suffix(flow_hash, run_id),
+    )
+}
+
+/// Key of a run's HistoryLocalCleanupPending index row: Flow hash, run ID.
+pub fn history_local_cleanup_pending_index_key(
+    partition: PartitionId,
+    flow_hash: FlowHash,
+    run_id: RunId,
+) -> Vec<u8> {
+    partition_index_key(
+        partition,
+        IndexKind::HistoryLocalCleanupPending,
+        &flow_run_suffix(flow_hash, run_id),
+    )
+}
+
 /// Attribute Sync pending index key: length-prefixed store name, Flow hash, run ID.
 pub fn attribute_sync_pending_index_key(
     partition: PartitionId,
@@ -688,6 +714,7 @@ mod tests {
         attribute_sync_pending_index_key, attribute_sync_pending_store_prefix, channel_name_prefix,
         decode_attribute_sync_pending_index_key, decode_flow_run_after_prefix,
         decode_search_order_identity, decode_search_outbox_key, decode_timer_index_key,
+        history_local_cleanup_pending_index_key, history_object_delete_pending_index_key,
         history_offload_mode_key, history_segment_key, history_segment_value_key,
         history_segment_value_prefix, history_upload_pending_index_key, ordered_timestamp_bytes,
         partition_index_range, prefix_range, search_order_index_key, search_order_index_prefix,
@@ -894,6 +921,37 @@ mod tests {
             decode_flow_run_after_prefix(&key, 3),
             Some((FlowHash(9), RunId([2; 16])))
         );
+    }
+
+    #[test]
+    fn history_object_delete_pending_keys_name_their_run_inside_their_partition_index() {
+        let partition = PartitionId(5);
+        let key = history_object_delete_pending_index_key(partition, FlowHash(9), RunId([2; 16]));
+        let (start, end) = partition_index_range(partition, IndexKind::HistoryObjectDeletePending);
+        assert!(start <= key && key < end);
+        assert_eq!(key.len(), 3 + 24);
+        assert_eq!(
+            decode_flow_run_after_prefix(&key, 3),
+            Some((FlowHash(9), RunId([2; 16])))
+        );
+        let (_, upload_end) = partition_index_range(partition, IndexKind::HistoryUploadPending);
+        assert!(upload_end <= start);
+    }
+
+    #[test]
+    fn history_local_cleanup_pending_keys_name_their_run_inside_their_partition_index() {
+        let partition = PartitionId(5);
+        let key = history_local_cleanup_pending_index_key(partition, FlowHash(9), RunId([2; 16]));
+        let (start, end) = partition_index_range(partition, IndexKind::HistoryLocalCleanupPending);
+        assert!(start <= key && key < end);
+        assert_eq!(key.len(), 3 + 24);
+        assert_eq!(
+            decode_flow_run_after_prefix(&key, 3),
+            Some((FlowHash(9), RunId([2; 16])))
+        );
+        let (_, delete_end) =
+            partition_index_range(partition, IndexKind::HistoryObjectDeletePending);
+        assert!(delete_end <= start);
     }
 
     #[test]

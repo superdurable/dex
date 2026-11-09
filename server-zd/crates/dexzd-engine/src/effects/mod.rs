@@ -7,7 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! Runs the work that committed commands imply: method dispatch, timers, cross-Flow deliveries,
-//! hard-delete object deletion, history segment uploads, and retention purges.
+//! hard-delete object deletion, history segment uploads and object deletions, local history
+//! cleanup, and retention purges.
 //!
 //! [`EffectRunner::handle`] only enqueues. One router task owns the scheduling state and
 //! spawns tracked tasks for the work. Everything here can be rebuilt from committed state with
@@ -137,6 +138,11 @@ pub struct EffectsConfig {
     /// sealed history segments: the scan refreshes the upload backlog gauges and restarts the
     /// upload of any run whose upload work stopped.
     pub history_upload_rescan_interval: Duration,
+    /// Default 6 hours; zero disables. How often the lease holder lists the `history/` prefix
+    /// and deletes objects at least an hour old of runs in its partitions that no longer exist,
+    /// such as an upload that landed after its run's purge. The first sweep starts one interval
+    /// after startup.
+    pub history_orphan_sweep_interval: Duration,
 }
 
 impl Default for EffectsConfig {
@@ -167,12 +173,15 @@ impl Default for EffectsConfig {
                 max_active_step_executions: 10_000,
                 max_child_flow_result_bytes: 16 * 1024 * 1024,
                 history_segment_target_bytes: 4 * 1024 * 1024,
+                delete_expired_history_objects: false,
+                superseded_value_grace_micros: 10 * 60 * 1_000_000,
             },
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
             heads_resync_interval: Duration::from_secs(5 * 60),
             heads_max_skipped_deletions: 100_000,
             history_upload_concurrency: 16,
             history_upload_rescan_interval: Duration::from_secs(60),
+            history_orphan_sweep_interval: Duration::from_secs(6 * 60 * 60),
         }
     }
 }
@@ -289,6 +298,8 @@ pub(crate) enum TrackedWork {
     RunPurge { run_id: RunId },
     PendingCloseCheck { run_id: RunId },
     HistoryUpload { run_id: RunId },
+    HistoryObjectDeletion { run_id: RunId },
+    HistoryLocalCleanup { run_id: RunId },
 }
 
 /// Dependencies of the effect runner, passed once to [`EffectRunner::new`].
@@ -329,6 +340,7 @@ pub(crate) struct EffectContext {
     /// Runs whose upload failed without a retry; only the rescan clears an entry, so every
     /// trigger retries such a run at most once per rescan.
     pub(crate) history_upload_failed_runs: std::sync::Mutex<BTreeSet<RunId>>,
+    pub(crate) history_upload_backlog_rebuilds: mpsc::UnboundedSender<PartitionId>,
     pub(crate) hasher: PartitionHasher,
     pub(crate) clock: Arc<dyn WallClock>,
     pub(crate) validation_config: ValidationConfig,
@@ -536,6 +548,8 @@ impl EffectRunner {
     /// Rebuilds pending work of every run of `partition` from committed state: pending and
     /// running invocations, timers, outbox messages, hard-delete deletions, history segment
     /// uploads, retention purges, and hard-delete uploads that never committed.
+    ///
+    /// Queues background publication of upload backlog gauges when history upload rescanning is enabled.
     pub async fn rebuild_partition(&self, partition: PartitionId) -> Result<(), EffectError> {
         self.rebuild_partition_effect_count(partition)
             .await
@@ -638,6 +652,7 @@ impl EffectTasks {
             self.dependencies.metrics.step_task_queue_entries.clone(),
         );
         let router_sender = self.router_sender.clone();
+        let (history_upload_backlog_rebuilds, backlog_rebuild_requests) = mpsc::unbounded_channel();
         let context = Arc::new(EffectContext {
             metrics: self.dependencies.metrics,
             config: self.config,
@@ -646,6 +661,7 @@ impl EffectTasks {
             hard_delete_objects: self.dependencies.hard_delete_objects,
             history_object_store: self.dependencies.history_object_store,
             history_upload_slots,
+            history_upload_backlog_rebuilds,
             history_upload_failed_runs: std::sync::Mutex::new(BTreeSet::new()),
             hasher: self.dependencies.partition_hasher,
             clock: self.dependencies.clock,
@@ -668,7 +684,11 @@ impl EffectTasks {
         });
         tracker.spawn(task_queue::run_claim_pump(Arc::clone(&context)));
         tracker.spawn(task_queue::run_heads_resync(Arc::clone(&context)));
-        tracker.spawn(history_uploads::run_history_upload_rescan(Arc::clone(
+        tracker.spawn(history_uploads::run_history_upload_rescan(
+            Arc::clone(&context),
+            backlog_rebuild_requests,
+        ));
+        tracker.spawn(history_uploads::run_history_orphan_sweep(Arc::clone(
             &context,
         )));
         #[cfg(test)]
@@ -918,6 +938,12 @@ impl EffectRouter {
             ApplyEffect::HistorySegmentSealed { run_id } => {
                 self.spawn_tracked(flow, TrackedWork::HistoryUpload { run_id });
             }
+            ApplyEffect::HistorySegmentsExpired { run_id } => {
+                self.spawn_tracked(flow, TrackedWork::HistoryObjectDeletion { run_id });
+            }
+            ApplyEffect::HistoryLocalCleanupScheduled { run_id } => {
+                self.spawn_tracked(flow, TrackedWork::HistoryLocalCleanup { run_id });
+            }
         }
     }
 
@@ -950,6 +976,12 @@ impl EffectRouter {
                 }
                 TrackedWork::HistoryUpload { run_id } => {
                     history_uploads::upload_sealed_history_segments(&context, &flow, *run_id).await
+                }
+                TrackedWork::HistoryObjectDeletion { run_id } => {
+                    history_uploads::delete_expired_history_objects(&context, &flow, *run_id).await
+                }
+                TrackedWork::HistoryLocalCleanup { run_id } => {
+                    history_uploads::clean_up_local_history(&context, &flow, *run_id).await
                 }
             };
             if let Err(error) = result {

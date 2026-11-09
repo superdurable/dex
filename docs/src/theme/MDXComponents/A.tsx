@@ -25,6 +25,8 @@ const defaultSdkReferenceLink = new RegExp(
   `^/reference/${DEFAULT_SDK}/(flows-and-steps)(?=[/#?]|$)`,
 );
 
+const defaultSdkLabel = 'Python';
+
 function usePreferredSdk(): SdkLanguage {
   // Server rendering and hydration use the default SDK so the markup matches.
   const [preferredSdk, setPreferredSdk] = useState<SdkLanguage>(DEFAULT_SDK);
@@ -49,7 +51,8 @@ export default function MDXAWrapper(props: ComponentProps<'a'>): ReactNode {
   if (props.href?.startsWith(apiReferenceLinkPrefix)) {
     return <Link {...props} autoAddBaseUrl={false} target="_self" />;
   }
-  if (props.href && defaultSdkReferenceLink.test(props.href)) {
+  // A link named after the SDK, such as "Python", promises that SDK and keeps it.
+  if (props.href && defaultSdkReferenceLink.test(props.href) && props.children !== defaultSdkLabel) {
     return <PreferredSdkReferenceLink {...props} />;
   }
   return <MDXA {...props} />;

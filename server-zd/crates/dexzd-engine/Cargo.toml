@@ -46,6 +46,7 @@ test-util = []
 dexzd-apply = { workspace = true, features = ["test-util"] }
 # Enables test-util for this crate's own integration tests.
 dexzd-engine = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

@@ -218,9 +218,9 @@ Flow history 大约保留一个 session 最新的 10,000 个事件。读取对�
 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
 [Time travel](/reference/server/runtime-client#time-travel) 只能以
 [history 窗口](/reference/server/configuration#history-window)内的时间点为目标。
-Time travel 到起点始终可用。重写大值（比如 **FrameworkRunState**）的 session 窗口可能更短：
-被替换值超过 **history.maxRetainedSupersededBytes**（默认 256 MiB）时，窗口也会移除旧事件。
-这不会让 session 失败。
+Time travel 到起点始终可用。重写大值（比如 **FrameworkRunState**）的 session 可用的
+Time travel 范围可能更短。运维人员可以调整 **history.windowEvents** 和每个 run 的 history 窗口；
+参见 [history 窗口配置](/reference/server/configuration#history-window)。
 
 session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 session 及其
 **get_agent_snapshot** RPC 在[保留期](/reference/server/configuration#retention)内仍可用，
@@ -304,6 +304,10 @@ session 在模型请求调用时，用 Worker 的时钟计算截止时间。保�
 
 Step 持有同一把锁时，**resolve_interrupt** 可能以 **RpcLockConflictError** 失败。重试是
 安全的。Python 的 **AgentSessionClient** 最多重试 5 秒。
+
+RPC 的锁由调用方发送。SDK Client 和 Dex Web 会带上 RPC 声明的锁。直接发送的
+**InvokeRPC** 请求（例如 **dexcli api call**）要在 **lock_attribute_keys** 里列出这些锁。
+不带锁时 RPC 不加锁运行，同一个审批的两个答复可能都成功。
 
 ## 查找需要人处理的 session {#find-sessions}
 
