@@ -40,7 +40,16 @@ While a Flow closes, the server rejects these new requests with gRPC
 
 - transactional or locking RPCs;
 - **WaitForStepCompletion** and **WaitForAttributeMatch**;
-- Channel message deletion.
+- Channel message deletion;
+- Channel publication by a client (**PublishToChannel**).
+
+A rejected publication stores no message. A Flow that is closing starts no
+Step, so no Step could consume it. Changed in 0.1.26: before, the server
+accepted the publication and stored the message.
+
+**SetAttributes** and RPCs that are neither transactional nor locking are
+still accepted while a Flow closes. An RPC that commits during the close,
+including one admitted before it, keeps its Channel publications.
 
 Each SDK exposes a typed Flow closing error. Re-read the retained terminal Flow
 state before you decide whether any further action is needed. The error does
@@ -255,6 +264,13 @@ The SDK doc comments name each error type.
 
 **WaitForFlow** waits for a terminal Flow status. A bounded wait can return a
 long-poll timeout while the Flow is still open. Call it again to keep waiting.
+
+Only a COMPLETED Flow returns the outputs of its completing Step decisions. A
+Flow that fails, is canceled, is terminated, or times out returns no outputs,
+even when a Step completed it gracefully with an output before another Step or
+a client closed it. **GetFlowState** and the result that a parent receives from
+a child Flow follow the same rule. Changed in 0.1.26: before, such a Flow kept
+the outputs collected before it closed.
 
 ## Wait for a Step {#wait-for-a-step}
 

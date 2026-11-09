@@ -25,7 +25,7 @@ use crate::projections::attribute_sync::has_attribute_sync_entries;
 use crate::projections::history_events;
 use crate::state_access::{FlowTransaction, read_flow_directory, write_flow_directory};
 use crate::steps::{arm_timer, disarm_timer, finish_step, is_active};
-use crate::values::wire_value;
+use crate::values::{ValueHolder, release_stored_value, wire_value};
 use crate::{ApplyEffect, ApplyError, WaitableChange};
 
 /// Whether a command's natural close must wait for transactional RPCs that the owner admitted.
@@ -186,6 +186,7 @@ pub(crate) fn close_flow(
     }
     debug_assert_close_is_classified(scope);
     cancel_attempt_work(transaction, cursor, scope, &closing)?;
+    discard_results_unless_completed(transaction, cursor, &closing)?;
     if should_defer_close(transaction, cursor, scope)? {
         cursor.record.is_graceful_completion_requested = false;
         cursor.record.pending_close = Some(closing.to_pending_close());
@@ -339,6 +340,32 @@ fn cancel_attempt_work(
     Ok(())
 }
 
+/// Only a COMPLETED Flow keeps the outputs its Steps collected; any other close releases them.
+fn discard_results_unless_completed(
+    transaction: &mut FlowTransaction<'_>,
+    cursor: &mut RunCursor,
+    closing: &FlowClosing,
+) -> Result<(), ApplyError> {
+    if closing.status == FlowStatus::Completed {
+        return Ok(());
+    }
+    let Some(close) = cursor.record.close.as_mut() else {
+        return Ok(());
+    };
+    let results = std::mem::take(&mut close.results);
+    for (index, output) in results.iter().enumerate() {
+        let Some(stored) = &output.completed_step_output else {
+            continue;
+        };
+        // The same index as collect_output and time travel give the holder.
+        let holder = ValueHolder::FlowResult {
+            index: u32::try_from(index).unwrap_or(u32::MAX),
+        };
+        release_stored_value(transaction, cursor.rows, stored, &holder, cursor.seq)?;
+    }
+    Ok(())
+}
+
 /// Records the close, arms retention, reports to the parent, and wakes waiters.
 fn record_close(
     transaction: &mut FlowTransaction<'_>,
@@ -347,6 +374,7 @@ fn record_close(
     closing: FlowClosing,
     is_closed_at_once: bool,
 ) -> Result<(), ApplyError> {
+    discard_results_unless_completed(transaction, cursor, &closing)?;
     cursor.record.status = closing.status as i32;
     cursor.record.closed_at_micros = scope.now_micros;
     cursor.record.is_graceful_completion_requested = false;

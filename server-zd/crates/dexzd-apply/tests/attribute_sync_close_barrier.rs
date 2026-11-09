@@ -26,12 +26,12 @@ use dexzd_keyspace::{
 };
 use dexzd_protocol::dex::{
     AttributeStoreNames, AttributeSyncConfig, AttributeWrite, ChannelMessage, CloseDecision,
-    CloseDecisionType, DeleteChannelMessageRequest, FlowConfig, FlowErrorType, FlowResetType,
-    FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IdReusePolicy, InvokeExecuteMethodResponse,
-    InvokeRpcRequest, InvokeWorkerRpcResponse, PublishToChannelRequest, ResetFlowRequest,
-    RetryPolicy, SetAttributesRequest, SkipTimerRequest, StartFlowRequest, StepDecision,
-    StepMovement, StepOptions, StopFlowRequest, StopType, Value, WorkerErrorResponse, WorkerTarget,
-    flow_history_event, value,
+    CloseDecisionType, DeleteChannelMessageRequest, ErrorSubStatus, FlowConfig, FlowErrorType,
+    FlowResetType, FlowStartOptions, FlowStatus, FlowTimeoutPolicy, IdReusePolicy,
+    InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWorkerRpcResponse,
+    PublishToChannelRequest, ResetFlowRequest, RetryPolicy, SetAttributesRequest, SkipTimerRequest,
+    StartFlowRequest, StepDecision, StepMovement, StepOptions, StopFlowRequest, StopType, Value,
+    WorkerErrorResponse, WorkerTarget, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeSyncAckCommand, AttributesSetCommand, ChannelMessageDeleteCommand,
@@ -670,6 +670,14 @@ fn assert_error(reply: &CommandReply, grpc_code: i32, message: &str) {
     }
 }
 
+fn assert_flow_closing(reply: &CommandReply) {
+    assert_error(reply, 9, TERMINAL_CLEANUP_MESSAGE);
+    let Some(command_reply::Reply::Error(error)) = &reply.reply else {
+        panic!("expected an error reply, got {reply:?}");
+    };
+    assert_eq!(error.sub_status, ErrorSubStatus::FlowClosing as i32);
+}
+
 fn reset(reset_type: FlowResetType) -> ResetFlowRequest {
     ResetFlowRequest {
         flow_id: FLOW_ID.to_owned(),
@@ -790,7 +798,7 @@ fn the_last_ack_across_two_stores_finalizes_the_close_and_records_flow_closed() 
 }
 
 #[test]
-fn writes_during_cleanup_are_accepted_and_extend_the_wait() {
+fn attribute_and_rpc_writes_during_cleanup_are_accepted_and_extend_the_wait() {
     let mut harness = Harness::new();
     harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
     harness.force_complete(Vec::new());
@@ -799,7 +807,6 @@ fn writes_during_cleanup_are_accepted_and_extend_the_wait() {
     let set = harness.set(vec![synced("status", "verified")], "late-set");
     assert!(is_ok(&set.reply), "SetAttributes is a signal in Go");
     let set_seq = harness.last_seq();
-    assert!(is_ok(&harness.publish("m1").reply));
     for (request_id, is_transactional) in [("late-rpc", false), ("admitted-locked-rpc", true)] {
         let rpc = harness.rpc(request_id, is_transactional);
         assert!(
@@ -824,6 +831,85 @@ fn writes_during_cleanup_are_accepted_and_extend_the_wait() {
 }
 
 #[test]
+fn client_publications_fail_during_cleanup_and_store_nothing() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    assert!(
+        is_ok(&harness.publish("before-close").reply),
+        "a running Flow accepts publications"
+    );
+    harness.force_complete(Vec::new());
+    let deferred_seq = harness.last_seq();
+
+    let published = harness.publish("during-cleanup");
+    assert_flow_closing(&published.reply);
+    assert!(
+        published.writes.is_empty(),
+        "a rejected publication stores nothing"
+    );
+    assert_eq!(harness.last_seq(), deferred_seq, "no history is recorded");
+    assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+
+    harness.ack(PRIMARY, deferred_seq);
+    assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
+}
+
+#[test]
+fn a_pending_failed_close_drops_graceful_outputs_at_once() {
+    let mut harness = Harness::new();
+    harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
+    harness.start_execute("ChargeStep-1");
+    harness.complete_execute(
+        "ChargeStep-1",
+        next_steps(&["ShipStep", "PackStep"]),
+        Vec::new(),
+    );
+    harness.start_execute("ShipStep-1");
+    let graceful = StepDecision {
+        close_decision: Some(CloseDecision {
+            close_decision_type: CloseDecisionType::GracefulComplete as i32,
+            close_input: Some(string_value("shipped")),
+            ..CloseDecision::default()
+        }),
+        ..StepDecision::default()
+    };
+    harness.complete_execute("ShipStep-1", graceful, Vec::new());
+    assert_eq!(
+        harness
+            .run_record()
+            .close
+            .expect("collected output")
+            .results
+            .len(),
+        1
+    );
+    harness.start_execute("PackStep-1");
+    let force_fail = StepDecision {
+        close_decision: Some(CloseDecision {
+            close_decision_type: CloseDecisionType::ForceFail as i32,
+            ..CloseDecision::default()
+        }),
+        ..StepDecision::default()
+    };
+    harness.complete_execute("PackStep-1", force_fail, Vec::new());
+
+    let pending = harness.run_record();
+    assert_eq!(pending.status, FlowStatus::Running as i32);
+    assert_eq!(
+        pending.pending_close.as_ref().map(|close| close.status),
+        Some(FlowStatus::Failed as i32)
+    );
+    assert!(
+        pending.close.expect("close details").results.is_empty(),
+        "the pending FAILED close already dropped the output"
+    );
+    harness.ack(PRIMARY, harness.last_seq());
+    let closed = harness.run_record();
+    assert_eq!(closed.status, FlowStatus::Failed as i32);
+    assert!(closed.close.expect("close details").results.is_empty());
+}
+
+#[test]
 fn update_class_requests_fail_during_cleanup() {
     let mut harness = Harness::new();
     harness.start(&[PRIMARY], vec![synced("status", "opened")], 60);
@@ -839,7 +925,7 @@ fn update_class_requests_fail_during_cleanup() {
         }),
         request_fingerprint: Vec::new(),
     }));
-    assert_error(&deleted.reply, 9, TERMINAL_CLEANUP_MESSAGE);
+    assert_flow_closing(&deleted.reply);
     assert!(deleted.writes.is_empty());
     assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
 }
@@ -1061,7 +1147,9 @@ fn rebuilt_cleanup_points_equal_their_recorded_states() {
     let set = harness.set(vec![synced("status", "late")], "late-set");
     assert!(is_ok(&set.reply));
     points.push((harness.now_micros, harness.semantic_point_hash()));
-    assert!(is_ok(&harness.publish("m1").reply));
+    assert_flow_closing(&harness.publish("m1").reply);
+    let unsynced_set = harness.set(vec![unsynced("note", "late")], "late-unsynced-set");
+    assert!(is_ok(&unsynced_set.reply));
     points.push((harness.now_micros, harness.semantic_point_hash()));
     harness.ack(PRIMARY, harness.last_seq());
     assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
@@ -1299,7 +1387,9 @@ fn rebuilt_rpc_held_cleanup_points_equal_their_recorded_states() {
         harness.complete_execute("ChargeStep-1", force_complete(), Vec::new());
         harness.is_transactional_rpc_in_flight = false;
         points.push((harness.now_micros, harness.semantic_point_hash()));
-        assert!(is_ok(&harness.publish("m1").reply));
+        assert_flow_closing(&harness.publish("m1").reply);
+        let set = harness.set(vec![unsynced("note", "late")], "late-set");
+        assert!(is_ok(&set.reply));
         points.push((harness.now_micros, harness.semantic_point_hash()));
         if is_finalized_by_check {
             harness.check_pending_close();

@@ -16,10 +16,10 @@ use std::time::Duration;
 use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::{
     AttributeMatch, AttributeMatchOperator, AttributeStoreNames, AttributeSyncConfig,
-    AttributeWrite, DeleteChannelMessageRequest, ErrorSubStatus, FlowConfig, FlowErrorType,
-    FlowResetType, FlowStartOptions, FlowStatus, GetFlowSummaryRequest, ResetFlowRequest,
-    SetAttributesRequest, StartFlowRequest, Value, WaitForAttributeRequest, WaitForFlowRequest,
-    WorkerTarget, value,
+    AttributeWrite, ChannelMessage, DeleteChannelMessageRequest, ErrorSubStatus, FlowConfig,
+    FlowErrorType, FlowResetType, FlowStartOptions, FlowStatus, GetFlowSummaryRequest,
+    PublishToChannelRequest, ResetFlowRequest, SetAttributesRequest, StartFlowRequest, Value,
+    WaitForAttributeRequest, WaitForFlowRequest, WorkerTarget, value,
 };
 use dexzd_server::DevCommandOptions;
 use tokio::io::copy_bidirectional;
@@ -236,8 +236,8 @@ async fn wait_for_flow_returns_after_every_accepted_synced_write_is_in_the_table
     database.drop_schema().await;
 }
 
-/// A store outage holds a natural close: the run stays RUNNING, update-class requests fail, and
-/// writes are still accepted until the store recovers.
+/// A store outage holds a natural close: the run stays RUNNING, update-class requests and Channel
+/// publications fail, and Attribute writes are still accepted until the store recovers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_store_outage_delays_a_natural_close_until_the_store_recovers() {
     let Ok(database_url) = std::env::var("DEX_ZD_PARADEDB_URL") else {
@@ -313,6 +313,23 @@ async fn a_store_outage_delays_a_natural_close_until_the_store_recovers() {
     assert_eq!(channel_delete.code(), tonic::Code::FailedPrecondition);
     assert_eq!(
         service_error(&channel_delete).sub_status,
+        ErrorSubStatus::FlowClosing as i32
+    );
+    let channel_publish = flow_client
+        .publish_to_channel(PublishToChannelRequest {
+            flow_id: flow_id.to_owned(),
+            messages: vec![ChannelMessage {
+                channel_name: "orders".to_owned(),
+                value: Some(string_value("published-in-cleanup")),
+                ..ChannelMessage::default()
+            }],
+            ..PublishToChannelRequest::default()
+        })
+        .await
+        .expect_err("PublishToChannel fails during terminal cleanup");
+    assert_eq!(channel_publish.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        service_error(&channel_publish).sub_status,
         ErrorSubStatus::FlowClosing as i32
     );
     flow_client

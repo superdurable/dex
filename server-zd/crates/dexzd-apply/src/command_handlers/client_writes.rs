@@ -213,6 +213,10 @@ pub(crate) fn apply_channel_publish(
     if !is_running(&cursor) {
         return Ok(HandlerResult::Rejected(closed_flow_reply(scope.flow_id())));
     }
+    // A pending close canceled every Step and starts none, so nothing could consume the message.
+    if is_terminal_cleanup_in_progress(&cursor) {
+        return Ok(HandlerResult::Rejected(terminal_cleanup_reply()));
+    }
     let published = match apply_channel_publications(transaction, &mut cursor, &request.messages)? {
         Ok(published) => published,
         Err(rejection) => {
