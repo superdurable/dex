@@ -59,6 +59,37 @@ Step rows in each of its later commands. Upgrade the active process and the
 standby together, as above.
 WaitForStepCompletion answers stay the same.
 
+Changed in 0.1.23: each run chooses at start whether it offloads its history,
+with the **offload_history** field of its Flow configuration. It defaults to
+true in **serve**, **dev**, and **local**, so runs that start after the upgrade
+offload unless they turn it off. Remove **history.offloadEnabled** from the
+configuration before you upgrade: **false** fails startup, and **true** only
+logs a warning. The removed keys **history.deleteExpiredObjects** and
+**history.maxRetainedSupersededBytes** also only log a warning.
+
+Runs that started before the upgrade keep the offload mode that their partition
+recorded at the upgrade. Where offload was off at the upgrade, as on a **serve**
+deployment that never turned **history.offloadEnabled** on, they keep their new
+history on local disk for their whole life, and nothing migrates. A partition
+that turned offload on and then off again is off too: its runs seal no new
+segments and stop migrating. Segments sealed before can still finish uploading,
+and uploaded history stays readable. Where offload was on at the upgrade, such
+as 0.1.22 on **dev** and **local** or a **serve** deployment with the switch on,
+the runs it offloaded stay offloaded. There, a run that recorded history before
+offload was turned on migrates lazily: each command that records history seals
+one more segment of that older history, and the lease holder uploads it in the
+background. An idle
+run keeps that older history on local disk until it receives commands again. A closed run never migrates and keeps its
+local history until its retention ends. See
+[History offload](/reference/server/configuration#history-offload).
+
+After the first start with 0.1.23, do not run an earlier release on that storage
+prefix or data directory: history that new runs removed from local disk needs
+object storage reads. Roll forward, or restore a backup taken before the upgrade
+into a new prefix. The upgrade also changes apply results, so stop the standby
+and the active process, upgrade both binaries, then start the active process
+first and the standby after it.
+
 A later release that raises the minimum protocol needs the same care. Stop old
 Workers and their traffic before that server upgrade, or use isolated blue and
 green environments so deployments with disjoint intervals never communicate.

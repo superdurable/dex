@@ -183,7 +183,7 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 | --- | --- | --- |
 | **limits.maxFlowStateBytes** | 64 MiB | 一个 session 的活动状态：当前状态，包括它持有的 Attribute 和 Channel 值。history 以及 history 为 time travel 保留的被替换值不计入。 |
 | **values.maxValueBytes** | 16 MiB | 单个值的上限，比如一条消息、一条 tool call 记录或一份 framework run state |
-| **history.windowEvents** | 约 10,000 个事件 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
+| **history.windowEvents** | 约 50,000 个事件；**dev** 和 **local** 为 5,000 个 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
 | **retention.closedFlowDuration** | 7 天 | 已停止的 session 还能读取多久 |
 
 每个 run 在启动时记录这些值。新值只对服务器带着新值重启之后启动的 session 生效。
@@ -214,12 +214,11 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 
 已失败的 session 无法恢复。提高上限只对新 session 生效。规划时让 session 远低于 64 MiB。
 
-Flow history 大约保留一个 session 最新的 10,000 个事件。读取对话用
-**get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
+Flow history 大约保留一个 session 最新的 50,000 个事件；**dev** 和 **local** 为 5,000 个。
+读取对话用 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
 [Time travel](/reference/server/runtime-client#time-travel) 只能以
 [history 窗口](/reference/server/configuration#history-window)内的时间点为目标。
-Time travel 到起点始终可用。重写大值（比如 **FrameworkRunState**）的 session 可用的
-Time travel 范围可能更短。运维人员可以调整 **history.windowEvents** 和每个 run 的 history 窗口；
+Time travel 到起点始终可用。运维人员可以调整 **history.windowEvents** 和每个 run 的 history 窗口；
 参见 [history 窗口配置](/reference/server/configuration#history-window)。
 
 session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 session 及其
