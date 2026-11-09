@@ -24,6 +24,8 @@ type SharedDocsSidebarData = {
 
 const referencePluginPrefix = 'reference-';
 const desktopSidebarScrollerSelector = '.theme-doc-sidebar-container nav.menu';
+// Longer than the Docusaurus Collapsible animation.
+const categoryAnimationMs = 400;
 
 // Survives the remount that happens when a link crosses into another docs instance.
 let desktopSidebarScrollTop: number | undefined;
@@ -85,7 +87,8 @@ function useSharedDocsSidebar(): PropSidebar {
 // On the first page of a visit, bring the current page's link into view.
 function revealActiveSidebarLink(scroller: HTMLElement): void {
   const activeLink = scroller.querySelector<HTMLElement>('a[aria-current="page"]');
-  if (!activeLink) {
+  // The reader already scrolled the sidebar.
+  if (!activeLink || scroller.scrollTop !== 0) {
     return;
   }
   const scrollerBox = scroller.getBoundingClientRect();
@@ -101,14 +104,20 @@ function useKeepDesktopSidebarScroll(): void {
     if (!scroller) {
       return undefined;
     }
-    if (desktopSidebarScrollTop !== undefined) {
-      scroller.scrollTop = desktopSidebarScrollTop;
-    } else {
-      revealActiveSidebarLink(scroller);
-    }
     const rememberScroll = () => {
       desktopSidebarScrollTop = scroller.scrollTop;
     };
+    if (desktopSidebarScrollTop !== undefined) {
+      scroller.scrollTop = desktopSidebarScrollTop;
+    } else {
+      // Saved category state opens categories after the first paint, with a short animation.
+      const revealTimer = window.setTimeout(() => revealActiveSidebarLink(scroller), categoryAnimationMs);
+      scroller.addEventListener('scroll', rememberScroll, {passive: true});
+      return () => {
+        window.clearTimeout(revealTimer);
+        scroller.removeEventListener('scroll', rememberScroll);
+      };
+    }
     scroller.addEventListener('scroll', rememberScroll, {passive: true});
     return () => scroller.removeEventListener('scroll', rememberScroll);
   }, []);

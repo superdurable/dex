@@ -25,6 +25,11 @@ import {
 import './api-reference-redirect.mjs';
 
 const siteOrigin = 'https://docs.superdurable.io';
+
+// The generated API pages are built at deploy time, so a page below a retained version cannot be checked here.
+function isRetainedApiReferencePath(pathname) {
+  return [...apiEntryPaths].some((entryPath) => pathname.startsWith(entryPath));
+}
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const docsRoot = join(root, '..');
 const redirectsPath = join(root, '..', 'redirects.json');
@@ -500,7 +505,7 @@ for (const [canonical, {html, route}] of canonicalPages) {
     }
     const isRoute = canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
       outputFilePaths.has(decodeURIComponent(target.pathname).replace(/^\//, '')) ||
-      apiEntryPaths.has(target.pathname);
+      isRetainedApiReferencePath(target.pathname);
     // Archived snapshots are frozen, so their links may reach a moved page through its declared redirect.
     if (archivedCanonicalUrls.has(canonical)) {
       const redirectTarget = expectedRedirects.get(routeWithTrailingSlash(target.pathname));
@@ -563,7 +568,7 @@ for (const [canonical, {html, route}] of canonicalPages) {
       const target = new URL(node.url);
       if (target.origin === siteOrigin) {
         assert.ok(canonicalPages.has(new URL(target.pathname, siteOrigin).href) ||
-          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || apiEntryPaths.has(target.pathname) ||
+          outputFilePaths.has(decodeURIComponent(target.pathname).slice(1)) || isRetainedApiReferencePath(target.pathname) ||
           (archivedCanonicalUrls.has(canonical) && isApiReferenceVersionPath(target.pathname)),
           `${pathname} links to missing ${target.pathname}`);
       }

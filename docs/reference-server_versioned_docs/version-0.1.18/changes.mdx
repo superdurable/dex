@@ -14,13 +14,13 @@ Released 2026-11-05 as [server-zd/v0.1.18](https://github.com/superdurable/dex/r
 
 ### Breaking
 
-- **dev** now defaults to strict durability and flushes acknowledged writes to disk. Pass **--durability process-crash-safe** or set **dev.durabilityMode** to **processCrashSafe** for the previous behavior. [Reference](/reference/server/0.1.18/configuration#single-node-local-durability).
+- **dev** now defaults to strict durability and flushes acknowledged writes to disk. Pass **--durability process-crash-safe** or set **dev.durabilityMode** to **processCrashSafe** for the previous behavior. [Reference](/reference/server/configuration#single-node-local-durability).
 - Strict startup fails if the embedded store cannot open or flush its data directory or an ancestor directory. Fix the named directory before restarting. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.18).
 - All durability modes refuse a data directory left unclean by a release before 0.1.4. Delete that directory to start empty; cleanly stopped directories remain usable. [Release notes](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.18).
 
 ### Added
 
-- **dex-server-zd dev --durability** selects **strict**, **process-crash-safe**, or **relaxed** and overrides **dev.durabilityMode**. [Reference](/reference/server/0.1.18/configuration#single-node-local-durability).
+- **dex-server-zd dev --durability** selects **strict**, **process-crash-safe**, or **relaxed** and overrides **dev.durabilityMode**. [Reference](/reference/server/configuration#single-node-local-durability).
 
 ### Changed
 
