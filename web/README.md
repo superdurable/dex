@@ -861,8 +861,12 @@ While a run is active, **Set attribute** writes one Attribute and **Publish
 message** publishes one Channel message to that run. Each takes a JSON,
 string, int64, double, or boolean value. Int64 values travel as decimal text so
 large values keep their precision.
-The Overview **History** card shows the run's `FlowConfig.history_window_events`
-and `delete_expired_history_objects`. An unset field reads **Server default**.
+The Overview **History settings** section shows the run's
+`FlowConfig.history_window_events` as **Retention window**, read as "Last N
+events", and `delete_expired_history_objects` as **Delete expired history from
+object storage**. An unset field reads **Server default**. Expired history is
+never readable either way; the switch only controls whether its object storage
+files are deleted.
 While the run is active, **Edit** changes either field through
 `PUT /api/flows/config/history`, which calls `UpdateFlowConfig` with only the
 changed fields. `UpdateFlowConfig` merges the fields it receives, so the run's

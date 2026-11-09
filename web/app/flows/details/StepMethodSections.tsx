@@ -9,6 +9,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { LongValue } from '@/app/components/StructuredValue';
 import {
   isBlobReferenceValue,
   isStoredValueUnavailable,
@@ -145,8 +146,8 @@ export function ValueBlock({
     <div className="semantic-value">
       <span>{label}</span>
       {decoded && typeof decoded === 'object'
-        ? <pre>{JSON.stringify(decoded, null, 2)}</pre>
-        : <code>{displayValue(decoded)}</code>}
+        ? <LongValue text={JSON.stringify(decoded, null, 2)} isBlock />
+        : <LongValue text={displayValue(decoded)} isBlock={false} />}
     </div>
   );
 }

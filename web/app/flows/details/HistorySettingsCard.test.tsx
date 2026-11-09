@@ -47,7 +47,7 @@ describe('history settings card', () => {
         onSaved={vi.fn()}
       />,
     );
-    expect(screen.getByText('2,500 events')).toBeTruthy();
+    expect(screen.getByText('Last 2,500 events')).toBeTruthy();
     expect(screen.getByText('Off')).toBeTruthy();
   });
 
@@ -61,7 +61,7 @@ describe('history settings card', () => {
       completedSteps: [],
     } as unknown as FlowState;
     render(
-      <FlowOverview summary={runningSummary} events={[]} state={state} selectedEvent={null} onHistorySettingsSaved={vi.fn()} />,
+      <FlowOverview summary={runningSummary} events={[]} state={state} onHistorySettingsSaved={vi.fn()} />,
     );
     expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
     expect(screen.getAllByText('Server default')).toHaveLength(2);
@@ -91,7 +91,7 @@ describe('history settings card', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: '800' } });
+    fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: '800' } });
     fireEvent.click(save);
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ historyWindowEvents: 800 }, runningSummary));
@@ -115,12 +115,12 @@ describe('history settings card', () => {
     render(<HistorySettingsCard summary={runningSummary} flowConfig={{}} onSaved={onSaved} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    fireEvent.change(screen.getByLabelText('Delete expired history objects'), { target: { value: 'on' } });
+    fireEvent.change(screen.getByLabelText('Delete expired history from object storage'), { target: { value: 'on' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toBe('history window exceeds history.maxWindowEvents');
-    expect(screen.getByLabelText('History window (events)').getAttribute('aria-invalid')).toBeNull();
+    expect(screen.getByLabelText('Retention window (events)').getAttribute('aria-invalid')).toBeNull();
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
   });
@@ -131,12 +131,12 @@ describe('history settings card', () => {
     render(<HistorySettingsCard summary={runningSummary} flowConfig={{}} onSaved={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     const alert = screen.getByRole('alert');
     expect(alert.textContent).toBe('Enter a positive whole number of events.');
-    const windowInput = screen.getByLabelText('History window (events)');
+    const windowInput = screen.getByLabelText('Retention window (events)');
     expect(windowInput.getAttribute('aria-invalid')).toBe('true');
     expect(windowInput.getAttribute('aria-describedby')).toBe(alert.id);
     expect(fetchMock).not.toHaveBeenCalled();

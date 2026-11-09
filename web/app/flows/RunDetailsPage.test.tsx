@@ -908,7 +908,7 @@ function runPage(runId: string) {
 
 async function saveHistoryWindow(windowEvents: string) {
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-  fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: windowEvents } });
+  fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: windowEvents } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 }
 
@@ -920,7 +920,7 @@ describe('history settings on the run page', () => {
   it('keeps saved values when a state load started before the save resolves after it', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = null;
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -934,44 +934,44 @@ describe('history settings on the run page', () => {
     dex.heldStateReads[0]({ historyWindowEvents: 500 });
     await settleStateLoads();
 
-    expect(screen.getByText('800 events')).toBeTruthy();
-    expect(screen.queryByText('500 events')).toBeNull();
+    expect(screen.getByText('Last 800 events')).toBeTruthy();
+    expect(screen.queryByText('Last 500 events')).toBeNull();
   });
 
   it('keeps saved values across a tab switch while the refresh fails', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = 'fail';
     await saveHistoryWindow('800');
     await screen.findByText('GetFlowState failed');
-    expect(screen.getByText('800 events')).toBeTruthy();
+    expect(screen.getByText('Last 800 events')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Streams' }));
-    await waitFor(() => expect(screen.queryByText('800 events')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Last 800 events')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
-    expect(await screen.findByText('800 events')).toBeTruthy();
-    expect(screen.queryByText('500 events')).toBeNull();
+    expect(await screen.findByText('Last 800 events')).toBeTruthy();
+    expect(screen.queryByText('Last 500 events')).toBeNull();
   });
 
   it('shows the server values from a state load started after the save', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     // Another client wrote 1200 after this save, so the server value must replace the saved one.
     dex.immediateStateReply = { historyWindowEvents: 1200 };
     await saveHistoryWindow('800');
 
-    expect(await screen.findByText('1,200 events')).toBeTruthy();
-    expect(screen.queryByText('800 events')).toBeNull();
+    expect(await screen.findByText('Last 1,200 events')).toBeTruthy();
+    expect(screen.queryByText('Last 800 events')).toBeNull();
   });
 
   it('never lets an older state load overwrite a newer one', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = null;
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -980,38 +980,38 @@ describe('history settings on the run page', () => {
     await waitFor(() => expect(dex.heldStateReads).toHaveLength(2));
 
     dex.heldStateReads[1]({ historyWindowEvents: 900 });
-    await screen.findByText('900 events');
+    await screen.findByText('Last 900 events');
     dex.heldStateReads[0]({ historyWindowEvents: 700 });
     await settleStateLoads();
 
-    expect(screen.getByText('900 events')).toBeTruthy();
-    expect(screen.queryByText('700 events')).toBeNull();
+    expect(screen.getByText('Last 900 events')).toBeTruthy();
+    expect(screen.queryByText('Last 700 events')).toBeNull();
   });
 
   it('ignores a save on one run that finishes after the page moved to another run', async () => {
     const dex = historySettingsDex();
     dex.stateReplyByRunId['run-2'] = { historyWindowEvents: 1500 };
     const { rerender } = render(runPage('run-1'));
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.shouldHoldConfigUpdates = true;
     await saveHistoryWindow('800');
     await waitFor(() => expect(dex.heldConfigUpdates).toHaveLength(1));
     rerender(runPage('run-2'));
-    await screen.findByText('1,500 events');
+    await screen.findByText('Last 1,500 events');
 
     dex.immediateStateReply = 'fail';
     dex.heldConfigUpdates[0]();
     await settleStateLoads();
 
-    expect(screen.getByText('1,500 events')).toBeTruthy();
-    expect(screen.queryByText('800 events')).toBeNull();
+    expect(screen.getByText('Last 1,500 events')).toBeTruthy();
+    expect(screen.queryByText('Last 800 events')).toBeNull();
   });
 
   it('ignores a save that finishes after the run attempt changed', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.shouldHoldConfigUpdates = true;
     await saveHistoryWindow('800');
@@ -1020,21 +1020,21 @@ describe('history settings on the run page', () => {
     dex.immediateStateReply = { historyWindowEvents: 1500 };
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     // The card stays in edit mode while its save is pending, so the new value shows as the placeholder.
-    await screen.findByPlaceholderText('Unchanged: 1,500 events');
+    await screen.findByPlaceholderText('Unchanged: Last 1,500 events');
 
     dex.immediateStateReply = 'fail';
     dex.heldConfigUpdates[0]();
     await settleStateLoads();
 
-    expect(screen.getByText('1,500 events')).toBeTruthy();
-    expect(screen.queryByText('800 events')).toBeNull();
+    expect(screen.getByText('Last 1,500 events')).toBeTruthy();
+    expect(screen.queryByText('Last 800 events')).toBeNull();
   });
 
   it('keeps saved values when a pre-save load finishes blob hydration after the save', async () => {
     const dex = historySettingsDex();
     dex.immediateStateReply = { historyWindowEvents: 500, withBlob: true };
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
     await waitFor(() => expect(dex.heldBlobLoads).toHaveLength(1));
 
     dex.immediateStateReply = 'fail';
@@ -1043,7 +1043,7 @@ describe('history settings on the run page', () => {
     dex.heldBlobLoads[0]();
     await settleStateLoads();
 
-    expect(screen.getByText('800 events')).toBeTruthy();
-    expect(screen.queryByText('500 events')).toBeNull();
+    expect(screen.getByText('Last 800 events')).toBeTruthy();
+    expect(screen.queryByText('Last 500 events')).toBeNull();
   });
 });

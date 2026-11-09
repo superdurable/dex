@@ -25,6 +25,22 @@ import type {
   FlowState,
   FlowSummary,
 } from '@/lib/types';
+import {
+  CalendarClock,
+  Flag,
+  History,
+  LayoutDashboard,
+  Layers,
+  Link as LinkIcon,
+  RefreshCw,
+  Rows3,
+  Square,
+  Timer,
+  Waves,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react';
+import { CopyButton } from '../components/CopyButton';
 import { StatusBadge } from '../components/StatusBadge';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
@@ -441,11 +457,11 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  const tabs: Array<[RunTab, string]> = [
-    ['overview', 'Overview'],
-    ['steps', 'Execution graph'],
-    ['timeline', 'Timeline'],
-    ['stream', 'Streams'],
+  const tabs: Array<[RunTab, string, LucideIcon]> = [
+    ['overview', 'Overview', LayoutDashboard],
+    ['steps', 'Execution graph', Workflow],
+    ['timeline', 'Timeline', Rows3],
+    ['stream', 'Streams', Waves],
   ];
   const history = runHistory.newest?.events ?? noHistoryEvents;
   const timelineWindow = runHistory.timelineWindow;
@@ -660,12 +676,16 @@ export function RunDetailsPage({
   const isWaitingForHistory = history.length === 0 && (loading || pendingRunRequestCount > 0);
 
   return (
-    <div className="run-page">
-      <section className="run-header">
-        {breadcrumb}
-        <div className="run-title-row">
-          <div>
-            <h1>{flowId}</h1>
+    <div className="run-page v1-page">
+      <header className="run-header">
+        <h1 className="sr-only">Flow {flowId}, run {runId}</h1>
+        <div className="run-header-bar">
+          <div className="run-identity">
+            {breadcrumb}
+            <div className="run-identity-copy">
+              <CopyButton label="Copy Flow ID" value={flowId}>Flow ID</CopyButton>
+              <CopyButton label="Copy run ID" value={runId}>Run ID</CopyButton>
+            </div>
           </div>
           <div className="run-actions">
             {continuedToRunId && (
@@ -673,55 +693,89 @@ export function RunDetailsPage({
                 Next run
               </Link>
             )}
-            <label className="toggle-label">
+            <label className={`live-toggle${autoRefresh ? ' is-on' : ''}`}>
               <input
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(event) => setAutoRefresh(event.target.checked)}
               />
+              <span aria-hidden="true" className="live-toggle-dot" />
               Live
             </label>
-            <button className="button ghost" onClick={() => void navigator.clipboard.writeText(window.location.href)}>
+            <button
+              className="button quiet"
+              onClick={() => void navigator.clipboard.writeText(window.location.href)}
+              type="button"
+            >
+              <LinkIcon aria-hidden="true" size={15} strokeWidth={2} />
               Copy link
             </button>
-            <button className="button ghost" onClick={() => void refresh()}>Refresh</button>
+            <button className="button quiet" onClick={() => void refresh()} type="button">
+              <RefreshCw aria-hidden="true" size={15} strokeWidth={2} />
+              Refresh
+            </button>
             <button
-              className="button danger"
+              className="button quiet danger"
               disabled={!summary || terminalStatuses.has(summary.flowStatusCode)}
               onClick={() => setStopOpen(true)}
+              type="button"
             >
+              <Square aria-hidden="true" size={14} strokeWidth={2.25} />
               Stop
             </button>
             <button
-              className="button danger"
+              className="button quiet danger"
               onClick={() => openTimeTravel(selectedEvent ? selected : null)}
+              type="button"
             >
+              <History aria-hidden="true" size={15} strokeWidth={2} />
               Time Travel
             </button>
           </div>
         </div>
         {summary && (
-          <div className="summary-strip">
-            <div><span>Status</span><StatusBadge status={summary.flowStatus} /></div>
-            <div><span>Started</span><b>{formatDate(summary.startTime, timezone)}</b></div>
-            <div><span>Closed</span><b>{formatDate(summary.closeTime, timezone)}</b></div>
-            <div><span>Duration</span><b>{formatDuration(summary.startTime, summary.closeTime)}</b></div>
-            {currentRunAttempt > 0 ? (
+          <div className="run-summary">
+            <div className="run-summary-status">
+              <span className="sr-only">Status</span>
+              <StatusBadge status={summary.flowStatus} size="large" />
+            </div>
+            <dl className="run-facts">
               <div>
-                <span>Run attempt</span>
-                <RunAttemptSelect
-                  currentRunAttempt={currentRunAttempt}
-                  displayedRunAttempt={displayedRunAttempt}
-                  onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
-                />
+                <dt className="run-fact-label"><CalendarClock aria-hidden="true" size={14} strokeWidth={2} />Started</dt>
+                <dd>{formatDate(summary.startTime, timezone)}</dd>
               </div>
-            ) : (
-              <div><span>Run chain</span><b>{runChain.length}</b></div>
-            )}
+              {summary.closeTime && (
+                <div>
+                  <dt className="run-fact-label"><Flag aria-hidden="true" size={14} strokeWidth={2} />Closed</dt>
+                  <dd>{formatDate(summary.closeTime, timezone)}</dd>
+                </div>
+              )}
+              <div>
+                <dt className="run-fact-label"><Timer aria-hidden="true" size={14} strokeWidth={2} />Duration</dt>
+                <dd>{formatDuration(summary.startTime, summary.closeTime)}</dd>
+              </div>
+              {currentRunAttempt > 0 ? (
+                <div>
+                  <dt className="run-fact-label"><Layers aria-hidden="true" size={14} strokeWidth={2} />Run attempt</dt>
+                  <dd>
+                    <RunAttemptSelect
+                      currentRunAttempt={currentRunAttempt}
+                      displayedRunAttempt={displayedRunAttempt}
+                      onSelect={(runAttempt) => showRunAttempt(runAttempt === currentRunAttempt ? 0 : runAttempt)}
+                    />
+                  </dd>
+                </div>
+              ) : (
+                <div>
+                  <dt className="run-fact-label"><Layers aria-hidden="true" size={14} strokeWidth={2} />Run chain</dt>
+                  <dd>{runChain.length}</dd>
+                </div>
+              )}
+            </dl>
             <RunEventsTile latestEventId={latestEvent?.eventId ?? null} paging={eventsPaging} />
           </div>
         )}
-      </section>
+      </header>
 
       {isViewingEarlierRunAttempt && (
         <div className="warning-banner run-error">
@@ -738,15 +792,18 @@ export function RunDetailsPage({
       ))}
 
       <div className="run-tabs" role="tablist">
-        {tabs.map(([id, label]) => (
+        {tabs.map(([id, label, TabIcon]) => (
           <button
             key={id}
+            aria-current={tab === id ? 'page' : undefined}
             className={tab === id ? 'active' : ''}
             onClick={() => {
               setTab(id);
               persistRunTab(id);
             }}
+            type="button"
           >
+            <TabIcon aria-hidden="true" size={15} strokeWidth={2} />
             {label}
           </button>
         ))}
@@ -781,7 +838,6 @@ export function RunDetailsPage({
               summary={summary}
               events={displayedHistory}
               state={state}
-              selectedEvent={selected}
               deletingChannelMessage={deletingChannelMessage}
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}

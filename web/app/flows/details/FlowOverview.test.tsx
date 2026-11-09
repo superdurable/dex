@@ -45,7 +45,7 @@ describe('live Flow state failures', () => {
       { eventId: 2, eventTime: null, type: 'TimeTravelFork', payload: {} },
       { eventId: 3, eventTime: null, type: 'FlowClosed', payload: { results: ['newest-result'] } },
     ];
-    render(<FlowOverview summary={summary} events={events} state={null} selectedEvent={null} />);
+    render(<FlowOverview summary={summary} events={events} state={null} />);
     fireEvent.click(screen.getByRole('button', { name: /Close result/ }));
     expect(screen.getByText(/newest-result/)).toBeTruthy();
     expect(screen.queryByText(/ancestor-result/)).toBeNull();
@@ -70,7 +70,7 @@ describe('live Flow state failures', () => {
       payload: { results: ['ancestor-result'] },
     }];
     const markup = renderToStaticMarkup(
-      <FlowOverview summary={summary} events={events} state={null} selectedEvent={null} />,
+      <FlowOverview summary={summary} events={events} state={null} />,
     );
     expect(markup).not.toContain('Close result');
   });
@@ -118,7 +118,7 @@ describe('live Flow state failures', () => {
         summary={summary}
         events={[]}
         state={state}
-        selectedEvent={null}
+       
       />,
     );
 
@@ -167,7 +167,7 @@ describe('live Flow state failures', () => {
 
     const markup = renderToStaticMarkup(
       <PreferencesProvider>
-        <FlowOverview summary={summary} events={[]} state={state} selectedEvent={null} />
+        <FlowOverview summary={summary} events={[]} state={state} />
       </PreferencesProvider>,
     );
 
@@ -208,7 +208,7 @@ describe('live Flow state failures', () => {
     };
 
     const markup = renderToStaticMarkup(
-      <FlowOverview summary={summary} events={[]} state={state} selectedEvent={null} />,
+      <FlowOverview summary={summary} events={[]} state={state} />,
     );
 
     expect(markup).toContain('status');
@@ -273,7 +273,7 @@ describe('live Flow state failures', () => {
         summary={summary}
         events={[]}
         state={state}
-        selectedEvent={null}
+       
         onDeleteChannelMessage={async () => {}}
       />,
     );

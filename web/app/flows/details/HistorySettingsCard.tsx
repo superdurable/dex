@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useId, useState } from 'react';
+import { Pencil } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 
@@ -62,7 +63,7 @@ export function buildHistorySettingsUpdate(
 }
 
 function windowLabel(windowEvents: number | undefined): string {
-  return windowEvents === undefined ? 'Server default' : `${windowEvents.toLocaleString()} events`;
+  return windowEvents === undefined ? 'Server default' : `Last ${windowEvents.toLocaleString()} events`;
 }
 
 function deleteExpiredLabel(deleteExpired: boolean | undefined): string {
@@ -131,23 +132,26 @@ export function HistorySettingsCard({
   }
 
   return (
-    <section className="card overview-card history-settings-card">
-      <div className="section-heading history-settings-heading">
-        <div><p className="eyebrow">Run settings</p><h2>History</h2></div>
+    <section className="overview-section history-settings-card">
+      <header className="overview-section-head">
+        <h2>History settings</h2>
         {canEdit && !editing && (
-          <button className="button ghost live-state-write-button" onClick={startEditing}>
-            Edit
-          </button>
+          <div className="overview-section-actions">
+            <button className="button quiet" onClick={startEditing} type="button">
+              <Pencil aria-hidden="true" size={14} strokeWidth={2} />
+              Edit
+            </button>
+          </div>
         )}
-      </div>
+      </header>
       {!current && (
-        <p className="muted">History settings are shown and edited only while this run is active.</p>
+        <p className="overview-quiet">History settings are shown and edited only while this run is active.</p>
       )}
       {current && !editing && (
         <dl className="definition-list">
-          <div><dt>History window</dt><dd>{windowLabel(current.historyWindowEvents)}</dd></div>
+          <div><dt>Retention window</dt><dd>{windowLabel(current.historyWindowEvents)}</dd></div>
           <div>
-            <dt>Delete expired history objects</dt>
+            <dt>Delete expired history from object storage</dt>
             <dd>{deleteExpiredLabel(current.deleteExpiredHistoryObjects)}</dd>
           </div>
         </dl>
@@ -155,7 +159,7 @@ export function HistorySettingsCard({
       {current && editing && (
         <div className="history-settings-form">
           <label>
-            History window (events)
+            Retention window (events)
             <input
               inputMode="numeric"
               aria-invalid={isValidationError || undefined}
@@ -166,7 +170,7 @@ export function HistorySettingsCard({
             />
           </label>
           <label>
-            Delete expired history objects
+            Delete expired history from object storage
             <select
               value={deleteChoice}
               onChange={(event) => setDeleteChoice(event.target.value as DeleteExpiredChoice)}
@@ -178,6 +182,12 @@ export function HistorySettingsCard({
               <option value="off">Off</option>
             </select>
           </label>
+          <p className="overview-note history-settings-note">
+            A saved value overrides the server default for this run. It can be changed later but not
+            cleared back to the server default. A smaller window prunes older events for good.
+            Expired history is never readable either way; turning deletion on only deletes the
+            object storage files of history the window already passed.
+          </p>
           {error && <div className="error-banner" id={errorId} role="alert">{error}</div>}
           <div className="history-settings-actions">
             <button className="button ghost" disabled={saving} onClick={() => setEditing(false)}>
@@ -189,11 +199,10 @@ export function HistorySettingsCard({
           </div>
         </div>
       )}
-      {current && (
-        <p className="muted history-settings-note">
-          A saved value overrides the server default for this run. It can be changed later but not
-          cleared back to the server default. A smaller window prunes older events for good, and
-          turning deletion on deletes history objects the window already passed.
+      {current && !editing && (
+        <p className="overview-note history-settings-note">
+          Saved values override the server default and cannot be cleared. Expired history is
+          never readable; the switch only deletes its object storage files.
         </p>
       )}
     </section>

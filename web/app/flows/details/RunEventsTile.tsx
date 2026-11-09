@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { ChevronDown, ChevronsDown, ChevronsUp, ChevronUp, ListOrdered, Undo2 } from 'lucide-react';
+
 /** The event page that the Execution graph and the Timeline share, and its page buttons. */
 export interface RunEventsPaging {
   /** The oldest and newest event IDs on the page. */
@@ -32,17 +34,17 @@ export interface RunEventsPaging {
 export function RunEventsTile({ latestEventId, paging }: { latestEventId: number | null; paging: RunEventsPaging | null }) {
   return (
     <div className="run-events-tile">
-      <span>Events</span>
-      <b className="run-events-latest">{latestEventId === null ? 'None' : `Latest #${latestEventId}`}</b>
-      {paging && (
-        <>
+      <span className="run-fact-label"><ListOrdered aria-hidden="true" size={14} strokeWidth={2} />Events</span>
+      <div className="run-events-line">
+        <b className="run-events-latest">{latestEventId === null ? 'None' : `Latest #${latestEventId}`}</b>
+        {paging && (
           <span className="run-events-range">
             Showing #{paging.firstEventId}–#{paging.lastEventId}
             {pageLabel(paging) ? ` · ${pageLabel(paging)}` : ''}
           </span>
-          <RunEventsPager paging={paging} />
-        </>
-      )}
+        )}
+      </div>
+      {paging && <RunEventsPager paging={paging} />}
     </div>
   );
 }
@@ -58,25 +60,30 @@ function RunEventsPager({ paging }: { paging: RunEventsPaging }) {
   return (
     <div aria-busy={paging.isLoading} aria-label="Event pages" className="run-events-pager" role="group">
       {paging.canGoBack && (
-        <button className="button ghost" disabled={paging.isLoading} onClick={paging.onBack} type="button">
+        <button className="pager-button" disabled={paging.isLoading} onClick={paging.onBack} type="button">
+          <Undo2 aria-hidden="true" size={14} strokeWidth={2} />
           Back
         </button>
       )}
-      <button className="button ghost" disabled={isNewerDisabled} onClick={paging.onLatestPage} type="button">
+      <button className="pager-button" disabled={isNewerDisabled} onClick={paging.onLatestPage} type="button">
+        <ChevronsUp aria-hidden="true" size={14} strokeWidth={2} />
         Latest page
       </button>
       <button
-        className="button ghost"
+        className="pager-button"
         disabled={isNewerDisabled || !paging.hasNewer}
         onClick={paging.onNewerPage}
         type="button"
       >
+        <ChevronUp aria-hidden="true" size={14} strokeWidth={2} />
         Newer page
       </button>
-      <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onOlderPage} type="button">
+      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOlderPage} type="button">
+        <ChevronDown aria-hidden="true" size={14} strokeWidth={2} />
         Older page
       </button>
-      <button className="button ghost" disabled={isOlderDisabled} onClick={paging.onOldestPage} type="button">
+      <button className="pager-button" disabled={isOlderDisabled} onClick={paging.onOldestPage} type="button">
+        <ChevronsDown aria-hidden="true" size={14} strokeWidth={2} />
         Oldest page
       </button>
     </div>

@@ -8,6 +8,7 @@
 
 'use client';
 
+import { useState } from 'react';
 import {
   isBlobReferenceValue,
   isStoredValueUnavailable,
@@ -87,12 +88,60 @@ function Fields({ values }: { values: Array<[string, unknown]> }) {
   );
 }
 
-function ValueChip({ value }: { value: unknown }) {
+const longValueCharacters = 320;
+const longValueLines = 8;
+
+function isLongValue(text: string): boolean {
+  return text.length > longValueCharacters || text.split('\n').length > longValueLines;
+}
+
+function truncatedValue(text: string): string {
+  const firstLines = text.split('\n').slice(0, longValueLines).join('\n');
+  return `${firstLines.slice(0, longValueCharacters)}…`;
+}
+
+function valueSizeLabel(text: string): string {
+  const bytes = new TextEncoder().encode(text).length;
+  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+/** Shows a value, truncating a long one behind a Show all control. */
+export function LongValue({
+  text,
+  isBlock,
+  isForcedOpen = false,
+}: {
+  text: string;
+  isBlock: boolean;
+  isForcedOpen?: boolean;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isLong = isLongValue(text);
+  const isShowingAll = !isLong || isExpanded || isForcedOpen;
+  const shown = isShowingAll ? text : truncatedValue(text);
+  return (
+    <>
+      {isBlock ? <pre>{shown}</pre> : <code>{shown}</code>}
+      {isLong && !isForcedOpen && (
+        <button
+          aria-expanded={isExpanded}
+          className="value-expand-button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          type="button"
+        >
+          {isExpanded ? 'Show less' : `Show all · ${valueSizeLabel(text)}`}
+        </button>
+      )}
+    </>
+  );
+}
+
+function ValueChip({ value, expandValues = false }: { value: unknown; expandValues?: boolean }) {
   const decoded = decodedValue(value);
   if (decoded && typeof decoded === 'object') {
-    return <pre>{JSON.stringify(decoded, storedValueJSONReplacer, 2)}</pre>;
+    return <LongValue text={JSON.stringify(decoded, storedValueJSONReplacer, 2)} isBlock isForcedOpen={expandValues} />;
   }
-  return <code>{displayValue(decoded)}</code>;
+  return <LongValue text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />;
 }
 
 function unixTime(value: unknown, timezone: TimezonePreference): string | undefined {
@@ -180,7 +229,7 @@ function WaitingConditionStructured({
   );
 }
 
-function KeyValueListStructured({ value }: { value: unknown }) {
+function KeyValueListStructured({ value, expandValues }: { value: unknown; expandValues: boolean }) {
   const groups = groupPersistenceEntries(
     asDataArray(value),
     (entry) => typeof entry.key === 'string' ? entry.key : displayValue(entry.key),
@@ -190,17 +239,17 @@ function KeyValueListStructured({ value }: { value: unknown }) {
       {groups.map((group) => group.kind === 'value' ? (
         <div className="semantic-record" key={`${String(group.entry.key)}-${group.index}`}>
           <strong>{displayValue(group.entry.key)}</strong>
-          <div className="semantic-value"><ValueChip value={group.entry.value} /></div>
+          <div className="semantic-value"><ValueChip value={group.entry.value} expandValues={expandValues} /></div>
         </div>
       ) : (
         <div className="semantic-record semantic-map-record" key={group.name}>
           <strong>{group.name}</strong>
           <div className="semantic-map-list">
             {group.entries.map(({ entry, instance, index }) => (
-              <details className="semantic-record semantic-map-entry" key={`${instance}-${index}`}>
+              <details className="semantic-record semantic-map-entry" key={`${instance}-${index}`} open={expandValues || undefined}>
                 <summary><strong>{instance}</strong></summary>
                 <div className="semantic-record-content">
-                  <div className="semantic-value"><ValueChip value={entry.value} /></div>
+                  <div className="semantic-value"><ValueChip value={entry.value} expandValues={expandValues} /></div>
                 </div>
               </details>
             ))}
@@ -211,22 +260,22 @@ function KeyValueListStructured({ value }: { value: unknown }) {
   );
 }
 
-function ChannelValues({ value }: { value: unknown }) {
+function ChannelValues({ value, expandValues }: { value: unknown; expandValues: boolean }) {
   const messages = asDataArray(asData(value).messages);
-  if (messages.length === 0) return <ValueChip value={value} />;
+  if (messages.length === 0) return <ValueChip value={value} expandValues={expandValues} />;
   return (
     <div className="semantic-records semantic-channel-values">
       {messages.map((message, index) => (
         <div className="semantic-record" key={index}>
           <strong>Message {index + 1}</strong>
-          <div className="semantic-value"><ValueChip value={message.value} /></div>
+          <div className="semantic-value"><ValueChip value={message.value} expandValues={expandValues} /></div>
         </div>
       ))}
     </div>
   );
 }
 
-function PendingChannelsStructured({ value }: { value: Data }) {
+function PendingChannelsStructured({ value, expandValues }: { value: Data; expandValues: boolean }) {
   const groups = groupPersistenceEntries(
     Object.entries(value).map(([key, entry]) => ({ key, value: entry })),
     (entry) => entry.key,
@@ -236,16 +285,16 @@ function PendingChannelsStructured({ value }: { value: Data }) {
       {groups.map((group) => group.kind === 'value' ? (
         <div className="semantic-record channel-record" key={`${String(group.entry.key)}-${group.index}`}>
           <strong>{displayValue(group.entry.key)}</strong>
-          <ChannelValues value={group.entry.value} />
+          <ChannelValues value={group.entry.value} expandValues={expandValues} />
         </div>
       ) : (
         <div className="semantic-record channel-record semantic-map-record" key={group.name}>
           <strong>{group.name}</strong>
           <div className="semantic-map-list">
             {group.entries.map(({ entry, instance, index }) => (
-              <details className="semantic-record semantic-map-entry" key={`${instance}-${index}`}>
+              <details className="semantic-record semantic-map-entry" key={`${instance}-${index}`} open={expandValues || undefined}>
                 <summary><strong>{instance}</strong></summary>
-                <div className="semantic-record-content"><ChannelValues value={entry.value} /></div>
+                <div className="semantic-record-content"><ChannelValues value={entry.value} expandValues={expandValues} /></div>
               </details>
             ))}
           </div>
@@ -274,7 +323,7 @@ function TimerListStructured({ value }: { value: unknown }) {
   );
 }
 
-function ObjectStructured({ value }: { value: Data }) {
+function ObjectStructured({ value, expandValues = false }: { value: Data; expandValues?: boolean }) {
   const entries = Object.entries(value);
   if (entries.length === 0) return <p className="muted">Empty object</p>;
   return (
@@ -292,7 +341,7 @@ function ObjectStructured({ value }: { value: Data }) {
                 {labeled !== null
                   ? labeled
                   : decoded && typeof decoded === 'object'
-                    ? <pre>{JSON.stringify(decoded, storedValueJSONReplacer, 2)}</pre>
+                    ? <LongValue text={JSON.stringify(decoded, storedValueJSONReplacer, 2)} isBlock isForcedOpen={expandValues} />
                     : displayValue(decoded)}
               </dd>
             </div>
@@ -303,7 +352,7 @@ function ObjectStructured({ value }: { value: Data }) {
   );
 }
 
-function ArrayStructured({ value }: { value: unknown[] }) {
+function ArrayStructured({ value, expandValues }: { value: unknown[]; expandValues: boolean }) {
   if (value.length === 0) return <p className="muted">Empty list</p>;
   return (
     <div className="structured-value semantic-records">
@@ -311,7 +360,7 @@ function ArrayStructured({ value }: { value: unknown[] }) {
         <div className="semantic-record" key={index}>
           <strong>Item {index + 1}</strong>
           {entry && typeof entry === 'object'
-            ? <ObjectStructured value={asData(entry)} />
+            ? <ObjectStructured value={asData(entry)} expandValues={expandValues} />
             : <code>{displayValue(entry)}</code>}
         </div>
       ))}
@@ -324,24 +373,31 @@ export function StructuredValue({
   parentFlowId = '',
   stepExecutionId = '',
   persistenceKind,
+  expandValues = false,
 }: {
   value: unknown;
   parentFlowId?: string;
   stepExecutionId?: string;
   persistenceKind?: 'attributes' | 'channels';
+  /** Shows long values in full and opens map instances. */
+  expandValues?: boolean;
 }) {
   if (value === undefined || value === null) {
     return <p className="muted">No value</p>;
   }
   if (Array.isArray(value)) {
     if (value.length === 0) return <p className="muted">Empty list</p>;
-    if (persistenceKind === 'attributes' && isKeyValueList(value)) return <KeyValueListStructured value={value} />;
+    if (persistenceKind === 'attributes' && isKeyValueList(value)) {
+      return <KeyValueListStructured value={value} expandValues={expandValues} />;
+    }
     if (isTimerList(value)) return <TimerListStructured value={value} />;
-    return <ArrayStructured value={value} />;
+    return <ArrayStructured value={value} expandValues={expandValues} />;
   }
   if (typeof value === 'object') {
     if (Object.keys(value).length === 0) return <p className="muted">Empty object</p>;
-    if (persistenceKind === 'channels') return <PendingChannelsStructured value={asData(value)} />;
+    if (persistenceKind === 'channels') {
+      return <PendingChannelsStructured value={asData(value)} expandValues={expandValues} />;
+    }
     if (isWaitingCondition(value)) {
       return <WaitingConditionStructured
         value={value}
@@ -349,7 +405,7 @@ export function StructuredValue({
         stepExecutionId={stepExecutionId}
       />;
     }
-    return <ObjectStructured value={asData(value)} />;
+    return <ObjectStructured value={asData(value)} expandValues={expandValues} />;
   }
-  return <code>{displayValue(value)}</code>;
+  return <LongValue text={displayValue(value)} isBlock={false} isForcedOpen={expandValues} />;
 }

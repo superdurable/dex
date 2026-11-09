@@ -17,6 +17,7 @@
     "@zxing/library": "0.21.3",
     "dagre": "^0.8.5",
     "elkjs": "0.11.1",
+    "lucide-react": "1.61.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "7.18.2"

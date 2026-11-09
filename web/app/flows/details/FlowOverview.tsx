@@ -6,16 +6,21 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useState } from 'react';
-import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
+import { useState, type ReactNode } from 'react';
+import { ChevronRight, CircleAlert, Hourglass, Play, Plus, Send, Trash2 } from 'lucide-react';
+import type { ActiveStepExecution, FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
 import { StepMethodInvocation } from './StepMethodInvocation';
 import { HistorySettingsCard, type HistorySettingsChange } from './HistorySettingsCard';
 import { JsonView } from '../../components/JsonView';
-import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
+import { FailureContent, SemanticEventDetails } from './EventDetails';
+import { Fields } from './StepMethodSections';
 import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
+
+/** Deprecated Flow configuration fields that Dex stores but ignores. */
+const ignoredFlowConfigKeys = new Set(['continueAsNewThreshold', 'continueAsNewPageSizeInBytes']);
 
 function useSectionExpand(persistKey: string) {
   const [expanded, setExpanded] = useState(() => sectionExpandByKey.get(persistKey) ?? false);
@@ -53,11 +58,38 @@ function SectionExpandToggle({
   );
 }
 
+/** One Overview section: a single heading, an optional count, actions, and content. */
+function OverviewSection({
+  title,
+  count,
+  actions,
+  className = '',
+  children,
+}: {
+  title: string;
+  count?: number;
+  actions?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className={`overview-section ${className}`.trim()}>
+      <header className="overview-section-head">
+        <h2>
+          {title}
+          {count !== undefined && <span className={`overview-count${count === 0 ? ' is-zero' : ''}`}>{count}</span>}
+        </h2>
+        {actions && <div className="overview-section-actions">{actions}</div>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
 export function FlowOverview({
   summary,
   events,
   state,
-  selectedEvent,
   deletingChannelMessage,
   onDeleteChannelMessage,
   onOpenStateWrite,
@@ -67,7 +99,6 @@ export function FlowOverview({
   summary: FlowSummary;
   events: FlowHistoryEvent[];
   state: FlowState | null;
-  selectedEvent: FlowHistoryEvent | null;
   deletingChannelMessage?: string;
   onDeleteChannelMessage?: (channelName: string, messageId: string) => Promise<void>;
   onOpenStateWrite?: (kind: StateWriteKind) => void;
@@ -78,16 +109,20 @@ export function FlowOverview({
   const closed = summary.flowStatus === 'Running'
     ? undefined
     : events.findLast((event) => event.type === 'FlowClosed');
-  const startKind = started?.payload.initialStart ? 'Initial start' : 'Continued run';
+  const isContinuedStart = Boolean(started?.payload.continuedStart
+    && typeof started.payload.continuedStart === 'object'
+    && Object.keys(started.payload.continuedStart).length > 0);
   const [collapsedActiveStepIds, setCollapsedActiveStepIds] = useState<Set<string>>(
     () => new Set(),
   );
   const attributesExpand = useSectionExpand('overview:expand:attributes');
   const channelsExpand = useSectionExpand('overview:expand:channels');
+  const routing = flowRoutingData(state, events);
   const activeStepIds = state?.activeStepExecutions.map((step) => step.stepExecutionId) ?? [];
   const allActiveStepsExpanded = activeStepIds.length > 0
     && activeStepIds.every((stepExecutionId) => !collapsedActiveStepIds.has(stepExecutionId));
   const pendingMessages = pendingChannelEntries(state?.pendingChannelMessages ?? {});
+  const flowConfig = state?.flowConfig ? withoutIgnoredFlowConfig(state.flowConfig) : undefined;
 
   const setAllActiveStepsExpanded = (expanded: boolean) => {
     setCollapsedActiveStepIds((current) => {
@@ -110,221 +145,183 @@ export function FlowOverview({
   };
 
   return (
-    <div className="overview-grid">
-      <div className="overview-column">
-        <section className="card overview-card overview-live-state">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">{state ? 'Current' : summary.flowStatus || 'Unavailable'}</p>
-              <h2>Live Flow state</h2>
-            </div>
-          </div>
-          <FlowRouting routing={flowRoutingData(state, events)} flowType={summary.flowType} showFlowType />
-          {!state && <p className="muted">Live state is queried only while this run is active.</p>}
-          {state && (
-            <>
-              <div className="metric-grid">
-                <div><span>Attributes</span><b>{state.attributes.length}</b></div>
-                <div><span>Active steps</span><b>{state.activeStepExecutions.length}</b></div>
-                <div><span>Queued steps</span><b>{state.queuedSteps.length}</b></div>
-                <div><span>Completed outputs</span><b>{state.completedSteps.length}</b></div>
-                <div>
-                  <span>Pending channels</span>
-                  <b>{Object.keys(state.pendingChannelMessages).length}</b>
-                </div>
-              </div>
+    <div className="run-overview">
+      <div className="run-overview-main">
+        {state ? (
+          <OverviewSection
+            title="Active steps"
+            count={state.activeStepExecutions.length}
+            className="overview-focus"
+            actions={state.activeStepExecutions.length > 0 && (
+              <SectionExpandToggle
+                expanded={allActiveStepsExpanded}
+                onChange={setAllActiveStepsExpanded}
+                label="active steps"
+              />
+            )}
+          >
+            {state.activeStepExecutions.map((step) => (
+              <ActiveStep
+                key={step.stepExecutionId}
+                step={step}
+                isOpen={!collapsedActiveStepIds.has(step.stepExecutionId)}
+                isPullMode={routing.workerTarget.isPullMode === true}
+                parentFlowId={summary.flowId}
+                onToggle={() => toggleActiveStep(step.stepExecutionId)}
+              />
+            ))}
+            {state.activeStepExecutions.length === 0 && (
+              <p className="overview-quiet">No active steps right now.</p>
+            )}
+          </OverviewSection>
+        ) : (
+          <OverviewSection title="Outcome" className={`overview-focus overview-outcome tone-${statusTone(summary.flowStatus)}`}>
+            {closed && typeof closed.payload.errorMessage === 'string' && closed.payload.errorMessage && (
+              <p className="overview-outcome-error">
+                <CircleAlert aria-hidden="true" size={16} strokeWidth={2.25} />
+                {closed.payload.errorMessage}
+              </p>
+            )}
+            {!closed && <p className="overview-quiet">Live state is queried only while this run is active.</p>}
+            {closed && (
+              <JsonView
+                value={closed.payload.results ?? []}
+                label="Close result"
+                persistKey="overview:close-result"
+              />
+            )}
+          </OverviewSection>
+        )}
 
-              <div className="live-state-block">
-                <div className="live-state-block-heading">
-                  <p className="eyebrow">Active steps</p>
-                  <SectionExpandToggle
-                    expanded={allActiveStepsExpanded}
-                    onChange={setAllActiveStepsExpanded}
-                    label="active steps"
-                  />
-                </div>
-                {state.activeStepExecutions.map((step) => (
-                  <details
-                    className="active-step-card"
-                    key={step.stepExecutionId}
-                    open={!collapsedActiveStepIds.has(step.stepExecutionId)}
-                  >
-                    <summary onClick={(event) => {
-                      event.preventDefault();
-                      toggleActiveStep(step.stepExecutionId);
-                    }}>
-                      <span className="active-step-heading">
-                        <span className="active-step-disclosure" aria-hidden="true">▸</span>
-                        <b>{step.stepType}</b>
-                      </span>
-                      <span className={`phase phase-${step.phase.toLowerCase()}`}>{step.phase}</span>
-                    </summary>
-                    <div className="active-step-content">
-                      <code>{step.stepExecutionId}</code>
-                      <span>From {step.fromStepExecutionId || '—'}</span>
-                      <StepMethodInvocation value={step.waitForInvocation} label="WaitFor invocation" />
-                      <StepMethodInvocation value={step.executeInvocation} label="Execute invocation" />
-                      {flowRoutingData(state, events).workerTarget.isPullMode === true && <>
-                        <PullRouting value={step.waitForPullRouting} label="WaitFor routing" />
-                        <PullRouting value={step.executePullRouting} label="Execute routing" />
-                      </>}
-                      {step.waitingCondition && Object.keys(step.waitingCondition).length > 0 && (
-                        <JsonView
-                          value={step.waitingCondition}
-                          label="Waiting condition"
-                          persistKey={`overview:active-step:${step.stepType}:waiting-condition`}
-                          parentFlowId={summary.flowId}
-                          stepExecutionId={step.stepExecutionId}
-                        />
-                      )}
-                      {step.timers.length > 0 && (
-                        <JsonView
-                          value={step.timers}
-                          label={`${step.timers.length} timers`}
-                          persistKey={`overview:active-step:${step.stepType}:timers`}
-                        />
-                      )}
-                      {step.lastFailureInfo && Object.keys(step.lastFailureInfo).length > 0 && (
-                        <div className="semantic-subsection">
-                          <h5>Last failure</h5>
-                          {/* Pending backend attempts exclude local fallback attempts, so hide them until cumulative values are available. */}
-                          <FailureContent value={step.lastFailureInfo} stackInitiallyExpanded showAttempt={false} />
-                        </div>
-                      )}
-                    </div>
-                  </details>
-                ))}
-                {state.activeStepExecutions.length === 0 && (
-                  <p className="muted">No active step executions.</p>
-                )}
-              </div>
-
-              <div className="live-state-block">
-                <div className="live-state-block-heading">
-                  <div>
-                    <p className="eyebrow">Attributes</p>
-                    <h3>{state.attributes.length} values</h3>
-                  </div>
-                  <div className="live-state-block-actions">
-                    {onOpenStateWrite && (
-                      <button
-                        className="button ghost live-state-write-button"
-                        onClick={() => onOpenStateWrite('attribute')}
-                      >
-                        Set attribute
-                      </button>
-                    )}
-                    <SectionExpandToggle
-                      expanded={attributesExpand.expanded}
-                      onChange={attributesExpand.setExpanded}
-                      label="attributes"
-                    />
-                  </div>
-                </div>
-                <JsonView
-                  value={state.attributes}
-                  label="Attributes"
-                  initiallyOpen
-                  persistKey="overview:attributes"
-                  persistenceKind="attributes"
-                  forceOpen={attributesExpand.expanded || undefined}
-                  collapseNonce={attributesExpand.collapseNonce}
+        {state && (
+          <OverviewSection
+            title="Attributes"
+            count={state.attributes.length}
+            actions={<>
+              {onOpenStateWrite && (
+                <button className="button quiet" onClick={() => onOpenStateWrite('attribute')} type="button">
+                  <Plus aria-hidden="true" size={15} strokeWidth={2} />
+                  Set attribute
+                </button>
+              )}
+              {state.attributes.length > 0 && (
+                <SectionExpandToggle
+                  expanded={attributesExpand.expanded}
+                  onChange={attributesExpand.setExpanded}
+                  label="attributes"
                 />
-              </div>
+              )}
+            </>}
+          >
+            {state.attributes.length > 0 ? (
+              <JsonView
+                value={state.attributes}
+                label="Attributes"
+                variant="inline"
+                persistKey="overview:attributes"
+                persistenceKind="attributes"
+                expandValues={attributesExpand.expanded}
+              />
+            ) : (
+              <p className="overview-quiet">No attributes are set.</p>
+            )}
+          </OverviewSection>
+        )}
 
-              <div className="live-state-block">
-                <div className="live-state-block-heading">
-                  <p className="eyebrow">Channels & others internals</p>
-                  <div className="live-state-block-actions">
-                    {onOpenStateWrite && (
-                      <button
-                        className="button ghost live-state-write-button"
-                        onClick={() => onOpenStateWrite('channel')}
-                      >
-                        Publish message
-                      </button>
-                    )}
-                    <SectionExpandToggle
-                      expanded={channelsExpand.expanded}
-                      onChange={channelsExpand.setExpanded}
-                      label="channels and other internals"
-                    />
-                  </div>
-                </div>
-                <JsonView
-                  value={state.queuedSteps}
-                  label={`${state.queuedSteps.length} queued steps`}
-                  persistKey="overview:queued-steps"
-                  forceOpen={channelsExpand.expanded || undefined}
-                  collapseNonce={channelsExpand.collapseNonce}
+        {state && (
+          <OverviewSection
+            title="Channels"
+            count={pendingMessages.length}
+            actions={<>
+              {onOpenStateWrite && (
+                <button className="button quiet" onClick={() => onOpenStateWrite('channel')} type="button">
+                  <Send aria-hidden="true" size={15} strokeWidth={2} />
+                  Publish message
+                </button>
+              )}
+              {pendingMessages.length > 0 && (
+                <SectionExpandToggle
+                  expanded={channelsExpand.expanded}
+                  onChange={channelsExpand.setExpanded}
+                  label="channel messages"
                 />
-                {pendingMessages.length > 0 && (
-                  <div className="channel-message-list">
-                    {pendingMessages.map((message) => (
-                      <div className="channel-message-row" key={`${message.channelName}:${message.messageId}`}>
-                        <div>
+              )}
+            </>}
+          >
+            {pendingMessages.length > 0 ? (
+              <>
+                <div className="channel-message-list">
+                  {pendingMessages.map((message) => (
+                    <div className="channel-message-row" key={`${message.channelName}:${message.messageId}`}>
+                      <div className="channel-message-main">
+                        <div className="channel-message-meta">
                           <b>{message.channelName}</b>
                           <code>{message.messageId}</code>
-                          <JsonView value={message.value} label="Value" />
                         </div>
-                        {onDeleteChannelMessage && (
-                          <button
-                            className="button danger"
-                            disabled={deletingChannelMessage === message.messageId}
-                            onClick={() => void onDeleteChannelMessage(
-                              message.channelName,
-                              message.messageId,
-                            )}
-                          >
-                            {deletingChannelMessage === message.messageId ? 'Deleting…' : 'Delete'}
-                          </button>
-                        )}
+                        <JsonView
+                          value={message.value}
+                          label="Value"
+                          variant="inline"
+                          persistKey={`overview:channel-message:${message.messageId}`}
+                          expandValues={channelsExpand.expanded}
+                        />
                       </div>
-                    ))}
-                    <p className="muted">
-                      Temporal deletes are atomic. Cadence deletion is best effort and may race consumption.
-                    </p>
-                  </div>
-                )}
+                      {onDeleteChannelMessage && (
+                        <button
+                          className="button quiet danger"
+                          disabled={deletingChannelMessage === message.messageId}
+                          onClick={() => void onDeleteChannelMessage(
+                            message.channelName,
+                            message.messageId,
+                          )}
+                          type="button"
+                        >
+                          <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
+                          {deletingChannelMessage === message.messageId ? 'Deleting…' : 'Delete'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="overview-note">
+                  Temporal deletes are atomic. Cadence deletion is best effort and may race consumption.
+                </p>
                 <JsonView
                   value={state.pendingChannelMessages}
-                  label="Pending channel messages"
+                  label="All pending messages by Channel"
                   persistKey="overview:pending-channels"
                   persistenceKind="channels"
                   forceOpen={channelsExpand.expanded || undefined}
                   collapseNonce={channelsExpand.collapseNonce}
+                  expandValues={channelsExpand.expanded}
                 />
-                <JsonView
-                  value={state.completedSteps}
-                  label="Completed outputs"
-                  persistKey="overview:completed-outputs"
-                  forceOpen={channelsExpand.expanded || undefined}
-                  collapseNonce={channelsExpand.collapseNonce}
-                />
-              </div>
+              </>
+            ) : (
+              <p className="overview-quiet">No pending channel messages.</p>
+            )}
+          </OverviewSection>
+        )}
 
-              {state.flowConfig && (
-                <JsonView
-                  value={state.flowConfig}
-                  label="Flow config"
-                  persistKey="overview:flow-config"
-                />
-              )}
-            </>
-          )}
-          {closed && (
+        {state && state.queuedSteps.length > 0 && (
+          <OverviewSection title="Queued steps" count={state.queuedSteps.length}>
+            <JsonView value={state.queuedSteps} label="Queued steps" variant="inline" persistKey="overview:queued-steps" />
+          </OverviewSection>
+        )}
+        {state && state.completedSteps.length > 0 && (
+          <OverviewSection title="Completed outputs" count={state.completedSteps.length}>
             <JsonView
-              value={closed.payload.results ?? []}
-              label="Close result"
-              persistKey="overview:close-result"
+              value={state.completedSteps}
+              label="Completed outputs"
+              variant="inline"
+              persistKey="overview:completed-outputs"
             />
-          )}
-        </section>
+          </OverviewSection>
+        )}
+        {state && state.queuedSteps.length === 0 && state.completedSteps.length === 0 && (
+          <p className="overview-quiet overview-quiet-line">No queued steps · No completed outputs</p>
+        )}
 
-        <section className="card overview-card">
-          <div className="section-heading">
-            <div><p className="eyebrow">Run input</p><h2>{startKind}</h2></div>
-          </div>
+        <OverviewSection title={isContinuedStart ? 'Continued start input' : 'Start input'}>
           {started ? (
             <div className="semantic-event">
               <SemanticEventDetails
@@ -334,53 +331,22 @@ export function FlowOverview({
               />
             </div>
           ) : (
-            <p className="muted">The start event is not in the loaded history page.</p>
+            <p className="overview-quiet">The start event is not in the loaded history page.</p>
           )}
-        </section>
+        </OverviewSection>
       </div>
 
-      <div className="overview-column">
-        <section className="card overview-card overview-selected-event">
-          {selectedEvent ? (
-            <>
-              <header className="overview-selected-event-header" data-selected-event-target>
-                <p className="eyebrow">Selected event</p>
-                <h2>{eventTitle(selectedEvent)}</h2>
-                <div className="event-meta">
-                  <span>Event #{selectedEvent.eventId}</span>
-                  <span>{selectedEvent.eventTime || 'No timestamp'}</span>
-                </div>
-              </header>
-              <div className="overview-selected-event-body">
-                <EventDetails
-                  event={selectedEvent}
-                  history={events}
-                  parentFlowId={summary.flowId}
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="section-heading">
-                <div><p className="eyebrow">Selected event</p><h2>None</h2></div>
-              </div>
-              <p className="muted">Select an event from Timeline or Execution graph.</p>
-            </>
+      <div className="run-overview-side">
+        <OverviewSection title="Details">
+          <FlowRouting routing={routing} flowType={summary.flowType} showFlowType />
+          <Fields compact values={[
+            ['Request ID', summary.requestId || undefined],
+            ['First run ID', summary.firstRunId && summary.firstRunId !== summary.runId ? summary.firstRunId : undefined],
+          ]} />
+          {flowConfig && (
+            <JsonView value={flowConfig} label="Flow config" persistKey="overview:flow-config" />
           )}
-        </section>
-
-        <section className="card overview-card">
-          <div className="section-heading">
-            <div><p className="eyebrow">Identity</p><h2>Execution</h2></div>
-          </div>
-          <dl className="definition-list">
-            <div><dt>Flow ID</dt><dd className="mono">{summary.flowId}</dd></div>
-            <div><dt>Run ID</dt><dd className="mono">{summary.runId}</dd></div>
-            <div><dt>First run ID</dt><dd className="mono">{summary.firstRunId || '—'}</dd></div>
-            <div><dt>Request ID</dt><dd className="mono">{summary.requestId || '—'}</dd></div>
-            <div><dt>Flow type</dt><dd>{summary.flowType || '—'}</dd></div>
-          </dl>
-        </section>
+        </OverviewSection>
 
         <HistorySettingsCard
           summary={summary}
@@ -390,6 +356,103 @@ export function FlowOverview({
       </div>
     </div>
   );
+}
+
+function ActiveStep({
+  step,
+  isOpen,
+  isPullMode,
+  parentFlowId,
+  onToggle,
+}: {
+  step: ActiveStepExecution;
+  isOpen: boolean;
+  isPullMode: boolean;
+  parentFlowId: string;
+  onToggle: () => void;
+}) {
+  const waitingSummary = waitingConditionSummary(step.waitingCondition);
+  const PhaseIcon = step.phase === 'Waiting' ? Hourglass : Play;
+  return (
+    <details className="active-step-card" open={isOpen}>
+      <summary onClick={(event) => {
+        event.preventDefault();
+        onToggle();
+      }}>
+        <ChevronRight aria-hidden="true" className="active-step-disclosure" size={16} strokeWidth={2} />
+        <span className={`phase phase-${step.phase.toLowerCase()}`}>
+          <PhaseIcon aria-hidden="true" size={13} strokeWidth={2.25} />
+          {step.phase}
+        </span>
+        <span className="active-step-heading">
+          <b>{step.stepType}</b>
+          {waitingSummary && <span className="active-step-waits">{waitingSummary}</span>}
+        </span>
+      </summary>
+      <div className="active-step-content">
+        <Fields compact values={[
+          ['Step execution ID', step.stepExecutionId],
+          ['From', step.fromStepExecutionId || '—'],
+        ]} />
+        <StepMethodInvocation value={step.waitForInvocation} label="WaitFor invocation" />
+        <StepMethodInvocation value={step.executeInvocation} label="Execute invocation" />
+        {isPullMode && <>
+          <PullRouting value={step.waitForPullRouting} label="WaitFor routing" />
+          <PullRouting value={step.executePullRouting} label="Execute routing" />
+        </>}
+        {step.waitingCondition && Object.keys(step.waitingCondition).length > 0 && (
+          <JsonView
+            value={step.waitingCondition}
+            label="Waiting condition"
+            persistKey={`overview:active-step:${step.stepType}:waiting-condition`}
+            parentFlowId={parentFlowId}
+            stepExecutionId={step.stepExecutionId}
+          />
+        )}
+        {step.timers.length > 0 && (
+          <JsonView
+            value={step.timers}
+            label={`${step.timers.length} timers`}
+            persistKey={`overview:active-step:${step.stepType}:timers`}
+          />
+        )}
+        {step.lastFailureInfo && Object.keys(step.lastFailureInfo).length > 0 && (
+          <div className="semantic-subsection">
+            <h5>Last failure</h5>
+            {/* Pending backend attempts exclude local fallback attempts, so hide them until cumulative values are available. */}
+            <FailureContent value={step.lastFailureInfo} stackInitiallyExpanded showAttempt={false} />
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+/** Names what a waiting Step waits for, such as "Waits for Channel approvals". */
+function waitingConditionSummary(condition: Record<string, unknown> | undefined): string {
+  if (!condition) return '';
+  const names = [
+    ...listOf(condition.channelConditions).map((channel) => `Channel ${String(channel.channelName ?? '')}`.trim()),
+    ...listOf(condition.timerConditions).map(() => 'a timer'),
+    ...listOf(condition.subFlowConditions).map(() => 'a SubFlow'),
+  ];
+  if (names.length === 0) return '';
+  const shown = names.slice(0, 2).join(', ');
+  return names.length > 2 ? `Waits for ${shown} and ${names.length - 2} more` : `Waits for ${shown}`;
+}
+
+function listOf(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+    : [];
+}
+
+function withoutIgnoredFlowConfig(flowConfig: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(flowConfig).filter(([key]) => !ignoredFlowConfigKeys.has(key)));
+}
+
+function statusTone(status: string): string {
+  return status.toLowerCase().replaceAll(' ', '-');
 }
 
 interface PendingChannelEntry {
