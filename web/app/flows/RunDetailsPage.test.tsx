@@ -686,6 +686,54 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRow(3000).className).toContain('selected');
   });
 
+  it('jumps from a related event on the horizontal Timeline and goes back', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 761px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review' };
+    const filler = Array.from({ length: 2997 }, (_, offset): FlowHistoryEvent => ({
+      eventId: offset + 3,
+      eventTime: '2026-10-24T18:00:00Z',
+      type: 'ChannelExternalPublish',
+      payload: { messages: [] },
+      runAttempt: 1,
+    }));
+    const execute: FlowHistoryEvent = {
+      ...stepEvent(3000, 'StepExecuteCompleted', review),
+      payload: {
+        context: { ...review, waitForCompletedEventId: '2', startedTime: '2026-10-24T19:05:02Z' },
+        input: { conditionResults: {} },
+      },
+    };
+    const server = historyTestServer([
+      sequentialStepHistory(1)[0],
+      stepEvent(2, 'StepWaitForCompleted', review),
+      ...filler,
+      execute,
+    ]);
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    const horizontalOption = (eventId: number) => document.querySelector<HTMLElement>(
+      `[role="option"][data-event-id="${eventId}"]`,
+    );
+    await waitFor(() => expect(horizontalOption(3000)).not.toBeNull());
+    expect(document.querySelector('.timeline-row')).toBeNull();
+    fireEvent.click(horizontalOption(3000)!);
+    fireEvent.click(await screen.findByRole('button', {
+      name: '← from Review-1 WaitFor completed, event #2 (older page)',
+    }));
+
+    await waitFor(() => expect(horizontalOption(2)?.className).toContain('jump-highlighted'));
+    expect(horizontalOption(2)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(horizontalOption(3000)?.getAttribute('aria-selected')).toBe('true'));
+  });
+
   it('shows the pruned range banner and a muted pruned stub on the oldest retained page', async () => {
     const retained = sequentialStepHistory(5000).filter((event) => event.eventId === 1 || event.eventId >= 4001);
     const server = historyTestServer(retained);

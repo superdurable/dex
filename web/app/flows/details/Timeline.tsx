@@ -65,7 +65,7 @@ export interface TimelinePaging {
   isLoading: boolean;
 }
 
-function eventTone(event: FlowHistoryEvent) {
+export function eventTone(event: FlowHistoryEvent) {
   if (event.type === 'TimeTravelFork') return 'fork';
   if (event.type.endsWith('Pending')) return 'pending';
   if (event.type.endsWith('Failed')) return 'failed';
@@ -81,7 +81,7 @@ function stepMethodClass(event: FlowHistoryEvent) {
   return '';
 }
 
-function executionSummary(event: FlowHistoryEvent): string {
+export function executionSummary(event: FlowHistoryEvent): string {
   const context = event.payload.context;
   if (!context || typeof context !== 'object') return '';
   const info = context as Record<string, unknown>;

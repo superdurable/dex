@@ -1878,3 +1878,233 @@ body:has(.v1-page) {
     text-overflow: ellipsis;
   }
 }
+
+/* ---------------------------------------- horizontal Timeline experiment */
+
+@media (min-width: 761px) {
+  .v1-page .run-content.run-content--horizontal-timeline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .v1-page .run-content--horizontal-timeline .run-sidebar-resizer {
+    display: none;
+  }
+
+  .v1-page .run-content--horizontal-timeline .sidebar-stack {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+.htl-toolbar {
+  align-items: baseline;
+}
+
+.htl-range {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+}
+
+.htl-minimap {
+  height: 34px;
+  margin-bottom: 10px;
+  padding: 1px 0;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-well);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.htl-minimap:focus-visible,
+.htl-strip:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
+.htl-minimap svg {
+  display: block;
+  width: 100%;
+  height: 32px;
+}
+
+.htl-tick {
+  fill: var(--ui-ink-3);
+  opacity: 0.45;
+}
+
+.htl-tick.tone-completed {
+  fill: var(--tone-done);
+  opacity: 0.55;
+}
+
+.htl-tick.tone-waiting,
+.htl-tick.tone-pending {
+  fill: var(--tone-wait);
+  opacity: 1;
+}
+
+.htl-tick.tone-failed {
+  fill: var(--tone-fail);
+  opacity: 1;
+}
+
+.htl-tick.tone-fork {
+  fill: var(--tone-accent);
+  opacity: 1;
+}
+
+.htl-tick.is-linked {
+  fill: var(--tone-accent);
+  opacity: 0.8;
+}
+
+.htl-tick.is-selected {
+  fill: var(--tone-accent);
+  opacity: 1;
+}
+
+.htl-minimap-window {
+  fill: color-mix(in srgb, var(--tone-accent) 14%, transparent);
+  stroke: var(--tone-accent);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.htl-strip {
+  position: relative;
+  height: 232px;
+  overflow: hidden;
+  border-radius: var(--ui-radius-item);
+  background: var(--ui-well);
+}
+
+/* The baseline the event dots sit on. */
+.htl-strip::before {
+  position: absolute;
+  right: 0;
+  bottom: 54px;
+  left: 0;
+  height: 1px;
+  content: '';
+  background: var(--ui-hairline);
+}
+
+.htl-event {
+  position: absolute;
+  top: 0;
+  bottom: 44px;
+  width: 34px;
+  cursor: pointer;
+}
+
+.htl-dot {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ui-well);
+  border-radius: 50%;
+  background: var(--ui-ink-3);
+  transform: translateX(-50%);
+}
+
+.htl-event.tone-completed .htl-dot {
+  background: var(--tone-done);
+}
+
+.htl-event.tone-waiting .htl-dot,
+.htl-event.tone-pending .htl-dot {
+  background: var(--tone-wait);
+}
+
+.htl-event.tone-failed .htl-dot {
+  background: var(--tone-fail);
+}
+
+.htl-event.tone-fork .htl-dot {
+  background: var(--tone-accent);
+}
+
+/* Labels rise 30 degrees, so neighbors share horizontal space like angled parking. */
+.htl-label {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  max-width: 230px;
+  overflow: hidden;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-xs);
+  line-height: 14px;
+  text-overflow: ellipsis;
+  transform: rotate(-30deg);
+  transform-origin: left bottom;
+  white-space: nowrap;
+}
+
+.htl-id {
+  color: var(--ui-ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.htl-event:hover .htl-label {
+  color: var(--ui-ink);
+}
+
+.htl-event.selected .htl-label {
+  color: var(--tone-accent-ink);
+  font-weight: 650;
+}
+
+.htl-event.selected .htl-dot {
+  width: 14px;
+  height: 14px;
+  bottom: 3px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-accent) 35%, transparent);
+}
+
+.htl-event.linked .htl-label {
+  color: var(--ui-ink);
+  font-weight: 600;
+}
+
+.htl-event.linked .htl-dot {
+  box-shadow: 0 0 0 2px var(--tone-accent);
+}
+
+.htl-event.jump-highlighted .htl-dot {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone-accent) 30%, transparent);
+}
+
+.htl-arcs {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.htl-arc {
+  fill: none;
+  stroke: var(--tone-accent);
+  stroke-width: 1.5px;
+}
+
+.htl-arc.kind-condition-wait {
+  stroke: var(--tone-wait);
+  stroke-dasharray: 4 3;
+}
+
+.htl-stubs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.htl-help {
+  margin: 10px 0 0;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
