@@ -160,14 +160,6 @@ const AGENT_ROLE_ROW: Partial<Record<AgentRole, { glyph: string; text: string }>
   intake: { glyph: '⬡', text: 'where the request arrives' },
 }
 
-/** How a Step ends the Flow: certainly when every branch closes this way, otherwise as one outcome. */
-const ENDS: Record<NonNullable<Branch['closes']>, { kind: BoxChip['kind']; always: string; may: string }> = {
-  complete: { kind: 'ends', always: '✓ completes', may: '✓ can complete' },
-  completeIfChannelsEmpty: { kind: 'ends', always: '✓ completes if queues are empty', may: '✓ can complete' },
-  deadEnd: { kind: 'stops', always: '■ stops this branch', may: '■ can stop this branch' },
-  fail: { kind: 'fails', always: '✕ fails the flow', may: '✕ can fail the flow' },
-}
-
 /** A jump docked to its source, titled with where it leads: a Step, or a closed stage. */
 export type DockedJump = GraphEdge & {
   label: string
@@ -197,7 +189,7 @@ export function answeredBy(flow: PocFlow, step: StepModel): string[] {
   return [...new Set(answeringEntries(flow, step).map((entry) => entry.name))]
 }
 
-/** Docked chips in reading order: role, who answers, how it starts, where it jumps, how it ends. */
+/** Docked chips in reading order: role, who answers, how it starts, and where it jumps. */
 function chipsOf(flow: PocFlow, step: StepModel, { jumps, arriving, alsoCatches = 0 }: Docked): BoxChip[] {
   const chips: BoxChip[] = []
   const role = step.agentRole === undefined ? undefined : AGENT_ROLE_ROW[step.agentRole]
@@ -225,7 +217,7 @@ function chipsOf(flow: PocFlow, step: StepModel, { jumps, arriving, alsoCatches 
   }
   // A fork starts every path at once, which lines alone cannot tell from a choice.
   const fanOut = fanOutOf(step)
-  if (fanOut > 0) chips.push({ kind: 'fork', text: fanOut === 2 ? '▮ both paths run' : `▮ all ${fanOut} paths run` })
+  if (fanOut > 0) chips.push({ kind: 'fork', text: fanOut === 2 ? 'Runs both paths at once' : `Runs ${fanOut} paths at once` })
   if (arriving > 3) {
     chips.push({ kind: 'inbound', text: `← ${arriving} steps lead here`, title: 'One of them is drawn as a line' })
   }
@@ -244,11 +236,7 @@ function chipsOf(flow: PocFlow, step: StepModel, { jumps, arriving, alsoCatches 
         : { kind: 'jump', text, targetId: jump.to },
     )
   }
-  const branches = step.execute.branches
-  for (const close of new Set(branches.flatMap((b) => (b.closes ? [b.closes] : [])))) {
-    const isAlways = branches.every((b) => b.closes === close)
-    chips.push({ kind: ENDS[close].kind, text: isAlways ? ENDS[close].always : ENDS[close].may })
-  }
+  // How a Step ends the Flow is told by the Step details, not by a chip on every card.
   return chips
 }
 

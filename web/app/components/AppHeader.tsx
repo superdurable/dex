@@ -7,27 +7,28 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
+import { Inbox, PencilRuler, Plug } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import { usePreferences } from '../providers';
 import type { FlowDefinitionCatalog } from '@/lib/types';
 import { isWorkQueueApplicable } from '../catalog/applicability';
 import { useWebCatalog } from '../catalog/WebCatalogProvider';
-import { ExperimentalBadge } from './ExperimentalBadge';
-import { CONNECTORS_PATH, WORK_QUEUE_PATH } from '../routes';
+import { ExperimentalMenu, type ExperimentalPage } from './ExperimentalMenu';
+import { CONNECTORS_PATH, DESIGNS_PATH, FLOWS_PATH, WORK_QUEUE_PATH } from '../routes';
 import { DexMark } from './DexMark';
 import { ThemeToggle } from './ThemeToggle';
 
 /** The company site that the header logo opens in the same tab. */
 export const COMPANY_HOME_URL = 'https://superdurable.io';
 
-/** Flow Rendering has something to show only when the definitions directory holds at least one JSON file. */
+/** Designs has something to show only when the definitions directory holds at least one JSON file. */
 export function hasLoadedFlowDefinitions(definitions: FlowDefinitionCatalog | null): boolean {
   return definitions?.configured === true && definitions.definitions.length > 0;
 }
 
 /**
- * Reports whether the Flow Rendering link should show.
+ * Reports whether the Designs page applies.
  * It rereads the catalog on every route change, so a failed read or a changed directory recovers on the next navigation.
  */
 function useHasLoadedFlowDefinitions(pathname: string): boolean {
@@ -56,7 +57,7 @@ export function isConnectorSetupApplicable(listing: ConnectorSetupListing | null
 }
 
 /**
- * Reports whether the Connectors link should show.
+ * Reports whether the Connectors page applies.
  * The listing exists only where Dex Web runs local Connector setup, so other servers never show it.
  */
 function useHasConnectorSetup(canUseOperatorAPI: boolean): boolean {
@@ -86,6 +87,20 @@ export function AppHeader() {
   const hasFlowDefinitions = useHasLoadedFlowDefinitions(location.pathname);
   const hasWorkQueue = isWorkQueueApplicable(catalog, canUseV2);
   const hasConnectors = useHasConnectorSetup(canUseV2);
+  const experimentalPages: ExperimentalPage[] = [
+    ...(hasFlowDefinitions ? [{
+      path: DESIGNS_PATH, label: 'Designs', Icon: PencilRuler,
+      description: 'Every loaded Flow design, drawn as a graph',
+    }] : []),
+    ...(hasWorkQueue ? [{
+      path: WORK_QUEUE_PATH, label: 'Work Queue', Icon: Inbox,
+      description: 'Runs and agent sessions that wait for a person',
+    }] : []),
+    ...(hasConnectors ? [{
+      path: CONNECTORS_PATH, label: 'Connectors', Icon: Plug,
+      description: 'Connections the loaded Flows use',
+    }] : []),
+  ];
   return (
     <header className="app-header">
       <a className="header-brand" href={COMPANY_HOME_URL} aria-label="Super Durable home">
@@ -101,21 +116,8 @@ export function AppHeader() {
           </span>
       </a>
       <nav className="header-nav" aria-label="Primary navigation">
-        {hasFlowDefinitions && (
-          <Link to="/v1/rendering">Flow Rendering</Link>
-        )}
-        {hasWorkQueue && (
-          <NavLink className="header-experimental-link" to={WORK_QUEUE_PATH}>
-            Work Queue
-            <ExperimentalBadge />
-          </NavLink>
-        )}
-        {hasConnectors && (
-          <NavLink className="header-experimental-link" to={CONNECTORS_PATH}>
-            Connectors
-            <ExperimentalBadge />
-          </NavLink>
-        )}
+        <NavLink className="header-core-link" to={FLOWS_PATH}>Flows</NavLink>
+        <span className="header-nav-spacer" />
         <span className="connection-pill">
             <span className="connection-dot" />
             Dex server
@@ -130,6 +132,7 @@ export function AppHeader() {
             <option value="UTC">UTC</option>
           </select>
         </label>
+        <ExperimentalMenu pages={experimentalPages} />
         <ThemeToggle />
       </nav>
     </header>

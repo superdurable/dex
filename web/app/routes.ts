@@ -18,6 +18,9 @@ export const RUN_SESSION_VIEW = 'session';
 /** The Work Queue view that lists Dex Agents sessions that wait for a person. */
 export const AGENT_INBOX_VIEW = 'agents';
 
+/** Designs, which draws every loaded Flow Definition Graph. Its URL predates the name. */
+export const DESIGNS_PATH = '/v1/rendering';
+
 export const WORK_QUEUE_PATH = '/v1/work-queue';
 
 export const CONNECTORS_PATH = '/v1/connectors';

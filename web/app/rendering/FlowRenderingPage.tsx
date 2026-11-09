@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, FlowDefinitionEntry } from '@/lib/types';
 import { FlowDesignGraph } from '../design/FlowDesignGraph';
+import { ExperimentalBadge } from '../components/ExperimentalBadge';
 
 export function FlowRenderingPage() {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
@@ -49,11 +50,11 @@ export function FlowRenderingPage() {
     <div className="page-shell flow-rendering-page v1-page">
       <nav aria-label="Breadcrumb" className="breadcrumbs">
         <Link to="/v1/flows">Flows</Link><span>/</span>
-        <span>Flow Rendering</span>
+        <span>Designs</span>
       </nav>
       <section className="flow-rendering-header">
         <div>
-          <h1>Flow Rendering</h1>
+          <h1>Designs <ExperimentalBadge className="page-title-badge" /></h1>
           <p>Explore statically possible Step paths generated from Go or Python source.</p>
         </div>
         {catalog?.configured && catalog.definitions.length > 0 && (

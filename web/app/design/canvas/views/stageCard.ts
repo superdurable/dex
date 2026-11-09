@@ -46,7 +46,7 @@ function summary(flow: PocFlow, members: StepModel[], loops: boolean): StageSumm
     apps.set(name, (apps.get(name) ?? 0) + 1)
   }
   const facts = [
-    waits > 0 ? `${waits} wait${waits === 1 ? 's' : ''} for someone` : '',
+    waits > 0 ? `${waits} Step${waits === 1 ? ' waits' : 's wait'} for input` : '',
     ...[...apps].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name)),
   ].filter(Boolean)
   return {
@@ -100,8 +100,6 @@ export function stageBox(
     targetId: jump.to,
     ...(jump.failure ? { title: 'On failure' } : {}),
   }))
-  const ends = new Set(members.flatMap((step) => step.execute.branches.flatMap((b) => (b.closes ? [b.closes] : []))))
-  if (ends.has('complete') || ends.has('completeIfChannelsEmpty')) chips.push({ kind: 'ends', text: '✓ completes' })
   const rows = packChips(chips, STAGE_W - 28)
   const run = pillOf(members, opts)
   return {

@@ -32,6 +32,8 @@ import type { Direction } from './canvas/views/types';
 import { Legend } from './flow/Legend';
 import { groupsFromDefinition } from './groupsFromGraph';
 import { stepContext } from './stepContext';
+import '../workspace/css/tokens.css';
+import './canvas.css';
 import './design.css';
 
 /**
@@ -78,7 +80,7 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
   if (!scene) return <div className="dg-empty">Drawing the Flow…</div>;
 
   return (
-    <div className="dg" data-panel={selectedStep ? 'true' : undefined}>
+    <div className="v2-shell dg" data-panel={selectedStep ? 'true' : undefined}>
       <div className="pcanvas dg-canvas">
         <ArrowDefs />
         <DesignToolbar

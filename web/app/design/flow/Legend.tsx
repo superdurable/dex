@@ -63,7 +63,7 @@ const CHIP: Record<BoxChip['kind'], { sample: string; label: string }> = {
   entry: { sample: '⚡ call', label: 'a call that starts the step' },
   child: { sample: '↳ flow', label: 'a child flow the step starts' },
   inbound: { sample: '← 6', label: 'steps that lead here' },
-  fork: { sample: '▮', label: 'runs every path at once' },
+  fork: { sample: 'Runs 2 paths', label: 'starts every path at once' },
   jump: { sample: '↪ step', label: 'a jump to a step drawn elsewhere' },
   failJump: { sample: '↪ step', label: 'where a failure jumps' },
   ends: { sample: '✓', label: 'completes the flow' },

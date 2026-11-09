@@ -73,7 +73,7 @@ import { useOptionalWebCatalog } from '../catalog/WebCatalogProvider';
 import { catalogEntryFor, designDefinitionFor, hasRunActions, sessionSchemaFor } from '../catalog/applicability';
 import { RUN_VIEW_PARAM } from '../routes';
 
-type RunTab = 'overview' | 'steps' | 'timeline' | 'design' | 'stream' | 'session' | 'actions';
+type RunTab = 'overview' | 'steps' | 'timeline' | 'stream' | 'design' | 'session' | 'actions';
 
 /** History settings saved on this page, shown until a state load started after the save succeeds. */
 interface SavedHistorySettings {
@@ -115,7 +115,7 @@ function useMediaQuery(query: string): boolean {
   }, [query]);
   return isMatch;
 }
-const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'design', 'stream', 'session', 'actions']);
+const runTabs = new Set<RunTab>(['overview', 'steps', 'timeline', 'stream', 'design', 'session', 'actions']);
 
 function isRunTab(value: string | null): value is RunTab {
   return value !== null && runTabs.has(value as RunTab);
@@ -528,13 +528,13 @@ export function RunDetailsPage({
     waitCycle,
   ]);
 
-  // Experimental tabs appear only when they apply to this run. Design sits between Timeline and Streams.
+  // Experimental tabs follow Streams, and each appears only when it applies to this run.
   const tabs: Array<{ id: RunTab; label: string; Icon: LucideIcon; isExperimental?: boolean }> = [
     { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
     { id: 'steps', label: 'Execution graph', Icon: Workflow },
     { id: 'timeline', label: 'Timeline', Icon: Rows3 },
-    ...(designDefinition ? [{ id: 'design' as const, label: 'Design', Icon: PencilRuler, isExperimental: true }] : []),
     { id: 'stream', label: 'Streams', Icon: Waves },
+    ...(designDefinition ? [{ id: 'design' as const, label: 'Design', Icon: PencilRuler, isExperimental: true }] : []),
     ...(sessionSchema ? [{ id: 'session' as const, label: 'Agent session', Icon: Bot, isExperimental: true }] : []),
     ...(hasActionsTab ? [{ id: 'actions' as const, label: 'Actions', Icon: MousePointerClick, isExperimental: true }] : []),
   ];
