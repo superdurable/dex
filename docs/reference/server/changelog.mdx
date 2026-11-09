@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.24 {#v0-1-24}
+
+Released 2026-11-09 as [server-zd/v0.1.24](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.24).
+
+### Added
+
+- **objectStore.provider: db9** lets **serve** keep its object storage in db9, a PostgreSQL-compatible database, instead of S3. Set the connection string in **DEX_ZD_DB9_CONNECTION_STRING**. Existing configurations keep using S3, and existing S3 data is not migrated. [Reference](/reference/server/object-storage#db9).
+
 ## 0.1.20 {#v0-1-20}
 
 Released 2026-11-06 as [server-zd/v0.1.20](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.20). Reference: [0.1.20](/reference/server/0.1.20/).
