@@ -82,3 +82,8 @@ on failed upload, and concurrent read/write consistency.
 ```bash
 make -C server-zd db9ObjectStoreTests
 ```
+
+The provider speaks the PostgreSQL wire protocol, so the same tests run against
+PostgreSQL. Server ZD CI adds this suite against PostgreSQL 16 to a pull request
+only while it carries the `db9-tests` label; adding the label starts that suite.
+PostgreSQL checks the provider code, not db9's own locking and isolation.

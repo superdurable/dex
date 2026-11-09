@@ -17,7 +17,7 @@ use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use dexzd_postgres_connection::ConnectionSettings;
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio_postgres::{Row, Transaction};
+use tokio_postgres::{Client, Row, Transaction};
 use uuid::Uuid;
 
 use crate::file_download::TemporaryDownloadFile;
@@ -29,6 +29,8 @@ pub use config::Db9ObjectStoreConfig;
 use pool::Db9Pool;
 
 const CHUNK_BYTES: usize = 256 * 1024;
+const PROVIDER_SCHEMA: &str = include_str!("schema.sql");
+const SCHEMA_CREATION_ATTEMPTS: usize = 3;
 
 /// Transactional, chunked SQL storage for Dex logs, snapshots, leases, and values.
 pub struct Db9ObjectStore {
@@ -75,11 +77,9 @@ impl Db9ObjectStore {
             timeout: config.request_timeout,
         };
         let request = store.request(ObjectStoreOperation::Put, "");
-        let mut slot = store.pool.acquire(request.operation, request.key).await?;
-        let client = &mut slot.as_mut().expect("acquired session exists").client;
-        request
-            .sql(client.batch_execute(include_str!("schema.sql")))
-            .await?;
+        let slot = store.pool.acquire(request.operation, request.key).await?;
+        let client = &slot.as_ref().expect("acquired session exists").client;
+        create_provider_tables(client, &request).await?;
         drop(slot);
         Ok(store)
     }
@@ -280,6 +280,28 @@ impl Db9ObjectStore {
     }
 }
 
+async fn create_provider_tables(
+    client: &Client,
+    request: &Db9Request<'_>,
+) -> ObjectStoreResult<()> {
+    for _ in 1..SCHEMA_CREATION_ATTEMPTS {
+        match tokio::time::timeout(request.timeout, client.batch_execute(PROVIDER_SCHEMA)).await {
+            Ok(Err(error)) if is_concurrent_schema_creation(&error) => continue,
+            Ok(result) => return result.map_err(|error| request.database(error)),
+            Err(_) => return Err(request.deadline_exceeded()),
+        }
+    }
+    request.sql(client.batch_execute(PROVIDER_SCHEMA)).await
+}
+
+/// PostgreSQL may fail concurrent `CREATE TABLE IF NOT EXISTS` on its catalog unique index.
+fn is_concurrent_schema_creation(error: &tokio_postgres::Error) -> bool {
+    matches!(
+        error.code().map(|code| code.code()),
+        Some("23505" | "42P07")
+    )
+}
+
 #[async_trait]
 impl ObjectStore for Db9ObjectStore {
     async fn put(
@@ -414,15 +436,17 @@ impl Db9Request<'_> {
     ) -> ObjectStoreResult<T> {
         tokio::time::timeout(self.timeout, future)
             .await
-            .map_err(|_| {
-                ObjectStoreError::new(
-                    self.operation,
-                    self.key,
-                    self.uncertain_kind(),
-                    "db9 SQL deadline exceeded",
-                )
-            })?
+            .map_err(|_| self.deadline_exceeded())?
             .map_err(|error| self.database(error))
+    }
+
+    fn deadline_exceeded(&self) -> ObjectStoreError {
+        ObjectStoreError::new(
+            self.operation,
+            self.key,
+            self.uncertain_kind(),
+            "db9 SQL deadline exceeded",
+        )
     }
 
     fn database(&self, error: tokio_postgres::Error) -> ObjectStoreError {

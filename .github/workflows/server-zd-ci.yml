@@ -9,6 +9,8 @@ on:
       - "protos/**"
       - ".github/workflows/server-zd-ci.yml"
   pull_request:
+    # labeled runs only the db9 object-store suite when the db9-tests label is added.
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - "server-zd/**"
       - "s3local/**"
@@ -20,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: server-zd-${{ github.workflow }}-${{ github.ref }}
+  group: server-zd-${{ github.workflow }}-${{ github.ref }}-${{ github.event.action == 'labeled' && 'labeled' || 'changes' }}
   cancel-in-progress: true
 
 env:
@@ -34,6 +36,7 @@ env:
 jobs:
   fmt:
     name: Format
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -48,6 +51,7 @@ jobs:
 
   clippy:
     name: Clippy
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -67,10 +71,40 @@ jobs:
       - name: Run Clippy
         run: make clippy
 
+  # The db9 suite runs the db9 object-store tests against PostgreSQL, which speaks the same wire
+  # protocol. Pull requests include it only while they carry the db9-tests label.
   test:
-    name: Tests
+    name: Tests (${{ matrix.suite.name }})
+    if: github.event.action != 'labeled' || github.event.label.name == 'db9-tests'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: >-
+          ${{ fromJSON(
+            github.event.action == 'labeled'
+              && '[{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests"}]'
+              || (contains(github.event.pull_request.labels.*.name, 'db9-tests')
+                && '[{"name":"workspace","target":"test"},{"name":"db9 against PostgreSQL","target":"db9ObjectStoreTests"}]'
+                || '[{"name":"workspace","target":"test"}]')
+          ) }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dexzd
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dexzd"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DEX_ZD_DB9_CONNECTION_STRING: postgres://postgres:postgres@localhost:5432/dexzd
     defaults:
       run:
         working-directory: server-zd
@@ -86,10 +120,11 @@ jobs:
           shared-key: server-zd-test
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
-        run: make test
+        run: make ${{ matrix.suite.target }}
 
   paradedb:
     name: ParadeDB visibility parity
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -234,6 +269,7 @@ jobs:
 
   postgres:
     name: PostgreSQL visibility parity
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
