@@ -82,11 +82,20 @@ pub(crate) fn sweep_ended_step_rows(
         );
         start.push(0);
     }
-    let page = transaction.scan(ColumnFamily::Flow, &start, &end, SWEEP_ROWS_PER_COMMAND)?;
+    // Rows this command rewrote or deleted still count, so the sweep reads at most this many rows.
+    let page = transaction.scan_stored_rows_with_buffered_values(
+        ColumnFamily::Flow,
+        &start,
+        &end,
+        SWEEP_ROWS_PER_COMMAND,
+    )?;
     let is_complete = page.len() < SWEEP_ROWS_PER_COMMAND;
     let mut last_visited_step_execution_id = String::new();
-    for (key, value) in page {
-        let step = decode_step(&key, &value)?;
+    for (key, current) in page {
+        let step = match current {
+            Some(value) => Some(decode_step(&key, &value)?),
+            None => None,
+        };
         last_visited_step_execution_id =
             String::from_utf8(key[prefix.len()..].to_vec()).map_err(|error| {
                 ApplyError::CorruptState {
@@ -95,7 +104,7 @@ pub(crate) fn sweep_ended_step_rows(
                     detail: error.to_string(),
                 }
             })?;
-        if is_deletable_ended_step(&step) {
+        if step.as_ref().is_some_and(is_deletable_ended_step) {
             transaction.delete(ColumnFamily::Flow, key);
         }
     }

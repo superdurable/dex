@@ -8,6 +8,7 @@
 
 //! Deletion of the StepExecution rows of Steps that completed or were canceled without a close.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
 use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
@@ -1099,4 +1100,85 @@ fn time_travel_runs_the_sweep_again() {
         ]
     );
     assert_eq!(harness.step_ids().len(), 304);
+}
+
+/// Counts the stored StepExecution rows that scans return.
+struct StepRowCountingReader<'state> {
+    state: &'state MemoryState,
+    step_prefix: Vec<u8>,
+    scanned_step_rows: Cell<usize>,
+}
+
+impl FlowStateReader for StepRowCountingReader<'_> {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        self.state.get(column_family, key)
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        let rows = self.state.scan(column_family, start, end, limit)?;
+        let step_rows = rows
+            .iter()
+            .filter(|(key, _)| {
+                column_family == ColumnFamily::Flow && key.starts_with(&self.step_prefix)
+            })
+            .count();
+        self.scanned_step_rows
+            .set(self.scanned_step_rows.get() + step_rows);
+        Ok(rows)
+    }
+}
+
+#[test]
+fn a_sweep_reads_at_most_256_stored_step_rows_even_past_rows_its_command_deleted() {
+    let mut harness = Harness::with_settings(RunSettings {
+        checkpoint_command_threshold: 1_000_000,
+        checkpoint_row_write_bytes_threshold: 1 << 40,
+        ..RunSettings::default()
+    });
+    harness.start(None);
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute);
+    harness.inject_rows_of_an_older_binary(600, 0);
+    let page_end = harness.step_ids()[255].clone();
+    // ChargeStep-1 sorts before the older rows, and its completion deletes it before the sweep.
+    let command = harness.command(Harness::execute_result(
+        "ChargeStep-1",
+        go_to(&["ShipStep"]),
+    ));
+    let reader = StepRowCountingReader {
+        state: &harness.state,
+        step_prefix: run_table_prefix(harness.context.flow_hash, RUN_ID, RunTable::StepExecution),
+        scanned_step_rows: Cell::new(0),
+    };
+    let outcome =
+        apply_flow_command(&harness.context, &reader, &command).expect("the command applies");
+    assert_not_rejected(&outcome, "the Execute completes");
+    assert_eq!(
+        reader.scanned_step_rows.get(),
+        256,
+        "the sweep reads one page of stored Step rows, the deleted ChargeStep-1 included"
+    );
+    harness.state.commit(&outcome);
+    assert_eq!(
+        deleted_step_rows(&outcome),
+        254,
+        "ChargeStep-1 and the 253 older Completed rows among the first 256 stored rows"
+    );
+    assert_eq!(
+        harness
+            .run_record()
+            .ended_step_row_sweep
+            .map(|sweep| sweep.last_visited_step_execution_id),
+        Some(page_end),
+        "the cursor counts the deleted ChargeStep-1 as one of its 256 rows"
+    );
 }

@@ -19,6 +19,9 @@ use crate::{ApplyContext, ApplyError, FlowStateReader, StateWrite};
 /// Rows fetched from the reader per page while merging a scan with buffered writes.
 const SCAN_PAGE_ROWS: usize = 256;
 
+/// A stored key with its value after a call's writes; None when the call deleted the row.
+pub(crate) type StoredRowWithBufferedValue = (Vec<u8>, Option<Vec<u8>>);
+
 /// One buffered row change with its committed value.
 pub(crate) struct StateRowChange {
     pub(crate) column_family: ColumnFamily,
@@ -113,6 +116,37 @@ impl<'reader> FlowTransaction<'reader> {
             });
         merged.extend(buffered);
         Ok(merged.into_iter().take(limit).collect())
+    }
+
+    /// Reads at most `limit` stored rows in `[start, end)`, ascending, never refilling past shadowed rows.
+    ///
+    /// Returns each stored key with its value after this call's writes: the buffered value,
+    /// None when this call deleted the row, or the stored value. Rows only this call put are left
+    /// out.
+    pub(crate) fn scan_stored_rows_with_buffered_values(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StoredRowWithBufferedValue>, ApplyError> {
+        self.check_key_scope(column_family, start);
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .reader
+            .scan(column_family, start, end, limit)?
+            .into_iter()
+            .map(|(key, stored)| {
+                let current = match self.rows.get(&(column_family, key.clone())) {
+                    Some(buffered) => buffered.clone(),
+                    None if self.is_range_deleted(column_family, &key) => None,
+                    None => Some(stored),
+                };
+                (key, current)
+            })
+            .collect())
     }
 
     pub(crate) fn put(&mut self, column_family: ColumnFamily, key: Vec<u8>, value: Vec<u8>) {
