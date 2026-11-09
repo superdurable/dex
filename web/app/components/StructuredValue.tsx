@@ -150,10 +150,31 @@ export function LongValue({
 
 const inlinePreviewCharacters = 96;
 const inlineValueCharacters = 160;
+const shortJSONCharacters = 80;
+
+/** Whether a decoded object reads on one line: flat, and its JSON fits in about 80 characters. */
+export function isShortFlatValue(decoded: unknown): boolean {
+  if (!decoded || typeof decoded !== 'object') return false;
+  const members = Array.isArray(decoded) ? decoded : Object.values(decoded);
+  if (members.some((member) => member !== null && typeof member === 'object')) return false;
+  return (JSON.stringify(decoded, storedValueJSONReplacer) ?? '').length <= shortJSONCharacters;
+}
 
 /** Shows one decoded value on a line; objects show an expandable one-line preview. */
-export function InlineValue({ value, expandValues = false }: { value: unknown; expandValues?: boolean }) {
+export function InlineValue({
+  value,
+  expandValues = false,
+  characterLimit = inlineValueCharacters,
+}: {
+  value: unknown;
+  expandValues?: boolean;
+  /** How many characters of a long scalar show before Show all. */
+  characterLimit?: number;
+}) {
   const decoded = isDexValue(value) ? decodedValue(value) : value;
+  if (isShortFlatValue(decoded)) {
+    return <span className="inline-value"><code>{JSON.stringify(decoded, storedValueJSONReplacer)}</code></span>;
+  }
   if (decoded && typeof decoded === 'object') {
     const preview = JSON.stringify(decoded, storedValueJSONReplacer) ?? '';
     return (
@@ -167,7 +188,7 @@ export function InlineValue({ value, expandValues = false }: { value: unknown; e
   }
   return (
     <span className="inline-value">
-      <LongValue characterLimit={inlineValueCharacters} text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />
+      <LongValue characterLimit={characterLimit} text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />
     </span>
   );
 }

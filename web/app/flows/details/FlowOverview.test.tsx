@@ -404,8 +404,8 @@ describe('decoded Channel values and close failures', () => {
     expect(text).not.toContain('dHJ1ZQ==');
     expect(screen.getByText('true')).toBeTruthy();
     expect(screen.getByText('approved')).toBeTruthy();
-    expect(screen.getByText('amount')).toBeTruthy();
-    expect(screen.getByText('42')).toBeTruthy();
+    // A short flat object reads on one line.
+    expect(screen.getByText('{"amount":42}')).toBeTruthy();
   });
 
   it('keeps the envelope in Raw JSON', () => {

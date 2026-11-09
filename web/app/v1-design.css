@@ -2235,3 +2235,147 @@ body:has(.v1-page) {
   stroke-dasharray: 4 3;
 }
 
+
+/* ------------------------------------------------------ event panel rows */
+
+.semantic-value.semantic-value-inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.semantic-value-content {
+  display: inline-flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-value-inline code {
+  padding: 2px 6px;
+  white-space: pre-wrap;
+}
+
+.v1-page .semantic-fields.semantic-fields-inline {
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+}
+
+.semantic-fields-inline > div {
+  display: contents;
+}
+
+.v1-page .semantic-fields-inline dd {
+  margin: 0;
+}
+
+.decision-summary-rows {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decision-summary-rows li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 0;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+}
+
+.decision-summary-rows strong {
+  color: var(--ui-ink);
+  font-weight: 600;
+}
+
+.decision-summary-part::before {
+  margin: 0 8px;
+  color: var(--ui-ink-3);
+  content: '·';
+}
+
+.v1-page .decision-summary-part code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  color: var(--ui-ink);
+  background: var(--ui-well);
+  font-family: var(--ui-font-mono);
+  font-size: 12.5px;
+}
+
+.decision-summary-details {
+  margin-top: 8px;
+}
+
+.decision-summary-details > summary {
+  color: var(--tone-accent-ink);
+  cursor: pointer;
+  font-size: var(--ui-text-xs);
+  font-weight: 650;
+}
+
+.v1-page .run-sidebar .semantic-fields-compact {
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.v1-page .run-sidebar .compact-row {
+  padding: 4px 0;
+}
+
+.v1-page .run-sidebar .compact-row:hover {
+  background: transparent;
+}
+
+/* Under the horizontal Timeline the panel is full width, so its sections sit in columns. */
+@media (min-width: 761px) {
+  .v1-page .run-content--horizontal-timeline .sidebar-stack {
+    container: event-panel / inline-size;
+  }
+}
+
+@container event-panel (min-width: 820px) {
+  .v1-page .run-sidebar .semantic-event {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 24px 32px;
+  }
+
+  .v1-page .run-sidebar .semantic-event > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  /* The Details and Raw JSON toggle shares the column headings' row. */
+  .v1-page .run-sidebar .event-details-content {
+    position: relative;
+  }
+
+  .v1-page .run-sidebar .event-details-content > .event-detail-tabs {
+    position: absolute;
+    z-index: 1;
+    top: -6px;
+    right: 0;
+  }
+
+  .v1-page .run-sidebar .event-details-content > .event-detail-tabs + .semantic-event {
+    margin-top: 0;
+  }
+
+  .v1-page .run-sidebar .event-details-content > .event-detail-tabs + .raw-event-json {
+    margin-top: 40px;
+  }
+}
+
+@container event-panel (min-width: 1180px) {
+  .v1-page .run-sidebar .semantic-event {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+
+  .v1-page .run-sidebar .semantic-event > :last-child:nth-child(odd) {
+    grid-column: auto;
+  }
+}

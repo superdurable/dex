@@ -44,7 +44,16 @@ interface AttributeEntry {
 }
 
 /** Lists Attributes as one compact row each; AttributeMap instances sit under their map name. */
-export function AttributeRows({ attributes, expandValues }: { attributes: unknown[]; expandValues: boolean }) {
+export function AttributeRows({
+  attributes,
+  expandValues,
+  characterLimit,
+}: {
+  attributes: unknown[];
+  expandValues: boolean;
+  /** Shortens long value previews, as the event panel does. */
+  characterLimit?: number;
+}) {
   const entries = attributes.flatMap((attribute): AttributeEntry[] => {
     if (typeof attribute !== 'object' || attribute === null) return [];
     const data = attribute as { key?: unknown; value?: unknown };
@@ -60,7 +69,9 @@ export function AttributeRows({ attributes, expandValues }: { attributes: unknow
           {plainEntries.map((group) => (
             <li className="compact-row" key={`${group.entry.key}-${group.index}`}>
               <strong className="compact-row-label">{group.entry.key}</strong>
-              <div className="compact-row-value"><InlineValue value={group.entry.value} expandValues={expandValues} /></div>
+              <div className="compact-row-value">
+                <InlineValue characterLimit={characterLimit} value={group.entry.value} expandValues={expandValues} />
+              </div>
             </li>
           ))}
         </ul>
@@ -75,7 +86,9 @@ export function AttributeRows({ attributes, expandValues }: { attributes: unknow
             {group.entries.map(({ entry, instance, index }) => (
               <li className="compact-row" key={`${instance}-${index}`}>
                 <strong className="compact-row-label">{instance}</strong>
-                <div className="compact-row-value"><InlineValue value={entry.value} expandValues={expandValues} /></div>
+                <div className="compact-row-value">
+                  <InlineValue characterLimit={characterLimit} value={entry.value} expandValues={expandValues} />
+                </div>
               </li>
             ))}
           </ul>

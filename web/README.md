@@ -875,6 +875,15 @@ Methods interrupted by a forced close remain visible as Pending Timeline events
 with their last persisted Scheduled or Started phase.
 Timeline and Execution graph share structured event details for flow, step method, RPC,
 and channel events. A Raw JSON tab preserves the complete server payload.
+Below the horizontal Timeline the panel is a container: at 820 px and wider its
+sections sit in two columns, and at 1180 px and wider in up to three, such as
+Input, Output, and Context. The Execution graph sidebar and the v2 panel stay
+one column. A scalar or a flat JSON value of about 80 characters or fewer sits on
+its label's row. A Step decision reads as one row per target with its input,
+named options, and upserted or published names; **Decision details** expands
+the full movements only when they hold more. Attribute rows, read or upserted,
+reuse the Overview compact rows and preview each value. Context is one dense
+field grid, including pull routing and method options, and hides empty fields.
 Blob-backed RPC input and output hydrate through the existing selected-event loader.
 The Streams tab accepts a Stream name, reads its retained messages from the beginning,
 and then continuously long-polls for the next message. Each message displays its creation
