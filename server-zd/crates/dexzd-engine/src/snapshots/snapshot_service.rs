@@ -75,8 +75,8 @@ impl SnapshotService {
                 () = cancellation.cancelled() => return,
                 _ = self.fence.state.wait_stopped() => return,
                 _ = cleanup_timer.tick() => {
-                    if let Err(error) = self.clean_orphans().await {
-                        tracing::warn!(error = %error, "snapshot orphan cleanup failed; retrying later");
+                    if let Err(error) = self.run_periodic_cleanup().await {
+                        tracing::warn!(error = %error, "periodic snapshot and log cleanup failed; retrying later");
                     }
                     false
                 }
@@ -111,7 +111,8 @@ impl SnapshotService {
         }
     }
 
-    async fn clean_orphans(&self) -> Result<(), SnapshotError> {
+    /// Runs retention and log cleanup; on an idle node, only this deletes covered log batches.
+    async fn run_periodic_cleanup(&self) -> Result<(), SnapshotError> {
         let _operation_guard = self.acquire_operation_lock().await;
         let cluster_manifest = self
             .fence
@@ -124,16 +125,25 @@ impl SnapshotService {
             .map(|snapshot| snapshot.manifest_key.clone())
             .collect();
         let mut catalog = self.take_catalog().await;
-        let result = self
-            .retention
-            .run_once(
-                &mut catalog,
-                &referenced_keys,
-                &self.fence,
-                self.clock.now_unix_micros(),
-            )
-            .await
-            .map(|_| ());
+        let result = async {
+            let retained = self
+                .retention
+                .run_once(
+                    &mut catalog,
+                    &referenced_keys,
+                    &self.fence,
+                    self.clock.now_unix_micros(),
+                )
+                .await?;
+            let Some(published) = published_snapshots(&cluster_manifest, &retained) else {
+                return Ok(());
+            };
+            self.log_cleanup
+                .run_once(&retained, &published, &self.fence)
+                .await?;
+            Ok::<(), SnapshotError>(())
+        }
+        .await;
         self.restore_catalog(catalog).await;
         result
     }
@@ -214,7 +224,7 @@ impl SnapshotService {
                 )
                 .await?;
             self.log_cleanup
-                .run_once(&retained, &manifest, &self.fence)
+                .run_once(&retained, &[&manifest], &self.fence)
                 .await?;
             Ok::<(), SnapshotError>(())
         }
@@ -358,6 +368,34 @@ impl SnapshotService {
     fn committed_log_bytes(&self) -> u64 {
         self.progress.committed_log_bytes.load(Ordering::Relaxed)
     }
+}
+
+/// Returns each distinct retained snapshot that a partition of `cluster_manifest` points to.
+///
+/// Returns `None` when a partition points to no snapshot or to one that `retained` lacks.
+fn published_snapshots<'catalog>(
+    cluster_manifest: &Manifest,
+    retained: &[&'catalog SnapshotManifest],
+) -> Option<Vec<&'catalog SnapshotManifest>> {
+    let mut references = BTreeSet::new();
+    for partition in &cluster_manifest.partitions {
+        let reference = partition.snapshot.as_ref()?;
+        references.insert((
+            reference.node_id.as_str(),
+            reference.lineage_id.as_slice(),
+            reference.snapshot_number,
+        ));
+    }
+    references
+        .into_iter()
+        .map(|(node_id, lineage_id, snapshot_number)| {
+            retained.iter().copied().find(|manifest| {
+                manifest.node_id == node_id
+                    && manifest.lineage_id == lineage_id
+                    && manifest.snapshot_number == snapshot_number
+            })
+        })
+        .collect()
 }
 
 /// Rotates the lineage before this owner's first upload, then returns the next snapshot number.

@@ -50,31 +50,31 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::Standard,
         3856990760,
         120,
-        0x216dab7f1c04e0631e1e6f5f8d48fff3,
+        0x153b7b678ce434545188c8476452f1f6,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990458,
         120,
-        0xeb28ce76f9925180180a95aa54e337a8,
+        0x17cfb4831963a79bc101209718fa8f49,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990875,
         120,
-        0x10e0d89bc5919fb6b27ad0d2df8828ed,
+        0x6e35d749c9254426e19b14357f2b61d8,
     ),
     (
         EngineSimulationProfile::Standard,
         3856990400,
         120,
-        0x9677bd868a00836031d6b0d1045fb1ee,
+        0x2e2373b12e04a9a7b36aaa5e3eb2bfbb,
     ),
     (
         EngineSimulationProfile::Standard,
         FIRST_SEED,
         120,
-        0x6835855b420e314659cdaf66091d0703,
+        0x835fff9ad57ac0397ae33e500d8162c3,
     ),
     (
         EngineSimulationProfile::Standard,
@@ -98,7 +98,7 @@ const PINNED_CANONICAL_COMMAND_DIGESTS: &[(EngineSimulationProfile, u64, u64, u1
         EngineSimulationProfile::HotStandbyTakeovers,
         FIRST_HOT_STANDBY_SEED,
         120,
-        0x626b65f0c2f0b58987fa3d4fc568ed56,
+        0xd044f526afb51e92d249b21b5c61ba77,
     ),
 ];
 
