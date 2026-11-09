@@ -28,12 +28,14 @@
   min-width: 0;
   min-height: 2.5rem;
   border: 0;
-  border-radius: 8px;
+  /* An underline keeps the control recognizable without a box (WCAG 1.4.11). */
+  border-bottom: 1.5px solid var(--docs-subtle, var(--ifm-color-emphasis-600));
+  border-radius: 8px 8px 0 0;
   padding: 0.45rem 0.6rem;
   background: var(--docs-tint, var(--ifm-color-emphasis-100));
-  font-weight: 600;
   color: var(--ifm-font-color-base);
   font: inherit;
+  font-weight: 600;
 }
 
 .selector select:focus-visible {

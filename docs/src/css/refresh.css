@@ -8,11 +8,7 @@
  * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
  */
 
-/*
- * Content-first docs styling. Loaded after custom.css.
- * Structure comes from type, spacing, and color, not from borders.
- * The site header and footer follow the shared header spec and are not styled here.
- */
+/* Content-first docs styling, loaded after custom.css. The shared header and footer stay untouched. */
 
 :root {
   --docs-text: #27272a;
@@ -23,16 +19,16 @@
   --docs-code-bg: #f5f6f4;
   --docs-radius: 10px;
 
-  /* One accent per docs section. Each meets WCAG AA as text on white. */
-  --accent-intro: #c2410c;
+  /* One accent per section. Each meets WCAG AA as text on white and on its own tint. */
+  --accent-intro: #9a3412;
   --accent-primitives: #047857;
   --accent-components: #1d4ed8;
   --accent-agent-frameworks: #a21caf;
   --accent-agent-skills: #be185d;
   --accent-design-patterns: #6d28d9;
-  --accent-product-examples: #b45309;
+  --accent-product-examples: #92400e;
   --accent-reference: #0f766e;
-  --accent-glossary: #4d7c0f;
+  --accent-glossary: #3f6212;
   --section-accent: var(--ifm-color-primary);
   --ifm-table-head-background: transparent;
   --ifm-table-stripe-background: transparent;
@@ -138,7 +134,7 @@ html[data-theme='dark'] {
 }
 
 .theme-doc-sidebar-menu .menu__link[aria-current='page'] {
-  background: color-mix(in srgb, var(--section-accent) 11%, transparent);
+  background: color-mix(in srgb, var(--section-accent) 8%, transparent);
   box-shadow: none;
   color: var(--section-accent);
   font-weight: 650;
@@ -356,12 +352,12 @@ html[data-theme='dark'] {
   padding: 1rem 1.15rem;
 }
 
-.alert--info { background: color-mix(in srgb, #2563eb 7%, transparent); }
-.alert--secondary,
-.alert--note { background: var(--docs-tint); }
-.alert--success { background: color-mix(in srgb, #059669 8%, transparent); }
-.alert--warning { background: color-mix(in srgb, #d97706 10%, transparent); }
-.alert--danger { background: color-mix(in srgb, #dc2626 8%, transparent); }
+.main-wrapper .alert--info { background: color-mix(in srgb, #2563eb 7%, transparent); }
+.main-wrapper .alert--secondary,
+.main-wrapper .alert--note { background: var(--docs-tint); }
+.main-wrapper .alert--success { background: color-mix(in srgb, #059669 8%, transparent); }
+.main-wrapper .alert--warning { background: color-mix(in srgb, #d97706 10%, transparent); }
+.main-wrapper .alert--danger { background: color-mix(in srgb, #dc2626 8%, transparent); }
 
 .theme-admonition [class*='admonitionHeading'] {
   font-size: 0.78rem;
@@ -509,7 +505,8 @@ html[data-theme='dark'] {
   text-decoration: none !important;
 }
 
-.docs-section-entry:hover {
+.docs-section-entry:hover,
+.docs-section-entry:focus-visible {
   background: color-mix(in srgb, var(--section-accent) 7%, transparent);
   color: var(--docs-text);
   text-decoration: none;
@@ -528,7 +525,8 @@ html[data-theme='dark'] {
   transition: background-color 160ms ease, color 160ms ease;
 }
 
-.docs-section-entry:hover .docs-section-entry__icon {
+.docs-section-entry:hover .docs-section-entry__icon,
+.docs-section-entry:focus-visible .docs-section-entry__icon {
   background: var(--section-accent);
   color: var(--ifm-background-color);
 }
@@ -555,7 +553,8 @@ html[data-theme='dark'] {
   transition: opacity 160ms ease, transform 160ms ease;
 }
 
-.docs-section-entry:hover .docs-section-entry__arrow {
+.docs-section-entry:hover .docs-section-entry__arrow,
+.docs-section-entry:focus-visible .docs-section-entry__arrow {
   opacity: 1;
   transform: translateX(0);
 }
@@ -567,12 +566,7 @@ html[data-theme='dark'] {
     transition: none;
   }
 
-  .docs-section-entry,
-.docs-section-entry * {
-  text-decoration: none !important;
-}
-
-.docs-section-entry:hover {
+  .docs-section-entry:hover {
     transform: none;
   }
 }

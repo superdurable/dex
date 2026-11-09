@@ -185,7 +185,7 @@ const sidebars: SidebarsConfig = {
         customProps: {referenceComponent: component},
       })),
     },
-    'glossary',
+    {type: 'doc', id: 'glossary', customProps: {section: 'glossary'}},
   ],
 };
 
