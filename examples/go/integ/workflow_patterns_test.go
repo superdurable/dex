@@ -418,8 +418,8 @@ func TestWorkflowPatternsCompleteMultipleInstanceTask(t *testing.T) {
 	invokeWorkflowPatternRPC(t, flowID, flow.ReleasePeerReview, nil, nil)
 	require.Eventually(t, func() bool {
 		var submittedCount int
-		invokeWorkflowPatternRPC(t, flowID, flow.GetSubmittedPeerReviewCount, nil, &submittedCount)
-		return submittedCount == 1
+		err := integClient.InvokeRPC(integrationContext(t), flowID, flow.GetSubmittedPeerReviewCount, nil, &submittedCount)
+		return err == nil && submittedCount == 1
 	}, workflowPatternWaitTimeout, workflowPatternPollInterval)
 	invokeWorkflowPatternRPC(t, flowID, flow.CompletePeerReviewsEarly, nil, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
@@ -585,8 +585,7 @@ func pollWorkflowPatternAttribute[T comparable](
 	require.Eventually(t, func() bool {
 		var value T
 		_, err := integClient.GetAttributes(integrationContext(t), flowID, dex.ReadAttribute(attribute, &value))
-		require.NoError(t, err)
-		return value == expected
+		return err == nil && value == expected
 	}, workflowPatternWaitTimeout, workflowPatternPollInterval, "Flow %s Attribute %s", flowID, attribute.AttributeName())
 }
 

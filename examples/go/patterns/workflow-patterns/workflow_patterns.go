@@ -18,9 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Package workflowpatterns implements the Workflow Patterns Initiative
-// control-flow patterns (WCP-1 to WCP-43) as Dex Flows. The mapping lives in
-// examples/workflow-patterns-mapping.md.
+// Package workflowpatterns implements the WCP-1 to WCP-43 control-flow patterns as Dex Flows.
 package workflowpatterns
 
 import (

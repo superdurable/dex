@@ -41,8 +41,7 @@ type InvoicePaymentMatch struct {
 	PaymentID string `json:"paymentId"`
 }
 
-// GeneralizedAndJoinFlow implements WCP-33 Generalised AND-Join. The join fires
-// once every input has a message; extra messages stay queued for the next firing.
+// GeneralizedAndJoinFlow implements WCP-33: each firing joins one invoice and one payment.
 type GeneralizedAndJoinFlow struct{ dex.FlowDefaults }
 
 func (*GeneralizedAndJoinFlow) GetSteps() []dex.StepDef {
@@ -125,8 +124,7 @@ func (RecordMatch) Execute(_ dex.Context, match InvoicePaymentMatch) (*dex.StepD
 
 var ParcelPackedChannel = dex.DefineChannel[int]("parcelPacked")
 
-// ThreadSplitMergeFlow implements WCP-42 Thread Split with k executions of one
-// Step type and WCP-41 Thread Merge with a Channel ForN(k) join.
+// ThreadSplitMergeFlow implements WCP-41 and WCP-42 with k PackParcel executions.
 type ThreadSplitMergeFlow struct{ dex.FlowDefaults }
 
 func (*ThreadSplitMergeFlow) GetSteps() []dex.StepDef {

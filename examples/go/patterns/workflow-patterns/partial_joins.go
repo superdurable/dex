@@ -37,9 +37,7 @@ var (
 
 const supplierCount = 3
 
-// StructuredPartialJoinFlow implements WCP-9 Structured Discriminator with
-// requiredQuotes 1 and WCP-30 Structured Partial Join with requiredQuotes 2.
-// ResetQuoteJoin consumes the remaining quotes so the join resets.
+// StructuredPartialJoinFlow implements WCP-9 (requiredQuotes 1) and WCP-30 (requiredQuotes 2).
 type StructuredPartialJoinFlow struct{ dex.FlowDefaults }
 
 func (*StructuredPartialJoinFlow) GetSteps() []dex.StepDef {
@@ -197,9 +195,7 @@ type BlockingJoinReset struct {
 	PendingBranches []string `json:"pendingBranches"`
 }
 
-// BlockingPartialJoinFlow implements WCP-28 Blocking Discriminator with
-// requiredSignals 1 and WCP-31 Blocking Partial Join with requiredSignals 2.
-// Signals sent before the reset stay queued for the next round.
+// BlockingPartialJoinFlow implements WCP-28 (requiredSignals 1) and WCP-31 (requiredSignals 2).
 type BlockingPartialJoinFlow struct{ dex.FlowDefaults }
 
 func (*BlockingPartialJoinFlow) GetSteps() []dex.StepDef {

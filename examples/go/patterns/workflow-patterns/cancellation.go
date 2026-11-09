@@ -308,8 +308,7 @@ var (
 	PeerReviewSubmittedChannel = dex.DefineChannel[int]("peerReviewSubmitted")
 )
 
-// CompleteMultipleInstanceTaskFlow implements WCP-27: an RPC completes the review
-// early by canceling the instances and the join, then publishes what arrived.
+// CompleteMultipleInstanceTaskFlow implements WCP-27: an RPC ends the review early.
 type CompleteMultipleInstanceTaskFlow struct{ dex.FlowDefaults }
 
 func (*CompleteMultipleInstanceTaskFlow) GetSteps() []dex.StepDef {

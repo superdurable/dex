@@ -309,8 +309,7 @@ var (
 	CriticalSectionFinishedChannel = dex.DefineChannel[TaskInterval]("criticalSectionFinished")
 )
 
-// CriticalSectionFlow implements WCP-39 Critical Section. A single token message
-// guards each two-Step section, because an Attribute lock covers one Step method only.
+// CriticalSectionFlow implements WCP-39 with a single token message guarding each section.
 type CriticalSectionFlow struct{ dex.FlowDefaults }
 
 func (*CriticalSectionFlow) GetSteps() []dex.StepDef {

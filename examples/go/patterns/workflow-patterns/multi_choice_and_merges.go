@@ -164,8 +164,7 @@ func (RecordReview) Execute(_ dex.Context, reviewer string) (*dex.StepDecision, 
 	return dex.GracefulComplete(reviewer), nil
 }
 
-// GeneralSynchronizingMergeFlow implements WCP-38 General Synchronizing Merge. The
-// region with a cycle runs as a SubFlow that completes once none of its Steps can run.
+// GeneralSynchronizingMergeFlow implements WCP-38 by running the cyclic region as a SubFlow.
 type GeneralSynchronizingMergeFlow struct {
 	dex.FlowDefaults
 	reviewRegionFlow *ReviewRegionFlow

@@ -30,8 +30,7 @@ var (
 	MotionEventChannel             = dex.DefineChannel[int]("motionEvent")
 )
 
-// TransientTriggerFlow implements WCP-23 Transient Trigger. Channels keep
-// messages, so the RPC drops a motion event unless a Step is waiting for one.
+// TransientTriggerFlow implements WCP-23: the RPC drops motion events nobody waits for.
 type TransientTriggerFlow struct{ dex.FlowDefaults }
 
 func (*TransientTriggerFlow) GetSteps() []dex.StepDef {
@@ -63,8 +62,7 @@ func (*TransientTriggerFlow) ArmMotionSensor(ctx dex.Context, _ dex.None) (*dex.
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-// SendMotionEvent delivers value and returns true while a Step waits for motion.
-// Otherwise it drops the event and returns false.
+// SendMotionEvent returns true when a Step waits for motion, and false after dropping the event.
 func (*TransientTriggerFlow) SendMotionEvent(ctx dex.Context, value int) (*dex.RPCResult[bool], error) {
 	isAwaiting, err := getAttributeOrZero(ctx, IsAwaitingMotionEventAttribute)
 	if err != nil {

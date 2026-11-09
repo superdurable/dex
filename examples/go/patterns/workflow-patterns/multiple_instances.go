@@ -90,8 +90,7 @@ func (ConfirmRegistration) Execute(dex.Context, dex.None) (*dex.StepDecision, er
 
 var ReviewCompletedChannel = dex.DefineChannel[string]("reviewCompleted")
 
-// DesignTimeMultipleInstancesFlow implements WCP-13: the instance count is fixed
-// in the Flow code and a Channel ForN join waits for every instance.
+// DesignTimeMultipleInstancesFlow implements WCP-13 with a fixed instance count.
 type DesignTimeMultipleInstancesFlow struct{ dex.FlowDefaults }
 
 func (*DesignTimeMultipleInstancesFlow) GetSteps() []dex.StepDef {
@@ -114,8 +113,7 @@ func (StartDesignTimeReviews) Execute(dex.Context, dex.None) (*dex.StepDecision,
 	return startReviewInstances([]string{"legal", "finance", "security"}), nil
 }
 
-// RunTimeMultipleInstancesFlow implements WCP-14: the instance count comes from
-// the Flow input and a Channel ForN join waits for every instance.
+// RunTimeMultipleInstancesFlow implements WCP-14 with an instance count from the input.
 type RunTimeMultipleInstancesFlow struct{ dex.FlowDefaults }
 
 func (*RunTimeMultipleInstancesFlow) GetSteps() []dex.StepDef {
@@ -176,8 +174,7 @@ var (
 	SampleIntakeClosedChannel     = dex.DefineChannel[string]("sampleIntakeClosed")
 )
 
-// NoPriorKnowledgeMultipleInstancesFlow implements WCP-15: RPCs add instances
-// while they run, and the join loops until intake closes and every instance reported.
+// NoPriorKnowledgeMultipleInstancesFlow implements WCP-15: RPCs add instances until intake closes.
 type NoPriorKnowledgeMultipleInstancesFlow struct{ dex.FlowDefaults }
 
 func (*NoPriorKnowledgeMultipleInstancesFlow) GetSteps() []dex.StepDef {
@@ -326,8 +323,7 @@ type InspectionQuorum struct {
 	RemainingInspections int `json:"remainingInspections"`
 }
 
-// StaticPartialJoinForMultipleInstancesFlow implements WCP-34: the join fires after
-// n of m instances, and a reset Step consumes the remaining m - n.
+// StaticPartialJoinForMultipleInstancesFlow implements WCP-34 with a join and a reset Step.
 type StaticPartialJoinForMultipleInstancesFlow struct{ dex.FlowDefaults }
 
 func (*StaticPartialJoinForMultipleInstancesFlow) GetSteps() []dex.StepDef {
