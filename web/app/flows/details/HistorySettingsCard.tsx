@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 
@@ -80,9 +80,20 @@ export function HistorySettingsCard({
   const [deleteChoice, setDeleteChoice] = useState<DeleteExpiredChoice>('unchanged');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isValidationError, setIsValidationError] = useState(false);
+  // Shows saved values until the parent passes a newer flowConfig, even if the refresh failed.
+  const [savedDisplay, setSavedDisplay] = useState<{
+    basis: Record<string, unknown>;
+    settings: HistorySettings;
+  } | null>(null);
+  const errorId = useId();
 
   const isRunning = summary.flowStatus === 'Running';
-  const current = flowConfig ? historySettingsFromFlowConfig(flowConfig) : undefined;
+  const current = !flowConfig
+    ? undefined
+    : savedDisplay?.basis === flowConfig
+      ? savedDisplay.settings
+      : historySettingsFromFlowConfig(flowConfig);
   const canEdit = isRunning && current !== undefined && onSaved !== undefined;
   const pending = current ? buildHistorySettingsUpdate(current, windowText, deleteChoice) : undefined;
   const canSave = !saving && pending !== undefined
@@ -92,30 +103,35 @@ export function HistorySettingsCard({
     setWindowText('');
     setDeleteChoice('unchanged');
     setError('');
+    setIsValidationError(false);
     setEditing(true);
   };
 
   async function save() {
-    if (!pending || !onSaved) return;
+    if (!pending || !onSaved || !current || !flowConfig) return;
     if ('error' in pending) {
       setError(pending.error);
+      setIsValidationError(true);
       return;
     }
     setSaving(true);
     setError('');
+    setIsValidationError(false);
     try {
       await readResponseJSON(await fetch('/api/flows/config/history', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ flowId: summary.flowId, runId: summary.runId, ...pending.update }),
       }));
-      await onSaved();
-      setEditing(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'History settings update failed');
-    } finally {
       setSaving(false);
+      return;
     }
+    setSavedDisplay({ basis: flowConfig, settings: { ...current, ...pending.update } });
+    setSaving(false);
+    setEditing(false);
+    await onSaved();
   }
 
   return (
@@ -146,6 +162,8 @@ export function HistorySettingsCard({
             History window (events)
             <input
               inputMode="numeric"
+              aria-invalid={isValidationError || undefined}
+              aria-describedby={isValidationError ? errorId : undefined}
               placeholder={`Unchanged: ${windowLabel(current.historyWindowEvents)}`}
               value={windowText}
               onChange={(event) => setWindowText(event.target.value)}
@@ -164,7 +182,7 @@ export function HistorySettingsCard({
               <option value="off">Off</option>
             </select>
           </label>
-          {error && <div className="error-banner">{error}</div>}
+          {error && <div className="error-banner" id={errorId} role="alert">{error}</div>}
           <div className="history-settings-actions">
             <button className="button ghost" disabled={saving} onClick={() => setEditing(false)}>
               Cancel

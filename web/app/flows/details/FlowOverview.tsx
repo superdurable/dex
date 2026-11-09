@@ -16,6 +16,8 @@ import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from '
 import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
+// Stable identity lets the History card tell a refreshed config from a rerender.
+const emptyFlowConfig: Record<string, unknown> = {};
 
 function useSectionExpand(persistKey: string) {
   const [expanded, setExpanded] = useState(() => sectionExpandByKey.get(persistKey) ?? false);
@@ -382,7 +384,7 @@ export function FlowOverview({
 
         <HistorySettingsCard
           summary={summary}
-          flowConfig={state ? (state.flowConfig ?? {}) : undefined}
+          flowConfig={state ? (state.flowConfig ?? emptyFlowConfig) : undefined}
           onSaved={onFlowConfigSaved}
         />
       </div>

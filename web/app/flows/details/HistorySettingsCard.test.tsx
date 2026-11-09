@@ -9,6 +9,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FlowState, FlowSummary } from '@/lib/types';
 import { FlowOverview } from './FlowOverview';
@@ -106,6 +107,50 @@ describe('history settings card', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
   });
 
+  it('shows the saved values when the refresh after a successful save fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ updated: true }), { status: 200 })));
+    // The page's refresh reports its failure elsewhere and keeps the old flowConfig.
+    const failedRefresh = vi.fn(async () => {});
+    render(
+      <HistorySettingsCard
+        summary={runningSummary}
+        flowConfig={{ historyWindowEvents: 500, deleteExpiredHistoryObjects: false }}
+        onSaved={failedRefresh}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: '800' } });
+    fireEvent.change(screen.getByLabelText('Delete expired history objects'), { target: { value: 'on' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(failedRefresh).toHaveBeenCalled());
+    expect(await screen.findByText('800 events')).toBeTruthy();
+    expect(screen.getByText('On')).toBeTruthy();
+    expect(screen.queryByText('500 events')).toBeNull();
+    expect(screen.queryByText('Off')).toBeNull();
+  });
+
+  it('shows the refreshed run config after a successful save', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ updated: true }), { status: 200 })));
+    function RefreshingCard() {
+      const [flowConfig, setFlowConfig] = useState<Record<string, unknown>>({ historyWindowEvents: 500 });
+      // The server reports a value another client wrote meanwhile, so the display must follow it.
+      const refresh = async () => setFlowConfig({ historyWindowEvents: 1200, deleteExpiredHistoryObjects: true });
+      return <HistorySettingsCard summary={runningSummary} flowConfig={flowConfig} onSaved={refresh} />;
+    }
+    render(<RefreshingCard />);
+    expect(screen.getByText('500 events')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: '800' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('1,200 events')).toBeTruthy();
+    expect(screen.getByText('On')).toBeTruthy();
+    expect(screen.queryByText('800 events')).toBeNull();
+  });
+
   it('shows a server rejection inline and stays in edit mode', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(
       JSON.stringify({ error: 'history window exceeds history.maxWindowEvents', grpcCode: 3 }),
@@ -118,7 +163,9 @@ describe('history settings card', () => {
     fireEvent.change(screen.getByLabelText('Delete expired history objects'), { target: { value: 'on' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText('history window exceeds history.maxWindowEvents')).toBeTruthy();
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toBe('history window exceeds history.maxWindowEvents');
+    expect(screen.getByLabelText('History window (events)').getAttribute('aria-invalid')).toBeNull();
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
   });
@@ -132,7 +179,11 @@ describe('history settings card', () => {
     fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.getByText('Enter a positive whole number of events.')).toBeTruthy();
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe('Enter a positive whole number of events.');
+    const windowInput = screen.getByLabelText('History window (events)');
+    expect(windowInput.getAttribute('aria-invalid')).toBe('true');
+    expect(windowInput.getAttribute('aria-describedby')).toBe(alert.id);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
