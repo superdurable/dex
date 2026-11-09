@@ -723,15 +723,44 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(horizontalOption(3000)).not.toBeNull());
     expect(document.querySelector('.timeline-row')).toBeNull();
     fireEvent.click(horizontalOption(3000)!);
-    fireEvent.click(await screen.findByRole('button', {
-      name: '← from Review-1 WaitFor completed, event #2 (older page)',
-    }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to #2' }));
 
     await waitFor(() => expect(horizontalOption(2)?.className).toContain('jump-highlighted'));
     expect(horizontalOption(2)?.getAttribute('aria-selected')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
     await waitFor(() => expect(horizontalOption(3000)?.getAttribute('aria-selected')).toBe('true'));
+  });
+
+  it('renders the whole event panel below the horizontal Timeline, through its last section', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 761px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review' };
+    const server = historyTestServer([sequentialStepHistory(1)[0], stepEvent(2, 'StepWaitForCompleted', review)]);
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    const option = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>('[role="option"][data-event-id="2"]');
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    fireEvent.click(option);
+    const panel = document.querySelector<HTMLElement>('.run-content--horizontal-timeline .sidebar-stack');
+    expect(panel).not.toBeNull();
+    const headings = await waitFor(() => {
+      const found = [...panel!.querySelectorAll('h4')].map((heading) => heading.textContent);
+      expect(found).toContain('Context');
+      return found;
+    });
+    const lastHeading = [...panel!.querySelectorAll('h4')].at(-1)!;
+    expect(lastHeading.textContent).toBe(headings.at(-1));
+    expect(lastHeading.closest('[hidden], [aria-hidden="true"]')).toBeNull();
+    expect(panel!.style.maxHeight).toBe('');
   });
 
   it('switches the Events page size, reloads the Latest page, and remembers the choice', async () => {

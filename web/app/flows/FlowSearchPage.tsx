@@ -473,7 +473,7 @@ export function FlowSearchPage() {
       <section className="card results-card">
         <div className="results-toolbar">
           <div>
-            <strong>{flows.length}</strong> {flows.length === 1 ? 'flow' : 'flows'} on page {page + 1}
+            <strong>{flows.length}</strong> {flows.length === 1 ? 'flow' : 'flows'}
           </div>
           <div className="results-controls">
             <label>

@@ -64,6 +64,11 @@
   --tone-neutral-on: #ffffff;
   --tone-neutral-soft: #f0efed;
   --tone-neutral-ink: #4a4744;
+  /* Event kind family tints for Timeline icons; quieter than the wait and fail tones. */
+  --kind-step: #3d6b55;
+  --kind-input: #3e5f88;
+  --kind-lifecycle: #4a4744;
+  --tone-canceled: #7d7a77;
 
   --ui-radius-section: 16px;
   --ui-radius-item: 12px;
@@ -110,6 +115,10 @@
   --tone-neutral-on: #121214;
   --tone-neutral-soft: #1a1a1d;
   --tone-neutral-ink: #b4b4b4;
+  --kind-step: #7fae96;
+  --kind-input: #8ba8cf;
+  --kind-lifecycle: #b4b4b4;
+  --tone-canceled: #767676;
 }
 
 body:has(.v1-page) {
@@ -1957,15 +1966,6 @@ body:has(.v1-page) {
   }
 }
 
-.htl-toolbar {
-  align-items: baseline;
-}
-
-.htl-range {
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-sm);
-}
-
 .htl-minimap {
   height: 34px;
   margin-bottom: 10px;
@@ -1993,24 +1993,13 @@ body:has(.v1-page) {
   opacity: 0.45;
 }
 
-.htl-tick.tone-completed {
-  fill: var(--tone-done);
-  opacity: 0.55;
-}
-
-.htl-tick.tone-waiting,
-.htl-tick.tone-pending {
+.htl-tick.htl-status-waiting {
   fill: var(--tone-wait);
   opacity: 1;
 }
 
-.htl-tick.tone-failed {
+.htl-tick.htl-status-failed {
   fill: var(--tone-fail);
-  opacity: 1;
-}
-
-.htl-tick.tone-fork {
-  fill: var(--tone-accent);
   opacity: 1;
 }
 
@@ -2033,6 +2022,7 @@ body:has(.v1-page) {
 
 .htl-strip {
   position: relative;
+  overscroll-behavior: contain;
   height: 268px;
   overflow: hidden;
   border-radius: var(--ui-radius-item);
@@ -2054,7 +2044,7 @@ body:has(.v1-page) {
   position: absolute;
   top: 0;
   bottom: 62px;
-  width: 40px;
+  width: var(--htl-slot-width, 40px);
   cursor: pointer;
 }
 
@@ -2072,35 +2062,111 @@ body:has(.v1-page) {
   transform: translateX(-50%);
 }
 
-.htl-event.tone-completed .htl-dot {
-  color: var(--tone-done);
+.htl-family-step {
+  color: var(--kind-step);
 }
 
-.htl-event.tone-waiting .htl-dot,
-.htl-event.tone-pending .htl-dot {
+.htl-family-input {
+  color: var(--kind-input);
+}
+
+.htl-family-lifecycle {
+  color: var(--kind-lifecycle);
+}
+
+/* Status overrides the family tint, so waits and failures stand out on a calm strip. */
+.htl-dot.htl-status-waiting {
   color: var(--tone-wait-ink);
+  background: var(--tone-wait-soft);
 }
 
-.htl-event.tone-failed .htl-dot {
+.htl-dot.htl-status-failed {
   color: var(--tone-fail);
+  background: var(--tone-fail-soft);
 }
 
-.htl-event.tone-fork .htl-dot {
-  color: var(--tone-accent);
+.htl-dot.htl-status-canceled {
+  color: var(--tone-canceled);
 }
 
-/* Labels rise 45 degrees, so neighbors share horizontal space like angled parking. */
+/* A failed event also carries a cross, so color is never the only signal. */
+.htl-dot-badge {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  display: grid;
+  width: 11px;
+  height: 11px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--tone-fail-on);
+  background: var(--tone-fail);
+}
+
+.htl-legend {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-xs);
+}
+
+.htl-legend ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.htl-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.htl-legend-mark {
+  position: relative;
+  display: inline-grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+}
+
+.htl-legend-dot {
+  display: grid;
+  width: 11px;
+  height: 11px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--tone-fail-on);
+}
+
+.htl-legend-dot.htl-status-waiting {
+  background: var(--tone-wait);
+}
+
+.htl-legend-dot.htl-status-failed {
+  background: var(--tone-fail);
+}
+
+.htl-legend-dot.htl-status-canceled {
+  background: var(--tone-canceled);
+}
+
+/* Labels rise at the strip's label angle, so neighbors share space like angled parking. */
 .htl-label {
   position: absolute;
   bottom: 30px;
   left: calc(50% - 4px);
-  max-width: 260px;
+  max-width: var(--htl-label-max-width, 240px);
   overflow: hidden;
   color: var(--ui-ink-2);
   font-size: var(--ui-text-sm);
   line-height: 17px;
   text-overflow: ellipsis;
-  transform: rotate(-45deg);
+  transform: rotate(var(--htl-label-angle, -20deg));
   transform-origin: left bottom;
   white-space: nowrap;
 }
@@ -2169,15 +2235,3 @@ body:has(.v1-page) {
   stroke-dasharray: 4 3;
 }
 
-.htl-stubs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.htl-help {
-  margin: 10px 0 0;
-  color: var(--ui-ink-3);
-  font-size: var(--ui-text-xs);
-}

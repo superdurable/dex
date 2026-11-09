@@ -9,65 +9,181 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from 'react';
 import type { EventIdRange } from '@/lib/historyRelations';
 import {
   buildSelectedTimelineRelations,
-  prunedRelatedEventTooltip,
-  timelineRelatedEventLabel,
   type TimelineSelectedRelations,
 } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { CircleCheck, CircleDot, CircleX, Clock, GitFork, Hourglass, type LucideIcon } from 'lucide-react';
+import {
+  Flag,
+  FlagOff,
+  GitFork,
+  Hourglass,
+  Play,
+  Send,
+  Tag,
+  Trash2,
+  X,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
+import { flowStatusLabel } from '@/lib/semantic';
 import { eventTitle } from './EventDetails';
-import { eventTone, executionSummary, type TimelinePaging } from './Timeline';
+import { executionSummary, type TimelinePaging } from './Timeline';
 
-/** Horizontal space per event; slanted labels let neighbors share it like angled parking. */
-const slotWidth = 40;
-/** Room at the right edge for the slanted labels of the newest visible events. */
-const labelRunWidth = 190;
+/** The one knob for the label slant; spacing, the label run, and the strip height follow from it. */
+const labelAngleDegrees = 20;
+const labelMaxWidth = 240;
+/** Space between neighboring slanted labels, measured across the slant. */
+const labelGap = 24;
+const labelAngle = (labelAngleDegrees * Math.PI) / 180;
+
+/** The strip geometry the label angle implies. */
+export const horizontalTimelineLayout = {
+  labelAngleDegrees,
+  labelMaxWidth,
+  /** Horizontal space per event, so slanted neighbors stay labelGap apart. */
+  slotWidth: Math.ceil(labelGap / Math.sin(labelAngle)),
+  /** Room at the right edge for the labels of the newest visible events. */
+  labelRunWidth: Math.ceil(labelMaxWidth * Math.cos(labelAngle)) + 10,
+  /** Dots, axis, and arcs take 92 px; the labels rise above them. */
+  stripHeight: 92 + Math.ceil(labelMaxWidth * Math.sin(labelAngle)) + 24,
+};
+const { slotWidth, labelRunWidth } = horizontalTimelineLayout;
 const overscanSlots = 6;
 const fallbackStripWidth = 1200;
 const arcBandHeight = 44;
 
-const toneIcons: Record<string, LucideIcon> = {
-  completed: CircleCheck,
-  failed: CircleX,
-  waiting: Hourglass,
-  pending: Clock,
-  fork: GitFork,
+type EventKind = 'waitfor' | 'execute' | 'channel-publish' | 'channel-delete' | 'flow-start' | 'flow-close'
+  | 'rpc' | 'attributes' | 'fork';
+
+type KindFamily = 'step' | 'input' | 'lifecycle';
+
+/** Each event kind's icon, legend name, and family; the family sets a quiet icon tint. */
+const eventKinds: Record<EventKind, { icon: LucideIcon; name: string; family: KindFamily }> = {
+  waitfor: { icon: Hourglass, name: 'WaitFor', family: 'step' },
+  execute: { icon: Play, name: 'Execute', family: 'step' },
+  'channel-publish': { icon: Send, name: 'Channel published', family: 'input' },
+  'channel-delete': { icon: Trash2, name: 'Channel message deleted', family: 'input' },
+  rpc: { icon: Zap, name: 'RPC', family: 'input' },
+  attributes: { icon: Tag, name: 'Attributes updated', family: 'input' },
+  'flow-start': { icon: Flag, name: 'Flow started', family: 'lifecycle' },
+  'flow-close': { icon: FlagOff, name: 'Flow closed', family: 'lifecycle' },
+  fork: { icon: GitFork, name: 'Time Travel fork', family: 'lifecycle' },
 };
+
+function eventKindOf(event: FlowHistoryEvent): EventKind {
+  if (event.type.startsWith('StepWaitFor')) return 'waitfor';
+  if (event.type.startsWith('StepExecute')) return 'execute';
+  if (event.type === 'ChannelExternalPublish') return 'channel-publish';
+  if (event.type === 'ChannelExternalDelete') return 'channel-delete';
+  if (event.type === 'FlowStartedOrContinued') return 'flow-start';
+  if (event.type === 'FlowClosed') return 'flow-close';
+  if (event.type === 'TimeTravelFork') return 'fork';
+  return event.payload.isSetAttributeApi === true ? 'attributes' : 'rpc';
+}
+
+/** Only states that need attention get a status; everything else is normal. */
+type EventStatus = 'normal' | 'waiting' | 'failed' | 'canceled';
+
+const statusNames: Record<Exclude<EventStatus, 'normal'>, string> = {
+  waiting: 'Waiting',
+  failed: 'Failed',
+  canceled: 'Canceled',
+};
+
+function stepExecutionIdOf(event: FlowHistoryEvent): string | undefined {
+  const context = event.payload.context;
+  const id = context && typeof context === 'object' ? (context as Record<string, unknown>).stepExecutionId : undefined;
+  return typeof id === 'string' && id ? id : undefined;
+}
+
+/** A Step stays Waiting from its WaitFor return until Execute starts; a Flow close cancels it. */
+function eventStatuses(chronological: FlowHistoryEvent[], hasNewer: boolean): Map<number, EventStatus> {
+  const statuses = new Map<number, EventStatus>();
+  const openWaits = new Map<string, number>();
+  for (const event of chronological) {
+    const stepExecutionId = stepExecutionIdOf(event);
+    if (event.type.endsWith('Failed')) statuses.set(event.eventId, 'failed');
+    else if (event.type.endsWith('Pending')) statuses.set(event.eventId, 'waiting');
+    else statuses.set(event.eventId, 'normal');
+    if (event.type === 'StepWaitForCompleted' && stepExecutionId) openWaits.set(stepExecutionId, event.eventId);
+    if (event.type.startsWith('StepExecute') && stepExecutionId) openWaits.delete(stepExecutionId);
+    if (event.type === 'FlowClosed') {
+      const flowStatus = flowStatusLabel(event.payload.flowStatus);
+      if (flowStatus === 'Failed' || flowStatus.includes('timeout')) statuses.set(event.eventId, 'failed');
+      if (flowStatus === 'Canceled' || flowStatus === 'Terminated') statuses.set(event.eventId, 'canceled');
+      for (const waitEventId of openWaits.values()) statuses.set(waitEventId, 'canceled');
+      openWaits.clear();
+    }
+  }
+  if (!hasNewer) for (const waitEventId of openWaits.values()) statuses.set(waitEventId, 'waiting');
+  return statuses;
+}
+
+function namesIn(values: unknown, field: string): string[] {
+  const list = Array.isArray(values) ? values : [];
+  return [...new Set(list.flatMap((value) => {
+    const name = value && typeof value === 'object' ? (value as Record<string, unknown>)[field] : undefined;
+    return typeof name === 'string' && name ? [name] : [];
+  }))];
+}
 
 /** The axis names every tenth event, so the slanted labels need no numbers. */
 const axisEventInterval = 10;
 
-/** Names an event briefly, such as "Execute · ChargeStep"; the dot shows whether it completed or failed. */
-export function shortEventLabel(event: FlowHistoryEvent): string {
-  const stepType = executionSummary(event).split(' · ')[0];
-  if (event.type.startsWith('StepWaitFor')) return stepType ? `WaitFor · ${stepType}` : 'WaitFor';
-  if (event.type.startsWith('StepExecute')) return stepType ? `Execute · ${stepType}` : 'Execute';
-  if (event.type === 'ChannelExternalPublish' || event.type === 'ChannelExternalDelete') {
-    const messages = Array.isArray(event.payload.messages) ? event.payload.messages : [];
-    const channels = [...new Set(messages.flatMap((message) => (
-      message && typeof message === 'object' && typeof (message as { channelName?: unknown }).channelName === 'string'
-        ? [(message as { channelName: string }).channelName]
-        : []
-    )))];
-    const kind = event.type === 'ChannelExternalPublish' ? 'Channel published' : 'Channel message deleted';
-    return channels.length > 0 ? `${kind} · ${channels.join(', ')}` : kind;
+/** Names what an event is about, such as its Step type or Channel name; the icon names its kind. */
+export function eventSubject(event: FlowHistoryEvent): string {
+  const kind = eventKindOf(event);
+  if (kind === 'waitfor' || kind === 'execute') return executionSummary(event).split(' · ')[0] || eventKinds[kind].name;
+  if (kind === 'channel-publish' || kind === 'channel-delete') {
+    return namesIn(event.payload.messages, 'channelName').join(', ') || eventKinds[kind].name;
   }
-  if (event.type === 'RpcExecutionCompleted' && typeof event.payload.rpcName === 'string' && event.payload.rpcName
-    && event.payload.isSetAttributeApi !== true) {
-    return `RPC · ${event.payload.rpcName}`;
-  }
+  if (kind === 'rpc' && typeof event.payload.rpcName === 'string' && event.payload.rpcName) return event.payload.rpcName;
+  if (kind === 'attributes') return namesIn(event.payload.upsertAttributes, 'key').join(', ') || eventKinds[kind].name;
   return eventTitle(event);
+}
+
+function EventKindLegend() {
+  return (
+    <div className="htl-legend">
+      <ul aria-label="Event kinds">
+        {(['waitfor', 'execute', 'channel-publish', 'rpc', 'attributes', 'flow-start', 'flow-close', 'fork'] as EventKind[]).map((kind) => {
+          const Icon = eventKinds[kind].icon;
+          return (
+            <li key={kind}>
+              <span aria-hidden="true" className={`htl-legend-mark htl-family-${eventKinds[kind].family}`}>
+                <Icon size={13} strokeWidth={2.25} />
+              </span>
+              {eventKinds[kind].name}
+            </li>
+          );
+        })}
+      </ul>
+      <ul aria-label="Status colors">
+        {(['waiting', 'failed', 'canceled'] as const).map((status) => (
+          <li key={status}>
+            <span aria-hidden="true" className="htl-legend-mark">
+              <span className={`htl-legend-dot htl-status-${status}`}>
+                {status === 'failed' && <X size={8} strokeWidth={3.5} />}
+              </span>
+            </span>
+            {statusNames[status]}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /** Shows a Timeline page left to right with slanted labels; only events in view render. */
@@ -79,7 +195,6 @@ export function HorizontalTimeline({
   paging,
   prunedEventIdRange,
   highlightedEventId = null,
-  onJumpToEvent,
 }: {
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
@@ -88,14 +203,15 @@ export function HorizontalTimeline({
   paging?: TimelinePaging;
   prunedEventIdRange?: EventIdRange;
   highlightedEventId?: number | null;
-  onJumpToEvent?: (eventId: number) => void;
 }) {
   const chronological = useMemo(() => [...events].sort((left, right) => left.eventId - right.eventId), [events]);
+  const statuses = useMemo(() => eventStatuses(chronological, paging?.hasNewer ?? false), [chronological, paging?.hasNewer]);
   const indexByEventId = useMemo(
     () => new Map(chronological.map((event, index) => [event.eventId, index])),
     [chronological],
   );
   const stripRef = useRef<HTMLDivElement>(null);
+  const helpId = useId();
   const minimapRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(fallbackStripWidth);
   const visibleCount = Math.max(1, Math.floor((stripWidth - labelRunWidth) / slotWidth));
@@ -137,6 +253,23 @@ export function HorizontalTimeline({
     else setWindowStart((current) => Math.min(maxStart, Math.max(0, current)));
     // Runs when the page changes; selection changes recenter below.
   }, [chronological, maxStart, highlightedEventId]);
+
+  const windowStartRef = useRef(windowStart);
+  windowStartRef.current = windowStart;
+  const hasEvents = chronological.length > 0;
+  // React wheel listeners are passive, so only a native listener can stop the page from scrolling.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return undefined;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (delta !== 0) moveWindow(windowStartRef.current + delta / slotWidth);
+    };
+    strip.addEventListener('wheel', handleWheel, { passive: false });
+    return () => strip.removeEventListener('wheel', handleWheel);
+  }, [moveWindow, hasEvents]);
 
   const selectedIndex = selectedEvent ? indexByEventId.get(selectedEvent.eventId) ?? -1 : -1;
   useEffect(() => {
@@ -180,12 +313,6 @@ export function HorizontalTimeline({
     selectIndex(target);
   };
 
-  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (delta === 0) return;
-    moveWindow(windowStart + delta / slotWidth);
-  };
-
   const moveWindowToPointer = (clientX: number) => {
     const rect = minimapRef.current?.getBoundingClientRect();
     const width = rect && rect.width > 0 ? rect.width : stripWidth;
@@ -225,16 +352,11 @@ export function HorizontalTimeline({
   const firstVisible = chronological[Math.min(chronological.length - 1, Math.round(windowStart))];
   const lastVisible = chronological[Math.min(chronological.length - 1, Math.round(windowStart) + visibleCount - 1)];
   const xOf = (index: number) => (index - windowStart) * slotWidth + slotWidth / 2;
-  const otherPageStubs = computedRelations.stubs;
+  // Ticks stay about 3 px wide, so a short page does not read as solid blocks.
+  const tickWidth = Math.min(1, (3 * chronological.length) / Math.max(1, stripWidth));
 
   return (
     <div className="timeline-wrap htl">
-      <div className="view-toolbar htl-toolbar">
-        <h2>{events.length} events</h2>
-        <span className="htl-range">
-          Showing #{firstVisible.eventId}–#{lastVisible.eventId} of this page
-        </span>
-      </div>
       {prunedEventIdRange !== undefined && chronological[0]?.eventId === 1 && (
         <div className="warning-banner timeline-pruned-banner" role="note">
           {prunedEventIdRange.firstEventId === prunedEventIdRange.lastEventId
@@ -243,6 +365,7 @@ export function HorizontalTimeline({
         </div>
       )}
 
+      <EventKindLegend />
       <div
         aria-label="Timeline overview"
         aria-valuemax={maxStart}
@@ -261,15 +384,15 @@ export function HorizontalTimeline({
       >
         <svg aria-hidden="true" preserveAspectRatio="none" viewBox={`0 0 ${chronological.length} 32`}>
           {chronological.map((event, index) => {
-            const tone = eventTone(event);
-            const isProminent = tone === 'failed' || tone === 'waiting' || tone === 'pending' || tone === 'fork';
+            const status = statuses.get(event.eventId) ?? 'normal';
+            const isProminent = status === 'failed' || status === 'waiting';
             return (
               <rect
-                className={`htl-tick tone-${tone}${linkedEventIds.has(event.eventId) ? ' is-linked' : ''}${index === selectedIndex ? ' is-selected' : ''}`}
+                className={`htl-tick htl-status-${status}${linkedEventIds.has(event.eventId) ? ' is-linked' : ''}${index === selectedIndex ? ' is-selected' : ''}`}
                 height={isProminent || index === selectedIndex ? 26 : 14}
                 key={event.eventId}
-                width={1}
-                x={index}
+                width={tickWidth}
+                x={index + (1 - tickWidth) / 2}
                 y={isProminent || index === selectedIndex ? 3 : 15}
               />
             );
@@ -280,30 +403,37 @@ export function HorizontalTimeline({
 
       <div
         aria-activedescendant={selectedEvent && selectedIndex >= 0 ? `htl-event-${selectedEvent.eventId}` : undefined}
+        aria-describedby={helpId}
         aria-label="Timeline events, oldest on the left"
         className="htl-strip"
+        style={{
+          '--htl-label-angle': `-${labelAngleDegrees}deg`,
+          '--htl-label-max-width': `${labelMaxWidth}px`,
+          '--htl-slot-width': `${slotWidth}px`,
+          height: `${horizontalTimelineLayout.stripHeight}px`,
+        } as CSSProperties}
         onKeyDown={handleStripKeyDown}
-        onWheel={handleWheel}
         ref={stripRef}
         role="listbox"
         tabIndex={0}
       >
         {renderedEvents.map((event, offset) => {
           const index = firstRendered + offset;
-          const tone = eventTone(event);
-          const summary = executionSummary(event);
-          const ToneIcon = toneIcons[tone] ?? CircleDot;
+          const kind = eventKindOf(event);
+          const status = statuses.get(event.eventId) ?? 'normal';
+          const KindIcon = eventKinds[kind].icon;
+          const subject = eventSubject(event);
           const isSelected = index === selectedIndex;
           const classes = [
             'htl-event',
-            `tone-${tone}`,
+            `kind-${kind}`,
             isSelected ? 'selected' : '',
             linkedEventIds.has(event.eventId) && !isSelected ? 'linked' : '',
             highlightedEventId === event.eventId ? 'jump-highlighted' : '',
           ].filter(Boolean).join(' ');
           return (
             <div
-              aria-label={`#${event.eventId} ${eventTitle(event)}${summary ? `, ${summary}` : ''}`}
+              aria-label={`${eventTitle(event)}${subject !== eventTitle(event) ? `, ${subject}` : ''}, #${event.eventId}`}
               aria-selected={isSelected}
               className={classes}
               data-event-id={event.eventId}
@@ -313,9 +443,10 @@ export function HorizontalTimeline({
               role="option"
               style={{ left: `${(index - windowStart) * slotWidth}px` }}
             >
-              <span aria-hidden="true" className="htl-label">{shortEventLabel(event)}</span>
-              <span aria-hidden="true" className="htl-dot">
-                <ToneIcon size={14} strokeWidth={2.5} />
+              <span aria-hidden="true" className="htl-label">{subject}</span>
+              <span aria-hidden="true" className={`htl-dot htl-family-${eventKinds[kind].family} htl-status-${status}`}>
+                <KindIcon size={13} strokeWidth={2.5} />
+                {status === 'failed' && <span className="htl-dot-badge"><X size={8} strokeWidth={3.5} /></span>}
               </span>
             </div>
           );
@@ -356,38 +487,8 @@ export function HorizontalTimeline({
         </svg>
       </div>
 
-      {otherPageStubs.length > 0 && (
-        <div aria-label="Related events off this page" className="htl-stubs" role="group">
-          {otherPageStubs.map((stub) => {
-            const label = `${stub.direction === 'older' ? '←' : '→'} ${timelineRelatedEventLabel(stub)}`;
-            const jumpEventId = stub.location === 'other-page' ? stub.eventId : undefined;
-            if (jumpEventId !== undefined && onJumpToEvent) {
-              return (
-                <button
-                  className={`timeline-edge-stub kind-${stub.kind}`}
-                  disabled={paging?.isLoading ?? false}
-                  key={stub.id}
-                  onClick={() => onJumpToEvent(jumpEventId)}
-                  type="button"
-                >
-                  {label}
-                </button>
-              );
-            }
-            return (
-              <span
-                className={`timeline-edge-stub kind-${stub.kind} location-${stub.location}`}
-                key={stub.id}
-                title={stub.location === 'pruned' ? prunedRelatedEventTooltip(stub) : undefined}
-              >
-                {label}
-              </span>
-            );
-          })}
-        </div>
-      )}
-      <p className="htl-help">
-        Left and Right move the selection; Page Up and Page Down move by a screen; drag the overview to look around.
+      <p className="sr-only" id={helpId}>
+        Left and Right move the selection; Page Up and Page Down move by a screen.
       </p>
     </div>
   );

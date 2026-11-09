@@ -9,11 +9,14 @@
 // @vitest-environment jsdom
 
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { HorizontalTimeline } from './HorizontalTimeline';
+import { HorizontalTimeline, horizontalTimelineLayout } from './HorizontalTimeline';
+
+/** Events in view at the 1200 px jsdom fallback width; the label angle sets the slot width. */
+const visibleCount = Math.floor((1200 - horizontalTimelineLayout.labelRunWidth) / horizontalTimelineLayout.slotWidth);
 
 afterEach(() => {
   cleanup();
@@ -34,12 +37,10 @@ function Harness({
   pageEvents,
   initialEventId,
   relations,
-  onJumpToEvent,
 }: {
   pageEvents: FlowHistoryEvent[];
   initialEventId?: number;
   relations?: TimelineSelectedRelations;
-  onJumpToEvent?: (eventId: number) => void;
 }) {
   const [selected, setSelected] = useState<FlowHistoryEvent | null>(
     pageEvents.find((event) => event.eventId === initialEventId) ?? null,
@@ -50,7 +51,6 @@ function Harness({
       selectedEvent={selected}
       onSelectEvent={setSelected}
       relations={relations}
-      onJumpToEvent={onJumpToEvent}
     />
   );
 }
@@ -65,7 +65,7 @@ describe('horizontal Timeline', () => {
     expect(option(1000)).not.toBeNull();
     expect(option(1)).toBeNull();
     expect(document.querySelectorAll('[role="option"]').length).toBeLessThan(60);
-    expect(option(1000)?.getAttribute('aria-label')).toBe('#1000 Execute completed, Charge · Charge-1000');
+    expect(option(1000)?.getAttribute('aria-label')).toBe('Execute completed, Charge, #1000');
   });
 
   it('selects an event by click and moves the selection with the keyboard', () => {
@@ -79,7 +79,7 @@ describe('horizontal Timeline', () => {
     expect(strip.getAttribute('aria-activedescendant')).toBe('htl-event-99');
 
     fireEvent.keyDown(strip, { key: 'PageUp' });
-    expect(option(74)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(99 - visibleCount)?.getAttribute('aria-selected')).toBe('true');
 
     fireEvent.keyDown(strip, { key: 'Home' });
     expect(option(1)?.getAttribute('aria-selected')).toBe('true');
@@ -90,7 +90,7 @@ describe('horizontal Timeline', () => {
   it('moves the view from the overview by keyboard and by pointer', () => {
     render(<Harness pageEvents={events(1000)} />);
     const overview = screen.getByRole('slider', { name: 'Timeline overview' });
-    expect(Number(overview.getAttribute('aria-valuenow'))).toBe(975);
+    expect(Number(overview.getAttribute('aria-valuenow'))).toBe(1000 - visibleCount);
 
     fireEvent.keyDown(overview, { key: 'Home' });
     expect(overview.getAttribute('aria-valuenow')).toBe('0');
@@ -104,16 +104,16 @@ describe('horizontal Timeline', () => {
     overview.getBoundingClientRect = () => ({ left: 0, width: 1000, top: 0, height: 34, right: 1000, bottom: 34, x: 0, y: 0, toJSON: () => ({}) });
     fireEvent.pointerDown(overview, { button: 0, clientX: 500, pointerId: 1 });
     expect(option(500)).not.toBeNull();
-    expect(overview.getAttribute('aria-valuetext')).toBe('Events #489 to #513');
+    const first = Math.round(500 - visibleCount / 2) + 1;
+    expect(overview.getAttribute('aria-valuetext')).toBe(`Events #${first} to #${first + visibleCount - 1}`);
   });
 
-  it('marks linked events and jumps to a related event on another page', () => {
-    const onJumpToEvent = vi.fn();
+  it('marks linked events and leaves related events on other pages to the event panel', () => {
     const relations: TimelineSelectedRelations = {
       links: [{
         kind: 'lineage',
         stepExecutionId: 'Charge-50',
-        fromEventId: 40,
+        fromEventId: 46,
         toEventId: 50,
         label: 'Charge-50',
         elapsedDurationMs: null,
@@ -132,12 +132,11 @@ describe('horizontal Timeline', () => {
       }],
       related: [],
     };
-    render(<Harness pageEvents={events(60).slice(10)} initialEventId={50} relations={relations} onJumpToEvent={onJumpToEvent} />);
-    expect(option(40)?.className).toContain('linked');
+    render(<Harness pageEvents={events(60).slice(10)} initialEventId={50} relations={relations} />);
+    expect(option(46)?.className).toContain('linked');
     expect(document.querySelectorAll('.htl-arc')).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole('button', { name: '← from Review-1 WaitFor completed, event #2 (older page)' }));
-    expect(onJumpToEvent).toHaveBeenCalledWith(2);
+    expect(screen.queryByRole('button', { name: /Review-1 WaitFor completed/ })).toBeNull();
   });
 
   it('brings a jumped-to event into view and highlights it', () => {
@@ -158,9 +157,9 @@ describe('horizontal Timeline', () => {
     expect(option(20)?.getAttribute('aria-selected')).toBe('true');
   });
 
-  it('labels events briefly and numbers every tenth event on the axis', () => {
+  it('labels events with their subject and numbers every tenth event on the axis', () => {
     render(<Harness pageEvents={events(100)} initialEventId={97} />);
-    expect(option(97)?.querySelector('.htl-label')?.textContent).toBe('Execute · Charge');
+    expect(option(97)?.querySelector('.htl-label')?.textContent).toBe('Charge');
     expect(option(97)?.getAttribute('title')).toBeNull();
     const axis = [...document.querySelectorAll('.htl-axis-label')].map((label) => label.textContent);
     expect(axis).toContain('#90');
@@ -185,5 +184,98 @@ describe('horizontal Timeline', () => {
     rerender(<HorizontalTimeline events={events(1000)} selectedEvent={null} onSelectEvent={() => {}} />);
     expect(document.querySelectorAll('.htl-tick')).toHaveLength(1000);
   });
-});
+  it('tints icons by kind family and colors only waiting, failed, and canceled events', () => {
+    const at = (second: number) => `2026-10-24T17:00:${String(second).padStart(2, '0')}Z`;
+    const step = (stepType: string, id: string) => ({ context: { stepType, stepExecutionId: id } });
+    const pageEvents: FlowHistoryEvent[] = [
+      { eventId: 1, eventTime: at(0), type: 'FlowStartedOrContinued', payload: {} },
+      { eventId: 2, eventTime: at(1), type: 'StepWaitForCompleted', payload: step('Review', 'Review-1') },
+      { eventId: 3, eventTime: at(2), type: 'ChannelExternalPublish', payload: { messages: [{ channelName: 'approvals' }] } },
+      { eventId: 4, eventTime: at(3), type: 'StepExecuteCompleted', payload: step('Review', 'Review-1') },
+      { eventId: 5, eventTime: at(4), type: 'StepExecuteFailed', payload: step('Charge', 'Charge-1') },
+      { eventId: 6, eventTime: at(5), type: 'RpcExecutionCompleted', payload: { rpcName: 'getOrder' } },
+      { eventId: 7, eventTime: at(6), type: 'StepWaitForCompleted', payload: step('Ship', 'Ship-1') },
+    ];
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
+    const dot = (eventId: number) => option(eventId)?.querySelector('.htl-dot');
+    const label = (eventId: number) => option(eventId)?.querySelector('.htl-label')?.textContent;
 
+    // Review-1 moved on to Execute, so its wait is normal; Ship-1 is still waiting.
+    expect(dot(2)?.className).toContain('htl-family-step htl-status-normal');
+    expect(dot(2)?.querySelector('svg')?.getAttribute('class')).toContain('lucide-hourglass');
+    expect(option(2)?.getAttribute('aria-label')).toBe('Waiting for conditions, Review, #2');
+    expect(dot(7)?.className).toContain('htl-status-waiting');
+    expect(dot(3)?.className).toContain('htl-family-input htl-status-normal');
+    expect(dot(3)?.querySelector('svg')?.getAttribute('class')).toContain('lucide-send');
+    expect(label(3)).toBe('approvals');
+    expect(dot(1)?.className).toContain('htl-family-lifecycle');
+    expect(dot(5)?.className).toContain('htl-status-failed');
+    expect(dot(5)?.querySelector('.htl-dot-badge')).not.toBeNull();
+    expect(option(5)?.getAttribute('aria-label')).toBe('Execute failed, Charge, #5');
+    expect(label(6)).toBe('getOrder');
+    expect(dot(7)?.querySelector('.htl-dot-badge')).toBeNull();
+    expect(screen.getByRole('list', { name: 'Event kinds' })).not.toBeNull();
+    expect(screen.getByRole('list', { name: 'Status colors' }).textContent).toBe('WaitingFailedCanceled');
+  });
+
+  it('marks a wait canceled when the Flow closes, and leaves it uncolored when newer pages exist', () => {
+    const wait: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-10-24T17:00:00Z',
+      type: 'StepWaitForCompleted',
+      payload: { context: { stepType: 'Ship', stepExecutionId: 'Ship-1' } },
+    };
+    const closed: FlowHistoryEvent = { eventId: 2, eventTime: '2026-10-24T17:00:01Z', type: 'FlowClosed', payload: { flowStatus: 6 } };
+    const { rerender } = render(<HorizontalTimeline events={[wait, closed]} selectedEvent={null} onSelectEvent={() => {}} />);
+    expect(option(1)?.querySelector('.htl-dot')?.className).toContain('htl-status-canceled');
+    expect(option(2)?.querySelector('.htl-dot')?.className).toContain('htl-status-canceled');
+
+    rerender(
+      <HorizontalTimeline
+        events={[wait]}
+        selectedEvent={null}
+        onSelectEvent={() => {}}
+        paging={{ hasOlder: false, hasNewer: true, isLoading: false }}
+      />,
+    );
+    expect(option(1)?.querySelector('.htl-dot')?.className).toContain('htl-status-normal');
+  });
+
+  it('keeps the keyboard hint out of sight as the strip description', () => {
+    render(<Harness pageEvents={events(100)} />);
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    const hint = document.getElementById(strip.getAttribute('aria-describedby') ?? '');
+    expect(hint?.className).toBe('sr-only');
+    expect(hint?.textContent).toContain('Page Up and Page Down move by a screen');
+    expect(screen.queryByText('100 events')).toBeNull();
+  });
+
+  it('keeps wheel input over the strip from scrolling the page, even at either end', () => {
+    const onPageWheel = vi.fn();
+    render(<div onWheel={onPageWheel}><Harness pageEvents={events(1000)} /></div>);
+    document.addEventListener('wheel', onPageWheel);
+    const strip = screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    const wheel = (deltaX: number, deltaY: number) => {
+      const event = new WheelEvent('wheel', { deltaX, deltaY, bubbles: true, cancelable: true });
+      strip.dispatchEvent(event);
+      return event;
+    };
+
+    // Newest end: scrolling further right is a no-op but still must not reach the page.
+    expect(overview.getAttribute('aria-valuenow')).toBe(String(1000 - visibleCount));
+    expect(wheel(0, 300).defaultPrevented).toBe(true);
+    expect(overview.getAttribute('aria-valuenow')).toBe(String(1000 - visibleCount));
+
+    fireEvent.keyDown(overview, { key: 'Home' });
+    expect(wheel(0, -300).defaultPrevented).toBe(true);
+    expect(wheel(-300, 0).defaultPrevented).toBe(true);
+    expect(overview.getAttribute('aria-valuenow')).toBe('0');
+
+    // Vertical wheel moves the view horizontally.
+    act(() => { wheel(0, horizontalTimelineLayout.slotWidth * 5); });
+    expect(overview.getAttribute('aria-valuenow')).toBe('5');
+    expect(onPageWheel).not.toHaveBeenCalled();
+    document.removeEventListener('wheel', onPageWheel);
+  });
+});

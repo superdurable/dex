@@ -942,7 +942,6 @@ export function RunDetailsPage({
               }}
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
-              onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
             />
           )}
           {tab === 'timeline' && !isWaitingForHistory && !isHorizontalTimeline && (

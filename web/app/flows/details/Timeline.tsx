@@ -285,11 +285,6 @@ export function Timeline({
   const olderStubs = stubs.filter((stub) => stub.direction === 'older');
   return (
     <div className="timeline-wrap">
-      <div className="view-toolbar">
-        <div>
-          <h2>{events.length} events</h2>
-        </div>
-      </div>
       {showsPrunedBanner && (
         <div className="warning-banner timeline-pruned-banner" role="note" title={PRUNED_RELATED_EVENT_EXPLANATION}>
           {prunedRangeMessage(prunedEventIdRange)}
