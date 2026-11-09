@@ -96,6 +96,8 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   // Remount the editable code after a fold change so reader edits cannot desync React.
   const [renderGeneration, setRenderGeneration] = useState(0);
+  // After a reader edit the gutter no longer matches the code, so it hides until Reset.
+  const [isEdited, setIsEdited] = useState(false);
   const preRef = wordWrap.codeBlockRef;
   // After a fold toggles, keyboard focus moves to the control that replaced the pressed one.
   const pendingFocus = useRef<string | null>(null);
@@ -124,6 +126,12 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
       }
       return next;
     });
+    setIsEdited(false);
+    setRenderGeneration((generation) => generation + 1);
+  };
+  const resetEdits = () => {
+    pendingFocus.current = '.ide-code__code';
+    setIsEdited(false);
     setRenderGeneration((generation) => generation + 1);
   };
 
@@ -174,13 +182,19 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
           );
         }
         return (
-          <div className={clsx('ide-code__body', props.className)} style={style}>
-            <div className="ide-code__gutter">{gutter}</div>
+          <div className={clsx('ide-code__body', isEdited && 'is-edited', props.className)} style={style}>
+            <div className="ide-code__gutter" hidden={isEdited}>{gutter}</div>
+            {isEdited ? (
+              <button type="button" className="ide-code__reset" onClick={resetEdits}>
+                {translate({id: 'ideCode.reset', message: 'Reset',
+                  description: 'Button that restores the original code after a reader edits it'})}
+              </button>
+            ) : null}
             <pre ref={preRef} className={clsx(className, 'ide-code__scroll', 'thin-scrollbar')}
               tabIndex={-1}>
               <code key={renderGeneration} className="ide-code__code" contentEditable="plaintext-only"
                 suppressContentEditableWarning spellCheck={false} autoCorrect="off" autoCapitalize="off"
-                role="textbox" aria-multiline="true"
+                onInput={() => setIsEdited(true)} role="textbox" aria-multiline="true"
                 aria-label={translate({id: 'ideCode.editor.label', message: 'Code, editable for trying changes',
                   description: 'Accessible name of an editable code block'})}>
                 {rows}

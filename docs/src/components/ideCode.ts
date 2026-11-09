@@ -103,15 +103,35 @@ const importLine: Record<string, RegExp> = {
 };
 
 /** Drops string literals and comments, whose brackets do not open or close a statement. */
-function codeWithoutStringsAndComments(line: string, language: string): string {
-  const withoutStrings = line.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""').replace(/\/\*.*?\*\//g, '');
+function codeWithoutStringsAndComments(line: string, language: string, state: {inBlockComment: boolean}): string {
+  let text = line;
+  let code = '';
+  while (text.length > 0) {
+    if (state.inBlockComment) {
+      const close = text.indexOf('*/');
+      if (close === -1) {
+        return code;
+      }
+      state.inBlockComment = false;
+      text = text.slice(close + 2);
+      continue;
+    }
+    const open = language === 'python' || language === 'py' ? -1 : text.indexOf('/*');
+    if (open === -1) {
+      code += text;
+      break;
+    }
+    code += text.slice(0, open);
+    state.inBlockComment = true;
+    text = text.slice(open + 2);
+  }
+  const withoutStrings = code.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""');
   const commentStart = language === 'python' || language === 'py' ? '#' : '//';
   const commentIndex = withoutStrings.indexOf(commentStart);
   return commentIndex === -1 ? withoutStrings : withoutStrings.slice(0, commentIndex);
 }
 
-function bracketDepthChange(line: string, language: string): number {
-  const code = codeWithoutStringsAndComments(line, language);
+function bracketDepthChange(code: string): number {
   const opened = (code.match(/[({]/g) ?? []).length;
   const closed = (code.match(/[)}]/g) ?? []).length;
   return opened - closed;
@@ -131,21 +151,28 @@ export function importFoldRange(lines: string[], language: string): IdeFoldRange
   let last = -1;
   // An import statement continues while its brackets are open.
   let openBrackets = 0;
+  const commentState = {inBlockComment: false};
   for (; index < lines.length; index += 1) {
     const line = lines[index];
+    const wasInBlockComment = commentState.inBlockComment;
+    const code = codeWithoutStringsAndComments(line, language, commentState);
     if (openBrackets > 0) {
       last = index;
-      openBrackets += bracketDepthChange(line, language);
+      openBrackets += bracketDepthChange(code);
       continue;
     }
     if (line.trim() === '') {
+      continue;
+    }
+    if (wasInBlockComment || code.trim() === '') {
+      // A comment between imports stays in the block only when another import follows.
       continue;
     }
     if (!startsImport.test(line)) {
       break;
     }
     last = index;
-    openBrackets = Math.max(0, bracketDepthChange(line, language));
+    openBrackets = Math.max(0, bracketDepthChange(code));
   }
   const count = last - start + 1;
   if (last < 0 || count < 3) {

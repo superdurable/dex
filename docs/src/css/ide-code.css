@@ -210,7 +210,46 @@
 .ide-code__code > .token-line,
 .ide-code__code > span {
   display: block;
+  height: 1lh;
+}
+
+/* Reader edits add free text; let it grow while the gutter is hidden. */
+.ide-code__body.is-edited .ide-code__code > .token-line,
+.ide-code__body.is-edited .ide-code__code > span {
+  height: auto;
   min-height: 1lh;
+}
+
+.ide-code__body {
+  position: relative;
+}
+
+.ide-code__body.is-edited .ide-code__scroll {
+  padding-left: 1.25rem;
+}
+
+.ide-code__reset {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.6rem;
+  z-index: 1;
+  padding: 0.15rem 0.6rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ide-bar);
+  color: var(--ide-muted);
+  font: 400 0.75rem/1.6 var(--ide-font);
+  cursor: pointer;
+}
+
+.ide-code__reset:hover,
+.ide-code__reset:focus-visible {
+  color: var(--ide-text);
+}
+
+.ide-code__reset:focus-visible {
+  outline: 2px solid var(--ide-focus);
+  outline-offset: 1px;
 }
 
 .ide-code__code > .token-line > br {
