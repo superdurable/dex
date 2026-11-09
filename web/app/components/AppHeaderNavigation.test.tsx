@@ -132,3 +132,15 @@ describe('Dex Web v1 header Flow Rendering link', () => {
     expect(dex.readCount()).toBe(readsBeforeV2);
   });
 });
+
+describe('Dex Web header logo', () => {
+  it.each(['/v1/flows', '/v2/run'])('opens the company site in the same tab on %s', async (path) => {
+    stubDexWeb([0]);
+    renderHeader(path);
+    const logo = screen.getByRole('link', { name: 'Super Durable home' });
+    expect(logo.getAttribute('href')).toBe('https://superdurable.io');
+    expect(logo.getAttribute('target')).toBeNull();
+    expect(screen.getAllByRole('link', { name: 'Super Durable home' })).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Flows' })).toBeNull());
+  });
+});

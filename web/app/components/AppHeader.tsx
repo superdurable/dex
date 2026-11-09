@@ -16,6 +16,9 @@ import { useWebCatalog } from '../v2/WebCatalogProvider';
 import { DexMark } from './DexMark';
 import { ThemeToggle } from './ThemeToggle';
 
+/** The company site that the header logo opens in the same tab. */
+export const COMPANY_HOME_URL = 'https://superdurable.io';
+
 export const V2_MODES: { mode: V2Mode; label: string }[] = [
   { mode: 'run', label: 'Run' },
   { mode: 'work-queue', label: 'Work Queue' },
@@ -56,21 +59,20 @@ export function AppHeader() {
   const activeMode = activeV2Mode(location.pathname);
   // Absolute timestamps are a Deep Dive concern; the other views show relative or local time.
   const isDebug = location.pathname.includes('/debug');
-  const home = canUseV2 && isV2 ? v2HomePath(canUseV2) : '/v1/flows';
   return (
     <header className="app-header">
-      <div className="header-brand">
-          <Link to={home} className="brand-mark" aria-label="Super Durable home">
+      <a className="header-brand" href={COMPANY_HOME_URL} aria-label="Super Durable home">
+          <span className="brand-mark">
             <DexMark size={28} />
-          </Link>
+          </span>
           {/* Dex leads and Super Durable is the maker credit. The product being
               branded is Dex; the old single line put the company first and the
               product last, behind an interpunct. */}
-          <Link to={home} className="brand-name">
+          <span className="brand-name">
             <b>Dex</b>
             <span>Super Durable</span>
-          </Link>
-      </div>
+          </span>
+      </a>
       <nav className="header-nav" aria-label="Primary navigation">
         {!isV2 && hasFlowDefinitions && (
           <Link to="/v1/rendering">Flow Rendering</Link>
