@@ -101,7 +101,7 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for Step completion
-- [Workflow Patterns catalog (WCP-1 to WCP-43)](./src/main/java/io/superdurable/dex/patterns/workflowpatterns), one Flow per pattern group as listed in the [mapping](../workflow-patterns-mapping.md)
+- [Workflow Patterns catalog (WCP-1 to WCP-43)](./src/main/java/io/superdurable/dex/patterns/workflowpatterns), one file per Flow type, as listed in the [mapping](../workflow-patterns-mapping.md)
 
 ## Primitives
 

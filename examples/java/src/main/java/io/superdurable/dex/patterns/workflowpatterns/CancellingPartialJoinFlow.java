@@ -28,10 +28,7 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
-/**
- * WCP-29 Cancelling Discriminator (requiredBids = 1) and WCP-32 Cancelling Partial Join
- * (requiredBids = 2): the join fires, then its decision cancels the remaining branches.
- */
+/** WCP-29 and WCP-32: the join fires, then its decision cancels the remaining branches. */
 @Component
 public class CancellingPartialJoinFlow implements Flow<Integer> {
     public static final Channel<String> carrierAReleased =

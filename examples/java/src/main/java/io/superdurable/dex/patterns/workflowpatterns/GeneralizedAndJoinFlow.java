@@ -28,10 +28,7 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
-/**
- * WCP-33 Generalised AND-Join: the join fires once per invoice and payment pair; extra messages
- * stay queued for the next firing.
- */
+/** WCP-33 Generalised AND-Join: extra messages stay queued for the next firing. */
 @Component
 public class GeneralizedAndJoinFlow implements Flow<GeneralizedAndJoinFlow.MatchProgress> {
     public static final Channel<String> invoiceReceived =

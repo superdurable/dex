@@ -30,10 +30,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * WCP-34 Static Partial Join for Multiple Instances: the join fires after the required
- * inspections, and a reset Step absorbs the remaining instances.
- */
+/** WCP-34: the join fires after the required inspections; a reset Step absorbs the rest. */
 @Component
 public class StaticPartialJoinForMultipleInstancesFlow
         implements Flow<StaticPartialJoinForMultipleInstancesFlow.InspectionPlan> {

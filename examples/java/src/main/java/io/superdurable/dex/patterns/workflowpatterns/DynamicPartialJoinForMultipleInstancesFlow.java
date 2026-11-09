@@ -35,10 +35,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * WCP-36 Dynamic Partial Join for Multiple Instances: RPCs add instances, and the join evaluates
- * its completion condition on every arrival, then disables new instances.
- */
+/** WCP-36: RPCs add instances; the join re-evaluates on each arrival, then closes admission. */
 @Component
 public class DynamicPartialJoinForMultipleInstancesFlow implements Flow<DynamicPartialJoinForMultipleInstancesFlow.BidJoin> {
     private static final int ACCEPTED_BID_LIMIT = 1000;

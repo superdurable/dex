@@ -29,10 +29,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * WCP-38 General Synchronizing Merge: a ReviewRegionFlow SubFlow scopes the region, and its
- * completion fires once no Step in it can run.
- */
+/** WCP-38 General Synchronizing Merge: a SubFlow completes once no Step in its region can run. */
 @Component
 public class GeneralSynchronizingMergeFlow implements Flow<Void> {
     private final RunReviewRegion runReviewRegion = new RunReviewRegion();

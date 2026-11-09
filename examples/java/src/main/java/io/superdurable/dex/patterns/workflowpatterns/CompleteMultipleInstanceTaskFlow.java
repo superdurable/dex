@@ -32,10 +32,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * WCP-27 Complete Multiple Instance Activity: an RPC withdraws the remaining instances and the
- * join, then continues with the reviews submitted so far.
- */
+/** WCP-27: an RPC withdraws the instances and the join, then publishes the submitted reviews. */
 @Component
 public class CompleteMultipleInstanceTaskFlow implements Flow<Integer> {
     public static final Channel<String> peerReviewReleased =

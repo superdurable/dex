@@ -33,10 +33,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * WCP-28 Blocking Discriminator (requiredSignals = 1) and WCP-31 Blocking Partial Join
- * (requiredSignals = 2): later signals stay queued until the reset Step re-enables the join.
- */
+/** WCP-28 and WCP-31: later signals stay queued until the reset Step re-enables the join. */
 @Component
 public class BlockingPartialJoinFlow implements Flow<BlockingPartialJoinFlow.BlockingJoinRound> {
     public static final Channel<String> branchASignal = Channel.define("branchASignal", String.class);

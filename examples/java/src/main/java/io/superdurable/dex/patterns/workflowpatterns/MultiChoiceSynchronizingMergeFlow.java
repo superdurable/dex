@@ -30,10 +30,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * WCP-6 Multi-Choice, WCP-7 Structured Synchronizing Merge, and WCP-37 Local Synchronizing
- * Merge: the decision starts a subset of branches and tells the join how many to wait for.
- */
+/** WCP-6, WCP-7, and WCP-37: the decision starts chosen branches and passes their count to the join. */
 @Component
 public class MultiChoiceSynchronizingMergeFlow
         implements Flow<MultiChoiceSynchronizingMergeFlow.NotificationSelection> {

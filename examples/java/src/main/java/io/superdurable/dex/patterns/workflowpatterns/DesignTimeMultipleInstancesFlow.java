@@ -27,10 +27,7 @@ import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
-/**
- * WCP-13 Multiple Instances with a priori Design-Time Knowledge: the instance count is fixed in
- * the Flow code. RunTimeMultipleInstancesFlow reuses the ReviewDocument and CollectReviews Steps.
- */
+/** WCP-13 Multiple Instances with Design-Time Knowledge: the Flow code fixes the instance count. */
 @Component
 public class DesignTimeMultipleInstancesFlow implements Flow<Void> {
     public static final Channel<String> reviewCompleted =

@@ -26,10 +26,7 @@ import io.superdurable.dex.patterns.workflowpatterns.DesignTimeMultipleInstances
 import io.superdurable.dex.patterns.workflowpatterns.DesignTimeMultipleInstancesFlow.ReviewDocument;
 import org.springframework.stereotype.Component;
 
-/**
- * WCP-14 Multiple Instances with a priori Run-Time Knowledge: the start input sets the instance
- * count. It shares the ReviewDocument and CollectReviews Steps with DesignTimeMultipleInstancesFlow.
- */
+/** WCP-14 Multiple Instances with Run-Time Knowledge: the start input sets the instance count. */
 @Component
 public class RunTimeMultipleInstancesFlow implements Flow<String[]> {
     private final StartRunTimeReviews startRunTimeReviews = new StartRunTimeReviews();

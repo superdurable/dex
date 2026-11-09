@@ -33,10 +33,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * WCP-15 Multiple Instances without a priori Run-Time Knowledge: RPCs add instances while they
- * run, and the join loops until intake is closed and every started instance has reported.
- */
+/** WCP-15: RPCs add instances; the join loops until intake closes and every instance reports. */
 @Component
 public class NoPriorKnowledgeMultipleInstancesFlow implements Flow<String[]> {
     public static final Attribute<Integer> startedSampleCount =

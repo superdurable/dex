@@ -30,10 +30,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * WCP-9 Structured Discriminator (requiredQuotes = 1) and WCP-30 Structured Partial Join
- * (requiredQuotes = 2): the join fires after the first quotes, and a reset Step absorbs the rest.
- */
+/** WCP-9 and WCP-30: the join fires after requiredQuotes quotes; a reset Step absorbs the rest. */
 @Component
 public class StructuredPartialJoinFlow implements Flow<Integer> {
     public static final Channel<String> supplierAReleased =
