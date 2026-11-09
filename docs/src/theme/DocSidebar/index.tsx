@@ -13,6 +13,7 @@ import DocSidebar from '@theme-original/DocSidebar';
 import {usePluginData} from '@docusaurus/useGlobalData';
 import ExecutionEnvironment from '@docusaurus/ExecutionEnvironment';
 import {useActiveDocContext, useActivePlugin} from '@docusaurus/plugin-content-docs/client';
+import {useWindowSize} from '@docusaurus/theme-common';
 import type {PropSidebar, PropSidebarItem} from '@docusaurus/plugin-content-docs';
 import type {Props} from '@theme/DocSidebar';
 import {markSidebarHydrated} from '@site/src/components/sidebarState';
@@ -29,6 +30,7 @@ const categoryAnimationMs = 400;
 
 // Survives the remount that happens when a link crosses into another docs instance.
 let desktopSidebarScrollTop = 0;
+// The first desktop sidebar of a visit reveals the current page instead of restoring scroll.
 let hasDesktopSidebarMounted = false;
 
 const useIsomorphicLayoutEffect = ExecutionEnvironment.canUseDOM ? useLayoutEffect : useEffect;
@@ -62,7 +64,11 @@ function expandReferenceEntries(
     }
     const isActiveComponent = component === activeComponent;
     const versionName = isActiveComponent && activeVersionName ? activeVersionName : 'current';
-    const referenceItems = references[component]?.[versionName] ?? references[component]?.current ?? [];
+    const versions = references[component];
+    if (!versions) {
+      return item;
+    }
+    const referenceItems = versions[versionName] ?? versions.current ?? [];
     return {
       type: 'category',
       label: item.label,
@@ -103,8 +109,13 @@ function revealActiveSidebarLink(scroller: HTMLElement): void {
 }
 
 function useKeepDesktopSidebarScroll(): void {
+  // Docusaurus swaps the desktop and mobile sidebars at the breakpoint, so rerun for a new scroller.
+  const windowSize = useWindowSize();
   useIsomorphicLayoutEffect(() => {
-    const scroller = document.querySelector<HTMLElement>(desktopSidebarScrollerSelector);
+    // The first client render reports "ssr" even on a phone; wait for the real breakpoint.
+    const scroller = windowSize === 'desktop'
+      ? document.querySelector<HTMLElement>(desktopSidebarScrollerSelector)
+      : null;
     if (!scroller) {
       return undefined;
     }
@@ -114,9 +125,11 @@ function useKeepDesktopSidebarScroll(): void {
     if (hasDesktopSidebarMounted) {
       scroller.scrollTop = desktopSidebarScrollTop;
     } else {
-      hasDesktopSidebarMounted = true;
       // Saved category state opens categories after the first paint, with a short animation.
-      const revealTimer = window.setTimeout(() => revealActiveSidebarLink(scroller), categoryAnimationMs);
+      const revealTimer = window.setTimeout(() => {
+        hasDesktopSidebarMounted = true;
+        revealActiveSidebarLink(scroller);
+      }, categoryAnimationMs);
       scroller.addEventListener('scroll', rememberScroll, {passive: true});
       return () => {
         window.clearTimeout(revealTimer);
@@ -125,7 +138,7 @@ function useKeepDesktopSidebarScroll(): void {
     }
     scroller.addEventListener('scroll', rememberScroll, {passive: true});
     return () => scroller.removeEventListener('scroll', rememberScroll);
-  }, []);
+  }, [windowSize]);
 }
 
 /** Shows the same docs sidebar on every docs instance, including the Developer Reference. */

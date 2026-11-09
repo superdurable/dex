@@ -6,14 +6,10 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-// Publishes one docs sidebar for every docs instance. The main docs sidebar stays the frame,
-// and each Developer Reference entry expands into that reference's own sidebar, per version.
-const path = require('node:path');
+// Publishes the main docs sidebar and every reference sidebar, per version, for the shared sidebar.
 
-// The package exports map hides lib/props, which converts loaded sidebars into the client shape.
-const {toSidebarsProp} = require(
-  path.join(path.dirname(require.resolve('@docusaurus/plugin-content-docs')), 'props.js'),
-);
+// Internal API: no public export converts loaded sidebars to the client shape. Recheck on upgrades.
+const {toSidebarsProp} = require('@docusaurus/plugin-content-docs/lib/props.js');
 
 const docsPluginName = 'docusaurus-plugin-content-docs';
 const referencePluginPrefix = 'reference-';
