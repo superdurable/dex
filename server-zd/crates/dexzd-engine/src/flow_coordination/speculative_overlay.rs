@@ -9,6 +9,7 @@
 //! Uncommitted commands of one Flow, layered over committed state (plan 6.4).
 
 use std::collections::{BTreeMap, VecDeque};
+use std::ops::Bound;
 
 use dexzd_apply::{
     ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
@@ -41,10 +42,34 @@ impl OverlayEntry {
 }
 
 /// Speculative outcomes of uncommitted commands, oldest first.
+///
+/// Reads use a per-key index of point writes plus a range-delete list, ordered by [`WriteStamp`].
 #[derive(Debug, Default, Clone)]
 pub(crate) struct SpeculativeOverlay {
     entries: VecDeque<OverlayEntry>,
     total_bytes: usize,
+    /// Sequence number of the head entry; the entry at position `i` has `head_entry_seq + i`.
+    head_entry_seq: u64,
+    /// Stamp of the newest Put, Delete, or SingleDelete of each key.
+    point_writes: BTreeMap<ColumnFamily, BTreeMap<Vec<u8>, WriteStamp>>,
+    /// Range deletes, oldest first. Scanned linearly: apply emits them only on rare commands.
+    range_deletes: VecDeque<RangeDeleteWrite>,
+}
+
+/// Position of one overlay write: its entry's sequence number, then its index in the entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct WriteStamp {
+    entry_seq: u64,
+    write_index: usize,
+}
+
+/// One `StateWrite::DeleteRange` of an overlay entry.
+#[derive(Debug, Clone)]
+struct RangeDeleteWrite {
+    stamp: WriteStamp,
+    column_family: ColumnFamily,
+    start: Vec<u8>,
+    end: Vec<u8>,
 }
 
 /// Result of matching a committed command against the overlay.
@@ -74,6 +99,36 @@ impl SpeculativeOverlay {
     }
 
     pub(crate) fn push(&mut self, entry: OverlayEntry) {
+        let entry_seq = self.head_entry_seq
+            + u64::try_from(self.entries.len()).expect("overlay length fits in u64");
+        for (write_index, write) in entry.outcome.writes.iter().enumerate() {
+            let stamp = WriteStamp {
+                entry_seq,
+                write_index,
+            };
+            match write {
+                StateWrite::Put {
+                    column_family, key, ..
+                }
+                | StateWrite::Delete { column_family, key }
+                | StateWrite::SingleDelete { column_family, key } => {
+                    self.point_writes
+                        .entry(*column_family)
+                        .or_default()
+                        .insert(key.clone(), stamp);
+                }
+                StateWrite::DeleteRange {
+                    column_family,
+                    start,
+                    end,
+                } => self.range_deletes.push_back(RangeDeleteWrite {
+                    stamp,
+                    column_family: *column_family,
+                    start: start.clone(),
+                    end: end.clone(),
+                }),
+            }
+        }
         self.total_bytes += entry.size_bytes;
         self.entries.push_back(entry);
     }
@@ -83,6 +138,7 @@ impl SpeculativeOverlay {
         match self.entries.front() {
             Some(head) if head.command_id == command_id => {
                 let entry = self.entries.pop_front().expect("front exists");
+                self.remove_head_from_index(&entry);
                 self.total_bytes -= entry.size_bytes;
                 CommittedMatch::Head(entry)
             }
@@ -108,72 +164,129 @@ impl SpeculativeOverlay {
         }
     }
 
-    /// Returns the newest overlay decision for `key`.
-    fn resolve(&self, column_family: ColumnFamily, key: &[u8]) -> OverlayResolution<'_> {
-        for entry in self.entries.iter().rev() {
-            for write in entry.outcome.writes.iter().rev() {
-                match write {
-                    StateWrite::Put {
-                        column_family: family,
-                        key: written,
-                        value,
-                    } if *family == column_family && written.as_slice() == key => {
-                        return OverlayResolution::Present(value);
-                    }
-                    StateWrite::Delete {
-                        column_family: family,
-                        key: written,
-                    }
-                    | StateWrite::SingleDelete {
-                        column_family: family,
-                        key: written,
-                    } if *family == column_family && written.as_slice() == key => {
-                        return OverlayResolution::Deleted;
-                    }
-                    StateWrite::DeleteRange {
-                        column_family: family,
-                        start,
-                        end,
-                    } if *family == column_family
-                        && key >= start.as_slice()
-                        && key < end.as_slice() =>
-                    {
-                        return OverlayResolution::Deleted;
-                    }
-                    _ => {}
+    /// Drops the index records of the just-popped head `entry`; FIFO commits leave none older.
+    fn remove_head_from_index(&mut self, entry: &OverlayEntry) {
+        let entry_seq = self.head_entry_seq;
+        for write in &entry.outcome.writes {
+            if let StateWrite::Put {
+                column_family, key, ..
+            }
+            | StateWrite::Delete { column_family, key }
+            | StateWrite::SingleDelete { column_family, key } = write
+                && let Some(keys) = self.point_writes.get_mut(column_family)
+                && keys
+                    .get(key.as_slice())
+                    .is_some_and(|stamp| stamp.entry_seq == entry_seq)
+            {
+                keys.remove(key.as_slice());
+                if keys.is_empty() {
+                    self.point_writes.remove(column_family);
                 }
             }
         }
-        OverlayResolution::Untouched
+        while self
+            .range_deletes
+            .front()
+            .is_some_and(|range_delete| range_delete.stamp.entry_seq == entry_seq)
+        {
+            self.range_deletes.pop_front();
+        }
+        self.head_entry_seq += 1;
+    }
+
+    /// Returns the newest overlay decision for `key`.
+    fn resolve(&self, column_family: ColumnFamily, key: &[u8]) -> OverlayResolution<'_> {
+        let point_stamp = self
+            .point_writes
+            .get(&column_family)
+            .and_then(|keys| keys.get(key))
+            .copied();
+        self.resolve_with_point_stamp(column_family, key, point_stamp)
+    }
+
+    /// Returns the decision for `key` given the stamp of its newest point write, if any.
+    fn resolve_with_point_stamp(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+        point_stamp: Option<WriteStamp>,
+    ) -> OverlayResolution<'_> {
+        if self.has_newer_covering_range_delete(column_family, key, point_stamp) {
+            return OverlayResolution::Deleted;
+        }
+        let Some(point_stamp) = point_stamp else {
+            return OverlayResolution::Untouched;
+        };
+        record_examined_overlay_write();
+        let entry_offset = usize::try_from(point_stamp.entry_seq - self.head_entry_seq)
+            .expect("indexed entries are within the overlay");
+        match &self.entries[entry_offset].outcome.writes[point_stamp.write_index] {
+            StateWrite::Put { value, .. } => OverlayResolution::Present(value),
+            StateWrite::Delete { .. } | StateWrite::SingleDelete { .. } => {
+                OverlayResolution::Deleted
+            }
+            StateWrite::DeleteRange { .. } => {
+                unreachable!("the point index holds only Put, Delete, and SingleDelete writes")
+            }
+        }
+    }
+
+    /// Returns whether a range delete newer than `point_stamp` covers `key`.
+    fn has_newer_covering_range_delete(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+        point_stamp: Option<WriteStamp>,
+    ) -> bool {
+        self.range_deletes
+            .iter()
+            .rev()
+            .take_while(|range_delete| point_stamp.is_none_or(|stamp| range_delete.stamp > stamp))
+            .any(|range_delete| {
+                record_examined_overlay_write();
+                range_delete.column_family == column_family
+                    && key >= range_delete.start.as_slice()
+                    && key < range_delete.end.as_slice()
+            })
     }
 
     /// Returns the rows in `[start, end)` that the overlay itself provides.
-    fn present_rows(
-        &self,
+    fn present_rows<'a>(
+        &'a self,
         column_family: ColumnFamily,
-        start: &[u8],
-        end: &[u8],
-    ) -> BTreeMap<Vec<u8>, Vec<u8>> {
-        let mut rows = BTreeMap::new();
-        for entry in &self.entries {
-            for write in &entry.outcome.writes {
-                if let StateWrite::Put {
-                    column_family: family,
-                    key,
-                    ..
-                } = write
-                    && *family == column_family
-                    && key.as_slice() >= start
-                    && key.as_slice() < end
-                    && !rows.contains_key(key)
-                    && let OverlayResolution::Present(value) = self.resolve(column_family, key)
-                {
-                    rows.insert(key.clone(), value.clone());
+        start: &'a [u8],
+        end: &'a [u8],
+    ) -> impl Iterator<Item = StateRow> + 'a {
+        self.point_writes
+            .get(&column_family)
+            .into_iter()
+            .flat_map(move |keys| {
+                keys.range::<[u8], _>((Bound::Included(start), Bound::Excluded(end)))
+            })
+            .filter_map(move |(key, stamp)| {
+                match self.resolve_with_point_stamp(column_family, key, Some(*stamp)) {
+                    OverlayResolution::Present(value) => Some((key.clone(), value.clone())),
+                    OverlayResolution::Deleted | OverlayResolution::Untouched => None,
                 }
-            }
-        }
-        rows
+            })
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static EXAMINED_OVERLAY_WRITE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts one overlay write record read while resolving a key; a no-op outside tests.
+fn record_examined_overlay_write() {
+    #[cfg(test)]
+    EXAMINED_OVERLAY_WRITE_COUNT.with(|count| count.set(count.get() + 1));
+}
+
+/// Returns the overlay write records this thread has examined, then resets the count.
+#[cfg(test)]
+pub(crate) fn take_examined_overlay_write_count_for_test() -> usize {
+    EXAMINED_OVERLAY_WRITE_COUNT.with(std::cell::Cell::take)
 }
 
 enum OverlayResolution<'a> {
@@ -215,7 +328,6 @@ impl FlowStateReader for OverlayStateReader<'_> {
         let mut overlay_rows = self
             .overlay
             .present_rows(column_family, start, end)
-            .into_iter()
             .peekable();
         let mut page_start = start.to_vec();
         let mut is_committed_exhausted = false;
