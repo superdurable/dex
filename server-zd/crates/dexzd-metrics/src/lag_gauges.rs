@@ -175,9 +175,7 @@ impl EncodeMetric for SearchOutboxOldestEntryAge {
 
 /// Sealed history segments waiting for upload in each partition.
 ///
-/// The segment count follows seals and upload acknowledgments as they commit. Bytes and the
-/// oldest seal time are as of the uploader's last scan, and clear once the count drains.
-/// Each scan of a partition replaces its values, which also corrects the count's drift.
+/// The count follows commits; bytes and age come from scans. Each scan corrects the count.
 #[derive(Clone, Debug)]
 pub struct HistoryUploadBacklog {
     partitions: Arc<Vec<Mutex<PartitionHistoryUploadBacklog>>>,
@@ -205,8 +203,7 @@ impl HistoryUploadBacklog {
         }
     }
 
-    /// Counts one segment whose seal committed. Ignores a partition outside the configured
-    /// count.
+    /// Counts one segment whose seal committed.
     pub fn add_sealed_segment(&self, partition: usize) {
         self.update_partition(partition, |backlog| {
             backlog.segments = backlog.segments.saturating_add(1);
@@ -214,8 +211,7 @@ impl HistoryUploadBacklog {
         });
     }
 
-    /// Removes one segment whose upload acknowledgment committed; the last one also clears the
-    /// partition's bytes and oldest seal time. Ignores a partition outside the configured count.
+    /// Removes one acknowledged segment; the last one also clears bytes and the oldest seal time.
     pub fn remove_uploaded_segment(&self, partition: usize) {
         self.update_partition(partition, |backlog| {
             backlog.segments = backlog.segments.saturating_sub(1);
@@ -227,18 +223,16 @@ impl HistoryUploadBacklog {
         });
     }
 
-    /// Marks the start of a scan of `partition`; call it before the scan reads committed state.
-    /// [`Self::set_partition`] then adds the seals and acknowledgments counted after the mark.
-    /// Ignores a partition outside the configured count.
+    /// Marks a scan's start, before it reads; [`Self::set_partition`] adds changes counted since.
     pub fn begin_partition_scan(&self, partition: usize) {
         self.update_partition(partition, |backlog| backlog.segment_change_since_scan = 0);
     }
 
     /// Records what the uploader's last scan of `partition` found waiting: the segment count,
     /// their uncompressed bytes, and the seal time of the oldest one, or `None` when none waits.
-    /// The published count also includes the seals and acknowledgments counted since
-    /// [`Self::begin_partition_scan`].
     /// Ignores a partition outside the configured count.
+    ///
+    /// The count also adds changes counted since [`Self::begin_partition_scan`].
     pub fn set_partition(
         &self,
         partition: usize,

@@ -37,7 +37,7 @@ const CLOSES_PER_SECOND: usize = 6_000;
 const TICK: Duration = Duration::from_millis(10);
 /// Long enough for the limit to grow and settle; the in-memory state limits longer loads.
 const LOAD_DURATION: Duration = Duration::from_millis(250);
-const RESCAN_INTERVAL: Duration = Duration::from_secs(1);
+const RESCAN_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Delays history segment writes like a remote store, throttles a given number of them, and
 /// records the largest in-flight byte reservation any write saw.

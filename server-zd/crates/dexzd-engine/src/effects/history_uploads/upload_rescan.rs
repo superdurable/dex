@@ -142,8 +142,8 @@ impl SealedSegmentCounter {
         }
     }
 
-    /// Counts each sealed segment in `effects`, the committed effects of one proposed command.
-    /// Rebuilds and rescans report their effects to the router directly, so none counts twice.
+    /// Counts each seal among one proposed command's committed effects.
+    /// Rebuilds and rescans bypass the sink, so nothing counts twice.
     pub(crate) fn count_committed(&self, flow: &FlowAddress, effects: &[ApplyEffect]) {
         for effect in effects {
             if let ApplyEffect::HistorySegmentSealed { .. } = effect {
