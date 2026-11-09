@@ -8,6 +8,38 @@ sidebar_label: Change log
 
 This page lists user-visible changes to the Java SDK, newest first; each section covers the changes since the previous release of this component.
 
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [sdk-java/v1.40.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.40.0).
+
+### Added
+
+- **FlowConfig.Builder.offloadHistory(boolean)** chooses whether a run offloads its history to object storage. Omitting it means true. Pass false for many short runs that close soon. Set it at start through **StartFlowOptions.Builder.configOverride** or in **SubFlowOptions**. A SubFlow otherwise inherits its parent's value, and **Client.updateFlowConfig** rejects it with INVALID_ARGUMENT. It requires server-zd 0.1.23 or later. [Reference](/reference/server/configuration#history-offload).
+
+### Changed
+
+- **FlowConfig.Builder.deleteExpiredHistoryObjects(boolean)** is deprecated. It has no effect, and the SDK no longer sends it. Existing code that sets it still compiles.
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [sdk-java/v1.39.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.39.0).
+
+### Added
+
+- **FlowConfig.Builder.deleteExpiredHistoryObjects(boolean)** controls expired history object deletion at start, on update, and for SubFlows. It requires history offload and server-zd 0.1.22 or later.
+
+### Changed
+
+- A LoadBlobs request names at most 1,000 entries. The SDK batches larger requests and keeps the input order.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [sdk-java/v1.38.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.38.0).
+
+### Added
+
+- **FlowConfig.Builder.historyWindowEvents** sets about how many of the newest history events a run keeps for history reads and Time Travel. Set it at start, change it with **Client.updateFlowConfig**, or override it for a SubFlow. Omitting it uses the server's **history.windowEvents** setting. Dex rejects a value that is not positive or exceeds **history.maxWindowEvents** with INVALID_ARGUMENT. It requires server-zd 0.1.21 or later. [Reference](/reference/server/configuration#history-window).
+
 ## 1.37 {#v1-37}
 
 Released 2026-11-06 as [sdk-java/v1.37.0](https://github.com/superdurable/dex/releases/tag/sdk-java%2Fv1.37.0). Reference: [1.37.x](/reference/java/1.37.x/).
