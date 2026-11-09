@@ -32,7 +32,9 @@ use prost::Message;
 use crate::compat_node::{engine_node_config, start_engine_node_with_applier};
 use crate::format_decoding::decode_objects;
 use crate::golden_replay::{RESTART_DELAY_MICROS, SnapshotUse, forget_snapshots};
-use crate::older_backend_error::history_with_older_backend_errors;
+use crate::older_backend_error::{
+    AppliedFailures, StepRowRecordingApplier, history_with_older_backend_errors,
+};
 use crate::scripted_clock::ScriptedClock;
 use crate::state_dump::{StateDump, dump_committed_state, dumped_value, hex, parse_state_dump};
 use crate::testdata_tree::{
@@ -63,7 +65,8 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
         let recorded = parse_state_dump(&recorded_text);
         let recorded_run_records = read_run_records(&directory);
         let older_rows = read_older_rows(&recorded);
-        let (replayed, stored) = replay(&directory, snapshot_use).await;
+        let (replayed, stored, failures) =
+            replay_with_applied_failures(&directory, snapshot_use).await;
         // Rows that the restored snapshot holds are not rewritten, so only a full replay deletes
         // every eligible row.
         let deletion = if snapshot_use == SnapshotUse::Ignore {
@@ -104,6 +107,7 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
                     &recorded_run_records,
                     &older_rows,
                     &stored,
+                    &failures,
                 )
             })
             .map(|(key, _)| key)
@@ -570,6 +574,7 @@ fn matches_without_new_fields(
     recorded_run_records: &BTreeMap<String, Vec<u8>>,
     older_rows: &OlderRows,
     stored: &StoredRows,
+    failures: &AppliedFailures,
 ) -> bool {
     let key = decode_hex(hex_key);
     let Ok(parsed) = parse_run_key(&key) else {
@@ -591,7 +596,7 @@ fn matches_without_new_fields(
         }
         (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
             history_without_scheduled_time(&history_with_inline_effect_values(
-                &history_with_older_backend_errors(value),
+                &history_with_older_backend_errors(&key, value, failures),
                 parsed.flow_hash,
                 parsed.run_id,
                 stored,
@@ -801,6 +806,17 @@ pub(crate) fn decode_hex(hex_key: &str) -> Vec<u8> {
 /// Starts a node on the older objects and returns its committed state dump and stored rows.
 async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (StateDump, StoredRows) {
     replay_with_checks(directory, snapshot_use, true).await
+}
+
+/// Replays as `replay` does and also returns the attempt failures that the replay applied.
+async fn replay_with_applied_failures(
+    directory: &std::path::Path,
+    snapshot_use: SnapshotUse,
+) -> (StateDump, StoredRows, AppliedFailures) {
+    let applier = Arc::new(StepRowRecordingApplier::default());
+    let (replayed, stored) =
+        replay_with_applier(directory, snapshot_use, true, applier.clone()).await;
+    (replayed, stored, applier.applied_failures())
 }
 
 /// Starts a node on the recorded objects, with or without the debug replay checks, and returns

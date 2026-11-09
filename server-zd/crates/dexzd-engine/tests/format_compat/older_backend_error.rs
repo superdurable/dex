@@ -20,8 +20,8 @@ use dexzd_protocol::dex::{
     DispatchTaskErrorReason, FlowErrorType, StepMethodFailure, flow_history_event,
 };
 use dexzd_protocol::dexzd::v1::{
-    FlowCommand, HistoryRecord, HistoryRowMetadata, RunRecord, StepExecutionRecord,
-    flow_command::Command,
+    FlowCommand, HistoryRecord, HistoryRowMetadata, RunRecord, StepAttemptFailedCommand,
+    StepAttemptFailureKind, StepExecutionRecord, StepMethod, flow_command::Command,
 };
 use prost::Message;
 
@@ -33,8 +33,18 @@ use crate::state_dump::{StateDump, dumped_value, hex};
 const FLOW_ERROR_CATEGORIES: [FlowErrorType; 2] =
     [FlowErrorType::WorkerApiFail, FlowErrorType::Internal];
 
-/// Raw failure text by run ID, Step execution ID, method, and attempt.
-type RawFailureTexts = BTreeMap<([u8; 16], String, i32, u32), String>;
+/// Run ID, Step execution ID, method, and attempt of one attempt failure.
+type FailureKey = ([u8; 16], String, i32, u32);
+
+/// Apply's category for one applied attempt failure, and the recording binary's raw text.
+#[derive(Debug, PartialEq)]
+pub(crate) struct AppliedFailure {
+    category: FlowErrorType,
+    raw_text: String,
+}
+
+/// Applied attempt failures by run ID, Step execution ID, method, and attempt.
+pub(crate) type AppliedFailures = BTreeMap<FailureKey, AppliedFailure>;
 
 /// Replays the log with the debug replay checks and returns its state with the raw failure
 /// text, and the byte counters, that the recording binary wrote.
@@ -45,14 +55,20 @@ pub(crate) async fn replay_with_older_backend_errors(
     let applier = Arc::new(StepRowRecordingApplier::default());
     let (mut replayed, mut stored) =
         replay_with_applier(directory, snapshot_use, true, applier.clone()).await;
-    let step_row_write_deltas = applier.step_row_write_deltas();
-    with_older_backend_errors(&mut replayed, &mut stored, &step_row_write_deltas);
+    let failures = applier.applied_failures();
+    let step_row_write_deltas = applier.step_row_write_deltas(&failures);
+    with_older_backend_errors(
+        &mut replayed,
+        &mut stored,
+        &failures,
+        &step_row_write_deltas,
+    );
     (replayed, stored)
 }
 
 /// Applies commands with `dexzd-apply` and keeps each applied command's writes once.
 #[derive(Default)]
-struct StepRowRecordingApplier {
+pub(crate) struct StepRowRecordingApplier {
     applied: Mutex<AppliedCommands>,
 }
 
@@ -88,45 +104,64 @@ impl CommandApplier for StepRowRecordingApplier {
 }
 
 impl StepRowRecordingApplier {
+    /// Returns the category and raw text of every applied attempt failure command.
+    ///
+    /// Panics when two applied commands fail the same attempt differently.
+    pub(crate) fn applied_failures(&self) -> AppliedFailures {
+        let applied = self.applied.lock().expect("the applied commands lock");
+        let mut failures = AppliedFailures::new();
+        for (command, _) in &applied.commands {
+            let Some(Command::StepAttemptFailed(failed)) = &command.command else {
+                continue;
+            };
+            let invocation = failed
+                .invocation
+                .as_ref()
+                .expect("failure commands name their invocation");
+            let run_id: [u8; 16] = command
+                .run_id
+                .as_slice()
+                .try_into()
+                .expect("failure commands carry a 16-byte run ID");
+            // The rule of the recording binary: the server detail, else the Worker's detail.
+            let raw_text = if failed.server_detail.is_empty() {
+                failed
+                    .worker_error
+                    .as_ref()
+                    .map(|worker_error| worker_error.detail.clone())
+                    .unwrap_or_default()
+            } else {
+                failed.server_detail.clone()
+            };
+            let key = (
+                run_id,
+                invocation.step_execution_id.clone(),
+                invocation.method,
+                failed.attempt,
+            );
+            let failure = AppliedFailure {
+                category: flow_error_type_for_attempt_failure(failed),
+                raw_text,
+            };
+            if let Some(earlier) = failures.get(&key) {
+                assert_eq!(
+                    *earlier, failure,
+                    "applied commands fail attempt {key:?} differently"
+                );
+            }
+            failures.insert(key, failure);
+        }
+        failures
+    }
+
     /// Returns, by run record key, how many more Step row bytes the replay wrote since the run's
     /// last checkpoint than the recording binary did.
     ///
     /// Ended Steps' rows are gone, so each logged command's Step row writes give it.
-    fn step_row_write_deltas(&self) -> BTreeMap<Vec<u8>, i128> {
+    fn step_row_write_deltas(&self, failures: &AppliedFailures) -> BTreeMap<Vec<u8>, i128> {
         let applied = self.applied.lock().expect("the applied commands lock");
-        let mut raw_failure_texts = RawFailureTexts::new();
         let mut deltas: BTreeMap<Vec<u8>, i128> = BTreeMap::new();
-        for (command, writes) in &applied.commands {
-            if let Some(Command::StepAttemptFailed(failed)) = &command.command {
-                let invocation = failed
-                    .invocation
-                    .as_ref()
-                    .expect("failure commands name their invocation");
-                let run_id: [u8; 16] = command
-                    .run_id
-                    .as_slice()
-                    .try_into()
-                    .expect("failure commands carry a 16-byte run ID");
-                // The rule of the recording binary: the server detail, else the Worker's detail.
-                let raw_text = if failed.server_detail.is_empty() {
-                    failed
-                        .worker_error
-                        .as_ref()
-                        .map(|worker_error| worker_error.detail.clone())
-                        .unwrap_or_default()
-                } else {
-                    failed.server_detail.clone()
-                };
-                raw_failure_texts.insert(
-                    (
-                        run_id,
-                        invocation.step_execution_id.clone(),
-                        invocation.method,
-                        failed.attempt,
-                    ),
-                    raw_text,
-                );
-            }
+        for (_, writes) in &applied.commands {
             let mut checkpointed_runs = BTreeSet::new();
             for write in writes {
                 let StateWrite::Put {
@@ -147,8 +182,7 @@ impl StepRowRecordingApplier {
                         checkpointed_runs.insert(record_key);
                     }
                     (ColumnFamily::Flow, RunTable::StepExecution) => {
-                        let older_value =
-                            older_step_row(value, parsed.run_id.0, &raw_failure_texts);
+                        let older_value = older_step_row(value, parsed.run_id.0, failures);
                         *deltas.entry(record_key).or_default() +=
                             value.len() as i128 - older_value.len() as i128;
                     }
@@ -166,9 +200,9 @@ impl StepRowRecordingApplier {
 /// Returns the Step row with its last failure's category text replaced by the raw text of
 /// the failure command.
 ///
-/// Panics when no applied failure command recorded that text, or when it disagrees with
-/// `older_backend_error`.
-fn older_step_row(value: &[u8], run_id: [u8; 16], raw_failure_texts: &RawFailureTexts) -> Vec<u8> {
+/// Panics when no applied failure command matches, when the row holds another category, or
+/// when the command's raw text disagrees with `older_backend_error`.
+fn older_step_row(value: &[u8], run_id: [u8; 16], failures: &AppliedFailures) -> Vec<u8> {
     let mut step = StepExecutionRecord::decode(value).expect("Step rows decode");
     assert_eq!(
         step.encode_to_vec(),
@@ -186,13 +220,7 @@ fn older_step_row(value: &[u8], run_id: [u8; 16], raw_failure_texts: &RawFailure
     if !is_flow_error_category(&failure.backend_error) {
         return value.to_vec();
     }
-    let attempt = u32::try_from(failure.attempt).expect("failure attempts are positive");
-    let raw_text = raw_failure_texts
-        .get(&(run_id, step_execution_id.clone(), method, attempt))
-        .unwrap_or_else(|| {
-            panic!("no applied command failed attempt {attempt} of {step_execution_id}")
-        })
-        .clone();
+    let raw_text = applied_failure_raw_text(failures, run_id, &step_execution_id, method, failure);
     let is_dispatch_failure = failure.details.as_ref().is_some_and(|details| {
         details.dispatch_task_error_reason != DispatchTaskErrorReason::Unspecified as i32
     });
@@ -212,6 +240,7 @@ fn older_step_row(value: &[u8], run_id: [u8; 16], raw_failure_texts: &RawFailure
 fn with_older_backend_errors(
     replayed: &mut StateDump,
     stored: &mut StoredRows,
+    failures: &AppliedFailures,
     step_row_write_deltas: &BTreeMap<Vec<u8>, i128>,
 ) {
     let flow_name = ColumnFamily::Flow.name().to_owned();
@@ -226,7 +255,7 @@ fn with_older_backend_errors(
         .collect();
     let mut history_deltas: BTreeMap<Vec<u8>, i128> = BTreeMap::new();
     for (key, value) in history_rows {
-        let older_value = history_with_older_backend_errors(&value);
+        let older_value = history_with_older_backend_errors(&key, &value, failures);
         if older_value == value {
             continue;
         }
@@ -249,6 +278,11 @@ fn with_older_backend_errors(
             .expect("every history row has metadata");
         let mut metadata =
             HistoryRowMetadata::decode(metadata_value.as_slice()).expect("metadata decodes");
+        assert_eq!(
+            metadata.encode_to_vec(),
+            *metadata_value,
+            "replayed history row metadata holds bytes that decoding drops or rewrites"
+        );
         assert_eq!(
             metadata.row_size_bytes,
             (key.len() + value.len()) as u64,
@@ -340,8 +374,14 @@ fn replace_row(
 
 /// Returns the history row with every category `backend_error` mapped back to its raw text.
 ///
-/// Panics when the row does not encode back to the same bytes.
-pub(crate) fn history_with_older_backend_errors(value: &[u8]) -> Vec<u8> {
+/// Panics when the row does not encode back to the same bytes, or when a category does not
+/// match its applied failure command.
+pub(crate) fn history_with_older_backend_errors(
+    key: &[u8],
+    value: &[u8],
+    failures: &AppliedFailures,
+) -> Vec<u8> {
+    let run_id = parse_run_key(key).expect("history keys parse").run_id.0;
     let mut record = HistoryRecord::decode(value).expect("history rows decode");
     assert_eq!(
         record.encode_to_vec(),
@@ -349,36 +389,84 @@ pub(crate) fn history_with_older_backend_errors(value: &[u8]) -> Vec<u8> {
         "a replayed history row holds bytes that decoding drops or rewrites"
     );
     for event in &mut record.events {
-        let (context, output) = match event.payload.as_mut() {
-            Some(
-                flow_history_event::Payload::StepWaitForPending(pending)
-                | flow_history_event::Payload::StepExecutePending(pending),
-            ) => (pending.context.as_mut(), None),
+        let (method, context, output) = match event.payload.as_mut() {
+            Some(flow_history_event::Payload::StepWaitForPending(pending)) => {
+                (StepMethod::WaitFor, pending.context.as_mut(), None)
+            }
+            Some(flow_history_event::Payload::StepExecutePending(pending)) => {
+                (StepMethod::Execute, pending.context.as_mut(), None)
+            }
             Some(flow_history_event::Payload::StepWaitForCompleted(completed)) => {
-                (completed.context.as_mut(), None)
+                (StepMethod::WaitFor, completed.context.as_mut(), None)
             }
             Some(flow_history_event::Payload::StepExecuteCompleted(completed)) => {
-                (completed.context.as_mut(), None)
+                (StepMethod::Execute, completed.context.as_mut(), None)
             }
-            Some(flow_history_event::Payload::StepWaitForFailed(failed)) => {
-                (failed.context.as_mut(), failed.output.as_mut())
-            }
-            Some(flow_history_event::Payload::StepExecuteFailed(failed)) => {
-                (failed.context.as_mut(), failed.output.as_mut())
-            }
-            _ => (None, None),
+            Some(flow_history_event::Payload::StepWaitForFailed(failed)) => (
+                StepMethod::WaitFor,
+                failed.context.as_mut(),
+                failed.output.as_mut(),
+            ),
+            Some(flow_history_event::Payload::StepExecuteFailed(failed)) => (
+                StepMethod::Execute,
+                failed.context.as_mut(),
+                failed.output.as_mut(),
+            ),
+            _ => continue,
         };
-        let failures = context
+        let step_execution_id = context
+            .as_ref()
+            .map(|context| context.step_execution_id.clone())
+            .unwrap_or_default();
+        let event_failures = context
             .and_then(|context| context.last_failure_info.as_mut())
             .into_iter()
             .chain(output.and_then(|output| output.failure.as_mut()));
-        for failure in failures {
+        for failure in event_failures {
             if let Some(raw_text) = older_backend_error(failure) {
+                assert_eq!(
+                    applied_failure_raw_text(
+                        failures,
+                        run_id,
+                        &step_execution_id,
+                        method as i32,
+                        failure,
+                    ),
+                    raw_text,
+                    "the failure details give the failure command's raw text"
+                );
                 failure.backend_error = raw_text;
             }
         }
     }
     record.encode_to_vec()
+}
+
+/// Returns the raw text of the applied command that failed this attempt.
+///
+/// Panics when no applied command matches, or when `failure` holds another category.
+fn applied_failure_raw_text(
+    failures: &AppliedFailures,
+    run_id: [u8; 16],
+    step_execution_id: &str,
+    method: i32,
+    failure: &StepMethodFailure,
+) -> String {
+    let attempt = u32::try_from(failure.attempt).expect("failure attempts are positive");
+    let applied = failures
+        .get(&(run_id, step_execution_id.to_owned(), method, attempt))
+        .unwrap_or_else(|| {
+            panic!(
+                "no applied command failed attempt {attempt} of method {method} of \
+                 {step_execution_id}"
+            )
+        });
+    assert_eq!(
+        failure.backend_error,
+        applied.category.as_str_name(),
+        "attempt {attempt} of {step_execution_id} records its failure command's category"
+    );
+    applied.raw_text.clone()
 }
 
 /// Returns the raw text that older binaries recorded as this failure's `backend_error`, or
@@ -413,4 +501,41 @@ fn is_flow_error_category(backend_error: &str) -> bool {
     FLOW_ERROR_CATEGORIES
         .iter()
         .any(|category| category.as_str_name() == backend_error)
+}
+
+/// Restates `flow_error_type_for_attempt_failure` in dexzd-apply `steps/step_results.rs`.
+fn flow_error_type_for_attempt_failure(command: &StepAttemptFailedCommand) -> FlowErrorType {
+    let kind = StepAttemptFailureKind::try_from(command.kind)
+        .unwrap_or(StepAttemptFailureKind::Unspecified);
+    match kind {
+        StepAttemptFailureKind::DispatchError => {
+            let is_worker_dispatch_failure = [
+                DispatchTaskErrorReason::NoWorkerAvailable,
+                DispatchTaskErrorReason::WorkerDisconnected,
+                DispatchTaskErrorReason::UnknownName,
+            ]
+            .iter()
+            .any(|reason| {
+                command
+                    .server_detail
+                    .starts_with(&format!("{}: ", reason.as_str_name()))
+            });
+            if is_worker_dispatch_failure {
+                FlowErrorType::WorkerApiFail
+            } else {
+                FlowErrorType::Internal
+            }
+        }
+        StepAttemptFailureKind::InvalidResponse | StepAttemptFailureKind::RequestTooLarge => {
+            FlowErrorType::Internal
+        }
+        StepAttemptFailureKind::WorkerError
+        | StepAttemptFailureKind::MethodTimeout
+        | StepAttemptFailureKind::HeartbeatTimeout
+        | StepAttemptFailureKind::RetryDeadline
+        | StepAttemptFailureKind::ValueTooLarge
+        | StepAttemptFailureKind::UnsupportedFeature
+        | StepAttemptFailureKind::StartedAttemptInterrupted
+        | StepAttemptFailureKind::Unspecified => FlowErrorType::WorkerApiFail,
+    }
 }
