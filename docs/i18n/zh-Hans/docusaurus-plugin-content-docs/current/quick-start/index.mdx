@@ -17,14 +17,14 @@ brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev
 ```
 
-**dexcli** 会启动 Dex Server、Dex Web，以及内部的 workflow backend。这些端口空闲时的默认地址：
+**dexcli dev** 会启动 **Dex Server**（server-zd）和 **Dex Web**。状态保存在本地磁盘上的 **RocksDB** 和内嵌的 **s3local** 对象存储中。这些端口空闲时的默认地址：
 
 | Service | Address |
 | --- | --- |
 | Dex Web | **http://127.0.0.1:8802** |
 | Dex Server | **127.0.0.1:8801** |
 
-同一台机器上再开一个 **dexcli dev** 会绑到别的空闲端口，并用自己的 SQLite。把打印出来的 Dex Server 地址传给 **--server**。flag 和持久化选项见 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
+同一台机器上再开一个 **dexcli dev** 会绑定其他空闲端口，并使用独立的状态目录。把打印出来的 **Dex Server** 地址传给 **--server**。flag 和持久化选项见 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
 
 ## 2. Flow、Step、RPC、constructor 依赖
 
@@ -1292,6 +1292,6 @@ Timeline tab 从左到右显示同一次 run 的事件。选中一个事件，�
 
 ## 接下来
 
-- [Primitives](/concepts)
+- [概念](/concepts)
 - [为什么是 Dex？](/intro/what-is-dex)
 - [产品示例](/use-cases)
