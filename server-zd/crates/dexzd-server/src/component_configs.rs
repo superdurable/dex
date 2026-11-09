@@ -13,8 +13,9 @@ use dexzd_api::{CredentialAuthenticatorConfig, FlowServiceConfig};
 use dexzd_cluster_metadata::NodeConfig;
 use dexzd_engine::{
     AttributeSyncConfig, AttributeSyncRetryPolicy, BlockingWorkPlacement, CommitConfig,
-    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HistoryReadsConfig, HotStandbyConfig,
-    LocalStoreConfig, RecoveryConfig, SnapshotConfig, default_run_settings,
+    EffectsConfig, EngineNodeConfig, FlowCoordinationConfig, HistoryReadsConfig,
+    HistoryUploadLimits, HotStandbyConfig, LocalStoreConfig, RecoveryConfig, SnapshotConfig,
+    default_run_settings,
 };
 use dexzd_log::LogReadAheadConfig;
 use dexzd_protocol::dexzd::v1::RunSettings;
@@ -261,10 +262,17 @@ impl ComponentConfigs {
                 ..EffectsConfig::default().child_run_settings
             },
             heads_resync_interval: config.matching.heads_resync_interval,
-            history_upload_concurrency: to_usize(
-                "history.uploadConcurrency",
-                u64::from(config.history.upload_concurrency),
-            )?,
+            history_upload_limits: HistoryUploadLimits {
+                max_concurrency: to_usize(
+                    "history.uploadConcurrency",
+                    u64::from(config.history.upload_concurrency),
+                )?,
+                min_concurrency: to_usize(
+                    "history.uploadMinConcurrency",
+                    u64::from(config.history.upload_min_concurrency),
+                )?,
+                max_in_flight_bytes: config.history.upload_max_in_flight_bytes,
+            },
             ..EffectsConfig::default()
         };
         let matching = MatchingConfig {

@@ -15,7 +15,7 @@ use dexzd_history_segment::{
     HistorySegmentCodecError, HistorySegmentContent, HistorySegmentIdentity,
     HistorySegmentRecordRow, HistorySegmentValueRow, decode_checkpoints_block,
     decode_history_segment, decode_history_segment_header, decode_records_block, decode_value,
-    encode_history_segment,
+    encode_history_segment, max_history_segment_encoding_bytes,
 };
 use dexzd_keyspace::{RunId, ValueId};
 use dexzd_protocol::dexzd::v1::HistorySegmentHeader;
@@ -548,4 +548,62 @@ fn rewrite_header(object: &[u8], change: impl FnOnce(&mut HistorySegmentHeader))
     let trailer = xxh3_128(&rewritten);
     rewritten.extend_from_slice(&trailer.to_le_bytes());
     rewritten
+}
+
+/// Returns `length` bytes of xorshift output, which zstd cannot compress.
+fn noise(seed: u64, length: usize) -> Vec<u8> {
+    let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    (0..length)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state.to_le_bytes()[0]
+        })
+        .collect()
+}
+
+#[test]
+fn the_encoding_bound_covers_many_small_values_and_incompressible_rows() {
+    let mut many_values = sample_content();
+    many_values.values = (0..2_000)
+        .map(|index| HistorySegmentValueRow {
+            value_id: value_id(12, index),
+            row: noise(u64::from(index), 131),
+        })
+        .collect();
+    let mut incompressible = sample_content();
+    incompressible.records[1].row = noise(1, 300_000);
+    incompressible.checkpoints[0].row = noise(2, 70_000);
+    incompressible.values[2].row = noise(3, 200_000);
+    let mut empty_blocks = sample_content();
+    empty_blocks.records.clear();
+    empty_blocks.checkpoints.clear();
+    empty_blocks.values.clear();
+    for content in [sample_content(), many_values, incompressible, empty_blocks] {
+        let bound = max_history_segment_encoding_bytes(&content);
+        let encoded = encode_history_segment(&content).expect("valid content encodes");
+        let encoded_size = encoded.bytes.len() as u64;
+        assert!(encoded_size <= bound, "{encoded_size} > {bound}");
+        // The bound also counts working buffers, but stays within a small multiple of the rows.
+        let row_bytes = content
+            .records
+            .iter()
+            .map(|row| row.row.len())
+            .sum::<usize>()
+            + content
+                .checkpoints
+                .iter()
+                .map(|row| row.row.len())
+                .sum::<usize>()
+            + content
+                .values
+                .iter()
+                .map(|row| row.row.len())
+                .sum::<usize>();
+        assert!(
+            bound <= 4 * row_bytes as u64 + 400_000,
+            "{bound} for {row_bytes}"
+        );
+    }
 }

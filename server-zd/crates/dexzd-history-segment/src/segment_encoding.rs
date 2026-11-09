@@ -16,12 +16,15 @@ use xxhash_rust::xxh3::{xxh3_64, xxh3_128};
 use crate::codec_error::{HistorySegmentBlockKind, HistorySegmentCodecError};
 use crate::segment_content::HistorySegmentContent;
 use crate::segment_layout::{
-    ContentChecksum, FORMAT_VERSION, HISTORY_SEGMENT_PREFIX_BYTES, HISTORY_SEGMENT_TRAILER_BYTES,
-    MAGIC, append_checkpoint_entry, append_record_entry,
+    CHECKPOINT_ENTRY_PREFIX_BYTES, ContentChecksum, FORMAT_VERSION, HISTORY_SEGMENT_PREFIX_BYTES,
+    HISTORY_SEGMENT_TRAILER_BYTES, MAGIC, RECORD_ENTRY_PREFIX_BYTES, append_checkpoint_entry,
+    append_record_entry,
 };
 
 /// A fixed level keeps the bytes one binary writes stable; checksums never depend on it.
 const ZSTD_LEVEL: i32 = 3;
+/// Field number of `HistorySegmentHeader.value_entries`.
+const VALUE_ENTRIES_FIELD_NUMBER: u32 = 11;
 
 /// One encoded history segment object.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,11 +49,12 @@ pub fn encode_history_segment(
     validate_content(content)?;
     let identity = content.identity;
     let mut checksum = ContentChecksum::new(&identity);
-    let mut records_plain = Vec::new();
+    let block_sizes = PlainBlockSizes::of(content);
+    let mut records_plain = Vec::with_capacity(block_sizes.records);
     for record in &content.records {
         append_record_entry(&mut records_plain, record.seq, &record.row)?;
     }
-    let mut checkpoints_plain = Vec::new();
+    let mut checkpoints_plain = Vec::with_capacity(block_sizes.checkpoints);
     for checkpoint in &content.checkpoints {
         append_checkpoint_entry(
             &mut checkpoints_plain,
@@ -71,7 +75,7 @@ pub fn encode_history_segment(
         checkpoints_plain.len() as u64,
     );
     let values_offset = checkpoints.offset + checkpoints.length;
-    let mut values_stored = Vec::new();
+    let mut values_stored = Vec::with_capacity(block_sizes.value_frame_bounds);
     let mut value_entries = Vec::with_capacity(content.values.len());
     let mut values_uncompressed = 0_u64;
     for value in &content.values {
@@ -138,6 +142,120 @@ pub fn encode_history_segment(
         bytes,
         content_checksum,
     })
+}
+
+/// Returns the most bytes that [`encode_history_segment`] allocates at once for `content`: its
+/// block buffers, compressed frames, header, and the encoded object.
+///
+/// The bound excludes `content` itself and the zstd compression context. It is computed from
+/// row lengths alone, without compressing, so a caller can reserve memory before encoding. The
+/// encoded object is never larger than this bound.
+///
+/// Since server-zd 0.1.23.
+pub fn max_history_segment_encoding_bytes(content: &HistorySegmentContent) -> u64 {
+    let sizes = PlainBlockSizes::of(content);
+    let compressed_blocks = compress_bound(sizes.records)
+        .saturating_add(compress_bound(sizes.checkpoints))
+        .saturating_add(sizes.value_frame_bounds);
+    let header = max_header_bytes(content);
+    let object = HISTORY_SEGMENT_PREFIX_BYTES
+        .saturating_add(header)
+        .saturating_add(compressed_blocks)
+        .saturating_add(HISTORY_SEGMENT_TRAILER_BYTES);
+    let value_entries = content
+        .values
+        .len()
+        .saturating_mul(size_of::<HistorySegmentValueEntry>());
+    let total = sizes
+        .records
+        .saturating_add(sizes.checkpoints)
+        .saturating_add(compressed_blocks)
+        .saturating_add(sizes.largest_value_frame_bound)
+        .saturating_add(value_entries)
+        .saturating_add(header)
+        .saturating_add(object);
+    u64::try_from(total).unwrap_or(u64::MAX)
+}
+
+/// Exact plain block lengths and compressed value frame bounds of one content.
+struct PlainBlockSizes {
+    records: usize,
+    checkpoints: usize,
+    value_frame_bounds: usize,
+    largest_value_frame_bound: usize,
+}
+
+impl PlainBlockSizes {
+    fn of(content: &HistorySegmentContent) -> Self {
+        let records = content
+            .records
+            .iter()
+            .map(|record| RECORD_ENTRY_PREFIX_BYTES.saturating_add(record.row.len()))
+            .fold(0, usize::saturating_add);
+        let checkpoints = content
+            .checkpoints
+            .iter()
+            .map(|checkpoint| CHECKPOINT_ENTRY_PREFIX_BYTES.saturating_add(checkpoint.row.len()))
+            .fold(0, usize::saturating_add);
+        let frame_bounds = content
+            .values
+            .iter()
+            .map(|value| compress_bound(value.row.len()));
+        Self {
+            records,
+            checkpoints,
+            value_frame_bounds: frame_bounds.clone().fold(0, usize::saturating_add),
+            largest_value_frame_bound: frame_bounds.max().unwrap_or(0),
+        }
+    }
+}
+
+/// Returns the most bytes zstd writes for `plain_length` bytes; an empty block stores nothing.
+fn compress_bound(plain_length: usize) -> usize {
+    if plain_length == 0 {
+        0
+    } else {
+        zstd::zstd_safe::compress_bound(plain_length)
+    }
+}
+
+/// Returns an upper bound of the encoded header: every varint field at its widest.
+fn max_header_bytes(content: &HistorySegmentContent) -> usize {
+    let widest_block = HistorySegmentBlock {
+        offset: u64::MAX,
+        length: u64::MAX,
+        uncompressed_length: u64::MAX,
+        xxh3_64: u64::MAX,
+    };
+    let identity = content.identity;
+    let fixed = HistorySegmentHeader {
+        run_id: identity.run_id.as_bytes().to_vec(),
+        first_seq: identity.first_seq,
+        last_seq: identity.last_seq,
+        first_event_id: identity.first_event_id,
+        last_event_id: identity.last_event_id,
+        records: Some(widest_block),
+        record_count: u32::MAX,
+        checkpoints: Some(widest_block),
+        checkpoint_count: u32::MAX,
+        values: Some(widest_block),
+        value_entries: Vec::new(),
+        content_checksum: vec![0; 16],
+    }
+    .encoded_len();
+    let widest_entry = HistorySegmentValueEntry {
+        run_seq: u64::MAX,
+        index_in_command: u32::MAX,
+        offset: u64::MAX,
+        length: u64::MAX,
+        uncompressed_length: u64::MAX,
+        xxh3_64: u64::MAX,
+    }
+    .encoded_len();
+    let entry = prost::encoding::key_len(VALUE_ENTRIES_FIELD_NUMBER)
+        + prost::length_delimiter_len(widest_entry)
+        + widest_entry;
+    fixed.saturating_add(content.values.len().saturating_mul(entry))
 }
 
 fn validate_content(content: &HistorySegmentContent) -> Result<(), HistorySegmentCodecError> {

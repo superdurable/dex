@@ -218,7 +218,7 @@ pub(crate) fn write_sealed_segment(
         Vec::new(),
     );
     let run_id = cursor.run_id();
-    cursor.add_effect(ApplyEffect::HistorySegmentSealed { run_id });
+    cursor.add_effect(ApplyEffect::HistorySegmentSealed { run_id, first_seq });
     Ok(())
 }
 

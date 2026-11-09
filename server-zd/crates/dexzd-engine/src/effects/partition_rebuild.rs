@@ -22,6 +22,7 @@ use dexzd_keyspace::{
 use dexzd_protocol::dexzd::v1::{StepInvocationKey, StepInvocationPhase};
 
 use crate::effects::dispatch::InterruptedAttempt;
+use crate::effects::history_uploads::oldest_sealed_first_seq;
 use crate::effects::method_request::{MethodAttemptKey, pinned_durability};
 use crate::effects::state_reads::{
     RunLocation, parse_retention_index_key, parse_run_item_index_key, read_run_record,
@@ -252,8 +253,13 @@ fn rebuild_history_uploads(
     let prefix = partition_index_prefix(partition, IndexKind::HistoryUploadPending);
     for (key, _) in scan_all(reader, ColumnFamily::PartitionIndex, &prefix)? {
         let (run, _) = parse_run_item_index_key(partition, IndexKind::HistoryUploadPending, &key)?;
-        if let Some((flow, _)) = flow_of_run(reader, run)? {
-            let effect = ApplyEffect::HistorySegmentSealed { run_id: run.run_id };
+        if let Some((flow, _)) = flow_of_run(reader, run)?
+            && let Some(first_seq) = oldest_sealed_first_seq(reader, run)?
+        {
+            let effect = ApplyEffect::HistorySegmentSealed {
+                run_id: run.run_id,
+                first_seq,
+            };
             add_effects(work, run, flow, vec![effect]);
         }
     }

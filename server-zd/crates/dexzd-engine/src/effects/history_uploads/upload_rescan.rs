@@ -28,6 +28,7 @@ use dexzd_protocol::dexzd::v1::{
 };
 
 use super::segment_upload::allow_upload_retry;
+use super::upload_backlog::ScannedBacklog;
 use crate::blocking_work::BlockingWorkFailure;
 use crate::effects::state_reads::{
     RunLocation, decode_row, parse_run_item_index_key, prefix_successor, read_run_record, scan_all,
@@ -43,10 +44,10 @@ type SealedSegmentSizes = BTreeMap<(PartitionId, RunLocation, u64), u64>;
 /// What one scan of a partition found.
 #[derive(Default)]
 struct PartitionUploadBacklog {
-    segments: u64,
     bytes: u64,
     oldest_sealed_at_micros: Option<i64>,
-    runs: Vec<(FlowAddress, RunLocation)>,
+    /// Each pending run with the first seq of its oldest sealed segment.
+    runs: Vec<(FlowAddress, RunLocation, u64)>,
     sizes: SealedSegmentSizes,
     /// Index rows or runs that could not be read, with the run when its key parsed.
     unreadable: Vec<(Option<RunLocation>, EffectError)>,
@@ -55,7 +56,7 @@ struct PartitionUploadBacklog {
 /// What one scan found for one run.
 struct RunUploadBacklog {
     flow: FlowAddress,
-    segments: u64,
+    oldest_first_seq: Option<u64>,
     bytes: u64,
     oldest_sealed_at_micros: Option<i64>,
     sizes: SealedSegmentSizes,
@@ -67,8 +68,7 @@ enum BacklogScanSource {
     Periodic,
 }
 
-/// Rescans every owned partition each `history_upload_rescan_interval` until shutdown, then
-/// clears the backlog gauges.
+/// Rescans every owned partition each `history_upload_rescan_interval` until shutdown.
 pub(crate) async fn run_history_upload_rescan(
     context: Arc<EffectContext>,
     mut rebuild_requests: mpsc::UnboundedReceiver<PartitionId>,
@@ -111,7 +111,6 @@ pub(crate) async fn run_history_upload_rescan(
             }
         }
     }
-    context.metrics.history_upload_backlog.clear();
 }
 
 /// Queues background publication of a rebuilt partition's backlog gauges when rescanning is enabled.
@@ -126,13 +125,31 @@ pub(crate) fn request_partition_backlog_rescan(context: &EffectContext, partitio
     }
 }
 
+/// Returns the first seq of the run's oldest SEALED segment, or `None` when it has none or is
+/// gone.
+pub(crate) fn oldest_sealed_first_seq(
+    reader: &dyn FlowStateReader,
+    run: RunLocation,
+) -> Result<Option<u64>, EffectError> {
+    let Some(record) = read_run_record(reader, run)? else {
+        return Ok(None);
+    };
+    let segments = sealed_segments(reader, run, record.history_uploaded_through_seq)?;
+    Ok(segments.first().map(|segment| segment.first_seq))
+}
+
 /// Scans the partition's upload pending runs on a blocking thread.
 async fn rescan_partition(
     context: &EffectContext,
     partition: PartitionId,
     sizes: &SealedSegmentSizes,
 ) -> Result<PartitionUploadBacklog, EffectError> {
-    let reader = context.flow_effect_operations.committed_state_reader()?;
+    // The mark precedes the snapshot, so changes missing from it are reported after the mark.
+    context.history_upload_backlog.begin_scan(partition);
+    let reader = context
+        .flow_effect_operations
+        .committed_state_reader()
+        .inspect_err(|_| context.history_upload_backlog.cancel_scan(partition))?;
     let known_sizes: SealedSegmentSizes = sizes
         .iter()
         .filter(|((size_partition, _, _), _)| *size_partition == partition)
@@ -144,11 +161,15 @@ async fn rescan_partition(
         .run_tracked(&context.tracker, move || {
             scan_partition_backlog(reader.as_ref(), partition, &known_sizes)
         });
-    match scan.await {
+    let result = match scan.await {
         Ok(result) => result,
         Err(BlockingWorkFailure::Panicked(payload)) => std::panic::resume_unwind(payload),
         Err(BlockingWorkFailure::Cancelled) => Err(EffectError::Stopped),
+    };
+    if result.is_err() {
+        context.history_upload_backlog.cancel_scan(partition);
     }
+    result
 }
 
 /// Publishes the partition's gauges, replaces its remembered sizes, and, for periodic scans, asks
@@ -168,11 +189,14 @@ fn publish_partition_backlog(
     if matches!(source, BacklogScanSource::Rebuild) {
         return;
     }
-    for (flow, run) in backlog.runs {
+    for (flow, run, first_seq) in backlog.runs {
         allow_upload_retry(context, run.run_id);
         context.report(RouterMessage::Effects {
             flow,
-            effects: vec![ApplyEffect::HistorySegmentSealed { run_id: run.run_id }],
+            effects: vec![ApplyEffect::HistorySegmentSealed {
+                run_id: run.run_id,
+                first_seq,
+            }],
             is_committed: true,
             scheduled_at: None,
             position: None,
@@ -185,12 +209,23 @@ fn set_partition_backlog_gauges(
     partition: PartitionId,
     backlog: &PartitionUploadBacklog,
 ) {
-    context.metrics.history_upload_backlog.set_partition(
-        usize::from(partition.0),
-        backlog.segments,
-        backlog.bytes,
-        backlog.oldest_sealed_at_micros,
-    );
+    let scanned = ScannedBacklog {
+        sealed: backlog
+            .sizes
+            .keys()
+            .map(|(_, run, first_seq)| (run.run_id, *first_seq))
+            .collect(),
+        unreadable_runs: backlog
+            .unreadable
+            .iter()
+            .filter_map(|(run, _)| run.map(|run| run.run_id))
+            .collect(),
+        bytes: backlog.bytes,
+        oldest_sealed_at_micros: backlog.oldest_sealed_at_micros,
+    };
+    context
+        .history_upload_backlog
+        .finish_scan(partition, scanned);
 }
 
 fn report_unreadable_backlog_runs(
@@ -236,7 +271,6 @@ fn scan_partition_backlog(
         };
         match scan_run_backlog(reader, partition, run, known_sizes) {
             Ok(Some(run_backlog)) => {
-                backlog.segments += run_backlog.segments;
                 backlog.bytes = backlog.bytes.saturating_add(run_backlog.bytes);
                 backlog.oldest_sealed_at_micros = [
                     backlog.oldest_sealed_at_micros,
@@ -246,7 +280,9 @@ fn scan_partition_backlog(
                 .flatten()
                 .min();
                 backlog.sizes.extend(run_backlog.sizes);
-                backlog.runs.push((run_backlog.flow, run));
+                if let Some(first_seq) = run_backlog.oldest_first_seq {
+                    backlog.runs.push((run_backlog.flow, run, first_seq));
+                }
             }
             Ok(None) => {}
             Err(error) => backlog.unreadable.push((Some(run), error)),
@@ -273,7 +309,7 @@ fn scan_run_backlog(
             tenant_id: TenantId(record.tenant_id),
             flow_id: record.flow_id,
         },
-        segments: 0,
+        oldest_first_seq: None,
         bytes: 0,
         oldest_sealed_at_micros: None,
         sizes: SealedSegmentSizes::new(),
@@ -285,7 +321,9 @@ fn scan_run_backlog(
             None => sealed_segment_bytes(reader, run, &segment)?,
         };
         run_backlog.sizes.insert(size_key, bytes);
-        run_backlog.segments += 1;
+        run_backlog
+            .oldest_first_seq
+            .get_or_insert(segment.first_seq);
         run_backlog.bytes = run_backlog.bytes.saturating_add(bytes);
         run_backlog.oldest_sealed_at_micros = Some(
             run_backlog
@@ -326,7 +364,7 @@ fn sealed_segments(
 
 /// Returns the uncompressed bytes the segment uploads: its history rows, as their metadata
 /// records them, and its superseded values.
-fn sealed_segment_bytes(
+pub(super) fn sealed_segment_bytes(
     reader: &dyn FlowStateReader,
     run: RunLocation,
     segment: &HistorySegmentRecord,

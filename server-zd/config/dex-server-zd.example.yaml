@@ -91,7 +91,11 @@ history:
   segmentTargetBytes: 4194304
   # Command time a superseded value stays on local disk before offload deletes it.
   supersededValueGracePeriod: 10m
-  uploadConcurrency: 16
+  # The upload limit adapts between uploadMinConcurrency and uploadConcurrency.
+  uploadConcurrency: 256
+  uploadMinConcurrency: 16
+  # Most encoded segment bytes that uploads in flight hold.
+  uploadMaxInFlightBytes: 134217728
   # Disk read cache of uploaded history in <localStorage.directory>-history-read-cache; 0 disables it.
   readCacheMaxBytes: 1073741824
   # null uses <localStorage.directory>-history-read-cache.

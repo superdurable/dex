@@ -174,6 +174,8 @@ pub enum ApplyEffect {
     HistorySegmentSealed {
         /// Run whose segment was sealed.
         run_id: RunId,
+        /// First seq of the sealed segment, which names it within the run.
+        first_seq: u64,
     },
     /// The run has EXPIRED history segments whose objects the owner deletes; its
     /// HistoryObjectDeletePending index row names the run until none remains or its delete switch
