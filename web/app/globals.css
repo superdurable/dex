@@ -3066,9 +3066,42 @@ button.timeline-edge-stub:focus-visible {
   position: relative;
   display: grid;
   padding: 10px 12px 8px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
+  gap: 2px 8px;
+}
+
+.graph-step-meta {
+  display: flex;
+  min-width: 0;
+  grid-column: 2;
+  align-items: baseline;
   gap: 8px;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.graph-step-status-text {
+  flex: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.graph-step-status-text.status-tone-active,
+.graph-step-status-text.status-tone-pending {
+  color: var(--accent);
+}
+
+.graph-step-status-text.status-tone-waiting {
+  color: var(--clock);
+}
+
+.graph-step-status-text.status-tone-completed {
+  color: var(--pass);
+}
+
+.graph-step-status-text.status-tone-failed {
+  color: var(--fail);
 }
 
 .graph-step-heading b,
@@ -3084,7 +3117,7 @@ button.timeline-edge-stub:focus-visible {
 }
 
 .graph-step-heading code {
-  max-width: 120px;
+  min-width: 0;
   color: var(--muted);
   font-size: 11px;
 }

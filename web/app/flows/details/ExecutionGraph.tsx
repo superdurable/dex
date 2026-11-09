@@ -66,7 +66,7 @@ const statusIcons: Record<string, LucideIcon> = {
 };
 
 /** Step node heights; each WaitFor condition kind beyond the first adds one line. */
-const stepNodeHeight = { executeOnly: 112, withWaitFor: 132, perExtraConditionLine: 18 };
+const stepNodeHeight = { executeOnly: 128, withWaitFor: 148, perExtraConditionLine: 18 };
 
 const graphEdgeColor = 'var(--mark)';
 const connectedStepColor = 'var(--ink-dim)';
@@ -195,7 +195,7 @@ function MethodSection({
   );
 }
 
-function StepNodeLabel({
+export function StepNodeLabel({
   node,
   onSelect,
 }: {
@@ -212,19 +212,21 @@ function StepNodeLabel({
   return (
     <div className={`graph-step-label${showWaitFor ? '' : ' graph-step-label--execute-only'}`}>
       <div className="graph-step-heading">
-        <span className={`graph-step-status status-tone-${node.status.toLowerCase()}`} title={node.status}>
+        <span className={`graph-step-status status-tone-${node.status.toLowerCase()}`}>
           <StatusIcon status={node.status} size={15} />
-          <span className="sr-only">{node.status}</span>
         </span>
         <b>{node.label}</b>
-        <code title={node.isPlanned
-          ? node.status === 'Canceled'
-            ? 'Canceled before a Step event was recorded'
-            : 'No Step event has been recorded'
-          : undefined}
-        >
-          {node.isPlanned ? 'Execution ID unavailable' : node.id}
-        </code>
+        <span className="graph-step-meta">
+          <span className={`graph-step-status-text status-tone-${node.status.toLowerCase()}`}>{node.status}</span>
+          <code title={node.isPlanned
+            ? node.status === 'Canceled'
+              ? 'Canceled before a Step event was recorded'
+              : 'No Step event has been recorded'
+            : undefined}
+          >
+            {node.isPlanned ? 'Execution ID unavailable' : node.id}
+          </code>
+        </span>
       </div>
       <div className="graph-methods">
         {showWaitFor && (
