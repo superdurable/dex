@@ -47,10 +47,9 @@ export function FlowRenderingPage() {
   }, [catalog, selected]);
 
   return (
-    <div className="page-shell flow-rendering-page">
+    <div className="page-shell flow-rendering-page v1-page">
       <section className="flow-rendering-header">
         <div>
-          <p className="eyebrow">Source definitions</p>
           <h1>Flow Rendering</h1>
           <p>Explore statically possible Step paths generated from Go or Python source.</p>
         </div>
@@ -80,10 +79,7 @@ export function FlowRenderingPage() {
         <div className="flow-rendering-workspace">
           <aside className="flow-definition-browser card">
             <div className="flow-definition-browser-header">
-              <div>
-                <p className="eyebrow">Loaded directory</p>
-                <h2>Flow JSON files</h2>
-              </div>
+              <h2>Flow JSON files</h2>
               <span>{catalog.definitions.length}</span>
             </div>
             <div className="flow-definition-file-list">

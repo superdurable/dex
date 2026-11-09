@@ -93,7 +93,7 @@ describe('selected event time travel', () => {
       />,
     );
 
-    expect(markup).toContain('New run attempt');
+    expect(markup).toContain('Time travel to a new run attempt');
     expect(markup).toContain('Searching the history of run attempt 1.');
   });
 });

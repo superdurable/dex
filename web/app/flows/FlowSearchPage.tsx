@@ -17,6 +17,19 @@ import {
 } from '@/lib/query';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowExecution, SearchFlowsResult } from '@/lib/types';
+import {
+  ArrowDown,
+  ArrowUp,
+  Bookmark,
+  ChevronLeft,
+  ChevronRight,
+  Columns3,
+  History,
+  Inbox,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
 
@@ -276,7 +289,7 @@ export function FlowSearchPage() {
   if (!hydrated) return <div className="page-loading">Loading flow search…</div>;
 
   return (
-    <div className="page-shell">
+    <div className="page-shell flow-search-page v1-page">
       <section className="card query-card">
         <div className="query-toolbar">
           <div className="segmented" role="tablist" aria-label="Query mode">
@@ -288,10 +301,14 @@ export function FlowSearchPage() {
             </button>
           </div>
           <div className="query-actions">
-            <button className="button ghost" onClick={() => setSavedOpen(!savedOpen)}>
+            <button aria-expanded={savedOpen} className="button quiet" onClick={() => setSavedOpen(!savedOpen)} type="button">
+              <History aria-hidden="true" size={15} strokeWidth={2} />
               Queries
             </button>
-            <button className="button ghost" onClick={saveCurrentQuery}>Save query</button>
+            <button className="button quiet" onClick={saveCurrentQuery} type="button">
+              <Bookmark aria-hidden="true" size={15} strokeWidth={2} />
+              Save query
+            </button>
           </div>
         </div>
 
@@ -365,15 +382,16 @@ export function FlowSearchPage() {
                   aria-label="Remove filter"
                   onClick={() => setFilters(filters.filter((item) => item.id !== filter.id))}
                 >
-                  ×
+                  <X aria-hidden="true" size={16} strokeWidth={2} />
                 </button>
               </div>
             ))}
             <datalist id="visibility-fields">
               {builtInFields.map((field) => <option value={field} key={field} />)}
             </datalist>
-            <button className="text-button" onClick={() => setFilters([...filters, newFilter('FlowType')])}>
-              + Add filter
+            <button className="text-button" onClick={() => setFilters([...filters, newFilter('FlowType')])} type="button">
+              <Plus aria-hidden="true" size={15} strokeWidth={2} />
+              Add filter
             </button>
             <div className="query-preview">
               <span>Generated query</span>
@@ -404,7 +422,8 @@ export function FlowSearchPage() {
           >
             Clear
           </button>
-          <button className="button primary" disabled={loading} onClick={applySearch}>
+          <button className="button primary" disabled={loading} onClick={applySearch} type="button">
+            <Search aria-hidden="true" size={15} strokeWidth={2.25} />
             {loading ? 'Searching…' : 'Search'}
           </button>
         </div>
@@ -433,7 +452,8 @@ export function FlowSearchPage() {
               </select>
             </label>
             <div className="popover-wrap">
-              <button className="button ghost" onClick={() => setColumnsOpen(!columnsOpen)}>
+              <button aria-expanded={columnsOpen} className="button quiet" onClick={() => setColumnsOpen(!columnsOpen)} type="button">
+                <Columns3 aria-hidden="true" size={15} strokeWidth={2} />
                 Columns
               </button>
               {columnsOpen && (
@@ -450,8 +470,12 @@ export function FlowSearchPage() {
                       </label>
                       {columns.includes(column) && (
                         <span>
-                          <button onClick={() => moveColumn(column, -1)}>↑</button>
-                          <button onClick={() => moveColumn(column, 1)}>↓</button>
+                          <button aria-label={`Move ${columnLabels[column]} up`} onClick={() => moveColumn(column, -1)} type="button">
+                            <ArrowUp aria-hidden="true" size={14} strokeWidth={2} />
+                          </button>
+                          <button aria-label={`Move ${columnLabels[column]} down`} onClick={() => moveColumn(column, 1)} type="button">
+                            <ArrowDown aria-hidden="true" size={14} strokeWidth={2} />
+                          </button>
                         </span>
                       )}
                     </div>
@@ -491,7 +515,7 @@ export function FlowSearchPage() {
           </table>
           {!loading && flows.length === 0 && (
             <div className="empty-state">
-              <span>⌁</span>
+              <span><Inbox aria-hidden="true" size={28} strokeWidth={1.75} /></span>
               <h3>No flows found</h3>
               <p>Adjust the query or clear filters to search all visible executions.</p>
               <p>
@@ -510,12 +534,14 @@ export function FlowSearchPage() {
           {loading && <div className="table-loading">Loading flows…</div>}
         </div>
         <div className="pagination">
-          <button className="button ghost" disabled={page === 0 || loading} onClick={previousPage}>
+          <button className="button quiet" disabled={page === 0 || loading} onClick={previousPage} type="button">
+            <ChevronLeft aria-hidden="true" size={15} strokeWidth={2} />
             Previous
           </button>
           <span>Page {page + 1}</span>
-          <button className="button ghost" disabled={!nextPageToken || loading} onClick={nextPage}>
+          <button className="button quiet" disabled={!nextPageToken || loading} onClick={nextPage} type="button">
             Next
+            <ChevronRight aria-hidden="true" size={15} strokeWidth={2} />
           </button>
         </div>
       </section>

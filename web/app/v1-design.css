@@ -127,6 +127,45 @@ body:has(.v1-page) {
   background: var(--ui-page);
 }
 
+/*
+ * The shared v1 components read the legacy palette tokens from globals.css.
+ * Inside a v1 page they resolve to the design system, so every tab follows it.
+ */
+.v1-page {
+  --ink: var(--ui-ink);
+  --ink-dim: var(--ui-ink-2);
+  --muted: var(--ui-ink-3);
+  --paper: var(--ui-surface);
+  --raised: var(--ui-well);
+  --well: var(--ui-chip);
+  --hover: var(--ui-hover);
+  --line: var(--ui-hairline);
+  --line-faint: var(--ui-hairline);
+  --canvas: var(--ui-page);
+  --graph-ground: var(--ui-well);
+  --accent: var(--tone-accent);
+  --accent-hover: var(--tone-accent-ink);
+  --accent-rule: color-mix(in srgb, var(--tone-accent) 70%, var(--ui-surface));
+  --accent-subtle: var(--tone-accent-soft);
+  --pass: var(--tone-done-ink);
+  --pass-rule: color-mix(in srgb, var(--tone-done) 60%, var(--ui-surface));
+  --pass-subtle: var(--tone-done-soft);
+  --fail: var(--tone-fail-ink);
+  --fail-rule: color-mix(in srgb, var(--tone-fail) 70%, var(--ui-surface));
+  --fail-subtle: var(--tone-fail-soft);
+  --busy: var(--tone-wait-ink);
+  --busy-rule: var(--tone-wait);
+  --busy-subtle: var(--tone-wait-soft);
+  --clock: var(--tone-wait-ink);
+  --clock-rule: var(--tone-wait);
+  --clock-subtle: var(--tone-wait-soft);
+  --cta: var(--tone-accent);
+  --cta-hover: var(--tone-accent-ink);
+  --cta-on: var(--tone-accent-on);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--tone-accent) 30%, transparent);
+  --shadow: none;
+}
+
 /* ------------------------------------------------------------ foundation */
 
 .v1-page {
@@ -1044,6 +1083,411 @@ body:has(.v1-page) {
   font-size: var(--ui-text-sm);
 }
 
+/* ------------------------------------------------- timeline and graph */
+
+.v1-page .view-toolbar h2 {
+  margin: 0;
+}
+
+.v1-page .event-card {
+  border: 0;
+  border-radius: var(--ui-radius-item);
+  background: var(--ui-well);
+}
+
+.v1-page .timeline-row:hover .event-card {
+  background: var(--ui-chip);
+}
+
+.v1-page .timeline-row.selected .event-card {
+  border: 0;
+  background: var(--ui-focus-surface);
+  box-shadow: inset 3px 0 0 var(--tone-accent);
+  transform: none;
+}
+
+.v1-page .timeline-row.jump-highlighted .event-card {
+  box-shadow: inset 3px 0 0 var(--tone-accent), 0 0 0 3px color-mix(in srgb, var(--tone-accent) 30%, transparent);
+}
+
+.v1-page :is(.timeline-row.link-highlighted, .timeline-row.link-counterpart) .event-card {
+  border: 0;
+}
+
+.v1-page .event-card h3 {
+  font-size: var(--ui-text-lg);
+}
+
+.v1-page .event-id {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .event-card header p {
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .event-type {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.v1-page .event-highlights > span {
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--ui-ink-2);
+  background: var(--ui-chip);
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .timeline-row {
+  grid-template-columns: 172px var(--timeline-link-rail-width, 88px) minmax(0, 1fr);
+}
+
+.v1-page .timeline-time b,
+.v1-page .timeline-time span {
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .timeline-time b {
+  color: var(--ui-ink-2);
+  font-weight: 500;
+}
+
+.v1-page .timeline-rail::before {
+  background: var(--ui-hairline);
+}
+
+.v1-page .timeline-dot {
+  border-color: var(--ui-surface);
+}
+
+.v1-page .timeline-edge-stub {
+  border-color: color-mix(in srgb, var(--tone-accent) 45%, transparent);
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .graph-legend {
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .graph-canvas {
+  border: 0;
+  border-radius: var(--ui-radius-item);
+}
+
+.v1-page .react-flow__node.step-flow-node {
+  border-color: var(--ui-hairline);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.v1-page .graph-step-heading > span {
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .graph-step-heading code {
+  font-size: 11px;
+}
+
+/* The selected event panel beside Timeline and Execution graph. */
+
+.v1-page .sidebar-stack {
+  border: 0;
+  border-radius: var(--ui-radius-section);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-section-shadow);
+}
+
+.v1-page .sidebar-section {
+  padding: 16px 18px;
+  border-bottom: 0;
+}
+
+.v1-page .sidebar-section + .sidebar-section {
+  padding-top: 4px;
+}
+
+.v1-page .selected-event-anchor {
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--ui-hairline);
+  background: color-mix(in srgb, var(--ui-surface) 96%, transparent);
+  box-shadow: none;
+}
+
+.v1-page .selected-event-anchor > h3 {
+  margin-bottom: 4px;
+  font-size: var(--ui-text-xl);
+  font-weight: 650;
+}
+
+.v1-page .selected-event-anchor .event-meta {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .run-sidebar .semantic-fields {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.v1-page .related-events h4 {
+  font-size: var(--ui-text-sm);
+  font-weight: 650;
+}
+
+.v1-page .related-event {
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .related-event-relation {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.v1-page .related-event-action.button {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: var(--ui-text-xs);
+}
+
+/* ---------------------------------------------------------------- streams */
+
+.v1-page .stream-panel {
+  padding: 20px;
+  border-radius: var(--ui-radius-section);
+  background: var(--ui-surface);
+}
+
+.v1-page .stream-panel-header h2 {
+  margin: 0 0 4px;
+  font-size: var(--ui-text-xl);
+}
+
+.v1-page .stream-panel-header p:not(.eyebrow) {
+  color: var(--ui-ink-3);
+}
+
+.v1-page .stream-listening-status {
+  border: 0;
+  color: var(--tone-accent-ink);
+  background: var(--tone-accent-soft);
+}
+
+.v1-page .stream-form > label {
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page :is(.stream-form input, .filter-row input, .filter-row select, .advanced-query textarea, .modal input, .modal select, .modal textarea, .history-settings-form input, .history-settings-form select) {
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-chip);
+}
+
+.v1-page :is(.stream-form input, .filter-row input, .filter-row select, .advanced-query textarea, .modal input, .modal select, .modal textarea, .history-settings-form input, .history-settings-form select):focus {
+  border-color: var(--tone-accent);
+  background: var(--ui-surface);
+  box-shadow: var(--focus-ring);
+}
+
+.v1-page .stream-empty {
+  border: 0;
+  background: var(--ui-well);
+}
+
+.v1-page .stream-message {
+  border: 0;
+  background: var(--ui-well);
+  box-shadow: none;
+}
+
+.v1-page .stream-message-meta code {
+  background: var(--ui-chip);
+}
+
+/* ---------------------------------------------------------------- dialogs */
+
+.v1-page .modal {
+  border: 0;
+  border-radius: var(--ui-radius-section);
+}
+
+.v1-page .modal h2 {
+  margin: 0;
+  font-size: var(--ui-text-xl);
+}
+
+.v1-page .modal-title-danger {
+  color: var(--tone-fail-ink);
+}
+
+.v1-page .modal > label {
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+}
+
+/* ------------------------------------------------------------ flow search */
+
+.v1-page.page-shell {
+  width: min(1500px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 24px 0 60px;
+}
+
+.v1-page .query-card {
+  padding: 18px 20px;
+}
+
+.v1-page .segmented {
+  padding: 2px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--ui-chip);
+}
+
+.v1-page .segmented button {
+  padding: 6px 14px;
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .segmented button.active {
+  background: var(--ui-surface);
+}
+
+.v1-page .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--tone-accent-ink);
+}
+
+.v1-page .icon-button {
+  border: 0;
+  color: var(--ui-ink-3);
+  background: transparent;
+}
+
+.v1-page .icon-button:hover {
+  color: var(--tone-fail-ink);
+  background: var(--tone-fail-soft);
+}
+
+.v1-page .query-preview {
+  background: var(--ui-well);
+}
+
+.v1-page .query-preview span,
+.v1-page .advanced-query > span {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-weight: 500;
+}
+
+.v1-page .query-preview code {
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .saved-query-panel {
+  border: 0;
+  background: var(--ui-well);
+}
+
+.v1-page .saved-query-panel strong {
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .saved-query-panel button:hover {
+  border-color: transparent;
+  background: var(--ui-surface);
+}
+
+.v1-page .results-card {
+  overflow: hidden;
+}
+
+.v1-page .results-toolbar {
+  padding: 0 20px;
+  border-bottom: 0;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .results-controls select {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-chip);
+}
+
+.v1-page .column-popover {
+  border: 0;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.16);
+}
+
+.v1-page .column-popover > div {
+  border-bottom: 0;
+}
+
+.v1-page .flow-table {
+  font-size: var(--ui-text-md);
+}
+
+.v1-page .flow-table th {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ui-hairline);
+  color: var(--ui-ink-3);
+  background: var(--ui-surface);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
+.v1-page .flow-table td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--ui-hairline);
+}
+
+.v1-page .flow-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.v1-page .flow-table tbody tr:hover {
+  background: var(--ui-well);
+}
+
+.v1-page .table-link {
+  color: var(--ui-ink);
+}
+
+.v1-page .table-link:hover {
+  color: var(--tone-accent-ink);
+}
+
+.v1-page .table-id-run {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .pagination {
+  padding: 12px 20px 16px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-sm);
+}
+
+.v1-page .empty-state {
+  border: 0;
+}
+
+.v1-page .empty-state > span {
+  color: var(--tone-accent);
+}
+
 /* ---------------------------------------------------------- responsive */
 
 @media (max-width: 1100px) {
@@ -1058,6 +1502,11 @@ body:has(.v1-page) {
 }
 
 @media (max-width: 760px) {
+  .v1-page.page-shell {
+    width: calc(100% - 32px);
+    padding-top: 16px;
+  }
+
   .v1-page.run-page {
     width: calc(100% - 32px);
     padding-top: 16px;
@@ -1083,4 +1532,9 @@ body:has(.v1-page) {
   .v1-page .run-tabs button {
     padding: 10px 9px 11px;
   }
+}
+
+.v1-page.flow-rendering-page h1 {
+  font-size: 24px;
+  letter-spacing: -0.01em;
 }

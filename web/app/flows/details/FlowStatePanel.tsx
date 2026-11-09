@@ -70,11 +70,10 @@ export function FlowStatePanel({
     <div className="sidebar-stack" ref={sidebar}>
       {selectedEvent ? (
         <>
-          <header className="selected-event-anchor" data-selected-event-target>
-            <p className="eyebrow">Selected event</p>
+          <header aria-label="Selected event" className="selected-event-anchor" data-selected-event-target>
             <h3>{eventTitle(selectedEvent)}</h3>
             <div className="event-meta">
-              <span>Event #{selectedEvent.eventId}</span>
+              <span className="mono">#{selectedEvent.eventId}</span>
               <span>{selectedEvent.eventTime || 'No timestamp'}</span>
             </div>
           </header>
@@ -96,8 +95,7 @@ export function FlowStatePanel({
         </>
       ) : (
         <section className="sidebar-section">
-          <p className="eyebrow">Selected event</p>
-          <h3>None</h3>
+          <h3>No event selected</h3>
           <p className="muted">Select an event from Timeline or Execution graph.</p>
         </section>
       )}
