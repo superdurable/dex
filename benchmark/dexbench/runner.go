@@ -43,7 +43,9 @@ type Runner struct {
 	stepLatencies latencyCollector
 	nextFlowID    atomic.Int64
 	// wakeSequences holds the sequence each client publishes next; only that client's goroutine touches its entry.
-	wakeSequences        []int64
+	wakeSequences []int64
+	// wakeNeedsStatePoll marks clients whose last wake failed; their WaitFor notice may already be consumed.
+	wakeNeedsStatePoll   []bool
 	blobsLoaded          atomic.Int64
 	flowStatePolls       atomic.Int64
 	runPrefix            string
@@ -72,6 +74,7 @@ func NewRunner(config Config) (*Runner, error) {
 	runner.asyncChain = &asyncChainFlow{latencies: &runner.stepLatencies}
 	runner.wake = &wakeFlow{signals: newWakeSignals(config.Concurrency)}
 	runner.wakeSequences = make([]int64, config.Concurrency)
+	runner.wakeNeedsStatePoll = make([]bool, config.Concurrency)
 	runner.expectedReadValues = make(map[string]string, len(benchmarkReadAttributes))
 	for index, attribute := range benchmarkReadAttributes {
 		value := benchmarkReadValue(index, config.AttributeBytes)
@@ -273,20 +276,69 @@ func (runner *Runner) stopPersistentFlows(flowIDs []string, result *Result) erro
 	return errors.Join(errs...)
 }
 
-// stopPersistentFlow retries StopFlow; a Flow that is already closed, closing, or was never created counts as stopped.
+// stopPersistentFlow stops one Flow and waits until it is closed, so it cannot overlap the next point.
 func (runner *Runner) stopPersistentFlow(clientIndex int, flowID string) error {
+	return stopAndConfirmFlow(runner.connectionFor(clientIndex).client, flowID, persistentFlowStopTimeout, persistentFlowCloseWait)
+}
+
+// persistentFlowStopper is the part of the Client that cleanup needs.
+type persistentFlowStopper interface {
+	StopFlow(ctx context.Context, flowID string, options dex.StopOptions) error
+	WaitForFlow(ctx context.Context, flowID string, options dex.WaitForFlowOptions) (dex.FlowResult, error)
+}
+
+const (
+	// persistentFlowStopTimeout bounds one StopFlow call.
+	persistentFlowStopTimeout = 10 * time.Second
+	// persistentFlowCloseWait bounds the wait for a stopped Flow to reach a terminal state.
+	persistentFlowCloseWait = 30 * time.Second
+)
+
+// stopAndConfirmFlow retries StopFlow, then waits until the Flow is terminal.
+// A Flow that is already closed or was never created counts as stopped.
+// It returns an error when the Flow may still be running.
+func stopAndConfirmFlow(stopper persistentFlowStopper, flowID string, stopTimeout, closeWait time.Duration) error {
 	var err error
 	for range persistentFlowStopAttempts {
-		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err = runner.connectionFor(clientIndex).client.StopFlow(stopContext, flowID, dex.StopOptions{})
+		stopContext, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		err = stopper.StopFlow(stopContext, flowID, dex.StopOptions{})
 		cancel()
 		var notActive *dex.FlowNotActiveOrNotFoundError
-		var closing *dex.FlowClosingError
-		if err == nil || errors.As(err, &notActive) || errors.As(err, &closing) {
+		if errors.As(err, &notActive) {
 			return nil
+		}
+		var closing *dex.FlowClosingError
+		if err == nil || errors.As(err, &closing) {
+			// StopFlow returns once the stop is accepted, before the Flow closes.
+			return waitForFlowClosed(stopper, flowID, closeWait)
 		}
 	}
 	return err
+}
+
+// waitForFlowClosed polls WaitForFlow until the Flow is terminal or closeWait passes.
+func waitForFlowClosed(stopper persistentFlowStopper, flowID string, closeWait time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), closeWait)
+	defer cancel()
+	var lastErr error
+	for {
+		result, err := stopper.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{})
+		var notActive *dex.FlowNotActiveOrNotFoundError
+		var notFound *dex.FlowNotFoundError
+		switch {
+		case err == nil && result.IsTerminal():
+			return nil
+		case errors.As(err, &notActive) || errors.As(err, &notFound):
+			return nil
+		case err != nil:
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("Flow %s was not closed within %v after its stop was accepted: %w", flowID, closeWait, errors.Join(ctx.Err(), lastErr))
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // forEachClientInParallel calls work for every client index with bounded parallelism and returns when all finish.
@@ -490,10 +542,19 @@ func (runner *Runner) waitForCompletion(ctx context.Context, connection *benchma
 // Confirming that the client's long-lived run waits again is not timed.
 // Every attempt publishes a new sequence, so a failed or timed-out attempt never leaves the client waiting for a stale wake.
 func (runner *Runner) wakeWaitingFlow(ctx context.Context, connection *benchmarkConnection, clientIndex int, flowID string) (time.Duration, error) {
+	latency, err := runner.doWakeWaitingFlow(ctx, connection, clientIndex, flowID)
+	// After a failure the notice of the current wait may be consumed, so the next attempt polls state at once.
+	runner.wakeNeedsStatePoll[clientIndex] = err != nil
+	return latency, err
+}
+
+func (runner *Runner) doWakeWaitingFlow(ctx context.Context, connection *benchmarkConnection, clientIndex int, flowID string) (time.Duration, error) {
 	sequence := runner.wakeSequences[clientIndex]
 	runner.wakeSequences[clientIndex] = sequence + 1
-	if err := runner.waitForWaitNotice(ctx, clientIndex); err != nil {
-		return 0, err
+	if !runner.wakeNeedsStatePoll[clientIndex] {
+		if err := waitForWakeNotice(ctx, runner.wake.signals.waitedChannels[clientIndex], wakeNoticeWait); err != nil {
+			return 0, err
+		}
 	}
 	if err := runner.waitUntilStepWaiting(ctx, connection, flowID); err != nil {
 		return 0, err
@@ -520,15 +581,20 @@ func (runner *Runner) wakeWaitingFlow(ctx context.Context, connection *benchmark
 // wakeNoticeWait bounds the wait for a WaitFor notice; after an error the notice may already be consumed.
 const wakeNoticeWait = 2 * time.Second
 
-// waitForWaitNotice keeps GetFlowState polls, which are server state reads, near one per wake.
-// waitUntilStepWaiting still confirms the wait, so a missing notice only delays polling.
-func (runner *Runner) waitForWaitNotice(ctx context.Context, clientIndex int) error {
-	timer := time.NewTimer(wakeNoticeWait)
+// waitForWakeNotice keeps GetFlowState polls, which are server state reads, near one per wake.
+// It waits at most maxWait and at most a quarter of the time left before ctx's deadline, so a missing notice
+// still leaves time to poll and publish. waitUntilStepWaiting confirms the wait either way.
+func waitForWakeNotice(ctx context.Context, notices <-chan struct{}, maxWait time.Duration) error {
+	wait := maxWait
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		wait = min(wait, time.Until(deadline)/4)
+	}
+	timer := time.NewTimer(max(wait, 0))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("wait for WaitFor: %w", ctx.Err())
-	case <-runner.wake.signals.waitedChannels[clientIndex]:
+	case <-notices:
 	case <-timer.C:
 	}
 	return nil
