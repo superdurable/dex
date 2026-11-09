@@ -185,7 +185,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 	ChunkedSubscriber = sequentiallychunkedattributemap.NewChunkedSubscriberFlow()
 	CustomerDirectory = hashpartitionedattributemap.NewCustomerDirectoryFlow()
-	WorkflowPatterns = workflowpatterns.NewWorkflowPatternFlows()
+	WorkflowPatterns = workflowpatterns.NewWorkflowPatternFlows(getClient)
 
 	Step = step.NewStepFlow()
 	ExampleFlow = flow.NewExampleFlow()

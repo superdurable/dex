@@ -21,6 +21,8 @@
 package workflowpatterns
 
 import (
+	"errors"
+
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -82,18 +84,71 @@ func (ArrangeSelfDelivery) Execute(dex.Context, dex.None) (*dex.StepDecision, er
 	return dex.GracefulComplete("ArrangeSelfDelivery"), nil
 }
 
-var ApplicationReviewedChannel = dex.DefineChannel[string]("applicationReviewed")
+var (
+	StoppedChildFlowIDsAttribute    = dex.DefineAttribute[[]string]("stoppedChildFlowIds")
+	ApplicationReviewedChannel      = dex.DefineChannel[string]("applicationReviewed")
+	CancelCaseChannel               = dex.DefineChannel[string]("cancelCase")
+	BackgroundCheckCompletedChannel = dex.DefineChannel[string]("backgroundCheckCompleted")
+	errClientUnavailable            = errors.New("workflowpatterns: Client is not ready")
+)
 
-// CancelCaseFlow implements WCP-20 Cancel Case: the Client stops the whole Flow
-// with the cancel stop type.
-type CancelCaseFlow struct{ dex.FlowDefaults }
+const caseCanceledReasonPrefix = "case canceled: "
 
-func (*CancelCaseFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(ReviewApplication{})}
+// CancelCaseFlow implements WCP-20: the cancel Channel also stops the running SubFlow.
+type CancelCaseFlow struct {
+	dex.FlowDefaults
+	getClient           func() *dex.Client
+	backgroundCheckFlow *BackgroundCheckFlow
+}
+
+// NewCancelCaseFlow creates the case Flow; getClient may return nil until bootstrap completes.
+func NewCancelCaseFlow(getClient func() *dex.Client, backgroundCheckFlow *BackgroundCheckFlow) *CancelCaseFlow {
+	if getClient == nil {
+		panic("workflowpatterns: Client provider is required")
+	}
+	if backgroundCheckFlow == nil {
+		panic("workflowpatterns: BackgroundCheckFlow is required")
+	}
+	return &CancelCaseFlow{getClient: getClient, backgroundCheckFlow: backgroundCheckFlow}
+}
+
+func (flow *CancelCaseFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(StartApplication{}),
+		dex.DefineStep(ReviewApplication{}),
+		dex.DefineStep(RunBackgroundCheck{getClient: flow.getClient, backgroundCheckFlow: flow.backgroundCheckFlow}),
+		dex.DefineStep(WatchCaseCancellation{}),
+	}
+}
+
+func (flow *CancelCaseFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{dex.DefineRPC(flow.CancelCase, nil)}
 }
 
 func (*CancelCaseFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{ApplicationReviewedChannel}}
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{StoppedChildFlowIDsAttribute},
+		Channels:   []dex.ChannelDef{ApplicationReviewedChannel, CancelCaseChannel},
+	}
+}
+
+// CancelCase cancels the whole case, including the running background check.
+func (*CancelCaseFlow) CancelCase(ctx dex.Context, reason string) (*dex.RPCResult[dex.None], error) {
+	if err := CancelCaseChannel.Publish(ctx, reason); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+type StartApplication struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (StartApplication) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GoToMany(
+		dex.MovementOf(ReviewApplication{}, nil),
+		dex.MovementOf(RunBackgroundCheck{}, nil),
+	), nil
 }
 
 type ReviewApplication struct{ dex.StepDefaults }
@@ -104,6 +159,93 @@ func (ReviewApplication) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
 
 func (ReviewApplication) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
 	return dex.GracefulComplete("ReviewApplication"), nil
+}
+
+// RunBackgroundCheck waits for its child Flow or a case cancellation, whichever comes first.
+type RunBackgroundCheck struct {
+	dex.StepDefaults
+	getClient           func() *dex.Client
+	backgroundCheckFlow *BackgroundCheckFlow
+}
+
+func (step RunBackgroundCheck) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.AnyOf(dex.SubFlow(step.backgroundCheckFlow, nil), CancelCaseChannel.ForOne()), nil
+}
+
+func (step RunBackgroundCheck) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	reasons, err := CancelCaseChannel.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(reasons) == 0 {
+		return dex.GoTo(WatchCaseCancellation{}, nil), nil
+	}
+	childFlowID, err := dex.SubFlowID(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := step.stopChildFlow(ctx, childFlowID); err != nil {
+		return nil, err
+	}
+	if err := StoppedChildFlowIDsAttribute.Set(ctx, []string{childFlowID}); err != nil {
+		return nil, err
+	}
+	return dex.ForceFail(caseCanceledReasonPrefix + reasons[0]), nil
+}
+
+// stopChildFlow cancels the child; a missing or already closed child counts as stopped.
+func (step RunBackgroundCheck) stopChildFlow(ctx dex.Context, childFlowID string) error {
+	client := step.getClient()
+	if client == nil {
+		return errClientUnavailable
+	}
+	err := client.StopFlow(ctx, childFlowID, dex.StopOptions{
+		Type:   dex.CancelFlow,
+		Reason: "case canceled",
+	})
+	var notFound *dex.FlowNotFoundError
+	var notActive *dex.FlowNotActiveOrNotFoundError
+	var closing *dex.FlowClosingError
+	if errors.As(err, &notFound) || errors.As(err, &notActive) || errors.As(err, &closing) {
+		return nil
+	}
+	return err
+}
+
+// WatchCaseCancellation handles a cancellation that arrives after the child finished.
+type WatchCaseCancellation struct{ dex.StepDefaults }
+
+func (WatchCaseCancellation) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.Until(CancelCaseChannel.ForOne()), nil
+}
+
+func (WatchCaseCancellation) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	reasons, err := CancelCaseChannel.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.ForceFail(caseCanceledReasonPrefix + reasons[0]), nil
+}
+
+// BackgroundCheckFlow is the child Flow of CancelCaseFlow.
+type BackgroundCheckFlow struct{ dex.FlowDefaults }
+
+func (*BackgroundCheckFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(AwaitBackgroundCheck{})}
+}
+
+func (*BackgroundCheckFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{BackgroundCheckCompletedChannel}}
+}
+
+type AwaitBackgroundCheck struct{ dex.StepDefaults }
+
+func (AwaitBackgroundCheck) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.Until(BackgroundCheckCompletedChannel.ForOne()), nil
+}
+
+func (AwaitBackgroundCheck) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("AwaitBackgroundCheck"), nil
 }
 
 var (

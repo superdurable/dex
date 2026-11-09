@@ -21,18 +21,22 @@
 package workflowpatterns
 
 import (
+	"fmt"
+
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 // SubmissionRoute tells ArbitraryCyclesFlow whether a draft already exists.
 type SubmissionRoute struct {
-	HasDraft bool `json:"hasDraft"`
+	HasDraft      bool `json:"hasDraft"`
+	ShouldAbandon bool `json:"shouldAbandon"`
 }
 
 // ArticleRevision carries the edit round and the Steps run so far.
 type ArticleRevision struct {
-	Revision int      `json:"revision"`
-	Trail    []string `json:"trail"`
+	Revision      int      `json:"revision"`
+	ShouldAbandon bool     `json:"shouldAbandon"`
+	Trail         []string `json:"trail"`
 }
 
 // ArbitraryCyclesFlow implements WCP-10 Arbitrary Cycles: the draft and edit cycle
@@ -45,6 +49,7 @@ func (*ArbitraryCyclesFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(DraftArticle{}),
 		dex.DefineStep(EditArticle{}),
 		dex.DefineStep(PublishArticle{}),
+		dex.DefineStep(AbandonArticle{}),
 	}
 }
 
@@ -57,7 +62,7 @@ type RouteSubmission struct {
 }
 
 func (RouteSubmission) Execute(_ dex.Context, route SubmissionRoute) (*dex.StepDecision, error) {
-	revision := ArticleRevision{Revision: 0, Trail: []string{"RouteSubmission"}}
+	revision := ArticleRevision{Revision: 0, ShouldAbandon: route.ShouldAbandon, Trail: []string{"RouteSubmission"}}
 	if route.HasDraft {
 		return dex.GoTo(EditArticle{}, revision), nil
 	}
@@ -69,9 +74,14 @@ type DraftArticle struct {
 }
 
 func (DraftArticle) Execute(_ dex.Context, revision ArticleRevision) (*dex.StepDecision, error) {
+	trail := appendTrail(revision.Trail, "DraftArticle")
+	if revision.ShouldAbandon && revision.Revision >= 1 {
+		return dex.GoTo(AbandonArticle{}, trail), nil
+	}
 	return dex.GoTo(EditArticle{}, ArticleRevision{
-		Revision: revision.Revision,
-		Trail:    appendTrail(revision.Trail, "DraftArticle"),
+		Revision:      revision.Revision,
+		ShouldAbandon: revision.ShouldAbandon,
+		Trail:         trail,
 	}), nil
 }
 
@@ -84,7 +94,11 @@ func (EditArticle) Execute(_ dex.Context, revision ArticleRevision) (*dex.StepDe
 	if revision.Revision >= 1 {
 		return dex.GoTo(PublishArticle{}, trail), nil
 	}
-	return dex.GoTo(DraftArticle{}, ArticleRevision{Revision: revision.Revision + 1, Trail: trail}), nil
+	return dex.GoTo(DraftArticle{}, ArticleRevision{
+		Revision:      revision.Revision + 1,
+		ShouldAbandon: revision.ShouldAbandon,
+		Trail:         trail,
+	}), nil
 }
 
 type PublishArticle struct {
@@ -95,19 +109,27 @@ func (PublishArticle) Execute(_ dex.Context, trail []string) (*dex.StepDecision,
 	return dex.GracefulComplete(appendTrail(trail, "PublishArticle")), nil
 }
 
-// BatchProgress counts the batches left and processed.
-type BatchProgress struct {
-	RemainingBatches int `json:"remainingBatches"`
-	ProcessedBatches int `json:"processedBatches"`
+type AbandonArticle struct {
+	dex.StepDefaultsNoWaitFor[[]string]
 }
 
-// StructuredLoopFlow implements WCP-21 Structured Loop: ProcessBatches tests its
-// condition first, then moves to itself or exits.
+func (AbandonArticle) Execute(_ dex.Context, trail []string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(appendTrail(trail, "AbandonArticle")), nil
+}
+
+// BatchProgress holds the batches left and the batches processed so far.
+type BatchProgress struct {
+	RemainingBatches int      `json:"remainingBatches"`
+	ProcessedBatches []string `json:"processedBatches"`
+}
+
+// StructuredLoopFlow implements WCP-21: CheckBatches tests before each ProcessBatch run.
 type StructuredLoopFlow struct{ dex.FlowDefaults }
 
 func (*StructuredLoopFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(ProcessBatches{}),
+		dex.DefineStartStep(CheckBatches{}),
+		dex.DefineStep(ProcessBatch{}),
 		dex.DefineStep(FinishBatches{}),
 	}
 }
@@ -116,24 +138,34 @@ func (*StructuredLoopFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type ProcessBatches struct {
+type CheckBatches struct {
 	dex.StepDefaultsNoWaitFor[BatchProgress]
 }
 
-func (ProcessBatches) Execute(_ dex.Context, progress BatchProgress) (*dex.StepDecision, error) {
+func (CheckBatches) Execute(_ dex.Context, progress BatchProgress) (*dex.StepDecision, error) {
 	if progress.RemainingBatches == 0 {
 		return dex.GoTo(FinishBatches{}, progress.ProcessedBatches), nil
 	}
-	return dex.GoTo(ProcessBatches{}, BatchProgress{
+	return dex.GoTo(ProcessBatch{}, progress), nil
+}
+
+type ProcessBatch struct {
+	dex.StepDefaultsNoWaitFor[BatchProgress]
+}
+
+func (ProcessBatch) Execute(_ dex.Context, progress BatchProgress) (*dex.StepDecision, error) {
+	return dex.GoTo(CheckBatches{}, BatchProgress{
 		RemainingBatches: progress.RemainingBatches - 1,
-		ProcessedBatches: progress.ProcessedBatches + 1,
+		ProcessedBatches: appendTrail(progress.ProcessedBatches, fmt.Sprintf("batch-%d", progress.RemainingBatches)),
 	}), nil
 }
 
-type FinishBatches struct{ dex.StepDefaultsNoWaitFor[int] }
+type FinishBatches struct {
+	dex.StepDefaultsNoWaitFor[[]string]
+}
 
-func (FinishBatches) Execute(_ dex.Context, processedBatches int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(processedBatches), nil
+func (FinishBatches) Execute(_ dex.Context, processedBatches []string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(append([]string{}, processedBatches...)), nil
 }
 
 // FactorialRecursionFlow implements WCP-22 Recursion: ComputeFactorial waits for a

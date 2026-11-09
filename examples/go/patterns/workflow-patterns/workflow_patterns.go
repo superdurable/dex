@@ -24,6 +24,7 @@ package workflowpatterns
 import (
 	"errors"
 	"slices"
+	"strconv"
 
 	"github.com/superdurable/dex/sdk-go/dex"
 )
@@ -35,7 +36,6 @@ type WorkflowPatternFlows struct {
 	ExclusiveChoiceSimpleMergeFlow                *ExclusiveChoiceSimpleMergeFlow
 	MultiChoiceSynchronizingMergeFlow             *MultiChoiceSynchronizingMergeFlow
 	MultiMergeFlow                                *MultiMergeFlow
-	ReviewRegionFlow                              *ReviewRegionFlow
 	GeneralSynchronizingMergeFlow                 *GeneralSynchronizingMergeFlow
 	StructuredPartialJoinFlow                     *StructuredPartialJoinFlow
 	BlockingPartialJoinFlow                       *BlockingPartialJoinFlow
@@ -56,6 +56,7 @@ type WorkflowPatternFlows struct {
 	InterleavedRoutingFlow                        *InterleavedRoutingFlow
 	CancelTaskFlow                                *CancelTaskFlow
 	CancelCaseFlow                                *CancelCaseFlow
+	BackgroundCheckFlow                           *BackgroundCheckFlow
 	CancelRegionFlow                              *CancelRegionFlow
 	CancelMultipleInstanceTaskFlow                *CancelMultipleInstanceTaskFlow
 	CompleteMultipleInstanceTaskFlow              *CompleteMultipleInstanceTaskFlow
@@ -68,17 +69,16 @@ type WorkflowPatternFlows struct {
 	PersistentTriggerFlow                         *PersistentTriggerFlow
 }
 
-// NewWorkflowPatternFlows constructs every Workflow Patterns Flow.
-func NewWorkflowPatternFlows() *WorkflowPatternFlows {
-	reviewRegionFlow := &ReviewRegionFlow{}
+// NewWorkflowPatternFlows constructs every Workflow Patterns Flow; getClient may return nil until bootstrap completes.
+func NewWorkflowPatternFlows(getClient func() *dex.Client) *WorkflowPatternFlows {
+	backgroundCheckFlow := &BackgroundCheckFlow{}
 	return &WorkflowPatternFlows{
 		SequenceFlow:                                  &SequenceFlow{},
 		ParallelSplitSynchronizationFlow:              &ParallelSplitSynchronizationFlow{},
 		ExclusiveChoiceSimpleMergeFlow:                &ExclusiveChoiceSimpleMergeFlow{},
 		MultiChoiceSynchronizingMergeFlow:             &MultiChoiceSynchronizingMergeFlow{},
 		MultiMergeFlow:                                &MultiMergeFlow{},
-		ReviewRegionFlow:                              reviewRegionFlow,
-		GeneralSynchronizingMergeFlow:                 NewGeneralSynchronizingMergeFlow(reviewRegionFlow),
+		GeneralSynchronizingMergeFlow:                 &GeneralSynchronizingMergeFlow{},
 		StructuredPartialJoinFlow:                     &StructuredPartialJoinFlow{},
 		BlockingPartialJoinFlow:                       &BlockingPartialJoinFlow{},
 		CancellingPartialJoinFlow:                     &CancellingPartialJoinFlow{},
@@ -97,7 +97,8 @@ func NewWorkflowPatternFlows() *WorkflowPatternFlows {
 		CriticalSectionFlow:                           &CriticalSectionFlow{},
 		InterleavedRoutingFlow:                        &InterleavedRoutingFlow{},
 		CancelTaskFlow:                                &CancelTaskFlow{},
-		CancelCaseFlow:                                &CancelCaseFlow{},
+		CancelCaseFlow:                                NewCancelCaseFlow(getClient, backgroundCheckFlow),
+		BackgroundCheckFlow:                           backgroundCheckFlow,
 		CancelRegionFlow:                              &CancelRegionFlow{},
 		CancelMultipleInstanceTaskFlow:                &CancelMultipleInstanceTaskFlow{},
 		CompleteMultipleInstanceTaskFlow:              &CompleteMultipleInstanceTaskFlow{},
@@ -119,7 +120,6 @@ func (flows *WorkflowPatternFlows) AllFlows() []dex.Flow {
 		flows.ExclusiveChoiceSimpleMergeFlow,
 		flows.MultiChoiceSynchronizingMergeFlow,
 		flows.MultiMergeFlow,
-		flows.ReviewRegionFlow,
 		flows.GeneralSynchronizingMergeFlow,
 		flows.StructuredPartialJoinFlow,
 		flows.BlockingPartialJoinFlow,
@@ -140,6 +140,7 @@ func (flows *WorkflowPatternFlows) AllFlows() []dex.Flow {
 		flows.InterleavedRoutingFlow,
 		flows.CancelTaskFlow,
 		flows.CancelCaseFlow,
+		flows.BackgroundCheckFlow,
 		flows.CancelRegionFlow,
 		flows.CancelMultipleInstanceTaskFlow,
 		flows.CompleteMultipleInstanceTaskFlow,
@@ -184,6 +185,32 @@ func getAttributeOrZero[T any](ctx dex.Context, attribute dex.Attribute[T]) (T, 
 		return zero, nil
 	}
 	return value, err
+}
+
+// roundInstance returns the ChannelMap instance key of one join round.
+func roundInstance(round int) string {
+	return "round-" + strconv.Itoa(round)
+}
+
+// publishRoundSignalAndDeadEnd publishes value to the round's ChannelMap instance and ends the branch.
+func publishRoundSignalAndDeadEnd[T any](
+	ctx dex.Context,
+	channelMap dex.ChannelMap[T],
+	round int,
+	value T,
+) (*dex.StepDecision, error) {
+	if err := channelMap.Publish(ctx, roundInstance(round), value); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+// openGate releases count instances held by a concurrency gate.
+func openGate(ctx dex.Context, gate dex.Channel[string], count int) (*dex.RPCResult[dex.None], error) {
+	if err := publishMessages(ctx, gate, "opened", count); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 // publishMessages publishes value to channel count times.

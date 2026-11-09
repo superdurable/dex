@@ -43,7 +43,9 @@ func (*TransientTriggerFlow) GetSteps() []dex.StepDef {
 func (flow *TransientTriggerFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.ArmMotionSensor, nil),
-		dex.DefineRPC(flow.SendMotionEvent, nil),
+		dex.DefineRPC(flow.SendMotionEvent, &dex.RPCOptions{
+			LockAttributes: []dex.AttributeLock{dex.LockAttribute(IsAwaitingMotionEventAttribute)},
+		}),
 	}
 }
 
@@ -71,6 +73,9 @@ func (*TransientTriggerFlow) SendMotionEvent(ctx dex.Context, value int) (*dex.R
 	if !isAwaiting {
 		return &dex.RPCResult[bool]{Output: false}, nil
 	}
+	if err := IsAwaitingMotionEventAttribute.Set(ctx, false); err != nil {
+		return nil, err
+	}
 	if err := MotionEventChannel.Publish(ctx, value); err != nil {
 		return nil, err
 	}
@@ -89,6 +94,12 @@ func (AwaitMotionSensorArmed) Execute(dex.Context, dex.None) (*dex.StepDecision,
 
 type AwaitMotionEvent struct{ dex.StepDefaults }
 
+func (AwaitMotionEvent) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForLockAttributes: []dex.AttributeLock{dex.LockAttribute(IsAwaitingMotionEventAttribute)},
+	}
+}
+
 func (AwaitMotionEvent) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
 	if err := IsAwaitingMotionEventAttribute.Set(ctx, true); err != nil {
 		return nil, err
@@ -97,9 +108,6 @@ func (AwaitMotionEvent) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) 
 }
 
 func (AwaitMotionEvent) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	if err := IsAwaitingMotionEventAttribute.Set(ctx, false); err != nil {
-		return nil, err
-	}
 	values, err := MotionEventChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err

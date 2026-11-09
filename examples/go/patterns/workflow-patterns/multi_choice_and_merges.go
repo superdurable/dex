@@ -164,107 +164,176 @@ func (RecordReview) Execute(_ dex.Context, reviewer string) (*dex.StepDecision, 
 	return dex.GracefulComplete(reviewer), nil
 }
 
-// GeneralSynchronizingMergeFlow implements WCP-38 by running the cyclic region as a SubFlow.
-type GeneralSynchronizingMergeFlow struct {
-	dex.FlowDefaults
-	reviewRegionFlow *ReviewRegionFlow
+var (
+	LiveBranchCountAttribute = dex.DefineAttribute[int]("liveBranchCount")
+	MergedReviewsAttribute   = dex.DefineAttribute[[]string]("mergedReviews")
+	MergeSentinelChannel     = dex.DefineChannel[string]("mergeSentinel")
+	liveBranchCountLock      = executeLockOptions(LiveBranchCountAttribute)
+)
+
+// DocumentReviewPlan selects the checks and how the finance branch behaves.
+type DocumentReviewPlan struct {
+	IsLegalCheckNeeded   bool `json:"isLegalCheckNeeded"`
+	IsFinanceCheckNeeded bool `json:"isFinanceCheckNeeded"`
+	FinanceReworkRounds  int  `json:"financeReworkRounds"`
+	IsFinanceArchived    bool `json:"isFinanceArchived"`
 }
 
-// NewGeneralSynchronizingMergeFlow creates the parent Flow of reviewRegionFlow.
-func NewGeneralSynchronizingMergeFlow(reviewRegionFlow *ReviewRegionFlow) *GeneralSynchronizingMergeFlow {
-	if reviewRegionFlow == nil {
-		panic("workflowpatterns: ReviewRegionFlow is required")
-	}
-	return &GeneralSynchronizingMergeFlow{reviewRegionFlow: reviewRegionFlow}
+// DocumentDraft is one revision of the reviewed document.
+type DocumentDraft struct {
+	Plan     DocumentReviewPlan `json:"plan"`
+	Revision int                `json:"revision"`
 }
 
-func (flow *GeneralSynchronizingMergeFlow) GetSteps() []dex.StepDef {
+// GeneralSynchronizingMergeFlow implements WCP-38: a live-thread counter decides when the merge fires.
+type GeneralSynchronizingMergeFlow struct{ dex.FlowDefaults }
+
+func (*GeneralSynchronizingMergeFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(RunReviewRegion{reviewRegionFlow: flow.reviewRegionFlow}),
-		dex.DefineStep(PublishDecision{}),
+		dex.DefineStartStep(StartDocumentReview{}),
+		dex.DefineStep(DraftDocument{}),
+		dex.DefineStep(CheckLegalTerms{}),
+		dex.DefineStep(CheckFinanceTerms{}),
+		dex.DefineStep(ArchiveDocument{}),
+		dex.DefineStep(PublishDocument{}),
 	}
 }
 
 func (*GeneralSynchronizingMergeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{}
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{LiveBranchCountAttribute, MergedReviewsAttribute},
+		Channels:   []dex.ChannelDef{MergeSentinelChannel},
+	}
 }
 
-type RunReviewRegion struct {
-	dex.StepDefaults
-	reviewRegionFlow *ReviewRegionFlow
+type StartDocumentReview struct {
+	dex.StepDefaultsNoWaitFor[DocumentReviewPlan]
 }
 
-func (step RunReviewRegion) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
-	return dex.Until(dex.SubFlow(step.reviewRegionFlow, 0)), nil
-}
+func (StartDocumentReview) GetStepOptions() *dex.StepOptions { return liveBranchCountLock }
 
-func (RunReviewRegion) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	result, err := dex.SubFlowResult(ctx)
-	if err != nil {
+func (StartDocumentReview) Execute(ctx dex.Context, plan DocumentReviewPlan) (*dex.StepDecision, error) {
+	if err := LiveBranchCountAttribute.Set(ctx, 1); err != nil {
 		return nil, err
 	}
-	outputs := make([]string, 0, len(result.Completions))
-	for _, completion := range result.Completions {
-		var output string
-		if err := completion.Output.Decode(&output); err != nil {
-			return nil, err
-		}
-		outputs = append(outputs, output)
-	}
-	return dex.GoTo(PublishDecision{}, sortedCopy(outputs)), nil
-}
-
-type PublishDecision struct {
-	dex.StepDefaultsNoWaitFor[[]string]
-}
-
-func (PublishDecision) Execute(_ dex.Context, outputs []string) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(outputs), nil
-}
-
-// ReviewRegionFlow is the SubFlow region of GeneralSynchronizingMergeFlow. Its
-// review loops back to DraftProposal once while translation runs in parallel.
-type ReviewRegionFlow struct{ dex.FlowDefaults }
-
-func (*ReviewRegionFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{
-		dex.DefineStartStep(DraftProposal{}),
-		dex.DefineStep(ReviewProposal{}),
-		dex.DefineStep(TranslateProposal{}),
-	}
-}
-
-func (*ReviewRegionFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{}
-}
-
-type DraftProposal struct{ dex.StepDefaultsNoWaitFor[int] }
-
-func (DraftProposal) Execute(_ dex.Context, revision int) (*dex.StepDecision, error) {
 	return dex.GoToMany(
-		dex.MovementOf(ReviewProposal{}, revision),
-		dex.MovementOf(TranslateProposal{}, revision),
+		dex.MovementOf(DraftDocument{}, DocumentDraft{Plan: plan, Revision: 0}),
+		dex.MovementOf(PublishDocument{}, nil),
 	), nil
 }
 
-type ReviewProposal struct{ dex.StepDefaultsNoWaitFor[int] }
-
-func (ReviewProposal) Execute(_ dex.Context, revision int) (*dex.StepDecision, error) {
-	if revision < 1 {
-		return dex.GoTo(DraftProposal{}, revision+1), nil
-	}
-	return dex.GracefulComplete(fmt.Sprintf("ReviewProposal-%d", revision)), nil
+type DraftDocument struct {
+	dex.StepDefaultsNoWaitFor[DocumentDraft]
 }
 
-type TranslateProposal struct{ dex.StepDefaultsNoWaitFor[int] }
+func (DraftDocument) GetStepOptions() *dex.StepOptions { return liveBranchCountLock }
 
-func (TranslateProposal) Execute(_ dex.Context, revision int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(fmt.Sprintf("TranslateProposal-%d", revision)), nil
+func (DraftDocument) Execute(ctx dex.Context, draft DocumentDraft) (*dex.StepDecision, error) {
+	isRework := draft.Revision > 0
+	var checks []dex.StepMovement
+	if isRework || draft.Plan.IsLegalCheckNeeded {
+		checks = append(checks, dex.MovementOf(CheckLegalTerms{}, draft.Revision))
+	}
+	if isRework || draft.Plan.IsFinanceCheckNeeded {
+		checks = append(checks, dex.MovementOf(CheckFinanceTerms{}, draft))
+	}
+	if err := addLiveBranches(ctx, len(checks)-1); err != nil {
+		return nil, err
+	}
+	if len(checks) == 0 {
+		return dex.DeadEnd(), nil
+	}
+	return dex.GoToMany(checks...), nil
+}
+
+type CheckLegalTerms struct{ dex.StepDefaultsNoWaitFor[int] }
+
+func (CheckLegalTerms) GetStepOptions() *dex.StepOptions { return liveBranchCountLock }
+
+func (CheckLegalTerms) Execute(ctx dex.Context, revision int) (*dex.StepDecision, error) {
+	if err := arriveAtMerge(ctx, fmt.Sprintf("CheckLegalTerms-%d", revision)); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+type CheckFinanceTerms struct {
+	dex.StepDefaultsNoWaitFor[DocumentDraft]
+}
+
+func (CheckFinanceTerms) GetStepOptions() *dex.StepOptions { return liveBranchCountLock }
+
+func (CheckFinanceTerms) Execute(ctx dex.Context, draft DocumentDraft) (*dex.StepDecision, error) {
+	if draft.Revision < draft.Plan.FinanceReworkRounds {
+		return dex.GoTo(DraftDocument{}, DocumentDraft{Plan: draft.Plan, Revision: draft.Revision + 1}), nil
+	}
+	if draft.Plan.IsFinanceArchived {
+		if err := addLiveBranches(ctx, -1); err != nil {
+			return nil, err
+		}
+		return dex.GoTo(ArchiveDocument{}, nil), nil
+	}
+	if err := arriveAtMerge(ctx, fmt.Sprintf("CheckFinanceTerms-%d", draft.Revision)); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+type ArchiveDocument struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (ArchiveDocument) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("ArchiveDocument"), nil
+}
+
+// PublishDocument is the merge: it fires once no thread can still reach it.
+type PublishDocument struct{ dex.StepDefaults }
+
+func (PublishDocument) GetStepOptions() *dex.StepOptions { return liveBranchCountLock }
+
+func (PublishDocument) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.Until(MergeSentinelChannel.ForOne()), nil
+}
+
+func (PublishDocument) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	mergedReviews, err := getAttributeOrZero(ctx, MergedReviewsAttribute)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(sortedCopy(mergedReviews)), nil
+}
+
+// arriveAtMerge records one arrival and retires its thread.
+func arriveAtMerge(ctx dex.Context, review string) error {
+	mergedReviews, err := getAttributeOrZero(ctx, MergedReviewsAttribute)
+	if err != nil {
+		return err
+	}
+	if err := MergedReviewsAttribute.Set(ctx, appendTrail(mergedReviews, review)); err != nil {
+		return err
+	}
+	return addLiveBranches(ctx, -1)
+}
+
+// addLiveBranches changes the live-thread count and publishes the sentinel when it reaches 0.
+func addLiveBranches(ctx dex.Context, delta int) error {
+	liveBranchCount, err := getAttributeOrZero(ctx, LiveBranchCountAttribute)
+	if err != nil {
+		return err
+	}
+	liveBranchCount += delta
+	if err := LiveBranchCountAttribute.Set(ctx, liveBranchCount); err != nil {
+		return err
+	}
+	if liveBranchCount == 0 {
+		return MergeSentinelChannel.Publish(ctx, "done")
+	}
+	return nil
 }
 
 var (
 	_ dex.Flow = (*MultiChoiceSynchronizingMergeFlow)(nil)
 	_ dex.Flow = (*MultiMergeFlow)(nil)
 	_ dex.Flow = (*GeneralSynchronizingMergeFlow)(nil)
-	_ dex.Flow = (*ReviewRegionFlow)(nil)
 )

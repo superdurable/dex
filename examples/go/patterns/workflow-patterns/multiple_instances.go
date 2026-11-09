@@ -21,6 +21,8 @@
 package workflowpatterns
 
 import (
+	"strconv"
+
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -88,7 +90,18 @@ func (ConfirmRegistration) Execute(dex.Context, dex.None) (*dex.StepDecision, er
 	return dex.GracefulComplete("ConfirmRegistration"), nil
 }
 
-var ReviewCompletedChannel = dex.DefineChannel[string]("reviewCompleted")
+var (
+	StartedReviewersAttributeMap = dex.DefineAttributeMap[bool]("startedReviewers")
+	ReviewGateOpenedChannel      = dex.DefineChannel[string]("reviewGateOpened")
+	ReviewCompletedChannel       = dex.DefineChannel[string]("reviewCompleted")
+	reviewSchema                 = dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{StartedReviewersAttributeMap},
+		Channels:   []dex.ChannelDef{ReviewGateOpenedChannel, ReviewCompletedChannel},
+	}
+	loadStartedReviewersOptions = &dex.RPCOptions{
+		LoadAttributeMaps: []dex.AttributeDef{StartedReviewersAttributeMap},
+	}
+)
 
 // DesignTimeMultipleInstancesFlow implements WCP-13 with a fixed instance count.
 type DesignTimeMultipleInstancesFlow struct{ dex.FlowDefaults }
@@ -101,8 +114,25 @@ func (*DesignTimeMultipleInstancesFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *DesignTimeMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetStartedReviewCount, loadStartedReviewersOptions),
+		dex.DefineRPC(flow.OpenReviewGate, nil),
+	}
+}
+
 func (*DesignTimeMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{ReviewCompletedChannel}}
+	return reviewSchema
+}
+
+// GetStartedReviewCount returns how many review instances are in flight or done.
+func (*DesignTimeMultipleInstancesFlow) GetStartedReviewCount(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
+	return &dex.RPCResult[int]{Output: StartedReviewersAttributeMap.MapSize(ctx)}, nil
+}
+
+// OpenReviewGate lets count waiting review instances finish.
+func (*DesignTimeMultipleInstancesFlow) OpenReviewGate(ctx dex.Context, count int) (*dex.RPCResult[dex.None], error) {
+	return openGate(ctx, ReviewGateOpenedChannel, count)
 }
 
 type StartDesignTimeReviews struct {
@@ -124,8 +154,25 @@ func (*RunTimeMultipleInstancesFlow) GetSteps() []dex.StepDef {
 	}
 }
 
+func (flow *RunTimeMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.GetStartedReviewCount, loadStartedReviewersOptions),
+		dex.DefineRPC(flow.OpenReviewGate, nil),
+	}
+}
+
 func (*RunTimeMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{ReviewCompletedChannel}}
+	return reviewSchema
+}
+
+// GetStartedReviewCount returns how many review instances are in flight or done.
+func (*RunTimeMultipleInstancesFlow) GetStartedReviewCount(ctx dex.Context, _ dex.None) (*dex.RPCResult[int], error) {
+	return &dex.RPCResult[int]{Output: StartedReviewersAttributeMap.MapSize(ctx)}, nil
+}
+
+// OpenReviewGate lets count waiting review instances finish.
+func (*RunTimeMultipleInstancesFlow) OpenReviewGate(ctx dex.Context, count int) (*dex.RPCResult[dex.None], error) {
+	return openGate(ctx, ReviewGateOpenedChannel, count)
 }
 
 type StartRunTimeReviews struct {
@@ -145,8 +192,13 @@ func startReviewInstances(reviewers []string) *dex.StepDecision {
 	return dex.GoToMany(movements...)
 }
 
-type ReviewDocument struct {
-	dex.StepDefaultsNoWaitFor[string]
+type ReviewDocument struct{ dex.StepDefaults }
+
+func (ReviewDocument) WaitFor(ctx dex.Context, reviewer string) (*dex.Wait, error) {
+	if err := StartedReviewersAttributeMap.Set(ctx, reviewer, true); err != nil {
+		return nil, err
+	}
+	return dex.Until(ReviewGateOpenedChannel.ForOne()), nil
 }
 
 func (ReviewDocument) Execute(ctx dex.Context, reviewer string) (*dex.StepDecision, error) {
@@ -168,10 +220,12 @@ func (CollectReviews) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error)
 }
 
 var (
-	StartedSampleCountAttribute   = dex.DefineAttribute[int]("startedSampleCount")
-	IsSampleIntakeClosedAttribute = dex.DefineAttribute[bool]("isSampleIntakeClosed")
-	SampleAnalyzedChannel         = dex.DefineChannel[string]("sampleAnalyzed")
-	SampleIntakeClosedChannel     = dex.DefineChannel[string]("sampleIntakeClosed")
+	StartedSampleCountAttribute        = dex.DefineAttribute[int]("startedSampleCount")
+	IsSampleIntakeClosedAttribute      = dex.DefineAttribute[bool]("isSampleIntakeClosed")
+	SampleAnalyzedChannel              = dex.DefineChannel[string]("sampleAnalyzed")
+	SampleIntakeClosedChannel          = dex.DefineChannel[string]("sampleIntakeClosed")
+	AnalysisStartedSamplesAttributeMap = dex.DefineAttributeMap[bool]("analysisStartedSamples")
+	SampleGateOpenedChannel            = dex.DefineChannel[string]("sampleGateOpened")
 )
 
 // NoPriorKnowledgeMultipleInstancesFlow implements WCP-15: RPCs add instances until intake closes.
@@ -192,13 +246,21 @@ func (flow *NoPriorKnowledgeMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
 		dex.DefineRPC(flow.AddSample, sampleCountLock),
 		dex.DefineRPC(flow.CloseSampleIntake, sampleCountLock),
+		dex.DefineRPC(flow.GetStartedAnalysisCount, &dex.RPCOptions{
+			LoadAttributeMaps: []dex.AttributeDef{AnalysisStartedSamplesAttributeMap},
+		}),
+		dex.DefineRPC(flow.OpenSampleGate, nil),
 	}
 }
 
 func (*NoPriorKnowledgeMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{StartedSampleCountAttribute, IsSampleIntakeClosedAttribute},
-		Channels:   []dex.ChannelDef{SampleAnalyzedChannel, SampleIntakeClosedChannel},
+		Attributes: []dex.AttributeDef{
+			StartedSampleCountAttribute,
+			IsSampleIntakeClosedAttribute,
+			AnalysisStartedSamplesAttributeMap,
+		},
+		Channels: []dex.ChannelDef{SampleAnalyzedChannel, SampleIntakeClosedChannel, SampleGateOpenedChannel},
 	}
 }
 
@@ -240,6 +302,22 @@ func (*NoPriorKnowledgeMultipleInstancesFlow) CloseSampleIntake(
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// GetStartedAnalysisCount returns how many analysis instances are in flight or done.
+func (*NoPriorKnowledgeMultipleInstancesFlow) GetStartedAnalysisCount(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[int], error) {
+	return &dex.RPCResult[int]{Output: AnalysisStartedSamplesAttributeMap.MapSize(ctx)}, nil
+}
+
+// OpenSampleGate lets count waiting analysis instances finish.
+func (*NoPriorKnowledgeMultipleInstancesFlow) OpenSampleGate(
+	ctx dex.Context,
+	count int,
+) (*dex.RPCResult[dex.None], error) {
+	return openGate(ctx, SampleGateOpenedChannel, count)
 }
 
 // JoinSamples needs no lock: the started count cannot change once intake is closed.
@@ -290,8 +368,13 @@ func readSampleIntake(ctx dex.Context, analyzed []string) (isClosed bool, isComp
 	return isClosed, isClosed && len(analyzed) == startedCount, nil
 }
 
-type AnalyzeSample struct {
-	dex.StepDefaultsNoWaitFor[string]
+type AnalyzeSample struct{ dex.StepDefaults }
+
+func (AnalyzeSample) WaitFor(ctx dex.Context, sampleID string) (*dex.Wait, error) {
+	if err := AnalysisStartedSamplesAttributeMap.Set(ctx, sampleID, true); err != nil {
+		return nil, err
+	}
+	return dex.Until(SampleGateOpenedChannel.ForOne()), nil
 }
 
 func (AnalyzeSample) Execute(ctx dex.Context, sampleID string) (*dex.StepDecision, error) {
@@ -308,7 +391,7 @@ func (ReportSamples) Execute(_ dex.Context, analyzed []string) (*dex.StepDecisio
 
 var (
 	InspectionReleasedChannel = dex.DefineChannel[string]("inspectionReleased")
-	UnitInspectedChannel      = dex.DefineChannel[int]("unitInspected")
+	UnitInspectedChannelMap   = dex.DefineChannelMap[int]("unitInspected")
 )
 
 // InspectionPlan sets how many units run and how many complete the join.
@@ -317,13 +400,27 @@ type InspectionPlan struct {
 	RequiredInspections int `json:"requiredInspections"`
 }
 
-// InspectionQuorum is the join input: the units it needs and the units the reset consumes.
-type InspectionQuorum struct {
-	RequiredInspections  int `json:"requiredInspections"`
-	RemainingInspections int `json:"remainingInspections"`
+// InspectionRound is the input of one static partial join round.
+type InspectionRound struct {
+	InspectionCount     int `json:"inspectionCount"`
+	RequiredInspections int `json:"requiredInspections"`
+	Round               int `json:"round"`
+	RoundCount          int `json:"roundCount"`
 }
 
-// StaticPartialJoinForMultipleInstancesFlow implements WCP-34 with a join and a reset Step.
+// UnitInspection identifies one inspection instance of one round.
+type UnitInspection struct {
+	Round     int `json:"round"`
+	UnitIndex int `json:"unitIndex"`
+}
+
+// InspectedUnits lists the unit indexes one join or reset consumed in a round.
+type InspectedUnits struct {
+	Round       int   `json:"round"`
+	UnitIndexes []int `json:"unitIndexes"`
+}
+
+// StaticPartialJoinForMultipleInstancesFlow implements WCP-34 with a per-round join and reset Step.
 type StaticPartialJoinForMultipleInstancesFlow struct{ dex.FlowDefaults }
 
 func (*StaticPartialJoinForMultipleInstancesFlow) GetSteps() []dex.StepDef {
@@ -342,7 +439,7 @@ func (flow *StaticPartialJoinForMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
 
 func (*StaticPartialJoinForMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{InspectionReleasedChannel, UnitInspectedChannel},
+		Channels: []dex.ChannelDef{InspectionReleasedChannel, UnitInspectedChannelMap},
 	}
 }
 
@@ -351,83 +448,88 @@ func (*StaticPartialJoinForMultipleInstancesFlow) ReleaseInspections(
 	ctx dex.Context,
 	count int,
 ) (*dex.RPCResult[dex.None], error) {
-	if err := publishMessages(ctx, InspectionReleasedChannel, "released", count); err != nil {
-		return nil, err
-	}
-	return &dex.RPCResult[dex.None]{}, nil
+	return openGate(ctx, InspectionReleasedChannel, count)
 }
 
 type StartInspections struct {
-	dex.StepDefaultsNoWaitFor[InspectionPlan]
+	dex.StepDefaultsNoWaitFor[InspectionRound]
 }
 
-func (StartInspections) Execute(_ dex.Context, plan InspectionPlan) (*dex.StepDecision, error) {
-	movements := make([]dex.StepMovement, 0, plan.InspectionCount+1)
-	for index := range plan.InspectionCount {
-		movements = append(movements, dex.MovementOf(InspectUnit{}, index))
+func (StartInspections) Execute(_ dex.Context, round InspectionRound) (*dex.StepDecision, error) {
+	movements := make([]dex.StepMovement, 0, round.InspectionCount+1)
+	for unitIndex := range round.InspectionCount {
+		movements = append(movements, dex.MovementOf(InspectUnit{}, UnitInspection{Round: round.Round, UnitIndex: unitIndex}))
 	}
-	movements = append(movements, dex.MovementOf(AcceptInspections{}, InspectionQuorum{
-		RequiredInspections:  plan.RequiredInspections,
-		RemainingInspections: plan.InspectionCount - plan.RequiredInspections,
-	}))
+	movements = append(movements, dex.MovementOf(AcceptInspections{}, round))
 	return dex.GoToMany(movements...), nil
 }
 
 type InspectUnit struct{ dex.StepDefaults }
 
-func (InspectUnit) WaitFor(dex.Context, int) (*dex.Wait, error) {
+func (InspectUnit) WaitFor(dex.Context, UnitInspection) (*dex.Wait, error) {
 	return dex.Until(InspectionReleasedChannel.ForOne()), nil
 }
 
-func (InspectUnit) Execute(ctx dex.Context, index int) (*dex.StepDecision, error) {
-	return publishAndDeadEnd(ctx, UnitInspectedChannel, index)
+func (InspectUnit) Execute(ctx dex.Context, inspection UnitInspection) (*dex.StepDecision, error) {
+	if err := UnitInspectedChannelMap.Publish(ctx, roundInstance(inspection.Round), inspection.UnitIndex); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
 }
 
 type AcceptInspections struct{ dex.StepDefaults }
 
-func (AcceptInspections) WaitFor(_ dex.Context, quorum InspectionQuorum) (*dex.Wait, error) {
-	return dex.Until(UnitInspectedChannel.ForN(quorum.RequiredInspections)), nil
+func (AcceptInspections) WaitFor(_ dex.Context, round InspectionRound) (*dex.Wait, error) {
+	return dex.Until(UnitInspectedChannelMap.ForN(roundInstance(round.Round), round.RequiredInspections)), nil
 }
 
-func (AcceptInspections) Execute(ctx dex.Context, quorum InspectionQuorum) (*dex.StepDecision, error) {
-	indexes, err := UnitInspectedChannel.GetConditionResults(ctx)
+func (AcceptInspections) Execute(ctx dex.Context, round InspectionRound) (*dex.StepDecision, error) {
+	indexes, err := UnitInspectedChannelMap.GetConditionResults(ctx, roundInstance(round.Round))
 	if err != nil {
 		return nil, err
 	}
 	return dex.GoToMany(
-		dex.MovementOf(ApproveBatch{}, indexes),
-		dex.MovementOf(ResetInspectionJoin{}, quorum.RemainingInspections),
+		dex.MovementOf(ApproveBatch{}, InspectedUnits{Round: round.Round, UnitIndexes: sortedCopy(indexes)}),
+		dex.MovementOf(ResetInspectionJoin{}, round),
 	), nil
 }
 
 type ApproveBatch struct {
-	dex.StepDefaultsNoWaitFor[[]int]
+	dex.StepDefaultsNoWaitFor[InspectedUnits]
 }
 
-func (ApproveBatch) Execute(_ dex.Context, indexes []int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(sortedCopy(indexes)), nil
+func (ApproveBatch) Execute(_ dex.Context, approved InspectedUnits) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(approved), nil
 }
 
+// ResetInspectionJoin consumes the rest of the round, then re-enables the join.
 type ResetInspectionJoin struct{ dex.StepDefaults }
 
-func (ResetInspectionJoin) WaitFor(_ dex.Context, remainingInspections int) (*dex.Wait, error) {
+func (ResetInspectionJoin) WaitFor(_ dex.Context, round InspectionRound) (*dex.Wait, error) {
+	remainingInspections := round.InspectionCount - round.RequiredInspections
 	if remainingInspections == 0 {
 		return dex.SkipWaitImmediately(), nil
 	}
-	return dex.Until(UnitInspectedChannel.ForN(remainingInspections)), nil
+	return dex.Until(UnitInspectedChannelMap.ForN(roundInstance(round.Round), remainingInspections)), nil
 }
 
-func (ResetInspectionJoin) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	indexes, err := UnitInspectedChannel.GetConditionResults(ctx)
+func (ResetInspectionJoin) Execute(ctx dex.Context, round InspectionRound) (*dex.StepDecision, error) {
+	indexes, err := UnitInspectedChannelMap.GetConditionResults(ctx, roundInstance(round.Round))
 	if err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(sortedCopy(indexes)), nil
+	if round.Round < round.RoundCount {
+		next := round
+		next.Round++
+		return dex.GoTo(StartInspections{}, next), nil
+	}
+	return dex.GracefulComplete(InspectedUnits{Round: round.Round, UnitIndexes: sortedCopy(indexes)}), nil
 }
 
 var (
 	QuorumInspectionReleasedChannel = dex.DefineChannel[string]("quorumInspectionReleased")
 	QuorumUnitInspectedChannel      = dex.DefineChannel[int]("quorumUnitInspected")
+	QuorumCertifiedChannel          = dex.DefineChannel[string]("quorumCertified")
 )
 
 // CancellingPartialJoinForMultipleInstancesFlow implements WCP-35: the join fires
@@ -439,16 +541,27 @@ func (*CancellingPartialJoinForMultipleInstancesFlow) GetSteps() []dex.StepDef {
 		dex.DefineStartStep(StartQuorumInspections{}),
 		dex.DefineStep(InspectQuorumUnit{}),
 		dex.DefineStep(AcceptQuorumInspections{}),
+		dex.DefineStep(CertifyQuorum{}),
 	}
 }
 
 func (flow *CancellingPartialJoinForMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
-	return []dex.RPCDef{dex.DefineRPC(flow.ReleaseQuorumInspections, nil)}
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.ReleaseQuorumInspections, nil),
+		dex.DefineRPC(flow.GetQueuedQuorumReleaseCount, &dex.RPCOptions{
+			LoadChannels: []dex.ChannelDef{QuorumInspectionReleasedChannel},
+		}),
+		dex.DefineRPC(flow.CertifyQuorum, nil),
+	}
 }
 
 func (*CancellingPartialJoinForMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{QuorumInspectionReleasedChannel, QuorumUnitInspectedChannel},
+		Channels: []dex.ChannelDef{
+			QuorumInspectionReleasedChannel,
+			QuorumUnitInspectedChannel,
+			QuorumCertifiedChannel,
+		},
 	}
 }
 
@@ -458,6 +571,29 @@ func (*CancellingPartialJoinForMultipleInstancesFlow) ReleaseQuorumInspections(
 	count int,
 ) (*dex.RPCResult[dex.None], error) {
 	if err := publishMessages(ctx, QuorumInspectionReleasedChannel, "released", count); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+// GetQueuedQuorumReleaseCount returns how many releases no inspection has consumed yet.
+func (*CancellingPartialJoinForMultipleInstancesFlow) GetQueuedQuorumReleaseCount(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[int], error) {
+	queuedCount, err := countPendingMessages(ctx, QuorumInspectionReleasedChannel)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[int]{Output: queuedCount}, nil
+}
+
+// CertifyQuorum certifies the accepted inspections.
+func (*CancellingPartialJoinForMultipleInstancesFlow) CertifyQuorum(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := QuorumCertifiedChannel.Publish(ctx, "certified"); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -497,12 +633,25 @@ func (AcceptQuorumInspections) Execute(ctx dex.Context, _ int) (*dex.StepDecisio
 	if err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(sortedCopy(indexes)).CancelSteps(InspectQuorumUnit{}), nil
+	return dex.GoTo(CertifyQuorum{}, sortedCopy(indexes)).CancelSteps(InspectQuorumUnit{}), nil
+}
+
+type CertifyQuorum struct{ dex.StepDefaults }
+
+func (CertifyQuorum) WaitFor(dex.Context, []int) (*dex.Wait, error) {
+	return dex.Until(QuorumCertifiedChannel.ForOne()), nil
+}
+
+func (CertifyQuorum) Execute(_ dex.Context, indexes []int) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(indexes), nil
 }
 
 var (
-	IsBidAdmissionClosedAttribute = dex.DefineAttribute[bool]("isBidAdmissionClosed")
-	BidEvaluatedChannel           = dex.DefineChannel[BidEvaluation]("bidEvaluated")
+	IsBidAdmissionClosedAttribute     = dex.DefineAttribute[bool]("isBidAdmissionClosed")
+	BidEvaluatedChannel               = dex.DefineChannel[BidEvaluation]("bidEvaluated")
+	EvaluationStartedBidsAttributeMap = dex.DefineAttributeMap[bool]("evaluationStartedBids")
+	BidGateOpenedChannel              = dex.DefineChannel[string]("bidGateOpened")
+	ContractSignedChannel             = dex.DefineChannel[string]("contractSigned")
 )
 
 // BidEvaluation is the result of one EvaluateBid instance.
@@ -534,13 +683,18 @@ func (flow *DynamicPartialJoinForMultipleInstancesFlow) GetRPCs() []dex.RPCDef {
 		dex.DefineRPC(flow.AddBid, &dex.RPCOptions{
 			LockAttributes: []dex.AttributeLock{dex.LockAttribute(IsBidAdmissionClosedAttribute)},
 		}),
+		dex.DefineRPC(flow.GetStartedEvaluationCount, &dex.RPCOptions{
+			LoadAttributeMaps: []dex.AttributeDef{EvaluationStartedBidsAttributeMap},
+		}),
+		dex.DefineRPC(flow.OpenBidGate, nil),
+		dex.DefineRPC(flow.SignContract, nil),
 	}
 }
 
 func (*DynamicPartialJoinForMultipleInstancesFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{IsBidAdmissionClosedAttribute},
-		Channels:   []dex.ChannelDef{BidEvaluatedChannel},
+		Attributes: []dex.AttributeDef{IsBidAdmissionClosedAttribute, EvaluationStartedBidsAttributeMap},
+		Channels:   []dex.ChannelDef{BidEvaluatedChannel, BidGateOpenedChannel, ContractSignedChannel},
 	}
 }
 
@@ -561,6 +715,33 @@ func (*DynamicPartialJoinForMultipleInstancesFlow) AddBid(
 		Output:    true,
 		NextSteps: []dex.StepMovement{dex.MovementOf(EvaluateBid{}, amount)},
 	}, nil
+}
+
+// GetStartedEvaluationCount returns how many bid evaluations are in flight or done.
+func (*DynamicPartialJoinForMultipleInstancesFlow) GetStartedEvaluationCount(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[int], error) {
+	return &dex.RPCResult[int]{Output: EvaluationStartedBidsAttributeMap.MapSize(ctx)}, nil
+}
+
+// OpenBidGate lets count waiting bid evaluations finish.
+func (*DynamicPartialJoinForMultipleInstancesFlow) OpenBidGate(
+	ctx dex.Context,
+	count int,
+) (*dex.RPCResult[dex.None], error) {
+	return openGate(ctx, BidGateOpenedChannel, count)
+}
+
+// SignContract signs the awarded contract.
+func (*DynamicPartialJoinForMultipleInstancesFlow) SignContract(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[dex.None], error) {
+	if err := ContractSignedChannel.Publish(ctx, "signed"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type JoinBids struct{ dex.StepDefaults }
@@ -599,14 +780,23 @@ func (JoinBids) Execute(ctx dex.Context, progress BidJoinProgress) (*dex.StepDec
 	}), nil
 }
 
-type EvaluateBid struct{ dex.StepDefaultsNoWaitFor[int] }
+type EvaluateBid struct{ dex.StepDefaults }
+
+func (EvaluateBid) WaitFor(ctx dex.Context, amount int) (*dex.Wait, error) {
+	if err := EvaluationStartedBidsAttributeMap.Set(ctx, strconv.Itoa(amount), true); err != nil {
+		return nil, err
+	}
+	return dex.Until(BidGateOpenedChannel.ForOne()), nil
+}
 
 func (EvaluateBid) Execute(ctx dex.Context, amount int) (*dex.StepDecision, error) {
 	return publishAndDeadEnd(ctx, BidEvaluatedChannel, BidEvaluation{Amount: amount, IsAccepted: amount <= 1000})
 }
 
-type AwardContract struct {
-	dex.StepDefaultsNoWaitFor[[]int]
+type AwardContract struct{ dex.StepDefaults }
+
+func (AwardContract) WaitFor(dex.Context, []int) (*dex.Wait, error) {
+	return dex.Until(ContractSignedChannel.ForOne()), nil
 }
 
 func (AwardContract) Execute(_ dex.Context, accepted []int) (*dex.StepDecision, error) {

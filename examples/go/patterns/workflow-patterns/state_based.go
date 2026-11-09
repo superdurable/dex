@@ -32,8 +32,9 @@ const (
 )
 
 var (
-	OfferAcceptedChannel = dex.DefineChannel[string]("offerAccepted")
-	OfferDeclinedChannel = dex.DefineChannel[string]("offerDeclined")
+	OfferPresentedChannel = dex.DefineChannel[string]("offerPresented")
+	OfferAcceptedChannel  = dex.DefineChannel[string]("offerAccepted")
+	OfferDeclinedChannel  = dex.DefineChannel[string]("offerDeclined")
 )
 
 // DeferredChoiceFlow implements WCP-16 Deferred Choice: the first customer response
@@ -42,7 +43,8 @@ type DeferredChoiceFlow struct{ dex.FlowDefaults }
 
 func (*DeferredChoiceFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(AwaitCustomerResponse{}),
+		dex.DefineStartStep(PresentOffer{}),
+		dex.DefineStep(AwaitCustomerResponse{}),
 		dex.DefineStep(FulfillOffer{}),
 		dex.DefineStep(ArchiveOffer{}),
 	}
@@ -50,13 +52,24 @@ func (*DeferredChoiceFlow) GetSteps() []dex.StepDef {
 
 func (flow *DeferredChoiceFlow) GetRPCs() []dex.RPCDef {
 	return []dex.RPCDef{
+		dex.DefineRPC(flow.PresentOffer, nil),
 		dex.DefineRPC(flow.AcceptOffer, nil),
 		dex.DefineRPC(flow.DeclineOffer, nil),
 	}
 }
 
 func (*DeferredChoiceFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{OfferAcceptedChannel, OfferDeclinedChannel}}
+	return dex.PersistenceSchema{
+		Channels: []dex.ChannelDef{OfferPresentedChannel, OfferAcceptedChannel, OfferDeclinedChannel},
+	}
+}
+
+// PresentOffer shows the offer to the customer.
+func (*DeferredChoiceFlow) PresentOffer(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	if err := OfferPresentedChannel.Publish(ctx, "presented"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 // AcceptOffer records that the customer accepted the offer.
@@ -73,6 +86,16 @@ func (*DeferredChoiceFlow) DeclineOffer(ctx dex.Context, _ dex.None) (*dex.RPCRe
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
+}
+
+type PresentOffer struct{ dex.StepDefaults }
+
+func (PresentOffer) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.Until(OfferPresentedChannel.ForOne()), nil
+}
+
+func (PresentOffer) Execute(dex.Context, dex.None) (*dex.StepDecision, error) {
+	return dex.GoTo(AwaitCustomerResponse{}, nil), nil
 }
 
 type AwaitCustomerResponse struct{ dex.StepDefaults }
@@ -487,7 +510,7 @@ func (CompleteAudits) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error)
 	return completeWithIntervals(ctx, AuditFinishedChannel)
 }
 
-func executeLockOptions(lockAttribute dex.Attribute[bool]) *dex.StepOptions {
+func executeLockOptions[T any](lockAttribute dex.Attribute[T]) *dex.StepOptions {
 	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(lockAttribute)}}
 }
 
