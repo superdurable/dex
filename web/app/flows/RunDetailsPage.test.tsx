@@ -292,6 +292,14 @@ describe('run attempts on the run page', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Copy Flow ID' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Copy run ID' })).toBeTruthy();
+    // Copy link reuses the ID buttons' copy feedback.
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const copyLink = screen.getByRole('button', { name: 'Copy link' });
+    fireEvent.click(copyLink);
+    await waitFor(() => expect(copyLink.className).toContain('is-copied'));
+    expect(writeText).toHaveBeenCalledWith(window.location.href);
+    expect(copyLink.querySelector('[aria-live="polite"]')?.textContent).toBe('Copied');
     await waitFor(() => expect(latestEventNumber()).toBe('#3'));
     expect(historyReads(historyRequests)).toEqual([['1', '2'], ['1', '1000']]);
     expect(warn).toHaveBeenCalledWith(

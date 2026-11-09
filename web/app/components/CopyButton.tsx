@@ -7,53 +7,71 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useState } from 'react';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, X, type LucideIcon } from 'lucide-react';
 
-const copiedFeedbackMilliseconds = 1500;
+const copyFeedbackMilliseconds = 1500;
 
-/** Copies one value to the clipboard and briefly confirms it. */
+type CopyState = 'idle' | 'copied' | 'failed';
+
+/**
+ * Copies one value to the clipboard and briefly confirms success or failure.
+ *
+ * Every copy control in the run header uses it, so all of them give the same visible and announced feedback.
+ */
 export function CopyButton({
   value,
   label,
   children,
-  className = '',
+  icon = Copy,
+  className = 'copy-button',
 }: {
-  value: string;
+  /** The text to copy, or a function that reads it at click time, such as the current page URL. */
+  value: string | (() => string);
   /** The accessible name, such as "Copy run ID". */
   label: string;
   /** Visible text beside the icon; omitted for an icon-only button. */
   children?: string;
+  /** The icon shown while idle. */
+  icon?: LucideIcon;
+  /** The button's look; the copy feedback classes are added to it. */
   className?: string;
 }) {
-  const [isCopied, setIsCopied] = useState(false);
+  const [copyState, setCopyState] = useState<CopyState>('idle');
 
   useEffect(() => {
-    if (!isCopied) return;
-    const timer = window.setTimeout(() => setIsCopied(false), copiedFeedbackMilliseconds);
+    if (copyState === 'idle') return;
+    const timer = window.setTimeout(() => setCopyState('idle'), copyFeedbackMilliseconds);
     return () => window.clearTimeout(timer);
-  }, [isCopied]);
+  }, [copyState]);
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(value);
-      setIsCopied(true);
+      await navigator.clipboard.writeText(typeof value === 'function' ? value() : value);
+      setCopyState('copied');
     } catch (copyError) {
       console.warn('Unable to copy to the clipboard.', copyError);
+      setCopyState('failed');
     }
   };
 
-  const Icon = isCopied ? Check : Copy;
+  const Icon = copyState === 'copied' ? Check : copyState === 'failed' ? X : icon;
+  const announcement = copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : '';
   return (
     <button
       aria-label={label}
-      className={`copy-button${children ? '' : ' copy-button--icon'}${isCopied ? ' is-copied' : ''} ${className}`.trim()}
+      className={[
+        className,
+        children ? '' : 'copy-button--icon',
+        copyState === 'copied' ? 'is-copied' : '',
+        copyState === 'failed' ? 'is-copy-failed' : '',
+      ].filter(Boolean).join(' ')}
       onClick={() => void copy()}
-      title={isCopied ? 'Copied' : label}
+      title={announcement || label}
       type="button"
     >
-      <Icon aria-hidden="true" size={14} strokeWidth={2} />
+      <Icon aria-hidden="true" className="copy-button-icon" key={copyState} size={14} strokeWidth={2} />
       {children}
-      <span aria-live="polite" className="sr-only">{isCopied ? 'Copied' : ''}</span>
+      <span aria-live="polite" className="sr-only">{announcement}</span>
     </button>
   );
 }

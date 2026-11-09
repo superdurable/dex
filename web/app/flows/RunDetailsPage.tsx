@@ -704,14 +704,14 @@ export function RunDetailsPage({
               <span aria-hidden="true" className="live-toggle-dot" />
               Live
             </label>
-            <button
+            <CopyButton
               className="button quiet"
-              onClick={() => void navigator.clipboard.writeText(window.location.href)}
-              type="button"
+              icon={LinkIcon}
+              label="Copy link"
+              value={() => window.location.href}
             >
-              <LinkIcon aria-hidden="true" size={15} strokeWidth={2} />
               Copy link
-            </button>
+            </CopyButton>
             <button className="button quiet" onClick={() => void refresh()} type="button">
               <RefreshCw aria-hidden="true" size={15} strokeWidth={2} />
               Refresh

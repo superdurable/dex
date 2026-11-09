@@ -407,9 +407,32 @@ body:has(.v1-page) {
   justify-content: center;
 }
 
-.copy-button.is-copied {
+.v1-page .is-copied,
+.v1-page .button.quiet.is-copied:hover:enabled {
   color: var(--tone-done-ink);
   background: var(--tone-done-soft);
+}
+
+.v1-page .is-copy-failed,
+.v1-page .button.quiet.is-copy-failed:hover:enabled {
+  color: var(--tone-fail-ink);
+  background: var(--tone-fail-soft);
+}
+
+.v1-page :is(.is-copied, .is-copy-failed) .copy-button-icon {
+  animation: copy-feedback-pop 220ms ease-out;
+}
+
+@keyframes copy-feedback-pop {
+  0% { transform: scale(0.6); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v1-page :is(.is-copied, .is-copy-failed) .copy-button-icon {
+    animation: none;
+  }
 }
 
 .v1-page .run-actions {
