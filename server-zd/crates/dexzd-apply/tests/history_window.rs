@@ -8,6 +8,9 @@
 
 //! The time travel window counted in history events, with per-run window sizes.
 
+#[path = "support/prune_cursors.rs"]
+mod prune_cursors;
+
 use std::collections::BTreeMap;
 
 use dexzd_apply::read_model::{get_history_events, is_history_event_available, load_blobs};
@@ -187,6 +190,11 @@ impl Harness {
         let outcome =
             apply_flow_command(&self.context, &self.state, &command).expect("the command applies");
         self.state.commit(&outcome);
+        prune_cursors::assert_prune_cursors_skip_no_rows(
+            &self.state.rows,
+            self.context.flow_hash,
+            self.run_id,
+        );
         outcome
     }
 

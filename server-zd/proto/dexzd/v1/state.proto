@@ -205,6 +205,12 @@ message RunRecord {
   // Search cache, kept unless active Step search is DISABLED; older runs recount once.
   // RunStorageUsage.state_row_bytes excludes it.
   ActiveStepTypeCounts search_active_step_type_counts = 74;
+  // Every HistoryRowMetadata row after genesis and before this seq is deleted; zero means pruning
+  // scans from genesis + 1.
+  uint64 history_metadata_pruned_before_seq = 76;
+  // No ValueGarbage row has a seq before this, which never passes the window start; zero means
+  // unrecorded.
+  uint64 value_garbage_pruned_before_seq = 77;
 }
 
 // Active Step executions by Step type: WAIT_FOR, WAITING, or EXECUTE, never the timeout handler.
