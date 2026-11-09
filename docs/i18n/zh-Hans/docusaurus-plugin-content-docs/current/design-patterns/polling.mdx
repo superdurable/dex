@@ -17,7 +17,7 @@ Dex 内部的业务信号，例如 Channel message 和 RPC，不属于 polling�
 
 ## 结构
 
-```text
+```pseudocode
 loop:
     status = call the external API with its own short timeout (for example 10s)
     transient error   -> return the error; the retry policy runs the Step again

@@ -61,6 +61,8 @@ const languageLabels: Record<string, string> = {
   proto: 'Protobuf',
   diff: 'Diff',
   dockerfile: 'Dockerfile',
+  pseudocode: 'Pseudocode',
+  pseudo: 'Pseudocode',
   bash: 'Shell',
   sh: 'Shell',
   shell: 'Shell',
@@ -68,6 +70,10 @@ const languageLabels: Record<string, string> = {
 
 export function ideLanguageLabel(language: string): string {
   return languageLabels[language] ?? language.toUpperCase();
+}
+
+export function lineCountLabel(count: number): string {
+  return count === 1 ? '1 line' : `${count} lines`;
 }
 
 /** Parses a fence metastring attribute such as fold="12-40,55-60". */
@@ -83,7 +89,7 @@ export function explicitFoldRanges(metastring: string | undefined, lineCount: nu
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) {
       return [];
     }
-    return [{start, end, label: `${end - start + 1} lines`}];
+    return [{start, end, label: lineCountLabel(end - start + 1)}];
   });
 }
 
@@ -95,6 +101,12 @@ const importLine: Record<string, RegExp> = {
   javascript: /^import[\s{]/,
   rust: /^(use |extern crate )/,
 };
+
+function bracketDepthChange(line: string): number {
+  const opened = (line.match(/[({]/g) ?? []).length;
+  const closed = (line.match(/[)}]/g) ?? []).length;
+  return opened - closed;
+}
 
 /** Finds the leading import block, so it starts collapsed like in an editor. */
 export function importFoldRange(lines: string[], language: string): IdeFoldRange | undefined {
@@ -108,32 +120,44 @@ export function importFoldRange(lines: string[], language: string): IdeFoldRange
   }
   const start = index;
   let last = -1;
-  let openStatement = false;
+  // An import statement continues while its brackets are open.
+  let openBrackets = 0;
   for (; index < lines.length; index += 1) {
     const line = lines[index];
-    const trimmed = line.trim();
-    if (openStatement) {
+    if (openBrackets > 0) {
       last = index;
-      if ((language === 'go' && trimmed === ')') || /[;)]\s*$|from ['"].+['"];?\s*$/.test(trimmed)) {
-        openStatement = false;
-      }
+      openBrackets += bracketDepthChange(line);
       continue;
     }
-    if (trimmed === '') {
+    if (line.trim() === '') {
       continue;
     }
     if (!startsImport.test(line)) {
       break;
     }
     last = index;
-    openStatement = (language === 'go' && /\($/.test(trimmed)) ||
-      (/^(import|use)\b/.test(trimmed) && /[{(]\s*$/.test(trimmed));
+    openBrackets = Math.max(0, bracketDepthChange(line));
   }
   const count = last - start + 1;
   if (last < 0 || count < 3) {
     return undefined;
   }
   return {start: start + 1, end: last + 1, label: `${count} import lines`};
+}
+
+/** Merges overlapping or touching ranges so no requested line stays visible. */
+export function mergeFoldRanges(ranges: IdeFoldRange[]): IdeFoldRange[] {
+  const merged: IdeFoldRange[] = [];
+  for (const range of [...ranges].sort((first, second) => first.start - second.start)) {
+    const previous = merged[merged.length - 1];
+    if (previous && range.start <= previous.end + 1) {
+      const end = Math.max(previous.end, range.end);
+      merged[merged.length - 1] = {start: previous.start, end, label: lineCountLabel(end - previous.start + 1)};
+    } else {
+      merged.push(range);
+    }
+  }
+  return merged;
 }
 
 /** Collapses the tail of a long block that has no explicit folds. */

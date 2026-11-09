@@ -25,8 +25,11 @@
 }
 
 /* Plain blocks (text, diagrams) keep the light docs surface and its text color. */
-.theme-code-block:not(.ide-code) pre code {
-  color: var(--docs-text, var(--ifm-font-color-base));
+.theme-code-block:not(.ide-code) pre,
+.theme-code-block:not(.ide-code) pre code,
+.theme-code-block:not(.ide-code) .token-line,
+.theme-code-block:not(.ide-code) .token-line span {
+  color: var(--docs-text, var(--ifm-font-color-base)) !important;
 }
 
 .theme-code-block.ide-code {
@@ -182,6 +185,7 @@
 }
 
 .theme-code-block.ide-code .ide-code__scroll {
+  position: relative;
   flex: 1;
   min-width: 0;
   margin: 0;
@@ -229,6 +233,7 @@
 }
 
 .ide-code__fold-button {
+  position: absolute;
   height: 1lh;
   padding: 0 0.55rem;
   border: 0;
@@ -276,19 +281,6 @@
   }
 }
 
-/* The copy button closes the bar even when the language label is hidden. */
-.theme-code-block.ide-code .ide-code__language + .ide-code__copy {
-  margin-left: 0;
-}
-
-.theme-code-block.ide-code .ide-code__bar > .ide-code__copy {
-  margin-left: auto;
-}
-
-.theme-code-block.ide-code .ide-code__language ~ .ide-code__copy {
-  margin-left: 0;
-}
-
 /* Leave room for the floating copy button on the first command. */
 .theme-code-block.ide-code--terminal .ide-code__body {
   padding-right: 2.7rem;
@@ -303,8 +295,9 @@ html[data-theme='dark'] .theme-code-block.ide-code:focus-within {
   box-shadow: 0 0 0 2px var(--ide-focus) !important;
 }
 
+/* On phones the language label is hidden, so the copy button takes the right edge. */
 @media (max-width: 720px) {
-  .theme-code-block.ide-code .ide-code__language ~ .ide-code__copy {
+  .theme-code-block.ide-code .ide-code__bar > .ide-code__copy {
     margin-left: auto;
   }
 }

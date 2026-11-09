@@ -9,7 +9,7 @@ sidebar_label: Inbound Event Loop
 
 ## 结构
 
-```text
+```pseudocode
 rpc sendReply(text)   -> validate text; if invalid: return a rejection
                          Replies.publish(text); return accepted
 rpc resolve(reason)   -> Resolutions.publish(reason)
