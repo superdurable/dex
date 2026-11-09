@@ -115,7 +115,12 @@ same names with underscores for Python, Go, and Rust.
   publishes. Reaching COMPLETED in a Flow whose other Steps used
   GracefulComplete proves the parked Step was withdrawn.
 - Tests read `FlowResult.completions` (Step type plus decoded output). Every
-  GracefulComplete and ForceComplete below returns an explicit output.
+  GracefulComplete and ForceComplete below returns an explicit output. A
+  DeadEnd adds no completion. In TypeScript, string and number outputs travel
+  as Dex scalars and lists and objects as JSON, so decode each with the
+  matching codec.
+- An RPC that declares an Attribute lock fails at once with an RPC lock
+  conflict error while a Step holds that lock. Callers retry it.
 - "Wait for X-1" means Client WaitForStepCompletion on Step execution
   `X`, number 1, with a bounded request timeout.
 - Each test uses a unique Flow ID and bounded waits. Never sleep in a test to
@@ -211,7 +216,7 @@ Input: requiredQuotes (int).
   ResetQuoteJoin `["C"]`.
 
 **BlockingPartialJoinFlow** (WCP-28 with requiredSignals = 1, WCP-31 with 2).
-Input: requiredSignals (int, 1 or 2).
+Input: `{requiredSignals, round}` with requiredSignals 1 or 2 and round 1.
 - Channels: branchASignal, branchBSignal, branchCSignal (string).
 - RPC sendBranchSignal(branch `"A"`, `"B"`, or `"C"`): publishes the branch
   letter to that branch's Channel.
@@ -251,7 +256,8 @@ Input: requiredBids (int).
 
 ### and-join and threads
 
-**GeneralizedAndJoinFlow** (WCP-33). Input: expectedMatches (int).
+**GeneralizedAndJoinFlow** (WCP-33). Input: `{expectedMatches, matchedCount}`,
+started with matchedCount 0.
 - Channels: invoiceReceived, paymentReceived (string).
 - RPCs deliverInvoice(invoiceId string), deliverPayment(paymentId string).
 - Steps: MatchInvoiceAndPayment(`{expectedMatches, matchedCount}`), start Step
@@ -305,7 +311,8 @@ strings).
 - Test `["ana", "ben", "cy", "dee"]`: one CollectReviews completion with all
   four, sorted.
 
-**NoPriorKnowledgeMultipleInstancesFlow** (WCP-15). Input: none.
+**NoPriorKnowledgeMultipleInstancesFlow** (WCP-15). Input: analyzed sample IDs
+(list of strings), started empty.
 - Attributes: startedSampleCount (int), isSampleIntakeClosed (bool).
 - Channels: sampleAnalyzed (string), sampleIntakeClosed (string).
 - RPC addSample(sampleId string) -> bool, locks startedSampleCount: closed ->
@@ -316,8 +323,8 @@ strings).
 - Steps: JoinSamples(analyzed list), the start Step with an empty list. WaitFor:
   closed and analyzed count == started -> SkipImmediately; closed ->
   sampleAnalyzed.ForOne; open -> AnyOf(sampleAnalyzed.ForOne,
-  sampleIntakeClosed.ForOne). Execute, with an Execute lock on
-  startedSampleCount: append consumed samples; closed and count == started ->
+  sampleIntakeClosed.ForOne). Execute (no lock: the count cannot change
+  once intake is closed): append consumed samples; closed and count == started ->
   GoTo(ReportSamples, analyzed); else GoTo(JoinSamples, analyzed).
   AnalyzeSample publishes its sampleId, DeadEnd. ReportSamples returns
   GracefulComplete(sorted).
@@ -352,7 +359,7 @@ strings).
   AcceptQuorumInspections with 2 distinct indexes.
 
 **DynamicPartialJoinForMultipleInstancesFlow** (WCP-36). Input:
-requiredAcceptedBids (int).
+`{requiredAcceptedBids, acceptedBids}`, started with an empty acceptedBids list.
 - Attribute: isBidAdmissionClosed (bool).
 - Channel: bidEvaluated (`{amount: int, isAccepted: bool}`).
 - RPC addBid(amount int) -> bool, locks isBidAdmissionClosed: closed -> false;
@@ -363,7 +370,8 @@ requiredAcceptedBids (int).
   set isBidAdmissionClosed, GoTo(AwardContract, accepted); else GoTo(JoinBids,
   updated). EvaluateBid publishes `{amount, isAccepted: amount <= 1000}`,
   DeadEnd. AwardContract returns GracefulComplete(sorted amounts).
-- Test required = 2: addBid 500, 1500, 700 each return true; COMPLETED;
+- Test required = 2: addBid 500, 1500, 700 each return true (retry an RPC
+  that fails with the RPC lock conflict error while JoinBids holds the lock); COMPLETED;
   AwardContract `[500, 700]`.
 
 ### state based
