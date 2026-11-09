@@ -154,6 +154,16 @@ async fn single_outcome(mut handle: DispatchHandle) -> DispatchOutcome {
     outcome
 }
 
+/// How long a test awaits one task frame, Worker output, or dispatch outcome before failing.
+const TEST_WAIT_LIMIT: Duration = Duration::from_secs(5);
+
+/// Awaits `future`, failing with `description` if it does not finish within [`TEST_WAIT_LIMIT`].
+async fn within_test_wait_limit<T>(description: &str, future: impl Future<Output = T>) -> T {
+    tokio::time::timeout(TEST_WAIT_LIMIT, future)
+        .await
+        .unwrap_or_else(|_| panic!("timed out waiting for {description}"))
+}
+
 fn registry_lock_acquisitions(dispatch: &WorkerDispatch) -> u64 {
     dispatch
         .inner
@@ -173,10 +183,16 @@ async fn an_rpc_matched_at_once_takes_the_registry_lock_twice() {
         let handle = dispatch
             .dispatch(rpc_request(index, sticky_app_worker_id))
             .expect("dispatch starts");
-        let task_id = next_task_id(&mut responses).await.expect("a task");
-        complete_rpc(&dispatch, &worker, task_id).await;
+        let task_id = within_test_wait_limit("the RPC task", next_task_id(&mut responses))
+            .await
+            .expect("a task");
+        within_test_wait_limit(
+            "the RPC output to be processed",
+            complete_rpc(&dispatch, &worker, task_id),
+        )
+        .await;
         assert!(matches!(
-            single_outcome(handle).await,
+            within_test_wait_limit("the RPC outcome", single_outcome(handle)).await,
             DispatchOutcome::WorkerResult { .. }
         ));
     }
@@ -203,9 +219,13 @@ async fn a_declined_sticky_worker_is_skipped_without_waiting() {
             .await
             .expect("the sticky wait is skipped")
             .expect("a task");
-    complete_rpc(&dispatch, &serving, task_id).await;
+    within_test_wait_limit(
+        "the RPC output to be processed",
+        complete_rpc(&dispatch, &serving, task_id),
+    )
+    .await;
     assert!(matches!(
-        single_outcome(handle).await,
+        within_test_wait_limit("the RPC outcome", single_outcome(handle)).await,
         DispatchOutcome::WorkerResult { app_worker_id, .. } if app_worker_id == "worker-b"
     ));
 }
@@ -549,10 +569,19 @@ async fn a_search_cancelled_after_its_wakeup_during_partition_removal_keeps_matc
     let next = dispatch
         .dispatch(rpc_request(5, None))
         .expect("dispatch starts");
-    let task_id = next_task_id(&mut responses).await.expect("a task");
-    complete_rpc(&dispatch, &worker, task_id).await;
+    let task_id = within_test_wait_limit(
+        "the follow-up RPC task on the returned stream",
+        next_task_id(&mut responses),
+    )
+    .await
+    .expect("a task");
+    within_test_wait_limit(
+        "the follow-up RPC output to be processed",
+        complete_rpc(&dispatch, &worker, task_id),
+    )
+    .await;
     assert!(matches!(
-        single_outcome(next).await,
+        within_test_wait_limit("the follow-up RPC outcome", single_outcome(next)).await,
         DispatchOutcome::WorkerResult { .. }
     ));
 }
