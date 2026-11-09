@@ -1948,7 +1948,7 @@ body:has(.v1-page) {
   }
 }
 
-/* ---------------------------------------- horizontal Timeline experiment */
+/* ---------------------------------------------------- horizontal Timeline */
 
 @media (min-width: 761px) {
   .v1-page .run-content.run-content--horizontal-timeline {

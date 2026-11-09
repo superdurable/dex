@@ -59,8 +59,10 @@ need to inspect raw JSON.
 ### 1. Select the relevant event
 
 Open the Flow by Flow ID and Run ID, choose **Timeline**, then select the
-Step event that is waiting, completed, or failed. The selected event panel on
-the right shows the event's title and its event number.
+Step event that is waiting, completed, or failed. On a wide screen, Timeline
+runs left to right, oldest first. Each event's icon shows its kind, and only
+waiting, failed, and canceled events are colored. The selected event panel
+below the Timeline shows the event's title and its event number.
 
 The event number is the event ID. It stays the same on every page and after
 pruning. **Timeline** shows one page of events and opens on the newest page.
@@ -74,8 +76,7 @@ The selected event panel lists **Related events**: the event's WaitFor, its
 source execution, and the executions it started. An entry on the current page
 offers **Show #N**, which selects that event. An entry on another page offers
 **Go to #N**, with a hint that it is on an older or newer page; it loads a page
-around the event and highlights it. Its stub at the top or bottom of
-**Timeline** does the same. **Back** returns to the previous page. Dex Server
+around the event and highlights it. **Back** returns to the previous page. Dex Server
 keeps only a
 [recent history window](/reference/server/configuration#history-window). A
 pruned related event reads **Outside the retention window** and offers no

@@ -794,9 +794,23 @@ also needs the page to be one that Older page reaches from the current newest
 page; Live moves the newest page, so an older page can lose its number. The
 newest page is always page 1. Back restores the page's first and last event.
 
-Timeline shows one page, newest first. Event numbers are event IDs, so they stay
+Timeline shows one page. On screens wider than 760 px it is a horizontal
+strip, oldest on the left, with the selected event panel below it at full
+width. Only the events in view render. Each label is the event's subject, such
+as its Step type, Channel name, RPC name, or Attribute name, slanted at one
+angle constant in `HorizontalTimeline.tsx`. The icon shows the event kind, with
+a quiet tint per family: Step methods, external inputs, and Flow lifecycle.
+Only waiting, failed, and canceled events get a status color, and a failure
+also carries a cross. A Step counts as waiting from its WaitFor return until
+its Execute starts on the newest page; a Flow close cancels it. The overview
+above the strip shows one tick per event and drags or steps the view. Left and
+Right move the selection, Page Up and Page Down move by a screen, and wheel
+input over the strip scrolls it without scrolling the page. Narrower screens
+show the vertical list, newest first.
+Event numbers are event IDs, so they stay
 stable across pages and pruning. Condition-wait and lineage links are resolved
-by event ID. A link whose far end is on another page ends in an edge stub. The
+by event ID. In the vertical list, a link whose far end is on another page ends
+in an edge stub. The
 stub loads the page that holds the far end, highlights it, and offers **Back**.
 Back remembers up to 20 positions and reloads the page it returns to. A far end
 that Dex Web cannot locate is labeled not on this page and has no jump. A jump
@@ -834,8 +848,8 @@ and the close result. **Attributes**, **Channels**, **Queued steps**, and
 values show a **Show all** control. **Start input** shows the run's start.
 **Details** holds the Flow type, Task queue, sticky Worker ID, request ID, the
 first run ID when it differs from the run ID, and the Flow config. Overview has
-no selected event; Timeline and Execution graph keep the selected event panel
-in the sidebar, where the critical-action **Review time travel**
+no selected event; Execution graph keeps the selected event panel in the
+sidebar and Timeline shows it below the strip, where the critical-action **Review time travel**
 entry opens the operation with that Step execution and its WaitFor or Execute
 method already selected. A history event time entered in the dialog is read in
 the page's time zone preference and sent as RFC 3339 UTC. A Time Travel-created run includes a **TimeTravelFork**
