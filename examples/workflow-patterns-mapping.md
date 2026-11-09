@@ -56,7 +56,7 @@ child Flows, a **SubFlow** AllOf wait is the native join.
 | WCP-17 | Interleaved Parallel Routing | +/- | Execute Attribute lock shared by every task; GoTo for the partial order. A lock covers one Execute only, not a Step with a WaitFor or a suspended task | InterleavedParallelRoutingFlow |
 | WCP-18 | Milestone | +/- | Attribute marks the milestone state; an RPC checks it and returns a next Step only while it holds | MilestoneFlow |
 | WCP-19 | Cancel Task | + | RPC result canceling Steps (Step type) plus next Steps | CancelTaskFlow |
-| WCP-20 | Cancel Case | +/- | A cancel Channel wakes a watcher Step. It stops every registered child Flow with Client StopFlow, then returns ForceFail, which cancels every active Step. Child registry plus a shared Attribute lock | CancelCaseFlow |
+| WCP-20 | Cancel Case | +/- | The Step that starts a SubFlow waits AnyOf(SubFlow, cancel Channel). On cancel, its Execute reads the child ID with SubFlow.getFlowId, stops the child with Client StopFlow, and returns ForceFail, which cancels every other active Step | CancelCaseFlow |
 | WCP-21 | Structured Loop | + | A pre-test Step GoTo the loop body or the exit; the body GoTo the test | StructuredLoopFlow |
 | WCP-22 | Recursion | + | A Step waits for a SubFlow of its own Flow type | FactorialRecursionFlow |
 | WCP-23 | Transient Trigger | +/- | Channels persist messages, so an RPC guard under a shared Attribute lock accepts one trigger only while a Step waits and drops the rest | TransientTriggerFlow |
@@ -102,8 +102,11 @@ Totals: 19 `+`, 23 `+/-`, 1 `-`.
 - **WCP-20 is `+/-`.** The definition says "This includes currently executing
   tasks, those which may execute at some future time and all sub-processes."
   Client StopFlow alone leaves running SubFlows alive. The example meets the
-  definition with application bookkeeping: a cancel Channel, a watcher Step, a
-  child Flow registry, and a shared Attribute lock.
+  definition with application bookkeeping: a cancel Channel that every
+  SubFlow-starting Step also waits on, an explicit StopFlow of the child, and a
+  follow-up watcher once no child runs. It uses only public APIs: the child ID
+  comes from SubFlow.getFlowId in Execute. Several children of one Step use
+  AnyCombinationOf({every SubFlow}, {cancel}) and stop each index.
 
 ## File layout
 
@@ -570,43 +573,35 @@ round 1 and roundCount 2.
 
 **CancelCaseFlow** (WCP-20) with child **BackgroundCheckFlow**.
 - CancelCaseFlow input: none.
-- Attribute: caseCancellationLock (bool), used only as a lock key.
-- AttributeMap: startedChildFlowIds (string, instance key = the Step execution
-  ID that started the child).
+- Attribute: stoppedChildFlowIds (list of strings).
 - Channels: applicationReviewed (string), cancelCase (string).
 - RPC cancelCase(reason string): publishes the reason to cancelCase.
-- RPC listStartedChildFlowIds() -> list of strings, loads startedChildFlowIds:
-  the sorted values.
 - Steps: StartApplication (start) -> GoToMany(ReviewApplication,
-  RunBackgroundCheck, WatchCaseCancellation). ReviewApplication waits
-  applicationReviewed.ForOne, returns GracefulComplete("ReviewApplication").
-  RunBackgroundCheck holds a WaitFor lock on caseCancellationLock; WaitFor sets
-  startedChildFlowIds[stepExecutionId] to the derived child Flow ID and waits
-  SubFlow.run(BackgroundCheckFlow, none) as its only condition; Execute
-  returns GracefulComplete("RunBackgroundCheck"). WatchCaseCancellation holds
-  an Execute lock on caseCancellationLock and loads startedChildFlowIds; it
-  waits cancelCase.ForOne; Execute stops every registered child Flow with
-  Client StopFlow (cancel type), treating a not-found or already closed Flow
-  as success, then returns ForceFail("case canceled: " + reason).
-- Derived child Flow ID: Dex Server names a SubFlow
-  `SubFlow:<parent Flow ID>-<Step execution ID>-<condition index>`, so this
-  child is `SubFlow:<flowId>-<stepExecutionId>-0`. A repeated StopFlow is
-  idempotent.
-- The shared lock closes the race: either RunBackgroundCheck's WaitFor commits
-  first, registering and starting the child, and the watcher then stops it; or
-  the watcher commits first, the Flow closes, and the queued WaitFor never
-  runs, so the child never starts.
+  RunBackgroundCheck). ReviewApplication waits applicationReviewed.ForOne,
+  returns GracefulComplete("ReviewApplication").
+- RunBackgroundCheck waits AnyOf(SubFlow.run(BackgroundCheckFlow, none),
+  cancelCase.ForOne). Execute:
+  - cancelCase results non-empty: childFlowId = SubFlow.getFlowId(context, 0);
+    stop it with Client StopFlow (cancel type), treating a not-found or
+    already closed Flow as success; set stoppedChildFlowIds to
+    `[childFlowId]`; return ForceFail("case canceled: " + reason). ForceFail
+    cancels every other active Step, such as ReviewApplication.
+  - otherwise the child completed: GoTo(WatchCaseCancellation).
+- WatchCaseCancellation waits cancelCase.ForOne, returns ForceFail("case
+  canceled: " + reason). It covers a cancel after the child finished, so
+  exactly one Step waits on cancelCase at a time.
+- Only public APIs: the child ID comes from SubFlow.getFlowId, not from a
+  derived string. If cancelCase is queued before the WaitFor commits, the
+  WaitFor still starts the child and AnyOf selects the cancel at once, so the
+  child is stopped.
 - BackgroundCheckFlow input: none. Channel backgroundCheckCompleted (string).
   Step AwaitBackgroundCheck (start) waits backgroundCheckCompleted.ForOne,
   returns GracefulComplete("AwaitBackgroundCheck").
-- Test StopFlow alone (the limitation): start; poll listStartedChildFlowIds
-  until it has one ID; poll DescribeFlow of that child until RUNNING; Client
-  StopFlow on the parent (cancel type); the parent reaches CANCELED; the child
-  is still RUNNING; then stop the child to clean up.
-- Test cancel case (the pattern): start; poll listStartedChildFlowIds until it
-  has one ID and the child is RUNNING; cancelCase("applicant withdrew"); the
-  parent reaches FAILED and has no ReviewApplication completion, so that Step
-  was canceled; poll until the child reaches CANCELED.
+- Test: start; wait for StartApplication-1; cancelCase("applicant withdrew");
+  the parent reaches FAILED and has no ReviewApplication completion; the
+  Client Attribute read of stoppedChildFlowIds has one ID; poll DescribeFlow
+  of that child until it is CANCELED. The child parks forever, so CANCELED
+  proves a running child was stopped.
 
 **CancelRegionFlow** (WCP-25). Input: none.
 - Channels: identityVerified, creditHistoryChecked, sanctionsScreened (string).
