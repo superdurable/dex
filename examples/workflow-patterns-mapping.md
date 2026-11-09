@@ -101,7 +101,7 @@ Planned paths (`<group>` is the group name in the language's file casing):
 | Python | `examples/python/dex_examples/patterns/workflow_patterns/<group_snake>.py` | `examples/python/tests/integ/test_workflow_patterns.py` |
 | Go | `examples/go/patterns/workflow-patterns/<group_snake>.go`, package `workflowpatterns` | `examples/go/integ/workflow_patterns_test.go` |
 | Java | `examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/<FlowType>.java`, one file per Flow type | `examples/java/src/test/java/io/superdurable/dex/integ/WorkflowPatternsIntegTest.java` |
-| Rust | `examples/rust/src/patterns/workflow_patterns/<group_snake>.rs`, plus `mod.rs` | `examples/rust/tests/workflow_patterns.rs` |
+| Rust | `examples/rust/src/workflow_patterns/<group_snake>.rs`, plus the module root `examples/rust/src/workflow_patterns.rs` | `examples/rust/tests/workflow_patterns.rs` |
 
 Group file names: `basic-control-flow`, `multi-choice-and-merges`,
 `partial-joins`, `and-join-and-threads`, `multiple-instances`, `state-based`,
