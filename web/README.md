@@ -16,13 +16,13 @@ The FlowService credential never enters the browser.
 
 `GetHistoryEvents` returns the same `input`, `output`, and `context` step-event
 shape for sync, async, and async-fallback execution. Timeline, Execution graph,
-Time Travel and Selected event use that common structure.
+Time Travel and the selected event panel use that common structure.
 
 `POST /api/blobs/load` batches Dex `LoadBlobs` calls. The browser recursively
 hydrates the selected event and current flow state, dedupes by blob kind and ID,
 and caches loaded values across tabs. Missing values are labeled
 `Value blob unavailable`. Terminal async failures without a retained invocation
-snapshot explain the short-retry behavior in Selected event without raising a
+snapshot explain the short-retry behavior in the selected event without raising a
 page-level data warning. Neither state exposes blob IDs or storage paths.
 
 ## Run standalone dex-web
@@ -620,7 +620,7 @@ only the Flow ID and Start input; requests can omit Worker target fields.
 On server-zd, Time Travel keeps the run ID and creates a new run attempt. The
 Run page reloads the newest history window when the run attempt changes, because
 events after the fork point no longer belong to the current lineage. The
-summary strip replaces **Run chain** with a **Run attempt** selector. Choosing
+header summary row replaces **Run chain** with a **Run attempt** selector. Choosing
 an earlier attempt adds `?runAttempt=N` to the page URL and shows that
 attempt's lineage. Live history stops for an earlier attempt, and live state
 always belongs to the current attempt. Time Travel from that view searches the
@@ -816,10 +816,19 @@ operator follows **Next run**; Dex Web never combines two runs into one graph or
 Timeline and Execution graph show an animated loading indicator while waiting
 for history. Empty states appear after loading finishes. Refreshing retains
 events already on screen. The loading indicator respects reduced-motion settings.
-The page also provides Live Flow state beside Selected event, Run input beside Identity,
-attributes, timers, queued
-steps, channels, completed outputs, stop, and time travel. Timeline and Execution graph keep
-Selected event in the sidebar, where the critical-action **Review time travel**
+The run header names the Flow ID and run ID once, in the breadcrumb, with
+**Flow ID** and **Run ID** copy buttons; the page heading is visually hidden. A
+summary row leads with the run status, then Started, Closed (only for a closed
+run), Duration, the run attempt, and the **Events** paging control.
+Overview leads with **Active steps**: each Step's phase, Step type, and what it
+waits for. A closed run shows its **Outcome** instead, with any failure message
+and the close result. **Attributes**, **Channels**, **Queued steps**, and
+**Completed outputs** follow; empty ones collapse into one quiet line, and long
+values show a **Show all** control. **Start input** shows the run's start.
+**Details** holds the Flow type, Task queue, sticky Worker ID, request ID, the
+first run ID when it differs from the run ID, and the Flow config. Overview has
+no selected event; Timeline and Execution graph keep the selected event panel
+in the sidebar, where the critical-action **Review time travel**
 entry opens the operation with that Step execution and its WaitFor or Execute
 method already selected. A history event time entered in the dialog is read in
 the page's time zone preference and sent as RFC 3339 UTC. A Time Travel-created run includes a **TimeTravelFork**
@@ -854,26 +863,25 @@ SetAttributes type label and the changed values in the event details.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.
 SYNC step Context shows the immediately preceding retry failure when available,
 including its backend-native error, worker details, named and numeric gRPC
-status, and an optional Worker-provided stack. Live Flow state shows the run's
-Flow type and the latest
-pending failure on its matching active Step and expands that stack by default.
+status, and an optional Worker-provided stack. Overview **Active steps** shows
+the latest pending failure on its matching active Step and expands that stack
+by default.
 While a run is active, **Set attribute** writes one Attribute and **Publish
 message** publishes one Channel message to that run. Each takes a JSON,
 string, int64, double, or boolean value. Int64 values travel as decimal text so
 large values keep their precision.
 The Overview **History settings** section shows the run's
 `FlowConfig.history_window_events` as **Retention window**, read as "Last N
-events", and `delete_expired_history_objects` as **Delete expired history from
-object storage**. An unset field reads **Server default**. Expired history is
-never readable either way; the switch only controls whether its object storage
-files are deleted.
-While the run is active, **Edit** changes either field through
+events". An unset field reads **Server default**. An info icon beside the label
+explains that older events are deleted. The page never shows or sends
+`delete_expired_history_objects`, which the server ignores.
+While the run is active, **Edit** changes the window through
 `PUT /api/flows/config/history`, which calls `UpdateFlowConfig` with only the
-changed fields. `UpdateFlowConfig` merges the fields it receives, so the run's
+changed field. `UpdateFlowConfig` merges the fields it receives, so the run's
 other settings stay unchanged. A saved value cannot be cleared back to the
-server default, so the editor offers only a positive window and On or Off.
+server default, so the editor offers only a positive window.
 Closed runs show no live config and offer no editing.
-Selected event Context uses the same failure view with the stack collapsed.
+The selected event's Context uses the same failure view with the stack collapsed.
 ## License
 
 [Sustainable Use License 1.0](LICENSE), with legacy portions under their

@@ -36,7 +36,9 @@ describe('history settings card', () => {
     render(
       <HistorySettingsCard summary={runningSummary} flowConfig={{ stepDurability: 1 }} onSaved={vi.fn()} />,
     );
-    expect(screen.getAllByText('Server default')).toHaveLength(2);
+    expect(screen.getAllByText('Server default')).toHaveLength(1);
+    expect(screen.getByRole('img', { name: 'Older events are deleted.' })).toBeTruthy();
+    expect(screen.queryByText(/Delete expired history/)).toBeNull();
   });
 
   it('shows run overrides', () => {
@@ -47,8 +49,9 @@ describe('history settings card', () => {
         onSaved={vi.fn()}
       />,
     );
+    expect(screen.getByText('Retention window')).toBeTruthy();
     expect(screen.getByText('Last 2,500 events')).toBeTruthy();
-    expect(screen.getByText('Off')).toBeTruthy();
+    expect(screen.queryByText('Off')).toBeNull();
   });
 
   it('treats a running run without a stored config as server defaults', () => {
@@ -64,7 +67,7 @@ describe('history settings card', () => {
       <FlowOverview summary={runningSummary} events={[]} state={state} onHistorySettingsSaved={vi.fn()} />,
     );
     expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
-    expect(screen.getAllByText('Server default')).toHaveLength(2);
+    expect(screen.getAllByText('Server default')).toHaveLength(1);
   });
 
   it('offers no editing for a closed run', () => {
@@ -115,7 +118,7 @@ describe('history settings card', () => {
     render(<HistorySettingsCard summary={runningSummary} flowConfig={{}} onSaved={onSaved} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    fireEvent.change(screen.getByLabelText('Delete expired history from object storage'), { target: { value: 'on' } });
+    fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: '900000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     const alert = await screen.findByRole('alert');
@@ -144,22 +147,22 @@ describe('history settings card', () => {
 });
 
 describe('history settings update', () => {
-  const current = { historyWindowEvents: 500, deleteExpiredHistoryObjects: true };
+  const current = { historyWindowEvents: 500 };
 
   it('leaves out unchanged values', () => {
-    expect(buildHistorySettingsUpdate(current, '500', 'on')).toEqual({ update: {} });
-    expect(buildHistorySettingsUpdate(current, ' ', 'unchanged')).toEqual({ update: {} });
+    expect(buildHistorySettingsUpdate(current, '500')).toEqual({ update: {} });
+    expect(buildHistorySettingsUpdate(current, ' ')).toEqual({ update: {} });
   });
 
-  it('includes each changed value', () => {
-    expect(buildHistorySettingsUpdate(current, '600', 'off')).toEqual({
-      update: { historyWindowEvents: 600, deleteExpiredHistoryObjects: false },
+  it('includes a changed window and never the deletion switch', () => {
+    expect(buildHistorySettingsUpdate(current, '600')).toEqual({
+      update: { historyWindowEvents: 600 },
     });
   });
 
   it('rejects windows that are not positive 32-bit integers', () => {
     for (const text of ['0', '-1', '1.5', 'abc', '2147483648']) {
-      expect(buildHistorySettingsUpdate(current, text, 'unchanged')).toHaveProperty('error');
+      expect(buildHistorySettingsUpdate(current, text)).toHaveProperty('error');
     }
   });
 });

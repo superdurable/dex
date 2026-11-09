@@ -1083,6 +1083,52 @@ body:has(.v1-page) {
   font-size: var(--ui-text-sm);
 }
 
+/* An info icon whose hint shows on hover and keyboard focus. */
+.info-hint {
+  position: relative;
+  display: inline-flex;
+  margin-left: 4px;
+  vertical-align: -2px;
+  color: var(--ui-ink-3);
+  cursor: help;
+}
+
+.info-hint:hover,
+.info-hint:focus-visible {
+  color: var(--tone-accent-ink);
+}
+
+.info-hint::after {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 9px;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-surface);
+  background: var(--ui-ink);
+  content: attr(data-hint);
+  font-size: var(--ui-text-xs);
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+}
+
+.info-hint:hover::after,
+.info-hint:focus-visible::after {
+  opacity: 1;
+}
+
+.v1-page .run-overview .definition-list dt {
+  display: inline-flex;
+  align-items: center;
+}
+
 /* ------------------------------------------------- timeline and graph */
 
 .v1-page .view-toolbar h2 {

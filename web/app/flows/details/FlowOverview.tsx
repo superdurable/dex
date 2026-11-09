@@ -20,7 +20,11 @@ import type { StateWriteKind } from './StateWriteDialog';
 const sectionExpandByKey = new Map<string, boolean>();
 
 /** Deprecated Flow configuration fields that Dex stores but ignores. */
-const ignoredFlowConfigKeys = new Set(['continueAsNewThreshold', 'continueAsNewPageSizeInBytes']);
+const ignoredFlowConfigKeys = new Set([
+  'continueAsNewThreshold',
+  'continueAsNewPageSizeInBytes',
+  'deleteExpiredHistoryObjects',
+]);
 
 function useSectionExpand(persistKey: string) {
   const [expanded, setExpanded] = useState(() => sectionExpandByKey.get(persistKey) ?? false);

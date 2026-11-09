@@ -7,33 +7,28 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useId, useState } from 'react';
-import { Pencil } from 'lucide-react';
+import { Info, Pencil } from 'lucide-react';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 
 const maxInt32 = 2147483647;
-
-type DeleteExpiredChoice = 'unchanged' | 'on' | 'off';
+const retentionWindowHint = 'Older events are deleted.';
 
 export interface HistorySettings {
   historyWindowEvents: number | undefined;
-  deleteExpiredHistoryObjects: boolean | undefined;
 }
 
-/** Reads the two history fields; an absent field means the run uses the server default. */
+/** Reads the history window; an absent field means the run uses the server default. */
 export function historySettingsFromFlowConfig(flowConfig: Record<string, unknown>): HistorySettings {
   const windowEvents = flowConfig.historyWindowEvents;
-  const deleteExpired = flowConfig.deleteExpiredHistoryObjects;
   return {
     historyWindowEvents: typeof windowEvents === 'number' ? windowEvents : undefined,
-    deleteExpiredHistoryObjects: typeof deleteExpired === 'boolean' ? deleteExpired : undefined,
   };
 }
 
 /** The history fields one save changes; an absent field is unchanged. */
 export interface HistorySettingsChange {
   historyWindowEvents?: number;
-  deleteExpiredHistoryObjects?: boolean;
 }
 
 export type HistorySettingsUpdate = { update: HistorySettingsChange } | { error: string };
@@ -42,7 +37,6 @@ export type HistorySettingsUpdate = { update: HistorySettingsChange } | { error:
 export function buildHistorySettingsUpdate(
   current: HistorySettings,
   windowText: string,
-  deleteChoice: DeleteExpiredChoice,
 ): HistorySettingsUpdate {
   const update: HistorySettingsChange = {};
   const trimmedWindow = windowText.trim();
@@ -53,12 +47,6 @@ export function buildHistorySettingsUpdate(
     }
     if (windowEvents !== current.historyWindowEvents) update.historyWindowEvents = windowEvents;
   }
-  if (deleteChoice !== 'unchanged') {
-    const deleteExpired = deleteChoice === 'on';
-    if (deleteExpired !== current.deleteExpiredHistoryObjects) {
-      update.deleteExpiredHistoryObjects = deleteExpired;
-    }
-  }
   return { update };
 }
 
@@ -66,9 +54,13 @@ function windowLabel(windowEvents: number | undefined): string {
   return windowEvents === undefined ? 'Server default' : `Last ${windowEvents.toLocaleString()} events`;
 }
 
-function deleteExpiredLabel(deleteExpired: boolean | undefined): string {
-  if (deleteExpired === undefined) return 'Server default';
-  return deleteExpired ? 'On' : 'Off';
+/** An info icon whose hint shows on hover and keyboard focus. */
+function InfoHint({ text }: { text: string }) {
+  return (
+    <span aria-label={text} className="info-hint" data-hint={text} role="img" tabIndex={0}>
+      <Info aria-hidden="true" size={14} strokeWidth={2} />
+    </span>
+  );
 }
 
 export function HistorySettingsCard({
@@ -83,7 +75,6 @@ export function HistorySettingsCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [windowText, setWindowText] = useState('');
-  const [deleteChoice, setDeleteChoice] = useState<DeleteExpiredChoice>('unchanged');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [isValidationError, setIsValidationError] = useState(false);
@@ -92,13 +83,12 @@ export function HistorySettingsCard({
   const isRunning = summary.flowStatus === 'Running';
   const current = flowConfig ? historySettingsFromFlowConfig(flowConfig) : undefined;
   const canEdit = isRunning && current !== undefined && onSaved !== undefined;
-  const pending = current ? buildHistorySettingsUpdate(current, windowText, deleteChoice) : undefined;
+  const pending = current ? buildHistorySettingsUpdate(current, windowText) : undefined;
   const canSave = !saving && pending !== undefined
     && ('error' in pending || Object.keys(pending.update).length > 0);
 
   const startEditing = () => {
     setWindowText('');
-    setDeleteChoice('unchanged');
     setError('');
     setIsValidationError(false);
     setEditing(true);
@@ -149,10 +139,9 @@ export function HistorySettingsCard({
       )}
       {current && !editing && (
         <dl className="definition-list">
-          <div><dt>Retention window</dt><dd>{windowLabel(current.historyWindowEvents)}</dd></div>
           <div>
-            <dt>Delete expired history from object storage</dt>
-            <dd>{deleteExpiredLabel(current.deleteExpiredHistoryObjects)}</dd>
+            <dt>Retention window <InfoHint text={retentionWindowHint} /></dt>
+            <dd>{windowLabel(current.historyWindowEvents)}</dd>
           </div>
         </dl>
       )}
@@ -169,41 +158,20 @@ export function HistorySettingsCard({
               onChange={(event) => setWindowText(event.target.value)}
             />
           </label>
-          <label>
-            Delete expired history from object storage
-            <select
-              value={deleteChoice}
-              onChange={(event) => setDeleteChoice(event.target.value as DeleteExpiredChoice)}
-            >
-              <option value="unchanged">
-                Unchanged: {deleteExpiredLabel(current.deleteExpiredHistoryObjects)}
-              </option>
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
           <p className="overview-note history-settings-note">
-            A saved value overrides the server default for this run. It can be changed later but not
-            cleared back to the server default. A smaller window prunes older events for good.
-            Expired history is never readable either way; turning deletion on only deletes the
-            object storage files of history the window already passed.
+            A saved value overrides the server default and cannot be cleared. A smaller window
+            deletes older events for good.
           </p>
           {error && <div className="error-banner" id={errorId} role="alert">{error}</div>}
           <div className="history-settings-actions">
-            <button className="button ghost" disabled={saving} onClick={() => setEditing(false)}>
+            <button className="button ghost" disabled={saving} onClick={() => setEditing(false)} type="button">
               Cancel
             </button>
-            <button className="button" disabled={!canSave} onClick={() => void save()}>
+            <button className="button primary" disabled={!canSave} onClick={() => void save()} type="button">
               {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
-      )}
-      {current && !editing && (
-        <p className="overview-note history-settings-note">
-          Saved values override the server default and cannot be cleared. Expired history is
-          never readable; the switch only deletes its object storage files.
-        </p>
       )}
     </section>
   );

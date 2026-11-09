@@ -59,15 +59,17 @@ need to inspect raw JSON.
 ### 1. Select the relevant event
 
 Open the Flow by Flow ID and Run ID, choose **Timeline**, then select the
-Step event that is waiting, completed, or failed. The right-side **Selected
-event** panel identifies the event number and its type.
+Step event that is waiting, completed, or failed. The selected event panel on
+the right shows the event's title and its event number.
 
 The event number is the event ID. It stays the same on every page and after
 pruning. **Timeline** shows at most 1,000 events per page and opens on the
-newest page. Use **Older events** and **Newer events** to move between pages.
-Use **Newest** to return to the page that **Live** keeps extending.
+newest page. The **Events** control in the run header pages through events.
+Use **Older page** and **Newer page** to move between pages, and **Oldest
+page** to open the oldest retained page. Use **Latest page** to return to the
+page that **Live** keeps extending.
 
-The **Selected event** panel lists **Related events**: the event's WaitFor, its
+The selected event panel lists **Related events**: the event's WaitFor, its
 source execution, and the executions it started. Each entry is loaded, on
 another page, pruned, or not on this page. **Not on this page** means Dex Web
 knows the related event exists but cannot locate it, so it offers no jump.
