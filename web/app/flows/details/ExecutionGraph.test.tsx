@@ -47,6 +47,26 @@ describe('Execution graph Step node', () => {
   });
 });
 
+describe('Execution graph method selection', () => {
+  it('marks the method that recorded the selected event', () => {
+    const node: StepGraphNode = {
+      ...completedNode,
+      waitFor: { eventId: 2, eventTime: null, type: 'StepWaitForCompleted', payload: {} },
+    };
+    const { rerender } = render(<StepNodeLabel node={node} onSelect={vi.fn()} selectedEventId={2} />);
+    const waitFor = screen.getByRole('button', { name: /^WaitFor/ });
+    const execute = screen.getByRole('button', { name: 'Execute Completed' });
+    expect(waitFor.className).toContain('is-selected');
+    expect(waitFor.getAttribute('aria-pressed')).toBe('true');
+    expect(execute.getAttribute('aria-pressed')).toBe('false');
+
+    // Selecting from elsewhere, such as Timeline, moves the selected state.
+    rerender(<StepNodeLabel node={node} onSelect={vi.fn()} selectedEventId={3} />);
+    expect(screen.getByRole('button', { name: 'Execute Completed' }).className).toContain('is-selected');
+    expect(screen.getByRole('button', { name: /^WaitFor/ }).getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
 describe('selected event panel', () => {
   it('pins the event header and keeps the scrolling body keyboard focusable', () => {
     const values = new Map<string, string>();

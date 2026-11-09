@@ -171,16 +171,19 @@ function MethodSection({
   event,
   children,
   onSelect,
+  isSelected = false,
 }: {
   name: string;
   status: MethodStatus;
   event?: FlowHistoryEvent;
   children?: React.ReactNode;
   onSelect: (event: FlowHistoryEvent) => void;
+  isSelected?: boolean;
 }) {
   return (
     <button
-      className={`graph-method graph-method-${name.toLowerCase()} graph-method-${status.toLowerCase().replace(' ', '-')} nodrag nopan`}
+      aria-pressed={event ? isSelected : undefined}
+      className={`graph-method graph-method-${name.toLowerCase()} graph-method-${status.toLowerCase().replace(' ', '-')}${isSelected ? ' is-selected' : ''} nodrag nopan`}
       disabled={!event}
       type="button"
       onClick={(clickEvent) => {
@@ -198,9 +201,12 @@ function MethodSection({
 export function StepNodeLabel({
   node,
   onSelect,
+  selectedEventId = null,
 }: {
   node: StepGraphNode;
   onSelect: (event: FlowHistoryEvent) => void;
+  /** The selected event; the method that recorded it shows as selected. */
+  selectedEventId?: number | null;
 }) {
   const condition = waitingCondition(node);
   const timerCount = conditionCount(condition, 'timerConditions');
@@ -234,6 +240,7 @@ export function StepNodeLabel({
             name="WaitFor"
             status={waitForStatus(node)}
             event={node.waitFor ?? node.pendingWaitFor}
+            isSelected={selectedEventId !== null && (node.waitFor ?? node.pendingWaitFor)?.eventId === selectedEventId}
             onSelect={onSelect}
           >
             {(timerCount > 0 || channelCount > 0 || subFlowCount > 0) && (
@@ -264,6 +271,7 @@ export function StepNodeLabel({
           name="Execute"
           status={executeStatus(node)}
           event={node.execute ?? node.pendingExecute}
+          isSelected={selectedEventId !== null && (node.execute ?? node.pendingExecute)?.eventId === selectedEventId}
           onSelect={onSelect}
         />
       </div>
@@ -435,7 +443,7 @@ export function ExecutionGraph({
           model: node,
           hasSubFlowChildren: subFlowParentIDs.has(node.id),
           label: node.kind === 'step' ? (
-            <StepNodeLabel node={node} onSelect={onSelectEvent} />
+            <StepNodeLabel node={node} onSelect={onSelectEvent} selectedEventId={selectedEvent?.eventId ?? null} />
           ) : node.kind === 'subflow' ? (
             <SubFlowNodeLabel flow={node} />
           ) : (
@@ -464,7 +472,7 @@ export function ExecutionGraph({
       };
     });
     return layoutGraph(raw, edges);
-  }, [edges, flowId, graph.nodes, onSelectEvent, selection, subFlowParentIDs]);
+  }, [edges, flowId, graph.nodes, onSelectEvent, selectedEvent?.eventId, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
   const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
 
