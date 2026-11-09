@@ -1184,6 +1184,12 @@ body:has(.v1-page) {
   list-style: none;
 }
 
+/* The preview is one JSON token with few break points, so it may break anywhere. */
+.inline-value-object > summary > code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .inline-value-object > summary::-webkit-details-marker {
   display: none;
 }
@@ -1570,7 +1576,7 @@ body:has(.v1-page) {
 }
 
 .v1-page .run-sidebar .semantic-fields {
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
 }
 
 .v1-page .related-events h4 {
@@ -2311,6 +2317,11 @@ body:has(.v1-page) {
   font-weight: 600;
 }
 
+.decision-summary-part {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .decision-summary-part::before {
   margin: 0 8px;
   color: var(--ui-ink-3);
@@ -2324,6 +2335,7 @@ body:has(.v1-page) {
   background: var(--ui-well);
   font-family: var(--ui-font-mono);
   font-size: 12.5px;
+  overflow-wrap: anywhere;
 }
 
 .decision-summary-details {
@@ -2338,7 +2350,25 @@ body:has(.v1-page) {
 }
 
 .v1-page .run-sidebar .semantic-fields-compact {
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
+}
+
+/* Selected event fields are narrow: a long value wraps to two lines, and its title shows the rest. */
+.v1-page .run-sidebar .semantic-fields dd:not(:has(pre, details, .value-expand-button)) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+}
+
+/* The reader expanded this value, and its nested fields carry no title, so show them in full. */
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .structured-value .semantic-fields dd:not(:has(pre, details, .value-expand-button)) {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  white-space: normal;
 }
 
 .v1-page .run-sidebar .compact-row {
@@ -2362,6 +2392,10 @@ body:has(.v1-page) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
     gap: 24px 32px;
+  }
+
+  .v1-page .run-sidebar .semantic-event > * {
+    min-width: 0;
   }
 
   .v1-page .run-sidebar .semantic-event > :last-child:nth-child(odd) {
