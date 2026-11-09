@@ -17,7 +17,6 @@ pub(super) struct Registry {
     /// Registered stream IDs of each tenant's app Worker.
     pub(super) worker_stream_ids: HashMap<(u64, String), HashSet<Uuid>>,
     pub(super) queues: HashMap<(u64, String), QueueState>,
-    pub(super) next_waiter_sequence: u64,
     /// Idle streams and their position in every subscribed queue's idle order.
     pub(super) idle_positions: HashMap<Uuid, u64>,
     pub(super) next_idle_position: u64,
@@ -34,12 +33,11 @@ impl Registry {
         self.next_idle_position += 1;
         let position = self.next_idle_position;
         self.idle_positions.insert(worker.id, position);
-        for queue_name in &worker.queues {
-            if let Some(queue) = self.queues.get_mut(&(worker.tenant_id, queue_name.clone())) {
+        for queue_key in &worker.queue_keys {
+            if let Some(queue) = self.queues.get_mut(queue_key) {
                 queue.idle.insert(position, worker.id);
             }
         }
-        self.queue_matching.add_idle_step_stream(worker, position);
     }
 
     /// Removes `worker` from the idle order of every queue it serves.
@@ -48,12 +46,29 @@ impl Registry {
         let Some(position) = self.idle_positions.remove(&worker.id) else {
             return;
         };
-        for queue_name in &worker.queues {
-            if let Some(queue) = self.queues.get_mut(&(worker.tenant_id, queue_name.clone())) {
+        for queue_key in &worker.queue_keys {
+            if let Some(queue) = self.queues.get_mut(queue_key) {
                 queue.idle.remove(&position);
             }
         }
-        self.queue_matching.take_idle_step_stream(worker, position);
+    }
+
+    /// Counts a dispatch as a user of queue `key` while it waits; removes the queue once unused.
+    pub(super) fn settle_waiting_user(
+        &mut self,
+        key: &(u64, String),
+        was_waiting: bool,
+        is_waiting: bool,
+    ) {
+        let queue = self.queues.get_mut(key).expect("a picked queue exists");
+        match (was_waiting, is_waiting) {
+            (false, true) => queue.users += 1,
+            (true, false) => queue.users -= 1,
+            (false, false) | (true, true) => {}
+        }
+        if queue.users == 0 {
+            self.queues.remove(key);
+        }
     }
 
     /// Ends the wait of `waiter_sequence` in the queue `key`.
@@ -112,21 +127,19 @@ impl Registry {
         if self.promised_streams.contains_key(&worker.id) {
             return;
         }
-        let mut rpc_choice: Option<(u64, String)> = None;
-        for queue_name in &worker.queues {
-            let Some(queue) = self.queues.get(&(worker.tenant_id, queue_name.clone())) else {
+        let mut rpc_choice: Option<(u64, &(u64, String))> = None;
+        for queue_key in &worker.queue_keys {
+            let Some(queue) = self.queues.get(queue_key) else {
                 continue;
             };
             if let Some(sequence) = self.first_waiter_for(&queue.rpc_waiters, worker, now)
-                && rpc_choice
-                    .as_ref()
-                    .is_none_or(|(chosen, _)| sequence < *chosen)
+                && rpc_choice.is_none_or(|(chosen, _)| sequence < chosen)
             {
-                rpc_choice = Some((sequence, queue_name.clone()));
+                rpc_choice = Some((sequence, queue_key));
             }
         }
-        if let Some((sequence, queue_name)) = rpc_choice {
-            self.wake_waiter(worker, TaskKind::Rpc, sequence, queue_name);
+        if let Some((sequence, queue_key)) = rpc_choice {
+            self.wake_waiter(worker, TaskKind::Rpc, sequence, queue_key);
             return;
         }
         let is_step_allowed = match worker.slot {
@@ -137,21 +150,19 @@ impl Registry {
         if !is_step_allowed {
             return;
         }
-        let mut step_choice: Option<(u64, String)> = None;
-        for queue_name in &worker.queues {
-            let Some(queue) = self.queues.get(&(worker.tenant_id, queue_name.clone())) else {
+        let mut step_choice: Option<(u64, &(u64, String))> = None;
+        for queue_key in &worker.queue_keys {
+            let Some(queue) = self.queues.get(queue_key) else {
                 continue;
             };
             if let Some(sequence) = self.first_waiter_for(&queue.step_waiters, worker, now)
-                && step_choice
-                    .as_ref()
-                    .is_none_or(|(chosen, _)| sequence < *chosen)
+                && step_choice.is_none_or(|(chosen, _)| sequence < chosen)
             {
-                step_choice = Some((sequence, queue_name.clone()));
+                step_choice = Some((sequence, queue_key));
             }
         }
-        if let Some((sequence, queue_name)) = step_choice {
-            self.wake_waiter(worker, TaskKind::Step, sequence, queue_name);
+        if let Some((sequence, queue_key)) = step_choice {
+            self.wake_waiter(worker, TaskKind::Step, sequence, queue_key);
             return;
         }
         // Backlog comes after every waiter (plan D56).
@@ -180,11 +191,11 @@ impl Registry {
         worker: &WorkerStream,
         kind: TaskKind,
         sequence: u64,
-        queue_name: String,
+        queue_key: &(u64, String),
     ) {
         let queue = self
             .queues
-            .get_mut(&(worker.tenant_id, queue_name))
+            .get_mut(queue_key)
             .expect("the chosen waiter's queue exists");
         let waiters = match kind {
             TaskKind::Rpc => &mut queue.rpc_waiters,

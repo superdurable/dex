@@ -10,7 +10,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -32,6 +33,8 @@ use uuid::Uuid;
 
 use crate::MatchingConfig;
 mod backlog_matching;
+#[cfg(test)]
+mod dispatch_contention_tests;
 mod dispatch_handle;
 mod dispatch_request;
 mod queue_state;
@@ -72,6 +75,13 @@ struct DispatchInner {
     /// When set, no Task goes out unless it is valid, so a resumed process hands out no work.
     lease_validity_deadline: Option<LeaseValidityDeadline>,
     registry: Mutex<Registry>,
+    /// Never held together with the registry lock.
+    partition_searches: Mutex<backlog_matching::PartitionSearches>,
+    /// Keeps each dispatch's waiting order across its queues without the registry lock.
+    next_waiter_sequence: AtomicU64,
+    /// Counts registry lock acquisitions so tests can bound them per dispatch.
+    #[cfg(test)]
+    registry_lock_acquisitions_for_test: AtomicU64,
     shutdown: watch::Sender<bool>,
     stream_shutdown: watch::Sender<bool>,
 }
@@ -88,6 +98,7 @@ struct QueueState {
     step_waiters: BTreeMap<u64, QueueWaiter>,
     // The stream each woken waiter must hand on if it does not take that stream.
     woken_waiter_streams: HashMap<u64, Uuid>,
+    /// Subscribed streams plus waiting dispatches; the queue is removed when none remain.
     users: usize,
 }
 
@@ -97,13 +108,15 @@ struct QueueLease {
     waiter_sequence: u64,
     wakeup: Arc<Notify>,
     is_waiting: bool,
+    /// A sticky search checks its Worker's declined types on the first pick only.
+    has_picked: bool,
 }
 
 struct WorkerStream {
     id: Uuid,
     tenant_id: u64,
     /// Queues this stream serves: its registered queue, or its sticky queue and Flow types.
-    queues: Vec<String>,
+    queue_keys: Vec<(u64, String)>,
     /// Flow types whose durable queues this stream may claim from.
     backlog_flow_types: Vec<String>,
     app_worker_id: String,
@@ -141,6 +154,8 @@ enum AssignmentFrame {
 
 struct QueuePick {
     worker: Option<Arc<WorkerStream>>,
+    /// The sticky Worker declined the task type, so the sticky search is skipped.
+    is_sticky_declined: bool,
     has_streams: bool,
     /// When the earliest skipped stream's Step backoff ends.
     next_backoff_end: Option<Instant>,
@@ -204,13 +219,16 @@ impl WorkerDispatch {
                     streams: HashMap::new(),
                     worker_stream_ids: HashMap::new(),
                     queues: HashMap::new(),
-                    next_waiter_sequence: 0,
                     idle_positions: HashMap::new(),
                     next_idle_position: 0,
                     promised_streams: HashMap::new(),
                     unsupported_types,
                     queue_matching: QueueMatching::default(),
                 }),
+                partition_searches: Mutex::new(backlog_matching::PartitionSearches::default()),
+                next_waiter_sequence: AtomicU64::new(0),
+                #[cfg(test)]
+                registry_lock_acquisitions_for_test: AtomicU64::new(0),
                 shutdown,
                 stream_shutdown,
             }),
@@ -270,12 +288,15 @@ impl WorkerDispatch {
     ///
     /// Returns UNAVAILABLE once matching is closing.
     fn next_waiter_sequence(&self) -> Result<u64, Status> {
-        let mut registry = self.lock_registry();
-        if registry.is_closing {
+        // The shutdown watch turns true under the registry lock together with `is_closing`.
+        if *self.inner.shutdown.borrow() {
             return Err(Status::unavailable("matching server is closing"));
         }
-        registry.next_waiter_sequence += 1;
-        Ok(registry.next_waiter_sequence)
+        Ok(self
+            .inner
+            .next_waiter_sequence
+            .fetch_add(1, Ordering::Relaxed)
+            + 1)
     }
 
     /// Reserves an idle Worker slot that may run `request`'s Step type: the sticky Worker
@@ -306,11 +327,22 @@ impl WorkerDispatch {
         self.inner.stream_shutdown.send_replace(true);
     }
 
-    fn lock_registry(&self) -> std::sync::MutexGuard<'_, Registry> {
+    fn lock_registry(&self) -> MutexGuard<'_, Registry> {
+        #[cfg(test)]
+        self.inner
+            .registry_lock_acquisitions_for_test
+            .fetch_add(1, Ordering::Relaxed);
         self.inner
             .registry
             .lock()
             .expect("matching registry lock poisoned")
+    }
+
+    fn lock_partition_searches(&self) -> MutexGuard<'_, backlog_matching::PartitionSearches> {
+        self.inner
+            .partition_searches
+            .lock()
+            .expect("partition search lock poisoned")
     }
 
     async fn run_dispatch(
@@ -335,13 +367,7 @@ impl WorkerDispatch {
         let sticky_queue = request
             .sticky_app_worker_id
             .as_ref()
-            .filter(|id| *id != &request.flow_type)
-            .filter(|id| {
-                !self
-                    .lock_registry()
-                    .unsupported_types
-                    .contains(&task_type, id)
-            });
+            .filter(|id| *id != &request.flow_type);
         let sticky_end = Instant::now() + sticky_wait.min(total_wait).min(deadline_wait);
         let mut search = SearchState {
             excluded_worker_ids: HashSet::new(),
@@ -430,8 +456,7 @@ impl WorkerDispatch {
         search: &mut SearchState,
         scheduled_at: &mut Option<Instant>,
     ) -> Option<DispatchOutcome> {
-        let mut queue_lease =
-            QueueLease::acquire(self, request.tenant_id, queue_name, waiter_sequence);
+        let mut queue_lease = QueueLease::new(self, request.tenant_id, queue_name, waiter_sequence);
         let wakeup = queue_lease.wakeup.clone();
         let mut queued_task =
             QueuedTaskMetric::new(self.inner.metrics.matching_queued_tasks.clone());
@@ -539,7 +564,7 @@ impl WorkerDispatch {
                 }
                 continue;
             }
-            if is_sticky && !picked.has_streams {
+            if is_sticky && (picked.is_sticky_declined || !picked.has_streams) {
                 return None;
             }
             let next_backoff = search
@@ -732,14 +757,30 @@ impl WorkerDispatch {
     ) -> QueuePick {
         let mut guard = self.lock_registry();
         let registry = &mut *guard;
-        let woken_for = if std::mem::take(&mut lease.is_waiting) {
+        if is_sticky
+            && !std::mem::replace(&mut lease.has_picked, true)
+            && registry
+                .unsupported_types
+                .contains(task.task_type, &lease.key.1)
+        {
+            return QueuePick::sticky_declined();
+        }
+        let was_waiting = std::mem::take(&mut lease.is_waiting);
+        let woken_for = if was_waiting {
             registry.end_wait(&lease.key, lease.waiter_sequence)
         } else {
             None
         };
-        let queue = registry.queues.get(&lease.key).expect("queue lease exists");
+        if !registry.queues.contains_key(&lease.key) {
+            registry.queues.insert(lease.key.clone(), QueueState::new());
+        }
+        let queue = registry
+            .queues
+            .get(&lease.key)
+            .expect("picked queue exists");
         let has_streams = !queue.stream_ids.is_empty();
         if registry.is_closing {
+            registry.settle_waiting_user(&lease.key, was_waiting, false);
             return QueuePick::without_worker(has_streams, None);
         }
         let now = Instant::now();
@@ -781,7 +822,7 @@ impl WorkerDispatch {
         let queue = registry
             .queues
             .get_mut(&lease.key)
-            .expect("queue lease exists");
+            .expect("picked queue exists");
         let Some(worker) = selected else {
             if has_streams || !is_sticky {
                 // Registering under the registry lock means no idle stream is missed before the wait.
@@ -792,6 +833,7 @@ impl WorkerDispatch {
                     excluded_streams,
                 );
             }
+            registry.settle_waiting_user(&lease.key, was_waiting, lease.is_waiting);
             registry.pass_on_wakeup(woken_for, None, now);
             return QueuePick::without_worker(has_streams, next_backoff_end);
         };
@@ -801,6 +843,7 @@ impl WorkerDispatch {
             self.inner.config.affinity_duration,
         );
         registry.take_idle(&worker);
+        registry.settle_waiting_user(&lease.key, was_waiting, false);
         let mut state = worker.state.lock().expect("Worker state lock poisoned");
         assert!(
             !state.is_busy && !state.is_closing,
@@ -812,6 +855,7 @@ impl WorkerDispatch {
         registry.pass_on_wakeup(woken_for, Some(worker.id), now);
         QueuePick {
             worker: Some(worker),
+            is_sticky_declined: false,
             has_streams,
             next_backoff_end: None,
         }
@@ -901,9 +945,8 @@ impl WorkerDispatch {
             }
         }
         registry.take_idle(&worker);
-        for queue_name in &worker.queues {
-            let queue_key = (worker.tenant_id, queue_name.clone());
-            if let Some(queue) = registry.queues.get_mut(&queue_key) {
+        for queue_key in &worker.queue_keys {
+            if let Some(queue) = registry.queues.get_mut(queue_key) {
                 queue.stream_ids.remove(&id);
                 queue.users -= 1;
                 if queue.stream_ids.is_empty() {
@@ -911,7 +954,7 @@ impl WorkerDispatch {
                     queue.wake_all_waiters();
                 }
                 if queue.users == 0 {
-                    registry.queues.remove(&queue_key);
+                    registry.queues.remove(queue_key);
                 }
             }
         }

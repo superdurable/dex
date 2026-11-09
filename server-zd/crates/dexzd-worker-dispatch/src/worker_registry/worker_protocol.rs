@@ -72,7 +72,10 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: self.tenant_id,
-            queues: subscribed_queues(&registration),
+            queue_keys: subscribed_queues(&registration)
+                .into_iter()
+                .map(|queue_name| (self.tenant_id, queue_name))
+                .collect(),
             backlog_flow_types: backlog_flow_types(&registration),
             app_worker_id: registration.app_worker_id.clone(),
             slot: StreamSlot::of(&registration),
@@ -106,10 +109,10 @@ impl worker_task_service_server::WorkerTaskService for WorkerTaskService {
                 .entry(worker_key)
                 .or_default()
                 .insert(worker.id);
-            for queue_name in &worker.queues {
+            for queue_key in &worker.queue_keys {
                 let queue = registry
                     .queues
-                    .entry((worker.tenant_id, queue_name.clone()))
+                    .entry(queue_key.clone())
                     .or_insert_with(QueueState::new);
                 queue.stream_ids.insert(worker.id);
                 queue.users += 1;
@@ -216,7 +219,7 @@ fn begin_shutdown(worker: &WorkerStream) -> bool {
     true
 }
 
-async fn process_worker_frame(
+pub(super) async fn process_worker_frame(
     dispatch: &WorkerDispatch,
     worker: &WorkerStream,
     frame: PollWorkerTaskRequest,

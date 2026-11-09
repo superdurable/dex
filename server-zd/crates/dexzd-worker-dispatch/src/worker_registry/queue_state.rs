@@ -77,54 +77,50 @@ impl QueuePick {
     pub(super) fn without_worker(has_streams: bool, next_backoff_end: Option<Instant>) -> Self {
         Self {
             worker: None,
+            is_sticky_declined: false,
             has_streams,
             next_backoff_end,
+        }
+    }
+
+    pub(super) fn sticky_declined() -> Self {
+        Self {
+            worker: None,
+            is_sticky_declined: true,
+            has_streams: false,
+            next_backoff_end: None,
         }
     }
 }
 
 impl QueueLease {
-    /// Counts one queue search as a user of its queue, creating the queue when needed.
-    pub(super) fn acquire(
+    /// Starts one queue search without locking; it counts as a queue user only while it waits.
+    pub(super) fn new(
         dispatch: &WorkerDispatch,
         tenant_id: u64,
         queue_name: &str,
         waiter_sequence: u64,
     ) -> Self {
-        let key = (tenant_id, queue_name.to_owned());
-        let mut registry = dispatch.lock_registry();
-        registry
-            .queues
-            .entry(key.clone())
-            .or_insert_with(QueueState::new)
-            .users += 1;
         Self {
             dispatch: dispatch.clone(),
-            key,
+            key: (tenant_id, queue_name.to_owned()),
             waiter_sequence,
             wakeup: Arc::new(Notify::new()),
             is_waiting: false,
+            has_picked: false,
         }
     }
 }
 
 impl Drop for QueueLease {
     fn drop(&mut self) {
+        if !self.is_waiting {
+            return;
+        }
         let mut guard = self.dispatch.lock_registry();
         let registry = &mut *guard;
-        let woken_for = if self.is_waiting {
-            registry.end_wait(&self.key, self.waiter_sequence)
-        } else {
-            None
-        };
-        let queue = registry
-            .queues
-            .get_mut(&self.key)
-            .expect("leased queue exists");
-        queue.users -= 1;
-        if queue.users == 0 {
-            registry.queues.remove(&self.key);
-        }
+        let woken_for = registry.end_wait(&self.key, self.waiter_sequence);
+        registry.settle_waiting_user(&self.key, true, false);
         // A dispatch that ends after its wakeup hands that wakeup to another waiter.
         registry.pass_on_wakeup(woken_for, None, Instant::now());
     }
@@ -196,8 +192,19 @@ impl QueueState {
         }
         let now = Instant::now();
         let expiry = now + duration;
-        self.affinity
-            .insert(flow_id.to_owned(), (worker_id.to_owned(), expiry));
+        // Updating in place keeps the common same-Worker pick free of allocations under the lock.
+        match self.affinity.get_mut(flow_id) {
+            Some((current_worker_id, current_expiry)) => {
+                if current_worker_id != worker_id {
+                    worker_id.clone_into(current_worker_id);
+                }
+                *current_expiry = expiry;
+            }
+            None => {
+                self.affinity
+                    .insert(flow_id.to_owned(), (worker_id.to_owned(), expiry));
+            }
+        }
         self.affinity_order.push_back((flow_id.to_owned(), expiry));
         while let Some((oldest_id, oldest_expiry)) = self.affinity_order.front() {
             let current = self
@@ -246,17 +253,23 @@ mod tests {
     #[tokio::test]
     async fn empty_queue_leases_and_absent_sticky_queues_are_removed() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
-        let lease = QueueLease::acquire(&dispatch, 0, "Flow", 1);
-        assert_eq!(
+        let mut lease = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let queue_count = || {
             dispatch
                 .inner
                 .registry
                 .lock()
                 .expect("registry lock")
                 .queues
-                .len(),
-            1
+                .len()
+        };
+        assert_eq!(
+            queue_count(),
+            0,
+            "a search that has not picked uses no queue"
         );
+        assert_eq!(pick(&dispatch, &mut lease, "flow", &[]), None);
+        assert_eq!(queue_count(), 1, "a waiting search keeps its empty queue");
         drop(lease);
         assert!(
             dispatch
@@ -308,7 +321,7 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queues: vec!["Flow".to_owned()],
+            queue_keys: vec![(7, "Flow".to_owned())],
             backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: "worker".to_owned(),
             slot: StreamSlot::Legacy,
@@ -358,7 +371,7 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queues: vec!["Flow".to_owned()],
+            queue_keys: vec![(7, "Flow".to_owned())],
             backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: app_worker_id.to_owned(),
             slot: StreamSlot::Legacy,
@@ -442,8 +455,8 @@ mod tests {
     fn a_stream_idle_before_the_wait_wakes_only_the_oldest_waiter() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         // The stream goes idle after the waiter registers but before it awaits its wakeup.
@@ -460,8 +473,8 @@ mod tests {
     fn a_waiter_that_ends_after_its_wakeup_passes_it_on() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut cancelled = QueueLease::acquire(&dispatch, 7, "Flow", 1);
-        let mut waiting = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let mut cancelled = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut waiting = QueueLease::new(&dispatch, 7, "Flow", 2);
         assert_eq!(pick(&dispatch, &mut cancelled, "cancelled", &[]), None);
         assert_eq!(pick(&dispatch, &mut waiting, "waiting", &[]), None);
         dispatch.make_idle(&worker);
@@ -480,9 +493,9 @@ mod tests {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let first = register_busy_stream(&dispatch, "first");
         let second = register_busy_stream(&dispatch, "second");
-        let mut affine = QueueLease::acquire(&dispatch, 7, "Flow", 1);
-        let mut excluding = QueueLease::acquire(&dispatch, 7, "Flow", 2);
-        let mut eligible = QueueLease::acquire(&dispatch, 7, "Flow", 3);
+        let mut affine = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut excluding = QueueLease::new(&dispatch, 7, "Flow", 2);
+        let mut eligible = QueueLease::new(&dispatch, 7, "Flow", 3);
         dispatch
             .inner
             .registry
@@ -525,8 +538,8 @@ mod tests {
         let backoff_stream = register_busy_stream(&dispatch, "a");
         let woken_stream = register_busy_stream(&dispatch, "b");
         dispatch.make_idle(&backoff_stream);
-        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
         let backoff = HashMap::from([(
             backoff_stream.id,
             Instant::now() + Duration::from_secs(3600),
@@ -555,8 +568,8 @@ mod tests {
     fn a_woken_waiter_that_takes_nothing_passes_its_wakeup_on() {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let worker = register_busy_stream(&dispatch, "worker");
-        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         dispatch.make_idle(&worker);
@@ -575,8 +588,8 @@ mod tests {
         let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
         let first = register_busy_stream(&dispatch, "first");
         let second = register_busy_stream(&dispatch, "second");
-        let mut older = QueueLease::acquire(&dispatch, 7, "Flow", 1);
-        let mut newer = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let mut older = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut newer = QueueLease::new(&dispatch, 7, "Flow", 2);
         assert_eq!(pick(&dispatch, &mut older, "older", &[]), None);
         assert_eq!(pick(&dispatch, &mut newer, "newer", &[]), None);
         dispatch.disconnect(first.id);
@@ -586,7 +599,7 @@ mod tests {
         dispatch.disconnect(second.id);
         assert!(has_pending_wakeup(&older));
         assert!(has_pending_wakeup(&newer));
-        let mut sticky = QueueLease::acquire(&dispatch, 7, "Flow", 3);
+        let mut sticky = QueueLease::new(&dispatch, 7, "Flow", 3);
         let picked = dispatch.pick_worker(
             &mut sticky,
             &TaskSearch {
@@ -630,7 +643,7 @@ mod tests {
         let worker = Arc::new(WorkerStream {
             id: Uuid::now_v7(),
             tenant_id: 7,
-            queues: vec!["Flow".to_owned()],
+            queue_keys: vec![(7, "Flow".to_owned())],
             backlog_flow_types: vec!["Flow".to_owned()],
             app_worker_id: "worker".to_owned(),
             slot: StreamSlot::Legacy,
@@ -651,8 +664,8 @@ mod tests {
             queue.users += 1;
             registry.streams.insert(worker.id, worker.clone());
         }
-        let mut first = QueueLease::acquire(&dispatch, 7, "Flow", 1);
-        let mut second = QueueLease::acquire(&dispatch, 7, "Flow", 2);
+        let mut first = QueueLease::new(&dispatch, 7, "Flow", 1);
+        let mut second = QueueLease::new(&dispatch, 7, "Flow", 2);
         assert!(pick_rpc(&dispatch, &mut first).is_none());
         assert!(pick_rpc(&dispatch, &mut second).is_none());
         dispatch.make_idle(&worker);
