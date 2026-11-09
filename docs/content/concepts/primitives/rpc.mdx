@@ -1,0 +1,245 @@
+---
+title: RPC
+slug: /concepts/primitives/rpc
+---
+
+import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDiagram';
+
+# RPC
+
+An **RPC** (Remote Procedure Call) lets code outside a Flow interact with a
+running Flow execution. A web handler, another service, or an operator tool
+calls it through a [Client](/concepts/client).
+
+A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The
+**Worker** runs it, then returns the result to **Dex Server** to persist. **Dex
+Server** then returns the output to the **Client**.
+
+<RpcRequestDiagram markdownDescription="A Client sends an RPC request to Dex Server, which routes it to the Application Worker. The Worker returns the result through Dex Server to the Client." />
+
+## When to use an RPC
+
+Use an RPC when something outside the Flow must change it or ask it a question.
+Examples are an approval, a user who presses Stop, or a request for a view of
+the Flow's state.
+
+An RPC handler can do four things:
+
+- read and write [Attributes](/concepts/primitives/attribute);
+- publish messages to a [Channel](/concepts/primitives/channel);
+- start new [Steps](/concepts/step);
+- cancel running Steps.
+
+<a id="read-only-rpcs-and-terminal-flows"></a>
+
+For a plain read, a Client can skip the RPC. See
+[when a read needs an RPC](/concepts/client#related-primitives).
+See [Read-only RPCs and terminal Flows](/reference/server/runtime-data#read-only-rpcs-and-terminal-flows).
+
+## Guarantees
+
+Each RPC invocation commits like a Step method: its Attribute writes and Channel
+publications commit with its result, only on success. See
+[Step guarantees](/concepts/step#guarantees).
+
+<a id="rpc-timeout"></a>
+
+An RPC runs on a Worker, like a Step. A timeout limits each handler invocation.
+See [RPC timeout](/reference/server/runtime-data#rpc-timeout).
+
+## Define and invoke an RPC
+
+This RPC writes an Attribute, publishes a Channel message, and starts a Step:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc',
+    go: 'examples/go/primitives/rpc',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
+    typescript: 'examples/typescript/src/primitives/rpc',
+    rust: 'examples/rust/src/primitives/rpc',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc
+def trigger(self, context: Context, input: str) -> RPCResult[str]:
+    self.data.set(context, input)
+    self.example_ch.publish(context, None)
+    return RPCResult(input, next_steps=(StepMovement.of(Example, input),))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (flow *RpcFlow) GetRPCs() []dex.RPCDef {
+	return []dex.RPCDef{
+		dex.DefineRPC(flow.Trigger, &dex.RPCOptions{Timeout: 30 * time.Second}),
+	}
+}
+
+func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], error) {
+	if err := Data.Set(ctx, input); err != nil {
+		return nil, err
+	}
+	if err := ExampleCh.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{
+		Output: input,
+		NextSteps: []dex.StepMovement{
+			dex.MovementOf(exampleStep{}, input),
+		},
+	}, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@RPC
+public RPCResult<String> trigger(final Context context, final String input) {
+    data.set(context, input);
+    exampleCh.publish(context, null);
+    return RPCResult.of(input, StepMovement.of(Example.class, input));
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+public trigger(context: Context, input: string): RPCResult<string> {
+  this.data.set(context, input);
+  exampleCh.publish(context, undefined);
+  return { output: input, nextSteps: [StepMovement.of(Example, input)] };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl RpcFlow {
+    fn trigger(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<String>> {
+        data().set(context, input.clone())?;
+        example_ch().publish(context, ())?;
+        Ok(RpcResult::new(input.clone()).then(StepMovement::to(&self.example_step, input)))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Then invoke the RPC from a Client:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc',
+    go: 'examples/go/primitives/rpc',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
+    typescript: 'examples/typescript/src/primitives/rpc',
+    rust: 'examples/rust/src/primitives/rpc',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+result = await client.invoke_rpc(flow.trigger, flow_id, message)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+var result string
+err := client.InvokeRPC(
+	ctx,
+	flowID,
+	flow.Trigger,
+	message,
+	&result,
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final RpcFlow flow = client.newRpcStub(RpcFlow.class, flowId);
+final String result = client.invokeRPC(flow::trigger, message);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const result = await client.invokeRPC(flow.trigger, flowId, message);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+let result = client.invoke_rpc(&workflow_id, TRIGGER_RPC, message)?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<a id="java-and-kotlin"></a>
+<a id="typescript-codecs"></a>
+
+Java, Kotlin, and TypeScript have extra RPC rules. See
+[RPC stubs and Kotlin](/reference/java/#rpc-stubs-and-kotlin) and
+[RPC codecs](/reference/typescript/#rpc-codecs).
+
+## Cancel running Steps {#cancel-running-steps}
+
+<a id="cancel-race"></a>
+<a id="cancel-honour"></a>
+
+An RPC result can cancel active Steps of its Flow, selected by Step type. Use it
+when a request from outside makes work in progress pointless, such as a user who
+presses Stop while a report or a model call runs. Dex applies the cancellation
+when it commits the RPC. The Step code must check for cancellation and stop. See
+[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for the example,
+[Resolve the race from committed state](/reference/server/runtime-data#cancel-race) for a Step that
+finishes first, and [Make the Step stop](/reference/server/runtime-data#cancel-honour) for how each SDK
+delivers cancellation.
+
+## Locks and transactional RPCs {#transactional-reads-and-writes}
+
+<a id="attribute-locks"></a>
+
+Concurrent Steps and RPCs can change the same state. An RPC can take
+[Attribute locks](/concepts/primitives/attribute#locking) to run one at a time with
+them. An RPC that cannot get a lock fails at once, and the caller retries it.
+See [Locks](/reference/server/runtime-data#attribute-locks) and
+[RPC lock conflicts](/reference/server/runtime-data#rpc-lock-conflicts).
+
+A **transactional** RPC adds a check when Dex commits it. If a Channel message
+that it deletes is no longer pending, the RPC fails and commits nothing. A
+non-transactional RPC skips the missing deletion and commits the rest. An RPC
+that holds a lock is always transactional. See
+[Transactional RPCs](/reference/server/runtime-data#transactional-reads-and-writes).
+
+<a id="load-collection-state"></a>
+<a id="runtime-selected-map-instances"></a>
+
+## Load collections
+
+An RPC receives regular Attributes and Channel sizes. It loads AttributeMap
+entries and pending Channel messages only when it declares them. This keeps
+large collections out of RPCs that do not use them. See
+[Selective state loading](/reference/server/runtime-data#load-collection-state) and
+[Runtime-selected map instances](/reference/server/runtime-data#runtime-selected-map-instances).
+
+## Reference
+
+[Data primitive semantics](/reference/server/runtime-data#rpcs) covers
+cancellation, read-only RPCs on closed Flows, state loading, transactional
+RPCs, and timeouts in detail.

@@ -70,7 +70,7 @@ const home = await readFile(join(root, 'index.html'), 'utf8');
 const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
 const cron = await readFile(join(root, 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const whyDex = await readFile(join(root, 'intro', 'what-is-dex', 'index.html'), 'utf8');
-const components = await readFile(join(root, 'primitives', 'components', 'index.html'), 'utf8');
+const components = await readFile(join(root, 'components', 'index.html'), 'utf8');
 const referenceLanding = await readFile(join(root, 'reference', 'index.html'), 'utf8');
 const zhReferenceLanding = await readFile(join(root, 'zh-Hans', 'reference', 'index.html'), 'utf8');
 const serverReference = await readFile(join(root, 'reference', 'server', 'workers', 'index.html'), 'utf8');
@@ -90,7 +90,7 @@ const dexConnectorContributor = await readFile(
   join(root, 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
   'utf8',
 );
-const connector = await readFile(join(root, 'primitives', 'components', 'connector', 'index.html'), 'utf8');
+const connector = await readFile(join(root, 'components', 'connector', 'index.html'), 'utf8');
 const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const zhDexSkills = await readFile(join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'index.html'), 'utf8');
 const zhDexAppBuilder = await readFile(
@@ -105,9 +105,9 @@ const zhDexConnectorContributor = await readFile(
   join(root, 'zh-Hans', 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html'),
   'utf8',
 );
-const zhConnector = await readFile(join(root, 'zh-Hans', 'primitives', 'components', 'connector', 'index.html'), 'utf8');
+const zhConnector = await readFile(join(root, 'zh-Hans', 'components', 'connector', 'index.html'), 'utf8');
 const zhWhyDex = await readFile(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html'), 'utf8');
-const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
+const zhSubflow = await readFile(join(root, 'zh-Hans', 'concepts', 'primitives', 'subflow', 'index.html'), 'utf8');
 const dexSkillHostTabsSource = await readFile(join(docsRoot, 'src', 'components', 'DexSkillHostTabs.tsx'), 'utf8');
 const dexSkillHostData = JSON.parse(await readFile(join(docsRoot, 'src', 'data', 'dex-skill-hosts.json'), 'utf8'));
 const dexSkillSourcePaths = [
@@ -225,13 +225,13 @@ assert.match(home, /简体中文/);
 assert.match(home, /Build with AI/);
 assert.match(home, /href="\/build-with-ai\/dex-developer-skill\/">Overview<\/a>/);
 
-const primitivesPosition = home.indexOf('>Primitives<');
+const conceptsPosition = home.indexOf('>Concepts<');
 const componentsPosition = home.indexOf('>Components<');
 const agentFrameworksPosition = home.indexOf('>Agent Frameworks<');
 const agentSkillsPosition = home.indexOf('>Agent Skills<');
 const designPatternsPosition = home.indexOf('>Design Patterns<');
-assert.ok(primitivesPosition >= 0);
-assert.ok(componentsPosition > primitivesPosition);
+assert.ok(conceptsPosition >= 0);
+assert.ok(componentsPosition > conceptsPosition);
 assert.ok(agentFrameworksPosition > componentsPosition);
 assert.ok(agentSkillsPosition > agentFrameworksPosition);
 assert.ok(designPatternsPosition > agentSkillsPosition);
@@ -264,7 +264,7 @@ assert.match(whyDex, /flow-definition-canvas/);
 assert.match(whyDex, /OrderProcessingFlow/);
 assert.match(zhWhyDex, /flow-definition-canvas/);
 assert.match(zhWhyDex, /OrderProcessingFlow/);
-assert.match(components, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/components\/"/);
+assert.match(components, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/components\/"/);
 assert.match(referenceLanding, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/reference\/"/);
 assert.match(referenceLanding, /id="compatibility-matrix"/);
 assert.match(zhReferenceLanding, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/reference\/"/);
@@ -388,25 +388,25 @@ assert.match(zhDexConnectorContributor, /https:\/\/github\.com\/superdurable\/de
 assert.match(connector, /Dex component/);
 assert.match(connector, /Connectors support Go, Python, and TypeScript/);
 assert.match(connector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
-assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/primitives\/components\/connector\/"/);
+assert.match(connector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/components\/connector\/"/);
 assert.match(zhConnector, /Dex component/);
 assert.match(zhConnector, /Connector 支持 Go、Python 和 TypeScript/);
 assert.match(zhConnector, /https:\/\/github\.com\/superdurable\/dex-connectors-library\/issues\/new/);
-assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/components\/connector\/"/);
-assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
+assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/components\/connector\/"/);
+assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/concepts\/primitives\/subflow\/"/);
 
 await Promise.all([
   access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
-  access(join(root, 'primitives', 'index.html')),
+  access(join(root, 'concepts', 'index.html')),
   access(join(root, 'primitives', 'connector', 'index.html')),
-  access(join(root, 'primitives', 'step', 'index.html')),
+  access(join(root, 'concepts', 'step', 'index.html')),
   access(join(root, 'reference', 'cli', 'index.html')),
   access(join(root, 'reference', 'web', 'flow-visualization', 'index.html')),
   access(join(root, 'reference', 'go', 'workers', 'index.html')),
   access(join(root, 'agent-frameworks', 'deploy-agents', 'index.html')),
-  access(join(root, 'zh-Hans', 'primitives', 'components', 'application', 'index.html')),
+  access(join(root, 'zh-Hans', 'components', 'application', 'index.html')),
   access(join(root, 'zh-Hans', 'reference', 'rust', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html')),

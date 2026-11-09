@@ -165,7 +165,7 @@ When you select a run, the stage that holds the waiting Step opens, and the Step
 
 ## Start Flow
 
-The Run workspace shows **Start Flow** when the selected definition contains a generated start schema. The dialog asks for a Flow ID and the start input. The Flow runs on a [pull Worker](/primitives/components/application) that is connected to the server. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
+The Run workspace shows **Start Flow** when the selected definition contains a generated start schema. The dialog asks for a Flow ID and the start input. The Flow runs on a [pull Worker](/components/application) that is connected to the server. It renders nested objects, arrays, string-key maps, enums, booleans, datetime values, optional fields, and explicit null values. Fixed arrays keep their declared length. Integer values remain decimal text in the browser until serialization, so int64 values keep their exact precision.
 
 The Go analyzer derives the schema from the input type of the Step registered with **DefineStartStep**. It follows JSON field names, ignored fields, pointers, and **omitempty**. It supports nested and imported structs, named string and integer constants, **time.Time**, ordinary numeric widths, slices, fixed arrays, and string-key maps. A recursive or unsupported input produces a warning and omits the start schema without hiding the rest of the definition.
 

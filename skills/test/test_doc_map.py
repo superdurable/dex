@@ -18,7 +18,7 @@ DOC_MAP = """# comment
 mappings:
   - skill: dex-sdk/references/core/timer.md
     docs:
-      - docs/content/primitives/timer.mdx
+      - docs/content/concepts/primitives/timer.mdx
       - docs/content/design-patterns/durable-timer/index.mdx
 
   - skill: dex-sdk/references/core/patterns.md
@@ -61,7 +61,7 @@ class ValidateEntriesTest(unittest.TestCase):
     def test_reports_missing_files_and_duplicates(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_files(root, "skills/dex-sdk/references/core/timer.md", "docs/content/primitives/timer.mdx")
+            write_files(root, "skills/dex-sdk/references/core/timer.md", "docs/content/concepts/primitives/timer.mdx")
             text = DOC_MAP.split("\nunmapped:")[0]
             entries = CHECKER.parse_doc_map(text + text.split("mappings:\n", 1)[1]).entries
             problems = CHECKER.validate_entries(entries, root)
@@ -88,7 +88,7 @@ class ClassificationTest(unittest.TestCase):
             "skills/dex-sdk/references/go/go.md",
             "skills/dex-sdk/references/core/timer.md",
             "skills/dex-sdk/references/core/patterns.md",
-            "docs/content/primitives/timer.mdx",
+            "docs/content/concepts/primitives/timer.mdx",
             "docs/content/design-patterns/durable-timer/index.mdx",
         ]
 
@@ -96,7 +96,7 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(CHECKER.find_unclassified_files(self.doc_map, self.classified, Path(".")), [])
 
     def test_requires_a_decision_for_a_new_file(self):
-        for path in ("skills/dex-sdk/references/core/new-primitive.md", "docs/content/primitives/new-primitive.mdx"):
+        for path in ("skills/dex-sdk/references/core/new-primitive.md", "docs/content/concepts/primitives/new-primitive.mdx"):
             with self.subTest(path=path):
                 problems = CHECKER.find_unclassified_files(self.doc_map, [*self.classified, path], Path("."))
                 self.assertEqual(len(problems), 1)
@@ -109,10 +109,10 @@ class ClassificationTest(unittest.TestCase):
     def test_lists_the_real_stable_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            write_files(root, "skills/dex-sdk/SKILL.md", "skills/dex-sdk/scripts/tool.py", "docs/content/primitives/flow/index.mdx")
+            write_files(root, "skills/dex-sdk/SKILL.md", "skills/dex-sdk/scripts/tool.py", "docs/content/concepts/flow/index.mdx")
             self.assertEqual(
                 CHECKER.list_stable_files(root),
-                ["docs/content/primitives/flow/index.mdx", "skills/dex-sdk/SKILL.md"],
+                ["docs/content/concepts/flow/index.mdx", "skills/dex-sdk/SKILL.md"],
             )
 
 
@@ -131,7 +131,7 @@ class FindUnpairedChangesTest(unittest.TestCase):
         self.entries = CHECKER.parse_doc_map(DOC_MAP).entries
 
     def test_accepts_both_sides_changed(self):
-        changed = {"skills/dex-sdk/references/core/timer.md", "docs/content/primitives/timer.mdx"}
+        changed = {"skills/dex-sdk/references/core/timer.md", "docs/content/concepts/primitives/timer.mdx"}
         self.assertEqual(CHECKER.find_unpaired_changes(self.entries, changed), [])
 
     def test_accepts_any_counterpart_of_a_shared_page(self):
@@ -139,8 +139,8 @@ class FindUnpairedChangesTest(unittest.TestCase):
         self.assertEqual(CHECKER.find_unpaired_changes(self.entries, changed), [])
 
     def test_reports_a_one_sided_change(self):
-        unpaired = CHECKER.find_unpaired_changes(self.entries, {"docs/content/primitives/timer.mdx", "README.md"})
-        self.assertEqual(unpaired, [("docs/content/primitives/timer.mdx", ["skills/dex-sdk/references/core/timer.md"])])
+        unpaired = CHECKER.find_unpaired_changes(self.entries, {"docs/content/concepts/primitives/timer.mdx", "README.md"})
+        self.assertEqual(unpaired, [("docs/content/concepts/primitives/timer.mdx", ["skills/dex-sdk/references/core/timer.md"])])
         unpaired = CHECKER.find_unpaired_changes(self.entries, {"skills/dex-sdk/references/core/timer.md"})
         self.assertEqual(unpaired[0][0], "skills/dex-sdk/references/core/timer.md")
 

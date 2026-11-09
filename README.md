@@ -5,7 +5,7 @@
 
 # Durable Execution(D-EX). No Replay, Zero Dependencies.
 
-**Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/primitives) as Durable Execution Engine.  
+**Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/concepts) as Durable Execution Engine.  
 
 You use Dex to write a Flow filled with native programming code: Steps, Attributes, RPCs, Conditions, Stream. Worker hosts the Flow code and pull tasks from Dex server.
 

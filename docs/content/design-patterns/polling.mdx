@@ -60,7 +60,7 @@ The failure record does not include the last observed status. The progress Strea
 
 A new attempt resumes from the last checkpoint, which **GetLastHeartbeatValue** returns. In the example, the checkpoint is the last reported job status, so a retry does not repeat a progress message.
 
-Write a Stream message when the observed status changes, and record a heartbeat otherwise. Unchanged rounds should not fill the Stream. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) and [Stream](/primitives/stream).
+Write a Stream message when the observed status changes, and record a heartbeat otherwise. Unchanged rounds should not fill the Stream. Stream messages are best effort, so consumers recover from durable state, such as Attributes, a read RPC, or the Flow result. See [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) and [Stream](/concepts/primitives/stream).
 
 ## Locks
 
@@ -453,6 +453,6 @@ impl Step for RecordJobWaitFailure {
 ## Related
 
 - [Step options](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration)
-- [Stream](/primitives/stream)
+- [Stream](/concepts/primitives/stream)
 - [Failure Handling](/design-patterns/failure-handling)
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)

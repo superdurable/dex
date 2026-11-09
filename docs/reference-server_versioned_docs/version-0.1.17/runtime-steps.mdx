@@ -8,7 +8,7 @@ sidebar_label: Flows and Steps
 This page holds the detailed runtime rules for Flows and Steps: start options,
 Flow configuration, waits, Step decisions, Step options, and what happens when
 an attempt fails or is interrupted. For the concepts, read
-[Flow](/primitives/flow) and [Step](/primitives/step) first. For the exact
+[Flow](/concepts/flow) and [Step](/concepts/step) first. For the exact
 signature of one API in your language, read its SDK doc comment.
 
 ## Flow definition {#flow-definition}
@@ -600,7 +600,7 @@ calls are outside this atomic boundary.
 
 Before its final **Wait** or **StepDecision**, a handler can send
 [heartbeat checkpoints](#heartbeat) and any number of best-effort
-[Stream messages](/primitives/stream). The response stream must end with
+[Stream messages](/concepts/primitives/stream). The response stream must end with
 exactly one final result. These progress frames are not part of the method's
 commit, and a Stream Store failure does not fail the Step.
 
@@ -608,8 +608,8 @@ commit, and a Stream Store failure does not fail the Step.
 
 **WaitFor** returns a **Wait** with a wait type and the conditions to wait for.
 Dex persists the waiting state and evaluates the conditions when related state
-changes. [Timer](/primitives/timer), [Channel](/primitives/channel), and
-[SubFlow](/primitives/subflow) are the condition kinds.
+changes. [Timer](/concepts/primitives/timer), [Channel](/concepts/primitives/channel), and
+[SubFlow](/concepts/primitives/subflow) are the condition kinds.
 
 - **Until** waits for one condition.
 - **AnyOf** is met when any condition is met.
@@ -743,9 +743,9 @@ Ok(Wait::all_of([
 ### Condition results {#condition-results}
 
 After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
-[Channel](/primitives/channel), use **GetConditionResults** / **results** /
+[Channel](/concepts/primitives/channel), use **GetConditionResults** / **results** /
 **condition_results** to read published messages. For a
-[SubFlow](/primitives/subflow), use **SubFlowResult** / **getConditionResults**
+[SubFlow](/concepts/primitives/subflow), use **SubFlowResult** / **getConditionResults**
 / **condition_result** to decode the child Flow output.
 
 Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes
@@ -2065,9 +2065,9 @@ A retry of one **Execute** call reuses the
 [state snapshot](#selective-state-loading) that Dex took when it handed the
 first attempt to a Worker, so it does not see Attribute writes made after that.
 To wait for an external write, have the writer also publish a
-[Channel](/primitives/channel) message, directly or from an RPC handler, and
+[Channel](/concepts/primitives/channel) message, directly or from an RPC handler, and
 wait on that message in the **WaitFor** of the next Step. Alternatively, the
-next Step can wait on a [Timer](/primitives/timer) and read fresh state when it
+next Step can wait on a [Timer](/concepts/primitives/timer) and read fresh state when it
 runs.
 
 <SdkTabs
@@ -2285,7 +2285,7 @@ For a long wait on an external system, see
 ### Heartbeat {#heartbeat}
 
 During an attempt, the Worker must send a heartbeat or a
-[Stream message](/primitives/stream) before the **HeartbeatTimeout** expires.
+[Stream message](/concepts/primitives/stream) before the **HeartbeatTimeout** expires.
 Sending a Stream message is an implicit heartbeat.
 
 For example, an **Execute** method timeout of 60 seconds and a
@@ -2564,7 +2564,7 @@ separate lock sets. Set them by returning **StepOptions**.
 
 See [Attribute locks](/reference/server/0.1.17/runtime-data#attribute-locks) for when
 a Step attempt takes and holds its locks, with **WaitFor** and **Execute**
-examples. See [Locks](/primitives/attribute#locking) for the lock model.
+examples. See [Locks](/concepts/primitives/attribute#locking) for the lock model.
 
 ## Failure and redelivery {#failure-and-redelivery}
 

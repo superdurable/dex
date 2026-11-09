@@ -8,8 +8,8 @@ sidebar_label: Waits
 
 **WaitFor** returns a **Wait** with a wait type and the conditions to wait for.
 Dex persists the waiting state and evaluates the conditions when related state
-changes. [Timer](/primitives/timer), [Channel](/primitives/channel), and
-[SubFlow](/primitives/subflow) are the condition kinds.
+changes. [Timer](/concepts/primitives/timer), [Channel](/concepts/primitives/channel), and
+[SubFlow](/concepts/primitives/subflow) are the condition kinds.
 
 - **Until** waits for one condition.
 - **AnyOf** is met when any condition is met.
@@ -43,9 +43,9 @@ Example: [examples/go/primitives/wait-types/workflow.go](https://github.com/supe
 ## Condition results {#condition-results}
 
 After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
-[Channel](/primitives/channel), use **GetConditionResults** / **results** /
+[Channel](/concepts/primitives/channel), use **GetConditionResults** / **results** /
 **condition_results** to read published messages. For a
-[SubFlow](/primitives/subflow), use **SubFlowResult** / **getConditionResults**
+[SubFlow](/concepts/primitives/subflow), use **SubFlowResult** / **getConditionResults**
 / **condition_result** to decode the child Flow output.
 
 Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes

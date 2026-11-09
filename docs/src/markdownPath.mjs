@@ -11,7 +11,7 @@
  *
  * The exporter, the robot link, and the site audit share this mapping.
  *
- * @param {string} permalink The page route, such as `/primitives/attribute/`.
+ * @param {string} permalink The page route, such as `/concepts/primitives/attribute/`.
  * @param {string} baseUrl The locale base URL, such as `/` or `/zh-Hans/`.
  * @returns {string} The sibling `.md` path, or `<baseUrl>index.md` for the locale home page.
  */

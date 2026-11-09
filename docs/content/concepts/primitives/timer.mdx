@@ -1,0 +1,227 @@
+---
+title: Timer
+slug: /concepts/primitives/timer
+---
+
+# Timer
+
+A **Timer** is a durable timer that Dex Server keeps. A Step returns it from
+**WaitFor**, and **Execute** runs when it fires. While the Step waits, no Worker
+holds memory, a thread, or a connection for it.
+
+## When to use a Timer
+
+Use a Timer for a delay, a reminder, or a deadline. Combine it with another
+condition to build a timeout: a Step that waits for any of a
+[Channel](/concepts/primitives/channel) message and a Timer proceeds with whichever
+comes first.
+
+## Guarantees
+
+The server stores the Timer with the Flow. It survives Worker restarts and
+server failover. In **Execute**, the Step checks whether its Timer fired.
+
+## Wait for a Timer
+
+This Step waits for the number of seconds in its input:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/timer/timer_flow.py',
+    go: 'examples/go/primitives/timer/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/timer/TimerFlow.java',
+    typescript: 'examples/typescript/src/primitives/timer/timer-flow.ts',
+    rust: 'examples/rust/src/primitives/timer/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class TimerExampleStep(Step[int]):
+    def wait_for(self, _context: Context, input: int) -> Wait:
+        return Wait.until(Timer.by_duration(timedelta(seconds=input)))
+
+    def execute(self, context: Context, _input: int) -> StepDecision:
+        print(context.has_timer_fired())
+        return graceful_complete("timer-fired")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+type TimerExampleStep struct {
+	dex.StepDefaults
+}
+
+func (TimerExampleStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(time.Duration(input) * time.Second)), nil
+}
+
+func (TimerExampleStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	fmt.Println(ctx.HasTimerFired())
+	return dex.GracefulComplete("timer-fired"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final class TimerExampleStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.until(Timer.byDuration(Duration.ofSeconds(input)));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        System.out.println(context.hasTimerFired());
+        return StepDecision.gracefulComplete("timer-fired");
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+class TimerExampleStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "TimerExampleStep";
+  }
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.until(Timer.byDuration(input * 1000));
+  }
+
+  public execute(context: Context, _input: number): StepDecision {
+    console.log(context.hasTimerFired());
+    return gracefulComplete("timer-fired");
+  }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct TimerExampleStep;
+
+impl Step for TimerExampleStep {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+            input.max(0) as u64,
+        ))))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        println!("{}", context.has_any_timer_fired());
+        Ok(StepDecision::graceful_complete("timer-fired".to_string()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<a id="how-to-skip-a-timer"></a>
+
+## Skip a Timer
+
+A Client can skip a Timer with **SkipTimer**. It selects the Timer by Flow ID,
+Step execution ID, and either the Timer's condition ID or the index of its
+condition in **WaitFor**. A skipped
+Timer acts as if it had fired. Use it in tests, or in production to run a
+waiting Step early. See [Skip a Timer](/reference/server/runtime-client#skip-a-timer).
+
+In this test of the order-processing example, the **Ship** Step waits on a
+Timer, and the test skips it:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/tests/integ/test_order_processing.py',
+    go: 'examples/go/integ/order_processing_test.go',
+    java: 'examples/java/src/test/java/io/superdurable/dex/integ/OrderProcessingIntegTest.java',
+    typescript: 'examples/typescript/test/integ/order-processing.test.ts',
+    rust: 'examples/rust/tests/dex_integration.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+await client.skip_timer(
+    flow_id,
+    SHIP_STEP,
+    TimerId.by_condition_index(0),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return integClient.SkipTimer(
+	integrationContext(t),
+	flowID,
+	dex.StepExecutionID{StepType: orderprocessing.ShipStepType},
+	dex.TimerID{Index: new(int32)},
+) == nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+environment.client().skipTimer(
+        flowId,
+        StepExecutionId.of("Ship"),
+        TimerId.byConditionIndex(0));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+await environment.client.skipTimer(
+  flowId,
+  StepExecutionId.of("Ship"),
+  TimerId.byConditionIndex(0),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+match environment.client.skip_timer(
+    flow_id,
+    StepExecutionId::of(&Ship::default()),
+    TimerId::by_condition_index(0),
+) {
+    Ok(()) => return,
+    Err(error) => last_error = Some(error),
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+See [Step](/concepts/step) for how a Step combines conditions in **WaitFor**.
+
+## Reference
+
+- [Waits](/reference/python/flows-and-steps/waits) and
+  [Condition results](/reference/python/flows-and-steps/waits#condition-results) cover
+  how a Timer combines with other conditions and how a Step reads which one
+  fired.
+- [Skip a Timer](/reference/server/runtime-client#skip-a-timer) covers the
+  Client call.

@@ -106,7 +106,7 @@ Dex knowledge lives in two layers. Each fact has one home.
 
 | Layer | For humans | For coding agents | Changes |
 | --- | --- | --- | --- |
-| Stable: concepts, relations, mental model, rules, Components, design patterns | Docs Primitives, Components, and Design patterns | `skills/` | Only when a concept or rule changes |
+| Stable: concepts, relations, mental model, rules, Components, design patterns | Docs Concepts, Components, and Design patterns | `skills/` | Only when a concept or rule changes |
 | Volatile: APIs, parameters, defaults, limits, configuration, flags, metrics, edge cases, version differences | Docs Developer reference (versioned) and the generated API references | The same pages; skills link to them | Any release |
 
 Both copies of the stable layer cover the same scope. Each is written for its
@@ -117,13 +117,13 @@ fact an agent needs to write correct code. Do not cut one only to be shorter.
 | Information | Single home | Elsewhere |
 | --- | --- | --- |
 | Behavior, parameters, defaults, units, errors, and examples of one API | SDK doc comments, published as the generated API reference | Docs and skills link to it; they do not restate it |
-| Primitive concepts, relations, and mental model | Docs Primitives and skills | Change both in one pull request |
+| Primitive concepts, relations, and mental model | Docs Concepts and skills | Change both in one pull request |
 | Components (Application, server, cli, web, connector, external Attribute sync): what each is and how they work together | Docs Components and skills | Change both in one pull request |
 | Design patterns | Docs Design patterns (narrative, diagram, example) and skills (when to use, steps, code skeleton) | Change both in one pull request; code comes from `examples/` |
 | Configuration, flags, metrics, limits, edge cases, version differences | Docs Developer reference (versioned) | Skills link to it |
 
 - Skills link only to the Developer reference, including its generated API
-  references, and to `examples/`. They never link to the Primitives,
+  references, and to `examples/`. They never link to the Concepts,
   Components, or Design pattern pages. Each skill rule must be complete
   without its links.
 - When a pull request changes stable content on one side, it updates the
@@ -165,7 +165,7 @@ build it.
 These rules add to `.cursor/rules/docs-writing.mdc`,
 `.cursor/rules/docs-i18n.mdc`, and `.cursor/rules/docs.mdc`.
 
-- Concept pages are the Primitives, Components, and Design pattern pages. Use
+- Concept pages are the Concepts, Components, and Design pattern pages. Use
   short sentences there. Put one idea in each sentence.
 - Concept pages contain no version numbers and no compatibility notes for
   older servers or SDKs.
@@ -175,7 +175,7 @@ These rules add to `.cursor/rules/docs-writing.mdc`,
   version of the component the page documents, such as "Since 1.35" for an
   SDK, cli, or web, and "Since 0.1.17" for server-zd.
 - Every changed page outside the Developer reference must be read in a
-  browser before merge. This includes Intro, Quick start, Primitives,
+  browser before merge. This includes Intro, Quick start, Concepts,
   Components, Design patterns, and Use cases. Run `cd docs && npm start`,
   which builds and serves both locales. Read every such page from top to
   bottom as a reader, once in English and once in Simplified Chinese. Fix what
@@ -189,7 +189,7 @@ These rules add to `.cursor/rules/docs-writing.mdc`,
   List the phone checks in the pull request's Testing section.
 - Every docs page outside the Developer reference ships in English and
   Simplified Chinese (`zh-Hans`). This includes Intro, Quick start,
-  Primitives, Components, Design patterns, and Use cases. Keep both locales in
+  Concepts, Components, Design patterns, and Use cases. Keep both locales in
   sync.
 - The Developer reference is English only. It means the versioned
   `reference-*` docs instances and the generated API references. When a page

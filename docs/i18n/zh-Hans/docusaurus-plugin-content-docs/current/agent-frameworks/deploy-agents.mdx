@@ -9,7 +9,7 @@ sidebar_label: Durable Agents
 一次 Flow 执行就是一个 agent session。每次模型调用是一个 **RunModel** Step，每个
 tool call 是独立的 Step。本页中的服务器限制都是 server-zd 的默认值。其余配置见
 [Server 参考](/reference/server/) 和
-[Application](/primitives/components/application)。
+[Application](/components/application)。
 
 ## 安装包 {#install}
 
@@ -52,7 +52,7 @@ peer 依赖的方式依赖它。每个版本都固定了它支持的 Dex SDK，�
 ## Stream 后端 {#stream-backend}
 
 模型的实时文本、推理摘要、tool 进度和审批事件都写入 **AgentEvents**
-[Stream](/primitives/stream)。无论是 **dexcli dev** 还是生产 server，**streamStore.backend**
+[Stream](/concepts/primitives/stream)。无论是 **dexcli dev** 还是生产 server，**streamStore.backend**
 的默认值都是 **memory**，所以实时事件不需要额外的服务器配置。不要为 agent 把后端设为
 **disabled**。设为 **disabled** 时，Step 写入会被丢弃，但不会让 Step 失败；Client 写入和
 Stream 读取则返回 **FAILED_PRECONDITION**。默认配置等同于：
@@ -591,7 +591,7 @@ session 的两个 Step 可能运行在不同版本上。
   少量 chunk。此后如果 0.1.0 Worker 运行这个 session 的 Step，这一轮会失败，因为它读不到被移走
   的消息。
 
-通用规则见 [Flow 代码版本控制](/primitives/components/application#versioning-flow-code)。
+通用规则见 [Flow 代码版本控制](/components/application#versioning-flow-code)。
 
 ### 滚动部署期间的 session settings {#session-settings-rollout}
 
@@ -614,7 +614,7 @@ settings 属于启动输入和 session 状态，**get_agent_snapshot** 和浏览
 
 属于某个用户的凭证，让 tool 在调用时从 secret store 中查找，查找用的 key 不能是凭证本身。
 当你自己的 Flow 必须持有短期 secret 时，把它存放在
-[hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 中，Flow 不再需要时
+[hard-delete Attribute](/concepts/primitives/attribute#hard-delete-attributes) 中，Flow 不再需要时
 删除它。
 
 Worker 和 Client 使用 bearer 凭证向 Dex Server 认证。见
@@ -624,7 +624,7 @@ Worker 和 Client 使用 bearer 凭证向 Dex Server 认证。见
 
 - [Agent Framework](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
-- [Stream](/primitives/stream)
-- [Application](/primitives/components/application)
+- [Stream](/concepts/primitives/stream)
+- [Application](/components/application)
 - [Server 参考](/reference/server/)
 - [Agents 包 README](https://github.com/superdurable/dex/blob/main/agents/README.md)

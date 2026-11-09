@@ -12,14 +12,20 @@
     "lock-waitfor",
     "lock-execute",
     "lock-an-rpc",
-    "rpc-lock-conflicts"
+    "rpc-lock-conflicts",
+    "when-to-use-an-attribute",
+    "read-and-search-attributes",
+    "reference"
   ],
   "/primitives/channel/": [
     "persistence-schema",
     "wait-and-consume",
     "publish-messages",
     "manage-pending-messages",
-    "channelmap"
+    "channelmap",
+    "when-to-use-a-channel",
+    "guarantees",
+    "reference"
   ],
   "/primitives/client/advanced/": [
     "requests-during-flow-close",
@@ -83,7 +89,11 @@
     "runtime-selected-map-instances",
     "transactional-reads-and-writes",
     "rpc-timeout",
-    "attribute-locks"
+    "attribute-locks",
+    "when-to-use-an-rpc",
+    "guarantees",
+    "load-collections",
+    "reference"
   ],
   "/primitives/step/basic/": [
     "step-input",
@@ -131,15 +141,29 @@
     "resumable-reads",
     "listing-messages",
     "approximate-capacity",
-    "best-effort-storage"
+    "best-effort-storage",
+    "when-to-use-a-stream",
+    "guarantees",
+    "define-and-write-a-stream",
+    "read-a-stream",
+    "reference"
   ],
   "/primitives/subflow/": [
     "start-and-wait-for-a-subflow",
     "use-subflows-with-other-conditions",
-    "subflowoptions-and-subflowreusepolicy"
+    "subflowoptions-and-subflowreusepolicy",
+    "when-to-use-a-subflow",
+    "guarantees",
+    "wait-for-several-subflows",
+    "reference"
   ],
   "/primitives/timer/": [
-    "how-to-skip-a-timer"
+    "how-to-skip-a-timer",
+    "when-to-use-a-timer",
+    "guarantees",
+    "wait-for-a-timer",
+    "skip-a-timer",
+    "reference"
   ],
   "/zh-Hans/primitives/attribute/": [
     "define-an-attribute",
@@ -154,14 +178,20 @@
     "lock-waitfor",
     "lock-execute",
     "lock-an-rpc",
-    "rpc-lock-conflicts"
+    "rpc-lock-conflicts",
+    "什么时候用-attribute",
+    "读取和搜索-attribute",
+    "参考"
   ],
   "/zh-Hans/primitives/channel/": [
     "persistence-schema",
     "wait-and-consume",
     "publish-messages",
     "manage-pending-messages",
-    "channelmap"
+    "channelmap",
+    "什么时候用-channel",
+    "保证",
+    "参考"
   ],
   "/zh-Hans/primitives/client/advanced/": [
     "requests-during-flow-close",
@@ -225,7 +255,11 @@
     "运行时选择-map-instance",
     "transactional-reads-and-writes",
     "rpc-timeout",
-    "attribute-locks"
+    "attribute-locks",
+    "什么时候用-rpc",
+    "保证",
+    "加载集合",
+    "参考"
   ],
   "/zh-Hans/primitives/step/basic/": [
     "step-input",
@@ -272,14 +306,190 @@
     "可续读",
     "列出消息",
     "近似容量",
-    "best-effort-storage"
+    "best-effort-storage",
+    "什么时候用-stream",
+    "保证",
+    "定义并写入-stream",
+    "读取-stream",
+    "参考"
   ],
   "/zh-Hans/primitives/subflow/": [
     "启动并等待-subflow",
     "与其他-condition-一起使用-subflow",
-    "subflowoptions-和-subflowreusepolicy"
+    "subflowoptions-和-subflowreusepolicy",
+    "什么时候用-subflow",
+    "保证",
+    "等待多个-subflow",
+    "参考"
   ],
   "/zh-Hans/primitives/timer/": [
-    "如何跳过-timer"
+    "如何跳过-timer",
+    "什么时候用-timer",
+    "保证",
+    "等待-timer",
+    "跳过-timer",
+    "参考"
+  ],
+  "/primitives/": [
+    "flow-and-step",
+    "the-primitives",
+    "client",
+    "how-they-fit-together",
+    "components",
+    "where-to-go-next"
+  ],
+  "/primitives/flow/": [
+    "when-to-use",
+    "guarantees",
+    "implement-a-flow",
+    "identifiers",
+    "lifecycle",
+    "start-options",
+    "reference"
+  ],
+  "/primitives/step/": [
+    "step-input",
+    "waitfor-and-execute",
+    "waiting",
+    "stepdecision-movements",
+    "stepoptions",
+    "guarantees",
+    "reference"
+  ],
+  "/primitives/client/": [
+    "when-to-use-a-client",
+    "related-primitives",
+    "guarantees",
+    "example",
+    "reference"
+  ],
+  "/primitives/components/": [
+    "how-they-fit-together",
+    "local-and-production"
+  ],
+  "/primitives/components/application/": [
+    "how-it-fits-with-the-other-components",
+    "enable-pull-mode",
+    "capacity-and-shutdown",
+    "operate-it-in-production",
+    "versioning-flow-code",
+    "lock-business-behavior-at-flow-start",
+    "evolve-data-and-contracts-additively",
+    "keep-old-definitions-until-old-flows-finish"
+  ],
+  "/primitives/components/server/": [
+    "how-it-works",
+    "how-it-fits-with-the-other-components",
+    "run-it",
+    "reference"
+  ],
+  "/primitives/components/cli/": [
+    "what-it-does",
+    "how-it-fits-with-the-other-components",
+    "reference"
+  ],
+  "/primitives/components/web/": [
+    "what-it-shows",
+    "how-it-fits-with-the-other-components",
+    "run-it",
+    "reference"
+  ],
+  "/primitives/components/connector/": [
+    "capabilities",
+    "operations-are-connector-steps",
+    "triggers-start-or-update-flows",
+    "connections-and-configuration",
+    "languages",
+    "use-or-contribute-a-connector",
+    "how-it-fits-with-the-other-components",
+    "find-a-connector",
+    "set-up-connectors-locally"
+  ],
+  "/primitives/components/external-attribute-sync/": [
+    "how-it-fits-with-the-other-components",
+    "configuration",
+    "delivery-and-retries",
+    "attribute-store-local-development"
+  ],
+  "/zh-Hans/primitives/": [
+    "flow-and-step",
+    "the-primitives",
+    "client",
+    "它们如何配合",
+    "component",
+    "下一步"
+  ],
+  "/zh-Hans/primitives/flow/": [
+    "when-to-use",
+    "guarantees",
+    "implement-a-flow",
+    "identifiers",
+    "lifecycle",
+    "start-options",
+    "参考"
+  ],
+  "/zh-Hans/primitives/step/": [
+    "step-input",
+    "waitfor-and-execute",
+    "waiting",
+    "stepdecision-movements",
+    "stepoptions",
+    "guarantees",
+    "参考"
+  ],
+  "/zh-Hans/primitives/client/": [
+    "什么时候用-client",
+    "related-primitives",
+    "保证",
+    "示例",
+    "参考"
+  ],
+  "/zh-Hans/primitives/components/": [
+    "组件之间的关系",
+    "本地和生产环境"
+  ],
+  "/zh-Hans/primitives/components/application/": [
+    "与其他组件的关系",
+    "enable-pull-mode",
+    "容量和关闭",
+    "在生产环境中运维",
+    "versioning-flow-code",
+    "在-flow-启动时锁定业务行为",
+    "以增量方式演进数据与契约",
+    "在旧-flow-结束前保留旧定义"
+  ],
+  "/zh-Hans/primitives/components/server/": [
+    "工作方式",
+    "与其他组件的关系",
+    "运行",
+    "参考"
+  ],
+  "/zh-Hans/primitives/components/cli/": [
+    "功能",
+    "与其他组件的关系",
+    "参考"
+  ],
+  "/zh-Hans/primitives/components/web/": [
+    "显示的内容",
+    "与其他组件的关系",
+    "运行",
+    "参考"
+  ],
+  "/zh-Hans/primitives/components/connector/": [
+    "capabilities",
+    "operation-是-connector-step",
+    "trigger-启动或更新-flow",
+    "connection-与-configuration",
+    "语言",
+    "使用或贡献-connector",
+    "与其他组件的关系",
+    "查找-connector",
+    "在本地配置-connector"
+  ],
+  "/zh-Hans/primitives/components/external-attribute-sync/": [
+    "与其他组件的关系",
+    "配置",
+    "交付与重试",
+    "attribute-store-local-development"
   ]
 }
