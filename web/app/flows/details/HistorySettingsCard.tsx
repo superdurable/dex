@@ -29,9 +29,13 @@ export function historySettingsFromFlowConfig(flowConfig: Record<string, unknown
   };
 }
 
-export type HistorySettingsUpdate =
-  | { update: { historyWindowEvents?: number; deleteExpiredHistoryObjects?: boolean } }
-  | { error: string };
+/** The history fields one save changes; an absent field is unchanged. */
+export interface HistorySettingsChange {
+  historyWindowEvents?: number;
+  deleteExpiredHistoryObjects?: boolean;
+}
+
+export type HistorySettingsUpdate = { update: HistorySettingsChange } | { error: string };
 
 /** Returns only changed fields; every sent field pins an override that cannot be cleared. */
 export function buildHistorySettingsUpdate(
@@ -39,7 +43,7 @@ export function buildHistorySettingsUpdate(
   windowText: string,
   deleteChoice: DeleteExpiredChoice,
 ): HistorySettingsUpdate {
-  const update: { historyWindowEvents?: number; deleteExpiredHistoryObjects?: boolean } = {};
+  const update: HistorySettingsChange = {};
   const trimmedWindow = windowText.trim();
   if (trimmedWindow !== '') {
     const windowEvents = /^\d+$/.test(trimmedWindow) ? Number(trimmedWindow) : Number.NaN;
@@ -73,7 +77,7 @@ export function HistorySettingsCard({
 }: {
   summary: FlowSummary;
   flowConfig: Record<string, unknown> | undefined;
-  onSaved?: () => Promise<void>;
+  onSaved?: (saved: HistorySettingsChange) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [windowText, setWindowText] = useState('');
@@ -81,19 +85,10 @@ export function HistorySettingsCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [isValidationError, setIsValidationError] = useState(false);
-  // Shows saved values until the parent passes a newer flowConfig, even if the refresh failed.
-  const [savedDisplay, setSavedDisplay] = useState<{
-    basis: Record<string, unknown>;
-    settings: HistorySettings;
-  } | null>(null);
   const errorId = useId();
 
   const isRunning = summary.flowStatus === 'Running';
-  const current = !flowConfig
-    ? undefined
-    : savedDisplay?.basis === flowConfig
-      ? savedDisplay.settings
-      : historySettingsFromFlowConfig(flowConfig);
+  const current = flowConfig ? historySettingsFromFlowConfig(flowConfig) : undefined;
   const canEdit = isRunning && current !== undefined && onSaved !== undefined;
   const pending = current ? buildHistorySettingsUpdate(current, windowText, deleteChoice) : undefined;
   const canSave = !saving && pending !== undefined
@@ -108,7 +103,7 @@ export function HistorySettingsCard({
   };
 
   async function save() {
-    if (!pending || !onSaved || !current || !flowConfig) return;
+    if (!pending || !onSaved) return;
     if ('error' in pending) {
       setError(pending.error);
       setIsValidationError(true);
@@ -128,10 +123,9 @@ export function HistorySettingsCard({
       setSaving(false);
       return;
     }
-    setSavedDisplay({ basis: flowConfig, settings: { ...current, ...pending.update } });
     setSaving(false);
     setEditing(false);
-    await onSaved();
+    await onSaved(pending.update);
   }
 
   return (

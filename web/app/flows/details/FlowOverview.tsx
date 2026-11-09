@@ -10,14 +10,12 @@ import { useState } from 'react';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
 import { StepMethodInvocation } from './StepMethodInvocation';
-import { HistorySettingsCard } from './HistorySettingsCard';
+import { HistorySettingsCard, type HistorySettingsChange } from './HistorySettingsCard';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
 import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
-// Stable identity lets the History card tell a refreshed config from a rerender.
-const emptyFlowConfig: Record<string, unknown> = {};
 
 function useSectionExpand(persistKey: string) {
   const [expanded, setExpanded] = useState(() => sectionExpandByKey.get(persistKey) ?? false);
@@ -63,7 +61,8 @@ export function FlowOverview({
   deletingChannelMessage,
   onDeleteChannelMessage,
   onOpenStateWrite,
-  onFlowConfigSaved,
+  savedHistorySettings,
+  onHistorySettingsSaved,
 }: {
   summary: FlowSummary;
   events: FlowHistoryEvent[];
@@ -72,7 +71,8 @@ export function FlowOverview({
   deletingChannelMessage?: string;
   onDeleteChannelMessage?: (channelName: string, messageId: string) => Promise<void>;
   onOpenStateWrite?: (kind: StateWriteKind) => void;
-  onFlowConfigSaved?: () => Promise<void>;
+  savedHistorySettings?: HistorySettingsChange;
+  onHistorySettingsSaved?: (saved: HistorySettingsChange) => Promise<void>;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = summary.flowStatus === 'Running'
@@ -384,8 +384,8 @@ export function FlowOverview({
 
         <HistorySettingsCard
           summary={summary}
-          flowConfig={state ? (state.flowConfig ?? emptyFlowConfig) : undefined}
-          onSaved={onFlowConfigSaved}
+          flowConfig={state ? { ...state.flowConfig, ...savedHistorySettings } : undefined}
+          onSaved={onHistorySettingsSaved}
         />
       </div>
     </div>

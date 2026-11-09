@@ -29,6 +29,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { usePreferences } from '../providers';
 import { FlowOverview } from './details/FlowOverview';
+import type { HistorySettingsChange } from './details/HistorySettingsCard';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDialog';
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
@@ -39,6 +40,12 @@ import { Timeline } from './details/Timeline';
 import { useRunHistory } from './useRunHistory';
 
 type RunTab = 'overview' | 'steps' | 'timeline' | 'stream';
+
+/** History settings saved on this page, shown until a state load started after the save succeeds. */
+interface SavedHistorySettings {
+  values: HistorySettingsChange;
+  savedAfterStateLoad: number;
+}
 
 interface SelectedEventConnector {
   height: number;
@@ -125,6 +132,7 @@ export function RunDetailsPage({
   const runHistory = useRunHistory(flowId, runId);
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
+  const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
   const [tab, setTab] = useState<RunTab>(storedRunTab);
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,6 +151,8 @@ export function RunDetailsPage({
   const [resizingSidebar, setResizingSidebar] = useState(false);
   const [selectedEventConnector, setSelectedEventConnector] = useState<SelectedEventConnector | null>(null);
   const waitGeneration = useRef(0);
+  const startedStateLoad = useRef(0);
+  const publishedStateLoad = useRef(0);
   const blobCache = useRef(new Map<string, unknown>());
   const hydratingEventIDs = useRef(new Set<number>());
   const hydratedEventIDs = useRef(new Set<number>());
@@ -203,20 +213,37 @@ export function RunDetailsPage({
   }, [resizingSidebar, updateSidebarWidth]);
 
   const loadState = useCallback(async (statusCode: number) => {
+    const stateLoad = ++startedStateLoad.current;
+    // Publishes only when no later-started load has published, so older responses never win.
+    const publishState = (value: FlowState | null) => {
+      if (stateLoad < publishedStateLoad.current) return false;
+      publishedStateLoad.current = stateLoad;
+      setState(value);
+      setSavedHistorySettings((saved) => saved && saved.savedAfterStateLoad < stateLoad ? null : saved);
+      return true;
+    };
     if (terminalStatuses.has(statusCode)) {
-      setState(null);
+      publishState(null);
       return;
     }
     try {
       const rawState = await readResponseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' }));
-      setState(rawState);
+      if (!publishState(rawState)) return;
       const hydrated = await hydrateBlobs(flowId, rawState, blobCache.current);
-      setState(hydrated.value);
+      if (!publishState(hydrated.value)) return;
       if (hydrated.error) addDataWarning(hydrated.error);
     } catch (stateError) {
       setError(stateError instanceof Error ? stateError.message : 'State query failed');
     }
   }, [addDataWarning, flowId, stateURL]);
+
+  const showSavedHistorySettings = useCallback(async (values: HistorySettingsChange) => {
+    setSavedHistorySettings((saved) => ({
+      values: { ...saved?.values, ...values },
+      savedAfterStateLoad: startedStateLoad.current,
+    }));
+    if (summary) await loadState(summary.flowStatusCode);
+  }, [loadState, summary]);
 
   const deleteChannelMessage = useCallback(async (channelName: string, messageId: string) => {
     if (!summary) return;
@@ -266,6 +293,7 @@ export function RunDetailsPage({
     blobCache.current.clear();
     hydratingEventIDs.current.clear();
     hydratedEventIDs.current.clear();
+    setSavedHistorySettings(null);
   }, [clearRunHistory]);
 
   const loadSummary = useCallback(async () => {
@@ -701,7 +729,8 @@ export function RunDetailsPage({
               deletingChannelMessage={deletingChannelMessage}
               onDeleteChannelMessage={deleteChannelMessage}
               onOpenStateWrite={setStateWriteKind}
-              onFlowConfigSaved={() => loadState(summary.flowStatusCode)}
+              savedHistorySettings={savedHistorySettings?.values}
+              onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}
           {tab === 'steps' && !isWaitingForHistory && runHistory.newest?.hasOlder && (
