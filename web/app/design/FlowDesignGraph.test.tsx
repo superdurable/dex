@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlowDefinitionGraph } from '@superdurable/flow-definition-renderer';
@@ -62,8 +62,8 @@ describe('Flow design graph', () => {
     ['a schema 2.0 file', SCHEMA_2_FILE],
   ])('opens %s from the definition alone, with no request', async (_name, file) => {
     render(<MemoryRouter><FlowDesignGraph definition={entryOf(file)} /></MemoryRouter>);
-    await act(async () => { await new Promise((resolveWait) => setTimeout(resolveWait, 100)); });
-    expect(document.querySelector('.v2-shell.dg')).not.toBeNull();
+    // The layout runs asynchronously, so a loaded machine draws later.
+    await waitFor(() => expect(document.querySelector('.v2-shell.dg')).not.toBeNull(), { timeout: 4_000 });
     expect(screen.queryByText('This Flow Definition Graph has no Steps to draw.')).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });

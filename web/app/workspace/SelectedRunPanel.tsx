@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { CircleSlash, Lock, Pencil, Zap } from 'lucide-react';
 import type {
   FlowV2Action,
   FlowV2ActionInputField,
@@ -184,8 +185,11 @@ export function SelectedRunPanel({
       {result && !isStranded && (() => {
         const fieldFact = (field: FlowV2Definition['display']['fields'][number]) => {
           const isEditing = editingKey === field.attributeKey;
+          const value = result.display[field.attributeKey];
+          const text = displayValue(value);
+          const kind = isStatusField(field) ? 'status' : text.length > 60 ? 'long' : 'short';
           return (
-            <div className="sc-fact" key={field.attributeKey}>
+            <div className="sc-fact" data-kind={kind} key={field.attributeKey}>
               <dt className="sc-fname">{field.description}</dt>
               <dd className="sc-fvalue">
                 {isEditing ? (
@@ -206,20 +210,21 @@ export function SelectedRunPanel({
                   </>
                 ) : (
                   <>
-                    <span>{displayValue(result.display[field.attributeKey])}</span>
+                    {kind === 'status'
+                      ? <span className="sc-chip" data-tone={statusTone(text)}>{text}</span>
+                      : <span className="sc-ftext">{text}</span>}
                     {field.editable && result.isActive && (
                       <button
-                        className="v2-ghost"
+                        aria-label={`Edit ${field.description}`}
+                        className="v2-ghost sc-edit"
                         onClick={() => {
                           setEditingKey(field.attributeKey);
                           setFieldErrors((current) => ({ ...current, [field.attributeKey]: '' }));
-                          setEditValue(editableValue(
-                            result.display[field.attributeKey],
-                            field.valueType,
-                          ));
+                          setEditValue(editableValue(value, field.valueType));
                         }}
                         type="button"
                       >
+                        <Pencil aria-hidden="true" size={13} strokeWidth={2} />
                         Edit
                       </button>
                     )}
@@ -232,65 +237,75 @@ export function SelectedRunPanel({
 
         const lead = leadFields(definition);
         const detail = definition.display.fields.filter((field) => !lead.includes(field));
+        const eligible = new Set(visibleV2Actions(definition.actions, result.eligibleActions).map((action) => action.rpcName));
 
-        const actionsBlock = (
-          <div className="sc-block">
-            <div className="sc-blockhead">{RUN_COPY.actions}</div>
-            {visibleV2Actions(definition.actions, result.eligibleActions)
-              .filter((action) => workQueuePermissions.includes(action.requiredPermission))
-              .map((action) => {
-              const userFields = v2ActionUserFields(action);
-              return (
-                <form
-                  className="sc-actions"
-                  key={action.rpcName}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void invokeAction(action);
-                  }}
-                >
-                  {userFields.map((field) => (
-                    <label key={field.fieldName}>
-                      <span className="sc-fname">{field.description}</span>
-                      <ActionInput
-                        field={field}
-                        value={actionValues[action.rpcName]?.[field.fieldName] ?? ''}
-                        onChange={(value) => setActionValues((current) => ({
-                          ...current,
-                          [action.rpcName]: {
-                            ...current[action.rpcName],
-                            [field.fieldName]: value,
-                          },
-                        }))}
-                        onScanRequested={() => setActiveQRScanner({
-                          actionRPCName: action.rpcName,
-                          fieldName: field.fieldName,
-                          fieldDescription: field.description,
-                        })}
-                      />
-                    </label>
-                  ))}
-                  <button
-                    className="v2-primary"
-                    disabled={!result.isActive || busyKey === action.rpcName}
-                    type="submit"
+        const actionsBlock = definition.actions.length === 0 ? null : (
+          <section className="sc-block sc-actions-block" aria-label={RUN_COPY.actions}>
+            <h4 className="sc-blockhead">{RUN_COPY.actions}</h4>
+            <div className="sc-action-list">
+              {definition.actions.map((action) => {
+                const state = actionState(action, eligible, workQueuePermissions, result.isActive);
+                const userFields = v2ActionUserFields(action);
+                const StateIcon = state.kind === 'ready' ? Zap : state.kind === 'needs-permission' ? Lock : CircleSlash;
+                return (
+                  <form
+                    className="sc-action-card"
+                    data-state={state.kind}
+                    key={action.rpcName}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (state.kind === 'ready') void invokeAction(action);
+                    }}
                   >
-                    {busyKey === action.rpcName ? 'Working…' : action.label}
-                  </button>
-                </form>
-              );
-            })}
-            {definition.actions.length > 0 && result.eligibleActions.length === 0 && (
-              <p className="sc-state">No Actions are available in the current state.</p>
-            )}
-          </div>
+                    <div className="sc-action-head">
+                      <span className="sc-action-icon"><StateIcon aria-hidden="true" size={16} strokeWidth={2} /></span>
+                      <span className="sc-action-words">
+                        <b>{action.label}</b>
+                        <small>{state.note}</small>
+                      </span>
+                    </div>
+                    {state.kind === 'ready' && userFields.map((field) => (
+                      <label key={field.fieldName}>
+                        <span className="sc-fname">{field.description}</span>
+                        <ActionInput
+                          field={field}
+                          value={actionValues[action.rpcName]?.[field.fieldName] ?? ''}
+                          onChange={(fieldValue) => setActionValues((current) => ({
+                            ...current,
+                            [action.rpcName]: {
+                              ...current[action.rpcName],
+                              [field.fieldName]: fieldValue,
+                            },
+                          }))}
+                          onScanRequested={() => setActiveQRScanner({
+                            actionRPCName: action.rpcName,
+                            fieldName: field.fieldName,
+                            fieldDescription: field.description,
+                          })}
+                        />
+                      </label>
+                    ))}
+                    {state.kind === 'ready' && (
+                      <button
+                        className="v2-primary sc-action-submit"
+                        disabled={busyKey === action.rpcName}
+                        type="submit"
+                      >
+                        {busyKey === action.rpcName ? 'Working…' : action.label}
+                      </button>
+                    )}
+                  </form>
+                );
+              })}
+            </div>
+          </section>
         );
 
         const displayBlock = (
-          <div className="sc-block">
+          <section className="sc-block sc-display-block">
             {lead.length > 0 && <dl className="sc-facts" data-lead="true">{lead.map(fieldFact)}</dl>}
             {detail.length > 0 && <dl className="sc-facts">{detail.map(fieldFact)}</dl>}
-          </div>
+          </section>
         );
 
         return order === 'actions-first'
@@ -315,6 +330,40 @@ export function SelectedRunPanel({
       )}
     </div>
   );
+}
+
+interface ActionState {
+  kind: 'ready' | 'needs-permission' | 'unavailable';
+  note: string;
+}
+
+/** Whether an Action can be taken now, and if not, why, in words a reader can act on. */
+function actionState(
+  action: FlowV2Action,
+  eligible: ReadonlySet<string>,
+  workQueuePermissions: readonly string[],
+  isActive: boolean,
+): ActionState {
+  if (!isActive) return { kind: 'unavailable', note: 'The run is no longer active' };
+  if (!eligible.has(action.rpcName)) return { kind: 'unavailable', note: 'Not offered in the current state' };
+  if (!workQueuePermissions.includes(action.requiredPermission)) {
+    return { kind: 'needs-permission', note: `Choose Working as ${action.requiredPermission} to take it` };
+  }
+  return { kind: 'ready', note: `Available to ${action.requiredPermission}` };
+}
+
+/** A field that names where the run stands reads as a chip. */
+function isStatusField(field: { uiSlot?: string; description: string }): boolean {
+  return field.uiSlot === 'status' || /\bstatus$/i.test(field.description.trim());
+}
+
+/** A status chip's colour, from common words in its value; anything else stays neutral. */
+function statusTone(text: string): 'attention' | 'success' | 'danger' | 'neutral' {
+  const value = text.toLowerCase();
+  if (/(fail|error|reject|denied|cancel)/.test(value)) return 'danger';
+  if (/(await|wait|pending|review|approval|blocked)/.test(value)) return 'attention';
+  if (/(done|complete|approved|success|resolved|closed)/.test(value)) return 'success';
+  return 'neutral';
 }
 
 function editableValue(value: unknown, valueType: V2ValueType): string {
