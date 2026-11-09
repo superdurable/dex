@@ -425,6 +425,9 @@ impl Harness {
                 ColumnFamily::Flow => {
                     if table == RunTable::HistoryRowMetadata {
                         usage.history_bytes += (key.len() + value.len()) as u64;
+                    } else if table == RunTable::RunRecord {
+                        usage.state_row_bytes +=
+                            (key.len() + value.len()) as u64 - run_record_search_cache_bytes(value);
                     } else {
                         usage.state_row_bytes += (key.len() + value.len()) as u64;
                     }
@@ -561,6 +564,14 @@ impl Harness {
             ..StepMethodCompletedCommand::default()
         }))
     }
+}
+
+/// Bytes of a run record's active Step type counts, which run storage never counts.
+fn run_record_search_cache_bytes(value: &[u8]) -> u64 {
+    let mut record = RunRecord::decode(value).expect("valid run record");
+    let full_size = record.encoded_len();
+    record.search_active_step_type_counts = None;
+    (full_size - record.encoded_len()) as u64
 }
 
 /// Recounts the attempt state of one Flow row: lock rows, snapshot pins, and Step attempt fields.

@@ -24,7 +24,9 @@ adjusts the counts by the Step execution rows it changed, so its cost does not
 grow with the Steps the run has executed. TimeTravel, a switch from DISABLED,
 and a run recorded without counts count every Step execution once. While active
 Step search is DISABLED, the run record keeps no counts and apply reads no Step
-execution for search.
+execution for search. The counts are an internal cache, so `state_row_bytes` and
+the run-state limit leave them out, and a command is admitted exactly as without
+them.
 
 ## Search outbox
 

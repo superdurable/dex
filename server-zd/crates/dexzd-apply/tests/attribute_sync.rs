@@ -827,6 +827,13 @@ fn outbox_snapshots_do_not_increase_accounted_run_state_bytes() {
             entry.sync_item = None;
             snapshot_bytes += (full_size - entry.encoded_len()) as u64;
         }
+        if table == RunTable::RunRecord {
+            // Run storage never counts the active Step type counts either.
+            let mut run = RunRecord::decode(bytes.as_slice()).expect("run record decodes");
+            let full_size = run.encoded_len();
+            run.search_active_step_type_counts = None;
+            snapshot_bytes += (full_size - run.encoded_len()) as u64;
+        }
     }
     assert!(snapshot_bytes > 8_000, "two stores carry inline snapshots");
     assert_eq!(

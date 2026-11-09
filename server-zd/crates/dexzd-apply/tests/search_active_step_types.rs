@@ -177,8 +177,27 @@ impl Harness {
         step_options: StepOptions,
         timeout_policy: FlowTimeoutPolicy,
     ) {
+        let start = self.start_command(mode, step_options, timeout_policy, settings());
+        let outcome = self.apply(start);
+        assert!(
+            matches!(
+                outcome.reply.reply,
+                Some(command_reply::Reply::StartFlow(_))
+            ),
+            "the run starts: {:?}",
+            outcome.reply
+        );
+    }
+
+    fn start_command(
+        &self,
+        mode: Option<ActiveStepSearchMode>,
+        step_options: StepOptions,
+        timeout_policy: FlowTimeoutPolicy,
+        settings: RunSettings,
+    ) -> Command {
         let is_handler = timeout_policy == FlowTimeoutPolicy::Handler;
-        let outcome = self.apply(Command::FlowStart(FlowStartCommand {
+        Command::FlowStart(FlowStartCommand {
             new_run_id: self.run_id.as_bytes().to_vec(),
             request: Some(StartFlowRequest {
                 flow_id: FLOW_ID.to_owned(),
@@ -198,7 +217,7 @@ impl Harness {
                     ..FlowStartOptions::default()
                 }),
             }),
-            settings: Some(settings()),
+            settings: Some(settings),
             resolved_timeout_policy: if is_handler {
                 timeout_policy
             } else {
@@ -206,15 +225,22 @@ impl Harness {
             } as i32,
             worker_target: Some(WorkerTarget { is_pull_mode: true }),
             ..FlowStartCommand::default()
-        }));
-        assert!(
-            matches!(
-                outcome.reply.reply,
-                Some(command_reply::Reply::StartFlow(_))
-            ),
-            "the run starts: {:?}",
-            outcome.reply
-        );
+        })
+    }
+
+    /// Applies a command that may be rejected, and commits it when it applied.
+    fn try_apply(&mut self, body: Command) -> ApplyOutcome {
+        let command = self.command(body);
+        let outcome =
+            apply_flow_command(&self.context, &self.state, &command).expect("the command applies");
+        self.state.commit(&outcome);
+        outcome
+    }
+
+    /// Returns the run's state bytes that the run-state limit compares with its maximum.
+    fn active_state_bytes(&self) -> u64 {
+        let usage = self.run_record().storage.expect("the run counts storage");
+        usage.state_row_bytes + usage.live_value_bytes
     }
 
     fn command(&mut self, body: Command) -> FlowCommand {
@@ -964,4 +990,128 @@ fn random_command_sequences_keep_counts_equal_to_a_full_count() {
             apply_random_command(&mut harness, &mut draws);
         }
     }
+}
+
+/// gRPC code of a command rejected by the run-state limit.
+const RESOURCE_EXHAUSTED: i32 = 8;
+/// A limit no test state reaches, encoded in as many bytes as the measured limits.
+const UNREACHED_MAX_RUN_STATE_BYTES: u64 = 16_383;
+
+fn settings_with_max_run_state_bytes(max_run_state_bytes: u64) -> RunSettings {
+    RunSettings {
+        max_run_state_bytes,
+        ..settings()
+    }
+}
+
+fn is_resource_exhausted(outcome: &ApplyOutcome) -> bool {
+    matches!(
+        &outcome.reply.reply,
+        Some(command_reply::Reply::Error(error)) if error.grpc_code == RESOURCE_EXHAUSTED
+    )
+}
+
+/// Starts a run whose Step skips WaitFor, so DISABLED and UNSPECIFIED write the same document.
+fn start_skipping_wait_for(
+    harness: &mut Harness,
+    mode: ActiveStepSearchMode,
+    max_run_state_bytes: u64,
+) -> ApplyOutcome {
+    let start = harness.start_command(
+        Some(mode),
+        skipping_wait_for(),
+        FlowTimeoutPolicy::Fail,
+        settings_with_max_run_state_bytes(max_run_state_bytes),
+    );
+    harness.try_apply(start)
+}
+
+#[test]
+fn an_enabled_search_start_fits_the_run_state_limit_of_a_disabled_one() {
+    let mut disabled = Harness::new();
+    start_skipping_wait_for(
+        &mut disabled,
+        ActiveStepSearchMode::Disabled,
+        UNREACHED_MAX_RUN_STATE_BYTES,
+    );
+    let needed_bytes = disabled.active_state_bytes();
+    assert!(needed_bytes >= 128, "the limit keeps its two-byte encoding");
+
+    let mut at_limit = Harness::new();
+    let outcome = start_skipping_wait_for(
+        &mut at_limit,
+        ActiveStepSearchMode::Unspecified,
+        needed_bytes,
+    );
+    assert!(
+        matches!(
+            outcome.reply.reply,
+            Some(command_reply::Reply::StartFlow(_))
+        ),
+        "a start at exactly the limit applies: {:?}",
+        outcome.reply
+    );
+    assert_eq!(
+        at_limit.stored_counts(),
+        Some(ExpectedCounts::from([("ChargeStep".to_owned(), (0, 1))])),
+        "the run keeps counts"
+    );
+    assert_eq!(at_limit.active_state_bytes(), needed_bytes);
+
+    let mut over_limit = Harness::new();
+    let outcome = start_skipping_wait_for(
+        &mut over_limit,
+        ActiveStepSearchMode::Unspecified,
+        needed_bytes - 1,
+    );
+    assert!(is_resource_exhausted(&outcome), "{:?}", outcome.reply);
+}
+
+#[test]
+fn counting_a_run_recorded_without_counts_never_pushes_it_over_its_limit() {
+    let run_to_probe = |harness: &mut Harness, mode, max_run_state_bytes| {
+        start_skipping_wait_for(harness, mode, max_run_state_bytes);
+        let mut current = "ChargeStep-1".to_owned();
+        for number in 1..=3 {
+            harness.complete_execute(
+                &current,
+                move_to(vec![movement("ChainStep", skipping_wait_for())]),
+            );
+            current = format!("ChainStep-{number}");
+        }
+    };
+    let mut disabled = Harness::new();
+    run_to_probe(
+        &mut disabled,
+        ActiveStepSearchMode::Disabled,
+        UNREACHED_MAX_RUN_STATE_BYTES,
+    );
+    disabled.apply(set_attribute("paid"));
+    let needed_bytes = disabled.active_state_bytes();
+    assert!(needed_bytes >= 128, "the limit keeps its two-byte encoding");
+
+    let mut at_limit = Harness::new();
+    run_to_probe(
+        &mut at_limit,
+        ActiveStepSearchMode::Unspecified,
+        needed_bytes,
+    );
+    at_limit.clear_stored_counts();
+    let step_execution_count = at_limit.step_execution_count();
+    assert_eq!(
+        at_limit.apply_counting_step_scans(set_attribute("paid")),
+        step_execution_count,
+        "the write at exactly the limit applies and counts every row"
+    );
+    assert_eq!(at_limit.active_state_bytes(), needed_bytes);
+
+    let mut over_limit = Harness::new();
+    run_to_probe(
+        &mut over_limit,
+        ActiveStepSearchMode::Unspecified,
+        needed_bytes - 1,
+    );
+    over_limit.clear_stored_counts();
+    let outcome = over_limit.try_apply(set_attribute("paid"));
+    assert!(is_resource_exhausted(&outcome), "{:?}", outcome.reply);
 }
