@@ -188,7 +188,7 @@ impl Step for SubFlowParent {
 
 用 **allOf** 让父 Flow 等待所有 SubFlow 完成。
 
-父 Flow 不需要等待全部 SubFlow 时，用 **anyOf**。**WaitFor** 停止等待后，SubFlow 仍会继续运行。**Execute** 仍然可以拿到 SubFlow ID 来停止它，或者把 ID 传给另一个 Step 决定如何处理。SubFlow 与其他 condition 的组合见 [SubFlow results](/reference/sdk-common/flows-and-steps#subflow-results)。
+父 Flow 不需要等待全部 SubFlow 时，用 **anyOf**。**WaitFor** 停止等待后，SubFlow 仍会继续运行。**Execute** 仍然可以拿到 SubFlow ID 来停止它，或者把 ID 传给另一个 Step 决定如何处理。SubFlow 与其他 condition 的组合见 [SubFlow results](/reference/python/flows-and-steps#subflow-results)。
 
 <a id="subflowoptions-和-subflowreusepolicy"></a>
 

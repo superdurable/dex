@@ -1,17 +1,16 @@
 ---
+id: flows-and-steps
 title: Flows and Steps
 sidebar_label: Flows and Steps
 ---
 
 # Flows and Steps
 
-SDK Common Reference: **1.37.x (latest)**.
-
-This shared SDK reference covers Flow and Step behavior: start options,
+This page covers Flow and Step behavior in the Rust SDK: start options,
 Flow configuration, waits, Step decisions, Step options, and what happens when
 an attempt fails or is interrupted. For the concepts, read
 [Flow](/primitives/flow) and [Step](/primitives/step) first. For the exact
-signature of one API in your language, read its SDK doc comment.
+signature of one API, read the [Rust SDK API reference](./index.mdx#api-reference).
 
 ## Flow definition {#flow-definition}
 
@@ -53,96 +52,6 @@ immutable after start.
 For an application-defined outcome at the Flow deadline, see
 [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout).
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/flow/controller.py',
-    go: 'examples/go/primitives/flow/controller.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
-    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
-    rust: 'examples/rust/src/primitives/flow/controller.rs',
-  }}>
-  <SdkSnippet lang="python">
-
-```python
-def example_start_flow_options() -> StartFlowOptions:
-    return StartFlowOptions(
-        timeout=timedelta(minutes=30),
-        timeout_policy=FlowTimeoutPolicy.HANDLER,
-        id_reuse_policy=IdReusePolicy.DISALLOW,
-        config_override=FlowConfig(step_durability=StepDurability.SYNC),
-        ignore_already_started=True,
-        request_id="start-order-123",
-    ).with_attribute(status, "queued")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
-	initialStatus, err := sdk.InitialAttribute(Status, "queued")
-	if err != nil {
-		return sdk.StartFlowOptions{}, err
-	}
-	timeout := 30 * time.Minute
-	requestID := "start-order-123"
-	stepDurability := sdk.StepDurabilitySync
-	return sdk.StartFlowOptions{
-		Timeout:       &timeout,
-		TimeoutPolicy: sdk.TimeoutHandler,
-		IDReusePolicy: sdk.IDReuseDisallow,
-		Attributes: []sdk.InitialAttributeDef{initialStatus},
-		ConfigOverride: &sdk.FlowConfig{
-			StepDurability: &stepDurability,
-		},
-		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
-		RequestID:      &requestID,
-	}, nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-private static StartFlowOptions exampleStartFlowOptions() {
-    return StartFlowOptions.newBuilder()
-            .timeout(Duration.ofMinutes(30))
-            .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
-            .idReusePolicy(IdReusePolicy.DISALLOW)
-            .addAttribute(ExampleFlow.status, "queued")
-            .configOverride(
-                    FlowConfig.newBuilder()
-                            .stepDurability(StepDurability.SYNC)
-                            .build())
-            .ignoreAlreadyStarted(true)
-            .requestId("start-order-123")
-            .build();
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-export function exampleStartFlowOptions(): StartFlowOptions {
-  return {
-    timeoutMs: 30 * 60_000,
-    timeoutPolicy: FlowTimeoutPolicy.HANDLER,
-    idReusePolicy: IdReusePolicy.DISALLOW,
-    attributes: [InitialAttribute.of(status, "queued")],
-    configOverride: {
-      stepDurability: "sync",
-    },
-    ignoreAlreadyStarted: true,
-    requestId: "start-order-123",
-  };
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 pub fn example_start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
@@ -156,8 +65,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/flow/controller.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/flow/controller.rs)
 
 ### Timeout and TimeoutPolicy {#timeout-and-timeout-policy}
 
@@ -202,58 +110,6 @@ Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires.
 This handler records why the Flow ended, then fails it with an application
 reason.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
-    go: 'examples/go/primitives/flow/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
-    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
-    rust: 'examples/rust/src/primitives/flow/flow.rs',
-  }}>
-  <SdkSnippet lang="python">
-
-```python
-def handle_timeout(self, context: Context) -> StepDecision:
-    status.set(context, "timed out")
-    return force_fail("processing deadline reached")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (*ExampleFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
-	if err := Status.Set(ctx, "timed out"); err != nil {
-		return nil, err
-	}
-	return dex.ForceFail("processing deadline reached"), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@Override
-public StepDecision handleTimeout(final Context context) {
-    status.set(context, "timed out");
-    return StepDecision.forceFail("processing deadline reached");
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public handleTimeout(context: Context): StepDecision {
-  status.set(context, "timed out");
-  return forceFail("processing deadline reached");
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 impl ExampleFlow {
     fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
@@ -269,8 +125,7 @@ impl Flow for ExampleFlow {
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/flow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/flow/flow.rs)
 
 ### Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 
@@ -352,91 +207,6 @@ errors. It performs no read before or after the start. The returned ID is an
 acknowledgement, not a current business snapshot or proof that the Flow has
 completed.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/flow/controller.py',
-    go: 'examples/go/primitives/flow/controller.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
-    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
-    rust: 'examples/rust/src/primitives/flow/controller.rs',
-  }}>
-  <SdkSnippet lang="python">
-
-```python
-async def start_example_flow_request(
-    client: AsyncClient, example_flow: ExampleFlow, flow_id: str, input_num: int
-) -> str:
-    options = StartFlowOptions(
-        id_reuse_policy=IdReusePolicy.DISALLOW,
-        request_id=f"start-example-flow:{input_num}:{flow_id}",
-        ignore_already_started=True,
-    ).with_attribute(status, "queued")
-    await client.start_flow(example_flow, flow_id, input_num, options)
-    return flow_id
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func startExampleFlowRequest(
-	ctx context.Context, client *sdk.Client, exampleFlow *ExampleFlow, flowID string, inputNum int,
-) (string, error) {
-	initialStatus, err := sdk.InitialAttribute(Status, "queued")
-	if err != nil {
-		return "", err
-	}
-	_, err = client.StartFlow(ctx, exampleFlow, flowID, inputNum, sdk.StartFlowOptions{
-		IDReusePolicy:  sdk.IDReuseDisallow,
-		RequestID:      ptr.Any("start-example-flow:" + strconv.Itoa(inputNum) + ":" + flowID),
-		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
-		Attributes:     []sdk.InitialAttributeDef{initialStatus},
-	})
-	if err != nil {
-		return "", err
-	}
-	return flowID, nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-    private static String startExampleFlowRequest(
-            final Client client, final ExampleFlow exampleFlow,
-            final String flowId, final int inputNum) {
-        final StartFlowOptions options = StartFlowOptions.newBuilder()
-                .idReusePolicy(IdReusePolicy.DISALLOW)
-                .requestId("start-example-flow:" + inputNum + ":" + flowId)
-                .ignoreAlreadyStarted(true)
-                .addAttribute(ExampleFlow.status, "queued")
-                .build();
-        client.startFlow(exampleFlow, flowId, inputNum, options);
-        return flowId;
-    }
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-export async function startExampleFlowRequest(
-  client: Client, flowId: string, inputNum: number,
-): Promise<string> {
-  await client.startFlow(exampleFlow, flowId, inputNum, {
-    idReusePolicy: IdReusePolicy.DISALLOW,
-    requestId: `start-example-flow:${inputNum}:${flowId}`,
-    ignoreAlreadyStarted: true,
-    attributes: [InitialAttribute.of(status, "queued")],
-  });
-  return flowId;
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 pub fn start_example_flow_request(
     client: &Client,
@@ -454,8 +224,7 @@ pub fn start_example_flow_request(
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/flow/controller.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/flow/controller.rs)
 
 For example, starting **invoice-42** with input **7** sends RequestID
 **start-example-flow:7:invoice-42**. Retrying that call returns the same
@@ -623,55 +392,6 @@ Channel results from the Channel definition and inspect Timer outcomes through
 the **Context**. Add IDs only when another API requires them, such as
 **AnyCombinationOf** or a Timer selected by ID.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
-    go: 'examples/go/primitives/wait-types/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
-    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
-    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-return Wait.any_of(
-    channel_a.for_one(),
-    Timer.by_duration(timeout),
-)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-return dex.AnyOf(
-	SignalA.ForOne(),
-	dex.Timer(timeout),
-), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return Wait.anyOf(
-        channelA.forOne(),
-        Timer.byDuration(timeout));
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return Wait.anyOf(
-  channelA.forOne(),
-  Timer.byDuration(timeoutMs),
-);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 Ok(Wait::any_of([
     signal_a_channel().for_one(),
@@ -679,57 +399,7 @@ Ok(Wait::any_of([
 ]))
 ```
 
-</SdkSnippet>
-</SdkTabs>
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
-    go: 'examples/go/primitives/wait-types/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
-    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
-    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-return Wait.all_of(
-    channel_a.for_one(),
-    channel_b.for_one(),
-)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-return dex.AllOf(
-	SignalA.ForOne(),
-	SignalB.ForOne(),
-), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return Wait.allOf(
-        channelA.forOne(),
-        channelB.forOne());
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return Wait.allOf(
-  channelA.forOne(),
-  channelB.forOne(),
-);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
 
 ```rust
 Ok(Wait::all_of([
@@ -738,8 +408,7 @@ Ok(Wait::all_of([
 ]))
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
 
 ### Condition results {#condition-results}
 
@@ -769,126 +438,6 @@ until it is resolved.
 
 #### Channel results {#channel-results}
 
-<SdkTabs
-examples={{
-python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-go: 'examples/go/primitives/channel/workflow.go',
-java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
-typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
-rust: 'examples/rust/src/primitives/channel/flow.rs',
-}}>
-<SdkSnippet lang="python">
-
-```python
-class ChannelWaitStep(Step[int]):
-    def __init__(self, approval: Channel[str]) -> None:
-        self.approval = approval
-
-    def wait_for(self, context: Context, input: int) -> Wait:
-        return Wait.any_of(
-            self.approval.for_one(),
-            Timer.by_duration(timedelta(seconds=input)),
-        )
-
-    def execute(self, context: Context, input: int) -> StepDecision:
-        if context.has_timer_fired():
-            return graceful_complete("approval timed out")
-        approvals = self.approval.results(context)
-        return graceful_complete(approvals[0])
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-var Approval = dex.DefineChannel[string]("Approval")
-
-type channelWait struct {
-	dex.StepDefaults
-}
-
-func (channelWait) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
-	return dex.AnyOf(
-		Approval.ForOne(),
-		dex.Timer(time.Duration(input)*time.Second),
-	), nil
-}
-
-func (channelWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	if ctx.HasTimerFired() {
-		return dex.GracefulComplete("approval timed out"), nil
-	}
-	results, err := Approval.GetConditionResults(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(results[0]), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-final class ChannelWaitStep implements Step<Integer> {
-    @Override
-    public Class<Integer> getInputType() {
-        return Integer.class;
-    }
-
-    @Override
-    public Wait waitFor(final Context context, final Integer input) {
-        return Wait.anyOf(
-                approval.forOne(),
-                Timer.byDuration(Duration.ofSeconds(input)));
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final Integer input) {
-        if (context.hasTimerFired()) {
-            return StepDecision.gracefulComplete("approval timed out");
-        }
-        final List<String> approvals = approval.getConditionResults(context);
-        return StepDecision.gracefulComplete(approvals.get(0));
-    }
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-const approval = new Channel("Approval", stringCodec);
-
-class ChannelWait implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
-  public getStepType(): string {
-    return "ChannelWait";
-  }
-
-  public waitFor(_context: Context, input: number): Wait {
-    return Wait.anyOf(
-      approval.forOne(),
-      Timer.byDuration(input * 1000),
-    );
-  }
-
-  public execute(context: Context, _input: number): StepDecision {
-    if (context.hasTimerFired()) {
-      return gracefulComplete("approval timed out");
-    }
-    const approvals = approval.results(context);
-    return gracefulComplete(approvals[0]!);
-  }
-}
-
-const channelWait = new ChannelWait();
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 
@@ -917,76 +466,11 @@ impl Step for ChannelWait {
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/channel/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/channel/flow.rs)
 
 <a id="subflow-结果"></a>
 
 #### SubFlow results {#subflow-results}
-
-<SdkTabs
-examples={{
-python: 'examples/python/dex_examples/primitives/subflow/parent_flow.py',
-go: 'examples/go/primitives/subflow/parent_flow.go',
-java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
-typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
-rust: 'examples/rust/src/primitives/subflow/flow.rs',
-}}>
-<SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: int) -> StepDecision:
-    result = SubFlow.get_condition_results(context)
-    output = result.single_output(int)
-    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (subFlowParent) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	result, err := dex.SubFlowResult(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var output int
-	if err := result.DecodeSingleOutput(&output); err != nil {
-		return nil, err
-	}
-	flowID, err := dex.SubFlowID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Integer input) {
-    final Integer output =
-            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
-    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(context: Context, _input: number): StepDecision {
-  const result = SubFlow.getConditionResults(context);
-  const output = result.singleOutput(doubleCodec);
-  const flowId = SubFlow.getFlowId(context);
-  return gracefulComplete(`${flowId}|${output}`);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
 
 ```rust
 fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
@@ -999,8 +483,7 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)
 
 ### AnyCombinationOf {#anycombinationof}
 
@@ -1014,70 +497,6 @@ queued.
 
 Every Condition in its combinations requires a unique **condition ID**.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
-    go: 'examples/go/primitives/wait-types/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
-    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
-    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-return Wait.any_combination_of(
-    ConditionCombination.of(
-        channel_a.for_one(condition_id="signal-a"),
-        Timer.by_duration(timeout, condition_id="timeout"),
-    ),
-    ConditionCombination.of(
-        channel_b.for_one(condition_id="signal-b"),
-    ),
-)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-return dex.AnyComboOf(
-	dex.Combo(
-		SignalA.ForOne(dex.WithConditionID("signal-a")),
-		dex.Timer(timeout, dex.WithConditionID("timeout")),
-	),
-	dex.Combo(
-		SignalB.ForOne(dex.WithConditionID("signal-b")),
-	),
-), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return Wait.anyCombinationOf(
-        ConditionCombination.of(
-                channelA.forOne("signal-a"),
-                Timer.byDuration(timeout, "timeout")),
-        ConditionCombination.of(channelB.forOne("signal-b")));
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return Wait.anyCombinationOf(
-  ConditionCombination.of(
-    channelA.forOne("signal-a"),
-    Timer.byDuration(timeoutMs, "timeout"),
-  ),
-  ConditionCombination.of(channelB.forOne("signal-b")),
-);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 Ok(Wait::any_combination_of([
     ConditionCombination::all_of([
@@ -1088,8 +507,7 @@ Ok(Wait::any_combination_of([
 ]))
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
 
 ### Step execution local {#step-execution-local}
 
@@ -1098,83 +516,6 @@ Ok(Wait::any_combination_of([
 computes something **Execute** needs but a Flow-level **Attribute** is
 overkill. Step input is already passed to both methods. Do not copy input into
 a local.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/step_execution_local/step_execution_local_flow.py',
-    go: 'examples/go/primitives/step-execution-local/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepexecutionlocal/StepExecutionLocalFlow.java',
-    typescript: 'examples/typescript/src/primitives/step-execution-local/step-execution-local-flow.ts',
-    rust: 'examples/rust/src/primitives/step_execution_local/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def wait_for(self, context: Context, input: int) -> Wait:
-    context.set_step_execution_local("note", f"approval:{input}")
-    return Wait.until(approval.for_one())
-
-def execute(self, context: Context, input: int) -> StepDecision:
-    note = context.get_step_execution_local("note", str)
-    return graceful_complete(note or "")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (noteWait) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
-	if err := ctx.SetStepExecutionLocal("note", fmt.Sprintf("approval:%d", input)); err != nil {
-		return nil, err
-	}
-	return dex.Until(Approval.ForOne()), nil
-}
-
-func (noteWait) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	var note string
-	found, err := ctx.GetStepExecutionLocal("note", &note)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, fmt.Errorf("note was not set")
-	}
-	return dex.GracefulComplete(note), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public Wait waitFor(final Context context, final Integer input) {
-    context.setStepExecutionLocal("note", "approval:" + input, String.class);
-    return Wait.until(approval.forOne());
-}
-
-public StepDecision execute(final Context context, final Integer input) {
-    final String note = context.getStepExecutionLocal("note", String.class);
-    return StepDecision.gracefulComplete(note == null ? "" : note);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public waitFor(context: Context, input: number): Wait {
-  context.setStepExecutionLocal("note", `approval:${input}`, stringCodec);
-  return Wait.until(approval.forOne());
-}
-
-public execute(context: Context, _input: number): StepDecision {
-  const note = context.getStepExecutionLocal("note", stringCodec) ?? "";
-  return gracefulComplete(note);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
 
 ```rust
 fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
@@ -1188,58 +529,18 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/step_execution_local/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/step_execution_local/flow.rs)
 
 ### Skip immediately {#skip-immediately}
 
 **SkipWaitImmediately** waits for no condition. Use it in a dynamic **WaitFor**
 method when one branch must not wait for anything.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
-    go: 'examples/go/primitives/flow/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
-    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
-    rust: 'examples/rust/src/primitives/flow/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-return Wait.skip_immediately()
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-return dex.SkipWaitImmediately(), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return Wait.skipImmediately();
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return Wait.skipImmediately();
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 Ok(Wait::skip_immediately())
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/flow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/flow/flow.rs)
 
 ## Step decisions {#step-decisions}
 
@@ -1252,59 +553,6 @@ Flow, or both stops this branch and cancels other Steps.
 Step movement has its own input and can also have its own
 [Step options](#stepoptions-override-per-stepexecution).
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/step-decision/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
-    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
-    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
-    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-return dex.GoToMany(
-	dex.MovementOf(carrierAStep{}, Quote{Carrier: "A", Price: 10}),
-	dex.MovementOf(carrierBStep{}, Quote{Carrier: "B", Price: 12}),
-	dex.MovementOf(winnerStep{}, quote),
-), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return StepDecision.goToMany(
-        StepMovement.of(CarrierA.class, quoteA),
-        StepMovement.of(CarrierB.class, quoteB),
-        StepMovement.of(Winner.class, winnerQuote));
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-return go_to_many(
-    StepMovement.of(CarrierA, Quote(carrier="A", price=10)),
-    StepMovement.of(CarrierB, Quote(carrier="B", price=12)),
-    StepMovement.of(Winner, quote),
-)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return goToMany(
-  StepMovement.of(CarrierA, { carrier: "A", price: 10 }),
-  StepMovement.of(CarrierB, { carrier: "B", price: 12 }),
-  StepMovement.of(Winner, quote),
-);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 Ok(StepDecision::go_to_many([
     StepMovement::to(&CarrierA, quote_a),
@@ -1313,8 +561,7 @@ Ok(StepDecision::go_to_many([
 ]))
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/step_decision/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/step_decision/flow.rs)
 
 ### Close decisions {#close-decisions}
 
@@ -1333,81 +580,6 @@ outputs return together.
 A Flow can have no active Steps and still keep running. **DeadEnd** stops this
 branch without making a decision that triggers the Flow to complete.
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/step-decision/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
-    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
-    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
-    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-case "graceful":
-	return dex.GracefulComplete("done"), nil
-case "dead-end":
-	return dex.GoToMany(
-		dex.MovementOf(branchWorker{}, "left"),
-		dex.MovementOf(branchWorker{}, "right"),
-	), nil
-
-func (branchWorker) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
-	return dex.DeadEnd(), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-case "graceful" -> {
-    return StepDecision.gracefulComplete("done");
-}
-case "dead-end" -> {
-    return StepDecision.goToMany(
-            StepMovement.of(BranchWorker.class, "left"),
-            StepMovement.of(BranchWorker.class, "right"));
-}
-
-return StepDecision.deadEnd();
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-if mode == "graceful":
-    return graceful_complete("done")
-if mode == "dead-end":
-    return go_to_many(
-        StepMovement.of(BranchWorker, "left"),
-        StepMovement.of(BranchWorker, "right"),
-    )
-
-return dead_end()
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-if (mode === "graceful") {
-  return gracefulComplete("done");
-}
-if (mode === "dead-end") {
-  return goToMany(
-    StepMovement.of(BranchWorker, "left"),
-    StepMovement.of(BranchWorker, "right"),
-  );
-}
-
-return deadEnd();
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 "graceful" => Ok(StepDecision::graceful_complete(String::from("done"))),
 "dead-end" => Ok(StepDecision::go_to_many([
@@ -1418,74 +590,7 @@ return deadEnd();
 Ok(StepDecision::dead_end())
 ```
 
-</SdkSnippet>
-</SdkTabs>
-
-<SdkTabs
-  examples={{
-    go: 'examples/go/patterns/timeout/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/timeout/FlowGracefulTimeout.java',
-    python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
-    typescript: 'examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts',
-    rust: 'examples/rust/src/patterns/timeout/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-func (timeoutStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	return dex.ForceFail("Workflow did not finish the task in time"), nil
-}
-
-func (taskStep) Execute(
-	ctx dex.Context,
-	_ bool,
-) (*dex.StepDecision, error) {
-	return dex.ForceComplete("Workflow completed successfully"), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Void input) {
-    return StepDecision.forceFail("Workflow did not finish the task in time");
-}
-
-public StepDecision execute(final Context context, final Boolean workflowSuccessful) {
-    return StepDecision.forceComplete("Workflow completed successfully");
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: None) -> StepDecision:
-    return force_fail("Workflow did not finish the task in time")
-
-def execute(self, context: Context, input: bool) -> StepDecision:
-    return force_complete("Workflow completed successfully")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(_context: Context, _input: void): StepDecision {
-  return forceFail("Workflow did not finish the task in time");
-}
-
-public execute(_context: Context, _workflowSuccessful: boolean): StepDecision {
-  return forceComplete("Workflow completed successfully");
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
+Example: [examples/rust/src/primitives/step_decision/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/step_decision/flow.rs)
 
 ```rust
 fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
@@ -1497,8 +602,7 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/patterns/timeout/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/timeout/flow.rs)
 
 ### Cancel other Steps {#cancellation-on-stepdecision}
 
@@ -1512,63 +616,13 @@ An RPC can also cancel Steps by type. See
 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
 running attempt observes cancellation, see [Cancellation](#cancellation).
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/step-decision/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
-    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
-    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
-    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-func (winnerStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
-	return dex.GoTo(recordQuote{}, quote).
-		CancelSteps(carrierAStep{}, carrierBStep{}), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return StepDecision.goTo(RecordQuote.class, quote)
-        .withCancelingSteps(carrierA, carrierB);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-return (
-    go_to(RecordQuote, quote)
-    .with_canceling_steps(self.flow.carrier_a, self.flow.carrier_b)
-)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return withCancelingSteps(
-  goTo(RecordQuote, quote),
-  this.flow.carrierAStep,
-  this.flow.carrierBStep,
-);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 Ok(StepDecision::go_to(&RecordQuote, quote)
     .cancel_step(&CarrierA)
     .cancel_step(&CarrierB))
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/step_decision/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/step_decision/flow.rs)
 
 ### ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
@@ -1582,59 +636,6 @@ Use it to drain Channels and complete the Flow, so the Flow can stay short. See
 [Drain External Channel](/design-patterns/draining-channel-for-external-publishing)
 for the full example.
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/patterns/drain-channels/external-publishing/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/externalpublishing/DrainingExternalChannelFlow.java',
-    python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py',
-    typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts',
-    rust: 'examples/rust/src/patterns/drain_channels/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-return dex.ForceCompleteIfChannelsEmpty(
-	nil,
-	[]dex.ChannelDef{QueueChannel},
-	dex.MovementOf(processMessage{}, ""),
-), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return StepDecision.forceCompleteIfChannelsEmpty(
-        null,
-        StepMovement.of(ProcessMessage.class, null),
-        queueChannel);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-return force_complete_if_channels_empty(
-    None,
-    StepMovement.of(ProcessMessage, None),
-    self.queue_channel,
-)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return forceCompleteIfChannelsEmpty(
-  null,
-  StepMovement.of(ProcessMessage, undefined),
-  queueChannel,
-);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 Ok(StepDecision::force_complete_if_channels_empty(
     (),
@@ -1643,8 +644,7 @@ Ok(StepDecision::force_complete_if_channels_empty(
 ))
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/patterns/drain_channels/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/drain_channels/flow.rs)
 
 ## StepOptions {#step-options}
 
@@ -1658,60 +658,6 @@ The **StepOptions** returned by a Step implementation apply to every Step
 execution by default. To override them for one Step execution, provide the
 **StepOptions** override when a **StepDecision** goes to the next Steps.
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/options-override/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java',
-    python: 'examples/python/dex_examples/primitives/options_override/options_override_flow.py',
-    typescript: 'examples/typescript/src/primitives/options-override/options-override-flow.ts',
-    rust: 'examples/rust/src/primitives/options_override/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-override := &dex.StepOptions{
-	WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
-	WaitForFailure: dex.ProceedOnWaitForFailure,
-}
-return dex.GoTo(overrideSecond{}, payload, dex.WithStepOptions(override)), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-final StepOptions options = StepOptions.newBuilder()
-        .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
-        .waitForFailure(WaitForFailurePolicy.PROCEED)
-        .build();
-return StepDecision.goToMany(StepMovement.of(OverrideSecond.class, output, options));
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-options = StepOptions(
-    wait_for_retry=RetryPolicy(maximum_attempts=2),
-    wait_for_failure=WaitForFailurePolicy.PROCEED,
-)
-return go_to_many(StepMovement.of(OverrideSecond, output, options))
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-const override: StepOptions = {
-  waitForRetry: { maximumAttempts: 2 },
-  waitForFailure: "proceed",
-};
-return goToMany(StepMovement.of(OverrideSecond, payload, override));
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 let override_options = StepOptions::new()
     .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
@@ -1723,8 +669,7 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 )]))
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/options_override/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/options_override/flow.rs)
 
 ### Retry and failure policies {#retry-and-failure-policies}
 
@@ -1735,81 +680,6 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 - **Failure policy** decides what happens **after** retries end. The default
   fails the Flow. **WaitFor** can run **Execute** anyway, and **Execute** can
   go to a recovery Step.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/step/retry_flow.py',
-    go: 'examples/go/primitives/step/retry_flow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/RetryFlow.java',
-    typescript: 'examples/typescript/src/primitives/step/retry-flow.ts',
-    rust: 'examples/rust/src/primitives/step/retry_flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def get_options(self) -> StepOptions:
-    return StepOptions(
-        execute_retry=RetryPolicy(
-            initial_interval=timedelta(seconds=1),
-            backoff_coefficient=2,
-            maximum_attempts=5,
-        ),
-    )
-
-def execute(self, context, ready_after_attempt: int) -> StepDecision:
-    if context.attempt < ready_after_attempt:
-        raise RuntimeError(f"not ready on attempt {context.attempt}")
-    return graceful_complete("ready")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (retryStep) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		ExecuteRetry: &dex.RetryPolicy{
-			InitialInterval:    time.Second,
-			BackoffCoefficient: 2,
-			MaximumAttempts:    5,
-		},
-	}
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@Override
-public StepOptions getStepOptions() {
-    return StepOptions.newBuilder()
-            .executeRetry(RetryPolicy.newBuilder()
-                    .initialInterval(Duration.ofSeconds(1))
-                    .backoffCoefficient(2)
-                    .maximumAttempts(5)
-                    .build())
-            .build();
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public getStepOptions(): StepOptions {
-  return {
-    executeRetry: {
-      initialIntervalMs: 1000,
-      backoffCoefficient: 2,
-      maximumAttempts: 5,
-    },
-  };
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
 
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -1822,8 +692,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/step/retry_flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/step/retry_flow.rs)
 
 #### WaitFor failure policy {#waitfor-failure-policy}
 
@@ -1835,107 +704,6 @@ When **WaitFor** retries are exhausted:
 With **PROCEED**, the same Step's **Execute** receives the durable input
 unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has
 the error type and detail from the final failed **WaitFor** attempt.
-
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/proceedonwaitfailure/ProceedOnWaitFailureFlow.java',
-    python: 'examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py',
-    typescript: 'examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts',
-    rust: 'examples/rust/src/primitives/proceed_on_wait_failure/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-func (failingWait) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
-		WaitForFailure: dex.ProceedOnWaitForFailure,
-	}
-}
-
-func (failingWait) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
-	return nil, fmt.Errorf("planned WaitFor failure")
-}
-
-func (failingWait) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	if !ctx.WaitForMethodFailed() {
-		return nil, fmt.Errorf("waitFor failure was not reported")
-	}
-	return dex.GoTo(finishStep{}, input+"_recovered"), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@Override
-public StepOptions getStepOptions() {
-    return StepOptions.newBuilder()
-            .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
-            .waitForFailure(WaitForFailurePolicy.PROCEED)
-            .build();
-}
-
-@Override
-public Wait waitFor(final Context context, final String input) {
-    throw new IllegalStateException("planned WaitFor failure");
-}
-
-@Override
-public StepDecision execute(final Context context, final String input) {
-    if (!context.waitForMethodFailed()) {
-        throw new IllegalStateException("waitFor failure was not reported");
-    }
-    return StepDecision.goTo(Finish.class, input + "_recovered");
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-def get_step_options(self) -> StepOptions:
-    return StepOptions(
-        wait_for_retry=RetryPolicy(maximum_attempts=2),
-        wait_for_failure=WaitForFailurePolicy.PROCEED,
-    )
-
-def wait_for(self, context: Context, input: str) -> Wait:
-    raise RuntimeError("planned WaitFor failure")
-
-def execute(self, context: Context, input: str) -> StepDecision:
-    if not context.wait_for_method_failed():
-        raise RuntimeError("waitFor failure was not reported")
-    return go_to(Finish, f"{input}_recovered")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public getStepOptions(): StepOptions {
-  return {
-    waitForRetry: { maximumAttempts: 2 },
-    waitForFailure: "proceed",
-  };
-}
-
-public waitFor(_context: Context, _input: string): Wait {
-  throw new Error("planned WaitFor failure");
-}
-
-public execute(context: Context, input: string): StepDecision {
-  if (!context.waitForMethodFailed()) {
-    throw new Error("waitFor failure was not reported");
-  }
-  return goTo(Finish, `${input}_recovered`);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
 
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -1959,73 +727,13 @@ fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<St
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/proceed_on_wait_failure/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/proceed_on_wait_failure/flow.rs)
 
 #### Execute failure policy {#execute-failure-policy}
 
 When **Execute** retries are exhausted, **onExecuteFailureProceedTo** /
 **ExecuteFailure.proceedTo(...)** proceeds to a **recovery Step** with the same
 input.
-
-<SdkTabs
-  examples={{
-    go: 'examples/go/patterns/recovery/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/recovery/FailureRecoveryFlow.java',
-    python: 'examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py',
-    typescript: 'examples/typescript/src/patterns/recovery/failure-recovery-flow.ts',
-    rust: 'examples/rust/src/patterns/recovery/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-func (updateItemQuantity) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecovery{}, nil),
-		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 5},
-	}
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@Override
-public StepOptions getStepOptions() {
-    return StepOptions.newBuilder()
-            .onExecuteFailureProceedTo(UpdateQuantityRecovery.class)
-            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(5).build())
-            .build();
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-def get_step_options(self) -> StepOptions:
-    return StepOptions(
-        execute_retry=RetryPolicy(maximum_attempts=5)
-    ).on_execute_failure_proceed_to(UpdateQuantityRecovery)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public getStepOptions(): StepOptions {
-  return {
-    executeFailure: ExecuteFailure.proceedTo(UpdateQuantityRecovery, {
-      executeRetry: { maximumAttempts: 5 },
-    }),
-    executeRetry: { maximumAttempts: 5 },
-  };
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
 
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -2035,8 +743,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/patterns/recovery/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/recovery/flow.rs)
 
 The recovery Step receives the failed Step's durable input unchanged.
 **getRecoveryError()** has the error type and detail from the final failed
@@ -2071,56 +778,6 @@ wait on that message in the **WaitFor** of the next Step. Alternatively, the
 next Step can wait on a [Timer](/primitives/timer) and read fresh state when it
 runs.
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/custom-retry/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/customretry/CustomRetryFlow.java',
-    python: 'examples/python/dex_examples/primitives/custom_retry/custom_retry_flow.py',
-    typescript: 'examples/typescript/src/primitives/custom-retry/custom-retry-flow.ts',
-    rust: 'examples/rust/src/primitives/custom_retry/flow.rs',
-  }}>
-<SdkSnippet lang="java">
-
-```java
-throw RetryAfterException.after(
-        Duration.ofSeconds(7),
-        new IllegalStateException("not ready on attempt " + context.getAttempt()));
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-if ctx.Attempt() < int32(readyAfterAttempt) {
-	cause := fmt.Errorf("not ready on attempt %d", ctx.Attempt())
-	return nil, dex.RetryAfter(7*time.Second, dex.ErrorWithStack(cause))
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-from dex._grpc_errors import retry_after
-
-if context.attempt < ready_after_attempt:
-    raise retry_after(7, RuntimeError(f"not ready on attempt {context.attempt}"))
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-if (context.attempt < readyAfterAttempt) {
-  const cause = new Error(`not ready on attempt ${context.attempt}`);
-  throw retryAfter(7, cause);
-}
-return gracefulComplete("ready");
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
     return Err(HandlerError::retry_after(
@@ -2132,8 +789,7 @@ if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
 Ok(StepDecision::graceful_complete(String::from("ready")))
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/custom_retry/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/custom_retry/flow.rs)
 
 ### Durability {#durability}
 
@@ -2169,65 +825,6 @@ afterward.
 Retry policy, method timeout, and heartbeat settings apply to every attempt in
 both modes.
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/durability/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/durability/DurabilityFlow.java',
-    python: 'examples/python/dex_examples/primitives/durability/durability_flow.py',
-    typescript: 'examples/typescript/src/primitives/durability/durability-flow.ts',
-    rust: 'examples/rust/src/primitives/durability/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-func (syncWork) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
-}
-
-func (asyncWork) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilityAsync}
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@Override
-public StepOptions getStepOptions() {
-    return StepOptions.newBuilder()
-            .executeDurability(StepDurability.SYNC)
-            .build();
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-def get_step_options(self) -> StepOptions:
-    return StepOptions(execute_durability=StepDurability.SYNC)
-
-def get_step_options(self) -> StepOptions:
-    return StepOptions(execute_durability=StepDurability.ASYNC)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public getStepOptions(): StepOptions {
-  return { executeDurability: "sync" };
-}
-
-public getStepOptions(): StepOptions {
-  return { executeDurability: "async" };
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
     StepOptions::new().execute_durability(StepDurability::Sync)
@@ -2238,8 +835,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/durability/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/durability/flow.rs)
 
 ### Timeouts and total duration {#timeouts-and-total-duration}
 
@@ -2301,132 +897,6 @@ message preserves the latest explicit state, including an explicitly cleared
 state. Checkpoints are lossy; see
 [Heartbeats are not acknowledged](#heartbeats-not-acknowledged).
 
-<SdkTabs
-  examples={{
-    go: 'examples/go/primitives/heartbeat/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java',
-    python: 'examples/python/dex_examples/primitives/heartbeat/heartbeat_flow.py',
-    typescript: 'examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts',
-    rust: 'examples/rust/src/primitives/heartbeat/flow.rs',
-  }}>
-<SdkSnippet lang="go">
-
-```go
-func (heartbeatStep) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		ExecuteMethodTimeout: 60 * time.Second,
-		HeartbeatTimeout:     10 * time.Second,
-		ExecuteRetry:         &dex.RetryPolicy{MaximumAttempts: 3},
-	}
-}
-
-func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecision, error) {
-	completedBatches := 0
-	if _, err := ctx.GetLastHeartbeatValue(&completedBatches); err != nil {
-		return nil, err
-	}
-	for batch := completedBatches; batch < batches; batch++ {
-		select {
-		case <-ctx.Done():
-			return dex.DeadEnd(), nil
-		default:
-		}
-		time.Sleep(2 * time.Second)
-		if err := ctx.RecordHeartbeat(batch + 1); err != nil {
-			return nil, err
-		}
-	}
-	return dex.GracefulComplete("processed"), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@Override
-public StepDecision execute(final Context context, final Integer batches) {
-    final int completedBatches = context.hasLastHeartbeatValue()
-            ? context.getLastHeartbeatValue(Integer.class)
-            : 0;
-    for (int batch = completedBatches; batch < batches; batch++) {
-        if (context.isCancellationRequested()) {
-            return StepDecision.deadEnd();
-        }
-        try {
-            Thread.sleep(Duration.ofSeconds(2).toMillis());
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            return StepDecision.deadEnd();
-        }
-        context.recordHeartbeat(batch + 1);
-    }
-    return StepDecision.gracefulComplete("processed");
-}
-
-@Override
-public StepOptions getStepOptions() {
-    return StepOptions.newBuilder()
-            .executeMethodTimeout(Duration.ofSeconds(60))
-            .heartbeatTimeout(Duration.ofSeconds(10))
-            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
-            .build();
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="python">
-
-```python
-def get_step_options(self) -> StepOptions:
-    return StepOptions(
-        execute_method_timeout=timedelta(seconds=60),
-        heartbeat_timeout=timedelta(seconds=10),
-        execute_retry=RetryPolicy(maximum_attempts=3),
-    )
-
-async def execute(
-    self, context: AsyncContext, batches: int
-) -> StepDecision:
-    completed_batches = context.get_last_heartbeat_value(int) or 0
-    for batch in range(completed_batches, batches):
-        if context.is_cancellation_requested():
-            return dead_end()
-        await asyncio.sleep(2)
-        await context.heartbeat(batch + 1)
-    return graceful_complete("processed")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public getStepOptions(): StepOptions {
-  return {
-    executeMethodTimeoutMs: 60_000,
-    heartbeatTimeoutMs: 10_000,
-    executeRetry: {
-      maximumAttempts: 3,
-    },
-  };
-}
-
-public async execute(context: AsyncContext, batches: number): Promise<StepDecision> {
-  const completedBatches = context.getLastHeartbeatValue(doubleCodec) ?? 0;
-  for (let batch = completedBatches; batch < batches; batch++) {
-    if (context.cancellationSignal.aborted) {
-      return deadEnd();
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    await context.recordHeartbeat(batch + 1, doubleCodec);
-  }
-  return gracefulComplete("processed");
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
     StepOptions::new()
@@ -2448,8 +918,7 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/heartbeat/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/heartbeat/flow.rs)
 
 ### Cancellation {#cancellation}
 
@@ -2490,64 +959,13 @@ that return to pending, reuse that snapshot.
 This Step loads pending **Queued** messages only for **Execute**. It deletes the
 first pending message in the same successful handler response.
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-    go: 'examples/go/primitives/channel/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
-    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
-    rust: 'examples/rust/src/primitives/channel/flow.rs',
-  }}>
-  <SdkSnippet lang="python">
-
-```python
-def get_step_options(self) -> StepOptions:
-    return StepOptions(execute_load_channels=(self.queued,))
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (channelWait) GetStepOptions() *dex.StepOptions {
-	return &dex.StepOptions{
-		ExecuteLoadChannels: []dex.ChannelDef{Queued},
-	}
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-@Override
-public StepOptions getStepOptions() {
-    return StepOptions.newBuilder()
-            .addExecuteLoadChannel(queued)
-            .build();
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public getStepOptions(): StepOptions {
-  return { executeLoadChannels: [queued] };
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
     StepOptions::new().execute_load_channel(&QUEUED)
 }
 ```
 
-</SdkSnippet>
-</SdkTabs>
+Example: [examples/rust/src/primitives/channel/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/channel/flow.rs)
 
 Reading an unselected AttributeMap value or pending Channel message returns the
 SDK's not-loaded error. A selected empty Channel returns an empty message list.

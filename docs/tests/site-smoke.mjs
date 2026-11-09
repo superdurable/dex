@@ -28,17 +28,6 @@ const siteOrigin = 'https://docs.superdurable.io';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const docsRoot = join(root, '..');
 const redirectsPath = join(root, '..', 'redirects.json');
-for (const [locale, prefix] of [['en', 'index-'], ['zh-Hans', 'zh-hans-']]) {
-  const metadataDirectory = join(docsRoot, '.docusaurus', 'docusaurus-plugin-content-docs', 'default', 'p');
-  const metadataFile = (await readdir(metadataDirectory)).find((name) =>
-    name.startsWith(prefix) && name.endsWith('.json'));
-  assert.ok(metadataFile, `Missing ${locale} default docs sidebar metadata`);
-  const metadata = JSON.parse(await readFile(join(metadataDirectory, metadataFile), 'utf8'));
-  const sharedSidebar = JSON.parse(await readFile(join(docsRoot, 'src', 'data', `docs-sidebar-${locale}.json`), 'utf8'));
-  assert.deepEqual(sharedSidebar, metadata.version.docsSidebars.docs,
-    `${locale} shared reference sidebar must match the main docs sidebar`);
-}
-
 const latestReferenceVersions = JSON.parse(await readFile(join(docsRoot, 'reference/versions.json'), 'utf8'));
 const referenceVersions = new Map();
 for (const [component, latest] of Object.entries(latestReferenceVersions)) {
@@ -471,6 +460,10 @@ for (const filePath of htmlIndexFiles) {
   assert.equal(selectorMarkers.length, referenceMatch ? 1 : 0, `${route} has an incorrect sidebar version selector`);
   if (referenceMatch) {
     const [, component, version] = referenceMatch;
+    const sidebarHtml = html.match(/<nav aria-label="[^"]*" class="menu thin-scrollbar[\s\S]*?<\/nav>/)?.[0] ?? '';
+    assert.match(sidebarHtml, />Design Patterns</, `${route} must show the main docs sidebar`);
+    assert.match(sidebarHtml, /menu__link--active[^>]*aria-current="page"|aria-current="page"[^>]*menu__link--active/,
+      `${route} must highlight its page in the sidebar`);
     const select = html.match(/<select\b[^>]*>[\s\S]*?<\/select>/)?.[0];
     assert.ok(select, `${route} needs a native version select`);
     const versionNames = [...select.matchAll(/<option[^>]*value="([^"]+)"/g)].map((match) => match[1]);

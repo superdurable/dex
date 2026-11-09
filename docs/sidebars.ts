@@ -1,5 +1,16 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
+const referenceComponents = [
+  {component: 'server', label: 'Server (server-zd)'},
+  {component: 'cli', label: 'CLI (dexcli)'},
+  {component: 'web', label: 'Web (Dex Web)'},
+  {component: 'go', label: 'Go SDK'},
+  {component: 'python', label: 'Python SDK'},
+  {component: 'java', label: 'Java SDK'},
+  {component: 'typescript', label: 'TypeScript SDK'},
+  {component: 'rust', label: 'Rust SDK'},
+];
+
 const sidebars: SidebarsConfig = {
   docs: [
     'index',
@@ -158,91 +169,13 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Developer Reference',
       link: {type: 'doc', id: 'reference/index'},
-      items: [
-        {
-          type: 'category',
-          label: 'SDK Common',
-          link: {type: 'doc', id: 'reference/sdk-common/index'},
-          items: ['reference/sdk-common/flows-and-steps'],
-        },
-        {
-          type: 'category',
-          label: 'Server (server-zd)',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/server/'},
-            {type: 'link', label: 'Runtime Data', href: '/reference/server/runtime-data/'},
-            {type: 'link', label: 'Runtime Client', href: '/reference/server/runtime-client/'},
-            {type: 'link', label: 'Configuration', href: '/reference/server/configuration/'},
-            {type: 'link', label: 'Kubernetes', href: '/reference/server/kubernetes/'},
-            {type: 'link', label: 'High Availability', href: '/reference/server/high-availability/'},
-            {type: 'link', label: 'Object Storage', href: '/reference/server/object-storage/'},
-            {type: 'link', label: 'Authentication', href: '/reference/server/authentication/'},
-            {type: 'link', label: 'Workers', href: '/reference/server/workers/'},
-            {type: 'link', label: 'Search', href: '/reference/server/search/'},
-            {type: 'link', label: 'Attribute Store Sync', href: '/reference/server/attribute-store-sync/'},
-            {type: 'link', label: 'Metrics', href: '/reference/server/metrics/'},
-            {type: 'link', label: 'Upgrades', href: '/reference/server/upgrades/'},
-          ],
-        },
-        {
-          type: 'category',
-          label: 'CLI (dexcli)',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/cli/'},
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Web (Dex Web)',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/web/'},
-            {type: 'link', label: 'Dex Web', href: '/reference/web/dex-web/'},
-            {type: 'link', label: 'Flow Visualization', href: '/reference/web/flow-visualization/'},
-            {type: 'link', label: 'Local Connector Setup', href: '/reference/web/local-connector-setup/'},
-            {type: 'link', label: 'Debugging', href: '/reference/web/debugging/'},
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Go SDK',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/go/'},
-            {type: 'link', label: 'Workers', href: '/reference/go/workers/'},
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Python SDK',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/python/'},
-            {type: 'link', label: 'Workers', href: '/reference/python/workers/'},
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Java SDK',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/java/'},
-            {type: 'link', label: 'Workers', href: '/reference/java/workers/'},
-          ],
-        },
-        {
-          type: 'category',
-          label: 'TypeScript SDK',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/typescript/'},
-            {type: 'link', label: 'Workers', href: '/reference/typescript/workers/'},
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Rust SDK',
-          items: [
-            {type: 'link', label: 'Overview', href: '/reference/rust/'},
-            {type: 'link', label: 'Workers', href: '/reference/rust/workers/'},
-          ],
-        },
-      ],
+      // Each entry expands into that component's own versioned sidebar. See plugins/shared-docs-sidebar.
+      items: referenceComponents.map(({component, label}) => ({
+        type: 'link' as const,
+        label,
+        href: `/reference/${component}/`,
+        customProps: {referenceComponent: component},
+      })),
     },
     'glossary',
   ],

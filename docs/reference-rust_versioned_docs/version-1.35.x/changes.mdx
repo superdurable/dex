@@ -1,0 +1,69 @@
+---
+id: changes
+title: Changes by version
+sidebar_label: Changes by version
+---
+
+# Changes by version
+
+This page lists user-visible changes to the Rust SDK, newest first; each section covers the changes since the previous release of this component.
+
+## 1.35 {#v1-35}
+
+Released 2026-11-06 as [sdk-rust/v1.35.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.35.0). Reference: [1.35.x](/reference/rust/1.35.x/).
+
+### Breaking
+
+- Workers and the Client’s first call now require server-zd 0.1.17 or later (protocol version 4). Upgrade all server processes before upgrading the SDK. [Reference](/reference/server/upgrades).
+- Worker startup fails when **max_concurrent_tasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/rust/1.35.x/workers#capacity-and-shutdown).
+- **RetryPolicy::total_duration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](https://docs.rs/dex-sdk/1.35.0/dex_sdk/struct.RetryPolicy.html#method.total_duration).
+- A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/rust/1.35.x/flows-and-steps#same-attempt-redelivery).
+
+### Added
+
+- **RecoveryErrorInfo::attempt_progress()** distinguishes a failed Step method that never started from one that may have run. [API reference](https://docs.rs/dex-sdk/1.35.0/dex_sdk/struct.RecoveryErrorInfo.html#method.attempt_progress).
+
+### Changed
+
+- Workers open one execution stream per slot; **reserved_rpc_tasks** selects RPC-only slots. By default, a Worker with at least two slots reserves one for RPCs. [Reference](/reference/rust/1.35.x/workers#capacity-and-shutdown).
+- **stop** drains running handlers and returns tasks that did not start without consuming a retry. [Reference](/reference/rust/1.35.x/workers#capacity-and-shutdown).
+
+### Deprecated
+
+- **idle_streams_per_queue** is accepted but ignored, and **pull_reserved_rpc_declines()** always reports zero. Use execution-slot capacity and queue metrics instead. [Reference](/reference/rust/1.35.x/workers#reserved-rpc-capacity).
+
+## 1.31 {#v1-31}
+
+Released 2026-10-31 as [sdk-rust/v1.31.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.31.0). Reference: [1.31.x](/reference/rust/1.31.x/).
+
+### Added
+
+- **Client::get_attributes** reads committed Attributes and AttributeMap instances in one request without a Worker. **AttributeMap::instance** selects an instance, and a tuple of 1–12 reads returns a tuple of **Option** values. [API reference](https://docs.rs/dex-sdk/1.31.0/dex_sdk/struct.Client.html).
+
+## 1.26 {#v1-26}
+
+Released 2026-10-29 as [sdk-rust/v1.26.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.26.0). Reference: [1.26.x](/reference/rust/1.26.x/).
+
+### Breaking
+
+- The SDK supports only server-zd. Migrate the server deployment to server-zd before upgrading. [API reference](https://docs.rs/dex-sdk/1.26.0/dex_sdk/struct.Client.html).
+- **dex-protocol** removes push Worker address fields and obsolete server protocol types. Code using generated protocol structs directly must remove those fields and use the supported server-zd protocol. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.26.0).
+
+## 1.25 {#v1-25}
+
+Released 2026-10-28 as [sdk-rust/v1.25.0](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.25.0). Reference: [1.25.x](/reference/rust/1.25.x/).
+
+### Breaking
+
+- Push Workers and **WorkerTarget** are removed, along with Worker listener and target settings on **WorkerOptions**, **ClientOptions**, and **FlowConfig**. Delete these settings and use outbound pull Workers. [API reference](https://docs.rs/dex-sdk/1.25.0/dex_sdk/struct.WorkerOptions.html).
+
+### Changed
+
+- **StartFlow** and **SubFlow** always select pull Workers. **UpdateFlowConfig** preserves existing Worker routing instead of replacing it. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.25.0).
+
+### Fixed
+
+- Pull Workers reject late Step progress after cancellation, completion, or task reassignment, while preserving the task’s final result. [Release notes](https://github.com/superdurable/dex/releases/tag/sdk-rust%2Fv1.25.0).
+
+Older releases: [GitHub releases](https://github.com/superdurable/dex/releases?q=sdk-rust&expanded=true).
