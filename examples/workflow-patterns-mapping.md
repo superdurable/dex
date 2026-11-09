@@ -20,11 +20,18 @@ Data, resource, and exception-handling patterns are out of scope.
 
 - `+` direct support: one documented Dex construct satisfies every defining
   clause of the pattern, with no application bookkeeping.
-- `+/-` partial support: the pattern needs application state (Attribute
-  counters or flags), an RPC guard, an extra reset Step, a Channel used as a
-  token, or a SubFlow scope, or one defining clause holds only in a restricted
-  form.
-- `-` not supported.
+- `+/-` partial support: the pattern needs application bookkeeping, such as
+  Channel signals that branches publish for a join, Attribute counters or flags,
+  an RPC guard, an extra reset Step, a lock used as a mutex, or a Channel used as
+  a token, or one defining clause holds only in a restricted form.
+- `-` not supported. The example is the closest approximation, not the pattern.
+  Its test asserts the approximation's behavior, and the spec names the
+  defining clause it fails.
+
+Why many joins are `+/-`: a Flow has no native wait on the completion of
+another Step. A join therefore waits for Channel signals that the branches
+publish, and the branch count is application data. When the work is split into
+child Flows, a **SubFlow** AllOf wait is the native join.
 
 ## Ratings
 
@@ -32,49 +39,71 @@ Data, resource, and exception-handling patterns are out of scope.
 | --- | --- | --- | --- | --- |
 | WCP-1 | Sequence | + | GoTo | SequenceFlow |
 | WCP-2 | Parallel Split | + | GoToMany | ParallelSplitSynchronizationFlow |
-| WCP-3 | Synchronization | + | Branches publish to a Channel; the join Step waits Channel ForN(branch count) | ParallelSplitSynchronizationFlow |
+| WCP-3 | Synchronization | +/- | Branches publish to a Channel; the join Step waits Channel ForN(branch count). No native wait on Step completion | ParallelSplitSynchronizationFlow |
 | WCP-4 | Exclusive Choice | + | Execute returns GoTo to exactly one Step | ExclusiveChoiceSimpleMergeFlow |
 | WCP-5 | Simple Merge | + | Several Steps GoTo the same Step type | ExclusiveChoiceSimpleMergeFlow |
 | WCP-6 | Multi-Choice | + | GoToMany with a computed subset of Steps | MultiChoiceSynchronizingMergeFlow |
-| WCP-7 | Structured Synchronizing Merge | + | The Multi-Choice decision starts the join Step with the selected branch count as input; it waits Channel ForN(count) | MultiChoiceSynchronizingMergeFlow |
+| WCP-7 | Structured Synchronizing Merge | +/- | The Multi-Choice decision passes the selected branch count to the join, which waits Channel ForN(count) on signals the branches publish | MultiChoiceSynchronizingMergeFlow |
 | WCP-8 | Multi-Merge | + | Each branch GoTo the same Step type; each arrival is a new Step execution | MultiMergeFlow |
-| WCP-9 | Structured Discriminator | +/- | Channel ForN(1) join plus an extra reset Step that waits ForN(n-1) for the remaining branches | StructuredPartialJoinFlow (requiredQuotes = 1) |
-| WCP-10 | Arbitrary Cycles | + | GoTo any Step, including Steps already run; cycles may have several entry points | ArbitraryCyclesFlow |
+| WCP-9 | Structured Discriminator | +/- | Channel ForN(1) join plus a reset Step that consumes the other n-1 signals and re-enables the join for the next round | StructuredPartialJoinFlow (requiredQuotes = 1) |
+| WCP-10 | Arbitrary Cycles | + | GoTo any Step; the cycle has two entry points and two exit points | ArbitraryCyclesFlow |
 | WCP-11 | Implicit Termination | + | GracefulComplete closes the Flow only when no Step is active | ImplicitTerminationFlow |
 | WCP-12 | Multiple Instances without Synchronization | + | GoToMany N executions of one Step type; nothing waits for them | MultipleInstancesWithoutSynchronizationFlow |
-| WCP-13 | Multiple Instances with a priori Design-Time Knowledge | + | GoToMany with a fixed count plus Channel ForN(count) join | DesignTimeMultipleInstancesFlow |
-| WCP-14 | Multiple Instances with a priori Run-Time Knowledge | + | GoToMany with a count computed from input plus Channel ForN(count) join | RunTimeMultipleInstancesFlow |
-| WCP-15 | Multiple Instances without a priori Run-Time Knowledge | +/- | RPC result next Steps add instances; an Attribute counts started instances; the join Step re-waits ForOne in a loop until intake is closed and every instance reported | NoPriorKnowledgeMultipleInstancesFlow |
-| WCP-16 | Deferred Choice | + | WaitFor AnyOf over Channels; Dex consumes only the selected condition | DeferredChoiceFlow |
-| WCP-17 | Interleaved Parallel Routing | + | Execute Attribute lock shared by every task; GoTo for the partial order | InterleavedParallelRoutingFlow |
+| WCP-13 | Multiple Instances with a priori Design-Time Knowledge | +/- | GoToMany with a fixed count; instances publish Channel signals and the join waits ForN(count) | DesignTimeMultipleInstancesFlow |
+| WCP-14 | Multiple Instances with a priori Run-Time Knowledge | +/- | GoToMany with a count from the input; instances publish Channel signals and the join waits ForN(count) | RunTimeMultipleInstancesFlow |
+| WCP-15 | Multiple Instances without a priori Run-Time Knowledge | +/- | RPC result next Steps add instances; an Attribute counts them; the join re-waits ForOne until intake is closed and every instance reported | NoPriorKnowledgeMultipleInstancesFlow |
+| WCP-16 | Deferred Choice | + | WaitFor AnyOf over Channels; Dex consumes only the selected condition, so the other branch never starts | DeferredChoiceFlow |
+| WCP-17 | Interleaved Parallel Routing | +/- | Execute Attribute lock shared by every task; GoTo for the partial order. A lock covers one Execute only, not a Step with a WaitFor or a suspended task | InterleavedParallelRoutingFlow |
 | WCP-18 | Milestone | +/- | Attribute marks the milestone state; an RPC checks it and returns a next Step only while it holds | MilestoneFlow |
 | WCP-19 | Cancel Task | + | RPC result canceling Steps (Step type) plus next Steps | CancelTaskFlow |
-| WCP-20 | Cancel Case | +/- | Client StopFlow cancels every active Step and records the run as canceled; running SubFlows keep running and must be stopped separately | CancelCaseFlow |
-| WCP-21 | Structured Loop | + | Step GoTo itself with a pre-test condition | StructuredLoopFlow |
+| WCP-20 | Cancel Case | +/- | A cancel Channel wakes a watcher Step. It stops every registered child Flow with Client StopFlow, then returns ForceFail, which cancels every active Step. Child registry plus a shared Attribute lock | CancelCaseFlow |
+| WCP-21 | Structured Loop | + | A pre-test Step GoTo the loop body or the exit; the body GoTo the test | StructuredLoopFlow |
 | WCP-22 | Recursion | + | A Step waits for a SubFlow of its own Flow type | FactorialRecursionFlow |
-| WCP-23 | Transient Trigger | +/- | Channels persist messages, so an RPC guard drops a trigger unless an Attribute written by WaitFor says a Step is waiting | TransientTriggerFlow |
+| WCP-23 | Transient Trigger | +/- | Channels persist messages, so an RPC guard under a shared Attribute lock accepts one trigger only while a Step waits and drops the rest | TransientTriggerFlow |
 | WCP-24 | Persistent Trigger | + | Channel messages stay queued until a WaitFor consumes them | PersistentTriggerFlow |
 | WCP-25 | Cancel Region | + | RPC result canceling several Step types at once | CancelRegionFlow |
 | WCP-26 | Cancel Multiple Instance Activity | + | RPC result canceling the instance Step type; completed instances keep their results | CancelMultipleInstanceTaskFlow |
 | WCP-27 | Complete Multiple Instance Activity | + | RPC result canceling the instances and the join, plus a next Step | CompleteMultipleInstanceTaskFlow |
-| WCP-28 | Blocking Discriminator | +/- | One Channel per branch, join waits AnyOf; a reset Step waits AllOf the remaining branches; later arrivals stay queued until the reset | BlockingPartialJoinFlow (requiredSignals = 1) |
-| WCP-29 | Cancelling Discriminator | + | Join waits ForN(1), then its decision cancels the other branches | CancellingPartialJoinFlow (requiredBids = 1) |
-| WCP-30 | Structured Partial Join | +/- | Channel ForN(n) join plus an extra reset Step that waits ForN(m-n) | StructuredPartialJoinFlow (requiredQuotes = 2) |
-| WCP-31 | Blocking Partial Join | +/- | One Channel per branch, join waits AnyCombinationOf every n-subset; reset Step waits AllOf the rest | BlockingPartialJoinFlow (requiredSignals = 2) |
-| WCP-32 | Cancelling Partial Join | + | Join waits ForN(n), then its decision cancels the other branches | CancellingPartialJoinFlow (requiredBids = 2) |
-| WCP-33 | Generalised AND-Join | + | WaitFor AllOf ForOne per Channel; extra messages stay queued for the next firing | GeneralizedAndJoinFlow |
-| WCP-34 | Static Partial Join for Multiple Instances | +/- | Channel ForN(n) join plus an extra reset Step that waits ForN(m-n) | StaticPartialJoinForMultipleInstancesFlow |
-| WCP-35 | Cancelling Partial Join for Multiple Instances | + | Join waits ForN(n), then its decision cancels the instance Step type | CancellingPartialJoinForMultipleInstancesFlow |
+| WCP-28 | Blocking Discriminator | +/- | One Channel per branch, join waits AnyOf; a reset Step waits AllOf the remaining branches. A next-round signal stays queued and reaches nothing until the reset re-arms the join | BlockingPartialJoinFlow (requiredSignals = 1) |
+| WCP-29 | Cancelling Discriminator | +/- | A Channel signal join waits ForN(1), then its decision cancels the other branches by Step type | CancellingPartialJoinFlow (requiredBids = 1) |
+| WCP-30 | Structured Partial Join | +/- | Channel ForN(n) join plus a reset Step that consumes the other m-n signals and re-enables the join | StructuredPartialJoinFlow (requiredQuotes = 2) |
+| WCP-31 | Blocking Partial Join | +/- | One Channel per branch, join waits AnyCombinationOf every n-subset; a reset Step waits AllOf the rest. Next-round signals stay queued until the reset | BlockingPartialJoinFlow (requiredSignals = 2) |
+| WCP-32 | Cancelling Partial Join | +/- | A Channel signal join waits ForN(n), then its decision cancels the other branches by Step type | CancellingPartialJoinFlow (requiredBids = 2) |
+| WCP-33 | Generalised AND-Join | +/- | WaitFor AllOf ForOne per Channel; extra signals stay queued for the next firing. Branches must publish the signals | GeneralizedAndJoinFlow |
+| WCP-34 | Static Partial Join for Multiple Instances | +/- | Channel ForN(n) join plus a reset Step that consumes the other m-n signals and re-enables the join | StaticPartialJoinForMultipleInstancesFlow |
+| WCP-35 | Cancelling Partial Join for Multiple Instances | +/- | A Channel signal join waits ForN(n), then its decision cancels the instance Step type | CancellingPartialJoinForMultipleInstancesFlow |
 | WCP-36 | Dynamic Partial Join for Multiple Instances | +/- | RPC result next Steps add instances; the join re-waits ForOne and evaluates the completion condition; an Attribute disables new instances | DynamicPartialJoinForMultipleInstancesFlow |
-| WCP-37 | Local Synchronizing Merge | + | Same as WCP-7: the diverging decision passes the branch count to the join Step | MultiChoiceSynchronizingMergeFlow |
-| WCP-38 | General Synchronizing Merge | +/- | No in-Flow construct; wrap the region in a SubFlow, whose GracefulComplete fires once no Step in it can run | GeneralSynchronizingMergeFlow |
+| WCP-37 | Local Synchronizing Merge | +/- | Same as WCP-7: the diverging decision passes the branch count to a Channel signal join | MultiChoiceSynchronizingMergeFlow |
+| WCP-38 | General Synchronizing Merge | - | Closest approximation, not the pattern: a SubFlow wraps the region and completes once none of its Steps can run | GeneralSynchronizingMergeFlow |
 | WCP-39 | Critical Section | +/- | A single-message Channel used as a token; Attribute locks cover one Step method only, not a multi-Step section | CriticalSectionFlow |
-| WCP-40 | Interleaved Routing | + | Execute Attribute lock shared by every task, then a Channel ForN join | InterleavedRoutingFlow |
-| WCP-41 | Thread Merge | + | Channel ForN(k) join of k executions of one Step type | ThreadSplitMergeFlow |
+| WCP-40 | Interleaved Routing | +/- | Execute Attribute lock shared by every task, then a Channel ForN join. A lock covers one Execute only | InterleavedRoutingFlow |
+| WCP-41 | Thread Merge | +/- | Channel ForN(k) join of signals from k executions of one Step type | ThreadSplitMergeFlow |
 | WCP-42 | Thread Split | + | GoToMany k executions of one Step type | ThreadSplitMergeFlow |
 | WCP-43 | Explicit Termination | + | ForceComplete closes the Flow at once and cancels every other Step | ExplicitTerminationFlow |
 
-Totals: 31 `+`, 12 `+/-`, 0 `-`.
+Totals: 19 `+`, 23 `+/-`, 1 `-`.
+
+### Rating notes
+
+- **WCP-28 and WCP-31 are `+/-`.** The definition says "Subsequent
+  enablements of incoming branches are blocked until the Blocking
+  Discriminator has reset" (WCP-31: "until the join has reset"). Each branch
+  has its own Channel. A next-round signal stays queued in that Channel, no
+  join and no downstream Step consumes it, and the re-armed join consumes it
+  only after the reset. The tests prove that the queued signal has no effect
+  before the reset. The reset Step and per-branch Channels are the bookkeeping.
+- **WCP-38 is `-`.** The definition requires the merge to fire "when either (1)
+  each active incoming branch has been enabled or (2) it is not possible that
+  any branch that has not yet been enabled will be enabled at any future time",
+  in a general process with no structural restriction. A Flow has no merge that
+  decides clause (2). The SubFlow approximation only works when every path into
+  the merge lies inside one separately started region, and it merges at the
+  end of that region, not at an in-Flow merge point.
+- **WCP-20 is `+/-`.** The definition says "This includes currently executing
+  tasks, those which may execute at some future time and all sub-processes."
+  Client StopFlow alone leaves running SubFlows alive. The example meets the
+  definition with application bookkeeping: a cancel Channel, a watcher Step, a
+  child Flow registry, and a shared Attribute lock.
 
 ## File layout
 
@@ -88,7 +117,7 @@ Flows are grouped by WCP category into ten source groups.
 | and-join and threads | GeneralizedAndJoinFlow, ThreadSplitMergeFlow |
 | multiple instances | MultipleInstancesWithoutSynchronizationFlow, DesignTimeMultipleInstancesFlow, RunTimeMultipleInstancesFlow, NoPriorKnowledgeMultipleInstancesFlow, StaticPartialJoinForMultipleInstancesFlow, CancellingPartialJoinForMultipleInstancesFlow, DynamicPartialJoinForMultipleInstancesFlow |
 | state based | DeferredChoiceFlow, InterleavedParallelRoutingFlow, MilestoneFlow, CriticalSectionFlow, InterleavedRoutingFlow |
-| cancellation | CancelTaskFlow, CancelCaseFlow, CancelRegionFlow, CancelMultipleInstanceTaskFlow, CompleteMultipleInstanceTaskFlow |
+| cancellation | CancelTaskFlow, CancelCaseFlow, BackgroundCheckFlow, CancelRegionFlow, CancelMultipleInstanceTaskFlow, CompleteMultipleInstanceTaskFlow |
 | iteration | ArbitraryCyclesFlow, StructuredLoopFlow, FactorialRecursionFlow |
 | termination | ImplicitTerminationFlow, ExplicitTerminationFlow |
 | triggers | TransientTriggerFlow, PersistentTriggerFlow |
@@ -133,6 +162,12 @@ same names with underscores for Python, Go, and Rust.
 - Each test uses a unique Flow ID and bounded waits. Never sleep in a test to
   order events; order them with RPCs and WaitForStepCompletion.
 - Interleaving tasks sleep 200 ms inside Execute so overlaps would show.
+- A concurrency gate holds instances in flight: each instance's WaitFor
+  marks it started in an AttributeMap and waits for one gate message. The
+  test polls the started count through an RPC, then opens the gate.
+- An absence check reads the unconsumed messages of a Channel through an RPC.
+  Dex evaluates waits when a message is published, so a live waiting Step
+  would already have consumed it.
 
 ## Examples and required test assertions
 
@@ -188,6 +223,10 @@ same names with underscores for Python, Go, and Rust.
   `{"LegalReview", "FinanceReview"}`.
 
 **GeneralSynchronizingMergeFlow** (WCP-38) with child **ReviewRegionFlow**.
+Rated `-`: this is the closest approximation, not the pattern. It fails the
+clause "it is not possible that any branch that has not yet been enabled will
+be enabled at any future time" for a general in-Flow merge: it merges only at
+the end of a separately started region. Its test asserts the approximation.
 - GeneralSynchronizingMergeFlow input: none. Steps: RunReviewRegion (start)
   waits SubFlow.run(ReviewRegionFlow, 0); Execute decodes every completion
   output of the SubFlow result as a string and GoTo PublishDecision(sorted
@@ -203,30 +242,40 @@ same names with underscores for Python, Go, and Rust.
 ### partial joins
 
 **StructuredPartialJoinFlow** (WCP-9 with requiredQuotes = 1, WCP-30 with 2).
-Input: requiredQuotes (int).
+Input: QuoteRound `{requiredQuotes, round, roundCount}`, started with round 1 and
+roundCount 2.
 - Channels: supplierAReleased, supplierBReleased, supplierCReleased (string),
   quoteReceived (string).
 - RPC releaseSupplierQuote(supplier string `"A"`, `"B"`, or `"C"`): publishes
   to that supplier's Channel. Reject any other value with an input error.
-- Steps: RequestQuotes -> GoToMany(QuoteFromSupplierA, QuoteFromSupplierB,
-  QuoteFromSupplierC, AcceptQuotes(requiredQuotes)). QuoteFromSupplierX waits
-  supplierXReleased.ForOne, publishes `"X"` to quoteReceived, DeadEnd.
-  AcceptQuotes(required) waits quoteReceived.ForN(required) ->
-  GoToMany(PlaceOrder(accepted list), ResetQuoteJoin(3 - required)).
-  PlaceOrder returns GracefulComplete(sorted accepted). ResetQuoteJoin(n) waits
-  quoteReceived.ForN(n), returns GracefulComplete(sorted ignored).
-- Test required = 1: release A; wait for PlaceOrder-1; release B; release C;
-  COMPLETED; exactly one PlaceOrder completion `["A"]`; ResetQuoteJoin
-  `["B", "C"]`.
+- Steps: RequestQuotes(QuoteRound) -> GoToMany(QuoteFromSupplierA,
+  QuoteFromSupplierB, QuoteFromSupplierC, AcceptQuotes(QuoteRound)).
+  QuoteFromSupplierX waits supplierXReleased.ForOne, publishes `"X"` to
+  quoteReceived, DeadEnd. AcceptQuotes waits quoteReceived.ForN(requiredQuotes)
+  -> GoToMany(PlaceOrder(`{round, acceptedQuotes: sorted}`),
+  ResetQuoteJoin(QuoteRound)). PlaceOrder returns GracefulComplete(its input).
+  ResetQuoteJoin waits quoteReceived.ForN(3 - requiredQuotes); round <
+  roundCount -> GoTo(RequestQuotes, round + 1), which re-enables the join;
+  else GracefulComplete(`{round, ignoredQuotes: sorted}`).
+- Test required = 1 (two full join cycles): release A; wait for PlaceOrder-1;
+  release B; release C; wait for RequestQuotes-2; release B; wait for
+  PlaceOrder-2; release A; release C; COMPLETED. PlaceOrder completions in
+  execution order: `{round: 1, acceptedQuotes: ["A"]}`, `{round: 2,
+  acceptedQuotes: ["B"]}`. ResetQuoteJoin: `{round: 2, ignoredQuotes: ["A",
+  "C"]}`.
 - Test required = 2: release A; wait for QuoteFromSupplierA-1; release B; wait
-  for PlaceOrder-1; release C; COMPLETED; one PlaceOrder `["A", "B"]`;
-  ResetQuoteJoin `["C"]`.
+  for PlaceOrder-1; release C; wait for RequestQuotes-2; release C; wait for
+  QuoteFromSupplierC-2; release A; wait for PlaceOrder-2; release B;
+  COMPLETED. PlaceOrder: `{1, ["A", "B"]}`, `{2, ["A", "C"]}`.
+  ResetQuoteJoin: `{2, ["B"]}`.
 
 **BlockingPartialJoinFlow** (WCP-28 with requiredSignals = 1, WCP-31 with 2).
 Input: `{requiredSignals, round}` with requiredSignals 1 or 2 and round 1.
 - Channels: branchASignal, branchBSignal, branchCSignal (string).
 - RPC sendBranchSignal(branch `"A"`, `"B"`, or `"C"`): publishes the branch
   letter to that branch's Channel.
+- RPC getQueuedBranchSignalCount() -> int, loads the three branch Channels:
+  the total number of queued (unconsumed) branch signals.
 - Steps: BlockingJoin(`{requiredSignals, round}`), the start Step with
   round 1. requiredSignals = 1: WaitFor AnyOf(A.ForOne, B.ForOne, C.ForOne).
   requiredSignals = 2: AnyCombinationOf({A, B}, {A, C}, {B, C}) with condition
@@ -237,29 +286,38 @@ Input: `{requiredSignals, round}` with requiredSignals 1 or 2 and round 1.
   GracefulComplete(its input). ResetBlockingJoin waits AllOf(ForOne on every
   pending branch); round < 2 -> GoTo(BlockingJoin, round + 1), else
   GracefulComplete(round).
-- Test required = 1: signal A; wait for ProcessRound-1; signal A again (held
-  for round 2); signal B; signal C; wait for ProcessRound-2; signal B; signal
-  C; COMPLETED; ProcessRound completions, in execution order:
+- Test required = 1: signal A; wait for ProcessRound-1; signal A again (a
+  next-round enablement); getQueuedBranchSignalCount is 1, so neither the
+  reset nor a join consumed it; signal B; signal C; wait for ProcessRound-2;
+  signal B; signal C; COMPLETED; ProcessRound completions, in execution order:
   `{round: 1, branches: ["A"]}`, `{round: 2, branches: ["A"]}`.
-- Test required = 2: signal A, B; wait for ProcessRound-1; signal A, B (held);
-  signal C; wait for ProcessRound-2; signal C; COMPLETED; ProcessRound
-  completions `{1, ["A", "B"]}`, `{2, ["A", "B"]}`.
+- Test required = 2: signal A, B; wait for ProcessRound-1; signal A, B again;
+  getQueuedBranchSignalCount is 2; signal C; wait for ProcessRound-2; signal C;
+  COMPLETED; ProcessRound completions `{1, ["A", "B"]}`, `{2, ["A", "B"]}`.
 
 **CancellingPartialJoinFlow** (WCP-29 with requiredBids = 1, WCP-32 with 2).
 Input: requiredBids (int).
 - Channels: carrierAReleased, carrierBReleased, carrierCReleased (string),
-  bidReceived (string).
+  bidReceived (string), carrierBookingConfirmed (string).
 - RPC releaseCarrierBid(carrier `"A"`, `"B"`, or `"C"`).
+- RPC getQueuedCarrierReleaseCount() -> int, loads the three carrier release
+  Channels: the total number of unconsumed release messages.
+- RPC confirmCarrierBooking(): publishes to carrierBookingConfirmed.
 - Steps: RequestBids -> GoToMany(BidFromCarrierA, BidFromCarrierB,
   BidFromCarrierC, AcceptBids(requiredBids)). BidFromCarrierX waits
   carrierXReleased.ForOne, publishes `"X"` to bidReceived, DeadEnd.
   AcceptBids(required) waits bidReceived.ForN(required), returns
-  GracefulComplete(sorted accepted) with canceling Steps BidFromCarrierA,
-  BidFromCarrierB, BidFromCarrierC.
-- Test required = 1: release B; COMPLETED; the only completion is AcceptBids
-  `["B"]`.
-- Test required = 2: release A; wait for BidFromCarrierA-1; release C;
-  COMPLETED; the only completion is AcceptBids `["A", "C"]`.
+  GoTo(ConfirmCarrierBooking, sorted accepted) with canceling Steps
+  BidFromCarrierA, BidFromCarrierB, BidFromCarrierC. ConfirmCarrierBooking
+  waits carrierBookingConfirmed.ForOne, returns GracefulComplete(its input).
+- Test required = 1: release B; wait for AcceptBids-1; release A; release C
+  (late branches); getQueuedCarrierReleaseCount is 2, so no late branch ran;
+  confirmCarrierBooking; COMPLETED; the only completion is
+  ConfirmCarrierBooking `["B"]`.
+- Test required = 2: release A; wait for BidFromCarrierA-1; release C; wait for
+  AcceptBids-1; release B (late); getQueuedCarrierReleaseCount is 1;
+  confirmCarrierBooking; COMPLETED; the only completion is
+  ConfirmCarrierBooking `["A", "C"]`.
 
 ### and-join and threads
 
@@ -302,98 +360,148 @@ names (list of strings).
   SendInvitation outputs `{"ana", "ben"}`; one ConfirmRegistration completion.
 
 **DesignTimeMultipleInstancesFlow** (WCP-13). Input: none.
-- Channel: reviewCompleted (string). Shares Step types ReviewDocument and
-  CollectReviews with RunTimeMultipleInstancesFlow.
+- AttributeMap: startedReviewers (bool, instance key = reviewer).
+- Channels: reviewGateOpened (string), reviewCompleted (string). Shares Step
+  types ReviewDocument and CollectReviews, the AttributeMap, and the Channels
+  with RunTimeMultipleInstancesFlow.
+- RPC getStartedReviewCount() -> int, loads startedReviewers: its map size.
+- RPC openReviewGate(count int): publishes count messages to reviewGateOpened.
 - Steps: StartDesignTimeReviews -> GoToMany(ReviewDocument("legal"),
   ReviewDocument("finance"), ReviewDocument("security"), CollectReviews(3)).
-  ReviewDocument publishes its reviewer, DeadEnd. CollectReviews(count) waits
-  ForN(count), returns GracefulComplete(sorted reviewers).
-- Test: COMPLETED; one CollectReviews completion
-  `["finance", "legal", "security"]`.
+  ReviewDocument WaitFor sets startedReviewers[reviewer] = true and waits
+  reviewGateOpened.ForOne (the concurrency gate); Execute publishes its
+  reviewer to reviewCompleted, DeadEnd. CollectReviews(count) waits
+  reviewCompleted.ForN(count), returns GracefulComplete(sorted reviewers).
+- Test: poll getStartedReviewCount until 3 (all three instances are in flight
+  at once, held by the gate); DescribeFlow is RUNNING; openReviewGate(3);
+  COMPLETED; one CollectReviews completion `["finance", "legal", "security"]`.
 
 **RunTimeMultipleInstancesFlow** (WCP-14). Input: reviewers (list of
 strings).
 - Steps: StartRunTimeReviews -> GoToMany(ReviewDocument per reviewer,
-  CollectReviews(reviewer count)).
-- Test `["ana", "ben", "cy", "dee"]`: one CollectReviews completion with all
-  four, sorted.
+  CollectReviews(reviewer count)). The same gate, RPCs, AttributeMap, and
+  Channels as DesignTimeMultipleInstancesFlow.
+- Test `["dee", "ana", "cy", "ben"]`: poll getStartedReviewCount until 4;
+  DescribeFlow is RUNNING; openReviewGate(4); COMPLETED; one CollectReviews
+  completion `["ana", "ben", "cy", "dee"]`.
 
 **NoPriorKnowledgeMultipleInstancesFlow** (WCP-15). Input: analyzed sample IDs
 (list of strings), started empty.
 - Attributes: startedSampleCount (int), isSampleIntakeClosed (bool).
-- Channels: sampleAnalyzed (string), sampleIntakeClosed (string).
+- AttributeMap: analysisStartedSamples (bool, instance key = sampleId).
+- Channels: sampleAnalyzed (string), sampleIntakeClosed (string),
+  sampleGateOpened (string).
 - RPC addSample(sampleId string) -> bool, locks startedSampleCount: closed ->
   false; else increment startedSampleCount and return true with next Step
   AnalyzeSample(sampleId).
 - RPC closeSampleIntake(), locks startedSampleCount: sets
   isSampleIntakeClosed and publishes `"closed"` to sampleIntakeClosed.
+- RPC getStartedAnalysisCount() -> int, loads analysisStartedSamples: its map
+  size.
+- RPC openSampleGate(count int): publishes count messages to sampleGateOpened.
 - Steps: JoinSamples(analyzed list), the start Step with an empty list. WaitFor:
   closed and analyzed count == started -> SkipImmediately; closed ->
   sampleAnalyzed.ForOne; open -> AnyOf(sampleAnalyzed.ForOne,
   sampleIntakeClosed.ForOne). Execute (no lock: the count cannot change
   once intake is closed): append consumed samples; closed and count == started ->
   GoTo(ReportSamples, analyzed); else GoTo(JoinSamples, analyzed).
-  AnalyzeSample publishes its sampleId, DeadEnd. ReportSamples returns
-  GracefulComplete(sorted).
-- Test: addSample s1, s2, s3 each return true; closeSampleIntake; COMPLETED;
-  ReportSamples `["s1", "s2", "s3"]`.
+  AnalyzeSample WaitFor sets analysisStartedSamples[sampleId] = true and waits
+  sampleGateOpened.ForOne; Execute publishes its sampleId to sampleAnalyzed,
+  DeadEnd. ReportSamples returns GracefulComplete(sorted).
+- Test: addSample s1 and s2 return true; poll getStartedAnalysisCount until 2;
+  addSample s3 returns true while s1 and s2 are still running; poll until 3;
+  closeSampleIntake; addSample s4 returns false; DescribeFlow is RUNNING;
+  openSampleGate(3); COMPLETED; ReportSamples `["s1", "s2", "s3"]`.
 
-**StaticPartialJoinForMultipleInstancesFlow** (WCP-34). Input:
-`{inspectionCount, requiredInspections}`.
+**StaticPartialJoinForMultipleInstancesFlow** (WCP-34). Input: InspectionRound
+`{inspectionCount, requiredInspections, round, roundCount}`, started with
+round 1 and roundCount 2.
 - Channels: inspectionReleased (string), unitInspected (int).
 - RPC releaseInspections(count int): publishes count messages.
-- Steps: StartInspections -> GoToMany(inspectionCount x InspectUnit(index),
-  AcceptInspections(`{requiredInspections, remainingInspections}`)).
-  InspectUnit waits inspectionReleased.ForOne, publishes its index, DeadEnd.
-  AcceptInspections waits ForN(required) -> GoToMany(ApproveBatch(indexes),
-  ResetInspectionJoin(remaining)). ApproveBatch returns GracefulComplete(sorted
-  indexes). ResetInspectionJoin(n) waits ForN(n), returns
-  GracefulComplete(sorted indexes).
-- Test `{3, 2}`: releaseInspections(2); wait for ApproveBatch-1; DescribeFlow
-  is RUNNING; releaseInspections(1); COMPLETED; ApproveBatch has 2 indexes;
-  ResetInspectionJoin has 1; together they are `{0, 1, 2}`.
+- Steps: StartInspections(InspectionRound) -> GoToMany(inspectionCount x
+  InspectUnit(index), AcceptInspections(InspectionRound)). InspectUnit waits
+  inspectionReleased.ForOne, publishes its index, DeadEnd. AcceptInspections
+  waits unitInspected.ForN(requiredInspections) -> GoToMany(ApproveBatch(`{round,
+  unitIndexes: sorted}`), ResetInspectionJoin(InspectionRound)). ApproveBatch
+  returns GracefulComplete(its input). ResetInspectionJoin waits
+  unitInspected.ForN(inspectionCount - requiredInspections); round <
+  roundCount -> GoTo(StartInspections, round + 1), which re-enables the join;
+  else GracefulComplete(`{round, unitIndexes: sorted}`).
+- Test `{3, 2, 1, 2}` (two full join cycles): releaseInspections(2); wait for
+  ApproveBatch-1; DescribeFlow is RUNNING; releaseInspections(1); wait for
+  StartInspections-2; releaseInspections(2); wait for ApproveBatch-2;
+  releaseInspections(1); COMPLETED. Two ApproveBatch completions, rounds 1
+  and 2, each with 2 distinct indexes from {0, 1, 2}; ResetInspectionJoin is
+  round 2 with 1 index; the round-2 ApproveBatch and ResetInspectionJoin
+  indexes together are {0, 1, 2}.
 
 **CancellingPartialJoinForMultipleInstancesFlow** (WCP-35). Input:
 `{inspectionCount, requiredInspections}`.
-- Channels: quorumInspectionReleased (string), quorumUnitInspected (int).
+- Channels: quorumInspectionReleased (string), quorumUnitInspected (int),
+  quorumCertified (string).
 - RPC releaseQuorumInspections(count int).
+- RPC getQueuedQuorumReleaseCount() -> int, loads quorumInspectionReleased:
+  its unconsumed message count.
+- RPC certifyQuorum(): publishes to quorumCertified.
 - Steps: StartQuorumInspections -> GoToMany(inspectionCount x
   InspectQuorumUnit(index), AcceptQuorumInspections(required)).
   InspectQuorumUnit waits quorumInspectionReleased.ForOne, publishes its index,
   DeadEnd. AcceptQuorumInspections waits ForN(required), returns
-  GracefulComplete(sorted indexes) with canceling Step InspectQuorumUnit.
-- Test `{3, 2}`: releaseQuorumInspections(2); COMPLETED; the only completion is
-  AcceptQuorumInspections with 2 distinct indexes.
+  GoTo(CertifyQuorum, sorted indexes) with canceling Step InspectQuorumUnit.
+  CertifyQuorum waits quorumCertified.ForOne, returns GracefulComplete(its
+  input).
+- Test `{3, 2}`: releaseQuorumInspections(2); wait for
+  AcceptQuorumInspections-1; releaseQuorumInspections(1) (late);
+  getQueuedQuorumReleaseCount is 1, so no late instance ran; certifyQuorum;
+  COMPLETED; the only completion is CertifyQuorum with 2 distinct indexes.
 
 **DynamicPartialJoinForMultipleInstancesFlow** (WCP-36). Input:
 `{requiredAcceptedBids, acceptedBids}`, started with an empty acceptedBids list.
 - Attribute: isBidAdmissionClosed (bool).
-- Channel: bidEvaluated (`{amount: int, isAccepted: bool}`).
+- AttributeMap: evaluationStartedBids (bool, instance key = the amount as a
+  decimal string).
+- Channels: bidEvaluated (`{amount: int, isAccepted: bool}`), bidGateOpened
+  (string), contractSigned (string).
 - RPC addBid(amount int) -> bool, locks isBidAdmissionClosed: closed -> false;
   else true with next Step EvaluateBid(amount).
+- RPC getStartedEvaluationCount() -> int, loads evaluationStartedBids: its map
+  size.
+- RPC openBidGate(count int): publishes count messages to bidGateOpened.
+- RPC signContract(): publishes to contractSigned.
 - Steps: JoinBids(`{requiredAcceptedBids, acceptedBids: int list}`), the start
   Step with an empty list, waits bidEvaluated.ForOne. Execute, with an Execute
   lock on isBidAdmissionClosed: append accepted amounts; count >= required ->
   set isBidAdmissionClosed, GoTo(AwardContract, accepted); else GoTo(JoinBids,
-  updated). EvaluateBid publishes `{amount, isAccepted: amount <= 1000}`,
-  DeadEnd. AwardContract returns GracefulComplete(sorted amounts).
-- Test required = 2: addBid 500, 1500, 700 each return true (retry an RPC
-  that fails with the RPC lock conflict error while JoinBids holds the lock); COMPLETED;
-  AwardContract `[500, 700]`.
+  updated). EvaluateBid WaitFor sets evaluationStartedBids[amount] = true and
+  waits bidGateOpened.ForOne; Execute publishes `{amount, isAccepted: amount <=
+  1000}` to bidEvaluated, DeadEnd. AwardContract waits contractSigned.ForOne,
+  returns GracefulComplete(sorted amounts).
+- Test required = 2 (retry any RPC that fails with the RPC lock conflict
+  error): addBid 500 and 1500 return true; poll getStartedEvaluationCount until
+  2; addBid 700 returns true while the others run; poll until 3;
+  openBidGate(3); poll the Client Attribute read until isBidAdmissionClosed is
+  true; addBid 400 returns false; signContract; COMPLETED; AwardContract
+  `[500, 700]`.
 
 ### state based
 
 **DeferredChoiceFlow** (WCP-16). Input: none.
-- Channels: offerAccepted, offerDeclined (string).
-- RPCs acceptOffer(), declineOffer().
-- Steps: AwaitCustomerResponse (start) waits AnyOf(offerAccepted.ForOne,
-  offerDeclined.ForOne); accepted results non-empty -> GoTo(FulfillOffer), else
-  GoTo(ArchiveOffer). Each returns GracefulComplete(its own Step type).
-- Test decline: declineOffer; COMPLETED; the only completion is ArchiveOffer.
-- Test accept: acceptOffer; COMPLETED; the only completion is FulfillOffer.
+- Channels: offerPresented, offerAccepted, offerDeclined (string).
+- RPCs presentOffer(), acceptOffer(), declineOffer().
+- Steps: PresentOffer (start) waits offerPresented.ForOne ->
+  GoTo(AwaitCustomerResponse). AwaitCustomerResponse waits
+  AnyOf(offerAccepted.ForOne, offerDeclined.ForOne); accepted results non-empty
+  -> GoTo(FulfillOffer), else GoTo(ArchiveOffer). Each returns
+  GracefulComplete(its own Step type).
+- Test single response: presentOffer; wait for PresentOffer-1; declineOffer;
+  COMPLETED; the only completion is ArchiveOffer.
+- Test competing responses: acceptOffer and declineOffer both before
+  presentOffer, so both are queued when the choice resolves; presentOffer;
+  COMPLETED; exactly one completion, FulfillOffer or ArchiveOffer; the other
+  branch never ran.
 
 **InterleavedParallelRoutingFlow** (WCP-17). Input: none.
-- Attribute: onboardingTaskLock (bool), used only as a lock.
+- Attribute: onboardingTaskLock (bool), used only as a lock key.
 - Channel: onboardingTaskFinished (TaskInterval).
 - Steps: StartOnboardingTasks -> GoToMany(PrepareContract, RunCreditCheck,
   CompleteOnboardingTasks(3)). PrepareContract, SignContract, and
@@ -401,6 +509,8 @@ strings).
   and publish their TaskInterval. PrepareContract then GoTo(SignContract); the
   others DeadEnd. CompleteOnboardingTasks(count) waits ForN(count), returns
   GracefulComplete(intervals).
+- Restriction: each task is one Execute. The lock does not cover a WaitFor or
+  a task that suspends across several Steps.
 - Test: COMPLETED; 3 intervals for PrepareContract, SignContract,
   RunCreditCheck; no two overlap; PrepareContract finishes no later than
   SignContract starts.
@@ -437,12 +547,13 @@ strings).
 - Test: COMPLETED; 2 intervals, inventory and pricing, that do not overlap.
 
 **InterleavedRoutingFlow** (WCP-40). Input: none.
-- Attribute: auditLock (bool), used only as a lock.
+- Attribute: auditLock (bool), used only as a lock key.
 - Channel: auditFinished (TaskInterval).
 - Steps: StartAudits -> GoToMany(AuditPayroll, AuditExpenses, AuditTaxes,
   CompleteAudits(3)). Each audit holds an Execute lock on auditLock, sleeps
   200 ms, publishes its TaskInterval, DeadEnd. CompleteAudits(count) waits
   ForN(count), returns GracefulComplete(intervals).
+- Restriction: the same single-Execute restriction as WCP-17.
 - Test: COMPLETED; 3 intervals, one per audit; no two overlap.
 
 ### cancellation
@@ -457,12 +568,45 @@ strings).
 - Test: cancelCourierPickup; COMPLETED; the only completion is
   ArrangeSelfDelivery.
 
-**CancelCaseFlow** (WCP-20). Input: none.
-- Channel: applicationReviewed (string).
-- Steps: ReviewApplication (start) waits applicationReviewed.ForOne, returns
-  GracefulComplete("ReviewApplication").
-- Test: StopFlow with the cancel stop type and a reason; the Flow reaches
-  CANCELED; no completions.
+**CancelCaseFlow** (WCP-20) with child **BackgroundCheckFlow**.
+- CancelCaseFlow input: none.
+- Attribute: caseCancellationLock (bool), used only as a lock key.
+- AttributeMap: startedChildFlowIds (string, instance key = the Step execution
+  ID that started the child).
+- Channels: applicationReviewed (string), cancelCase (string).
+- RPC cancelCase(reason string): publishes the reason to cancelCase.
+- RPC listStartedChildFlowIds() -> list of strings, loads startedChildFlowIds:
+  the sorted values.
+- Steps: StartApplication (start) -> GoToMany(ReviewApplication,
+  RunBackgroundCheck, WatchCaseCancellation). ReviewApplication waits
+  applicationReviewed.ForOne, returns GracefulComplete("ReviewApplication").
+  RunBackgroundCheck holds a WaitFor lock on caseCancellationLock; WaitFor sets
+  startedChildFlowIds[stepExecutionId] to the derived child Flow ID and waits
+  SubFlow.run(BackgroundCheckFlow, none) as its only condition; Execute
+  returns GracefulComplete("RunBackgroundCheck"). WatchCaseCancellation holds
+  an Execute lock on caseCancellationLock and loads startedChildFlowIds; it
+  waits cancelCase.ForOne; Execute stops every registered child Flow with
+  Client StopFlow (cancel type), treating a not-found or already closed Flow
+  as success, then returns ForceFail("case canceled: " + reason).
+- Derived child Flow ID: Dex Server names a SubFlow
+  `SubFlow:<parent Flow ID>-<Step execution ID>-<condition index>`, so this
+  child is `SubFlow:<flowId>-<stepExecutionId>-0`. A repeated StopFlow is
+  idempotent.
+- The shared lock closes the race: either RunBackgroundCheck's WaitFor commits
+  first, registering and starting the child, and the watcher then stops it; or
+  the watcher commits first, the Flow closes, and the queued WaitFor never
+  runs, so the child never starts.
+- BackgroundCheckFlow input: none. Channel backgroundCheckCompleted (string).
+  Step AwaitBackgroundCheck (start) waits backgroundCheckCompleted.ForOne,
+  returns GracefulComplete("AwaitBackgroundCheck").
+- Test StopFlow alone (the limitation): start; poll listStartedChildFlowIds
+  until it has one ID; poll DescribeFlow of that child until RUNNING; Client
+  StopFlow on the parent (cancel type); the parent reaches CANCELED; the child
+  is still RUNNING; then stop the child to clean up.
+- Test cancel case (the pattern): start; poll listStartedChildFlowIds until it
+  has one ID and the child is RUNNING; cancelCase("applicant withdrew"); the
+  parent reaches FAILED and has no ReviewApplication completion, so that Step
+  was canceled; poll until the child reaches CANCELED.
 
 **CancelRegionFlow** (WCP-25). Input: none.
 - Channels: identityVerified, creditHistoryChecked, sanctionsScreened (string).
@@ -513,22 +657,37 @@ strings).
 
 ### iteration
 
-**ArbitraryCyclesFlow** (WCP-10). Input: `{hasDraft: bool}`.
-- Steps: RouteSubmission: hasDraft -> GoTo(EditArticle, `{revision: 0, trail:
-  ["RouteSubmission"]}`), else GoTo(DraftArticle, same). DraftArticle ->
-  GoTo(EditArticle, trail + self). EditArticle: revision >= 1 ->
-  GoTo(PublishArticle, trail + self), else GoTo(DraftArticle, `{revision + 1,
-  trail + self}`). PublishArticle returns GracefulComplete(trail + self).
-- Test hasDraft = false: PublishArticle `["RouteSubmission", "DraftArticle",
-  "EditArticle", "DraftArticle", "EditArticle", "PublishArticle"]`.
-- Test hasDraft = true: PublishArticle `["RouteSubmission", "EditArticle",
-  "DraftArticle", "EditArticle", "PublishArticle"]`.
+**ArbitraryCyclesFlow** (WCP-10). Input: `{hasDraft: bool, shouldAbandon:
+bool}`.
+- The Draft and Edit cycle has two entry points (DraftArticle, EditArticle)
+  and two exit points (EditArticle -> PublishArticle, DraftArticle ->
+  AbandonArticle).
+- Steps: RouteSubmission: revision = `{revision: 0, shouldAbandon, trail:
+  ["RouteSubmission"]}`; hasDraft -> GoTo(EditArticle, revision), else
+  GoTo(DraftArticle, revision). DraftArticle: shouldAbandon and revision >= 1
+  -> GoTo(AbandonArticle, trail + self), else GoTo(EditArticle, trail + self).
+  EditArticle: revision >= 1 -> GoTo(PublishArticle, trail + self), else
+  GoTo(DraftArticle, `{revision + 1, shouldAbandon, trail + self}`).
+  PublishArticle and AbandonArticle return GracefulComplete(trail + self).
+- Test `{hasDraft: false, shouldAbandon: false}`: PublishArticle
+  `["RouteSubmission", "DraftArticle", "EditArticle", "DraftArticle",
+  "EditArticle", "PublishArticle"]`.
+- Test `{hasDraft: true, shouldAbandon: false}`: PublishArticle
+  `["RouteSubmission", "EditArticle", "DraftArticle", "EditArticle",
+  "PublishArticle"]`.
+- Test `{hasDraft: false, shouldAbandon: true}`: AbandonArticle
+  `["RouteSubmission", "DraftArticle", "EditArticle", "DraftArticle",
+  "AbandonArticle"]`.
 
-**StructuredLoopFlow** (WCP-21). Input: `{remainingBatches, processedBatches}`.
-- Steps: ProcessBatches (start), pre-test: remainingBatches == 0 ->
-  GoTo(FinishBatches, processedBatches), else GoTo(ProcessBatches, `{remaining -
-  1, processed + 1}`). FinishBatches returns GracefulComplete(processed).
-- Test `{3, 0}` -> FinishBatches 3. Test `{0, 0}` -> FinishBatches 0.
+**StructuredLoopFlow** (WCP-21). Input: `{remainingBatches, processedBatches}`
+where processedBatches is a list of strings, started empty.
+- Steps: CheckBatches (start), the pre-test: remainingBatches == 0 ->
+  GoTo(FinishBatches, processedBatches), else GoTo(ProcessBatch, same input).
+  ProcessBatch, the loop body, appends `"batch-" + remainingBatches` and
+  GoTo(CheckBatches, `{remainingBatches - 1, appended list}`). FinishBatches
+  returns GracefulComplete(processedBatches).
+- Test `{3, []}`: FinishBatches `["batch-3", "batch-2", "batch-1"]`.
+- Test `{0, []}`: FinishBatches `[]`, so ProcessBatch never ran.
 
 **FactorialRecursionFlow** (WCP-22). Input: n (int).
 - Steps: ComputeFactorial: WaitFor n <= 1 -> SkipImmediately, else
@@ -563,16 +722,18 @@ strings).
 **TransientTriggerFlow** (WCP-23). Input: none.
 - Attribute: isAwaitingMotionEvent (bool).
 - Channels: motionSensorArmed (string), motionEvent (int).
-- RPC armMotionSensor(). RPC sendMotionEvent(value int) -> bool: when
-  isAwaitingMotionEvent is true, publish and return true; else return false and
-  drop the trigger.
+- RPC armMotionSensor(). RPC sendMotionEvent(value int) -> bool, locks
+  isAwaitingMotionEvent: when it is true, set it false, publish, and return
+  true; else return false and drop the trigger. Clearing the guard in the same
+  locked commit makes the first accepted trigger the only one.
 - Steps: AwaitMotionSensorArmed (start) waits motionSensorArmed.ForOne ->
-  GoTo(AwaitMotionEvent). AwaitMotionEvent WaitFor sets isAwaitingMotionEvent
-  true and waits motionEvent.ForOne; Execute sets it false and returns
-  GracefulComplete(value).
-- Test: sendMotionEvent(1) returns false; armMotionSensor; poll the Client
-  Attribute read until isAwaitingMotionEvent is true; sendMotionEvent(2)
-  returns true; COMPLETED; AwaitMotionEvent output 2.
+  GoTo(AwaitMotionEvent). AwaitMotionEvent holds a WaitFor lock on
+  isAwaitingMotionEvent; WaitFor sets it true and waits motionEvent.ForOne;
+  Execute returns GracefulComplete(value).
+- Test (retry an RPC that fails with the RPC lock conflict error):
+  sendMotionEvent(1) returns false; armMotionSensor; poll the Client Attribute
+  read until isAwaitingMotionEvent is true; sendMotionEvent(2) returns true;
+  sendMotionEvent(3) returns false; COMPLETED; AwaitMotionEvent output 2.
 
 **PersistentTriggerFlow** (WCP-24). Input: none.
 - Channels: carrierReady (string), shipmentLabel (string).
