@@ -93,9 +93,15 @@ func finishWorkerCall(logger Logger, recovered any, err error) error {
 func workerErrorType(reported error) string {
 	var failure *workerFailure
 	if errors.As(reported, &failure) {
-		return fmt.Sprintf("%T", failure.cause)
+		reported = failure.cause
 	}
-	return fmt.Sprintf("%T", reported)
+	for {
+		withStack, ok := reported.(*errorWithStack)
+		if !ok {
+			return fmt.Sprintf("%T", reported)
+		}
+		reported = withStack.cause
+	}
 }
 
 func reportedWorkerFailure(err error) (error, *RetryAfterError) {

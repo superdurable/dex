@@ -805,11 +805,33 @@ fn failed_attempts_back_off_then_exhaust_and_fail_the_flow() {
         kind: 1,
         worker_error: Some(WorkerErrorResponse {
             detail: "boom".to_owned(),
+            error_type: "*errors.errorString".to_owned(),
+            stack_trace: "origin stack".to_owned(),
             ..WorkerErrorResponse::default()
         }),
         ..StepAttemptFailedCommand::default()
     };
     let failed = harness.apply(Command::StepAttemptFailed(failure(1)));
+    let retry_failure = harness
+        .step_execution("ChargeStep-1")
+        .invocation
+        .expect("retry invocation remains")
+        .last_failure
+        .expect("retry retains the last failure");
+    assert_eq!(
+        retry_failure.backend_error,
+        "FLOW_ERROR_TYPE_WORKER_API_FAIL"
+    );
+    let retry_details = retry_failure.details.expect("retry failure has details");
+    assert_eq!(retry_details.original_worker_error_detail, "boom");
+    assert_eq!(
+        retry_details.original_worker_error_type,
+        "*errors.errorString"
+    );
+    assert_eq!(
+        retry_details.original_worker_error_stack_trace,
+        "origin stack"
+    );
     assert!(
         failed
             .effects
@@ -838,7 +860,11 @@ fn failed_attempts_back_off_then_exhaust_and_fail_the_flow() {
         .pop()
         .expect("history records the final failure");
     assert_eq!(history_failure.attempt, 2);
-    assert_eq!(history_failure.backend_error, "boom");
+    assert_eq!(
+        history_failure.backend_error,
+        "FLOW_ERROR_TYPE_WORKER_API_FAIL"
+    );
+    assert_eq!(history_failure.details, Some(retry_details));
 }
 
 /// An exhausted attempt failure and the text applications see for it.
@@ -1069,7 +1095,25 @@ fn exhausted_step_failure_closes_the_flow_with_the_application_text() {
                 .pop()
                 .expect("history records the final failure");
             assert_eq!(history_failure.attempt, 1, "{label}");
-            assert_eq!(history_failure.backend_error, case.raw_detail, "{label}");
+            assert_eq!(
+                history_failure.backend_error,
+                case.expected_error_type.as_str_name(),
+                "{label}"
+            );
+            let details = history_failure.details.expect("failure has details");
+            let expected_detail = if details.dispatch_task_error_reason
+                != DispatchTaskErrorReason::Unspecified as i32
+            {
+                case.application_text
+            } else {
+                case.raw_detail
+            };
+            let detail = if case.kind == StepAttemptFailureKind::WorkerError {
+                details.original_worker_error_detail
+            } else {
+                details.detail
+            };
+            assert_eq!(detail, expected_detail, "{label}");
         }
     }
 }

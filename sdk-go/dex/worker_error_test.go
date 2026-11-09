@@ -10,6 +10,7 @@ package dex
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +130,63 @@ func TestFinishWorkerCallPrefersOriginStackInsideRetryAfter(t *testing.T) {
 	}
 	if strings.Contains(workerError.GetStackTrace(), "finishWorkerCall") {
 		t.Fatalf("expected origin stack, not wrap-site: %q", workerError.GetStackTrace())
+	}
+}
+
+func TestFinishWorkerCallReportsOriginalErrorTypeWithStack(t *testing.T) {
+	cause := fmt.Errorf("charge failed: %w", errors.New("declined"))
+	withStack := ErrorWithStack(cause)
+	expectedStack := fmt.Sprintf("%+v", withStack)
+	testCases := []struct {
+		name    string
+		err     error
+		code    codes.Code
+		seconds int32
+		cause   error
+		stack   string
+	}{
+		{name: "stack", err: withStack, code: codes.Unknown},
+		{name: "nested stack", err: ErrorWithStack(withStack), code: codes.Unknown},
+		{name: "retry after", err: RetryAfter(3*time.Second, withStack), code: codes.Unknown, seconds: 3},
+		{name: "stack outside retry after", err: ErrorWithStack(RetryAfter(3*time.Second, withStack)), code: codes.Unknown, seconds: 3},
+		{name: "worker failure", err: newWorkerFailure(codes.Internal, withStack), code: codes.Internal},
+	}
+	for _, testCase := range testCases {
+		testCase.cause = cause
+		testCase.stack = expectedStack
+		if testCase.name == "nested stack" {
+			testCase.stack = fmt.Sprintf("%+v", testCase.err)
+		}
+		t.Run(testCase.name, func(t *testing.T) {
+			err := finishWorkerCall(testLogger{}, nil, testCase.err)
+			rpcStatus, ok := status.FromError(err)
+			if !ok || err == nil {
+				t.Fatalf("expected gRPC error, got %v", err)
+			}
+			if rpcStatus.Code() != testCase.code || rpcStatus.Message() != testCase.cause.Error() {
+				t.Fatalf("unexpected status: %v", rpcStatus)
+			}
+			details := rpcStatus.Details()
+			if len(details) != 1 {
+				t.Fatalf("expected one detail, got %d", len(details))
+			}
+			workerError, ok := details[0].(*dexpb.WorkerErrorResponse)
+			if !ok {
+				t.Fatalf("expected WorkerErrorResponse, got %T", details[0])
+			}
+			if workerError.GetErrorType() != fmt.Sprintf("%T", testCase.cause) {
+				t.Fatalf("error type = %q, want %T", workerError.GetErrorType(), testCase.cause)
+			}
+			if workerError.GetDetail() != testCase.cause.Error() {
+				t.Fatalf("detail = %q, want %q", workerError.GetDetail(), testCase.cause.Error())
+			}
+			if workerError.GetStackTrace() != testCase.stack {
+				t.Fatalf("stack = %q, want %q", workerError.GetStackTrace(), testCase.stack)
+			}
+			if workerError.GetRetryAfterSeconds() != testCase.seconds {
+				t.Fatalf("retry after = %d, want %d", workerError.GetRetryAfterSeconds(), testCase.seconds)
+			}
+		})
 	}
 }
 

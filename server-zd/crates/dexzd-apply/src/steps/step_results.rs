@@ -287,12 +287,15 @@ pub(crate) fn apply_attempt_failed(
             .unwrap_or(StepAttemptProgress::Unspecified);
     let worker_error = command.worker_error.clone().unwrap_or_default();
     let dispatch_reason = dispatch_failure_reason(command);
+    let raw_detail = if command.server_detail.is_empty() {
+        &worker_error.detail
+    } else {
+        &command.server_detail
+    };
     let failure = StepMethodFailure {
-        backend_error: if command.server_detail.is_empty() {
-            worker_error.detail.clone()
-        } else {
-            command.server_detail.clone()
-        },
+        backend_error: flow_error_type_for_attempt_failure(command)
+            .as_str_name()
+            .to_owned(),
         details: Some(ServiceErrorResponse {
             detail: (dispatch_reason != DispatchTaskErrorReason::Unspecified)
                 .then(|| go_dispatch_failure_text(&command.server_detail, &cursor.record.flow_type))
@@ -368,7 +371,7 @@ pub(crate) fn apply_attempt_failed(
             let application_text = application_failure_text(
                 command,
                 &worker_error,
-                &failure.backend_error,
+                raw_detail,
                 &cursor.record.flow_type,
             );
             if method == StepMethod::WaitFor
