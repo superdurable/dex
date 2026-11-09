@@ -57,7 +57,7 @@
 
   --tone-accent: #00754a;
   --tone-accent-on: #ffffff;
-  --tone-accent-soft: #e6f4ee;
+  --tone-accent-soft: #d7efe2;
   --tone-accent-ink: #005c3a;
   --tone-wait: #f0b43c;
   --tone-wait-on: #3d2600;
@@ -67,10 +67,10 @@
   --tone-fail-on: #ffffff;
   --tone-fail-soft: #fdeaea;
   --tone-fail-ink: #a32d33;
-  --tone-done: #1d5e3f;
+  --tone-done: #2d5a43;
   --tone-done-on: #ffffff;
-  --tone-done-soft: #e9f3ee;
-  --tone-done-ink: #1d5e3f;
+  --tone-done-soft: #f0f3f1;
+  --tone-done-ink: #2d5a43;
   --tone-neutral: #57534e;
   --tone-neutral-on: #ffffff;
   --tone-neutral-soft: #f0efed;
@@ -103,7 +103,7 @@
 
   --tone-accent: #3fbf86;
   --tone-accent-on: #04150d;
-  --tone-accent-soft: #0f2a1e;
+  --tone-accent-soft: #11382a;
   --tone-accent-ink: #55c794;
   --tone-wait: #e8b450;
   --tone-wait-on: #241800;
@@ -113,10 +113,10 @@
   --tone-fail-on: #2a0b0c;
   --tone-fail-soft: #3b1618;
   --tone-fail-ink: #ff9e9e;
-  --tone-done: #86d8b3;
+  --tone-done: #8fc9aa;
   --tone-done-on: #04150d;
-  --tone-done-soft: #10251b;
-  --tone-done-ink: #86d8b3;
+  --tone-done-soft: #161b18;
+  --tone-done-ink: #8fc9aa;
   --tone-neutral: #a1a1a1;
   --tone-neutral-on: #121214;
   --tone-neutral-soft: #1a1a1d;
@@ -824,34 +824,34 @@ body:has(.v1-page) {
 
 /* Field lists, values, and records read at body size inside v1 sections. */
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-fields {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 10px 20px;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-fields-compact > div {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields-compact > div {
   flex-direction: column;
   align-items: stretch;
   gap: 2px;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-fields + .semantic-fields {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields + .semantic-fields {
   margin-top: 10px;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-fields-compact dd {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields-compact dd {
   min-width: 0;
   flex: none;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-fields dt {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields dt {
   margin: 0;
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
   font-weight: 500;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-fields dd {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields dd {
   color: var(--ui-ink);
   font-size: var(--ui-text-sm);
   font-weight: 500;
@@ -881,12 +881,12 @@ body:has(.v1-page) {
   font-weight: 650;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-value > span {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-value > span {
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
 }
 
-.v1-page :is(.run-overview, .run-sidebar) :is(.semantic-value code, .semantic-value pre, .semantic-alert pre, .structured-value dd pre) {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) :is(.semantic-value code, .semantic-value pre, .semantic-alert pre, .structured-value dd pre, .structured-value > code) {
   padding: 8px 10px;
   border: 0;
   border-radius: var(--ui-radius-control);
@@ -896,18 +896,18 @@ body:has(.v1-page) {
   line-height: 1.5;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-records {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-records {
   gap: 12px;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-record {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-record {
   padding: 0;
   border: 0;
   background: transparent;
 }
 
-.v1-page :is(.run-overview, .run-sidebar) .semantic-record > strong,
-.v1-page :is(.run-overview, .run-sidebar) .semantic-record > summary > strong {
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-record > strong,
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-record > summary > strong {
   margin-bottom: 4px;
   color: var(--ui-ink);
   font-size: var(--ui-text-sm);
@@ -1601,8 +1601,14 @@ body:has(.v1-page) {
     padding-left: 0;
   }
 
+  .v1-page .run-tabs {
+    flex-wrap: wrap;
+  }
+
   .v1-page .run-tabs button {
-    padding: 10px 9px 11px;
+    gap: 5px;
+    padding: 9px 8px 10px;
+    font-size: var(--ui-text-sm);
   }
 }
 

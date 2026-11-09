@@ -693,7 +693,9 @@ export function RunDetailsPage({
                 Next run
               </Link>
             )}
-            <label className={`live-toggle${autoRefresh ? ' is-on' : ''}`}>
+            <label
+              className={`live-toggle${autoRefresh && summary && !terminalStatuses.has(summary.flowStatusCode) ? ' is-on' : ''}`}
+            >
               <input
                 type="checkbox"
                 checked={autoRefresh}

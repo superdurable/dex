@@ -68,7 +68,8 @@ Dex Web draws its interface icons with lucide-react 1.61.0.
 - Copyright (c) 2026 Lucide Icons and Contributors.
 - Licensed under the ISC License. Some icons derive from the Feather project,
   Copyright (c) 2013-present Cole Bemis, under the MIT License. Both texts are
-  in `LICENSES/lucide-ISC.txt`.
+  in `LICENSES/lucide-ISC.txt` and at
+  https://github.com/lucide-icons/lucide/blob/main/LICENSE.
 - Source code: https://github.com/lucide-icons/lucide, published as the npm
   package https://www.npmjs.com/package/lucide-react/v/1.61.0.
 
@@ -82,7 +83,7 @@ files the documentation site serves.
 
 - Copyright (c) 2023 Vercel, in collaboration with basement.studio.
 - Licensed under the SIL Open Font License 1.1. The license text is in
-  `app/fonts/geist/OFL.txt`.
+  `app/fonts/geist/OFL.txt` and at https://openfontlicense.org/open-font-license-official-text/.
 - Source: the npm package https://www.npmjs.com/package/geist/v/1.9.0.
 
 The font files are distributed unmodified, as part of the Dex Web bundle. The

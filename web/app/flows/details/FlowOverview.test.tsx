@@ -283,3 +283,81 @@ describe('live Flow state failures', () => {
     expect(markup).toContain('Cadence deletion is best effort');
   });
 });
+
+describe('redesigned Overview', () => {
+  const runningSummary: FlowSummary = {
+    flowId: 'flow-1',
+    runId: 'run-1',
+    firstRunId: 'run-1',
+    requestId: 'request-1',
+    flowType: 'PaymentFlow',
+    flowStatus: 'Running',
+    flowStatusCode: 1,
+    startTime: '2026-08-10T00:00:00Z',
+    closeTime: null,
+  };
+  const emptyState: FlowState = {
+    flowConfig: {},
+    attributes: [],
+    activeStepExecutions: [],
+    queuedSteps: [],
+    pendingChannelMessages: {},
+    completedSteps: [],
+  };
+
+  it('never shows ignored Flow configuration fields', () => {
+    const state: FlowState = {
+      ...emptyState,
+      flowConfig: {
+        continueAsNewThreshold: 100,
+        continueAsNewPageSizeInBytes: 2048,
+        deleteExpiredHistoryObjects: true,
+        stepDurability: 1,
+      },
+    };
+    render(<FlowOverview summary={runningSummary} events={[]} state={state} />);
+    fireEvent.click(screen.getByRole('button', { name: /Flow config/ }));
+    expect(screen.getByText('stepDurability')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
+    fireEvent.click(screen.getByRole('tab', { name: 'Raw JSON' }));
+    expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
+  });
+
+  it('shows the first run ID only when it differs from the run ID', () => {
+    const sameRun = renderToStaticMarkup(<FlowOverview summary={runningSummary} events={[]} state={emptyState} />);
+    expect(sameRun).not.toContain('First run ID');
+    const continuedRun = renderToStaticMarkup(
+      <FlowOverview summary={{ ...runningSummary, firstRunId: 'run-0' }} events={[]} state={emptyState} />,
+    );
+    expect(continuedRun).toContain('First run ID');
+    expect(continuedRun).toContain('run-0');
+  });
+
+  it('truncates a long Attribute value behind Show all', () => {
+    const longValue = 'x'.repeat(1200);
+    render(
+      <FlowOverview
+        summary={runningSummary}
+        events={[]}
+        state={{ ...emptyState, attributes: [{ key: 'payload', value: longValue }] }}
+      />,
+    );
+    expect(document.body.textContent).not.toContain(longValue);
+    const showAll = screen.getByRole('button', { name: /Show all/ });
+    expect(showAll.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(showAll);
+    expect(document.body.textContent).toContain(longValue);
+    expect(screen.getByRole('button', { name: 'Show less' }).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('collapses empty sections into one quiet line and keeps the write actions', () => {
+    render(
+      <FlowOverview summary={runningSummary} events={[]} state={emptyState} onOpenStateWrite={() => {}} />,
+    );
+    expect(screen.getByText('No queued steps · No completed outputs')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: /Queued steps/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Set attribute' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Publish message' })).toBeTruthy();
+    expect(screen.queryByText('Selected event')).toBeNull();
+  });
+});

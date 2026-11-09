@@ -287,6 +287,11 @@ describe('run attempts on the run page', () => {
 
     await screen.findByText('Run chain');
     expect(screen.queryByRole('combobox', { name: 'Run attempt' })).toBeNull();
+    // A running run shows no Closed fact, one hidden page heading, and copy buttons for its IDs.
+    expect(screen.queryByText('Closed')).toBeNull();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Copy Flow ID' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy run ID' })).toBeTruthy();
     await waitFor(() => expect(latestEventNumber()).toBe('#3'));
     expect(historyReads(historyRequests)).toEqual([['1', '2'], ['1', '1000']]);
     expect(warn).toHaveBeenCalledWith(
