@@ -15,11 +15,11 @@ use dexzd_protocol::dex::flow_service_client::FlowServiceClient;
 use dexzd_protocol::dex::worker_task_service_client::WorkerTaskServiceClient;
 use dexzd_protocol::dex::{
     AttributeWrite, CloseDecision, CloseDecisionType, DescribeActiveNodeRequest,
-    ExecuteMethodFailurePolicy, FlowConfig, FlowStartOptions, FlowStatus, GetFlowStateRequest,
-    GetHistoryEventsRequest, InvokeExecuteMethodOutput, InvokeExecuteMethodRequest,
-    InvokeExecuteMethodResponse, PollWorkerSlotKind, PollWorkerTask, PollWorkerTaskFrame,
-    PollWorkerTaskRegister, PollWorkerTaskRequest, PollWorkerTaskResponse, RetryPolicy,
-    SetAttributesRequest, StartFlowRequest, StepAttemptProgress, StepDecision,
+    ExecuteMethodFailurePolicy, FlowConfig, FlowErrorType, FlowStartOptions, FlowStatus,
+    GetFlowStateRequest, GetHistoryEventsRequest, InvokeExecuteMethodOutput,
+    InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, PollWorkerSlotKind, PollWorkerTask,
+    PollWorkerTaskFrame, PollWorkerTaskRegister, PollWorkerTaskRequest, PollWorkerTaskResponse,
+    RetryPolicy, SetAttributesRequest, StartFlowRequest, StepAttemptProgress, StepDecision,
     StepDownActiveNodeRequest, StepDurability, StepMethodHeartbeat, StepMovement, StepOptions,
     WaitForFlowRequest, WorkerErrorResponse, WorkerTarget, flow_history_event,
     invoke_execute_method_output, poll_worker_task, poll_worker_task_frame,
@@ -621,10 +621,15 @@ async fn interrupted_after_timeout(durability: StepDurability, timeout: &str) {
         .as_ref()
         .expect("takeover recorded the interruption");
     assert_eq!(failure.attempt, 1);
+    assert_eq!(
+        failure.backend_error,
+        FlowErrorType::WorkerApiFail.as_str_name(),
+        "{failure:?}"
+    );
     assert!(
-        failure
-            .backend_error
-            .contains("a server restart or failover interrupted the attempt"),
+        failure.details.as_ref().is_some_and(|details| details
+            .detail
+            .contains("a server restart or failover interrupted the attempt")),
         "{failure:?}"
     );
     replacement_worker.output(
