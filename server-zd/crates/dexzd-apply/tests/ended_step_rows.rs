@@ -663,8 +663,14 @@ fn time_travel_deletes_the_ended_rows_it_restores_from_older_checkpoints() {
         ..RunSettings::default()
     });
     harness.start(None);
-    harness.execute("ChargeStep-1", go_to(&["ShipStep"]));
+    harness.start_attempt("ChargeStep-1", StepMethod::Execute);
+    let deciding = harness.command(Harness::execute_result(
+        "ChargeStep-1",
+        go_to(&["ShipStep"]),
+    ));
+    harness.apply_command(deciding.clone());
     let target_micros = harness.now_micros;
+    let live_hash = harness.last_semantic_point_hash(&deciding);
     // A binary from before this change kept the Completed row in state and checkpoint.
     let legacy = StepExecutionRecord {
         step_execution_id: "ChargeStep-1".to_owned(),
@@ -695,7 +701,28 @@ fn time_travel_deletes_the_ended_rows_it_restores_from_older_checkpoints() {
     );
     harness.execute("ShipStep-1", go_to(&["ShipStep"]));
 
-    harness.travel_to(target_micros);
+    // The rebuild and the staged result hold the older Completed row; live state never did.
+    let travel = harness.time_travel_command(target_micros);
+    let rebuilt = time_travel_target_hash(&harness.context, &harness.state, &travel)
+        .expect("the rebuild runs")
+        .expect("the target exists");
+    assert_eq!(rebuilt.state_hash, live_hash);
+    let mut staged = stage_time_travel_for_test(&harness.context, &harness.state, &travel)
+        .expect("time travel computes")
+        .expect("the request is valid")
+        .commands;
+    let staged_travel = staged.pop().expect("staging ends with the TimeTravel");
+    for stage in staged {
+        harness.apply_command(stage);
+    }
+    let staged_target = time_travel_target_hash(&harness.context, &harness.state, &staged_travel)
+        .expect("the staged result reads")
+        .expect("the staged target exists");
+    assert_eq!(
+        staged_target.state_hash, live_hash,
+        "the debug check of a staged result an older owner computed matches live state"
+    );
+    harness.apply_command(staged_travel);
     assert_eq!(harness.run_record().current_attempt, 2);
     assert_eq!(harness.step_ids(), ["ShipStep-1"]);
     let (restored, _) = harness.latest_checkpoint();

@@ -18,7 +18,9 @@ mod step_decisions;
 mod step_results;
 pub(crate) mod wait_conditions;
 
-pub(crate) use ended_step_rows::{delete_ended_step_rows, has_deletable_ended_step_put};
+pub(crate) use ended_step_rows::{
+    delete_ended_step_rows, has_deletable_ended_step_put, is_deletable_ended_step,
+};
 pub(crate) use invocations::{
     InvocationEnd, configured_method_timeout_seconds, end_running_attempt, ended_attempt_progress,
     make_invocation_pending, merge_furthest_attempt_progress, start_attempt,

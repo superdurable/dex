@@ -18,6 +18,7 @@ mod older_run_window;
 mod recording;
 mod scripted_clock;
 mod seeded_id_source;
+mod staged_time_travel_log;
 mod state_dump;
 mod testdata_tree;
 mod workload;

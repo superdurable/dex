@@ -48,7 +48,7 @@ const RUN_RECORDS_FILE: &str = "run_records.txt";
 const OLDER_STEP_AND_CHECKPOINT_ROWS: &str = include_str!("pre_attempt_handout_rows.txt");
 
 /// Committed rows by column family name and key, as stored.
-type StoredRows = BTreeMap<(String, Vec<u8>), Vec<u8>>;
+pub(crate) type StoredRows = BTreeMap<(String, Vec<u8>), Vec<u8>>;
 
 /// Rows of the older binary by column family name and hex key, as `state.txt` names them.
 type OlderRows = BTreeMap<(String, String), Vec<u8>>;
@@ -780,6 +780,16 @@ fn decode_hex(hex_key: &str) -> Vec<u8> {
 
 /// Starts a node on the older objects and returns its committed state dump and stored rows.
 async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (StateDump, StoredRows) {
+    replay_with_checks(directory, snapshot_use, true).await
+}
+
+/// Starts a node on the recorded objects, with or without the debug replay checks, and returns
+/// its committed state dump and stored rows.
+pub(crate) async fn replay_with_checks(
+    directory: &std::path::Path,
+    snapshot_use: SnapshotUse,
+    debug_replay_checks: bool,
+) -> (StateDump, StoredRows) {
     let decoded = decode_objects(&read_files(&directory.join(OBJECTS_DIRECTORY)));
     let object_store = Arc::new(load_objects(directory).await);
     if snapshot_use == SnapshotUse::Ignore {
@@ -800,11 +810,12 @@ async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (Stat
     let clock = Arc::new(ScriptedClock::starting_at(
         last_command_micros + RESTART_DELAY_MICROS,
     ));
-    let config = engine_node_config(
+    let mut config = engine_node_config(
         &node.node_id,
         node.incarnation,
         decoded.cluster.partition_count,
     );
+    config.commit.debug_replay_checks = debug_replay_checks;
     let engine =
         start_engine_node(&config, object_store, clock, Arc::new(SystemEngineIdSource)).await;
     let view = engine

@@ -25,6 +25,7 @@ use super::time_travel::staged_attempt_state;
 use crate::command_handlers::CommandScope;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::state_access::{FlowTransaction, RunRows};
+use crate::steps::is_deletable_ended_step;
 use crate::values::NoOffloadedValues;
 use crate::{ApplyContext, ApplyError, BehaviorVersion, FlowStateReader};
 
@@ -212,7 +213,7 @@ fn encode_attempt_state(
     append_bytes(&mut encoded, &status.encode_to_vec());
     let mut canonical_rows = Vec::with_capacity(rows.len());
     for row in rows {
-        if row.is_hard_delete_attribute()? {
+        if row.is_hard_delete_attribute()? || is_deletable_ended_step_row(row)? {
             continue;
         }
         let (key_suffix, value) = canonicalized_attempt_row(row)?;
@@ -225,6 +226,20 @@ fn encode_attempt_state(
         append_bytes(&mut encoded, &value);
     }
     Ok(encoded)
+}
+
+/// Whether `row` is a Step row that apply deletes when its command ends; such a row answers like
+/// an absent one, and older checkpoints and staged results still hold it.
+fn is_deletable_ended_step_row(row: &AttemptRow) -> Result<bool, ApplyError> {
+    if row.table != RunTable::StepExecution {
+        return Ok(false);
+    }
+    let step = StepExecutionRecord::decode(row.value.as_slice()).map_err(|error| {
+        ApplyError::InvariantViolation {
+            detail: format!("diagnostic Step execution row does not decode: {error}"),
+        }
+    })?;
+    Ok(is_deletable_ended_step(&step))
 }
 
 fn hash_attempt_state(encoded: &[u8]) -> [u8; 16] {
