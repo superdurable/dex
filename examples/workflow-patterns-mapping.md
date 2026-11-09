@@ -2,10 +2,17 @@
 
 This file maps the 43 control-flow patterns of the Workflow Patterns
 Initiative (workflowpatterns.com, WCP-1 to WCP-43) to Dex constructs. Every
-SDK example implements the same Flows from this table. Each language uses the
-same Flow type, Step type, Channel, Attribute, and RPC names, adjusted only
-for its casing convention (for example **approvePayment** in TypeScript, Java,
-and Go, and **approve_payment** in Python and Rust).
+SDK example implements the same Flows from this table.
+
+Naming rules:
+
+- Flow type and Step type strings are identical in every language.
+- Channel and Attribute names are durable string literals. They are
+  byte-identical in every language and use the camelCase strings in this spec,
+  such as `"fulfillmentBranchCompleted"`. Never re-case them.
+- Only RPC handler names and code identifiers follow each language's casing
+  convention, for example **approvePayment** in TypeScript, Java, and Go, and
+  **approve_payment** in Python and Rust.
 
 Data, resource, and exception-handling patterns are out of scope.
 
