@@ -385,4 +385,25 @@ describe('horizontal Timeline', () => {
     render(<Harness pageEvents={events(10)} />);
     expect(screen.getByRole('list', { name: 'Event kinds' }).textContent).toContain('Channel message deleted');
   });
+  it('brings an explicit selection into view even when it is the same event the default selection followed', () => {
+    function FollowingHarness() {
+      const pageEvents = events(1000);
+      const [selected, setSelected] = useState<FlowHistoryEvent | null>(null);
+      return (
+        <HorizontalTimeline
+          events={pageEvents}
+          selectedEvent={selected ?? pageEvents[999]}
+          isFollowingLatest={selected === null}
+          onSelectEvent={setSelected}
+        />
+      );
+    }
+    render(<FollowingHarness />);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    expect(option(1000)).toBeNull();
+
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' }), { key: 'End' });
+    expect(option(1000)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(1)).toBeNull();
+  });
 });

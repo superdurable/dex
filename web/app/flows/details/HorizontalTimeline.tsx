@@ -339,13 +339,15 @@ export function HorizontalTimeline({
   }, [moveWindow, hasEvents]);
 
   const selectedIndex = selectedEvent ? indexByEventId.get(selectedEvent.eventId) ?? -1 : -1;
+  // Each click or key selection bumps this, so it reveals the event even when the index is unchanged.
+  const [revealRequest, setRevealRequest] = useState(0);
   useEffect(() => {
     if (selectedIndex < 0 || isFollowingLatest) return;
     // Selecting an older event stops Live from sliding the view toward newer events.
     isAtNewestEnd.current = selectedIndex === chronological.length - 1;
     if (selectedIndex < windowStart || selectedIndex >= windowStart + visibleCount) centerOn(selectedIndex);
     // Only a selection change recenters, so dragging the overview never snaps back.
-  }, [selectedIndex]);
+  }, [selectedIndex, revealRequest]);
 
   const computedRelations = useMemo(
     () => relations ?? buildSelectedTimelineRelations(events, selectedEvent, {
@@ -362,7 +364,9 @@ export function HorizontalTimeline({
 
   const selectIndex = useCallback((index: number) => {
     const event = chronological[Math.min(chronological.length - 1, Math.max(0, index))];
-    if (event) onSelectEvent(event);
+    if (!event) return;
+    setRevealRequest((request) => request + 1);
+    onSelectEvent(event);
   }, [chronological, onSelectEvent]);
 
   const handleStripKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -526,7 +530,7 @@ export function HorizontalTimeline({
               data-event-id={event.eventId}
               id={`htl-event-${event.eventId}`}
               key={event.eventId}
-              onClick={() => onSelectEvent(event)}
+              onClick={() => selectIndex(index)}
               role="option"
               style={{ left: `${(index - windowStart) * slotWidth}px` }}
             >
