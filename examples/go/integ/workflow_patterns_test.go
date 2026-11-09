@@ -57,6 +57,7 @@ func TestWorkflowPatternsParallelSplitSynchronization(t *testing.T) {
 	requireWorkflowPatternRunning(t, flowID)
 	invokeWorkflowPatternRPC(t, flowID, flows.ParallelSplitSynchronizationFlow.ApprovePayment, nil, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"SynchronizeFulfillment"}, completionStepTypes(result))
 	require.Equal(t,
 		[][]string{{"ChargePayment", "PackItems"}},
 		decodeStepOutputs[[]string](t, result, "SynchronizeFulfillment"))
@@ -84,6 +85,7 @@ func TestWorkflowPatternsMultiChoiceSynchronizingMerge(t *testing.T) {
 	flowID := startWorkflowPattern(t, registry.WorkflowPatterns.MultiChoiceSynchronizingMergeFlow, "wcp-multi-choice",
 		workflowpatterns.NotificationSelection{SendEmail: true, SendSms: false, SendPush: true})
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"SynchronizingMerge"}, completionStepTypes(result))
 	require.Equal(t,
 		[][]string{{"SendEmail", "SendPush"}},
 		decodeStepOutputs[[]string](t, result, "SynchronizingMerge"))
@@ -92,15 +94,16 @@ func TestWorkflowPatternsMultiChoiceSynchronizingMerge(t *testing.T) {
 func TestWorkflowPatternsMultiMerge(t *testing.T) {
 	flowID := startWorkflowPattern(t, registry.WorkflowPatterns.MultiMergeFlow, "wcp-multi-merge", nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"RecordReview", "RecordReview"}, completionStepTypes(result))
 	require.ElementsMatch(t, []string{"LegalReview", "FinanceReview"}, decodeStepOutputs[string](t, result, "RecordReview"))
 }
 
 func TestWorkflowPatternsGeneralSynchronizingMerge(t *testing.T) {
 	for _, testCase := range []struct {
-		name                 string
-		plan                 workflowpatterns.DocumentReviewPlan
-		expectedReviews      []string
-		expectedArchiveCount int
+		name              string
+		plan              workflowpatterns.DocumentReviewPlan
+		expectedReviews   []string
+		isFinanceArchived bool
 	}{
 		{
 			name: "rework adds a review after the split",
@@ -114,8 +117,8 @@ func TestWorkflowPatternsGeneralSynchronizingMerge(t *testing.T) {
 			plan: workflowpatterns.DocumentReviewPlan{
 				IsLegalCheckNeeded: true, IsFinanceCheckNeeded: true, FinanceReworkRounds: 0, IsFinanceArchived: true,
 			},
-			expectedReviews:      []string{"CheckLegalTerms-0"},
-			expectedArchiveCount: 1,
+			expectedReviews:   []string{"CheckLegalTerms-0"},
+			isFinanceArchived: true,
 		},
 		{
 			name: "merge fires after the last thread",
@@ -132,7 +135,11 @@ func TestWorkflowPatternsGeneralSynchronizingMerge(t *testing.T) {
 			require.Equal(t,
 				[][]string{testCase.expectedReviews},
 				decodeStepOutputs[[]string](t, result, "PublishDocument"))
-			require.Len(t, decodeStepOutputs[string](t, result, "ArchiveDocument"), testCase.expectedArchiveCount)
+			expectedStepTypes := []string{"PublishDocument"}
+			if testCase.isFinanceArchived {
+				expectedStepTypes = append(expectedStepTypes, "ArchiveDocument")
+			}
+			require.ElementsMatch(t, expectedStepTypes, completionStepTypes(result))
 		})
 	}
 }
@@ -291,6 +298,7 @@ func TestWorkflowPatternsGeneralizedAndJoin(t *testing.T) {
 func TestWorkflowPatternsThreadSplitMerge(t *testing.T) {
 	flowID := startWorkflowPattern(t, registry.WorkflowPatterns.ThreadSplitMergeFlow, "wcp-thread-split-merge", 3)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"MergeParcels"}, completionStepTypes(result))
 	require.Equal(t, [][]int{{0, 1, 2}}, decodeStepOutputs[[]int](t, result, "MergeParcels"))
 }
 
@@ -312,6 +320,7 @@ func TestWorkflowPatternsDesignTimeMultipleInstances(t *testing.T) {
 	requireWorkflowPatternRunning(t, flowID)
 	invokeWorkflowPatternRPC(t, flowID, flow.OpenDesignTimeReviewGate, 3, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"CollectReviews"}, completionStepTypes(result))
 	require.Equal(t,
 		[][]string{{"finance", "legal", "security"}},
 		decodeStepOutputs[[]string](t, result, "CollectReviews"))
@@ -324,6 +333,7 @@ func TestWorkflowPatternsRunTimeMultipleInstances(t *testing.T) {
 	requireWorkflowPatternRunning(t, flowID)
 	invokeWorkflowPatternRPC(t, flowID, flow.OpenRunTimeReviewGate, 4, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"CollectReviews"}, completionStepTypes(result))
 	require.Equal(t,
 		[][]string{{"ana", "ben", "cy", "dee"}},
 		decodeStepOutputs[[]string](t, result, "CollectReviews"))
@@ -347,6 +357,7 @@ func TestWorkflowPatternsNoPriorKnowledgeMultipleInstances(t *testing.T) {
 	requireWorkflowPatternRunning(t, flowID)
 	invokeWorkflowPatternRPC(t, flowID, flow.OpenSampleGate, 3, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"ReportSamples"}, completionStepTypes(result))
 	require.Equal(t, [][]string{{"s1", "s2", "s3"}}, decodeStepOutputs[[]string](t, result, "ReportSamples"))
 }
 
@@ -413,6 +424,7 @@ func TestWorkflowPatternsDynamicPartialJoinForMultipleInstances(t *testing.T) {
 	require.False(t, addBid(400))
 	invokeWorkflowPatternRPC(t, flowID, flow.SignContract, nil, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"AwardContract"}, completionStepTypes(result))
 	require.Equal(t, [][]int{{500, 700}}, decodeStepOutputs[[]int](t, result, "AwardContract"))
 }
 
@@ -425,6 +437,7 @@ func TestWorkflowPatternsDeferredChoice(t *testing.T) {
 		invokeWorkflowPatternRPC(t, flowID, flow.DeclineOffer, nil, nil)
 		result := waitForCompletedWorkflowPattern(t, flowID)
 		require.Equal(t, []string{"ArchiveOffer"}, completionStepTypes(result))
+		require.Equal(t, []string{"ArchiveOffer"}, decodeStepOutputs[string](t, result, "ArchiveOffer"))
 	})
 	t.Run("competing responses", func(t *testing.T) {
 		flowID := startWorkflowPattern(t, flow, "wcp-deferred-choice-competing", nil)
@@ -604,6 +617,7 @@ func TestWorkflowPatternsStructuredLoop(t *testing.T) {
 			flowID := startWorkflowPattern(t, registry.WorkflowPatterns.StructuredLoopFlow, "wcp-structured-loop",
 				workflowpatterns.BatchProgress{RemainingBatches: testCase.remainingBatches, ProcessedBatches: []string{}})
 			result := waitForCompletedWorkflowPattern(t, flowID)
+			require.Equal(t, []string{"FinishBatches"}, completionStepTypes(result))
 			require.Equal(t, [][]string{testCase.expected}, decodeStepOutputs[[]string](t, result, "FinishBatches"))
 		})
 	}
@@ -612,6 +626,7 @@ func TestWorkflowPatternsStructuredLoop(t *testing.T) {
 func TestWorkflowPatternsFactorialRecursion(t *testing.T) {
 	flowID := startWorkflowPattern(t, registry.WorkflowPatterns.FactorialRecursionFlow, "wcp-factorial-recursion", 4)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"ComputeFactorial"}, completionStepTypes(result))
 	require.Equal(t, []int{24}, decodeStepOutputs[int](t, result, "ComputeFactorial"))
 }
 
@@ -662,6 +677,7 @@ func TestWorkflowPatternsPersistentTrigger(t *testing.T) {
 	invokeWorkflowPatternRPC(t, flowID, flow.SendShipmentLabel, "label-1", nil)
 	invokeWorkflowPatternRPC(t, flowID, flow.MarkCarrierReady, nil, nil)
 	result := waitForCompletedWorkflowPattern(t, flowID)
+	require.Equal(t, []string{"AwaitShipmentLabel"}, completionStepTypes(result))
 	require.Equal(t, []string{"label-1"}, decodeStepOutputs[string](t, result, "AwaitShipmentLabel"))
 }
 

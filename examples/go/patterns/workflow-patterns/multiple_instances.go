@@ -448,7 +448,10 @@ func (*StaticPartialJoinForMultipleInstancesFlow) ReleaseInspections(
 	ctx dex.Context,
 	count int,
 ) (*dex.RPCResult[dex.None], error) {
-	return openGate(ctx, InspectionReleasedChannel, count)
+	if err := publishMessages(ctx, InspectionReleasedChannel, "released", count); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
 }
 
 type StartInspections struct {

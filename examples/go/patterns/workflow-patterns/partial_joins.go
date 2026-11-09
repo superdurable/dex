@@ -83,7 +83,7 @@ func (*StructuredPartialJoinFlow) ReleaseSupplierQuote(
 	if err != nil {
 		return nil, err
 	}
-	if err := channel.Publish(ctx, supplier); err != nil {
+	if err := channel.Publish(ctx, "released"); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
@@ -428,7 +428,7 @@ func (*CancellingPartialJoinFlow) ReleaseCarrierBid(
 	if err != nil {
 		return nil, err
 	}
-	if err := channel.Publish(ctx, carrier); err != nil {
+	if err := channel.Publish(ctx, "released"); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil

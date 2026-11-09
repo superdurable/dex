@@ -201,7 +201,7 @@ func (step RunBackgroundCheck) stopChildFlow(ctx dex.Context, childFlowID string
 	}
 	err := client.StopFlow(ctx, childFlowID, dex.StopOptions{
 		Type:   dex.CancelFlow,
-		Reason: "case canceled",
+		Reason: "parent case canceled",
 	})
 	var notFound *dex.FlowNotFoundError
 	var notActive *dex.FlowNotActiveOrNotFoundError
