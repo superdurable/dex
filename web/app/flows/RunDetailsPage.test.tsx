@@ -734,6 +734,91 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(horizontalOption(3000)?.getAttribute('aria-selected')).toBe('true'));
   });
 
+  it('switches the Events page size, reloads the Latest page, and remembers the choice', async () => {
+    const server = historyTestServer(sequentialStepHistory(1505));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1505'));
+    expect(eventsRange()).toBe('Showing #506–#1505 · Page 1 of 2');
+    const pageSize = screen.getByRole('combobox', { name: 'Page size' }) as HTMLSelectElement;
+    expect(pageSize.value).toBe('1000');
+
+    fireEvent.change(pageSize, { target: { value: '100' } });
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1406–#1505 · Page 1 of 16'));
+    expect(timelineRowIDs()).toHaveLength(100);
+    expect(window.localStorage.getItem('dex.run.events-page-size')).toBe('100');
+
+    fireEvent.click(pageButton('Older page'));
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1306–#1405 · Page 2 of 16'));
+
+    // The oldest page pairs FlowStart with the events before the next numbered page.
+    fireEvent.click(pageButton('Oldest page'));
+    await waitFor(() => expect(timelineRowIDs()).toEqual(['5', '4', '3', '2', '1']));
+    expect(eventsRange()).toBe('Showing #1–#5 · Page 16 of 16');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Page size' }), { target: { value: '1000' } });
+    await waitFor(() => expect(eventsRange()).toBe('Showing #506–#1505 · Page 1 of 2'));
+  });
+
+  it('opens with the stored Events page size', async () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      'dex.run.selected-tab': 'timeline',
+      'dex.run.events-page-size': '100',
+    }));
+    const server = historyTestServer(sequentialStepHistory(1505));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1406–#1505 · Page 1 of 16'));
+    expect((screen.getByRole('combobox', { name: 'Page size' }) as HTMLSelectElement).value).toBe('100');
+  });
+
+  it('jumps to a related event and goes back with the 100-event page size', async () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      'dex.run.selected-tab': 'timeline',
+      'dex.run.events-page-size': '100',
+    }));
+    const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review' };
+    const filler = Array.from({ length: 2997 }, (_, offset): FlowHistoryEvent => ({
+      eventId: offset + 3,
+      eventTime: '2026-10-24T18:00:00Z',
+      type: 'ChannelExternalPublish',
+      payload: { messages: [] },
+      runAttempt: 1,
+    }));
+    const execute: FlowHistoryEvent = {
+      ...stepEvent(3000, 'StepExecuteCompleted', review),
+      payload: {
+        context: { ...review, waitForCompletedEventId: '2', startedTime: '2026-10-24T19:05:02Z' },
+        input: { conditionResults: {} },
+      },
+    };
+    const server = historyTestServer([
+      sequentialStepHistory(1)[0],
+      stepEvent(2, 'StepWaitForCompleted', review),
+      ...filler,
+      execute,
+    ]);
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
+    expect(timelineRowIDs()).toHaveLength(100);
+    fireEvent.click(timelineRow(3000));
+    fireEvent.click(await screen.findByRole('button', {
+      name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
+    }));
+
+    await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
+    expect(timelineRowIDs().length).toBeLessThanOrEqual(100);
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
+    expect(timelineRowIDs()).toHaveLength(100);
+    expect(timelineRow(3000).className).toContain('selected');
+  });
+
   it('shows the pruned range banner and a muted pruned stub on the oldest retained page', async () => {
     const retained = sequentialStepHistory(5000).filter((event) => event.eventId === 1 || event.eventId >= 4001);
     const server = historyTestServer(retained);

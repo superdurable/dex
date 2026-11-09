@@ -178,5 +178,12 @@ describe('horizontal Timeline', () => {
     expect(option(95)).not.toBeNull();
     expect(option(160)).toBeNull();
   });
+
+  it('draws one overview tick per event on the page, so it follows the page size', () => {
+    const { rerender } = render(<HorizontalTimeline events={events(100)} selectedEvent={null} onSelectEvent={() => {}} />);
+    expect(document.querySelectorAll('.htl-tick')).toHaveLength(100);
+    rerender(<HorizontalTimeline events={events(1000)} selectedEvent={null} onSelectEvent={() => {}} />);
+    expect(document.querySelectorAll('.htl-tick')).toHaveLength(1000);
+  });
 });
 

@@ -10,6 +10,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   appendToNewestHistoryWindow,
   createHistoryPageLoader,
+  HISTORY_WINDOW_EVENT_LIMIT,
   loadHistoryWindowAround,
   loadHistoryWindowBetween,
   loadHistoryWindowFrom,
@@ -89,7 +90,8 @@ export interface RunHistory {
 }
 
 /** Keeps the run history bounded: one newest window for Live and one Timeline page. */
-export function useRunHistory(flowId: string, runId: string): RunHistory {
+/** Loads a run's history in pages of `pageSize` events; the newest window and every page use it. */
+export function useRunHistory(flowId: string, runId: string, pageSize: number = HISTORY_WINDOW_EVENT_LIMIT): RunHistory {
   const [newest, setNewest] = useState<HistoryWindow | null>(null);
   const [timelinePage, setTimelinePage] = useState<HistoryWindow | null>(null);
   const [oldestRetainedEvents, setOldestRetainedEvents] = useState<FlowHistoryEvent[]>([]);
@@ -103,6 +105,9 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
   const navigationSequence = useRef(0);
   const runAttemptRef = useRef(0);
   const newestRef = useRef<HistoryWindow | null>(null);
+  // Loaders read the current size, so a size change applies to the next load without new callbacks.
+  const pageSizeRef = useRef(pageSize);
+  pageSizeRef.current = pageSize;
 
   const flowStartEvent = useMemo(() => (
     oldestRetainedEvents[0]?.type === 'FlowStartedOrContinued'
@@ -176,7 +181,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
       loadLatestEventIdHint(flowId, runId),
       loadOldestRetainedEvents(loadPage),
     ]);
-    const newestWindow = await loadNewestHistoryWindow(loadPage, latestEventIdHint);
+    const newestWindow = await loadNewestHistoryWindow(loadPage, latestEventIdHint, pageSizeRef.current);
     if (loadGeneration !== generation.current) return;
     acceptOldestRetainedEvents(oldest.events);
     if (oldest.reportedRetainedHistory) setReportedRetainedHistory(oldest.reportedRetainedHistory);
@@ -187,7 +192,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     const current = newestRef.current;
     if (!current) return;
     const loadGeneration = generation.current;
-    const newestWindow = await appendToNewestHistoryWindow(pageLoader(), current, latestEventIdHint);
+    const newestWindow = await appendToNewestHistoryWindow(pageLoader(), current, latestEventIdHint, pageSizeRef.current);
     if (loadGeneration !== generation.current || newestRef.current !== current) return;
     replaceNewest(newestWindow);
   }, [pageLoader, replaceNewest]);
@@ -217,7 +222,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     const firstEventId = displayedTimelinePage?.events[0]?.eventId;
     if (!displayedTimelinePage?.hasOlder || firstEventId === undefined) return;
     const olderWindow = await loadTimelinePage(() => (
-      loadOlderHistoryWindow(pageLoader(), firstEventId, prunedEventIdRange)
+      loadOlderHistoryWindow(pageLoader(), firstEventId, prunedEventIdRange, pageSizeRef.current)
     ));
     if (olderWindow) showTimelinePage(olderWindow);
   }, [displayedTimelinePage, loadTimelinePage, pageLoader, prunedEventIdRange, showTimelinePage]);
@@ -226,7 +231,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     const firstEventId = displayedTimelinePage?.events[0]?.eventId;
     if (!displayedTimelinePage?.hasOlder || firstEventId === undefined) return;
     const oldestWindow = await loadTimelinePage(() => (
-      loadOldestHistoryWindow(pageLoader(), beforeEventId ?? firstEventId)
+      loadOldestHistoryWindow(pageLoader(), beforeEventId ?? firstEventId, pageSizeRef.current)
     ));
     if (oldestWindow) showTimelinePage(oldestWindow);
   }, [displayedTimelinePage, loadTimelinePage, pageLoader, showTimelinePage]);
@@ -238,7 +243,9 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
 
   const showNewer = useCallback(async () => {
     if (!timelineHasNewer) return;
-    const newerWindow = await loadTimelinePage(() => loadHistoryWindowFrom(pageLoader(), timelineLastEventId + 1));
+    const newerWindow = await loadTimelinePage(() => (
+      loadHistoryWindowFrom(pageLoader(), timelineLastEventId + 1, pageSizeRef.current)
+    ));
     if (!newerWindow || newerWindow.events.length === 0) return;
     // Live may have moved the newest page past this page's first event while the read ran.
     const newestEvents = newestRef.current?.events ?? [];
@@ -280,7 +287,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
       return { kind: 'loaded', event: newestEvent };
     }
     const loadPage = pageLoader();
-    const jumpWindow = await loadTimelinePage(() => loadHistoryWindowAround(loadPage, eventId));
+    const jumpWindow = await loadTimelinePage(() => loadHistoryWindowAround(loadPage, eventId, pageSizeRef.current));
     if (!jumpWindow) return { kind: 'superseded' };
     const target = jumpWindow.events.find((event) => event.eventId === eventId);
     if (target) {
@@ -331,7 +338,7 @@ export function useRunHistory(flowId: string, runId: string): RunHistory {
     const startEventId = location.pageStartEventId;
     const lastEventId = location.pageLastEventId ?? Number.MAX_SAFE_INTEGER;
     const previousWindow = await loadTimelinePage(() => (
-      loadHistoryWindowBetween(pageLoader(), startEventId, lastEventId)
+      loadHistoryWindowBetween(pageLoader(), startEventId, lastEventId, pageSizeRef.current)
     ));
     // A superseded reload keeps the entry, so Back still returns there later.
     if (!previousWindow) return { kind: 'superseded' };

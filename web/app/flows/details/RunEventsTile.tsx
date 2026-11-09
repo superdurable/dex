@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { ChevronDown, ChevronsDown, ChevronsUp, ChevronUp, ListOrdered, Undo2 } from 'lucide-react';
+import { HISTORY_PAGE_SIZES, type HistoryPageSize } from '@/lib/history';
 
 /** The event page that the Execution graph and the Timeline share, and its page buttons. */
 export interface RunEventsPaging {
@@ -31,7 +32,18 @@ export interface RunEventsPaging {
 }
 
 /** The run header tile that names the latest event and pages through events. */
-export function RunEventsTile({ latestEventId, paging }: { latestEventId: number | null; paging: RunEventsPaging | null }) {
+export function RunEventsTile({
+  latestEventId,
+  paging,
+  pageSize,
+  onPageSizeChange,
+}: {
+  latestEventId: number | null;
+  paging: RunEventsPaging | null;
+  /** How many events one page holds; changing it reloads the Latest page. */
+  pageSize?: HistoryPageSize;
+  onPageSizeChange?: (size: HistoryPageSize) => void;
+}) {
   return (
     <div className="run-events-tile">
       <span className="run-fact-label"><ListOrdered aria-hidden="true" size={14} strokeWidth={2} />Events</span>
@@ -44,7 +56,20 @@ export function RunEventsTile({ latestEventId, paging }: { latestEventId: number
           </span>
         )}
       </div>
-      {paging && <RunEventsPager paging={paging} />}
+      <div className="run-events-controls">
+        {paging && <RunEventsPager paging={paging} />}
+        {pageSize !== undefined && onPageSizeChange && (
+          <label className="run-events-page-size">
+            Page size
+            <select
+              onChange={(event) => onPageSizeChange(Number(event.target.value) as HistoryPageSize)}
+              value={pageSize}
+            >
+              {HISTORY_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
     </div>
   );
 }

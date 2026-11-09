@@ -775,12 +775,15 @@ reading the newest window. The tile reads "Latest #10505" and "Showing
 **Newer page** (one page toward newer events), **Older page** (one page toward
 older events), and **Oldest page** (the oldest retained page). **Back** sits before
 them after a link jump. Latest page and Newer page are disabled on the newest
-page; Older page and Oldest page are disabled on the oldest page. Older page reads
-up to 1000 events before the page. Oldest page reads FlowStart and up to 1000
-events from the window start, and stops where Older page would start the next
-newer page. The page that starts at the oldest retained event also shows
+page; Older page and Oldest page are disabled on the oldest page. **Page size**
+beside the buttons sets how many events a page holds, 100 or 1000; the default
+is 1000, and each viewer's choice is remembered in browser storage. Changing it
+reloads the Latest page, and every paging read, link jump, Back, and the live
+newest window use the chosen size. Older page reads up to a page of events
+before the page. Oldest page reads FlowStart and up to a page of events from
+the window start, and stops where Older page would start the next newer page. The page that starts at the oldest retained event also shows
 FlowStart, so it is the oldest page, and a retained history that fits one page
-shows on one page. Newer page reads up to 1000 events after the page; a page that
+shows on one page. Newer page reads up to a page of events after the page; a page that
 reaches the newest event is the newest page. Live extends only the newest page.
 An older page stays in place while Live adds events, and Latest page returns to
 the live newest page. The tile shows the page count only when event IDs skip

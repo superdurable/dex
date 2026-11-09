@@ -15,7 +15,14 @@ import type {
 } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
-import { latestEventIdOfWait, timelinePagePositionOf, withFlowStart } from '@/lib/history';
+import {
+  latestEventIdOfWait,
+  persistHistoryPageSize,
+  storedHistoryPageSize,
+  timelinePagePositionOf,
+  withFlowStart,
+  type HistoryPageSize,
+} from '@/lib/history';
 import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { buildSelectedTimelineRelations } from '@/lib/timeline';
 import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
@@ -177,7 +184,8 @@ export function RunDetailsPage({
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedRunAttempt = positiveRunAttempt(searchParams.get(RUN_ATTEMPT_SEARCH_PARAM));
   const [summary, setSummary] = useState<FlowSummary | null>(null);
-  const runHistory = useRunHistory(flowId, runId);
+  const [historyPageSize, setHistoryPageSize] = useState<HistoryPageSize>(storedHistoryPageSize);
+  const runHistory = useRunHistory(flowId, runId, historyPageSize);
   const { appendNewest, clear: clearRunHistory, loadNewest } = runHistory;
   const [state, setState] = useState<FlowState | null>(null);
   const [savedHistorySettings, setSavedHistorySettings] = useState<SavedHistorySettings | null>(null);
@@ -528,9 +536,9 @@ export function RunDetailsPage({
   const pageHasEarlierEvents = (timelineWindow?.hasOlder ?? false) || hasGapAfterFlowStart(timelineEvents);
   const pagePosition = useMemo(() => (
     runHistory.hasContiguousEventIds && timelineWindow && runHistory.newestTimelinePage
-      ? timelinePagePositionOf(timelineWindow, runHistory.newestTimelinePage, prunedEventIdRange)
+      ? timelinePagePositionOf(timelineWindow, runHistory.newestTimelinePage, prunedEventIdRange, historyPageSize)
       : null
-  ), [prunedEventIdRange, runHistory.hasContiguousEventIds, runHistory.newestTimelinePage, timelineWindow]);
+  ), [historyPageSize, prunedEventIdRange, runHistory.hasContiguousEventIds, runHistory.newestTimelinePage, timelineWindow]);
   const selectionEvents = isSelectionOnTimeline ? displayedTimelineEvents : displayedHistory;
   const selectionWindow = isSelectionOnTimeline ? timelineWindow : runHistory.newest;
   const selectionHasOlder = selectionWindow?.hasOlder ?? false;
@@ -581,6 +589,25 @@ export function RunDetailsPage({
       if (result.kind === 'restored') setSelectedEvent(result.selectedEvent);
     });
   }, [backInTimeline, navigateTimeline]);
+
+  const changeHistoryPageSize = useCallback((size: HistoryPageSize) => {
+    persistHistoryPageSize(size);
+    setHistoryPageSize(size);
+  }, []);
+
+  // A new page size reloads the Latest page; ranges from the old size no longer apply.
+  const loadedHistoryPageSize = useRef(historyPageSize);
+  useEffect(() => {
+    if (loadedHistoryPageSize.current === historyPageSize) return;
+    loadedHistoryPageSize.current = historyPageSize;
+    if (!summary) return;
+    clearRunHistory();
+    setSelectedEvent(null);
+    setError('');
+    void loadHistory(historyRunAttempt(summary)).catch((loadError: unknown) => {
+      setError(loadError instanceof Error ? loadError.message : 'History page failed to load');
+    });
+  }, [clearRunHistory, historyPageSize, historyRunAttempt, loadHistory, summary]);
 
   const pageFirstEventId = timelineEvents[0]?.eventId;
   const pageLastEventId = timelineEvents.at(-1)?.eventId;
@@ -812,7 +839,12 @@ export function RunDetailsPage({
                 </div>
               )}
             </dl>
-            <RunEventsTile latestEventId={latestEvent?.eventId ?? null} paging={eventsPaging} />
+            <RunEventsTile
+              latestEventId={latestEvent?.eventId ?? null}
+              paging={eventsPaging}
+              pageSize={historyPageSize}
+              onPageSizeChange={changeHistoryPageSize}
+            />
           </div>
         )}
       </header>
