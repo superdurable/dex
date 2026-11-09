@@ -19,11 +19,12 @@ describe('StreamPanel', () => {
       </PreferencesProvider>,
     );
 
-    expect(markup).toContain('Resumable stream');
+    expect(markup).toContain('Stream messages');
+    expect(markup).not.toContain('Resumable stream');
     expect(markup).toContain('Stream name');
     expect(markup).toContain('placeholder="a defined stream name"');
     expect(markup).toContain('Start listening');
-    expect(markup).toContain('best effort');
+    expect(markup).not.toContain('best effort');
   });
 
   it('continues after a long-poll timeout and resumes after each message', async () => {

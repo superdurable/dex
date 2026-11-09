@@ -281,7 +281,7 @@ function StepNode({ data }: NodeProps) {
       <Handle id="step-control-outer-source" position={Position.Right} style={{ top: 'calc(100% - 22px)' }} type="source" />
       <div className="definition-step-title">
         <strong>{definition.name}</strong>
-        {definition.start && <span>START</span>}
+        {definition.start && <span>Start</span>}
       </div>
       <Handle id="step-resource-target" position={Position.Left} type="target" />
       <Handle id="step-resource-source" position={Position.Left} type="source" />
@@ -407,7 +407,7 @@ function TimeoutNode({ data }: NodeProps) {
   return (
     <div aria-label={sourceTitle(definition)} className="definition-timeout-handler">
       <Handle position={Position.Left} type="target" />
-      <span className="definition-timeout-kicker">⏱ TIMEOUT HANDLER</span>
+      <span className="definition-timeout-kicker">⏱ Timeout handler</span>
       <strong>handleTimeout</strong>
       <div className="definition-timeout-decisions">
         {decisions.map((decision) => (

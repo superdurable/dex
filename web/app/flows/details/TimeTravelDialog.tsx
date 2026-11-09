@@ -120,7 +120,7 @@ export function TimeTravelDialog({
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <div><p className="eyebrow">{hasRunAttempts ? 'New run attempt' : 'New Flow run'}</p><h2>Time travel</h2></div>
+          <h2>{hasRunAttempts ? 'Time travel to a new run attempt' : 'Time travel to a new Flow run'}</h2>
           <button className="icon-button" onClick={onClose}>×</button>
         </div>
         <p>

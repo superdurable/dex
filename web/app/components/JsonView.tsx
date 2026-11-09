@@ -9,6 +9,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { storedValueJSONReplacer } from '@/lib/blobs';
 import { StructuredValue } from './StructuredValue';
 
@@ -25,6 +26,8 @@ export function JsonView({
   parentFlowId = '',
   stepExecutionId = '',
   persistenceKind,
+  variant = 'collapsible',
+  expandValues = false,
 }: {
   value: unknown;
   label?: string;
@@ -35,6 +38,10 @@ export function JsonView({
   parentFlowId?: string;
   stepExecutionId?: string;
   persistenceKind?: 'attributes' | 'channels';
+  /** Inline views stay open under a section heading, so they show no toggle of their own. */
+  variant?: 'collapsible' | 'inline';
+  /** Shows long values in full and opens map instances. */
+  expandValues?: boolean;
 }) {
   const storageKey = persistKey ?? label;
   const [open, setOpen] = useState(() => openByKey.get(storageKey) ?? initiallyOpen);
@@ -54,49 +61,48 @@ export function JsonView({
     openByKey.set(storageKey, false);
   }, [collapseNonce, storageKey]);
 
-  const effectiveOpen = forceOpen || open;
+  const effectiveOpen = variant === 'inline' || forceOpen || open;
+  const selectView = (next: 'details' | 'raw') => {
+    setView(next);
+    viewByKey.set(storageKey, next);
+  };
 
   return (
-    <div className="json-view">
-      <button
-        type="button"
-        className="json-toggle"
-        disabled={forceOpen}
-        onClick={() => {
-          setOpen((current) => {
-            const next = !current;
-            openByKey.set(storageKey, next);
-            return next;
-          });
-        }}
-      >
-        <span>{effectiveOpen ? '−' : '+'}</span>
-        {label}
-      </button>
+    <div className={`json-view json-view--${variant}`}>
+      {variant === 'collapsible' && (
+        <button
+          type="button"
+          className="json-toggle"
+          aria-expanded={effectiveOpen}
+          disabled={forceOpen}
+          onClick={() => {
+            setOpen((current) => {
+              const next = !current;
+              openByKey.set(storageKey, next);
+              return next;
+            });
+          }}
+        >
+          <ChevronRight aria-hidden="true" className="json-toggle-icon" size={15} strokeWidth={2} />
+          {label}
+        </button>
+      )}
       {effectiveOpen && (
         <div className="json-view-body">
-          <div className="event-detail-tabs" role="tablist" aria-label={`${label} view`}>
+          <div className="event-detail-tabs" role="group" aria-label={`${label} view`}>
             <button
               type="button"
-              role="tab"
-              aria-selected={view === 'details'}
+              aria-pressed={view === 'details'}
               className={view === 'details' ? 'active' : ''}
-              onClick={() => {
-                setView('details');
-                viewByKey.set(storageKey, 'details');
-              }}
+              onClick={() => selectView('details')}
             >
               Details
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={view === 'raw'}
+              aria-pressed={view === 'raw'}
               className={view === 'raw' ? 'active' : ''}
-              onClick={() => {
-                setView('raw');
-                viewByKey.set(storageKey, 'raw');
-              }}
+              onClick={() => selectView('raw')}
             >
               Raw JSON
             </button>
@@ -107,6 +113,7 @@ export function JsonView({
                 parentFlowId={parentFlowId}
                 stepExecutionId={stepExecutionId}
                 persistenceKind={persistenceKind}
+                expandValues={expandValues}
               />
             : (
               <pre className="json-view-raw">

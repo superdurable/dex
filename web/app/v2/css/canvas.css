@@ -218,8 +218,6 @@
   color: var(--p-ink-2);
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   vertical-align: 2px;
 }
 .phead-sub {
@@ -251,13 +249,9 @@
 .pctl-label {
   color: var(--p-ink-3);
   font-size: 12px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 .pctl-label em {
   font-style: normal;
-  text-transform: none;
-  letter-spacing: 0;
 }
 .pctl-row {
   display: flex;
@@ -456,8 +450,6 @@
   font: inherit;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 .ppan-def-chevron {
@@ -471,8 +463,6 @@
   color: var(--p-ink-3);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 .ppan-def-body h3:first-child {
   margin-top: 0;
@@ -531,8 +521,6 @@
   color: var(--p-ink-3);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 .ppan-exec-pick {
   display: flex;
@@ -611,8 +599,6 @@
   color: var(--p-ink-1);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 .ppan-phase-body {
   padding-top: 10px;
@@ -622,8 +608,6 @@
   color: var(--p-ink-3);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 .ppan-rows {
   margin: 0;
@@ -687,9 +671,7 @@
   color: var(--p-ink-3);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.05em;
   text-align: left;
-  text-transform: uppercase;
 }
 .ppan-table td {
   padding: 3px 6px 3px 0;
@@ -796,8 +778,6 @@
   color: var(--p-ink-3);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 .plegend-list {
   margin: 0 0 8px;
@@ -1202,8 +1182,6 @@
   left: 10px;
   color: var(--p-ink-2);
   font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 /* An RPC as a card, for a Flow with no Steps: the pennant's door hue and envelope. */
@@ -1284,7 +1262,6 @@
   color: var(--p-ink-1);
   font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.09em;
 }
 
 [data-theme='light'] .v2-shell .pbox {
@@ -1370,8 +1347,6 @@
   border-radius: 4px;
   color: var(--p-ink-3);
   font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 .pchat-turn {
   margin: 0;
@@ -1543,8 +1518,6 @@
   color: var(--p-ink-3);
   font: inherit;
   font-size: 12px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
   text-align: left;
   cursor: pointer;
 }
@@ -1604,8 +1577,6 @@
 .pharness-mark {
   color: var(--p-ink-3);
   font-size: 11.5px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -1903,8 +1874,6 @@
 .pmention-mark {
   color: var(--p-ink-3);
   font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 .pmention-mark[data-actor='external'] {
   color: var(--p-external);
@@ -2005,8 +1974,6 @@
   border: 1px solid var(--p-line);
   border-radius: 999px;
   font-size: 13px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -2030,7 +1997,6 @@
 .modechip-sim {
   color: var(--p-ink-3);
   font-size: 11px;
-  letter-spacing: 0.06em;
 }
 
 .modebtn {
@@ -2090,8 +2056,6 @@
   border-radius: 3px;
   color: var(--p-temp);
   font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
   white-space: nowrap;
   cursor: help;
 }
@@ -2135,7 +2099,6 @@
   margin-left: 4px;
   color: var(--p-ink-3);
   font-size: 11px;
-  letter-spacing: 0.04em;
 }
 
 /* ==========================================================================
@@ -2161,13 +2124,10 @@
 .runlog-title {
   color: var(--p-ink-2);
   font-size: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 .runlog-sim {
   color: var(--p-ink-3);
   font-size: 11px;
-  letter-spacing: 0.06em;
 }
 .runlog-list {
   display: flex;
@@ -2248,14 +2208,11 @@
 .paudit-title {
   color: var(--p-ink-2);
   font-size: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .paudit-mark {
   color: var(--p-ink-3);
   font-size: 11px;
-  letter-spacing: 0.06em;
 }
 
 .paudit-clear {
@@ -2425,8 +2382,6 @@
 .pqueue-livemark {
   color: var(--p-ink-3);
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 /* Unreachable and stale are the two states that must not read as an empty queue. */
@@ -2486,8 +2441,6 @@
 
 .paudit-flabel {
   color: var(--p-ink-3);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   font-size: 11px;
   padding-top: 2px;
 }
@@ -2557,8 +2510,6 @@
 .pinvest-title {
   color: var(--p-ink-2);
   font-size: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .pinvest-mark {
@@ -2804,8 +2755,6 @@
   margin-bottom: 4px;
   color: var(--p-ink-3);
   font-size: 11px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 
 .prun-question {
@@ -3023,8 +2972,6 @@
 .pconv-title {
   color: var(--p-ink-2);
   font-size: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .pconv-mark {
@@ -3054,8 +3001,6 @@
 .pconv-who {
   color: var(--p-ink-3);
   font-size: 11px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 
 .pconv-say {
@@ -3213,8 +3158,6 @@
 .pfamily-name {
   color: var(--p-ink-2);
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .pchip-variant {
@@ -3226,9 +3169,7 @@
 /* Recommended, and still only a recommendation: the other one stays fully selectable. */
 .pchip-rec {
   color: var(--p-run-done);
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 /* An empty transcript gives its space to the run conversation rather than holding it open. */
@@ -3898,10 +3839,8 @@ button.pdock:focus-visible {
 .plegend-head {
   margin: 10px 0 2px;
   color: var(--p-ink-3);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 .plegend-head:first-child {
   margin-top: 0;

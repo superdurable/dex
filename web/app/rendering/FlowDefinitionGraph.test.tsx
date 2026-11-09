@@ -29,7 +29,7 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).toContain('definition-attributes-box');
     expect(markup).toContain('definition-rpc-hexagon');
     expect(markup).toContain('definition-timeout-handler');
-    expect(markup).toContain('TIMEOUT HANDLER');
+    expect(markup).toContain('Timeout handler');
     expect(markup).toContain('handleTimeout');
     expect(markup).toContain('definition-subflow-frame');
     expect(markup).toContain('Needs attention');

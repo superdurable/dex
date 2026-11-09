@@ -313,10 +313,8 @@
 
 .connector-option em {
   color: var(--color-accent);
-  font-size: 9.5px;
+  font-size: 11px;
   font-style: normal;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .connector-option small,

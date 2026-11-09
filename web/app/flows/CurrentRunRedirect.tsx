@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 
@@ -33,6 +33,16 @@ export function CurrentRunRedirect({ flowId }: { flowId: string }) {
     return () => controller.abort();
   }, [flowId, navigate]);
 
-  if (error) return <div className="page-shell"><div className="error-banner">{error}</div></div>;
+  if (error) {
+    return (
+      <div className="page-shell v1-page">
+        <nav aria-label="Breadcrumb" className="breadcrumbs">
+          <Link to="/v1/flows">Flows</Link><span>/</span>
+          <span>{flowId}</span>
+        </nav>
+        <div className="error-banner">{error}</div>
+      </div>
+    );
+  }
   return <div className="page-loading">Resolving current run…</div>;
 }

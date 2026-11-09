@@ -406,10 +406,8 @@
 .rsw-grouphead {
   margin-bottom: 2px;
   color: var(--p-ink-2);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .rsw-list {
@@ -594,9 +592,7 @@
 
 .rhd-facts dt {
   color: var(--p-ink-2);
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .rhd-facts dd {
@@ -628,9 +624,7 @@
 
 .rdw-bandlabel {
   color: var(--p-ink-2);
-  font-size: 10.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .rdw-band[data-tone='blocked'] .rdw-bandlabel {
@@ -725,9 +719,7 @@
 
 .scx-fact dt {
   color: var(--p-ink-2);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .scx-fact dd {
@@ -747,9 +739,7 @@
 
 .rdw-steponlylabel {
   color: var(--p-ink-2);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .rdw-steponly .rhd-close {
@@ -800,10 +790,8 @@
 .rsw-zonehead {
   margin: 0 0 6px;
   color: var(--p-ink-2);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 
 /* The list owns the rest of the panel, and a rule says where the controls stop. */
@@ -868,9 +856,7 @@
   display: block;
   margin-bottom: 3px;
   color: var(--p-ink-2);
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 /* The operator takes the width of its longest word; the value gets everything left. */
@@ -965,9 +951,7 @@
 
 .apg-label {
   color: var(--p-ink-2);
-  font-size: 9.5px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .apg-count {

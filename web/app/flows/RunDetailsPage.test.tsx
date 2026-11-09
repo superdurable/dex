@@ -22,6 +22,17 @@ import {
 import type { FlowHistoryEvent, FlowState, FlowSummary, HistoryPage } from '@/lib/types';
 import { RunDetailsPage } from './RunDetailsPage';
 
+// React Flow needs layout APIs that jsdom lacks, so the graph reports the events it receives.
+vi.mock('./details/ExecutionGraph', () => ({
+  ExecutionGraph: ({ events, hasEarlierEvents }: { events: FlowHistoryEvent[]; hasEarlierEvents?: boolean }) => (
+    <div
+      data-testid="execution-graph"
+      data-event-ids={`${events[0]?.eventId}..${events.at(-1)?.eventId}`}
+      data-has-earlier-events={String(hasEarlierEvents ?? false)}
+    />
+  ),
+}));
+
 const emptyState: FlowState = {
   flowConfig: {},
   attributes: [],
@@ -142,8 +153,20 @@ function renderRun(initialEntry = '/v1/flows/order-1/run-1') {
 }
 
 function latestEventNumber(): string {
-  const label = screen.getByText('Latest event');
-  return label.parentElement?.querySelector('b')?.textContent ?? '';
+  return document.querySelector('.run-events-latest')?.textContent?.replace(/^Latest /, '') ?? '';
+}
+
+function eventsRange(): string {
+  return document.querySelector('.run-events-range')?.textContent ?? '';
+}
+
+function pageButton(name: 'Back' | 'Latest page' | 'Newer page' | 'Older page' | 'Oldest page'): HTMLButtonElement {
+  return screen.getByRole('button', { name }) as HTMLButtonElement;
+}
+
+/** Each entry is [Latest page, Newer page, Older page, Oldest page] disabled. */
+function pageButtonsDisabled(): boolean[] {
+  return (['Latest page', 'Newer page', 'Older page', 'Oldest page'] as const).map((name) => pageButton(name).disabled);
 }
 
 /** Each pair is [startInternalEventId, estimatePageSize]. */
@@ -264,6 +287,19 @@ describe('run attempts on the run page', () => {
 
     await screen.findByText('Run chain');
     expect(screen.queryByRole('combobox', { name: 'Run attempt' })).toBeNull();
+    // A running run shows no Closed fact, one hidden page heading, and copy buttons for its IDs.
+    expect(screen.queryByText('Closed')).toBeNull();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Copy Flow ID' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy run ID' })).toBeTruthy();
+    // Copy link reuses the ID buttons' copy feedback.
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const copyLink = screen.getByRole('button', { name: 'Copy link' });
+    fireEvent.click(copyLink);
+    await waitFor(() => expect(copyLink.className).toContain('is-copied'));
+    expect(writeText).toHaveBeenCalledWith(window.location.href);
+    expect(copyLink.querySelector('[aria-live="polite"]')?.textContent).toBe('Copied');
     await waitFor(() => expect(latestEventNumber()).toBe('#3'));
     expect(historyReads(historyRequests)).toEqual([['1', '2'], ['1', '1000']]);
     expect(warn).toHaveBeenCalledWith(
@@ -327,18 +363,27 @@ interface PagedDex {
   fetch: ReturnType<typeof vi.fn>;
   liveWaits: URLSearchParams[];
   releaseLiveWait: () => void;
+  /** Reads the next history page at once but holds its response until the returned release runs. */
+  holdNextHistoryRead: () => () => void;
 }
 
 /** Serves a run whose history comes from a history test server, with a blocking Live wait. */
-function pagedDex(server: HistoryTestServer): PagedDex {
+function pagedDex(server: HistoryTestServer, summaryRunAttempt = 1): PagedDex {
   const liveWaits: URLSearchParams[] = [];
   let releaseLiveWait: (() => void) | null = null;
+  let heldHistoryRead: Promise<void> | null = null;
   const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://dex.test');
-    if (url.pathname === '/api/flows/summary') return json(summary(1));
+    if (url.pathname === '/api/flows/summary') return json(summary(summaryRunAttempt));
     if (url.pathname === '/api/flows/state') return json(emptyState);
-    if (url.pathname === '/api/flows/history') return json(historyTestServerResponse(server, url));
+    if (url.pathname === '/api/flows/history') {
+      const page = historyTestServerResponse(server, url);
+      const hold = heldHistoryRead;
+      heldHistoryRead = null;
+      if (hold) await hold;
+      return json(page);
+    }
     if (isNewestEventProbe(url)) {
       return json({ eventAvailable: true, availableInternalEventId: String(server.latestEventId()) });
     }
@@ -352,7 +397,16 @@ function pagedDex(server: HistoryTestServer): PagedDex {
     }
     throw new Error(`unexpected request ${input}`);
   });
-  return { fetch: fetchMock, liveWaits, releaseLiveWait: () => releaseLiveWait?.() };
+  return {
+    fetch: fetchMock,
+    liveWaits,
+    releaseLiveWait: () => releaseLiveWait?.(),
+    holdNextHistoryRead: () => {
+      let release = () => {};
+      heldHistoryRead = new Promise<void>((resolve) => { release = resolve; });
+      return release;
+    },
+  };
 }
 
 function timelineRowIDs(): string[] {
@@ -425,23 +479,171 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+    expect(screen.getByText('Events')).toBeTruthy();
+    expect(latestEventNumber()).toBe('#2100');
+    expect(eventsRange()).toBe('Showing #1101–#2100 · Page 1 of 3');
+    expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
+    fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
     expect(timelineRowIDs().at(-1)).toBe('101');
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+    expect(eventsRange()).toBe('Showing #101–#1100 · Page 2 of 3');
+    expect(pageButtonsDisabled()).toEqual([false, false, false, false]);
+    fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('100'));
     expect(timelineRowIDs().at(-1)).toBe('1');
-    expect((screen.getByRole('button', { name: 'Older events' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(eventsRange()).toBe('Showing #1–#100 · Page 3 of 3');
+    expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Newer events' }));
+    fireEvent.click(pageButton('Newer page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
-    fireEvent.click(screen.getByRole('button', { name: 'Newer events' }));
+    expect(eventsRange()).toBe('Showing #101–#1100 · Page 2 of 3');
+    fireEvent.click(pageButton('Newer page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
-    // The fetched page stays even at the end, so the view does not switch windows.
+    // A page that reaches the newest event is the newest page, which Live extends.
     expect(timelineRowIDs().at(-1)).toBe('1101');
-    expect((screen.getByRole('button', { name: 'Newer events' }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Newest' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Newest' })).toBeNull());
+    expect(eventsRange()).toBe('Showing #1101–#2100 · Page 1 of 3');
+    expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
+  });
+
+  it('jumps to the oldest page with Oldest page and back with Latest page', async () => {
+    const server = historyTestServer(sequentialStepHistory(3500));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('3500'));
+    expect(eventsRange()).toBe('Showing #2501–#3500 · Page 1 of 4');
+    server.requests.length = 0;
+    fireEvent.click(pageButton('Oldest page'));
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('500'));
+    expect(timelineRowIDs().at(-1)).toBe('1');
+    // Oldest page reads from the window start and stops where Older page would have started page 3.
+    expect(server.requests.map((request) => [request.startInternalEventId, request.estimatePageSize])).toEqual([[1, 1001]]);
+    expect(eventsRange()).toBe('Showing #1–#500 · Page 4 of 4');
+    expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
+
+    fireEvent.click(pageButton('Newer page'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
+    expect(eventsRange()).toBe('Showing #501–#1500 · Page 3 of 4');
+    fireEvent.click(pageButton('Latest page'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('3500'));
+    expect(pageButtonsDisabled()).toEqual([true, true, false, false]);
+  });
+
+  it('keeps an older page while Live appends, and Latest page resumes Live', async () => {
+    const server = historyTestServer(sequentialStepHistory(1500));
+    const dex = pagedDex(server);
+    vi.stubGlobal('fetch', dex.fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
+    await waitFor(() => expect(dex.liveWaits.at(-1)?.get('nextInternalEventId')).toBe('1501'));
+    fireEvent.click(pageButton('Older page'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('500'));
+    expect(eventsRange()).toBe('Showing #1–#500 · Page 2 of 2');
+
+    server.events.push(stepEvent(1501, 'StepWaitForCompleted', { stepExecutionId: 'Step-751' }));
+    dex.releaseLiveWait();
+    await waitFor(() => expect(latestEventNumber()).toBe('#1501'));
+    await waitFor(() => expect(dex.liveWaits.at(-1)?.get('nextInternalEventId')).toBe('1502'));
+
+    expect(timelineRowIDs()[0]).toBe('500');
+    expect(timelineRowIDs().at(-1)).toBe('1');
+    // The newest page moved, so this page is no longer one of its numbered pages.
+    expect(eventsRange()).toBe('Showing #1–#500');
+    expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
+
+    fireEvent.click(pageButton('Latest page'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1501'));
+    expect(eventsRange()).toBe('Showing #502–#1501 · Page 1 of 2');
+    server.events.push(stepEvent(1502, 'StepExecuteCompleted', { stepExecutionId: 'Step-751' }));
+    dex.releaseLiveWait();
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1502'));
+  });
+
+  it('keeps a Newer page that Live passed while it loaded, so no event is skipped', async () => {
+    const server = historyTestServer(sequentialStepHistory(1500));
+    const dex = pagedDex(server);
+    vi.stubGlobal('fetch', dex.fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
+    await waitFor(() => expect(dex.liveWaits.at(-1)?.get('nextInternalEventId')).toBe('1501'));
+    fireEvent.click(pageButton('Older page'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('500'));
+
+    // The Newer page read sees #501 to #1500 as the end; Live then appends #1501 before it returns.
+    const releasePrevPage = dex.holdNextHistoryRead();
+    fireEvent.click(pageButton('Newer page'));
+    await waitFor(() => expect(server.requests.at(-1)?.startInternalEventId).toBe(501));
+    server.events.push(stepEvent(1501, 'StepWaitForCompleted', { stepExecutionId: 'Step-751' }));
+    dex.releaseLiveWait();
+    await waitFor(() => expect(latestEventNumber()).toBe('#1501'));
+    releasePrevPage();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1500'));
+    expect(timelineRowIDs().at(-1)).toBe('501');
+    expect(pageButtonsDisabled()).toEqual([false, false, false, false]);
+  });
+
+  it('omits the page count when the Server reports no run attempts', async () => {
+    // The gap after FlowStart lies outside the newest page, and these event IDs prove nothing.
+    const retained = sequentialStepHistory(5500)
+      .filter((event) => event.eventId === 1 || event.eventId >= 4001)
+      .map((event) => ({ ...event, runAttempt: 0 }));
+    const server = historyTestServer(retained);
+    vi.stubGlobal('fetch', pagedDex(server, 0).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('5500'));
+    expect(eventsRange()).toBe('Showing #4501–#5500 · Page 1');
+    fireEvent.click(pageButton('Older page'));
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('4500'));
+    expect(timelineRowIDs().slice(-2)).toEqual(['4001', '1']);
+    expect(eventsRange()).toBe('Showing #1–#4500');
+    expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
+  });
+
+  it('draws the Execution graph from the selected page', async () => {
+    const server = historyTestServer(sequentialStepHistory(2100));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('2100'));
+    fireEvent.click(pageButton('Older page'));
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1100'));
+    // Timeline rows are short, so its event panel defaults wider than the graph's.
+    const runContent = document.querySelector<HTMLElement>('.run-content');
+    expect(runContent?.style.getPropertyValue('--run-sidebar-width')).toBe('780px');
+    fireEvent.click(screen.getByRole('button', { name: 'Execution graph' }));
+    expect(document.querySelector<HTMLElement>('.run-content')?.style.getPropertyValue('--run-sidebar-width')).toBe('340px');
+
+    const graph = await screen.findByTestId('execution-graph');
+    // FlowStart is added for start details; the page holds events #101 to #1100.
+    expect(graph.dataset.eventIds).toBe('1..1100');
+    expect(graph.dataset.hasEarlierEvents).toBe('true');
+    expect(screen.queryByText(/The graph shows Steps from events/)).toBeNull();
+    expect(eventsRange()).toBe('Showing #101–#1100 · Page 2 of 3');
+
+    fireEvent.click(pageButton('Older page'));
+    await waitFor(() => expect(screen.getByTestId('execution-graph').dataset.eventIds).toBe('1..100'));
+    expect(screen.getByTestId('execution-graph').dataset.hasEarlierEvents).toBe('false');
+  });
+
+  it('shows the whole retained history on one page when it fits', async () => {
+    // The manual case: FlowStart and events #1001 to #1502 are retained.
+    const retained = sequentialStepHistory(1502).filter((event) => event.eventId === 1 || event.eventId >= 1001);
+    const server = historyTestServer(retained);
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()).toHaveLength(503));
+    expect(timelineRowIDs()[0]).toBe('1502');
+    expect(timelineRowIDs().slice(-2)).toEqual(['1001', '1']);
+    expect(screen.getByText('Events #2 to #1000 were removed by the history window; FlowStart is kept.')).toBeTruthy();
+    expect(eventsRange()).toBe('Showing #1–#1502 · Page 1 of 1');
+    expect(pageButtonsDisabled()).toEqual([true, true, true, true]);
   });
 
   it('jumps from a cross-page stub to the far end, highlights it, and goes back', async () => {
@@ -470,7 +672,9 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     const stub = await screen.findByRole('button', {
       name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
     });
-    expect(await screen.findByRole('button', { name: 'Older page · jump' })).toBeTruthy();
+    const jump = await screen.findByRole('button', { name: 'Go to #2' });
+    expect(jump.getAttribute('aria-describedby')).toBeTruthy();
+    expect(document.getElementById(jump.getAttribute('aria-describedby') ?? '')?.textContent).toBe('older page');
     fireEvent.click(stub);
 
     await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
@@ -482,6 +686,194 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     expect(timelineRow(3000).className).toContain('selected');
   });
 
+  it('jumps from a related event on the horizontal Timeline and goes back', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 761px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review' };
+    const filler = Array.from({ length: 2997 }, (_, offset): FlowHistoryEvent => ({
+      eventId: offset + 3,
+      eventTime: '2026-10-24T18:00:00Z',
+      type: 'ChannelExternalPublish',
+      payload: { messages: [] },
+      runAttempt: 1,
+    }));
+    const execute: FlowHistoryEvent = {
+      ...stepEvent(3000, 'StepExecuteCompleted', review),
+      payload: {
+        context: { ...review, waitForCompletedEventId: '2', startedTime: '2026-10-24T19:05:02Z' },
+        input: { conditionResults: {} },
+      },
+    };
+    const server = historyTestServer([
+      sequentialStepHistory(1)[0],
+      stepEvent(2, 'StepWaitForCompleted', review),
+      ...filler,
+      execute,
+    ]);
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    const horizontalOption = (eventId: number) => document.querySelector<HTMLElement>(
+      `[role="option"][data-event-id="${eventId}"]`,
+    );
+    await waitFor(() => expect(horizontalOption(3000)).not.toBeNull());
+    expect(document.querySelector('.timeline-row')).toBeNull();
+    fireEvent.click(horizontalOption(3000)!);
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to #2' }));
+
+    await waitFor(() => expect(horizontalOption(2)?.className).toContain('jump-highlighted'));
+    expect(horizontalOption(2)?.getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(horizontalOption(3000)?.getAttribute('aria-selected')).toBe('true'));
+  });
+
+  it('marks the event the panel shows on the horizontal Timeline, before and after keyboard moves', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 761px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const server = historyTestServer(sequentialStepHistory(30));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    const selectedOption = () => document.querySelector<HTMLElement>('[role="option"][aria-selected="true"]');
+    // With no click, the panel shows the newest event, and the strip marks the same one.
+    await waitFor(() => expect(selectedOption()).not.toBeNull());
+    const newestEventId = Number(selectedOption()!.dataset.eventId);
+    expect(selectedOption()!.className).toContain('selected');
+    expect(document.querySelector('.sidebar-stack')?.textContent).toContain(`#${newestEventId}`);
+    expect([...document.querySelectorAll('.htl-axis-label.selected')].map((label) => label.textContent))
+      .toEqual([`#${newestEventId}`]);
+
+    fireEvent.keyDown(screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' }), { key: 'ArrowLeft' });
+    await waitFor(() => expect(selectedOption()?.dataset.eventId).toBe(String(newestEventId - 1)));
+    expect(selectedOption()!.className).toContain('selected');
+    expect(document.querySelector('.htl-axis-label.selected')?.textContent).toBe(`#${newestEventId - 1}`);
+  });
+
+  it('renders the whole event panel below the horizontal Timeline, through its last section', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 761px)',
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review' };
+    const server = historyTestServer([sequentialStepHistory(1)[0], stepEvent(2, 'StepWaitForCompleted', review)]);
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    const option = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>('[role="option"][data-event-id="2"]');
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    fireEvent.click(option);
+    const panel = document.querySelector<HTMLElement>('.run-content--horizontal-timeline .sidebar-stack');
+    expect(panel).not.toBeNull();
+    const headings = await waitFor(() => {
+      const found = [...panel!.querySelectorAll('h4')].map((heading) => heading.textContent);
+      expect(found).toContain('Context');
+      return found;
+    });
+    const lastHeading = [...panel!.querySelectorAll('h4')].at(-1)!;
+    expect(lastHeading.textContent).toBe(headings.at(-1));
+    expect(lastHeading.closest('[hidden], [aria-hidden="true"]')).toBeNull();
+    expect(panel!.style.maxHeight).toBe('');
+  });
+
+  it('switches the Events page size, reloads the Latest page, and remembers the choice', async () => {
+    const server = historyTestServer(sequentialStepHistory(1505));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('1505'));
+    expect(eventsRange()).toBe('Showing #506–#1505 · Page 1 of 2');
+    const pageSize = screen.getByRole('combobox', { name: 'Page size' }) as HTMLSelectElement;
+    expect(pageSize.value).toBe('1000');
+
+    fireEvent.change(pageSize, { target: { value: '100' } });
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1406–#1505 · Page 1 of 16'));
+    expect(timelineRowIDs()).toHaveLength(100);
+    expect(window.localStorage.getItem('dex.run.events-page-size')).toBe('100');
+
+    fireEvent.click(pageButton('Older page'));
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1306–#1405 · Page 2 of 16'));
+
+    // The oldest page pairs FlowStart with the events before the next numbered page.
+    fireEvent.click(pageButton('Oldest page'));
+    await waitFor(() => expect(timelineRowIDs()).toEqual(['5', '4', '3', '2', '1']));
+    expect(eventsRange()).toBe('Showing #1–#5 · Page 16 of 16');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Page size' }), { target: { value: '1000' } });
+    await waitFor(() => expect(eventsRange()).toBe('Showing #506–#1505 · Page 1 of 2'));
+  });
+
+  it('opens with the stored Events page size', async () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      'dex.run.selected-tab': 'timeline',
+      'dex.run.events-page-size': '100',
+    }));
+    const server = historyTestServer(sequentialStepHistory(1505));
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(eventsRange()).toBe('Showing #1406–#1505 · Page 1 of 16'));
+    expect((screen.getByRole('combobox', { name: 'Page size' }) as HTMLSelectElement).value).toBe('100');
+  });
+
+  it('jumps to a related event and goes back with the 100-event page size', async () => {
+    vi.stubGlobal('localStorage', memoryStorage({
+      'dex.run.selected-tab': 'timeline',
+      'dex.run.events-page-size': '100',
+    }));
+    const review = { stepExecutionId: 'Review-1', fromStepExecutionId: '__start__', stepType: 'Review' };
+    const filler = Array.from({ length: 2997 }, (_, offset): FlowHistoryEvent => ({
+      eventId: offset + 3,
+      eventTime: '2026-10-24T18:00:00Z',
+      type: 'ChannelExternalPublish',
+      payload: { messages: [] },
+      runAttempt: 1,
+    }));
+    const execute: FlowHistoryEvent = {
+      ...stepEvent(3000, 'StepExecuteCompleted', review),
+      payload: {
+        context: { ...review, waitForCompletedEventId: '2', startedTime: '2026-10-24T19:05:02Z' },
+        input: { conditionResults: {} },
+      },
+    };
+    const server = historyTestServer([
+      sequentialStepHistory(1)[0],
+      stepEvent(2, 'StepWaitForCompleted', review),
+      ...filler,
+      execute,
+    ]);
+    vi.stubGlobal('fetch', pagedDex(server).fetch);
+    renderRun();
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
+    expect(timelineRowIDs()).toHaveLength(100);
+    fireEvent.click(timelineRow(3000));
+    fireEvent.click(await screen.findByRole('button', {
+      name: '↓ from Review-1 WaitFor completed, event #2 (older page)',
+    }));
+
+    await waitFor(() => expect(timelineRow(2).className).toContain('jump-highlighted'));
+    expect(timelineRowIDs().length).toBeLessThanOrEqual(100);
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
+    expect(timelineRowIDs()).toHaveLength(100);
+    expect(timelineRow(3000).className).toContain('selected');
+  });
+
   it('shows the pruned range banner and a muted pruned stub on the oldest retained page', async () => {
     const retained = sequentialStepHistory(5000).filter((event) => event.eventId === 1 || event.eventId >= 4001);
     const server = historyTestServer(retained);
@@ -489,17 +881,17 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('5000'));
-    expect(screen.queryByText(/removed by the history window; FlowStart is kept/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
-
+    // Only FlowStart precedes the newest 1000 events, so the newest page is also the oldest.
     await screen.findByText('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
+    expect(eventsRange()).toBe('Showing #1–#5000 · Page 1 of 1');
+    expect(pageButtonsDisabled()).toEqual([true, true, true, true]);
     expect(timelineRowIDs().at(-1)).toBe('1');
     expect(timelineRowIDs().at(-2)).toBe('4001');
     fireEvent.click(timelineRow(4001));
 
     const stub = await screen.findByText('↓ from Step-2000 WaitFor completed (removed by the history window)');
     expect(stub.tagName).toBe('SPAN');
-    expect(stub.querySelector('.timeline-pruned-badge')?.textContent).toBe('pruned');
+    expect(stub.querySelector('.timeline-pruned-badge')?.textContent).toBe('Pruned');
     expect(stub.getAttribute('title')).toContain('The server keeps only the most recent window of history');
     expect(stub.getAttribute('title')).toContain('Step execution ID: Step-2000.');
   });
@@ -531,7 +923,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('6000'));
     // server-zd prunes another chunk after the run page inferred events #2 to #4000.
     server.events = server.events.filter((event) => event.eventId === 1 || event.eventId >= 5001);
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+    fireEvent.click(pageButton('Older page'));
 
     await screen.findByText('Events #2 to #5000 were removed by the history window; FlowStart is kept.');
     expect(timelineRowIDs().at(-2)).toBe('5001');
@@ -560,7 +952,7 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     renderRun();
 
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('3000'));
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+    fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('2000'));
     fireEvent.click(timelineRow(1500));
     fireEvent.click(await screen.findByRole('button', { name: '↓ from Review-1 WaitFor completed, event #2 (older page)' }));
@@ -590,13 +982,14 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     fireEvent.click(timelineRow(6000));
     const stub = await screen.findByText('↓ from Review-1 WaitFor completed (event #3000, removed by the history window)');
     expect(stub.tagName).toBe('SPAN');
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
+    fireEvent.click(pageButton('Older page'));
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('5000'));
-    expect(timelineRowIDs().at(-1)).toBe('4001');
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
 
+    // The page that starts at the oldest retained event also shows FlowStart, so it is the oldest page.
     await screen.findByText('Events #2 to #4000 were removed by the history window; FlowStart is kept.');
     expect(timelineRowIDs().slice(-2)).toEqual(['4001', '1']);
+    expect(eventsRange()).toBe('Showing #1–#5000 · Page 2 of 2');
+    expect(pageButtonsDisabled()).toEqual([false, false, true, true]);
   });
 
   it('uses the reported run-wide pruned range after time travel, where the inference finds none', async () => {
@@ -629,10 +1022,12 @@ describe('paged Timeline on the run page', { timeout: 30_000 }, () => {
     await waitFor(() => expect(timelineRowIDs()[0]).toBe('10000'));
     fireEvent.click(timelineRow(10_000));
     await screen.findByText('↓ from Review-1 WaitFor completed (event #4000, removed by the history window)');
-    fireEvent.click(screen.getByRole('button', { name: 'Older events' }));
 
     await screen.findByText('Events #2 to #5000 were removed by the history window; FlowStart is kept.');
     expect(timelineRowIDs().slice(-2)).toEqual(['9001', '1']);
+    // Time travel skips event IDs, so the page count is not exact.
+    expect(eventsRange()).toBe('Showing #1–#10000 · Page 1');
+    expect(pageButtonsDisabled()).toEqual([true, true, true, true]);
   });
 });
 
@@ -720,7 +1115,7 @@ function runPage(runId: string) {
 
 async function saveHistoryWindow(windowEvents: string) {
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
-  fireEvent.change(screen.getByLabelText('History window (events)'), { target: { value: windowEvents } });
+  fireEvent.change(screen.getByLabelText('Retention window (events)'), { target: { value: windowEvents } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 }
 
@@ -732,7 +1127,7 @@ describe('history settings on the run page', () => {
   it('keeps saved values when a state load started before the save resolves after it', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = null;
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -746,44 +1141,44 @@ describe('history settings on the run page', () => {
     dex.heldStateReads[0]({ historyWindowEvents: 500 });
     await settleStateLoads();
 
-    expect(screen.getByText('800 events')).toBeTruthy();
-    expect(screen.queryByText('500 events')).toBeNull();
+    expect(screen.getByText('Last 800 events')).toBeTruthy();
+    expect(screen.queryByText('Last 500 events')).toBeNull();
   });
 
   it('keeps saved values across a tab switch while the refresh fails', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = 'fail';
     await saveHistoryWindow('800');
     await screen.findByText('GetFlowState failed');
-    expect(screen.getByText('800 events')).toBeTruthy();
+    expect(screen.getByText('Last 800 events')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Streams' }));
-    await waitFor(() => expect(screen.queryByText('800 events')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Last 800 events')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
-    expect(await screen.findByText('800 events')).toBeTruthy();
-    expect(screen.queryByText('500 events')).toBeNull();
+    expect(await screen.findByText('Last 800 events')).toBeTruthy();
+    expect(screen.queryByText('Last 500 events')).toBeNull();
   });
 
   it('shows the server values from a state load started after the save', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     // Another client wrote 1200 after this save, so the server value must replace the saved one.
     dex.immediateStateReply = { historyWindowEvents: 1200 };
     await saveHistoryWindow('800');
 
-    expect(await screen.findByText('1,200 events')).toBeTruthy();
-    expect(screen.queryByText('800 events')).toBeNull();
+    expect(await screen.findByText('Last 1,200 events')).toBeTruthy();
+    expect(screen.queryByText('Last 800 events')).toBeNull();
   });
 
   it('never lets an older state load overwrite a newer one', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.immediateStateReply = null;
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -792,38 +1187,38 @@ describe('history settings on the run page', () => {
     await waitFor(() => expect(dex.heldStateReads).toHaveLength(2));
 
     dex.heldStateReads[1]({ historyWindowEvents: 900 });
-    await screen.findByText('900 events');
+    await screen.findByText('Last 900 events');
     dex.heldStateReads[0]({ historyWindowEvents: 700 });
     await settleStateLoads();
 
-    expect(screen.getByText('900 events')).toBeTruthy();
-    expect(screen.queryByText('700 events')).toBeNull();
+    expect(screen.getByText('Last 900 events')).toBeTruthy();
+    expect(screen.queryByText('Last 700 events')).toBeNull();
   });
 
   it('ignores a save on one run that finishes after the page moved to another run', async () => {
     const dex = historySettingsDex();
     dex.stateReplyByRunId['run-2'] = { historyWindowEvents: 1500 };
     const { rerender } = render(runPage('run-1'));
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.shouldHoldConfigUpdates = true;
     await saveHistoryWindow('800');
     await waitFor(() => expect(dex.heldConfigUpdates).toHaveLength(1));
     rerender(runPage('run-2'));
-    await screen.findByText('1,500 events');
+    await screen.findByText('Last 1,500 events');
 
     dex.immediateStateReply = 'fail';
     dex.heldConfigUpdates[0]();
     await settleStateLoads();
 
-    expect(screen.getByText('1,500 events')).toBeTruthy();
-    expect(screen.queryByText('800 events')).toBeNull();
+    expect(screen.getByText('Last 1,500 events')).toBeTruthy();
+    expect(screen.queryByText('Last 800 events')).toBeNull();
   });
 
   it('ignores a save that finishes after the run attempt changed', async () => {
     const dex = historySettingsDex();
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
 
     dex.shouldHoldConfigUpdates = true;
     await saveHistoryWindow('800');
@@ -832,21 +1227,21 @@ describe('history settings on the run page', () => {
     dex.immediateStateReply = { historyWindowEvents: 1500 };
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     // The card stays in edit mode while its save is pending, so the new value shows as the placeholder.
-    await screen.findByPlaceholderText('Unchanged: 1,500 events');
+    await screen.findByPlaceholderText('Unchanged: Last 1,500 events');
 
     dex.immediateStateReply = 'fail';
     dex.heldConfigUpdates[0]();
     await settleStateLoads();
 
-    expect(screen.getByText('1,500 events')).toBeTruthy();
-    expect(screen.queryByText('800 events')).toBeNull();
+    expect(screen.getByText('Last 1,500 events')).toBeTruthy();
+    expect(screen.queryByText('Last 800 events')).toBeNull();
   });
 
   it('keeps saved values when a pre-save load finishes blob hydration after the save', async () => {
     const dex = historySettingsDex();
     dex.immediateStateReply = { historyWindowEvents: 500, withBlob: true };
     renderRun();
-    await screen.findByText('500 events');
+    await screen.findByText('Last 500 events');
     await waitFor(() => expect(dex.heldBlobLoads).toHaveLength(1));
 
     dex.immediateStateReply = 'fail';
@@ -855,7 +1250,7 @@ describe('history settings on the run page', () => {
     dex.heldBlobLoads[0]();
     await settleStateLoads();
 
-    expect(screen.getByText('800 events')).toBeTruthy();
-    expect(screen.queryByText('500 events')).toBeNull();
+    expect(screen.getByText('Last 800 events')).toBeTruthy();
+    expect(screen.queryByText('Last 500 events')).toBeNull();
   });
 });

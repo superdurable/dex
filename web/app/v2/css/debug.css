@@ -39,6 +39,46 @@
   padding: 0 20px 28px;
 }
 
+/* The v1 run page tokens (web/app/v1-design.css), re-pointed at the v2 palette and type. */
+.v2-debug .v1-page {
+  --font-sans: var(--p-font-sans, inherit);
+  --font-mono: inherit;
+  --ui-font-sans: inherit;
+  --ui-font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --ui-surface: var(--p-surface-2);
+  --ui-surface-raised: var(--p-surface-3);
+  --ui-well: var(--p-surface-1);
+  --ui-chip: var(--p-surface-3);
+  --ui-hover: var(--p-surface-3);
+  --ui-hairline: var(--p-line-soft);
+  --ui-ink: var(--p-ink-0);
+  --ui-ink-2: var(--p-ink-1);
+  --ui-ink-3: var(--p-ink-2);
+  --ui-focus-surface: var(--p-surface-2);
+  --ui-focus-outline: var(--v2-debug-accent);
+  --tone-accent: var(--p-run-active);
+  --tone-accent-on: var(--p-surface-1);
+  --tone-accent-soft: var(--p-surface-3);
+  --tone-accent-ink: var(--p-run-active);
+  --tone-wait-soft: var(--p-surface-3);
+  --tone-wait-ink: var(--p-clock);
+  --tone-fail: var(--p-run-failed);
+  --tone-fail-on: var(--p-surface-1);
+  --tone-fail-soft: var(--p-surface-3);
+  --tone-fail-ink: var(--p-run-failed);
+  --tone-done-soft: var(--p-surface-3);
+  --tone-done-ink: var(--p-run-done);
+  --tone-neutral-soft: var(--p-surface-3);
+  --tone-neutral-ink: var(--p-ink-2);
+  --ui-section-shadow: none;
+
+  font-family: var(--font-sans);
+}
+
+.v2-debug .v1-page :is(.mono, code, pre) {
+  font-family: var(--ui-font-mono);
+}
+
 .v2-debug-head {
   display: flex;
   align-items: baseline;
@@ -59,8 +99,6 @@
 .v2-debug-label {
   color: var(--p-ink-0);
   font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .v2-debug-note {
@@ -95,8 +133,7 @@
 
 .v2-debug .eyebrow {
   color: var(--p-ink-3);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
 }
 
 .v2-debug .muted {
