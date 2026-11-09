@@ -21,15 +21,18 @@ use dexzd_keyspace::{
 };
 use dexzd_protocol::dex::{
     ActionPermissionMapping, ActionPermissionMappings, AttributeWrite, ChannelMessage,
-    ChannelMessageDeletion, ErrorSubStatus, FlowStatus, FlowTimeoutPolicy, InvokeRpcRequest,
+    ChannelMessageDeletion, CloseDecision, CloseDecisionType, ErrorSubStatus, FlowStatus,
+    FlowTimeoutPolicy, InvokeExecuteMethodResponse, InvokeRpcRequest, InvokeWaitForMethodResponse,
     InvokeWorkerRpcResponse, Kv, SetAttributesRequest, StartFlowRequest, StepDecision,
     StepMovement, StepOptions, StopFlowRequest, Value, WaitForMethodFailurePolicy, WorkerTarget,
     flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
     AttributeRecord, AttributesSetCommand, ChannelMessageRecord, CommandReply, FlowCommand,
-    FlowStartCommand, HistoryRecord, RpcCommittedCommand, RunRecord, RunSettings,
-    StepExecutionRecord, ValueBirthRecord, command_reply, flow_command::Command,
+    FlowStartCommand, HistoryRecord, PendingCloseCheckCommand, RpcCommittedCommand, RunRecord,
+    RunSettings, StepAttemptStartedCommand, StepExecutionRecord, StepInvocationKey, StepMethod,
+    StepMethodCompletedCommand, ValueBirthRecord, command_reply, flow_command::Command,
+    step_method_completed_command, stored_value,
 };
 use prost::Message;
 
@@ -214,6 +217,91 @@ impl Harness {
         self.apply(command)
     }
 
+    fn start_attempt(&mut self, step_execution_id: &str, method: StepMethod) {
+        let command = self.command(Command::StepAttemptStarted(StepAttemptStartedCommand {
+            invocation: Some(invocation_key(step_execution_id, method)),
+            attempt: 1,
+            task_id: vec![3; 16],
+            pull_routing: None,
+        }));
+        let outcome = self.apply(command);
+        assert_not_rejected(&outcome, "the attempt starts");
+    }
+
+    fn complete_wait_for(&mut self, step_execution_id: &str) {
+        self.start_attempt(step_execution_id, StepMethod::WaitFor);
+        let command = self.command(Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation_key(step_execution_id, StepMethod::WaitFor)),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::WaitFor(
+                InvokeWaitForMethodResponse::default(),
+            )),
+            ..StepMethodCompletedCommand::default()
+        }));
+        let outcome = self.apply(command);
+        assert_not_rejected(&outcome, "the WaitFor completes");
+    }
+
+    fn complete_execute(&mut self, step_execution_id: &str, decision: StepDecision) {
+        self.start_attempt(step_execution_id, StepMethod::Execute);
+        let command = self.command(Command::StepMethodCompleted(StepMethodCompletedCommand {
+            invocation: Some(invocation_key(step_execution_id, StepMethod::Execute)),
+            attempt: 1,
+            response: Some(step_method_completed_command::Response::Execute(
+                InvokeExecuteMethodResponse {
+                    step_decision: Some(decision),
+                    ..InvokeExecuteMethodResponse::default()
+                },
+            )),
+            ..StepMethodCompletedCommand::default()
+        }));
+        let outcome = self.apply(command);
+        assert_not_rejected(&outcome, "the Execute completes");
+    }
+
+    /// Leaves WaitingStep-1 active after DeciderStep-1 requests graceful completion.
+    fn request_graceful_completion_with_waiting_step(&mut self) {
+        self.complete_wait_for("StartStep-1");
+        self.complete_execute(
+            "StartStep-1",
+            StepDecision {
+                next_steps: vec![
+                    StepMovement {
+                        step_type: "WaitingStep".to_owned(),
+                        ..StepMovement::default()
+                    },
+                    skip_wait_for_movement("DeciderStep"),
+                ],
+                ..StepDecision::default()
+            },
+        );
+        self.complete_execute(
+            "DeciderStep-1",
+            StepDecision {
+                close_decision: Some(CloseDecision {
+                    close_decision_type: CloseDecisionType::GracefulComplete as i32,
+                    close_input: Some(string_value("graceful-output")),
+                    ..CloseDecision::default()
+                }),
+                ..StepDecision::default()
+            },
+        );
+        let record = self.run_record();
+        assert_eq!(record.status, FlowStatus::Running as i32);
+        assert!(record.is_graceful_completion_requested);
+    }
+
+    /// Returns the history record of the last applied command.
+    fn last_history_record(&self) -> HistoryRecord {
+        let last_seq = self.run_record().next_run_seq - 1;
+        self.state
+            .row(
+                ColumnFamily::History,
+                &history_record_key(self.context.flow_hash, self.run_id(), last_seq),
+            )
+            .expect("history of the last command exists")
+    }
+
     fn run_record(&self) -> RunRecord {
         self.state
             .row(
@@ -237,6 +325,62 @@ fn string_value(text: &str) -> Value {
     Value {
         kind: Some(value::Kind::StringValue(text.to_owned())),
     }
+}
+
+fn invocation_key(step_execution_id: &str, method: StepMethod) -> StepInvocationKey {
+    StepInvocationKey {
+        step_execution_id: step_execution_id.to_owned(),
+        method: method as i32,
+    }
+}
+
+fn skip_wait_for_movement(step_type: &str) -> StepMovement {
+    StepMovement {
+        step_type: step_type.to_owned(),
+        step_options: Some(StepOptions {
+            skip_wait_for: true,
+            ..StepOptions::default()
+        }),
+        ..StepMovement::default()
+    }
+}
+
+fn cancel_waiting_step_response(next_steps: Vec<StepMovement>) -> InvokeWorkerRpcResponse {
+    InvokeWorkerRpcResponse {
+        step_decision: Some(StepDecision {
+            cancel_step_types: vec!["WaitingStep".to_owned()],
+            next_steps,
+            ..StepDecision::default()
+        }),
+        ..InvokeWorkerRpcResponse::default()
+    }
+}
+
+fn assert_completed_with_graceful_output(record: &RunRecord) {
+    assert_eq!(record.status, FlowStatus::Completed as i32);
+    assert!(!record.is_graceful_completion_requested);
+    let close = record.close.as_ref().expect("the run has a close record");
+    let [result] = close.results.as_slice() else {
+        panic!("expected one Flow result, got {:?}", close.results);
+    };
+    assert_eq!(result.completed_step_execution_id, "DeciderStep-1");
+    assert_eq!(
+        result
+            .completed_step_output
+            .as_ref()
+            .and_then(|stored| stored.kind.clone()),
+        Some(stored_value::Kind::InlineValue(string_value(
+            "graceful-output"
+        )))
+    );
+}
+
+fn assert_not_rejected(outcome: &ApplyOutcome, what: &str) {
+    assert!(
+        !matches!(outcome.reply.reply, Some(command_reply::Reply::Error(_))),
+        "{what}: {:?}",
+        outcome.reply
+    );
 }
 
 fn assert_error(reply: &CommandReply, code: i32, sub_status: ErrorSubStatus) {
@@ -923,4 +1067,88 @@ fn another_request_kind_evicts_and_releases_the_old_rpc_output_holder() {
             .keys()
             .any(|(family, key)| *family == ColumnFamily::Flow && key.starts_with(&holder_prefix))
     );
+}
+
+#[test]
+fn rpc_that_cancels_the_last_step_completes_a_gracefully_completing_flow() {
+    let mut harness = Harness::new(1000, 16 << 20);
+    harness.request_graceful_completion_with_waiting_step();
+    let outcome = harness.rpc(request("rpc-1"), cancel_waiting_step_response(vec![]), &[1]);
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::Rpc(_))
+    ));
+    assert_completed_with_graceful_output(&harness.run_record());
+    let history = harness.last_history_record();
+    let payloads: Vec<_> = history
+        .events
+        .iter()
+        .filter_map(|event| event.payload.as_ref())
+        .collect();
+    let rpc_index = payloads
+        .iter()
+        .position(|payload| {
+            matches!(
+                payload,
+                flow_history_event::Payload::RpcExecutionCompleted(_)
+            )
+        })
+        .expect("the RPC records its event");
+    let closed_index = payloads
+        .iter()
+        .position(|payload| matches!(payload, flow_history_event::Payload::FlowClosed(_)))
+        .expect("the RPC commit closes the Flow");
+    assert!(rpc_index < closed_index);
+}
+
+#[test]
+fn rpc_that_cancels_a_step_and_starts_another_keeps_a_gracefully_completing_flow_running() {
+    let mut harness = Harness::new(1000, 16 << 20);
+    harness.request_graceful_completion_with_waiting_step();
+    let outcome = harness.rpc(
+        request("rpc-1"),
+        cancel_waiting_step_response(vec![skip_wait_for_movement("FollowupStep")]),
+        &[1],
+    );
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::Rpc(_))
+    ));
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert!(record.is_graceful_completion_requested);
+    harness.complete_execute("FollowupStep-1", StepDecision::default());
+    assert_completed_with_graceful_output(&harness.run_record());
+}
+
+#[test]
+fn rpc_that_cancels_the_last_step_defers_graceful_completion_behind_other_rpcs() {
+    let mut harness = Harness::new(1000, 16 << 20);
+    harness.request_graceful_completion_with_waiting_step();
+    let mut command = harness.command(Command::RpcCommitted(RpcCommittedCommand {
+        request: Some(request("rpc-1")),
+        response: Some(cancel_waiting_step_response(vec![])),
+        app_worker_id: "worker-rpc".to_owned(),
+        request_fingerprint: vec![1],
+        ..RpcCommittedCommand::default()
+    }));
+    command.is_transactional_rpc_in_flight = true;
+    let outcome = harness.apply(command);
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::Rpc(_))
+    ));
+    assert!(
+        outcome
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, ApplyEffect::PendingCloseHeldByRpcs { .. }))
+    );
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert!(record.pending_close.is_some());
+    let check = harness.command(Command::PendingCloseCheck(PendingCloseCheckCommand {}));
+    let checked = harness.apply(check);
+    assert_not_rejected(&checked, "the pending close check applies");
+    assert_completed_with_graceful_output(&harness.run_record());
 }

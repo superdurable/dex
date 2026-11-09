@@ -53,6 +53,11 @@ const (
 	RpcRejectSibling    = "reject-sibling"
 	RpcGlobal           = "RpcGlobal"
 	RpcFinal            = "RpcFinal"
+	GracefulRoot        = "GracefulRoot"
+	GracefulDecider     = "GracefulDecider"
+	GracefulWaiter      = "GracefulWaiter"
+	GracefulOutput      = "graceful-output"
+	RpcCancelWaiter     = "cancelGracefulWaiter"
 )
 
 type Handler struct {
@@ -84,6 +89,12 @@ func (h *Handler) InvokeWorkerRPC(
 			StepDecision: &dexpb.StepDecision{
 				CancelSiblingStepTypes: []string{RpcGlobal},
 			},
+		}, nil
+	}
+	if request.GetRpcName() == RpcCancelWaiter {
+		return &dexpb.InvokeWorkerRPCResponse{
+			Output:       request.GetInput(),
+			StepDecision: &dexpb.StepDecision{CancelStepTypes: []string{GracefulWaiter}},
 		}, nil
 	}
 	if request.GetRpcName() == RpcA && request.GetInput().GetStringValue() == RpcCancel {
@@ -162,7 +173,7 @@ func (h *Handler) invokeWaitForMethod(
 		return timerWait(3 * time.Second), nil
 	case GlobalWait:
 		return channelWait(), nil
-	case RpcGlobal:
+	case RpcGlobal, GracefulWaiter:
 		return channelWait(), nil
 	case QueuedWaitingLoser:
 		return channelWait(), nil
@@ -335,6 +346,20 @@ func (h *Handler) invokeExecuteMethod(
 		return graceful(), nil
 	case RpcFinal:
 		return forceComplete(), nil
+	case GracefulRoot:
+		return next(
+			movement(GracefulWaiter, nil),
+			movement(GracefulDecider, &dexpb.StepOptions{SkipWaitFor: true}),
+		), nil
+	case GracefulDecider:
+		return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
+			CloseDecision: &dexpb.CloseDecision{
+				CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+				CloseInput: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+					StringValue: GracefulOutput,
+				}},
+			},
+		}}, nil
 	case CanceledRecovery:
 		return nil, context.Canceled
 	default:

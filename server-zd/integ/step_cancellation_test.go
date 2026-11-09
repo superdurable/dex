@@ -33,6 +33,10 @@ func TestRpcStepCancellationTemporal(t *testing.T) {
 	testRpcStepCancellation(t, false)
 }
 
+func TestRpcStepCancellationGracefulCompletionTemporal(t *testing.T) {
+	testRpcStepCancellationGracefulCompletion(t)
+}
+
 func testStepCancellation(t *testing.T) {
 	handler := step_cancellation.NewHandler()
 	testConfig := serverZDTestConfig{}
@@ -213,6 +217,63 @@ func testRpcStepCancellation(
 	})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus())
+}
+
+// testRpcStepCancellationGracefulCompletion covers #1450: an RPC that cancels the last Step completes the Flow.
+func testRpcStepCancellationGracefulCompletion(t *testing.T) {
+	handler := step_cancellation.NewHandler()
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, serverZDTestConfig{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := step_cancellation.FlowType + "-rpc-graceful-" + uuid.NewString()
+	start, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           step_cancellation.FlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      step_cancellation.GracefulRoot,
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		state, stateErr := runtime.FlowClient.GetFlowState(ctx, &dexpb.GetFlowStateRequest{
+			FlowId: flowID,
+			RunId:  start.GetRunId(),
+		})
+		if !assert.NoError(collect, stateErr) {
+			return
+		}
+		activeUserSteps := userActiveStepExecutions(state)
+		if !assert.Len(collect, activeUserSteps, 1) {
+			return
+		}
+		assert.Equal(collect, step_cancellation.GracefulWaiter+"-1", activeUserSteps[0].GetStepExecutionId())
+		assert.Equal(collect, dexpb.ActiveStepPhase_ACTIVE_STEP_PHASE_WAITING, activeUserSteps[0].GetPhase())
+	}, 10*time.Second, 50*time.Millisecond)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_RUNNING, describeFlowStatus(t, ctx, runtime, flowID))
+
+	response := invokeCancellationRpc(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		step_cancellation.RpcCancelWaiter,
+		step_cancellation.RpcCancel,
+	)
+	require.Equal(t, step_cancellation.RpcCancel, response.GetOutput().GetStringValue())
+	completed, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 5,
+		NeedsResults:    true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus())
+	require.Len(t, completed.GetResults(), 1)
+	result := completed.GetResults()[0]
+	require.Equal(t, step_cancellation.GracefulDecider, result.GetCompletedStepType())
+	require.Equal(t, step_cancellation.GracefulOutput, result.GetCompletedStepOutput().GetStringValue())
 }
 
 func invokeCancellationRpc(
