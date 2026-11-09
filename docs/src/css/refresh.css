@@ -566,7 +566,8 @@ html[data-theme='dark'] {
     transition: none;
   }
 
-  .docs-section-entry:hover {
+  .docs-section-entry:hover,
+  .docs-section-entry:focus-visible {
     transform: none;
   }
 }
