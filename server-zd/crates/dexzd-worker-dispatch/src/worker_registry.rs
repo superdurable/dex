@@ -115,8 +115,7 @@ struct QueueLease {
 struct WorkerStream {
     id: Uuid,
     tenant_id: u64,
-    /// Registry keys of the queues this stream serves: its registered queue, or its sticky
-    /// queue and Flow types. Built once so idle bookkeeping allocates no keys.
+    /// Queues this stream serves: its registered queue, or its sticky queue and Flow types.
     queue_keys: Vec<(u64, String)>,
     /// Flow types whose durable queues this stream may claim from.
     backlog_flow_types: Vec<String>,

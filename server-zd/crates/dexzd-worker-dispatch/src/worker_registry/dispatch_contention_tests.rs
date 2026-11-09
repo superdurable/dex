@@ -155,8 +155,7 @@ fn registry_lock_acquisitions(dispatch: &WorkerDispatch) -> u64 {
         .load(Ordering::Relaxed)
 }
 
-/// An RPC that finds an idle stream takes the registry lock once to pick it and once when the
-/// stream returns, however many queues the stream serves.
+/// An RPC that finds an idle stream locks the registry twice, however many queues it serves.
 #[tokio::test]
 async fn an_rpc_matched_at_once_takes_the_registry_lock_twice() {
     let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
@@ -249,8 +248,8 @@ async fn serve_stream(
     }
 }
 
-/// Concurrent RPCs across sticky and Flow type queues, durable backlog Claims, and stream
-/// disconnects end with one outcome each and leave the registry consistent.
+/// Concurrent RPCs, backlog Claims, and disconnects end with one outcome each and a consistent
+/// registry.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn concurrent_dispatches_claims_and_disconnects_keep_the_registry_consistent() {
     let dispatch = WorkerDispatch::new(MatchingConfig::default(), Arc::new(SystemWallClock));
@@ -335,8 +334,7 @@ async fn concurrent_dispatches_claims_and_disconnects_keep_the_registry_consiste
     }
 }
 
-/// With no dispatch in flight, every remaining stream is idle in each queue it serves, and
-/// queues hold no waiter, promise, or dispatch user.
+/// With no dispatch in flight, every stream is idle in all its queues and no queue holds waiters.
 fn assert_registry_is_consistent(dispatch: &WorkerDispatch, stream_count: usize) {
     let registry = dispatch.lock_registry();
     assert_eq!(registry.streams.len(), stream_count);

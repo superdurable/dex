@@ -53,8 +53,7 @@ impl Registry {
         }
     }
 
-    /// Counts a dispatch as a user of the queue `key` while it waits, and removes the queue
-    /// once neither a stream nor a waiting dispatch uses it.
+    /// Counts a dispatch as a user of queue `key` while it waits; removes the queue once unused.
     pub(super) fn settle_waiting_user(
         &mut self,
         key: &(u64, String),

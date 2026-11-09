@@ -94,8 +94,7 @@ impl QueuePick {
 }
 
 impl QueueLease {
-    /// Starts one queue search. It takes no lock; a pick creates the queue when needed, and the
-    /// search counts as a user of its queue only while it waits.
+    /// Starts one queue search without locking; it counts as a queue user only while it waits.
     pub(super) fn new(
         dispatch: &WorkerDispatch,
         tenant_id: u64,
