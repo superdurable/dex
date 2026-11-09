@@ -47,6 +47,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -80,6 +81,7 @@ final class IntegEnvironment implements AutoCloseable {
     private final FakeJobService fakeJobService;
     private final PollingFlow pollingFlow;
     private final ReportGenerationFlow reportGenerationFlow;
+    private final WorkflowPatternFlows workflowPatternFlows;
 
     private IntegEnvironment(
             final Path cacheDirectory,
@@ -101,7 +103,8 @@ final class IntegEnvironment implements AutoCloseable {
             final UserOnboardingFlow userOnboardingFlow,
             final FakeJobService fakeJobService,
             final PollingFlow pollingFlow,
-            final ReportGenerationFlow reportGenerationFlow) {
+            final ReportGenerationFlow reportGenerationFlow,
+            final WorkflowPatternFlows workflowPatternFlows) {
         this.cacheDirectory = cacheDirectory;
         this.blobCache = blobCache;
         this.worker = worker;
@@ -122,6 +125,7 @@ final class IntegEnvironment implements AutoCloseable {
         this.fakeJobService = fakeJobService;
         this.pollingFlow = pollingFlow;
         this.reportGenerationFlow = reportGenerationFlow;
+        this.workflowPatternFlows = workflowPatternFlows;
     }
 
     static IntegEnvironment start() throws IOException {
@@ -143,7 +147,8 @@ final class IntegEnvironment implements AutoCloseable {
         final FakeJobService fakeJobService = new FakeJobService();
         final PollingFlow pollingFlow = new PollingFlow(fakeJobService);
         final ReportGenerationFlow reportGenerationFlow = new ReportGenerationFlow();
-        final List<Flow<?>> flows = Arrays.<Flow<?>>asList(
+        final WorkflowPatternFlows workflowPatternFlows = new WorkflowPatternFlows();
+        final List<Flow<?>> flows = new ArrayList<Flow<?>>(Arrays.<Flow<?>>asList(
                 moneyTransferFlow,
                 orderProcessingFlow,
                 engagementFlow,
@@ -156,7 +161,8 @@ final class IntegEnvironment implements AutoCloseable {
                 subscriptionFlow,
                 userOnboardingFlow,
                 pollingFlow,
-                reportGenerationFlow);
+                reportGenerationFlow));
+        flows.addAll(workflowPatternFlows.all());
 
         final Path cacheDirectory = Files.createTempDirectory("dex-java-examples-integ-");
         final Registry registry = new Registry(flows);
@@ -205,7 +211,8 @@ final class IntegEnvironment implements AutoCloseable {
                 userOnboardingFlow,
                 fakeJobService,
                 pollingFlow,
-                reportGenerationFlow);
+                reportGenerationFlow,
+                workflowPatternFlows);
     }
 
     Client client() {
@@ -266,6 +273,10 @@ final class IntegEnvironment implements AutoCloseable {
 
     ReportGenerationFlow reportGenerationFlow() {
         return reportGenerationFlow;
+    }
+
+    <F extends Flow<?>> F workflowPatternFlow(final Class<F> flowClass) {
+        return workflowPatternFlows.flow(flowClass);
     }
 
     StartFlowOptions startOptions() {

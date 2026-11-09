@@ -23,7 +23,8 @@ src/
 ├── products/       # real-world business scenarios
 ├── patterns/       # design patterns
 ├── primitives/     # one minimal example per Dex primitive
-└── server/         # Axum HTTP router
+├── server/         # Axum HTTP router
+└── workflow_patterns/  # Workflow Patterns WCP-1 to WCP-43, one file per group
 ```
 
 HTTP routes use category prefixes:
@@ -100,6 +101,16 @@ remain split so their orchestration boundaries are visible.
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
 | Wait for Step completion | [`WaitForStepCompletionFlow`](src/patterns/wait_for_step_completion.rs) | `Client::wait_for_step_completion` target followed by background work |
 
+## Workflow Patterns
+
+[`src/workflow_patterns`](src/workflow_patterns) implements the control-flow
+patterns of the Workflow Patterns Initiative (WCP-1 to WCP-43) as 36 Flows,
+grouped by pattern category. The shared
+[mapping](../workflow-patterns-mapping.md) names every Flow, Step, Channel,
+Attribute, and RPC, and states what each test asserts. The Flows have no HTTP
+routes; [`tests/workflow_patterns.rs`](tests/workflow_patterns.rs) drives them
+through the Client.
+
 The Java retrying-Worker example and Python basic/resource-control/AI-agent
 examples are language-specific. The Go Deal DSL browser UI and PostgreSQL
 catalog remain in its separate `dex-deal-dsl` binary.
@@ -114,12 +125,13 @@ make test
 ```
 
 The catalog integration test constructs every Flow, checks the exact 8 + 23
-mapping, rejects duplicate names, validates all definitions in one Registry, and
+mapping and the 36 Workflow Patterns Flows, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 
 The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
-Deal DSL, and Failure Recovery Flows through the published Rust SDK.
+Deal DSL, and Failure Recovery Flows through the published Rust SDK. It then
+runs the Workflow Patterns tests.
 
 All tests use server-zd and pull Workers. `DEX_INTEG_ENGINE=zd` remains accepted.
 Set `DEX_SERVER_ZD_BINARY` to reuse a built `dex-server-zd`.
