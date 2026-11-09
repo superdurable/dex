@@ -1,0 +1,203 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "typescript",
+    "path": "actions.ts"
+  },
+  "flow": {
+    "name": "RefundReviewFlow",
+    "startStepId": "step:FinishStep",
+    "span": {
+      "startLine": 49,
+      "startColumn": 1,
+      "endLine": 88,
+      "endColumn": 2
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:FinishStep:45:12",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:FinishStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 45,
+        "startColumn": 12,
+        "endLine": 45,
+        "endColumn": 27
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
+    {
+      "id": "resource:attribute:caseStatus",
+      "kind": "attribute",
+      "name": "case-status",
+      "span": {
+        "startLine": 27,
+        "startColumn": 20,
+        "endLine": 27,
+        "endColumn": 61
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "resource:attribute:gateRequestKey",
+      "kind": "attribute",
+      "name": "gate-request-key",
+      "span": {
+        "startLine": 28,
+        "startColumn": 24,
+        "endLine": 28,
+        "endColumn": 70
+      },
+      "resource": {
+        "valueType": "string"
+      }
+    },
+    {
+      "id": "rpc:cancelReview",
+      "kind": "rpc",
+      "name": "cancelReview",
+      "span": {
+        "startLine": 76,
+        "startColumn": 3,
+        "endLine": 83,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "rpc:describeStatus",
+      "kind": "rpc",
+      "name": "describeStatus",
+      "span": {
+        "startLine": 85,
+        "startColumn": 3,
+        "endLine": 87,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "rpc:rejectRefund",
+      "kind": "rpc",
+      "name": "rejectRefund",
+      "span": {
+        "startLine": 63,
+        "startColumn": 3,
+        "endLine": 74,
+        "endColumn": 4
+      }
+    },
+    {
+      "id": "step:FinishStep",
+      "kind": "step",
+      "name": "FinishStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 53,
+        "startColumn": 31,
+        "endLine": 53,
+        "endColumn": 42
+      },
+      "metadata": {
+        "explanation": "Complete the Flow after the review."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "resource_lock",
+      "from": "rpc:rejectRefund",
+      "to": "resource:attribute:caseStatus",
+      "label": "lock",
+      "span": {
+        "startLine": 64,
+        "startColumn": 22,
+        "endLine": 64,
+        "endColumn": 39
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "rejectRefund"
+      }
+    }
+  ],
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "review",
+      "label": "Review",
+      "stepIds": [
+        "step:FinishStep"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": [
+      {
+        "rpcName": "rejectRefund",
+        "label": "Reject refund",
+        "requiredPermission": "refund.approve",
+        "condition": {
+          "attributeKey": "case-status",
+          "operator": "in",
+          "values": [
+            "awaiting-manager",
+            "escalated"
+          ]
+        },
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "reason",
+              "valueType": "string",
+              "source": "user",
+              "required": true,
+              "description": "Rejection reason"
+            },
+            {
+              "fieldName": "gate_request_key",
+              "valueType": "string",
+              "source": "attribute",
+              "attributeKey": "gate-request-key",
+              "required": true,
+              "description": "Approval gate"
+            },
+            {
+              "fieldName": "note",
+              "valueType": "string",
+              "source": "user",
+              "required": false,
+              "description": "Note"
+            }
+          ]
+        }
+      },
+      {
+        "rpcName": "cancel_review",
+        "label": "Cancel review",
+        "requiredPermission": "refund.cancel",
+        "input": {
+          "kind": "none"
+        }
+      }
+    ]
+  }
+}

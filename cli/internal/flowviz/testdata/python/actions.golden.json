@@ -1,0 +1,263 @@
+{
+  "schemaVersion": "2.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "actions.py"
+  },
+  "flow": {
+    "name": "RefundReviewFlow",
+    "startStepId": "step:FinishStep",
+    "span": {
+      "startLine": 33,
+      "startColumn": 1,
+      "endLine": 63,
+      "endColumn": 40
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:FinishStep:30:16",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:FinishStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 30,
+        "startColumn": 16,
+        "endLine": 30,
+        "endColumn": 32
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
+    {
+      "id": "resource:attribute:CASE_STATUS",
+      "kind": "attribute",
+      "name": "case-status",
+      "span": {
+        "startLine": 14,
+        "startColumn": 1,
+        "endLine": 14,
+        "endColumn": 44
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:GATE_REQUEST_KEY",
+      "kind": "attribute",
+      "name": "gate-request-key",
+      "span": {
+        "startLine": 15,
+        "startColumn": 1,
+        "endLine": 15,
+        "endColumn": 54
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:cancel_review_case",
+      "kind": "rpc",
+      "name": "cancel_review_case",
+      "span": {
+        "startLine": 58,
+        "startColumn": 5,
+        "endLine": 59,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "rpc:describe_status",
+      "kind": "rpc",
+      "name": "describe_status",
+      "span": {
+        "startLine": 62,
+        "startColumn": 5,
+        "endLine": 63,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "rpc:reject_refund",
+      "kind": "rpc",
+      "name": "reject_refund",
+      "span": {
+        "startLine": 54,
+        "startColumn": 5,
+        "endLine": 55,
+        "endColumn": 64
+      }
+    },
+    {
+      "id": "step:FinishStep",
+      "kind": "step",
+      "name": "FinishStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 38,
+        "startColumn": 36,
+        "endLine": 38,
+        "endColumn": 47
+      },
+      "metadata": {
+        "explanation": "Complete the Flow after the review."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "resource_read",
+      "from": "resource:attribute:CASE_STATUS",
+      "to": "rpc:describe_status",
+      "label": "get",
+      "span": {
+        "startLine": 63,
+        "startColumn": 16,
+        "endLine": 63,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_write",
+      "from": "rpc:cancel_review_case",
+      "to": "resource:attribute:CASE_STATUS",
+      "label": "set",
+      "span": {
+        "startLine": 59,
+        "startColumn": 9,
+        "endLine": 59,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "resource_lock",
+      "from": "rpc:reject_refund",
+      "to": "resource:attribute:CASE_STATUS",
+      "label": "lock",
+      "span": {
+        "startLine": 47,
+        "startColumn": 26,
+        "endLine": 47,
+        "endColumn": 44
+      },
+      "metadata": {
+        "phase": "rpc",
+        "rpcName": "reject_refund"
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "resource_write",
+      "from": "rpc:reject_refund",
+      "to": "resource:attribute:CASE_STATUS",
+      "label": "set",
+      "span": {
+        "startLine": 55,
+        "startColumn": 9,
+        "endLine": 55,
+        "endColumn": 64
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "unused_resource",
+      "message": "attribute gate-request-key has no direct access in the source file",
+      "span": {
+        "startLine": 15,
+        "startColumn": 1,
+        "endLine": 15,
+        "endColumn": 54
+      }
+    }
+  ],
+  "groups": [
+    {
+      "id": "review",
+      "label": "Review",
+      "stepIds": [
+        "step:FinishStep"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": [
+      {
+        "rpcName": "reject_refund",
+        "label": "Reject refund",
+        "requiredPermission": "refund.approve",
+        "condition": {
+          "attributeKey": "case-status",
+          "operator": "in",
+          "values": [
+            "awaiting-manager",
+            "escalated"
+          ]
+        },
+        "input": {
+          "kind": "object",
+          "fields": [
+            {
+              "fieldName": "reason",
+              "valueType": "string",
+              "source": "user",
+              "required": true,
+              "description": "Rejection reason"
+            },
+            {
+              "fieldName": "gate_request_key",
+              "valueType": "string",
+              "source": "attribute",
+              "attributeKey": "gate-request-key",
+              "required": true,
+              "description": "Approval gate"
+            },
+            {
+              "fieldName": "note",
+              "valueType": "string",
+              "source": "user",
+              "required": false,
+              "description": "Note"
+            }
+          ]
+        }
+      },
+      {
+        "rpcName": "cancel_review",
+        "label": "Cancel review",
+        "requiredPermission": "refund.cancel",
+        "input": {
+          "kind": "none"
+        }
+      }
+    ]
+  }
+}

@@ -139,6 +139,9 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                 raise TypeError("wait_for must return Wait")
             response = pb.InvokeWaitForMethodResponse(
                 upsert_attributes=self._result_attribute_writes(context),
+                action_permission_mappings=self._result_action_permission_mappings(
+                    context
+                ),
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 record_events=context.events,
                 publish_to_channel=context.publications,
@@ -246,6 +249,9 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             response = pb.InvokeExecuteMethodResponse(
                 step_decision=self._map_decision(flow, decision),
                 upsert_attributes=self._result_attribute_writes(context),
+                action_permission_mappings=self._result_action_permission_mappings(
+                    context
+                ),
                 record_events=context.events,
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 publish_to_channel=context.publications,
@@ -328,6 +334,9 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             response = pb.InvokeExecuteMethodResponse(
                 step_decision=self._map_decision(flow, decision),
                 upsert_attributes=self._result_attribute_writes(context),
+                action_permission_mappings=self._result_action_permission_mappings(
+                    context
+                ),
                 record_events=context.events,
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 publish_to_channel=context.publications,
@@ -380,6 +389,9 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         try:
             response = pb.InvokeWorkerRPCResponse(
                 upsert_attributes=self._result_attribute_writes(context),
+                action_permission_mappings=self._result_action_permission_mappings(
+                    context
+                ),
                 record_events=context.events,
                 delete_from_channel=context.channel_deletions,
                 publish_to_channel=context.publications,
