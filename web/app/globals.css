@@ -2209,6 +2209,61 @@ pre {
   text-overflow: ellipsis;
 }
 
+.history-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.history-settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.history-settings-form input,
+.history-settings-form select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: none;
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 13px;
+}
+
+.history-settings-form input:focus,
+.history-settings-form select:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.history-settings-form .error-banner {
+  margin: 0;
+}
+
+.history-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.history-settings-note {
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
