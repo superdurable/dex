@@ -1054,10 +1054,7 @@ function pullDispatchFailureLabel(reason: unknown, value: unknown): string | und
   return undefined;
 }
 
-/**
- * Shows where a method was routed. With hideEmpty, unknown fields are left out and a routing with no known
- * field renders nothing, so live views show no rows of dashes.
- */
+/** Shows where a method was routed; hideEmpty omits unknown fields and an empty routing. */
 export function PullRouting({ value, label = 'Pull routing', hideEmpty = false }: {
   value: unknown;
   label?: string;

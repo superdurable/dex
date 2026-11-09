@@ -11,9 +11,15 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StepGraphNode } from '@/lib/types';
+import { MemoryRouter } from 'react-router-dom';
+import { PreferencesProvider } from '@/app/providers';
 import { StepNodeLabel } from './ExecutionGraph';
+import { FlowStatePanel } from './FlowStatePanel';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const completedNode: StepGraphNode = {
   id: 'ChargeCard-1',
@@ -40,3 +46,26 @@ describe('Execution graph Step node', () => {
     expect(execute.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
   });
 });
+
+describe('selected event panel', () => {
+  it('pins the event header and keeps the scrolling body keyboard focusable', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    });
+    const event = { eventId: 7, eventTime: '2026-10-24T17:00:01Z', type: 'StepExecuteCompleted' as const, payload: {} };
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowStatePanel selectedEvent={event} history={[event]} parentFlowId="order-1" />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    const panel = screen.getByRole('region', { name: 'Selected event details' });
+    expect(panel.getAttribute('tabindex')).toBe('0');
+    expect(panel.querySelector('.selected-event-anchor')?.textContent).toContain('#7');
+  });
+});
+

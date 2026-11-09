@@ -151,10 +151,7 @@ export function LongValue({
 const inlinePreviewCharacters = 96;
 const inlineValueCharacters = 160;
 
-/**
- * Shows one decoded value on a single line: a primitive with Show all when long, or an object or list
- * as a one-line preview that expands into its structured view.
- */
+/** Shows one decoded value on a line; objects show an expandable one-line preview. */
 export function InlineValue({ value, expandValues = false }: { value: unknown; expandValues?: boolean }) {
   const decoded = isDexValue(value) ? decodedValue(value) : value;
   if (decoded && typeof decoded === 'object') {

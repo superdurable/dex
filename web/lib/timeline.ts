@@ -182,10 +182,7 @@ export function formatElapsedDuration(milliseconds: number | null): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
-/**
- * Formats a Timeline row's offset from the run start with at most two units, such as "34s", "12m 5s",
- * "2h 46m", or "3d 4h".
- */
+/** Formats a row offset with at most two units, such as "12m 5s" or "3d 4h". */
 export function formatTimelineOffset(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds));
   if (whole < 60) return `${whole}s`;
@@ -196,10 +193,7 @@ export function formatTimelineOffset(seconds: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
-/**
- * Returns which rows, in display order, show their absolute time: a row whose minute differs from the
- * nearest timed row above it. A row without a time shows none.
- */
+/** Returns, per row in display order, whether its minute differs from the nearest timed row above. */
 export function rowsShowingAbsoluteTime(events: readonly FlowHistoryEvent[]): boolean[] {
   let minuteAbove: number | null = null;
   return events.map((event) => {

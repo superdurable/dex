@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { Link } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { displayValue, formatDate, formatDuration } from '@/lib/format';
 import {
   buildVisibilityQuery,
@@ -120,6 +120,7 @@ export function selectVisibleIndexedAttributeKeys(flows: FlowExecution[]): strin
 export function FlowSearchPage() {
   const { timezone } = usePreferences();
   const [mode, setMode] = useState<QueryMode>('basic');
+  const modeTabs = useRef<Partial<Record<QueryMode, HTMLButtonElement | null>>>({});
   const [filters, setFilters] = useState<BasicFilter[]>([]);
   const [query, setQuery] = useState('');
   const [flows, setFlows] = useState<FlowExecution[]>([]);
@@ -212,20 +213,36 @@ export function FlowSearchPage() {
     void executeSearch(appliedQuery, '', 0, pageSize);
   }
 
-  function switchMode(next: QueryMode) {
-    if (next === mode) return;
+  /** Switches the query mode; returns whether the mode now matches the request. */
+  function switchMode(next: QueryMode): boolean {
+    if (next === mode) return true;
     if (next === 'advanced') {
       setQuery(generatedQuery);
       setMode(next);
-      return;
+      return true;
     }
     const parsed = parseVisibilityQuery(query);
     if (!parsed) {
       setError('This search query uses syntax the Filters tab cannot represent.');
-      return;
+      return false;
     }
     setFilters(parsed);
     setMode(next);
+    return true;
+  }
+
+  /** Moves between the query mode tabs with the arrow, Home, and End keys. */
+  function handleModeTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const modes: QueryMode[] = ['basic', 'advanced'];
+    const current = modes.indexOf(mode);
+    let target: QueryMode;
+    if (event.key === 'ArrowRight') target = modes[(current + 1) % modes.length];
+    else if (event.key === 'ArrowLeft') target = modes[(current + modes.length - 1) % modes.length];
+    else if (event.key === 'Home') target = modes[0];
+    else if (event.key === 'End') target = modes[modes.length - 1];
+    else return;
+    event.preventDefault();
+    if (switchMode(target)) modeTabs.current[target]?.focus();
   }
 
   function loadQuery(nextQuery: string) {
@@ -292,21 +309,29 @@ export function FlowSearchPage() {
     <div className="page-shell flow-search-page v1-page">
       <section className="card query-card">
         <div className="query-toolbar">
-          <div className="segmented" role="tablist" aria-label="Query mode">
+          <div className="segmented" role="tablist" aria-label="Query mode" onKeyDown={handleModeTabKeyDown}>
             <button
+              aria-controls={mode === 'basic' ? 'flow-search-filters-panel' : undefined}
               aria-selected={mode === 'basic'}
               className={mode === 'basic' ? 'active' : ''}
+              id="flow-search-filters-tab"
               onClick={() => switchMode('basic')}
+              ref={(node) => { modeTabs.current.basic = node; }}
               role="tab"
+              tabIndex={mode === 'basic' ? 0 : -1}
               type="button"
             >
               Filters
             </button>
             <button
+              aria-controls={mode === 'advanced' ? 'flow-search-query-panel' : undefined}
               aria-selected={mode === 'advanced'}
               className={mode === 'advanced' ? 'active' : ''}
+              id="flow-search-query-tab"
               onClick={() => switchMode('advanced')}
+              ref={(node) => { modeTabs.current.advanced = node; }}
               role="tab"
+              tabIndex={mode === 'advanced' ? 0 : -1}
               type="button"
             >
               Query
@@ -344,7 +369,7 @@ export function FlowSearchPage() {
         )}
 
         {mode === 'basic' ? (
-          <div className="filter-list">
+          <div aria-labelledby="flow-search-filters-tab" className="filter-list" id="flow-search-filters-panel" role="tabpanel">
             {filters.map((filter) => (
               <div className="filter-row" key={filter.id}>
                 <input
@@ -411,15 +436,17 @@ export function FlowSearchPage() {
             </div>
           </div>
         ) : (
-          <label className="advanced-query">
-            <span>Search query</span>
-            <textarea
-              value={query}
-              rows={4}
-              placeholder='ExecutionStatus = "Running" AND FlowType = "Checkout"'
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
+          <div aria-labelledby="flow-search-query-tab" id="flow-search-query-panel" role="tabpanel">
+            <label className="advanced-query">
+              <span>Search query</span>
+              <textarea
+                value={query}
+                rows={4}
+                placeholder='ExecutionStatus = "Running" AND FlowType = "Checkout"'
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+          </div>
         )}
 
         <div className="query-submit">

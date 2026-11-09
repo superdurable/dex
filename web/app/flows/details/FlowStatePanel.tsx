@@ -67,7 +67,7 @@ export function FlowStatePanel({
   }, []);
 
   return (
-    <div className="sidebar-stack" ref={sidebar}>
+    <div aria-label="Selected event details" className="sidebar-stack" ref={sidebar} role="region" tabIndex={0}>
       {selectedEvent ? (
         <>
           <header aria-label="Selected event" className="selected-event-anchor" data-selected-event-target>

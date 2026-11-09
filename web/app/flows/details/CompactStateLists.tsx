@@ -23,11 +23,11 @@ export function SectionViewToggle({
   label: string;
 }) {
   return (
-    <div aria-label={`${label} view`} className="event-detail-tabs section-view-toggle" role="tablist">
-      <button aria-selected={view === 'details'} className={view === 'details' ? 'active' : ''} onClick={() => onChange('details')} role="tab" type="button">
+    <div aria-label={`${label} view`} className="event-detail-tabs section-view-toggle" role="group">
+      <button aria-pressed={view === 'details'} className={view === 'details' ? 'active' : ''} onClick={() => onChange('details')} type="button">
         Details
       </button>
-      <button aria-selected={view === 'raw'} className={view === 'raw' ? 'active' : ''} onClick={() => onChange('raw')} role="tab" type="button">
+      <button aria-pressed={view === 'raw'} className={view === 'raw' ? 'active' : ''} onClick={() => onChange('raw')} type="button">
         Raw JSON
       </button>
     </div>
@@ -135,7 +135,7 @@ function messagesOf(entry: unknown): PendingMessage[] {
   });
 }
 
-/** Shortens a long message ID to its start and end; the full ID stays in the title and the copy button. */
+/** Shortens a long message ID; the title and copy button keep the full ID. */
 function shortMessageId(messageId: string): string {
   return messageId.length > 16 ? `${messageId.slice(0, 8)}…${messageId.slice(-4)}` : messageId;
 }

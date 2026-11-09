@@ -8,16 +8,9 @@
  * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
  */
 
-/*
- * Dex Web v1 design system: the run pages and Flow search.
- *
- * Surfaces separate by color and spacing, not borders. Color marks focus:
- * running work is accent, waiting is amber, failures are red, completion is
- * green. Every rule is scoped under .v1-page, so v2 pages stay untouched.
- * The v2 Deep Dive embeds the run page and remaps these tokens in debug.css.
- */
+/* Dex Web v1 design system, scoped under .v1-page; the v2 Deep Dive remaps its tokens in debug.css. */
 
-/* Self-hosted from the geist npm package 1.9.0, the same files the docs site serves (SIL OFL 1.1, see web/LICENSES/Geist-OFL-1.1.txt). */
+/* Geist 1.9.0, the docs site's font files; license in web/LICENSES/Geist-OFL-1.1.txt. */
 @font-face {
   font-family: 'Geist';
   src: url('./fonts/geist/Geist-Variable.woff2') format('woff2');
@@ -34,11 +27,7 @@
   font-display: swap;
 }
 
-/*
- * Values come from the docs site, docs/src/css/custom.css: its page, surface,
- * line, text, and primary green tokens. Status tones are tuned to sit beside
- * that green and keep WCAG AA contrast on every surface they use.
- */
+/* Derived from docs/src/css/custom.css; status tones keep WCAG AA contrast on every surface. */
 :root {
   --ui-font-sans: 'Geist', 'Helvetica Neue', Arial, sans-serif;
   --ui-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -127,10 +116,7 @@ body:has(.v1-page) {
   background: var(--ui-page);
 }
 
-/*
- * The shared v1 components read the legacy palette tokens from globals.css.
- * Inside a v1 page they resolve to the design system, so every tab follows it.
- */
+/* Legacy globals.css tokens resolve to the design system inside v1 pages. */
 .v1-page {
   --ink: var(--ui-ink);
   --ink-dim: var(--ui-ink-2);
@@ -1448,11 +1434,45 @@ body:has(.v1-page) {
 
 /* The selected event panel beside Timeline and Execution graph. */
 
+/* Scrolls beside a long Timeline; the thin scrollbar shows only on hover or focus. */
 .v1-page .sidebar-stack {
   border: 0;
   border-radius: var(--ui-radius-section);
   background: var(--ui-surface);
   box-shadow: var(--ui-section-shadow);
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.v1-page .sidebar-stack:is(:hover, :focus-within) {
+  scrollbar-color: var(--ui-hover) transparent;
+}
+
+.v1-page .sidebar-stack::-webkit-scrollbar {
+  width: 8px;
+}
+
+.v1-page .sidebar-stack::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.v1-page .sidebar-stack::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: transparent;
+}
+
+.v1-page .sidebar-stack:is(:hover, :focus-within)::-webkit-scrollbar-thumb {
+  background: var(--ui-hover);
+}
+
+.v1-page .sidebar-stack:focus-visible {
+  outline: 2px solid var(--ui-focus-outline);
+  outline-offset: 2px;
+}
+
+.v1-page .event-details-content > .event-detail-tabs + * {
+  margin-top: 14px;
 }
 
 .v1-page .sidebar-section {

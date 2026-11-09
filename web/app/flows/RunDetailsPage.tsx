@@ -793,11 +793,11 @@ export function RunDetailsPage({
         <div className="warning-banner run-error" key={warning}>{warning}</div>
       ))}
 
-      <div className="run-tabs" role="tablist">
+      <div aria-label="Run views" className="run-tabs" role="group">
         {tabs.map(([id, label, TabIcon]) => (
           <button
             key={id}
-            aria-current={tab === id ? 'page' : undefined}
+            aria-pressed={tab === id}
             className={tab === id ? 'active' : ''}
             onClick={() => {
               setTab(id);

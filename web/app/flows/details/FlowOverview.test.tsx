@@ -323,7 +323,7 @@ describe('redesigned Overview', () => {
     fireEvent.click(screen.getByRole('button', { name: /Flow config/ }));
     expect(screen.getByText('stepDurability')).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
-    fireEvent.click(screen.getByRole('tab', { name: 'Raw JSON' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Raw JSON' }));
     expect(document.body.textContent).not.toMatch(/continueAsNew|deleteExpiredHistoryObjects/);
   });
 
@@ -410,7 +410,7 @@ describe('decoded Channel values and close failures', () => {
 
   it('keeps the envelope in Raw JSON', () => {
     renderPending([jsonValue(true)], 'raw');
-    fireEvent.click(screen.getAllByRole('tab', { name: 'Raw JSON' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Raw JSON' })[0]);
     expect(document.body.textContent).toContain('dHJ1ZQ==');
   });
 
@@ -567,7 +567,7 @@ describe('grouped Channel rows', () => {
     expect(test.textContent).toContain('123');
     expect(test.textContent).not.toContain('objValue');
     expect(screen.getByRole('region', { name: 'Channel updates / 2' }).textContent).toContain('1 message');
-    expect(screen.getAllByRole('tablist', { name: 'Channels view' })).toHaveLength(1);
+    expect(screen.getAllByRole('group', { name: 'Channels view' })).toHaveLength(1);
     expect(screen.queryByText('All pending messages by Channel')).toBeNull();
     expect(screen.getByText('01a1bec0…a0cd').getAttribute('title')).toBe(longMessageId);
     expect(screen.getByRole('button', { name: `Copy message ID ${longMessageId}` })).toBeTruthy();
@@ -582,8 +582,8 @@ describe('grouped Channel rows', () => {
 
   it('switches the whole section to Raw JSON', () => {
     render(<FlowOverview summary={summary} events={[]} state={state} />);
-    const toggle = screen.getByRole('tablist', { name: 'Channels view' });
-    fireEvent.click(within(toggle).getByRole('tab', { name: 'Raw JSON' }));
+    const toggle = screen.getByRole('group', { name: 'Channels view' });
+    fireEvent.click(within(toggle).getByRole('button', { name: 'Raw JSON' }));
     expect(document.body.textContent).toContain('dHJ1ZQ==');
     expect(screen.queryByRole('region', { name: 'Channel test' })).toBeNull();
   });
@@ -638,5 +638,41 @@ describe('Active steps controls', () => {
     expect(activeStepMarkup).not.toContain('Execute routing');
     expect(activeStepMarkup).not.toContain('>From<');
     expect(activeStepMarkup).not.toContain('>—<');
+  });
+});
+
+describe('Details and Raw JSON switches', () => {
+  it('are toggle buttons, not tabs', () => {
+    const summary: FlowSummary = {
+      flowId: 'flow-1',
+      runId: 'run-1',
+      firstRunId: 'run-1',
+      requestId: 'request-1',
+      flowType: 'PaymentFlow',
+      flowStatus: 'Running',
+      flowStatusCode: 1,
+      startTime: '2026-08-10T00:00:00Z',
+      closeTime: null,
+    };
+    render(
+      <FlowOverview
+        summary={summary}
+        events={[]}
+        state={{
+          flowConfig: {},
+          attributes: [{ key: 'status', value: 'ready' }],
+          activeStepExecutions: [],
+          queuedSteps: [],
+          pendingChannelMessages: {},
+          completedSteps: [],
+        }}
+      />,
+    );
+    expect(screen.queryByRole('tab')).toBeNull();
+    const group = screen.getByRole('group', { name: 'Attributes view' });
+    const raw = within(group).getByRole('button', { name: 'Raw JSON' });
+    expect(within(group).getByRole('button', { name: 'Details' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(raw);
+    expect(raw.getAttribute('aria-pressed')).toBe('true');
   });
 });

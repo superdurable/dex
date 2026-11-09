@@ -132,4 +132,11 @@ describe('Timeline row density', () => {
     ]);
     expect(markup.match(/<b class="sr-only">/g)).toHaveLength(1);
   });
+
+  it.each([undefined, 0, 'STEP_DURABILITY_UNSPECIFIED'])('treats a run durability of %s as the sync default', (runDurability) => {
+    const markup = renderRows([execute(2, '2026-10-24T17:00:01Z', { durability: 1 })], runDurability);
+    expect(markup).not.toContain('Durability <b>');
+    const asyncMarkup = renderRows([execute(3, '2026-10-24T17:00:01Z', { durability: 2 })], runDurability);
+    expect(asyncMarkup).toContain('Durability <b>async</b>');
+  });
 });

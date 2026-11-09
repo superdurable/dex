@@ -110,4 +110,33 @@ describe('Flow search query builder and pagination', () => {
     expect(screen.getByRole('textbox', { name: 'Search query' })).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/visibility|Basic|Advanced/i);
   });
+
+  it('moves between the Filters and Query tabs with the keyboard', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    const filters = await screen.findByRole('tab', { name: 'Filters' });
+    const query = screen.getByRole('tab', { name: 'Query' });
+    expect(filters.getAttribute('tabindex')).toBe('0');
+    expect(query.getAttribute('tabindex')).toBe('-1');
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(filters.id);
+    expect(filters.getAttribute('aria-controls')).toBe(screen.getByRole('tabpanel').id);
+
+    filters.focus();
+    fireEvent.keyDown(filters, { key: 'ArrowRight' });
+    expect(query.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(query);
+    expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(query.id);
+
+    fireEvent.keyDown(query, { key: 'Home' });
+    expect(filters.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(filters);
+    fireEvent.keyDown(filters, { key: 'End' });
+    expect(document.activeElement).toBe(query);
+  });
 });

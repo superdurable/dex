@@ -567,6 +567,12 @@ function prunedRangeMessage(range: EventIdRange): string {
   return `${removed} removed by the history window; FlowStart is kept.`;
 }
 
+/** An unset or unspecified run durability means the server default, sync. */
+function effectiveRunStepDurability(value: unknown): unknown {
+  const isUnset = value === undefined || value === null || value === 0 || value === 'STEP_DURABILITY_UNSPECIFIED';
+  return isUnset ? 1 : value;
+}
+
 function EventHighlights({
   event,
   runStepDurability,
@@ -581,9 +587,8 @@ function EventHighlights({
   const failure = output?.failure as Record<string, unknown> | undefined;
   const activityPhase = pendingPhase(event);
   const runAttempt = showRunAttempt ? positiveRunAttempt(event.runAttempt) : 0;
-  // An unset run durability is the server default, sync.
   const durability = context?.durability !== undefined ? durabilityLabel(context.durability) : '';
-  const isDurabilityOverride = durability !== '' && durability !== durabilityLabel(runStepDurability ?? 1);
+  const isDurabilityOverride = durability !== '' && durability !== durabilityLabel(effectiveRunStepDurability(runStepDurability));
   const finalAttempt = Number(context?.finalAttempt);
   const isRetried = Number.isFinite(finalAttempt) && finalAttempt > 1;
   if (!failure && !activityPhase && runAttempt === 0 && !isDurabilityOverride && !isRetried) return null;

@@ -89,11 +89,10 @@ export function JsonView({
       )}
       {effectiveOpen && (
         <div className="json-view-body">
-          <div className="event-detail-tabs" role="tablist" aria-label={`${label} view`}>
+          <div className="event-detail-tabs" role="group" aria-label={`${label} view`}>
             <button
               type="button"
-              role="tab"
-              aria-selected={view === 'details'}
+              aria-pressed={view === 'details'}
               className={view === 'details' ? 'active' : ''}
               onClick={() => selectView('details')}
             >
@@ -101,8 +100,7 @@ export function JsonView({
             </button>
             <button
               type="button"
-              role="tab"
-              aria-selected={view === 'raw'}
+              aria-pressed={view === 'raw'}
               className={view === 'raw' ? 'active' : ''}
               onClick={() => selectView('raw')}
             >

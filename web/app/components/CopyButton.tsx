@@ -13,11 +13,7 @@ const copyFeedbackMilliseconds = 1500;
 
 type CopyState = 'idle' | 'copied' | 'failed';
 
-/**
- * Copies one value to the clipboard and briefly confirms success or failure.
- *
- * Every copy control in the run header uses it, so all of them give the same visible and announced feedback.
- */
+/** Copies one value and briefly shows and announces Copied or Copy failed. */
 export function CopyButton({
   value,
   label,
