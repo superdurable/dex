@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
@@ -223,6 +224,49 @@ describe('selected step event details', () => {
     // Options the summary already names leave nothing to expand.
     event.payload.output = { stepDecision: { nextSteps: [{ stepType: 'AuditStep', stepOptions: { skipWaitFor: true } }] } };
     expect(renderDetails(event)).not.toContain('Decision details');
+  });
+
+  it('keeps a long object input preview and long context values inside their event panel column', () => {
+    const event = executeEvent(1);
+    const orderInput = {
+      OrderID: 'order-processing-1794243552019987000',
+      Email: 'buyer@example.com',
+      CustomerID: 'customer-1',
+      Amount: 42,
+    };
+    event.payload.output = {
+      stepDecision: {
+        nextSteps: [{
+          stepType: 'ShipStep',
+          stepInput: { objValue: { encoding: 'json', payload: btoa(JSON.stringify(orderInput)) } },
+        }],
+      },
+    };
+    const markup = renderDetails(event);
+
+    expect(markup).toContain(
+      '<span class="decision-summary-part">input <details class="inline-value-object"><summary><code>{&quot;OrderID&quot;:&quot;order-processing-1794243552019987000&quot;,',
+    );
+
+    const designCss = readFileSync('app/v1-design.css', 'utf8');
+    const block = (selector: string) => {
+      const start = designCss.indexOf(`${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return designCss.slice(start, designCss.indexOf('}', start));
+    };
+    // The decision row is a flex row, so its parts must shrink and its JSON preview must break.
+    expect(block('.decision-summary-part')).toContain('min-width: 0');
+    expect(block('.inline-value-object > summary > code')).toContain('min-width: 0');
+    expect(block('.inline-value-object > summary > code')).toContain('overflow-wrap: anywhere');
+    expect(block('.v1-page .decision-summary-part code')).toContain('overflow-wrap: anywhere');
+    // Context values wrap to two lines instead of overflowing into the next cell.
+    const contextValue = block('.v1-page .run-sidebar .semantic-fields dd:not(:has(pre, details, .value-expand-button))');
+    expect(contextValue).toContain('-webkit-line-clamp: 2');
+    expect(contextValue).toContain('white-space: normal');
+    expect(block('.v1-page .run-sidebar .semantic-event > *')).toContain('min-width: 0');
+    // A nested expanded value can be narrower than one grid track.
+    expect(block('.v1-page .run-sidebar .semantic-fields-compact')).toContain('minmax(min(140px, 100%), 1fr)');
+    expect(block('.v1-page .run-sidebar .semantic-fields')).toContain('minmax(min(200px, 100%), 1fr)');
   });
 
   it('renders the latest sync failure in context', () => {
