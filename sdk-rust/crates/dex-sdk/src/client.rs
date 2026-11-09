@@ -1413,6 +1413,7 @@ pub(crate) fn map_flow_config(config: Option<&FlowConfig>) -> SdkResult<ProtoFlo
             .map_err(|_| invalid("history window events exceed int32"))?,
         delete_expired_history_objects: config
             .and_then(|config| config.delete_expired_history_objects),
+        offload_history: None,
     })
 }
 

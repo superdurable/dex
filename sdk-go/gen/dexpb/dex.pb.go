@@ -3965,36 +3965,49 @@ type FlowConfig struct {
 	//
 	// Since server-zd 0.1.21.
 	HistoryWindowEvents *int32 `protobuf:"varint,7,opt,name=history_window_events,json=historyWindowEvents,proto3,oneof" json:"history_window_events,omitempty"`
-	// Whether Dex deletes the run's history objects from object storage once the history window
-	// has passed them.
+	// Deprecated: runs that start with server-zd 0.1.23 or later ignore it.
 	//
-	// It applies only while the server offloads run history to object storage, which the
-	// server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
-	// objects. Once the window passes a whole segment, no read returns its events or values any
-	// more. When this is true, Dex deletes such a segment's object about one hour later. When it
-	// is false, the object stays in object storage until the run is deleted after its retention.
-	// Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
-	// true for dev and local servers and to false otherwise. The run records that default when it
-	// starts.
+	// Such a run, when it offloads its history, always deletes the object of a history segment
+	// from object storage about one hour after the history window passes the whole segment.
+	// StartFlow, SubFlow overrides, and UpdateFlowConfig still accept the field, so existing
+	// clients keep working; StartFlow drops it. A run that started before server-zd 0.1.23 still
+	// follows it, and UpdateFlowConfig can still change it for that run.
 	//
-	// Set it to true for a run whose old history must not stay in object storage, such as a
-	// long-running session that holds sensitive values. A run that never closes otherwise keeps
-	// every history object it ever wrote. Set it to false to keep old history objects for audit
-	// or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
-	// that the window passed, whatever this value is.
+	// In server-zd 0.1.22 it chose, for one run, whether those objects were deleted or kept until
+	// the run was deleted after its retention.
 	//
-	// Set it at start through FlowStartOptions.flow_config_override, or change it on a running
-	// Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
-	// window already passed. Changing it from true to false stops the deletions that have not
-	// started; a deletion request already sent to object storage may still complete, and objects
-	// already deleted never come back. Once set, the value can be changed
-	// but not cleared back to the server default. A child Flow inherits it from its parent unless
-	// its own override sets it.
-	//
-	// Since server-zd 0.1.22.
+	// Since server-zd 0.1.22. Deprecated in server-zd 0.1.23.
 	DeleteExpiredHistoryObjects *bool `protobuf:"varint,8,opt,name=delete_expired_history_objects,json=deleteExpiredHistoryObjects,proto3,oneof" json:"delete_expired_history_objects,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// Whether Dex offloads the run's history to object storage.
+	//
+	// An offloaded run uploads its history to object storage in segment objects. Once a segment
+	// is uploaded and a grace period has passed, Dex deletes its history records and superseded
+	// values from the local disk, and history reads fetch them from object storage. When the
+	// history window passes a whole segment, Dex deletes the segment's object about one hour
+	// later. A run that does not offload keeps its history on the local disk and never writes a
+	// history object. The history window applies to both: Dex prunes the oldest events and
+	// deletes the superseded values that the window passed.
+	//
+	// Leave it unset, which means true, for most runs. A long-running run then keeps only its
+	// newest history and current state on the local disk. Set it to false for many short runs
+	// that close soon after they start. Each offloaded run writes at least one history object
+	// when it closes, and deletes it when its retention ends, so short runs at a high rate add
+	// object storage requests while their small history costs little local disk.
+	//
+	// A run that does not offload keeps every superseded value that its history window covers on
+	// the local disk, with no byte limit. Rewriting large values can then use much local disk.
+	// Keep offload for such a run, or give it a smaller history_window_events.
+	//
+	// Set it only when the Flow starts, through FlowStartOptions.flow_config_override, or for a
+	// child Flow through the SubFlow's flow_config_override. A child Flow inherits it from its
+	// parent unless its own override sets it. The run keeps the value for its whole life:
+	// UpdateFlowConfig rejects a request that sets it with INVALID_ARGUMENT. Runs that started
+	// before server-zd 0.1.23 keep the history offload behavior that their server gave them.
+	//
+	// Since server-zd 0.1.23.
+	OffloadHistory *bool `protobuf:"varint,9,opt,name=offload_history,json=offloadHistory,proto3,oneof" json:"offload_history,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *FlowConfig) Reset() {
@@ -4079,6 +4092,13 @@ func (x *FlowConfig) GetHistoryWindowEvents() int32 {
 func (x *FlowConfig) GetDeleteExpiredHistoryObjects() bool {
 	if x != nil && x.DeleteExpiredHistoryObjects != nil {
 		return *x.DeleteExpiredHistoryObjects
+	}
+	return false
+}
+
+func (x *FlowConfig) GetOffloadHistory() bool {
+	if x != nil && x.OffloadHistory != nil {
+		return *x.OffloadHistory
 	}
 	return false
 }
@@ -12807,7 +12827,7 @@ const file_dex_proto_rawDesc = "" +
 	"attributes\x12A\n" +
 	"\x14flow_config_override\x18\x05 \x01(\v2\x0f.dex.FlowConfigR\x12flowConfigOverride\x12_\n" +
 	"\x1cflow_already_started_options\x18\x06 \x01(\v2\x1e.dex.FlowAlreadyStartedOptionsR\x19flowAlreadyStartedOptions\x12V\n" +
-	"\x17timeout_handler_options\x18\a \x01(\v2\x1e.dex.FlowTimeoutHandlerOptionsR\x15timeoutHandlerOptions\"\x8f\x06\n" +
+	"\x17timeout_handler_options\x18\a \x01(\v2\x1e.dex.FlowTimeoutHandlerOptionsR\x15timeoutHandlerOptions\"\xd1\x06\n" +
 	"\n" +
 	"FlowConfig\x12U\n" +
 	"\x17active_step_search_mode\x18\x01 \x01(\x0e2\x19.dex.ActiveStepSearchModeH\x00R\x14activeStepSearchMode\x88\x01\x01\x12>\n" +
@@ -12817,14 +12837,16 @@ const file_dex_proto_rawDesc = "" +
 	"\rworker_target\x18\x05 \x01(\v2\x11.dex.WorkerTargetR\fworkerTarget\x12Q\n" +
 	"\x15attribute_store_names\x18\x06 \x01(\v2\x18.dex.AttributeStoreNamesH\x04R\x13attributeStoreNames\x88\x01\x01\x127\n" +
 	"\x15history_window_events\x18\a \x01(\x05H\x05R\x13historyWindowEvents\x88\x01\x01\x12H\n" +
-	"\x1edelete_expired_history_objects\x18\b \x01(\bH\x06R\x1bdeleteExpiredHistoryObjects\x88\x01\x01B\x1a\n" +
+	"\x1edelete_expired_history_objects\x18\b \x01(\bH\x06R\x1bdeleteExpiredHistoryObjects\x88\x01\x01\x12,\n" +
+	"\x0foffload_history\x18\t \x01(\bH\aR\x0eoffloadHistory\x88\x01\x01B\x1a\n" +
 	"\x18_active_step_search_modeB\x1c\n" +
 	"\x1a_continue_as_new_thresholdB%\n" +
 	"#_continue_as_new_page_size_in_bytesB\x12\n" +
 	"\x10_step_durabilityB\x18\n" +
 	"\x16_attribute_store_namesB\x18\n" +
 	"\x16_history_window_eventsB!\n" +
-	"\x1f_delete_expired_history_objects\"+\n" +
+	"\x1f_delete_expired_history_objectsB\x12\n" +
+	"\x10_offload_history\"+\n" +
 	"\x13AttributeStoreNames\x12\x14\n" +
 	"\x05names\x18\x01 \x03(\tR\x05names\"Z\n" +
 	"\fWorkerTarget\x12 \n" +
