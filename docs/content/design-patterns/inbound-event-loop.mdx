@@ -8,7 +8,7 @@ Use this pattern when a Flow takes inbound messages until a resolution arrives o
 
 ## Shape
 
-```text
+```pseudocode
 rpc sendReply(text)   -> validate text; if invalid: return a rejection
                          Replies.publish(text); return accepted
 rpc resolve(reason)   -> Resolutions.publish(reason)

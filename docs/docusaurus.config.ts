@@ -11,7 +11,7 @@ import {existsSync, readFileSync} from 'node:fs';
 import referenceVersions from './reference/versions.json';
 import {fileURLToPath} from 'node:url';
 import clientRedirects from '@docusaurus/plugin-client-redirects';
-import {themes as prismThemes} from 'prism-react-renderer';
+import prismIdeTheme from './src/prismIdeTheme';
 import type {Config, LoadContext} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import redirects from './redirects.json';
@@ -158,7 +158,7 @@ const config: Config = {
         },
         blog: false,
         theme: {
-          customCss: ['./src/css/custom.css', './src/css/site-header.css', './src/css/refresh.css'],
+          customCss: ['./src/css/custom.css', './src/css/site-header.css', './src/css/refresh.css', './src/css/ide-code.css'],
         },
         sitemap: {
           changefreq: 'daily',
@@ -267,8 +267,8 @@ const config: Config = {
       copyright: `© ${new Date().getFullYear()} Super Durable, Inc.`,
     },
     prism: {
-      theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      theme: prismIdeTheme,
+      darkTheme: prismIdeTheme,
       additionalLanguages: ['java', 'python', 'go', 'typescript', 'rust', 'bash'],
     },
   } satisfies Preset.ThemeConfig,

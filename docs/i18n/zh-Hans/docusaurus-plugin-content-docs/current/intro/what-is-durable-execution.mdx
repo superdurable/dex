@@ -44,12 +44,59 @@ import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproa
 
 做原型，你可能会直接写成：
 
-```text
-function processOrder(order){
-    callChargeAPI(order)
-    callShipAPI(order)
+<SdkTabs>
+  <SdkSnippet lang="python">
+
+```python title="process_order.py"
+def process_order(order):
+    call_charge_api(order)
+    call_ship_api(order)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go title="process_order.go"
+func ProcessOrder(order Order) error {
+	if err := callChargeAPI(order); err != nil {
+		return err
+	}
+	return callShipAPI(order)
 }
 ```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java title="OrderProcessor.java"
+void processOrder(Order order) {
+    callChargeApi(order);
+    callShipApi(order);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript title="process-order.ts"
+async function processOrder(order: Order): Promise<void> {
+  await callChargeApi(order);
+  await callShipApi(order);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust title="process_order.rs"
+fn process_order(order: &Order) -> Result<(), ApiError> {
+    call_charge_api(order)?;
+    call_ship_api(order)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 只要一有失败，这就不够了。
 扣款成功后进程或机器崩溃，或者 API 调用网络超时。

@@ -636,8 +636,8 @@ function assertDexSkillHostTabs(html, otherClientsLabel, isChinese) {
   ]);
   assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>Codex Desktop<\/li>/);
   assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 6);
-  const codeBlocks = (html.match(/class="codeBlockContent/g) ?? []).length;
-  // Only string CodeBlock children render codeBlockContent, which holds the browser-only copy button.
+  // Only string CodeBlock children render the theme-code-block container with its copy button.
+  const codeBlocks = (html.match(/class="[^"]*\btheme-code-block\b/g) ?? []).length;
   assert.ok(codeBlocks >= 8, 'skill host code blocks must render as highlighted CodeBlocks');
   assert.equal((html.match(/<pre\b/g) ?? []).length, codeBlocks, 'every skill host code block needs CodeBlock highlighting and a copy button');
 

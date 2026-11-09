@@ -16,6 +16,7 @@ import {
   readSdkPreference,
   subscribeSdkPreference,
 } from './sdkPreference';
+import {IdeExampleFileContext} from './ideCode';
 
 const EXAMPLE_BASE = 'https://github.com/superdurable/dex/tree/main';
 
@@ -126,7 +127,9 @@ export default function SdkTabs(props: SdkTabsProps): ReactNode {
         ))}
       </div>
       <div className="sdk-tabs__panel" role="tabpanel">
-        {snippets[current]?.body}
+        <IdeExampleFileContext.Provider value={example}>
+          {snippets[current]?.body}
+        </IdeExampleFileContext.Provider>
         {example ? (
           <p className="sdk-tabs__example">
             {exampleLabel}:{' '}
