@@ -1,6 +1,7 @@
 # Dex Core Semantics (Step 0 of the expressiveness proof)
 
-Status: draft for owner review. No Lean yet.
+Status: draft for owner review, revision 2 (after the adversarial review; see
+[Review log](#10-review-log)). No Lean yet.
 
 Base commit: `9b37482ed` on `main`. Every `path:line` below is relative to the
 repository root at that commit.
@@ -28,15 +29,17 @@ Sources of truth, in order:
    for names only.
 
 When the docs and the code disagree, the code wins. Section 7 records each
-disagreement.
+disagreement. One rule deliberately follows a fix that is not merged yet; it
+is marked **follows #1450** (Section 4.7, Open question 3).
 
 Markers used in this document:
 
 - **[code]** The claim cites the implementing code.
 - **[assumption]** The claim is a modeling choice or an inference without
-  direct code evidence. Each one is listed again in Section 7.
+  direct code evidence. Appendix A lists every one.
 - **[decision]** The claim is a choice between defensible options. The
   alternative is named.
+- **[owner]** The repository owner decided it.
 
 Notation:
 
@@ -44,8 +47,9 @@ Notation:
   name, `k` an Attribute key, `r` an RPC name, and `v` a value.
 - `m ∈ {W, E}` is a Step method: WaitFor or Execute.
 - `⊥` means absent. `xs ++ ys` concatenates lists. `M[k ↦ v]` updates a map.
-- `t` is the global clock in microseconds. `seq` is the run sequence number;
-  every committed command of a run takes the next `seq`.
+- `p(f)` is the partition of Flow `f`. `t_p` is the clock of partition `p` in
+  microseconds. `seq` is the run sequence number; every committed command of a
+  run takes the next `seq`.
 
 ## 1. Scope
 
@@ -61,10 +65,10 @@ Notation:
 | Attributes (key-value store of one run), including AttributeMap entries | Shared mutable state. AttributeMap entries are Attributes with keys `map/instance` (`server-zd/crates/dexzd-apply/src/steps/attempt_snapshot.rs:145-158`). |
 | Attribute locks on Step methods and RPCs | Mutual exclusion. |
 | Channels (FIFO queues of one run), including ChannelMap instances | Messages, external input, and synchronization. |
-| RPCs (client-invoked handlers that read and write the run and may start or cancel Steps) | Synchronous external interaction. |
+| RPCs (client-invoked handlers that read and write the run and may start or cancel Steps) | Specified here, but outside the core theorem's admissible environment [owner] (Section 5.3). |
 | SubFlows (child Flows started by a wait, result delivered to the parent) | Calls across Flows. |
-| Client inputs: StartFlow, PublishToChannel, SetAttributes, DeleteChannelMessage, StopFlow | The environment's inputs. |
-| The clock and timer firing | Time. |
+| Client inputs: StartFlow, PublishToChannel, SetAttributes, DeleteChannelMessage, StopFlow, SkipTimer | The environment's inputs. Only StartFlow and PublishToChannel are admissible for the theorem (Section 5.3). |
+| Per-partition clocks and timer firing | Time. |
 
 ### 1.2 Derived (expressible in the core, kept out of the rules)
 
@@ -72,20 +76,19 @@ Notation:
 | --- | --- |
 | `Until(cond)` | Equals `AllOf(cond)` (`sdk-go/dex/condition.go:40-43`). |
 | `SkipWaitImmediately` and Steps without WaitFor | An empty wait, or `skip_wait_for`; both go straight to Execute (Section 4.2). |
-| Flow timeout with policy FAIL or CANCEL | A Flow-level timer whose firing closes the Flow (`server-zd/crates/dexzd-apply/src/command_handlers/step_commands.rs:211-301`). Equivalent to a dedicated Step that waits on a Timer and then ForceFails. Kept out to keep rules small. |
-| Flow timeout with policy HANDLER | Creates the Step `sys:timeout_handler-1` (`step_commands.rs:222-279`). Excluded from the rules for the same reason. It matters only for Open question 2. |
-| SkipTimer (client completes a pending timer early) | A client input that marks one timer completed (`server-zd/crates/dexzd-apply/src/steps/wait_conditions/timer_skip.rs:31-110`). Modeled as rule [SKIP-TIMER] for completeness. |
 | ChannelMap and AttributeMap | Families of Channels and Attributes keyed by a string. Dynamic names are what the L translation needs for per-instance queues. |
 
 ### 1.3 Excluded
 
 | Construct | Reason |
 | --- | --- |
+| Flow timeout (all policies) and the timeout handler Step | Not derivable from user Steps. FAIL closes the Flow directly as Failed with FLOW_TIMEOUT, CANCEL closes it as Canceled, and HANDLER creates the system Step `sys:timeout_handler-1` (`server-zd/crates/dexzd-apply/src/command_handlers/step_commands.rs:211-301`). SkipTimer has its own Flow-timeout branch (`server-zd/crates/dexzd-apply/src/steps/wait_conditions/timer_skip.rs:38-42`, `timer_skip.rs:61-81`). The theorem's programs and environment set no Flow timeout (`flow_timeout_seconds = 0`), so no Flow timeout timer is ever armed (`server-zd/crates/dexzd-apply/src/command_handlers/flow_start.rs:249-260`). |
+| UpdateFlowConfig | Changes the run's FlowConfig, including the Worker target and Step durability (`server-zd/crates/dexzd-apply/src/command_handlers/client_writes.rs:366-413`, routed at `server-zd/crates/dexzd-apply/src/command_handlers/mod.rs:416-418`). The run config is fixed for the theorem: no UpdateFlowConfig input. |
 | Stream | Not in apply at all. It is in server memory only, lossy by capacity, and a Step write is not rolled back (`docs/content/concepts/primitives/stream.mdx:29-39`). It has no durable semantics to translate into. |
 | Retries, backoff timers, failure policies (`PROCEED_ON_FAILURE`, `PROCEED_TO_CONFIGURED_STEP`), heartbeats, method timeouts, attempt return | Failure handling. Out of scope by the task statement. |
 | Durability SYNC/ASYNC | Changes only what survives a crash. [assumption] In a failure-free run both produce the same committed log, because the speculative overlay is checked byte for byte against the committed outcome (`server-zd/crates/dexzd-engine/src/flow_coordination/registry.rs:326-330`). |
 | Time travel (ResetFlow), history, history offload, search projection, Attribute Sync, hard-delete Attributes, permission mappings, `record_events` | Operations, storage, and projections. Attribute Sync only adds stutter before a natural close (Section 4.9). |
-| Request deduplication (`request_id`) | Matters only for client retries, which are failures. |
+| Repeated request IDs | Not only a retry concern: apply replays the recorded reply for a repeated request ID with the same content, and rejects one with different content, even without failures (`client_writes.rs:41-65`, `client_writes.rs:138-147`, `client_writes.rs:260-268`, `server-zd/crates/dexzd-apply/src/command_handlers/rpc_committed.rs:58-74`; StartFlow matches its request ID at `flow_start.rs:115`). [assumption] Every modeled input carries a globally fresh request ID, or none. |
 | Flow ID reuse policies and run IDs | [assumption] Every L program run starts a fresh Flow ID. SubFlow IDs are the exception; see Open question 13. |
 | Resource limits (`max_value_bytes`, `max_run_state_bytes`, `max_active_step_executions`, `max_child_flow_result_bytes`) | Hitting a limit turns into a rejection or an attempt failure (`server-zd/crates/dexzd-apply/src/command_handlers/mod.rs:226-280`). [assumption] Limits are never hit. |
 | Worker response validation | An invalid response becomes a non-retryable attempt failure. Here it is a well-formedness constraint on user code (Section 2.5). |
@@ -110,8 +113,7 @@ from there (`server-zd/crates/dexzd-apply/src/steps/step_creation.rs:73`).
 [assumption] The SDKs fill them from the Step definition plus per-movement
 overrides ("A StepDecision can override the options for one Step execution",
 `docs/content/concepts/step/index.mdx`, StepOptions). The core keeps only
-these options
-(`protos/dex.proto:452-475`):
+these options (`protos/dex.proto:452-475`):
 
 ```text
 Opts  o  ::= ⟨ skipWaitFor : Bool,
@@ -276,20 +278,24 @@ Engine η ::= ⟨ RL  : (f, Key) ⇀ RpcId,       -- RPC locks, in memory, never
                Rq  : RpcId ⇀ RpcRec,          -- in-flight RPCs
                Tx  : f → ℕ,                   -- admitted transactional RPCs in flight
                Θ   : TaskId ⇀ Task ⟩          -- attempts handed to a Worker
-RpcRec ::= ⟨ f, r, v, keys, tx : Bool, phase : Called | Snapped(Snap) | Ran(Fx*, RpcResp) ⟩
+RpcRec ::= ⟨ f, r, v, keys, tx : Bool, admitted : Bool,
+             phase : Called | Snapped(Snap) | Ran(Fx*, RpcResp) | Done(Result) ⟩
 Task   ::= ⟨ f, e, m, input, snap, locals, cr, phase : Started | Running(Fx*, Resp) | Returned(Resp) ⟩
 ```
 
 - `RL`: `server-zd/crates/dexzd-engine/src/flow_coordination/rpc_locks.rs:20-51`.
-  The comment says "never logged".
-- `Tx` drives `FlowCommand.is_transactional_rpc_in_flight`, which decides
-  whether a natural close is deferred
+  The comment says "never logged". A lock guard releases its keys when it is
+  dropped (`server-zd/crates/dexzd-engine/src/flow_coordination/registry.rs:833-846`).
+- `Tx` counts admitted transactional RPCs; the admission guard decrements it
+  when dropped (`registry.rs:809-817`). `Tx` drives
+  `FlowCommand.is_transactional_rpc_in_flight`, which decides whether a natural
+  close is deferred
   (`server-zd/crates/dexzd-apply/src/command_handlers/flow_close.rs:281-292`).
   The engine sets the stamp only on a command that would close the run, and
   counts the admitted transactional RPCs other than the one this command
-  commits (`server-zd/crates/dexzd-engine/src/flow_coordination/registry.rs:593-615`).
-  The rules write that count as `Tx⁻[f]`: `Tx[f]` minus one when the command is
-  the commit of an admitted transactional RPC, else `Tx[f]`.
+  commits (`registry.rs:593-615`). The rules write that count as `Tx⁻[f]`:
+  `Tx[f]` minus one when the command is the commit of an admitted
+  transactional RPC, else `Tx[f]`.
 - The timer service decides when `TimersFired` is proposed
   (`server-zd/crates/dexzd-engine/src/effects/timer_service.rs:116-205`).
 - The dispatcher decides which startable pending invocation is handed to a
@@ -298,35 +304,43 @@ Task   ::= ⟨ f, e, m, input, snap, locals, cr, phase : Started | Running(Fx*, 
 ### 3.4 System
 
 ```text
-Σ ::= ⟨ t : ℕ,  P : Program,
-        R : FlowId ⇀ Run,
-        η : Engine,
-        N : multiset OutboxMsg ⟩     -- cross-Flow messages in transit
+Σ ::= ⟨ τc : Partition → ℕ,       -- per-partition clocks t_p
+        P  : Program,
+        R  : FlowId ⇀ Run,
+        η  : Engine,
+        N  : multiset OutboxMsg ⟩  -- cross-Flow messages in transit
 ```
 
-[assumption] One Flow ID has one run. Run IDs and attempts are elided.
+- [code] There is no global clock. The owner stamps every command with its
+  wall clock, strictly increasing per partition, and apply uses only that time
+  (`server-zd/proto/dexzd/v1/command.proto:39-40`,
+  `server-zd/crates/dexzd-apply/src/lib.rs:11-12`). A Flow and its SubFlows can
+  be in different partitions, so their timestamps come from different clocks.
+- [assumption] One Flow ID has one run. Run IDs and attempts are elided.
 
 ## 4. Operational semantics
 
 ### 4.1 Shape of the rules
 
-A transition is `Σ --ℓ--> Σ'`. The label `ℓ` is either an observable event
-(Section 5) or `τ`.
+A transition is `Σ --ℓ⃗--> Σ'`, where `ℓ⃗ ∈ Obs*` is the **ordered sequence**
+of observable events the transition produces (Section 5). The empty sequence
+is written `τ`. A commit can produce more than one event; for example StopFlow
+produces its input event and then the close event.
 
 Every rule marked **(commit)** is one apply command. It is atomic: apply
 computes all its writes in one transaction, and a rejected command writes
 nothing (`server-zd/crates/dexzd-apply/src/command_handlers/mod.rs:90-300`).
-Each commit stamps `now = t` and takes `seq := seq + 1` for its run. The
-owner's clock is strictly increasing per partition
-(`server-zd/proto/dexzd/v1/command.proto:39-40`). [assumption] One global
-clock, and `t` strictly increases between two commits of the same run.
+Each commit of Flow `f` stamps `now = t_{p(f)}` and takes `seq := seq + 1` for
+its run. [assumption] `t_{p(f)}` strictly increases between two commits of
+partition `p(f)`; partitions advance independently.
 
 Rules not marked commit are engine or Worker steps. They change only `η`, `N`,
-or `t`.
+or the clocks.
 
 The conclusions call deterministic meta-functions. Section 4.2 defines them.
 Each meta-function runs inside the commit that calls it and in the order
-written.
+written. A meta-function that emits an event appends it to the transition's
+event sequence.
 
 ### 4.2 Meta-functions (deterministic, inside one commit)
 
@@ -421,8 +435,9 @@ consumption. `server-zd/crates/dexzd-apply/src/steps/wait_conditions/condition_p
 ```text
 candidates(All)     = [ all conditions ]
 candidates(Any)     = [ each timer ] ++ [ each channel ] ++ [ each SubFlow ]   -- declaration order
-candidates(AnyComb) = [ each combination ], members resolved by ID:
-                      timers first, then channels, then SubFlows; a duplicated ID → its last declaration
+candidates(AnyComb) = [ each combination ], each member ID resolved to the LAST declaration
+                      within the FIRST kind that has that ID, kinds tried in the order
+                      timer, Channel, SubFlow                                  -- condition_plan.rs:103-129
 feasible(cand) ⇔ every timer of cand is done ∧ every SubFlow of cand has a result
                  ∧ per Channel name, the sum of the minimums of cand's conditions on it ≤ pending
 consume(cand)  = reserve each minimum first; then, in declaration order, add extras up to each maximum
@@ -446,7 +461,7 @@ eval(e)
 ```
 
 A zero-second timer is armed, not completed. It completes only through
-[TIMER-FIRE].
+[TIMER-FIRE]. Fire times use the clock of the partition of `f`.
 
 **`finish(e, φ')`** ends a Step as CO or CA.
 `server-zd/crates/dexzd-apply/src/steps/step_decisions.rs:277-323`.
@@ -524,18 +539,18 @@ if ρ has a parent: Ob += ChildCompleted(f, result = ⟨κ.status, outs, κ.erro
 
 ### 4.3 Flow start
 
-**[FLOW-START]** (commit) Label `start(f, T₀, v₀, A₀)`.
+**[FLOW-START]** (commit) Events `[start(f, T₀, v₀, A₀)]`.
 
 ```math
 \frac{f \notin \mathrm{dom}(R)}
-     {\Sigma \xrightarrow{\;start(f,T_0,v_0,A_0)\;} \Sigma[R(f) \mapsto \rho_0]}
+     {\Sigma \xrightarrow{\;[start(f,T_0,v_0,A_0)]\;} \Sigma[R(f) \mapsto \rho_0]}
 ```
 
 `ρ₀` is the empty run with `st = Running`, then `A := A₀` applied as writes,
 then `new(T₀, v₀, o₀, "__start__")` when `T₀` is not empty.
 `server-zd/crates/dexzd-apply/src/command_handlers/flow_start.rs:191-247`.
 Without a start Step the Flow runs with no Step and waits for RPCs or a close
-(`flow_start.rs:204-205`).
+(`flow_start.rs:204-205`). No Flow timeout is set (Section 1.3).
 
 ### 4.4 Step methods
 
@@ -543,7 +558,7 @@ A Step method is **three** transitions: Start, Run, Complete. Other
 transitions can interleave between them. This is the central fact of the
 semantics (Section 6).
 
-**[STEP-START]** (commit, `StepAttemptStarted`) Label `τ`.
+**[STEP-START]** (commit, `StepAttemptStarted`) Events `τ`.
 
 ```math
 \frac{S(e).inv = \langle m, P, ps, keys, \bot\rangle \quad
@@ -566,10 +581,10 @@ snap := snapshot(e, m);  S[e].inv := ⟨m, R, ps, keys, snap⟩
   `server-zd/crates/dexzd-engine/src/flow_coordination/rpc_locks.rs:85-125`,
   `registry.rs:297-322`.
 - Any startable pending invocation may start. [assumption] The order is
-  nondeterministic; Worker availability adds no other constraint. No fairness
-  is assumed in the rules (Section 6.3).
+  nondeterministic; Worker availability adds no other constraint. Fairness is
+  stated separately (Section 5.5).
 
-**[WORKER-EFFECT]** (Worker) Label `fx(f, e, m, a)`.
+**[WORKER-EFFECT]** (Worker) Events `[fx(f, (e, m), a)]`.
 A task in phase `Started` computes `(fx⃗, resp) := U_{T,m}(ctx, input, snap, locals, cr)`
 and becomes `Running(fx⃗, resp)`. Each step of this rule emits the head of
 `fx⃗`. When `fx⃗` is empty the task becomes `Returned(resp)`.
@@ -581,15 +596,17 @@ answers on the streams `InvokeWaitForMethodOutput` and
 `InvokeExecuteMethodOutput` (`protos/dex.proto:1523-1529`,
 `protos/dex.proto:1558-1564`).
 
-**[WORKER-ABANDON]** (Worker) Label `τ`. A task whose invocation was canceled
+**[WORKER-ABANDON]** (Worker) Events `τ`. A task whose invocation was canceled
 (Section 4.2 `release` with a cancel end) may be dropped at any point, before
 or after any of its effects. The cancel commit emits the effect that tells the
 Worker to stop (`server-zd/crates/dexzd-apply/src/steps/invocations.rs:376-381`).
 Cancellation is cooperative
-(`docs/reference/go/flows-and-steps/step-options.mdx:282-294`).
+(`docs/reference/go/flows-and-steps/step-options.mdx:282-294`). Until it is
+dropped, a canceled task may keep taking [WORKER-EFFECT] steps, also after its
+Flow closed.
 
-**[STEP-COMPLETE-WAITFOR]** (commit, `StepMethodCompleted`) Label `τ`, or a
-`closed` label when the Flow closes.
+**[STEP-COMPLETE-WAITFOR]** (commit, `StepMethodCompleted`) Events `τ`, or
+`[closed(...)]` when the Flow closes.
 
 Premise: the task is `Returned(⟨E, locals, W⟩)` and `S[e].inv = ⟨W, R, …⟩`
 with the same task. Otherwise the command is ignored and the result is lost
@@ -601,7 +618,8 @@ effects(e, E, locals)                                    -- step_results.rs:927-
 register(e, W)                                           -- step_results.rs:952-958
 ```
 
-**[STEP-COMPLETE-EXECUTE]** (commit, `StepMethodCompleted`) Label `τ` or `closed`.
+**[STEP-COMPLETE-EXECUTE]** (commit, `StepMethodCompleted`) Events `τ` or
+`[closed(...)]`.
 
 Premise as above with `ExecResp ⟨E, locals, D⟩` and method `E`.
 
@@ -614,28 +632,29 @@ decide(e, D)                                             -- step_results.rs:980-
 Note the order: the data effects, including `wake` of Channel waiters, come
 before the decision's cancellations and close (Open question 7).
 
-**[STEP-COMPLETE-STALE]** (Worker) Label `τ`. A `Returned` task whose
+**[STEP-COMPLETE-STALE]** (Worker) Events `τ`. A `Returned` task whose
 invocation is no longer running is dropped. Apply ignores the command
 (`step_results.rs:863-872`).
 
 ### 4.5 Time and timers
 
-**[TICK]** (environment) Label `τ` (or `tick(δ)` in the timed variant of
-Section 5.3).
+**[TICK]** (environment) Events `τ` (or `[tick(p, δ)]` in the timed variant of
+Section 5.6).
 
 ```math
-\frac{\delta > 0}{\langle t, \dots\rangle \xrightarrow{\tau} \langle t+\delta, \dots\rangle}
+\frac{\delta > 0}{\tau c \xrightarrow{\tau} \tau c[p \mapsto \tau c(p)+\delta]}
 ```
 
-Apply never reads a clock; every command carries the owner's wall-clock time,
-strictly increasing per partition (`server-zd/proto/dexzd/v1/command.proto:39-40`,
+Apply never reads a clock; every command carries its partition owner's wall
+clock time, strictly increasing per partition
+(`server-zd/proto/dexzd/v1/command.proto:39-40`,
 `server-zd/crates/dexzd-apply/src/lib.rs:11-12`).
 
-**[TIMER-FIRE]** (commit, `TimersFired`) Label `τ` or `closed`.
+**[TIMER-FIRE]** (commit, `TimersFired`) Events `τ` or `[closed(...)]`.
 
 ```math
-\frac{\mathit{Due} = \{\, i \in \mathrm{dom}(Tm) \mid Tm(i) \le t \,\} \ne \emptyset
-      \qquad D = \text{a non-empty prefix of } \mathit{Due} \text{ in index order}}
+\frac{\mathit{Due}_f = \{\, i \in \mathrm{dom}(Tm) \mid Tm(i) \le t_{p(f)} \,\} \ne \emptyset
+      \qquad D = \text{a non-empty prefix of } \mathit{Due}_f \text{ in index order}}
      {\Sigma \xrightarrow{\tau} \Sigma'}
 ```
 
@@ -650,71 +669,107 @@ case i of wait(e, j):  if S[e].φ = WT ∧ ¬tdone[j]:  tdone[j] := true;  eval(
                                                      -- wait_conditions/mod.rs:167-188
 ```
 
-- The timer service never fires before the owner's clock reaches the fire
-  time, and fires all due timers of a run in one command
-  (`server-zd/crates/dexzd-engine/src/effects/timer_service.rs:9-11`,
-  `timer_service.rs:116-205`).
-- [assumption] The prefix (rather than all due timers) over-approximates the
-  service's load limit and per-key retry delay.
+Why a prefix, and not any subset (Review log, finding 3):
+
+- The timer service scans the committed timer index in order, up to a load
+  limit, and fires every due row of a run in one command
+  (`server-zd/crates/dexzd-engine/src/effects/timer_service.rs:116-205`,
+  `timer_service.rs:208-251`). The load limit cuts the scan, which gives a
+  prefix.
+- The service skips a row that is in its retry delay
+  (`timer_service.rs:123-128`, `timer_service.rs:144-146`). A row enters the
+  retry delay only after the service fired it
+  (`timer_service.rs:158-184`), and firing waits until the TimersFired command
+  commits (`timer_service.rs:283-287`,
+  `server-zd/crates/dexzd-engine/src/effects/mod.rs:427-455`). A committed
+  TimersFired disarms every timer it names that still exists
+  (`step_commands.rs:156-163`). So, without failures, a row in its retry delay
+  has already fired, and skipping it never lets a later timer of the same run
+  overtake an unfired earlier one. The retry delay only guards against reading
+  the index before the commit is visible, and against failed proposals.
+- [assumption] So a prefix is exact for failure-free runs. The "any non-empty
+  subset" abstraction would admit runs the code cannot produce: with Steps A
+  and B waiting on `AllOf(Timer, c.ForOne())`, A's timer earlier, both due,
+  and one message on `c`, the code always gives the message to A; a subset
+  could fire B's timer alone first and give it to B. For an equivalence
+  theorem an over-approximation of Dex is not safe in the L ⊆ Dex direction.
+- The prefix keeps the AnyOf facts of Open question 12: a due timer still loses
+  to a message that commits before [TIMER-FIRE], because firing is late.
+
+Other facts:
+
+- The timer service never fires before its partition's clock reaches the fire
+  time (`timer_service.rs:9-11`).
 - Firing lateness is unbounded. Any other commit may come between a timer
   becoming due and [TIMER-FIRE].
 
-**[SKIP-TIMER]** (commit) Label `skip(f, e, j)`. When `S[e].φ = WT` and timer
-`j` is not done: mark it done, disarm it, `eval(e)`, `gcheck()`. Otherwise the
-input is rejected with INVALID_ARGUMENT and nothing changes
-(`timer_skip.rs:31-110`).
+**[SKIP-TIMER]** (commit) Events `[skip(f, e, j)]`. When `S[e].φ = WT` and
+timer `j` is not done: mark it done, disarm it, `eval(e)`, `gcheck()`.
+Otherwise the input is rejected with INVALID_ARGUMENT and nothing changes
+(`timer_skip.rs:83-110`). The Flow-timeout branch (`timer_skip.rs:38-42`) is
+excluded with Flow timeouts (Section 1.3).
 
 ### 4.6 Client inputs
 
-Each client input is one commit and one observable input label. Rejections
-change nothing and return an error to the client; the error reply is an
-observable output `reply(f, err)`.
+Each accepted client input is one commit whose event sequence starts with its
+input event. A rejected input changes nothing and produces the single event
+`[rejected(input, err)]`.
 
-**[PUBLISH]** Label `pub(f, [(c, v)])`. Requires `st = Running`, else NOT_FOUND.
-The engine gives every message a fresh ID. Apply appends the messages in order
-and calls `wake` on the changed Channels.
+**[PUBLISH]** Events `[pub(f, [(c, v)])]`. Requires `st = Running`, else
+rejected with NOT_FOUND. The engine gives every message a fresh ID. Apply
+appends the messages in order and calls `wake` on the changed Channels.
 `server-zd/crates/dexzd-apply/src/command_handlers/client_writes.rs:206-251`.
 A publication during a pending close is accepted: the handler checks only
-`st = Running` (`client_writes.rs:213-215`).
+`st = Running` (`client_writes.rs:213-215`). PublishToChannel carries no
+request ID.
 
-**[SET-ATTRIBUTES]** Label `set(f, [(k, v)])`. Requires `st = Running`. Writes
-in order. No Step wakes: no wait condition reads Attributes. Attribute locks
-are not consulted (Open question 8).
+**[SET-ATTRIBUTES]** Events `[set(f, [(k, v)])]`. Requires `st = Running`.
+Writes in order. No Step wakes: no wait condition reads Attributes. Attribute
+locks are not consulted (Open question 8).
 `client_writes.rs:131-204`.
 
-**[DELETE-MESSAGE]** Label `del(f, c, id)`. Requires `st = Running`, no pending
-close, and the message pending in `Q[c]`; otherwise NOT_FOUND or
-FAILED_PRECONDITION. Claimed messages cannot be deleted.
+**[DELETE-MESSAGE]** Events `[del(f, c, id)]`. Requires `st = Running`, no
+pending close, and the message pending in `Q[c]`; otherwise rejected with
+NOT_FOUND or FAILED_PRECONDITION. Claimed messages cannot be deleted.
 `client_writes.rs:253-320`.
 
-**[STOP]** Label `stop(f, kind)`. Requires `st = Running`, else NOT_FOUND.
-`closeNow(κ)` with κ = Canceled (CANCEL or unspecified), Terminated
-(TERMINATE), or Failed(CLIENT_API_FAILING_FLOW) (FAIL). It closes even during a
-pending close and with transactional RPCs in flight.
+**[STOP]** Events `[stop(f, kind), closed(f, ...)]`. Requires `st = Running`,
+else rejected with NOT_FOUND. `closeNow(κ)` with κ = Canceled (CANCEL or
+unspecified), Terminated (TERMINATE), or Failed(CLIENT_API_FAILING_FLOW)
+(FAIL). It closes even during a pending close and with transactional RPCs in
+flight.
 `client_writes.rs:322-362`, `flow_close.rs:43-58`.
+
+For SetAttributes, DeleteChannelMessage, StartFlow, and RPCs, a request ID
+must be fresh (Section 1.3).
 
 ### 4.7 RPCs
 
-An RPC is a client call that runs a handler on a Worker. It has up to four
-transitions: Call, Snap, Run, and Commit-and-Return.
+An RPC is a client call that runs a handler on a Worker. It takes these
+transitions: Call, Snap, Run, Commit, and always a final Finish that returns
+the result and drops the RPC's guards.
 `server-zd/crates/dexzd-engine/src/flow_coordination/client_operations/rpc_invocation.rs:62-302`.
 
 Let `tx := request.is_transactional ∨ keys ≠ ∅` (`rpc_invocation.rs:73`).
 
-**[RPC-CALL]** (engine) Label `call(f, r, v, id)`. Adds `Rq[id] := ⟨f, r, v,
-keys, tx, Called⟩`. If `tx`, it is admitted only while `st = Running` and
-`pc = ⊥`; admission increments `Tx[f]`. Otherwise it returns NOT_FOUND or
-FAILED_PRECONDITION at once (`rpc_invocation.rs:170-191`,
-`registry.rs:227-262`).
+**[RPC-CALL]** (engine) Events `[call(f, r, v, id)]`. Adds `Rq[id] := ⟨f, r, v,
+keys, tx, admitted = false, Called⟩`. If `tx`:
 
-**[RPC-SNAP]** (engine) Label `τ`.
+```text
+if st ≠ Running:       Rq[id].phase := Done(NOT_FOUND)            -- rpc_invocation.rs:170-178, :405-418
+else if pc ≠ ⊥:        Rq[id].phase := Done(FAILED_PRECONDITION)  -- registry.rs:254-255
+else:                  Tx[f] += 1;  Rq[id].admitted := true       -- rpc_invocation.rs:179-191, registry.rs:227-262
+```
+
+**[RPC-SNAP]** (engine) Events `τ`. Phase `Called`.
 
 ```text
 if keys ≠ ∅:
-  if ∃k ∈ keys. (f,k) ∈ dom(RL) ∨ L[k].h ≠ ⊥:  emit ret(id, ABORTED);  drop Rq[id]   -- [RPC-ABORT]
-  RL[(f,k)] := id for k ∈ keys                                            -- registry.rs:735-763
+  if ∃k ∈ keys. (f,k) ∈ dom(RL) ∨ L[k].h ≠ ⊥:  Rq[id].phase := Done(ABORTED);  return   -- registry.rs:735-763
+  RL[(f,k)] := id for k ∈ keys
+  if st ≠ Running:  Rq[id].phase := Done(NOT_FOUND);  return       -- rpc_invocation.rs:204-211
 Rq[id].phase := Snapped(snapshot of the committed run with the RPC's load selections)
-                                                                          -- rpc_invocation.rs:202-221, 464
+                                                                    -- rpc_invocation.rs:202-221, :464
 ```
 
 - A queued (pending) Step waiter does **not** block an RPC. Only a holder does
@@ -727,34 +782,57 @@ Rq[id].phase := Snapped(snapshot of the committed run with the RPC's load select
   schedules.
 - A non-locking RPC reads the committed state at any point; no barrier.
 
-**[RPC-RUN]** (Worker) Labels `fx(f, rpc:id, a)`. As [WORKER-EFFECT], with
-`U_r(ctx, v, snap)`. Ends in `Ran(fx⃗, resp)`. The engine calls the Worker and
-validates its response (`rpc_invocation.rs:234-271`).
+**[RPC-RUN]** (Worker) Events `[fx(f, rpc:id, a)]` per step. As
+[WORKER-EFFECT], with `U_r(ctx, v, snap)`. Ends in `Ran(fx⃗ = [], resp)`. The
+engine calls the Worker and validates its response (`rpc_invocation.rs:234-271`).
 
-**[RPC-RETURN-READONLY]** (engine) Label `ret(id, output)`. When `¬tx` and
+**[RPC-READONLY]** (engine) Events `τ`. When phase is `Ran(resp)`, `¬tx`, and
 `resp` has no effects (no writes, deletions, publications, record events,
-moves, or cancels). Nothing commits; the run is unchanged
-(`rpc_invocation.rs:272-286`, `rpc_invocation.rs:630-643`).
+moves, or cancels): `Rq[id].phase := Done(ok(resp.output))`. Nothing commits;
+the run is unchanged (`rpc_invocation.rs:272-286`, `rpc_invocation.rs:630-643`).
 
-**[RPC-COMMIT]** (commit, `RpcCommitted`) Label `ret(id, output)` and maybe
-`closed`.
+**[RPC-COMMIT]** (commit, `RpcCommitted`) Events `τ` or `[closed(...)]`. When
+phase is `Ran(resp)` and `tx` or `resp` has effects.
 
 ```text
-if st ≠ Running:  emit ret(id, NOT_FOUND);  release RL of id;  return   -- rpc_committed.rs:75-79 (the handler already ran)
-if tx ∧ some deletion names no pending message:  emit ret(id, NOT_FOUND); return   -- rpc_committed.rs:91-103
-A, Q: writes, then deletions, then publications                          -- rpc_committed.rs:104-121
-wake(published Channels)                                                 -- rpc_committed.rs:122-127
-if pc = ⊥ and resp.rpcDecision present:                                  -- rpc_committed.rs:136-162
+if st ≠ Running:  Rq[id].phase := Done(NOT_FOUND);  return       -- rpc_committed.rs:75-79 (the handler already ran)
+if tx ∧ some deletion names no pending message:
+                  Rq[id].phase := Done(NOT_FOUND);  return       -- rpc_committed.rs:91-103
+A, Q: writes, then deletions, then publications                  -- rpc_committed.rs:104-121
+wake(published Channels)                                         -- rpc_committed.rs:122-127
+if pc = ⊥ and resp.rpcDecision present:                          -- rpc_committed.rs:136-162
   cancelTypes(rpcDecision.cancel, [], "")
   for (T, v, o) in rpcDecision.moves: new(T, v, o, "__rpc/" ++ r)
-if pc ≠ ⊥ and Tx⁻[f] = 0 (no other transactional RPC): record(pc)      -- rpc_committed.rs:225
-emit ret(id, output);  release RL of id;  Tx[f] -= 1 if tx               -- rpc_invocation.rs:287-301
+gcheck()                                                         -- follows #1450, not yet merged
+if pc ≠ ⊥ and Tx⁻[f] = 0: record(pc)                             -- rpc_committed.rs:225
+Rq[id].phase := Done(ok(output))
 ```
 
+- **follows #1450, not yet merged.** [owner] The `gcheck()` line models the
+  fixed behavior of issue
+  [#1450](https://github.com/superdurable/dex/issues/1450): the RPC commit runs
+  the graceful-completion check after its cancellations and new Steps. The
+  code at `9b37482ed` does not call it (Open question 3).
 - RPC decisions cannot close the Flow or cancel siblings (`rpc_committed.rs:84-90`).
-- `gcheck()` is **not** called after an RPC's cancellations (Open question 3).
 - A transactional commit carries `expected_run_attempt`, which matters only
   with time travel (`rpc_invocation.rs:375-378`).
+
+**[RPC-FINISH]** (engine) Events `[ret(id, result)]`. Enabled when
+`Rq[id].phase = Done(result)`, whichever path set it: rejection at Call,
+ABORTED or NOT_FOUND at Snap, read-only return, rejected commit, or successful
+commit.
+
+```text
+for k with RL[(f,k)] = id:  delete RL[(f,k)]                     -- RpcLockGuard drop, registry.rs:838-846
+if Rq[id].admitted:  Tx[f] -= 1                                  -- TransactionalRpcGuard drop, registry.rs:813-817
+delete Rq[id]
+```
+
+- The engine drops both guards on every exit path, success or error, because
+  they are scoped values (`rpc_invocation.rs:179-200`,
+  `rpc_invocation.rs:287-301`).
+- After this step, a pending close that waited for this RPC can be recorded by
+  [PENDING-CLOSE-CHECK] (Section 4.9).
 
 ### 4.8 SubFlows and cross-Flow delivery
 
@@ -764,12 +842,17 @@ deduplication. [assumption] Failure-free delivery is exactly once, after an
 arbitrary delay, in any order
 (`server-zd/crates/dexzd-engine/src/effects/outbox_delivery.rs:9-11`).
 
-**[OUTBOX-SEND]** (engine) Label `τ`. Move a committed message from
+The child Flow may be in another partition. Its commits use its own
+partition's clock, and its timers fire by that clock. Nothing in the parent's
+rules reads the child's clock: the child result reaches the parent only
+through [DELIVER-CHILD-DONE], which the parent stamps with its own clock.
+
+**[OUTBOX-SEND]** (engine) Events `τ`. Move a committed message from
 `R(f).Ob` to `N` (`server-zd/crates/dexzd-engine/src/effects/outbox_delivery.rs:25-28`).
 The receiver's commit later acknowledges it, and the sender stops redelivering
 (`server-zd/proto/dexzd/v1/command.proto:461-464`).
 
-**[DELIVER-CHILD-START]** (commit at child, `InboxMessage`) Label `τ`.
+**[DELIVER-CHILD-START]** (commit at child, `InboxMessage`) Events `τ`.
 `server-zd/crates/dexzd-apply/src/cross_flow/inbox.rs:62-208`.
 
 ```text
@@ -781,8 +864,11 @@ else if the reuse policy attaches (default: latest run is Running or Completed):
 else: start a new child run (ID reuse)
 ```
 
-**[DELIVER-CHILD-DONE]** (commit at parent, `InboxMessage`) Label `τ` or
-`closed`.
+The child's start event and close event are Dex events of `f_c`. The
+projection of Section 5.3 hides them.
+
+**[DELIVER-CHILD-DONE]** (commit at parent, `InboxMessage`) Events `τ` or
+`[closed(...)]`.
 `server-zd/crates/dexzd-apply/src/cross_flow/inbox.rs:241-382`.
 
 ```text
@@ -797,19 +883,24 @@ read.
 
 ### 4.9 Pending close
 
-**[PENDING-CLOSE-CHECK]** (commit) Label `closed(...)`. When `pc ≠ ⊥` and
-`Tx⁻[f] = 0`: `record(pc)`.
+**[PENDING-CLOSE-CHECK]** (commit) Events `[closed(...)]`. When `pc ≠ ⊥` and
+`Tx[f] = 0`: `record(pc)`.
 `server-zd/crates/dexzd-apply/src/command_handlers/flow_close.rs:234-273`.
+The engine proposes it after the last admitted transactional RPC drops its
+guard (`server-zd/crates/dexzd-engine/src/effects/mod.rs:974-976`,
+`server-zd/crates/dexzd-engine/src/effects/pending_close_check.rs:24`).
 
 While `pc ≠ ⊥`, the Flow status is still RUNNING, every Step is already
 canceled, transactional RPCs are not admitted, and committing RPCs start no
 Steps. Attribute Sync, which is out of scope, would add the same deferral.
+In the admissible environment (Section 5.3) there are no RPCs, so `pc` is
+never set.
 
-## 5. Observable events and traces
+## 5. Observable events, projection, and equivalence
 
-### 5.1 Alphabet
+### 5.1 Dex event alphabet
 
-The trace is stated over this alphabet `Obs`. Everything else is `τ`.
+`Obs` is the set of events the rules produce. Everything else is `τ`.
 
 | Direction | Event | Produced by |
 | --- | --- | --- |
@@ -820,36 +911,126 @@ The trace is stated over this alphabet `Obs`. Everything else is `τ`.
 | In | `skip(f, e, j)` | [SKIP-TIMER] |
 | In | `stop(f, kind)` | [STOP] |
 | In | `call(f, r, v, id)` | [RPC-CALL] |
-| Out | `ret(id, output \| error)` | [RPC-RETURN-READONLY], [RPC-COMMIT], [RPC-SNAP] (ABORTED), [RPC-CALL] (rejection) |
-| Out | `reply(f, error)` | a rejected client input |
+| Out | `rejected(input, err)` | a rejected client input |
+| Out | `ret(id, result)` | [RPC-FINISH] |
 | Out | `fx(f, src, a)` | [WORKER-EFFECT], [RPC-RUN]; `src` is `(e, m)` or `rpc:id` |
 | Out | `closed(f, status, error, outs)` | `record` |
 
 [decision] Reads are excluded. GetAttributes, GetFlowState, history, and
 GetChannelMessages are not in `Obs`. Including them makes every intermediate
 Attribute write observable, which is a far stronger theorem that the
-translation would rarely satisfy. The closed result `outs` is observable,
-including outputs collected before a ForceFail (Open question 15).
+translation would rarely satisfy.
 
-### 5.2 Traces and equivalence
+### 5.2 Traces
 
 A run of the system is a finite or infinite sequence of transitions from an
-initial `Σ₀` with `R = ∅`. Its trace is the sequence of its labels with `τ`
-erased.
+initial `Σ₀` with `R = ∅`. Its trace is the concatenation of the event
+sequences of its transitions.
 
-[decision] The default equivalence is **weak trace equivalence over `Obs`,
-untimed**: two systems are equivalent when their sets of finite traces are
-equal, with the environment's inputs drawn from the same set. The alternatives
-are weak bisimilarity (strictly stronger; it would distinguish where a choice
-is made) and a fair-trace variant (needed for liveness statements). Both are
-left for the Lean statement.
+### 5.3 Admissible environment and projection to L
 
-### 5.3 Timed variant
+`Obs` contains raw identifiers (Flow IDs, Step execution IDs, method sources,
+RPC IDs) and client operations that L has no counterpart for. The theorem is
+stated over a projection, under a restricted environment.
 
-Make `tick(δ)` visible and stamp every label with `t`. Then a fired timer's
-Execute and its effects carry `t ≥` fire time, and nothing else bounds them
-from above. Open question 12 explains why a timed theorem needs L's sleep
-durations in whole seconds.
+**Admissible environment `E_adm`** (the only inputs the theorem allows):
+
+- Exactly one `start(f, T₀, v, ∅)` with a fresh Flow ID `f`, the program's
+  entry Step `T₀`, and the L program's input `v`. No Flow timeout, no
+  UpdateFlowConfig, no initial Attributes.
+- Any number of `pub(f, [(c, v)])` where `c` is one of the program's
+  **external** Channels (the translations of L's external input channels,
+  Section 8), each with one message.
+- No `set`, `del`, `skip`, `stop`, or `call`. [owner] RPC entry points are a
+  future extension and are outside the core theorem; every external input of
+  an L program maps to Channel publications, which never meet RPC lock
+  conflicts.
+- Every request ID is fresh (Section 1.3).
+
+**Projection `π : Obs → Obs_L ∪ {ε}`**, where `Obs_L` is L's observable
+alphabet (Section 8.1):
+
+| Dex event | L event |
+| --- | --- |
+| `start(f, T₀, v, ∅)` for the root Flow | `begin(v)` |
+| `pub(f, [(c, v)])`, `c` external, root Flow | `in(c, v)` |
+| `rejected(pub(f, [(c, v)]), NOT_FOUND)` | `refused(c, v)` |
+| `fx(f', src, a)` for the root Flow or any of its SubFlows | `out(a)` (the source is dropped) |
+| `closed(f, Completed, _, outs)` for the root Flow | `exit(dec(outs))` |
+| `closed(f, Failed, err, _)` for the root Flow | `fail(err)` |
+| every other event (child Flow starts and closes, internal Channels) | `ε` |
+
+`dec` is part of the translation: it decodes the root Flow's collected outputs
+into L's exit value. The mapping in Section 8 always closes with one FC output,
+so `dec([(T, e, v)]) = v`.
+
+### 5.4 Equivalence: safety
+
+For an L program `S` and its translation `⟦S⟧`, the **safety** statement is
+weak trace equality of finite traces under the projection:
+
+```math
+\pi\big(\mathrm{FinTr}_{E_{adm}}(⟦S⟧)\big) \;=\; \mathrm{FinTr}(S)
+```
+
+where `FinTr_{E_adm}` takes the finite traces of runs whose inputs are drawn
+from `E_adm`, `π` is applied event by event with `ε` erased, and `FinTr(S)` is
+L's set of finite traces over `Obs_L`. [decision] Untimed by default.
+
+Finite-trace equality alone cannot tell a Flow that ends with DeadEnd and stays
+RUNNING from one whose close is never scheduled by an unfair scheduler. The
+liveness statement in Section 5.5 closes that gap.
+
+### 5.5 Equivalence: termination and divergence (fair maximal traces)
+
+A run is **fair** when every condition below holds. [assumption] These are the
+fairness assumptions the theorem needs; the rules themselves are unfair.
+
+- **F1 Time diverges.** In an infinite run, every partition clock exceeds every
+  bound.
+- **F2 Timers fire.** A timer that stays armed and due is eventually fired by
+  [TIMER-FIRE].
+- **F3 Steps start.** A pending invocation that stays startable (premise of
+  [STEP-START]) eventually starts. In `E_adm` there are no RPC locks, and a
+  Step lock queue only shrinks at its head, so a startable invocation stays
+  startable until it starts or is canceled; weak fairness suffices.
+- **F4 Workers progress.** Every task of a still-running invocation eventually
+  emits all its effects and returns. [WORKER-ABANDON] applies only to canceled
+  tasks.
+- **F5 Results commit.** Every `Returned` task is eventually completed by a
+  Complete rule or dropped by [STEP-COMPLETE-STALE].
+- **F6 Messages move.** Every outbox message is eventually sent and delivered;
+  [PENDING-CLOSE-CHECK] and [RPC-FINISH] eventually run when enabled.
+
+A fair run ends in one of three ways, and its **maximal trace** carries a
+marker:
+
+- `✓` — finite, and the root Flow is closed.
+- `δ` — finite and quiescent: the root Flow is RUNNING, no transition other
+  than an input or [TICK] is enabled, and no timer is armed. (With an armed
+  timer, F1 and F2 force more transitions.) A program whose threads all end
+  with DeadEnd lands here.
+- `∞` — infinite.
+
+The **liveness** statement is equality of fair maximal traces with markers:
+
+```math
+\pi\big(\mathrm{MaxTr}^{fair}_{E_{adm}}(⟦S⟧)\big) \;=\; \mathrm{MaxTr}^{fair}(S)
+```
+
+L must define the same three outcomes (normal exit or failure, deadlock, and
+divergence) under its own fairness. The theorem states safety (5.4) and
+liveness (5.5) together. [decision] The alternative, weak bisimilarity, is
+stronger than needed and would distinguish where a choice is made.
+
+### 5.6 Timed variant
+
+Make `tick(p, δ)` visible and stamp every event with its partition's clock.
+Then a fired timer's Execute and its effects carry a time at least the fire
+time, and nothing else bounds them from above. Two complications: events of
+Flows in different partitions carry times from different clocks
+(Open question 22), and L's sleep durations must be whole seconds
+(Open question 12).
 
 ## 6. Atomicity and interleaving
 
@@ -860,9 +1041,9 @@ durations in whole seconds.
 | One apply command (any rule marked commit) | Yes. All writes or none. | `command_handlers/mod.rs:90-300` |
 | A Step method (Start, Run, Complete) | **No.** Reads come from the snapshot at Start. Writes, publications, and the decision commit at Complete. | `step_results.rs:156-209`, `step_results.rs:857-994` |
 | The writes and decision of one Step method | Yes. One commit. | `step_results.rs:960-987` |
-| An RPC with effects (Snap, Run, Commit) | **No.** Snapshot first, commit later. | `rpc_invocation.rs:202-298` |
+| An RPC with effects (Snap, Run, Commit, Finish) | **No.** Snapshot first, commit later, return last. | `rpc_invocation.rs:202-301` |
 | A read-only, non-transactional RPC | No commit at all. | `rpc_invocation.rs:272-286` |
-| A Worker's external effects | Not part of any commit. They happen before the commit, and may happen with no commit. | Section 4.4 |
+| A Worker's external effects | Not part of any commit. They happen before the commit, and may happen with no commit, also after the Flow closed. | Section 4.4 |
 | Timers that fire together | One command for a prefix of the due timers of one run. | `timer_service.rs:116-205` |
 | A SubFlow start, and a SubFlow completion report | Each is two commits (sender's outbox, receiver's inbox) and a delivery between them. | `outbox.rs:37-171`, `inbox.rs:62-382` |
 
@@ -874,17 +1055,21 @@ writes. Neither makes the read-modify-write atomic (Open question 1).
 
 ### 6.2 Order of commits
 
-- Commands of one run are totally ordered by the partition log. Apply sees
-  them in that order and every command reads the state its predecessors wrote.
-- Commands of different Flows are ordered only through cross-Flow delivery.
-  [assumption] Different Flows interleave arbitrarily.
+- Commands of one partition are totally ordered by the partition log, so the
+  commands of one run are too. Apply sees them in that order and every command
+  reads the state its predecessors wrote.
+- Commands of different partitions are not ordered with each other, and their
+  timestamps come from different clocks. Commands of different Flows are
+  related only through cross-Flow delivery. [assumption] Different Flows
+  interleave arbitrarily.
 - Within one commit the order is fixed by the meta-functions. The key orders
   are:
   - Execute: data effects, then `wake`, then finish of the deciding Step, then
     cancellations, then the close decision, then new Steps, then `gcheck`.
   - WaitFor: data effects, then `wake` of other waiters, then registration and
     one evaluation of the new wait.
-  - RPC: writes, deletions, publications, `wake`, cancellations, new Steps.
+  - RPC: writes, deletions, publications, `wake`, cancellations, new Steps,
+    `gcheck` (follows #1450).
 
 ### 6.3 Which interleavings are possible
 
@@ -902,19 +1087,18 @@ and deliveries. In particular:
    goes to whichever waiter's evaluation first finds its condition feasible.
 4. A timer that is due can lose an AnyOf race to a message committed after
    the timer's fire time, because firing is late.
-5. A canceled Step's Worker can still emit effects after the cancel commits.
+5. A canceled Step's Worker can still emit effects after the cancel commits,
+   and after the Flow closes.
 
-No fairness is built into the rules. The dispatcher may delay a startable
-invocation, the timer service may delay a due timer, and delivery may delay a
-message, each without bound. [assumption] A liveness theorem needs weak
-fairness for [STEP-START], [WORKER-EFFECT], the Complete rules,
-[TIMER-FIRE], [OUTBOX-SEND], and the delivery rules.
+The rules are unfair: the dispatcher may delay a startable invocation, the
+timer service a due timer, and delivery a message, each without bound. Section
+5.5 states the fairness the liveness statement assumes.
 
 ## 7. Open semantic questions
 
 Each item gives what the code does, why it matters for the translation
 theorem, and the stance this document takes. Items 1 to 13 cover the topics
-the task named; the rest were found on the way.
+the task named; the rest were found on the way or in review.
 
 1. **A Step method is not a read-modify-write transaction.**
    - Code: the snapshot is computed at Start, after locks
@@ -924,9 +1108,10 @@ the task named; the rest were found on the way.
    - Docs: "Each Step method commits atomically"
      (`docs/content/concepts/flow/index.mdx:30`). True for the writes only.
    - Matters: an L assignment `x := x + 1` in two threads, translated to two
-     Executes without locks, loses an update. The translation must lock every
-     shared key a step reads and writes, or use a Channel-token mutex.
-   - Stance: three transitions per method (Section 4.4).
+     Executes without locks, loses an update.
+   - Stance: three transitions per method (Section 4.4). Section 8 puts at
+     most one shared access in each Step method: a read linearizes at Start, a
+     write at Complete. No Attribute locks are needed.
 
 2. **GracefulComplete while other Steps are active.**
    - Code: GC collects the output, sets `gc`, and takes no moves
@@ -938,28 +1123,24 @@ the task named; the rest were found on the way.
      GC decisions each add an output. A later FC adds its output and closes at
      once; a later FF closes as Failed and keeps the earlier outputs. The
      timeout handler does not count as active (`step_decisions.rs:164-168`).
-   - Matters: joining threads by "the last thread to finish completes the
-     program" works only if `gcheck` runs after every way a Step can end. See
-     item 3.
+   - Matters: only for an L "exit when all threads end" construct. Section 8
+     maps exit to FC and never uses GC.
    - Stance: as coded.
 
 3. **Canceling Steps from an RPC skips the graceful-completion check.**
-   - Code: `apply_rpc_committed` calls `cancel_steps_by_type`
+   - Code at `9b37482ed`: `apply_rpc_committed` calls `cancel_steps_by_type`
      (`rpc_committed.rs:139-147`) and never calls `complete_gracefully_if_ready`.
      The only callers of `gcheck` are `step_decisions.rs:150`,
      `wait_conditions/mod.rs:187`, `wait_conditions/mod.rs:244`, and
-     `timer_skip.rs:50`. So when GC was requested and an RPC cancels the last
-     active Step, the Flow stays RUNNING until another `gcheck` caller runs,
-     which may be never.
+     `timer_skip.rs:50`. When GC was requested and an RPC cancels the last
+     active Step, the Flow stays RUNNING.
    - Docs: "GracefulComplete completes the Flow once no other Step is active"
      (`docs/content/concepts/step/index.mdx`, StepDecision section).
-     Disagreement. No apply test covers this case (searched
-     `server-zd/crates/dexzd-apply/tests/` for graceful tests).
-   - Matters: an L `cancel(t)` delivered by RPC, when `t` is the last running
-     thread, must still terminate the program.
-   - Stance: the rules follow the code. The translation must not cancel the
-     last Step from an RPC after GC, or must follow it with a Step that runs
-     `gcheck`. The owner should decide whether this is a bug.
+   - **Resolved [owner], option A:** a bug, tracked as
+     [#1450](https://github.com/superdurable/dex/issues/1450), to be fixed in
+     server-zd. [RPC-COMMIT] models the fixed behavior: `gcheck()` after the
+     RPC's cancellations and new Steps. It is marked "follows #1450, not yet
+     merged". RPCs are outside the core theorem anyway (Section 5.3).
 
 4. **Several Steps waiting on one Channel: who consumes.**
    - Code: when a Channel changes, its waiters are evaluated one after another
@@ -972,11 +1153,12 @@ the task named; the rest were found on the way.
      wait.
    - Docs: "One wait consumes a message, once"
      (`docs/content/concepts/primitives/channel.mdx:30-31`). True.
-   - Matters: not FIFO-fair. A ForN(3) waiter can starve while later ForOne
-     waiters take every message. A mutex built on a Channel token is
-     mutual-exclusive but not first-come-first-served.
-   - Stance: as coded; L's mutex and channel semantics must allow unfair
-     wake-up, or the translation must add its own queue.
+   - Matters: with ForN waiters this is not FIFO-fair: a ForN(3) waiter can
+     starve while later ForOne waiters take every message. With ForOne waiters
+     only, it is FIFO by registration: a message present when a waiter
+     registers means no earlier waiter could take it. Section 8 uses only
+     ForOne on shared Channels and relies on this FIFO order.
+   - Stance: as coded.
 
 5. **ForN and the other Channel bounds.**
    - Code: ForN(n) is `lo = hi = n` (`sdk-go/dex/channel.go:124-127`). It waits
@@ -988,7 +1170,10 @@ the task named; the rest were found on the way.
      (`condition_plan.rs:155-205`). AnyOf picks the first feasible candidate in
      the order timers, Channels, SubFlows, and consumes only its own messages
      (`condition_plan.rs:72-86`; docs agree,
-     `docs/reference/go/flows-and-steps/waits.mdx`).
+     `docs/reference/go/flows-and-steps/waits.mdx`). In AnyCombinationOf, a
+     duplicated condition ID resolves to the last declaration within the first
+     kind that has the ID, kinds tried in the order timer, Channel, SubFlow
+     (`condition_plan.rs:103-129`).
    - Matters: L's `recv(ch)` is ForOne. A batch receive maps to ForN.
    - Stance: as coded.
 
@@ -997,11 +1182,12 @@ the task named; the rest were found on the way.
    - Code: `finish` drops the Step's condition results and only decrements
      `K` (`wait_conditions/mod.rs:250-281`). `close` cancels Steps with
      "consumed messages discarded" (`flow_close.rs:172-174`).
-   - Matters: L's `select` plus cancellation: if a thread receives a message
-     and is then canceled before it acts on it, Dex drops the message. L
-     semantics where a received message is already "owned" by the receiver
-     agree; L semantics with rollback do not.
-   - Stance: as coded.
+   - Matters: a Channel-token mutex loses its token if the Step that consumed
+     it is canceled before its Execute commits; the mutex then stays locked
+     forever (Review log, finding 8).
+   - Stance: as coded. Section 8 never cancels Steps: L cancellation is
+     cooperative, and the only Step cancellation in a translated program is
+     the Flow close, after which no Step runs.
 
 7. **A Step's own publications are delivered before its decision runs.**
    - Code: `effects` ends with `wake` (`flow_data.rs:664-669`) before
@@ -1010,8 +1196,9 @@ the task named; the rest were found on the way.
      same commit; the message is lost (item 6). "Publish and ForceComplete"
      does the same.
    - Matters: the translation of "send then cancel" or "send then exit".
-   - Stance: as coded. The translation should not rely on a message reaching
-     a Step it cancels in the same decision.
+   - Stance: as coded. The translation never combines a publication with
+     CancelSteps, and a publication in the same commit as FC is unobservable
+     after the close.
 
 8. **Attribute lock acquisition: Step vs RPC.**
    - Code, Step: a pending method queues FIFO on each key by `seq`, at
@@ -1031,8 +1218,9 @@ the task named; the rest were found on the way.
      a lock across a wait.
    - Docs agree (`docs/reference/server/runtime-data.mdx:439-452`).
    - Matters: an L mutex held across a blocking operation cannot be an
-     Attribute lock. An L lock request from an RPC can only "try-lock".
-   - Stance: as coded; Section 8 uses a Channel token for L mutexes.
+     Attribute lock.
+   - Stance: as coded; Section 8 uses a Channel token for L mutexes and no
+     Attribute locks.
 
 9. **Canceling other Steps: cooperative, and what is committed.**
    - Code: cancel ends the Step at once (`finish(e, CA)`). The running attempt
@@ -1049,9 +1237,11 @@ the task named; the rest were found on the way.
      the same (`sdk-go/dex/decision.go:124-130`).
    - All Steps that one RPC name started share `from = __rpc/<r>`, so they are
      siblings across RPC invocations. RPCs cannot use sibling cancel.
-   - Matters: L `cancel(t)` targets one thread. Cancel-by-type cancels every
-     thread whose current Step has that type.
-   - Stance: as coded. Section 8 prefers a cooperative flag.
+   - Matters: an effect emitted inside an Execute can be followed by a cancel
+     before the Execute commits; this includes StopFlow and a competing Step's
+     close (`client_writes.rs:322-355`). Section 8 gives L the same
+     pre-commit effect semantics.
+   - Stance: as coded. Section 8 uses no CancelSteps.
 
 10. **DeadEnd and runs with no active Step.**
     - Code: DE takes no moves and closes nothing (`step_decisions.rs:120`). A
@@ -1059,8 +1249,9 @@ the task named; the rest were found on the way.
       when it started without a start Step (`flow_start.rs:204-205`). Docs
       agree (`docs/reference/go/flows-and-steps/step-decisions.mdx`, "A Flow
       can have no active Steps and still keep running").
-    - Matters: L program termination must map to an explicit FC or GC. A
-      thread that ends maps to DE.
+    - Matters: L program termination must map to an explicit FC. A thread that
+      ends maps to DE. A program stuck with every thread ended is the `δ`
+      outcome of Section 5.5.
     - Stance: as coded.
 
 11. **RPC vs Step ordering.**
@@ -1071,17 +1262,16 @@ the task named; the rest were found on the way.
       During a pending close an RPC commit still writes Attributes and
       publishes, but starts no Steps (`rpc_committed.rs:133-138`). Step
       decisions from RPCs cannot close the Flow.
-    - Matters: an L external call that reads and updates shared state must be
-      a locking RPC to be atomic, and then can fail with ABORTED, which L has
-      no counterpart for unless L's call may fail.
-    - Stance: as coded. [decision] Treat ABORTED as an observable outcome; the
-      translation of an L entry point retries it, which is invisible only if
-      `ret(ABORTED)` is hidden. The owner must decide whether the L side
-      observes it.
+    - **Resolved [owner], option A:** ABORTED is an observable RPC result
+      (`ret(id, ABORTED)`). RPC entry points are a future extension and are out
+      of the core theorem; every external input of an L program maps to Channel
+      publications, which never meet RPC lock conflicts (Section 5.3).
 
 12. **Timer firing order.**
     - Code: due timers of one run fire in one command, in `(fire time, encoded
       TimerId bytes)` order (`row_keys.rs:303-314`, `timer_service.rs:116-205`).
+      The service fires a prefix of the due timers; Section 4.5 explains why
+      its retry delay does not break the prefix in failure-free runs.
       The fire time is the WaitFor commit time plus whole seconds
       (`wait_conditions/mod.rs:89-98`). [assumption, from protobuf encoding]
       For two wait timers with equal fire times, the bytes compare first by
@@ -1090,9 +1280,7 @@ the task named; the rest were found on the way.
       index: index 0 is omitted in proto3, and indexes 1 to 127 add two
       bytes. So `T-9` sorts before `T-10`, and with IDs of equal length an
       index-0 timer sorts before another Step's index-1 timer whatever the ID
-      bytes. A wait timer sorts before a Flow timeout timer of the same
-      attempt (field 2 vs field 4). A zero-second timer still needs a
-      [TIMER-FIRE].
+      bytes. A zero-second timer still needs a [TIMER-FIRE].
     - Firing is late by an unbounded amount, so a due timer can lose an AnyOf
       race to a later message (Section 6.3).
     - In one evaluation a timer and a message cannot both become ready,
@@ -1102,7 +1290,7 @@ the task named; the rest were found on the way.
     - Matters: L `sleep(d)` with `d` not a whole number of seconds sleeps at
       least `⌈d⌉` in Dex. Untimed traces are unaffected. A timed theorem needs
       whole-second durations in L.
-    - Stance: untimed by default (Section 5.2).
+    - Stance: untimed by default (Section 5.4).
 
 13. **SubFlow completion delivery and child identity.**
     - Code: the child result travels through the child's outbox and a
@@ -1121,8 +1309,7 @@ the task named; the rest were found on the way.
     - Canceling the parent Step, or closing the parent, does not stop the
       child.
     - Matters: L recursion through SubFlows is sound only when every parent
-      Flow ID is fresh. Structured concurrency needs explicit child
-      cancellation, which the core does not provide from the parent.
+      Flow ID is fresh. Section 8 implements calls inline, without SubFlows.
     - Stance: [assumption] fresh Flow IDs (Section 1.3).
 
 14. **ForceCompleteIfChannelsEmpty when not empty.**
@@ -1136,18 +1323,18 @@ the task named; the rest were found on the way.
       (`flow_close.rs:359-370`), and the child report includes them
       (`outbox.rs:447-485`). So GC by one Step and then FF by another gives a
       FAILED result with the GC output.
-    - Matters: the `closed` label's `outs` component. L must say what a failed
-      program outputs.
+    - Matters: the `closed` event's `outs`. The projection drops `outs` for a
+      failed root Flow (Section 5.3), and Section 8 never uses GC.
     - Stance: as coded.
 
 16. **A natural close can be deferred by transactional RPCs.**
-    - Code: with `Tx⁻[f] > 0`, `close` cancels every Step but leaves the status
-      RUNNING with `pc` set; the close is recorded when the last such RPC
-      commits or a PendingCloseCheck runs (`flow_close.rs:178-197`,
-      `flow_close.rs:234-273`). StopFlow does not wait.
-    - Matters: between the decision and the `closed` label, a committing RPC
-      can still write Attributes and publish. Observable through `ret`.
-    - Stance: modeled ([PENDING-CLOSE-CHECK]).
+    - Code: with `Tx⁻[f] > 0`, `close` cancels every Step but leaves the
+      status RUNNING with `pc` set; the close is recorded when the last such
+      RPC commits or, after its guard drops, a PendingCloseCheck runs
+      (`flow_close.rs:178-197`, `flow_close.rs:234-273`). StopFlow does not
+      wait.
+    - Matters: not in `E_adm`, which has no RPCs.
+    - Stance: modeled ([RPC-FINISH], [PENDING-CLOSE-CHECK]).
 
 17. **Dispatch order and fairness.**
     - Code: the engine may start any startable pending invocation; the
@@ -1155,15 +1342,14 @@ the task named; the rest were found on the way.
       (`server-zd/crates/dexzd-apply/src/steps/dispatch_queue.rs:33-75`), but
       Worker polling decides when.
     - Matters: liveness of the translation, not safety.
-    - Stance: nondeterministic, no fairness in the rules (Section 6.3).
+    - Stance: nondeterministic in the rules; fairness F3 in Section 5.5.
 
-18. **Worker effects can happen with no commit.**
+18. **Worker effects can happen with no commit, and after the close.**
     - Code: a canceled Step's or a rejected RPC's handler may have emitted
       effects; its result is dropped (`step_results.rs:863-872`,
-      `rpc_committed.rs:75-79`).
-    - Matters: trace equivalence must allow `fx` events whose state changes
-      never commit, or the translation must emit external effects only from
-      code whose commit cannot be preempted.
+      `rpc_committed.rs:75-79`). The Worker of a Step canceled by a Flow close
+      may still emit effects after the `closed` event.
+    - Matters: L's `emit` must allow the same (Section 8.1).
     - Stance: [WORKER-ABANDON] and [STEP-COMPLETE-STALE] model it.
 
 19. **Exceptions in user code are failures.**
@@ -1188,58 +1374,189 @@ the task named; the rest were found on the way.
       (`client_writes.rs:213-215`); during a pending close the status is still
       RUNNING, so the publication is accepted into a run whose Steps are all
       canceled.
+    - Matters: not in `E_adm`, where `pc` is never set.
     - Stance: as coded. Docs say nothing.
+
+22. **There is no global clock.** (New in revision 2.)
+    - Code: timestamps strictly increase per partition only
+      (`command.proto:39-40`), and apply reads only each command's own
+      timestamp (`lib.rs:9-15`). A SubFlow can live in another partition.
+    - Matters: untimed traces are unaffected, because nothing compares
+      timestamps across partitions: a child's result reaches its parent only
+      through a delivery commit stamped by the parent's partition. A timed
+      theorem must either relate the clocks ([assumption] on one node they
+      read one wall clock, so their skew is bounded) or keep times per
+      partition.
+    - Stance: per-partition clocks (Section 3.4).
+
+23. **Repeated request IDs change behavior without any failure.** (New.)
+    - Code: a repeated request ID replays the recorded reply, or is rejected
+      when its content differs (`client_writes.rs:41-65`,
+      `rpc_committed.rs:58-74`, `flow_start.rs:115`).
+    - Stance: fresh request IDs in `E_adm` (Section 1.3).
+
+24. **Flow timeouts and UpdateFlowConfig are not derived constructs.** (New.)
+    - Code: a Flow timeout closes the Flow directly with FLOW_TIMEOUT or
+      CANCELED (`step_commands.rs:281-298`); UpdateFlowConfig changes the
+      Worker target and Step durability mid-run (`client_writes.rs:366-413`).
+    - Stance: both excluded from the theorem (Section 1.3).
 
 ## 8. Sketch: mapping L onto the core
 
-Not a proof. Each line names the open questions the mapping depends on.
+Not a proof. Each choice names the open questions it depends on.
 
-L is assumed to have: threads with local variables, shared variables with
-sequentially consistent single accesses, `seq`, `if`, `while`, procedure
-calls with recursion, `fork`/`join`, mutexes, condition variables,
-`sleep(d)`, `select { recv(ch) → s | after(d) → s }`, `recv(ch)` on external
-channels, `emit(a)` external effects, `throw`/`try`, and `cancel(thread)`.
+### 8.1 L, as the mapping requires it
 
-**General scheme.** Compile each L thread to continuation-passing Steps.
+L has threads with local variables, shared variables with sequentially
+consistent single reads and writes, `seq`, `if`, `while`, procedure calls with
+recursion, `fork`/`join`, mutexes, condition variables, `sleep(d)`,
+`select { recv(c) → s | after(d) → s }`, `recv(c)` on external channels,
+`emit(a)`, `throw`/`try`, `cancel(t)`, `exit(v)`, and `fail(s)`.
 
-- A program point is a Step type. Thread-local variables and the call stack
-  are the Step input, passed by GoTo.
-- Shared variables are Attributes.
-- One L atomic action that touches shared state is one Execute, with Execute
-  locks on every key it reads or writes. The lock keys are per Step movement,
-  so they can depend on runtime data. Depends on 1 and 8.
-- Purely local code between two shared accesses runs inside one Execute.
+L's observable alphabet `Obs_L` is `begin(v)`, `in(c, v)`, `refused(c, v)`,
+`out(a)`, `exit(v)`, and `fail(s)`.
+
+The mapping is exact only if L adopts these semantics. Each matches what Dex
+does; they are L design decisions for the owner.
+
+- **Atomic actions.** Each single read or write of a shared variable, each
+  `emit` issue, and each synchronization operation is one atomic action.
+  Local computation is invisible. (Item 1.)
+- **Mutex.** Threads blocked in `lock(m)` acquire `m` in FIFO order of
+  blocking. `lock` is not a cancellation point. (Item 4.)
+- **Condition variable.** `wait(cv, m)` requires `m` held; it atomically
+  releases `m` and appends the thread to `cv`'s FIFO queue. `signal(cv)` and
+  `broadcast(cv)` require `m` held; `signal` wakes the head of the queue,
+  `broadcast` wakes all. No spurious wakeups. A woken thread re-locks `m`
+  (FIFO with other lockers). `wait` is not a cancellation point. (Items 1, 4.)
+- **Cancellation is cooperative and deferred.** `cancel(t)` sets `t`'s flag.
+  `t` observes it at a cancellation point (`sleep`, `recv`, `select`, `join`)
+  only if that point would block; `t` then ends without releasing anything it
+  holds. A canceled thread that holds a mutex leaves it locked, as in POSIX
+  without cleanup handlers. (Items 6, 9.)
+- **Emit is asynchronous.** `emit(a)` is issued as one atomic action; the
+  `out(a)` event happens later, after any interleaving of other threads, and
+  the thread continues only after `out(a)`. If the program exits between the
+  issue and `out(a)`, `out(a)` may still happen after `exit` or never happen.
+  (Items 9, 18.)
+- **Exit.** `exit(v)`, or the return of `main`, ends the program at once:
+  every other thread stops. A thread that ends otherwise just ends. A program
+  whose threads all end without `exit` is stuck forever. (Item 10.)
+- **External input.** Each external channel is a FIFO queue. Threads blocked
+  in `recv(c)` on it are served in FIFO order of blocking. Input that arrives
+  after exit is `refused`. (Items 4, 21.)
+- **Sleep** durations are whole seconds for a timed theorem. (Item 12.)
+- Each thread is joined at most once.
+
+### 8.2 General scheme
+
+Compile each L thread to continuation-passing Steps.
+
+- A program point is a Step type. Thread-local variables, the thread ID, and
+  the call stack are the Step input, passed by GoTo.
+- Shared variables are Attributes. Each Step method performs **at most one**
+  shared access: a read is taken from the Execute snapshot at Start; a write
+  is committed at Complete. So a read linearizes at [STEP-START] and a write
+  at [STEP-COMPLETE-EXECUTE]. No Attribute locks are used. (Item 1.)
+- Each `emit` is the only effect of its own Execute. The issue is
+  [STEP-START], `out(a)` is [WORKER-EFFECT], and the thread continues at
+  [STEP-COMPLETE-EXECUTE].
+- The translation never uses CancelSteps, CancelSiblingSteps, GracefulComplete,
+  RPCs, SubFlows, or Attribute locks. The only Step cancellation is the Flow
+  close, after which nothing observable happens except effects already in
+  flight, which L's emit semantics allows. (Items 3, 6, 7, 9, 13.)
+- The start Step publishes one token to each statically known mutex Channel
+  before it starts `main`.
+
+### 8.3 Mapping table
 
 | L construct | Dex mapping | Depends on |
 | --- | --- | --- |
 | Sequence, `if` | Code inside one Execute, or GoTo between blocks. | — |
 | `while` | A Step that GoTos itself or the loop exit. | — |
-| Call and recursion | (a) Inline: push the return point on an explicit stack in the Step input. No SubFlow needed. (b) SubFlow per call: the child result returns via the wait. (a) is preferred. | (b): 13 |
-| `fork` | GoToMany: one move for the parent's continuation, one for the child's first Step. | — |
-| `join(t)` | `t`'s last Step publishes to a per-thread Channel instance; the joiner waits ForOne on it. | 4, 6 |
-| Program end | `main`'s last Step decides FC (ends at once) or GC (ends when every thread has ended). Other ended threads decide DE. | 2, 3, 10, 15 |
-| Mutex `lock(m)` / `unlock(m)` | A Channel `m` holding one token. Lock = WaitFor `Until(m.ForOne())`; unlock = publish a token. Not FIFO-fair. Attribute locks cannot span a wait. | 4, 6, 8 |
-| Condition variable `wait(cv, m)` | Under the mutex, increment an Attribute `waiters[cv]` and publish `m`'s token in one Execute; GoTo a Step whose WaitFor waits on `cv`; then re-lock `m`. `signal` publishes to `cv` only when `waiters[cv] > 0`, and decrements it. Channels keep messages, so a signal between unlock and wait registration is not lost. | 1, 4 |
-| `sleep(d)` | WaitFor `Until(Timer(⌈d⌉))`. | 12 |
-| `select { recv(ch) → s₁ \| after(d) → s₂ }` | WaitFor `AnyOf(ch.ForOne(), Timer(d))`. Only the winner consumes. Execute branches on the condition results. | 5, 12 |
-| External `recv(ch)` | A Channel that only the client publishes to (`pub`). | 4 |
-| `emit(a)` | An external effect in an Execute. Emit only after the thread can no longer be canceled before its commit, or accept effects without commits. | 9, 18 |
+| Shared read / write | One Execute per access: read from the snapshot, or write one Attribute. | 1 |
+| Call and recursion | Push the return point on an explicit stack in the Step input. No SubFlow. | — |
+| `fork t` | GoToMany: the parent's continuation and `t`'s first Step, with a fresh thread ID derived from the parent's ID and a counter in the input. | — |
+| `join(t)` | `t`'s last Step publishes to the Channel `join/t` and decides DE. The joiner waits `AnyOf(join/t.ForOne(), cancel/self.ForOne())`. | 4, 5 |
+| `exit(v)` / return of `main` | FC(v). | 10, 15 |
+| `fail(s)` / uncaught exception | FF(s). | 15 |
+| Thread end | DE. | 10 |
+| `lock(m)` | WaitFor `Until(m.ForOne())`: a ForOne waiter on `m`'s token Channel. FIFO by registration. | 4, 6 |
+| `unlock(m)` | Execute publishes one token to `m`. | — |
+| New mutex | Execute publishes the first token. | — |
+| `wait(cv, m)` | One Execute, under `m`: append the waiter ID `w` to the Attribute `waiters/cv` and publish `m`'s token. Then a Step that waits `Until(cv/w.ForOne())` on the per-waiter Channel instance `cv/w`, then `lock(m)` again. | 1, 4 |
+| `signal(cv)` | One Execute, under `m`: if `waiters/cv` is not empty, remove its head `h` and publish to `cv/h`. | 1 |
+| `broadcast(cv)` | As `signal`, for every waiter in order. | 1 |
+| `sleep(d)` | WaitFor `AnyOf(Timer(d), cancel/self.ForOne())`. | 12 |
+| `select { recv(c) → s₁ \| after(d) → s₂ }` | WaitFor `AnyOf(Timer(d), c.ForOne(), cancel/self.ForOne())`. Only the winner consumes. | 5, 12 |
+| `recv(c)` on an external channel | WaitFor `AnyOf(c.ForOne(), cancel/self.ForOne())`. The environment's `pub` fills `c`. | 4, 5 |
+| `emit(a)` | An Execute whose only effect is `a`. | 9, 18 |
 | `throw` / `try` | The handler stack lives in the Step input. `throw` is a GoTo to the innermost handler's Step. No Worker errors. | 19 |
-| `cancel(t)` | Preferred: a cooperative flag Attribute `cancelled[t]` plus a wake-up message on `t`'s wait Channel; every Step of `t` checks the flag. Alternative: CancelSteps by per-thread Step types; loses claimed messages and leaves child SubFlows running. | 3, 6, 7, 9 |
-| An external entry point that updates state (L handler called from outside) | A locking RPC. ABORTED must be visible or retried. | 8, 11 |
+| `cancel(t)` | One Execute publishes to `cancel/t`. At a cancellation point, a wait that cannot complete at once is won by `cancel/t`, and the thread ends with DE. | 4, 5 |
 
-Constructs whose mapping depends on an open question: join and program end
-(2, 3), mutex fairness (4), `select` with cancel (6, 7), cancellation (3, 9),
-recursion through SubFlows (13), timed `sleep` (12), external effects (18),
-and RPC entry points (11).
+Why the synchronization encodings are sound under these L semantics:
+
+- **Mutex.** The token Channel has only ForOne waiters, so `wake` serves them
+  in registration order, and a token present at registration means no waiter
+  was blocked (item 4). The token is consumed only by a Step that is never
+  canceled before its Execute commits, except by the Flow close, after which
+  the mutex is unobservable (item 6). This answers finding 8 by restricting
+  Dex-side cancellation, not by a recovery protocol; the restriction holds
+  because the translation emits no CancelSteps and `E_adm` has no `stop` or
+  RPCs.
+- **Condition variable.** `waiters/cv` is read and written only under `m`, so
+  its one-access-per-method rule is relaxed here: the Execute that reads and
+  writes it holds `m`, and no other thread touches it. Per-waiter Channels
+  `cv/w` make the signal reach exactly the dequeued waiter, even if it has
+  not registered its wait yet, because the message stays queued. No waiter is
+  ever canceled while waiting (`wait` is not a cancellation point), so the
+  waiter list never goes stale. This answers finding 10 without spurious
+  wakeups.
+- **Cancellation.** The cancel Channel `cancel/t` is a per-thread instance;
+  AnyOf consumes only from the winning condition (item 5), so a cancel never
+  eats an input message or a token, and a message never eats a cancel. A
+  leftover `cancel/t` message after `t` ends is never read.
+- **AnyOf at registration.** A timer is never done when a wait registers, so
+  at registration the Channel conditions decide in declaration order: the
+  operation's own Channel before `cancel/self`. This matches "observed only if
+  the point would block". Later, each change re-evaluates the wait, and a timer
+  and a message never become ready in the same evaluation (item 12).
+
+Constructs whose mapping still depends on an open question: shared accesses
+(1), FIFO wake-up order (4), timed `sleep` (12, 22), and external effects
+after exit (18).
 
 ## 9. Future work
 
 - `server-zd/crates/dexzd-simulation` runs deterministic simulation tests of
   the engine against simulated object storage, clocks, Workers, and crashes;
   it is relevant to the later crash-transparency proposition.
-- The Lean statement needs the equivalence choice of Section 5.2 and the
-  fairness assumptions of Section 6.3.
+- RPC entry points for L, with ABORTED as an observable result [owner].
+- The Lean statement needs the projection of Section 5.3, the two
+  equivalences of Sections 5.4 and 5.5, and the fairness assumptions F1 to F6.
+
+## 10. Review log
+
+Revision 2 answers an adversarial review of revision 1 and two owner
+decisions. Each finding was checked against the code before the spec changed.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| Owner Q3 | Model RPC cancellation with the graceful-completion check. | Accepted. [RPC-COMMIT] runs `gcheck()` after cancellations and new Steps, marked "follows #1450, not yet merged"; Open question 3 resolved. |
+| Owner Q11 | ABORTED is observable; RPC entry points out of the core theorem. | Accepted. `ret(id, ABORTED)` in `Obs`; RPCs excluded from `E_adm` (5.3); Open question 11 resolved; L external input is Channel publications only (8). |
+| 1 | RPC ABORT and early NOT_FOUND paths never released RL or decremented Tx. | Confirmed: the guards are scoped values and drop on every exit (`registry.rs:809-846`, `rpc_invocation.rs:179-200`, `:287-301`). Added [RPC-FINISH] for every path; Call, Snap, Read-only, and Commit now only set `Done(result)`. [PENDING-CLOSE-CHECK] runs after the guard drops (4.7, 4.9). |
+| 2 | Finite weak traces cannot tell DeadEnd-and-RUNNING from an unscheduled close. | Accepted. Added fair maximal traces with markers `✓`, `δ`, `∞`, and fairness assumptions F1 to F6 (5.5), alongside the safety statement (5.4). |
+| 3 | [TIMER-FIRE] allows only a prefix; retry delay can let a later timer fire first. | **Rejected for failure-free runs; the spec keeps the prefix and explains why.** A row enters the retry delay only after its TimersFired command committed (`timer_service.rs:158-184`, `:283-287`; `effects/mod.rs:427-455`), and that commit disarmed it (`step_commands.rs:156-163`). So skipping it never lets a later timer overtake an unfired one. A subset abstraction would add runs the code cannot produce (example in 4.5), which is unsafe for the L ⊆ Dex direction. AnyOf outcomes are unchanged. |
+| 4 | One label per transition cannot express StopFlow or an RPC commit that closes. | Accepted. Transitions carry an ordered event sequence (4.1); [STOP] emits `[stop, closed]`; RPC return is its own step [RPC-FINISH]. |
+| 5 | `Obs` exposes raw IDs and client operations L lacks. | Accepted. Added the admissible environment `E_adm` and the projection `π` to `Obs_L` (5.3). |
+| 6 | A Flow timeout is not a user Timer Step that ForceFails. | Confirmed (`step_commands.rs:211-301`, `timer_skip.rs:38-81`). Moved from Derived to Excluded; no Flow timeout in programs or environment (1.3); Open question 24. |
+| 7 | Request deduplication applies without failures. | Confirmed (`client_writes.rs:41-65`, `:138-147`, `:260-268`; `rpc_committed.rs:58-74`). Fresh request IDs required (1.3, 4.6); Open question 23. |
+| 8 | Canceling a Step that consumed a mutex token loses the token. | Confirmed (`wait_conditions/mod.rs:374-460`, `:250-281`). Chose the simplest sound option: L cancellation is cooperative, `lock` is not a cancellation point, and the translation never cancels Steps; only the Flow close does, after which the mutex is unobservable (8.1, 8.3). |
+| 9 | "Emit only when no longer cancelable" cannot be enforced in Execute. | Confirmed (`client_writes.rs:322-355`, `step_results.rs:863-872`, `invocations.rs:375-381`). L's `emit` is asynchronous: issue, then `out(a)`, with exit possible in between and `out(a)` possible after exit (8.1). |
+| 10 | Condition-variable waiter count goes stale on cancel. | Accepted. Replaced the count with a FIFO waiter list and per-waiter Channels, and made `wait` not a cancellation point, so no waiter is canceled while waiting; no spurious wakeups needed (8.1, 8.3). |
+| 11 | No global clock. | Confirmed (`command.proto:35-40`, `lib.rs:9-15`). Per-partition clocks (3.4, 4.1, 4.5); cross-partition SubFlows discussed in 4.8; Open question 22. |
+| 12 | Duplicated condition IDs resolve within the first matching kind. | Confirmed (`condition_plan.rs:103-129`). Wording fixed in `plan` (4.2) and Open question 5. |
+| 13 | UpdateFlowConfig has no rule. | Confirmed (`command_handlers/mod.rs:416-418`, `client_writes.rs:366-413`). Run config fixed for the theorem; excluded (1.3). |
 
 ## Appendix A. Assumptions and decisions in one list
 
@@ -1247,19 +1564,30 @@ and RPC entry points (11).
 2. Durability does not change failure-free behavior (1.3).
 3. One run per Flow ID; fresh Flow IDs (1.3, 3.4).
 4. Resource limits are never hit (1.3).
-5. One global clock; `t` strictly increases between commits of one run (4.1).
-6. Dispatch order is nondeterministic; no fairness in the rules (4.4, 6.3).
-7. [TIMER-FIRE] fires a non-empty prefix of the due timers (4.5).
+5. Per-partition clocks; `t_p` strictly increases between commits of
+   partition `p`; partitions advance independently (3.4, 4.1).
+6. Dispatch order is nondeterministic; the rules are unfair (4.4, 6.3).
+7. [TIMER-FIRE] fires a non-empty prefix of the due timers; exact for
+   failure-free runs (4.5).
 8. Fusing RPC lock acquisition and snapshot preserves traces (4.7).
 9. Cross-Flow delivery is exactly once, in any order, after any delay (4.8).
 10. Different Flows interleave arbitrarily (6.2).
 11. Equal `sws` among waiters of one Channel does not occur without time
     travel (Open question 4).
 12. TimerId byte order as derived from protobuf encoding (Open question 12).
-13. Reads are not observable; the equivalence is weak, untimed trace
-    equivalence (5.1, 5.2).
-14. ABORTED is an observable RPC outcome (Open question 11).
-15. L exceptions are data, never Worker errors (Open question 19).
-16. The SDKs fill per-movement Step options from the Step definition (2.1).
-17. A liveness theorem needs weak fairness for Step start, Worker progress,
-    Step completion, timer firing, and cross-Flow delivery (6.3).
+13. Reads are not observable (5.1).
+14. Equivalence is safety (finite weak traces) plus liveness (fair maximal
+    traces with markers), untimed, under `E_adm` and `π` (5.3-5.5).
+15. Fairness assumptions F1 to F6 (5.5).
+16. ABORTED is an observable RPC outcome [owner] (Open question 11).
+17. RPCs, SetAttributes, DeleteChannelMessage, SkipTimer, StopFlow,
+    UpdateFlowConfig, and Flow timeouts are outside `E_adm` (1.3, 5.3).
+18. Every modeled request ID is fresh (1.3).
+19. L exceptions are data, never Worker errors (Open question 19).
+20. The SDKs fill per-movement Step options from the Step definition (2.1).
+21. [RPC-COMMIT] follows the #1450 fix, not the code at `9b37482ed` [owner]
+    (Open question 3).
+22. On one node, partition clocks read one wall clock with bounded skew; only
+    a timed theorem needs it (Open question 22).
+23. L adopts the semantics of Section 8.1 (FIFO mutex and condition variable,
+    cooperative cancellation, asynchronous emit, exit stops all threads).
