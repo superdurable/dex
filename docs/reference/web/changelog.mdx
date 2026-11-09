@@ -8,6 +8,50 @@ sidebar_label: Change log
 
 This page lists user-visible changes to Dex Web, newest first; each section covers the changes since the previous release of this component.
 
+## 1.40 {#v1-40}
+
+Released 2026-11-09 as [web/v1.40.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.0). Patch releases [web/v1.40.1](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.1) and [web/v1.40.2](https://github.com/superdurable/dex/releases/tag/web%2Fv1.40.2) followed the same day.
+
+### Added
+
+- **History settings** on the Run page shows the run's retention window, and **Edit** changes it through UpdateFlowConfig while the run is active. [Reference](/reference/web/dex-web#v1-pages).
+
+### Changed
+
+- The **v1** Run page is redesigned with a horizontal Timeline, a minimap, and a selected event panel with **Input**, **Output**, and **Context** columns. [Reference](/reference/web/dex-web#v1-pages).
+
+### Fixed
+
+- Long values stay inside their column in the event panel. This arrived in 1.40.1.
+- Attribute and Context rows stack in the narrow Execution graph panel. This arrived in 1.40.2.
+
+## 1.39 {#v1-39}
+
+Released 2026-11-09 as [web/v1.39.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.39.0).
+
+### Added
+
+- A **Session** tab shows Dex Agents sessions in Dex Web v2. [Reference](/reference/web/dex-web#agent-session-view).
+- The Work Queue shows an agent inbox. [Reference](/reference/web/dex-web#agent-inbox).
+- Dex Web sends the declared RPC locks when a person runs an Action, and a Flow Definition Graph is available for Dex Agents session Flows. [Reference](/reference/web/dex-web#actions).
+
+### Changed
+
+- Dex Web sends LoadBlobs requests in batches of at most 1,000 entries.
+
+## 1.38 {#v1-38}
+
+Released 2026-11-07 as [web/v1.38.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.38.0).
+
+### Added
+
+- Dex Web v2 searches by active Step type and across several Flow types. [Reference](/reference/web/dex-web#search-several-flow-types).
+- An Action RPC returns its output to the page, and an Action may have no condition. [Reference](/reference/web/dex-web#actions).
+
+### Changed
+
+- Large values in history events appear as value references, and Dex Web loads them on demand because server-zd 0.1.21 bounds history pages by the gRPC response limit. [Reference](/reference/server/changelog#v0-1-21).
+
 ## 1.37 {#v1-37}
 
 Released 2026-11-06 as [web/v1.37.0](https://github.com/superdurable/dex/releases/tag/web%2Fv1.37.0). Reference: [1.37.x](/reference/web/1.37.x/).
