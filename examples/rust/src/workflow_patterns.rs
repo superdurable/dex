@@ -28,9 +28,10 @@ pub mod state_based;
 pub mod termination;
 pub mod triggers;
 
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dex_sdk::{HandlerError, HandlerResult, Registry, SdkResult};
+use dex_sdk::{Client, HandlerError, HandlerResult, Registry, SdkResult};
 use serde::{Deserialize, Serialize};
 
 /// The time one task held a shared resource, in Unix epoch milliseconds.
@@ -51,6 +52,19 @@ impl TaskInterval {
 }
 
 pub fn register(registry: Registry) -> SdkResult<Registry> {
+    register_with_cancel_case(registry, cancellation::CancelCaseFlow::default())
+}
+
+/// Registers the Flows for a Worker, whose Cancel Case Flow stops child
+/// Flows through `client`.
+pub fn register_worker(registry: Registry, client: Arc<Client>) -> SdkResult<Registry> {
+    register_with_cancel_case(registry, cancellation::CancelCaseFlow::new(client))
+}
+
+fn register_with_cancel_case(
+    registry: Registry,
+    cancel_case: cancellation::CancelCaseFlow,
+) -> SdkResult<Registry> {
     registry
         .register(basic_control_flow::SequenceFlow::default())?
         .register(basic_control_flow::ParallelSplitSynchronizationFlow::default())?
@@ -58,7 +72,6 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(multi_choice_and_merges::MultiChoiceSynchronizingMergeFlow::default())?
         .register(multi_choice_and_merges::MultiMergeFlow::default())?
         .register(multi_choice_and_merges::GeneralSynchronizingMergeFlow::default())?
-        .register(multi_choice_and_merges::ReviewRegionFlow::default())?
         .register(partial_joins::StructuredPartialJoinFlow::default())?
         .register(partial_joins::BlockingPartialJoinFlow::default())?
         .register(partial_joins::CancellingPartialJoinFlow::default())?
@@ -77,7 +90,8 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(state_based::CriticalSectionFlow::default())?
         .register(state_based::InterleavedRoutingFlow::default())?
         .register(cancellation::CancelTaskFlow::default())?
-        .register(cancellation::CancelCaseFlow::default())?
+        .register(cancel_case)?
+        .register(cancellation::BackgroundCheckFlow::default())?
         .register(cancellation::CancelRegionFlow::default())?
         .register(cancellation::CancelMultipleInstanceTaskFlow::default())?
         .register(cancellation::CompleteMultipleInstanceTaskFlow::default())?
@@ -100,6 +114,11 @@ pub(crate) fn extend_trail(mut trail: Vec<String>, step_type: &str) -> Vec<Strin
 pub(crate) fn sorted<T: Ord>(mut values: Vec<T>) -> Vec<T> {
     values.sort();
     values
+}
+
+/// Returns the ChannelMap instance key that holds the signals of `round`.
+pub(crate) fn round_instance(round: u32) -> String {
+    format!("round-{round}")
 }
 
 pub(crate) fn current_unix_millis() -> HandlerResult<i64> {

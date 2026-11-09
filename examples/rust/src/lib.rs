@@ -73,7 +73,6 @@ pub const WORKFLOW_PATTERN_FLOW_TYPES: [&str; 36] = [
     "MultiChoiceSynchronizingMergeFlow",
     "MultiMergeFlow",
     "GeneralSynchronizingMergeFlow",
-    "ReviewRegionFlow",
     "StructuredPartialJoinFlow",
     "BlockingPartialJoinFlow",
     "CancellingPartialJoinFlow",
@@ -93,6 +92,7 @@ pub const WORKFLOW_PATTERN_FLOW_TYPES: [&str; 36] = [
     "InterleavedRoutingFlow",
     "CancelTaskFlow",
     "CancelCaseFlow",
+    "BackgroundCheckFlow",
     "CancelRegionFlow",
     "CancelMultipleInstanceTaskFlow",
     "CompleteMultipleInstanceTaskFlow",
@@ -117,7 +117,7 @@ pub fn create_worker_registry(
     polling_jobs: Arc<FakeJobService>,
 ) -> SdkResult<Registry> {
     products::register(Registry::new())
-        .and_then(|registry| patterns::register_worker(registry, client, polling_jobs))
+        .and_then(|registry| patterns::register_worker(registry, Arc::clone(&client), polling_jobs))
         .and_then(primitives::register)
-        .and_then(workflow_patterns::register)
+        .and_then(|registry| workflow_patterns::register_worker(registry, client))
 }

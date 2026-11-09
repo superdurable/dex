@@ -32,9 +32,12 @@ const INTERLEAVED_TASK_DURATION: Duration = Duration::from_millis(200);
 /// How long each Step of a critical section holds the token.
 const CRITICAL_SECTION_STEP_DURATION: Duration = Duration::from_millis(100);
 
+static OFFER_PRESENTED: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("offerPresented"));
 static OFFER_ACCEPTED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("offerAccepted"));
 static OFFER_DECLINED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("offerDeclined"));
 
+pub const PRESENT_OFFER: Rpc<(), ()> = Rpc::new("present_offer");
 pub const ACCEPT_OFFER: Rpc<(), ()> = Rpc::new("accept_offer");
 pub const DECLINE_OFFER: Rpc<(), ()> = Rpc::new("decline_offer");
 
@@ -42,12 +45,17 @@ pub const DECLINE_OFFER: Rpc<(), ()> = Rpc::new("decline_offer");
 /// and Dex consumes only the selected Channel message.
 #[derive(Default)]
 pub struct DeferredChoiceFlow {
+    present_offer: PresentOffer,
     await_customer_response: AwaitCustomerResponse,
     fulfill_offer: FulfillOffer,
     archive_offer: ArchiveOffer,
 }
 
 impl DeferredChoiceFlow {
+    fn present_offer(&self, context: &mut Context) -> HandlerResult<()> {
+        OFFER_PRESENTED.publish(context, "presented".to_string())
+    }
+
     fn accept_offer(&self, context: &mut Context) -> HandlerResult<()> {
         OFFER_ACCEPTED.publish(context, "accepted".to_string())
     }
@@ -61,21 +69,39 @@ impl Flow for DeferredChoiceFlow {
     type StartInput = ();
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.await_customer_response)
+        StepList::start(&self.present_offer)
+            .and(&self.await_customer_response)
             .and(&self.fulfill_offer)
             .and(&self.archive_offer)
     }
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
+            .channel(&OFFER_PRESENTED)
             .channel(&OFFER_ACCEPTED)
             .channel(&OFFER_DECLINED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
+            .procedure_without_input(PRESENT_OFFER, Self::present_offer)
             .procedure_without_input(ACCEPT_OFFER, Self::accept_offer)
             .procedure_without_input(DECLINE_OFFER, Self::decline_offer)
+    }
+}
+
+#[derive(Default)]
+pub struct PresentOffer;
+
+impl Step for PresentOffer {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(OFFER_PRESENTED.for_one()))
+    }
+
+    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to(&AwaitCustomerResponse, ()))
     }
 }
 

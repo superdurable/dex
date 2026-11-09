@@ -18,7 +18,7 @@ use std::sync::LazyLock;
 
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc,
-    RpcList, RpcResult, Step, StepDecision, StepList, Wait,
+    RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Wait,
 };
 
 pub static IS_AWAITING_MOTION_EVENT: LazyLock<Attribute<bool>> =
@@ -30,8 +30,8 @@ static MOTION_EVENT: LazyLock<Channel<i64>> = LazyLock::new(|| Channel::new("mot
 pub const ARM_MOTION_SENSOR: Rpc<(), ()> = Rpc::new("arm_motion_sensor");
 pub const SEND_MOTION_EVENT: Rpc<i64, bool> = Rpc::new("send_motion_event");
 
-/// WCP-23 Transient Trigger: Channels keep messages, so the RPC drops a
-/// motion event unless a Step is waiting for it.
+/// WCP-23 Transient Trigger: Channels keep messages, so the RPC accepts one
+/// motion event, under a shared lock, only while a Step waits for it.
 #[derive(Default)]
 pub struct TransientTriggerFlow {
     await_motion_sensor_armed: AwaitMotionSensorArmed,
@@ -51,6 +51,7 @@ impl TransientTriggerFlow {
         if !IS_AWAITING_MOTION_EVENT.get(context)?.unwrap_or(false) {
             return Ok(RpcResult::new(false));
         }
+        IS_AWAITING_MOTION_EVENT.set(context, false)?;
         MOTION_EVENT.publish(context, value)?;
         Ok(RpcResult::new(true))
     }
@@ -73,7 +74,10 @@ impl Flow for TransientTriggerFlow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .procedure_without_input(ARM_MOTION_SENSOR, Self::arm_motion_sensor)
-            .function(SEND_MOTION_EVENT, Self::send_motion_event)
+            .function(
+                SEND_MOTION_EVENT.lock(IS_AWAITING_MOTION_EVENT.lock()),
+                Self::send_motion_event,
+            )
     }
 }
 
@@ -98,13 +102,16 @@ struct AwaitMotionEvent;
 impl Step for AwaitMotionEvent {
     type Input = ();
 
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().wait_for_lock(IS_AWAITING_MOTION_EVENT.lock())
+    }
+
     fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         IS_AWAITING_MOTION_EVENT.set(context, true)?;
         Ok(Wait::until(MOTION_EVENT.for_one()))
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        IS_AWAITING_MOTION_EVENT.set(context, false)?;
         let motion_value = MOTION_EVENT
             .condition_results(context)?
             .into_iter()

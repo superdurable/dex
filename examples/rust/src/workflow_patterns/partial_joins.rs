@@ -20,17 +20,17 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Channel, ConditionCombination, Context, Flow, HandlerError, HandlerResult, PersistenceSchema,
-    Rpc, RpcList, Step, StepDecision, StepList, StepMovement, Wait,
+    Channel, ChannelMap, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc,
+    RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, Wait,
 };
 use serde::{Deserialize, Serialize};
 
-use super::sorted;
+use super::{round_instance, sorted};
 
 const SUPPLIER_COUNT: usize = 3;
 const CARRIER_COUNT: usize = 3;
+const BLOCKING_BRANCH_COUNT: usize = 3;
 const BLOCKING_JOIN_ROUND_COUNT: u32 = 2;
-const BRANCH_LETTERS: [&str; 3] = ["A", "B", "C"];
 
 static SUPPLIER_A_RELEASED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("supplierAReleased"));
@@ -38,13 +38,39 @@ static SUPPLIER_B_RELEASED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("supplierBReleased"));
 static SUPPLIER_C_RELEASED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("supplierCReleased"));
-static QUOTE_RECEIVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("quoteReceived"));
+static QUOTE_RECEIVED: LazyLock<ChannelMap<String>> =
+    LazyLock::new(|| ChannelMap::new("quoteReceived"));
 
 pub const RELEASE_SUPPLIER_QUOTE: Rpc<String, ()> = Rpc::new("release_supplier_quote");
 
+/// One round of the structured partial join.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuoteRound {
+    pub required_quotes: usize,
+    pub round: u32,
+    pub round_count: u32,
+}
+
+/// The quotes the join accepted in one round.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptedQuotes {
+    pub round: u32,
+    pub accepted_quotes: Vec<String>,
+}
+
+/// The quotes the reset Step absorbed in the last round.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IgnoredQuotes {
+    pub round: u32,
+    pub ignored_quotes: Vec<String>,
+}
+
 /// WCP-9 Structured Discriminator (`required_quotes` = 1) and WCP-30
-/// Structured Partial Join (`required_quotes` = 2). A reset Step absorbs
-/// the remaining quotes so the join fires only once.
+/// Structured Partial Join (`required_quotes` = 2). Quotes are keyed by
+/// round, and a reset Step absorbs the rest before the join re-enables.
 #[derive(Default)]
 pub struct StructuredPartialJoinFlow {
     request_quotes: RequestQuotes,
@@ -75,7 +101,7 @@ impl StructuredPartialJoinFlow {
 }
 
 impl Flow for StructuredPartialJoinFlow {
-    type StartInput = usize;
+    type StartInput = QuoteRound;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.request_quotes)
@@ -92,7 +118,7 @@ impl Flow for StructuredPartialJoinFlow {
             .channel(&SUPPLIER_A_RELEASED)
             .channel(&SUPPLIER_B_RELEASED)
             .channel(&SUPPLIER_C_RELEASED)
-            .channel(&QUOTE_RECEIVED)
+            .channel_map(&QUOTE_RECEIVED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -101,26 +127,23 @@ impl Flow for StructuredPartialJoinFlow {
 }
 
 #[derive(Default)]
-struct RequestQuotes;
+pub struct RequestQuotes;
 
 impl Step for RequestQuotes {
-    type Input = usize;
+    type Input = QuoteRound;
 
-    fn execute(
-        &self,
-        _context: &mut Context,
-        required_quotes: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        if !(1..=SUPPLIER_COUNT).contains(&required_quotes) {
+    fn execute(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        if !(1..=SUPPLIER_COUNT).contains(&round.required_quotes) {
             return Ok(StepDecision::force_fail(format!(
-                "required quotes must be between 1 and {SUPPLIER_COUNT}, got {required_quotes}"
+                "required quotes must be between 1 and {SUPPLIER_COUNT}, got {}",
+                round.required_quotes
             )));
         }
         Ok(StepDecision::go_to_many([
-            StepMovement::to(&QuoteFromSupplierA, ()),
-            StepMovement::to(&QuoteFromSupplierB, ()),
-            StepMovement::to(&QuoteFromSupplierC, ()),
-            StepMovement::to(&AcceptQuotes, required_quotes),
+            StepMovement::to(&QuoteFromSupplierA, round.round),
+            StepMovement::to(&QuoteFromSupplierB, round.round),
+            StepMovement::to(&QuoteFromSupplierC, round.round),
+            StepMovement::to(&AcceptQuotes, round),
         ]))
     }
 }
@@ -129,14 +152,14 @@ impl Step for RequestQuotes {
 pub struct QuoteFromSupplierA;
 
 impl Step for QuoteFromSupplierA {
-    type Input = ();
+    type Input = u32;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, _context: &mut Context, _round: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(SUPPLIER_A_RELEASED.for_one()))
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        QUOTE_RECEIVED.publish(context, "A".to_string())?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        QUOTE_RECEIVED.publish(context, &round_instance(round), "A".to_string())?;
         Ok(StepDecision::dead_end())
     }
 }
@@ -145,30 +168,30 @@ impl Step for QuoteFromSupplierA {
 struct QuoteFromSupplierB;
 
 impl Step for QuoteFromSupplierB {
-    type Input = ();
+    type Input = u32;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, _context: &mut Context, _round: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(SUPPLIER_B_RELEASED.for_one()))
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        QUOTE_RECEIVED.publish(context, "B".to_string())?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        QUOTE_RECEIVED.publish(context, &round_instance(round), "B".to_string())?;
         Ok(StepDecision::dead_end())
     }
 }
 
 #[derive(Default)]
-struct QuoteFromSupplierC;
+pub struct QuoteFromSupplierC;
 
 impl Step for QuoteFromSupplierC {
-    type Input = ();
+    type Input = u32;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, _context: &mut Context, _round: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(SUPPLIER_C_RELEASED.for_one()))
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        QUOTE_RECEIVED.publish(context, "C".to_string())?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        QUOTE_RECEIVED.publish(context, &round_instance(round), "C".to_string())?;
         Ok(StepDecision::dead_end())
     }
 }
@@ -177,28 +200,24 @@ impl Step for QuoteFromSupplierC {
 struct AcceptQuotes;
 
 impl Step for AcceptQuotes {
-    type Input = usize;
+    type Input = QuoteRound;
 
-    fn wait_for(
-        &self,
-        _context: &mut Context,
-        required_quotes: Self::Input,
-    ) -> HandlerResult<Wait> {
-        Ok(Wait::until(QUOTE_RECEIVED.for_n(required_quotes)))
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(QUOTE_RECEIVED.for_n(
+            &round_instance(round.round),
+            round.required_quotes,
+        )))
     }
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        required_quotes: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        let accepted_quotes = QUOTE_RECEIVED.condition_results(context)?;
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        let quotes = QUOTE_RECEIVED.condition_results(context, &round_instance(round.round))?;
+        let accepted_quotes = AcceptedQuotes {
+            round: round.round,
+            accepted_quotes: sorted(quotes),
+        };
         Ok(StepDecision::go_to_many([
             StepMovement::to(&PlaceOrder, accepted_quotes),
-            StepMovement::to(
-                &ResetQuoteJoin,
-                SUPPLIER_COUNT.saturating_sub(required_quotes),
-            ),
+            StepMovement::to(&ResetQuoteJoin, round),
         ]))
     }
 }
@@ -207,14 +226,14 @@ impl Step for AcceptQuotes {
 pub struct PlaceOrder;
 
 impl Step for PlaceOrder {
-    type Input = Vec<String>;
+    type Input = AcceptedQuotes;
 
     fn execute(
         &self,
         _context: &mut Context,
         accepted_quotes: Self::Input,
     ) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(sorted(accepted_quotes)))
+        Ok(StepDecision::graceful_complete(accepted_quotes))
     }
 }
 
@@ -222,33 +241,44 @@ impl Step for PlaceOrder {
 struct ResetQuoteJoin;
 
 impl Step for ResetQuoteJoin {
-    type Input = usize;
+    type Input = QuoteRound;
 
-    fn wait_for(
-        &self,
-        _context: &mut Context,
-        remaining_quotes: Self::Input,
-    ) -> HandlerResult<Wait> {
-        Ok(Wait::until(QUOTE_RECEIVED.for_n(remaining_quotes)))
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(QUOTE_RECEIVED.for_n(
+            &round_instance(round.round),
+            SUPPLIER_COUNT - round.required_quotes,
+        )))
     }
 
-    fn execute(
-        &self,
-        context: &mut Context,
-        _remaining_quotes: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        let ignored_quotes = QUOTE_RECEIVED.condition_results(context)?;
-        Ok(StepDecision::graceful_complete(sorted(ignored_quotes)))
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        let quotes = QUOTE_RECEIVED.condition_results(context, &round_instance(round.round))?;
+        if round.round < round.round_count {
+            return Ok(StepDecision::go_to(
+                &RequestQuotes,
+                QuoteRound {
+                    round: round.round + 1,
+                    ..round
+                },
+            ));
+        }
+        Ok(StepDecision::graceful_complete(IgnoredQuotes {
+            round: round.round,
+            ignored_quotes: sorted(quotes),
+        }))
     }
 }
 
 static BRANCH_A_SIGNAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("branchASignal"));
 static BRANCH_B_SIGNAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("branchBSignal"));
 static BRANCH_C_SIGNAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("branchCSignal"));
+static BRANCH_COMPLETED: LazyLock<ChannelMap<String>> =
+    LazyLock::new(|| ChannelMap::new("branchCompleted"));
 
 pub const SEND_BRANCH_SIGNAL: Rpc<String, ()> = Rpc::new("send_branch_signal");
+pub const GET_QUEUED_BRANCH_SIGNAL_COUNT: Rpc<(), usize> =
+    Rpc::new("get_queued_branch_signal_count");
 
-/// One firing of the blocking join.
+/// One round of the blocking join.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockingJoinRound {
@@ -264,20 +294,15 @@ pub struct FiredBranchesRound {
     pub branches: Vec<String>,
 }
 
-/// The branches the reset Step must absorb before the join can fire again.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BlockingJoinReset {
-    pub required_signals: usize,
-    pub round: u32,
-    pub pending_branches: Vec<String>,
-}
-
 /// WCP-28 Blocking Discriminator (`required_signals` = 1) and WCP-31
-/// Blocking Partial Join (`required_signals` = 2). Signals that arrive
-/// before the reset stay queued for the next round.
+/// Blocking Partial Join (`required_signals` = 2). No Step waits on a
+/// next-round enablement until the current round resets.
 #[derive(Default)]
 pub struct BlockingPartialJoinFlow {
+    start_blocking_round: StartBlockingRound,
+    signal_from_branch_a: SignalFromBranchA,
+    signal_from_branch_b: SignalFromBranchB,
+    signal_from_branch_c: SignalFromBranchC,
     blocking_join: BlockingJoin,
     process_round: ProcessRound,
     reset_blocking_join: ResetBlockingJoin,
@@ -285,9 +310,23 @@ pub struct BlockingPartialJoinFlow {
 
 impl BlockingPartialJoinFlow {
     fn send_branch_signal(&self, context: &mut Context, branch: String) -> HandlerResult<()> {
-        let channel = branch_signal_channel(&branch)
-            .ok_or_else(|| unknown_letter_error("InvalidBranch", "branch", &branch))?;
+        let channel = match branch.as_str() {
+            "A" => &BRANCH_A_SIGNAL,
+            "B" => &BRANCH_B_SIGNAL,
+            "C" => &BRANCH_C_SIGNAL,
+            _ => return Err(unknown_letter_error("InvalidBranch", "branch", &branch)),
+        };
         channel.publish(context, branch)
+    }
+
+    fn get_queued_branch_signal_count(
+        &self,
+        context: &mut Context,
+    ) -> HandlerResult<RpcResult<usize>> {
+        let queued_signal_count = BRANCH_A_SIGNAL.pending_messages(context)?.len()
+            + BRANCH_B_SIGNAL.pending_messages(context)?.len()
+            + BRANCH_C_SIGNAL.pending_messages(context)?.len();
+        Ok(RpcResult::new(queued_signal_count))
     }
 }
 
@@ -295,7 +334,11 @@ impl Flow for BlockingPartialJoinFlow {
     type StartInput = BlockingJoinRound;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.blocking_join)
+        StepList::start(&self.start_blocking_round)
+            .and(&self.signal_from_branch_a)
+            .and(&self.signal_from_branch_b)
+            .and(&self.signal_from_branch_c)
+            .and(&self.blocking_join)
             .and(&self.process_round)
             .and(&self.reset_blocking_join)
     }
@@ -305,10 +348,89 @@ impl Flow for BlockingPartialJoinFlow {
             .channel(&BRANCH_A_SIGNAL)
             .channel(&BRANCH_B_SIGNAL)
             .channel(&BRANCH_C_SIGNAL)
+            .channel_map(&BRANCH_COMPLETED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure(SEND_BRANCH_SIGNAL, Self::send_branch_signal)
+        RpcList::new()
+            .procedure(SEND_BRANCH_SIGNAL, Self::send_branch_signal)
+            .function_without_input(
+                GET_QUEUED_BRANCH_SIGNAL_COUNT
+                    .load_channel(&BRANCH_A_SIGNAL)
+                    .load_channel(&BRANCH_B_SIGNAL)
+                    .load_channel(&BRANCH_C_SIGNAL),
+                Self::get_queued_branch_signal_count,
+            )
+    }
+}
+
+#[derive(Default)]
+pub struct StartBlockingRound;
+
+impl Step for StartBlockingRound {
+    type Input = BlockingJoinRound;
+
+    fn execute(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        if !(1..BLOCKING_BRANCH_COUNT).contains(&round.required_signals) {
+            return Ok(StepDecision::force_fail(format!(
+                "required signals must be 1 or 2, got {}",
+                round.required_signals
+            )));
+        }
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&SignalFromBranchA, round.round),
+            StepMovement::to(&SignalFromBranchB, round.round),
+            StepMovement::to(&SignalFromBranchC, round.round),
+            StepMovement::to(&BlockingJoin, round),
+        ]))
+    }
+}
+
+#[derive(Default)]
+struct SignalFromBranchA;
+
+impl Step for SignalFromBranchA {
+    type Input = u32;
+
+    fn wait_for(&self, _context: &mut Context, _round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(BRANCH_A_SIGNAL.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        BRANCH_COMPLETED.publish(context, &round_instance(round), "A".to_string())?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+#[derive(Default)]
+struct SignalFromBranchB;
+
+impl Step for SignalFromBranchB {
+    type Input = u32;
+
+    fn wait_for(&self, _context: &mut Context, _round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(BRANCH_B_SIGNAL.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        BRANCH_COMPLETED.publish(context, &round_instance(round), "B".to_string())?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+#[derive(Default)]
+struct SignalFromBranchC;
+
+impl Step for SignalFromBranchC {
+    type Input = u32;
+
+    fn wait_for(&self, _context: &mut Context, _round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(BRANCH_C_SIGNAL.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        BRANCH_COMPLETED.publish(context, &round_instance(round), "C".to_string())?;
+        Ok(StepDecision::dead_end())
     }
 }
 
@@ -319,61 +441,23 @@ impl Step for BlockingJoin {
     type Input = BlockingJoinRound;
 
     fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
-        match round.required_signals {
-            1 => Ok(Wait::any_of([
-                BRANCH_A_SIGNAL.for_one(),
-                BRANCH_B_SIGNAL.for_one(),
-                BRANCH_C_SIGNAL.for_one(),
-            ])),
-            2 => Ok(Wait::any_combination_of([
-                ConditionCombination::all_of([
-                    BRANCH_A_SIGNAL.for_one().with_id("ab-a"),
-                    BRANCH_B_SIGNAL.for_one().with_id("ab-b"),
-                ]),
-                ConditionCombination::all_of([
-                    BRANCH_A_SIGNAL.for_one().with_id("ac-a"),
-                    BRANCH_C_SIGNAL.for_one().with_id("ac-c"),
-                ]),
-                ConditionCombination::all_of([
-                    BRANCH_B_SIGNAL.for_one().with_id("bc-b"),
-                    BRANCH_C_SIGNAL.for_one().with_id("bc-c"),
-                ]),
-            ])),
-            other => Err(HandlerError::new(
-                "InvalidRequiredSignals",
-                format!("required signals must be 1 or 2, got {other}"),
-            )),
-        }
+        Ok(Wait::until(BRANCH_COMPLETED.for_n(
+            &round_instance(round.round),
+            round.required_signals,
+        )))
     }
 
     fn execute(&self, context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
-        let mut fired_branches = Vec::new();
-        let mut pending_branches = Vec::new();
-        for letter in BRANCH_LETTERS {
-            let channel = branch_signal_channel(letter)
-                .ok_or_else(|| unknown_letter_error("InvalidBranch", "branch", letter))?;
-            if channel.condition_results(context)?.is_empty() {
-                pending_branches.push(letter.to_string());
-            } else {
-                fired_branches.push(letter.to_string());
-            }
-        }
+        let branches = BRANCH_COMPLETED.condition_results(context, &round_instance(round.round))?;
         Ok(StepDecision::go_to_many([
             StepMovement::to(
                 &ProcessRound,
                 FiredBranchesRound {
                     round: round.round,
-                    branches: fired_branches,
+                    branches: sorted(branches),
                 },
             ),
-            StepMovement::to(
-                &ResetBlockingJoin,
-                BlockingJoinReset {
-                    required_signals: round.required_signals,
-                    round: round.round,
-                    pending_branches,
-                },
-            ),
+            StepMovement::to(&ResetBlockingJoin, round),
         ]))
     }
 }
@@ -397,41 +481,26 @@ impl Step for ProcessRound {
 struct ResetBlockingJoin;
 
 impl Step for ResetBlockingJoin {
-    type Input = BlockingJoinReset;
+    type Input = BlockingJoinRound;
 
-    fn wait_for(&self, _context: &mut Context, reset: Self::Input) -> HandlerResult<Wait> {
-        let conditions = reset
-            .pending_branches
-            .iter()
-            .map(|letter| {
-                branch_signal_channel(letter)
-                    .map(Channel::for_one)
-                    .ok_or_else(|| unknown_letter_error("InvalidBranch", "branch", letter))
-            })
-            .collect::<HandlerResult<Vec<_>>>()?;
-        Ok(Wait::all_of(conditions))
+    fn wait_for(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(BRANCH_COMPLETED.for_n(
+            &round_instance(round.round),
+            BLOCKING_BRANCH_COUNT - round.required_signals,
+        )))
     }
 
-    fn execute(&self, _context: &mut Context, reset: Self::Input) -> HandlerResult<StepDecision> {
-        if reset.round < BLOCKING_JOIN_ROUND_COUNT {
+    fn execute(&self, _context: &mut Context, round: Self::Input) -> HandlerResult<StepDecision> {
+        if round.round < BLOCKING_JOIN_ROUND_COUNT {
             return Ok(StepDecision::go_to(
-                &BlockingJoin,
+                &StartBlockingRound,
                 BlockingJoinRound {
-                    required_signals: reset.required_signals,
-                    round: reset.round + 1,
+                    round: round.round + 1,
+                    ..round
                 },
             ));
         }
-        Ok(StepDecision::graceful_complete(reset.round))
-    }
-}
-
-fn branch_signal_channel(letter: &str) -> Option<&'static Channel<String>> {
-    match letter {
-        "A" => Some(LazyLock::force(&BRANCH_A_SIGNAL)),
-        "B" => Some(LazyLock::force(&BRANCH_B_SIGNAL)),
-        "C" => Some(LazyLock::force(&BRANCH_C_SIGNAL)),
-        _ => None,
+        Ok(StepDecision::graceful_complete(round.round))
     }
 }
 
@@ -442,8 +511,13 @@ static CARRIER_B_RELEASED: LazyLock<Channel<String>> =
 static CARRIER_C_RELEASED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("carrierCReleased"));
 static BID_RECEIVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("bidReceived"));
+static CARRIER_BOOKING_CONFIRMED: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("carrierBookingConfirmed"));
 
 pub const RELEASE_CARRIER_BID: Rpc<String, ()> = Rpc::new("release_carrier_bid");
+pub const GET_QUEUED_CARRIER_RELEASE_COUNT: Rpc<(), usize> =
+    Rpc::new("get_queued_carrier_release_count");
+pub const CONFIRM_CARRIER_BOOKING: Rpc<(), ()> = Rpc::new("confirm_carrier_booking");
 
 /// WCP-29 Cancelling Discriminator (`required_bids` = 1) and WCP-32
 /// Cancelling Partial Join (`required_bids` = 2): the join cancels the
@@ -455,9 +529,24 @@ pub struct CancellingPartialJoinFlow {
     bid_from_carrier_b: BidFromCarrierB,
     bid_from_carrier_c: BidFromCarrierC,
     accept_bids: AcceptBids,
+    confirm_carrier_booking: ConfirmCarrierBooking,
 }
 
 impl CancellingPartialJoinFlow {
+    fn get_queued_carrier_release_count(
+        &self,
+        context: &mut Context,
+    ) -> HandlerResult<RpcResult<usize>> {
+        let queued_release_count = CARRIER_A_RELEASED.pending_messages(context)?.len()
+            + CARRIER_B_RELEASED.pending_messages(context)?.len()
+            + CARRIER_C_RELEASED.pending_messages(context)?.len();
+        Ok(RpcResult::new(queued_release_count))
+    }
+
+    fn confirm_carrier_booking(&self, context: &mut Context) -> HandlerResult<()> {
+        CARRIER_BOOKING_CONFIRMED.publish(context, "confirmed".to_string())
+    }
+
     fn release_carrier_bid(&self, context: &mut Context, carrier: String) -> HandlerResult<()> {
         let channel = match carrier.as_str() {
             "A" => &CARRIER_A_RELEASED,
@@ -478,6 +567,7 @@ impl Flow for CancellingPartialJoinFlow {
             .and(&self.bid_from_carrier_b)
             .and(&self.bid_from_carrier_c)
             .and(&self.accept_bids)
+            .and(&self.confirm_carrier_booking)
     }
 
     fn persistence(&self) -> PersistenceSchema {
@@ -486,10 +576,20 @@ impl Flow for CancellingPartialJoinFlow {
             .channel(&CARRIER_B_RELEASED)
             .channel(&CARRIER_C_RELEASED)
             .channel(&BID_RECEIVED)
+            .channel(&CARRIER_BOOKING_CONFIRMED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure(RELEASE_CARRIER_BID, Self::release_carrier_bid)
+        RpcList::new()
+            .procedure(RELEASE_CARRIER_BID, Self::release_carrier_bid)
+            .function_without_input(
+                GET_QUEUED_CARRIER_RELEASE_COUNT
+                    .load_channel(&CARRIER_A_RELEASED)
+                    .load_channel(&CARRIER_B_RELEASED)
+                    .load_channel(&CARRIER_C_RELEASED),
+                Self::get_queued_carrier_release_count,
+            )
+            .procedure_without_input(CONFIRM_CARRIER_BOOKING, Self::confirm_carrier_booking)
     }
 }
 
@@ -567,7 +667,7 @@ impl Step for BidFromCarrierC {
 }
 
 #[derive(Default)]
-struct AcceptBids;
+pub struct AcceptBids;
 
 impl Step for AcceptBids {
     type Input = usize;
@@ -582,10 +682,31 @@ impl Step for AcceptBids {
         _required_bids: Self::Input,
     ) -> HandlerResult<StepDecision> {
         let accepted_bids = BID_RECEIVED.condition_results(context)?;
-        Ok(StepDecision::graceful_complete(sorted(accepted_bids))
-            .cancel_step(&BidFromCarrierA)
-            .cancel_step(&BidFromCarrierB)
-            .cancel_step(&BidFromCarrierC))
+        Ok(
+            StepDecision::go_to(&ConfirmCarrierBooking, sorted(accepted_bids))
+                .cancel_step(&BidFromCarrierA)
+                .cancel_step(&BidFromCarrierB)
+                .cancel_step(&BidFromCarrierC),
+        )
+    }
+}
+
+#[derive(Default)]
+struct ConfirmCarrierBooking;
+
+impl Step for ConfirmCarrierBooking {
+    type Input = Vec<String>;
+
+    fn wait_for(&self, _context: &mut Context, _accepted_bids: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(CARRIER_BOOKING_CONFIRMED.for_one()))
+    }
+
+    fn execute(
+        &self,
+        _context: &mut Context,
+        accepted_bids: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(accepted_bids))
     }
 }
 
