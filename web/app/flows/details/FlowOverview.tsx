@@ -187,7 +187,10 @@ export function FlowOverview({
               </p>
             )}
             {!closed && <p className="overview-quiet">Live state is queried only while this run is active.</p>}
-            {closed && (
+            {closed && !hasCloseResults(closed) && !closed.payload.errorMessage && (
+              <p className="overview-quiet">The run closed without results.</p>
+            )}
+            {closed && hasCloseResults(closed) && (
               <>
                 <h3 className="overview-subheading">Close result</h3>
                 <JsonView
@@ -453,6 +456,11 @@ function listOf(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
     : [];
+}
+
+function hasCloseResults(closed: FlowHistoryEvent): boolean {
+  const results = closed.payload.results;
+  return Array.isArray(results) ? results.length > 0 : results !== undefined && results !== null;
 }
 
 function withoutIgnoredFlowConfig(flowConfig: Record<string, unknown>): Record<string, unknown> {

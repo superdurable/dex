@@ -1197,8 +1197,10 @@ body:has(.v1-page) {
   font-size: var(--ui-text-xs);
 }
 
-.v1-page .timeline-row {
-  grid-template-columns: 172px var(--timeline-link-rail-width, 88px) minmax(0, 1fr);
+@media (min-width: 761px) {
+  .v1-page .timeline-row {
+    grid-template-columns: 172px var(--timeline-link-rail-width, 88px) minmax(0, 1fr);
+  }
 }
 
 .v1-page .timeline-time b,
@@ -1607,4 +1609,16 @@ body:has(.v1-page) {
 .v1-page.flow-rendering-page h1 {
   font-size: 24px;
   letter-spacing: -0.01em;
+}
+
+@media (max-width: 760px) {
+  .v1-page .event-card header {
+    flex-wrap: wrap;
+  }
+
+  .v1-page .event-type {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
