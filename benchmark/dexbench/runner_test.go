@@ -135,19 +135,24 @@ func TestWaitForWakeNoticeLeavesTimeBeforeDeadline(t *testing.T) {
 	}
 }
 
-// fakeWakeService fails GetFlowState failures times, then reports a waiting Step and wakes it on publish.
+// fakeWakeService models one long-lived wake Flow. GetFlowState fails stateFailures times, then reports a
+// waiting Step. A publish wakes the Step, which signals Execute and re-enters WaitFor with a new notice.
+// The first publishFailures publishes are delivered but still return an error, like a lost response.
 type fakeWakeService struct {
 	dexpb.FlowServiceClient
-	mu       sync.Mutex
-	failures int
-	signals  chan wakeSignal
+	mu              sync.Mutex
+	stateFailures   int
+	publishFailures int
+	stateReads      int
+	signals         *wakeSignals
 }
 
 func (service *fakeWakeService) GetFlowState(context.Context, *dexpb.GetFlowStateRequest, ...grpc.CallOption) (*dexpb.GetFlowStateResponse, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if service.failures > 0 {
-		service.failures--
+	service.stateReads++
+	if service.stateFailures > 0 {
+		service.stateFailures--
 		return nil, errors.New("transient GetFlowState failure")
 	}
 	return &dexpb.GetFlowStateResponse{ActiveStepExecutions: []*dexpb.ActiveStepExecutionState{
@@ -157,34 +162,120 @@ func (service *fakeWakeService) GetFlowState(context.Context, *dexpb.GetFlowStat
 
 func (service *fakeWakeService) PublishToChannel(_ context.Context, request *dexpb.PublishToChannelRequest, _ ...grpc.CallOption) (*emptypb.Empty, error) {
 	sequence := request.GetMessages()[0].GetValue().GetIntValue()
-	service.signals <- wakeSignal{sequence: sequence, startedAt: time.Now()}
+	service.signals.notify(0, sequence, time.Now())
+	service.signals.notifyWaited(0)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.publishFailures > 0 {
+		service.publishFailures--
+		return nil, errors.New("publish response lost")
+	}
 	return &emptypb.Empty{}, nil
 }
 
-func TestChannelWakeRecoversAfterConsumedNoticeAndFailedStateRead(t *testing.T) {
+func (service *fakeWakeService) stateReadCount() int {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.stateReads
+}
+
+func newWakeTestRunner() (*Runner, *wakeSignals) {
 	signals := newWakeSignals(1)
 	runner := &Runner{
 		wake:               &wakeFlow{signals: signals},
 		wakeSequences:      []int64{1},
 		wakeNeedsStatePoll: []bool{false},
 	}
-	service := &fakeWakeService{failures: 1, signals: signals.channels[0]}
-	connection := &benchmarkConnection{service: service}
-	signals.waitedChannels[0] <- struct{}{}
+	return runner, signals
+}
 
-	attempt := func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_, err := runner.wakeWaitingFlow(ctx, connection, 0, "flow")
-		return err
-	}
-	if err := attempt(); err == nil {
+// timedWake runs one wake with a 1-second operation timeout and returns its error and elapsed time.
+func timedWake(runner *Runner, connection *benchmarkConnection) (time.Duration, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	_, err := runner.wakeWaitingFlow(ctx, connection, 0, "flow")
+	return time.Since(started), err
+}
+
+func TestChannelWakeRecoversAfterConsumedNoticeAndFailedStateRead(t *testing.T) {
+	runner, signals := newWakeTestRunner()
+	service := &fakeWakeService{stateFailures: 1, signals: signals}
+	connection := &benchmarkConnection{service: service}
+	signals.notifyWaited(0)
+
+	if _, err := timedWake(runner, connection); err == nil {
 		t.Fatal("first wake succeeded although GetFlowState failed")
 	}
-	// The first attempt consumed the only WaitFor notice, so later attempts must recover without one.
+	// The failed attempt consumed the only notice, so the next attempt must poll at once.
+	elapsed, err := timedWake(runner, connection)
+	if err != nil {
+		t.Fatalf("wake after the failure: %v", err)
+	}
+	if elapsed > 50*time.Millisecond {
+		t.Fatalf("wake after the failure took %v; it waited for a consumed notice", elapsed)
+	}
 	for index := range 3 {
-		if err := attempt(); err != nil {
-			t.Fatalf("wake %d after the failure: %v", index+2, err)
+		if _, err := timedWake(runner, connection); err != nil {
+			t.Fatalf("wake %d: %v", index+3, err)
 		}
+	}
+}
+
+func TestChannelWakeLeavesNoStaleNoticeAfterLostPublishResponse(t *testing.T) {
+	runner, signals := newWakeTestRunner()
+	service := &fakeWakeService{publishFailures: 1, signals: signals}
+	connection := &benchmarkConnection{service: service}
+	signals.notifyWaited(0)
+
+	if _, err := timedWake(runner, connection); err == nil {
+		t.Fatal("first wake succeeded although its publish response was lost")
+	}
+	for index := range 5 {
+		readsBefore := service.stateReadCount()
+		if _, err := timedWake(runner, connection); err != nil {
+			t.Fatalf("wake %d: %v", index+2, err)
+		}
+		// Only the notice of the next wait may remain queued.
+		if queued := len(signals.waitedChannels[0]); queued != 1 {
+			t.Fatalf("after wake %d, %d WaitFor notices are queued, want 1", index+2, queued)
+		}
+		if reads := service.stateReadCount() - readsBefore; reads != 1 {
+			t.Fatalf("wake %d read Flow state %d times, want 1", index+2, reads)
+		}
+	}
+}
+
+func TestDrainWakeNoticesEmptiesQueueWithoutBlocking(t *testing.T) {
+	notices := make(chan struct{}, 4)
+	notices <- struct{}{}
+	notices <- struct{}{}
+	drainWakeNotices(notices)
+	drainWakeNotices(notices)
+	if len(notices) != 0 {
+		t.Fatalf("%d notices remain after draining", len(notices))
+	}
+}
+
+// missingFlowWaiter reports a missing Flow from WaitForFlow after an accepted stop.
+type missingFlowWaiter struct {
+	fakeFlowStopper
+	waitErr error
+}
+
+func (waiter *missingFlowWaiter) WaitForFlow(context.Context, string, dex.WaitForFlowOptions) (dex.FlowResult, error) {
+	return dex.FlowResult{}, waiter.waitErr
+}
+
+func TestWaitForFlowClosedAcceptsMissingFlow(t *testing.T) {
+	for name, waitErr := range map[string]error{
+		"not found":             &dex.FlowNotFoundError{ServiceError: serviceError(codes.NotFound)},
+		"not active or missing": &dex.FlowNotActiveOrNotFoundError{ServiceError: serviceError(codes.NotFound)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := waitForFlowClosed(&missingFlowWaiter{waitErr: waitErr}, "flow", time.Second); err != nil {
+				t.Fatalf("waitForFlowClosed failed: %v", err)
+			}
+		})
 	}
 }

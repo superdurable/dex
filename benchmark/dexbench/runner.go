@@ -290,6 +290,8 @@ type persistentFlowStopper interface {
 const (
 	// persistentFlowStopTimeout bounds one StopFlow call.
 	persistentFlowStopTimeout = 10 * time.Second
+	// persistentFlowStopRetryDelay grows linearly between StopFlow retries.
+	persistentFlowStopRetryDelay = 200 * time.Millisecond
 	// persistentFlowCloseWait bounds the wait for a stopped Flow to reach a terminal state.
 	persistentFlowCloseWait = 30 * time.Second
 )
@@ -299,7 +301,10 @@ const (
 // It returns an error when the Flow may still be running.
 func stopAndConfirmFlow(stopper persistentFlowStopper, flowID string, stopTimeout, closeWait time.Duration) error {
 	var err error
-	for range persistentFlowStopAttempts {
+	for attempt := range persistentFlowStopAttempts {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * persistentFlowStopRetryDelay)
+		}
 		stopContext, cancel := context.WithTimeout(context.Background(), stopTimeout)
 		err = stopper.StopFlow(stopContext, flowID, dex.StopOptions{})
 		cancel()
@@ -559,6 +564,8 @@ func (runner *Runner) doWakeWaitingFlow(ctx context.Context, connection *benchma
 	if err := runner.waitUntilStepWaiting(ctx, connection, flowID); err != nil {
 		return 0, err
 	}
+	// The worker sends a notice before the server records WAITING, so every queued notice is for this wait or older.
+	drainWakeNotices(runner.wake.signals.waitedChannels[clientIndex])
 	message := &dexpb.ChannelMessage{ChannelName: benchmarkWakeChannel.ChannelName(), Value: &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: sequence}}}
 	publishedAt := time.Now()
 	if _, err := connection.service.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{message}}); err != nil {
@@ -598,6 +605,17 @@ func waitForWakeNotice(ctx context.Context, notices <-chan struct{}, maxWait tim
 	case <-timer.C:
 	}
 	return nil
+}
+
+// drainWakeNotices discards queued WaitFor notices without blocking, keeping one notice per wake.
+func drainWakeNotices(notices <-chan struct{}) {
+	for {
+		select {
+		case <-notices:
+		default:
+			return
+		}
+	}
 }
 
 func (runner *Runner) waitUntilStepWaiting(ctx context.Context, connection *benchmarkConnection, flowID string) error {
