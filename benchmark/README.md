@@ -9,22 +9,13 @@ CPU and memory, and object storage requests for each run.
 These results were measured on 2026-11-09 in AWS us-west-2, on on-demand instances.
 
 - **Server:** one server-zd node on a c7gd instance. RocksDB was on the local NVMe instance store, and the log went to S3 Standard in the same Region.
-- **Load host:** a separate c7g.8xlarge ran `dexbench` in the same Availability Zone and cluster placement group. Its mean CPU stayed below 35% of the host at every point.
-- **Version:**
-  - S1, S2, S3, and S6 used server-zd v0.1.23 (`f27e3295f`).
-  - S4 and S5 used `f9254ef20`, measured earlier the same day. That build had history offload switched on through server settings.
-- **Configuration:**
-  - The v0.1.23 `serve` defaults: every run offloads its history unless it opts out, and the history window is 50,000 events.
-  - S1 Flows opt out with `FlowConfig.offload_history` set to false, the recommended mode for short runs.
-  - c7gd.4xlarge also used four tuned settings. See [Settings for 2026-11-09](#settings-for-2026-11-09).
+- **Load host:** a separate c7g.8xlarge ran `dexbench` in the same Availability Zone and cluster placement group. Its mean CPU stayed below 38% of the host at every point.
+- **Version:** S4 and S5: server-zd v0.1.25 (`4875e0083`); S1, S2, S3, and S6: server-zd v0.1.23 (`f27e3295f`).
 - **Measurement:** each point is a 10-second warmup and a 45-second measurement on a newly started server. Every headline point ran three times with profiling off. S1 is a rough single run per point.
-- **Long-lived Flows:** S2, S3, and S6 run on long-lived Flows. Each client keeps one Flow open for the whole point, and its Step runs again and again.
 
-Each table lists the peak and a "~50% of peak" row per scenario. The ~50% row shows latency at a normal, unsaturated load. The peak row has bold throughput. Rows marked "search" are single runs from the search rounds, with profiling on. The other rows show the median throughput of three runs. Their latency percentiles come from the run with that median throughput; they are not medians of each percentile. S2 and S3 show the latency of one Step, and S6 the latency of one wake.
+Each table lists the peak, with bold throughput, and a "~50% of peak" row per scenario; rows marked "search" and S1 rows are single runs, and the others are the median of three runs with that run's percentiles.
 
-### S2, S3, and S6: server-zd v0.1.23
-
-#### c7gd.large (2 vCPU)
+### c7gd.large (2 vCPU)
 
 | Scenario | C | Throughput | p50 / p90 / p99 (ms) |
 | --- | ---: | ---: | --- |
@@ -35,10 +26,21 @@ Each table lists the peak and a "~50% of peak" row per scenario. The ~50% row sh
 | S3 ASYNC Steps, latency per Step | 2 (~50% of peak) | 1,224 Steps/s | 1.3 / 2.6 / 4.9 |
 |  | 32 (peak) | **2,105 Steps/s** | 14.5 / 23.9 / 32.6 |
 |  | 512 (search) | 1,810 Steps/s | 263 / 357 / 634 |
+| S1 Flows started and completed | 64 | 435 Flows/s | 140 / 185 / 249 |
+|  | 512 (peak) | **1,111 Flows/s** | 457 / 560 / 650 |
+|  | 1,024 | 980 Flows/s | 1,012 / 1,310 / 1,573 |
+| S4 plain RPC, reads one 8-byte Attribute | 4 (~50% of peak) | 7,501 RPCs/s | 0.5 / 0.6 / 0.9 |
+|  | 64 (search) | 13,223 RPCs/s | 4.7 / 6.5 / 8.6 |
+|  | 256 (peak) | **15,392 RPCs/s** | 16.7 / 22.3 / 26.7 |
+|  | 512 (search) | 14,670 RPCs/s | 34.4 / 47.1 / 61.2 |
+| S4 Attribute-locking RPC, updates one 8-byte Attribute | 64 (~50% of peak) | 904 RPCs/s | 67.0 / 91.3 / 183.5 |
+|  | 960 (peak) | **2,165 RPCs/s** | 426 / 590 / 774 |
+| S5 direct read of ten 16 KiB Attributes (160 KiB) | 3 (~50% of peak) | 3,091 reads/s | 0.9 / 1.2 / 1.5 |
+|  | 256 (peak) | **5,941 reads/s** | 42.8 / 59.5 / 73.8 |
 | S6 Channel wake, latency per wake | 64 (~50% of peak) | 204 wakes/s | 112 / 177 / 304 |
 |  | 256 (peak) | **460 wakes/s** | 209 / 275 / 408 |
 
-#### c7gd.4xlarge (16 vCPU)
+### c7gd.4xlarge (16 vCPU)
 
 | Scenario | C | Throughput | p50 / p90 / p99 (ms) |
 | --- | ---: | ---: | --- |
@@ -48,120 +50,62 @@ Each table lists the peak and a "~50% of peak" row per scenario. The ~50% row sh
 | S3 ASYNC Steps, latency per Step | 8 (~50% of peak) | 4,766 Steps/s | 1.6 / 2.0 / 3.3 |
 |  | 1,024 (search) | 9,201 Steps/s | 106 / 135 / 173 |
 |  | 4,096 (peak) | **10.1k Steps/s** | 405 / 466 / 537 |
+| S1 Flows started and completed | 3,072 | 4,902 Flows/s | 611 / 709 / 801 |
+|  | 6,144 | 5,309 Flows/s | 1,146 / 1,336 / 1,533 |
+|  | 12,288 (peak) | **5,626 Flows/s** | 2,164 / 2,493 / 2,747 |
+| S4 plain RPC, reads one 8-byte Attribute | 24 (~50% of peak) | 35.0k RPCs/s | 0.6 / 1.0 / 2.1 |
+|  | 128 | 65.1k RPCs/s | 1.8 / 3.0 / 4.5 |
+|  | 512 (peak) | **67.3k RPCs/s** | 7.3 / 11.5 / 15.6 |
+|  | 2,048 (search) | 62.0k RPCs/s | 31.8 / 49.4 / 67.5 |
+| S4 Attribute-locking RPC, updates one 8-byte Attribute | 512 (~50% of peak) | 6,093 RPCs/s | 76.9 / 111.4 / 277.1 |
+|  | 4,096 | 13.0k RPCs/s | 313 / 363 / 553 |
+|  | 8,192 (peak) | **13.8k RPCs/s** | 589 / 682 / 755 |
+| S5 direct read of ten 16 KiB Attributes (160 KiB) | 5 (~50% of peak) | 5,731 reads/s | 0.8 / 1.2 / 1.6 |
+|  | 256 (peak) | **11.3k reads/s** | 22.8 / 33.2 / 45.6 |
 | S6 Channel wake, latency per wake | 64 (search) | 243 wakes/s | 92.1 / 143.8 / 308.8 |
 |  | 512 (~50% of peak) | 1,400 wakes/s | 139 / 197 / 308 |
 |  | 4,096 (peak) | **2,278 wakes/s** | 821 / 1,008 / 1,147 |
 
-- S2 at C=12,288 used 48 gRPC connections. Its three runs gave 7,164, 8,403, and 9,646 Steps/s, following each run's S3 commit latency.
-- S2 at C=4,096 with 16 connections had a p99 tail of 5.5 seconds, and is left out of the table. See [Notes](#notes).
-
-### S4 and S5: server-zd `f9254ef20`, measured 2026-11-09
-
-These points were measured earlier the same day, on `f9254ef20`, before v0.1.23. That build had history offload switched on through the server settings shown in [Settings for 2026-11-09](#settings-for-2026-11-09). They were not rerun on v0.1.23.
-
-#### c7gd.large (2 vCPU)
-
-| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
-| --- | ---: | ---: | --- |
-| S4 plain RPC, reads one 8-byte Attribute | 4 (~50% of peak) | 7,492 RPCs/s | 0.5 / 0.6 / 0.8 |
-|  | 64 (search) | 12,360 RPCs/s | 5.0 / 7.0 / 9.2 |
-|  | 256 (peak) | **13,926 RPCs/s** | 18.5 / 24.7 / 29.6 |
-|  | 512 (search) | 12,937 RPCs/s | 39.1 / 52.7 / 68.2 |
-| S4 Attribute-locking RPC, updates one 8-byte Attribute | 64 (~50% of peak) | 950 RPCs/s | 64.7 / 88.3 / 115.2 |
-|  | 512 (search) | 1,773 RPCs/s | 278 / 392 / 517 |
-|  | 960 (peak) | **2,149 RPCs/s** | 435 / 608 / 749 |
-| S5 direct read of ten 16 KiB Attributes (160 KiB) | 3 (~50% of peak) | 3,058 reads/s | 0.9 / 1.2 / 1.7 |
-|  | 256 (peak) | **5,891 reads/s** | 43.4 / 59.9 / 74.2 |
-|  | 1,024 (search) | 4,938 reads/s | 205 / 260 / 344 |
-
-#### c7gd.4xlarge (16 vCPU)
-
-| Scenario | C | Throughput | p50 / p90 / p99 (ms) |
-| --- | ---: | ---: | --- |
-| S4 plain RPC, reads one 8-byte Attribute | 8 (~50% of peak) | 15.3k RPCs/s | 0.5 / 0.6 / 1.2 |
-|  | 48 (search) | 29.5k RPCs/s | 1.5 / 2.4 / 3.8 |
-|  | 512 (peak) | **32.1k RPCs/s** | 15.4 / 24.1 / 32.2 |
-|  | 2,048 (search) | 29.8k RPCs/s | 66.7 / 102.4 / 134.3 |
-| S4 Attribute-locking RPC, updates one 8-byte Attribute | 512 (~50% of peak) | 6,286 RPCs/s | 73.8 / 104.7 / 252.0 |
-|  | 2,048 (search) | 10.4k RPCs/s | 201 / 244 / 271 |
-|  | 4,096 (peak) | **11.7k RPCs/s** | 347 / 432 / 558 |
-|  | 8,192 | 12.1k RPCs/s | 667 / 770 / 935 |
-| S5 direct read of ten 16 KiB Attributes (160 KiB) | 5 (~50% of peak) | 5,536 reads/s | 0.8 / 1.2 / 1.9 |
-|  | 16 (search) | 11.0k reads/s | 1.3 / 2.3 / 3.2 |
-|  | 256 (peak) | **11.3k reads/s** | 16.2 / 55.2 / 80.3 |
-
-Attribute-locking RPC at C=8,192 used 32 connections and a 16,384 in-flight RPC limit. It is within 4% of the C=4,096 point.
-
-### Run age
-
-S2, S3, and S6 keep each Flow open, so a Flow runs hundreds to tens of thousands of Steps in one point. Throughput no longer falls as a Flow ages. On c7gd.large, S2 at C=128 gave these results:
-
-| Warmup | Steps per Flow at the end | Throughput | Step p50 / p99 (ms) |
-| ---: | ---: | ---: | --- |
-| 2 s | ~380 and ~410 | 1,031 and 1,104 Steps/s | 116 / 253 and 109 / 235 |
-| 90 s | ~880 and ~1,050 | 833 and 992 Steps/s | 133 / 453 and 119 / 302 |
-| 240 s | ~2,320 | 1,042 Steps/s | 114 / 333 |
-
-- The spread follows each run's S3 commit latency.
-- Server CPU per Step is about 20–25% higher on the older Flows and levels off.
-- Before v0.1.23, the same comparison lost a factor of three to four after 90 seconds. See [`results/2026-11-09-long-lived-runs/`](results/2026-11-09-long-lived-runs/README.md).
-
-### S1 Flows started and completed (rough, short runs)
-
-S1 is rough: a single 15-second run per point, after a 5-second warmup, with profiling off. Each operation starts a new short Flow with local history (`FlowConfig.offload_history` false) and waits for it to complete.
-
-| Instance | C | Throughput | p50 / p90 / p99 (ms) | History uploads/s | S3 PUTs/s | PUTs per completed Flow |
-| --- | ---: | ---: | --- | ---: | ---: | ---: |
-| c7gd.large | 64 | 435 Flows/s | 140 / 185 / 249 | 0 | 122 | 0.28 |
-|  | 512 | **1,111 Flows/s** | 457 / 560 / 650 | 0 | 88 | 0.08 |
-|  | 1,024 | 980 Flows/s | 1,012 / 1,310 / 1,573 | 0 | 54 | 0.06 |
-| c7gd.4xlarge | 3,072 | 4,902 Flows/s | 611 / 709 / 801 | 0 | 55 | 0.011 |
-|  | 6,144 | 5,309 Flows/s | 1,146 / 1,336 / 1,533 | 0 | 44 | 0.008 |
-|  | 12,288 | **5,626 Flows/s** | 2,164 / 2,493 / 2,747 | 0 | 31 | 0.005 |
-
-- Short runs with local history upload no history segment. Their PUTs are log batches, which carry many Flows each.
-- With history offload on, an earlier build uploaded one segment per closed short run. Those uploads fell behind at about 400–550 per second; see [`results/2026-11-09-aws-s3-c7gd-large/`](results/2026-11-09-aws-s3-c7gd-large/README.md).
-
-### Notes
-
+**Notes.**
 - **C** is the number of concurrent clients. Load is closed-loop, so latency grows with C once the server is saturated.
-- **Plain RPC on c7gd.4xlarge is not CPU-bound.** At its peak the server used 36% of the host. In every thread snapshot, 6 to 11 of the 27 server threads waited on the `WorkerDispatch` registry mutex in `dexzd-worker-dispatch`. That lock is the likely limit. See the [c7gd.4xlarge S4 results](results/2026-11-09-aws-s3-c7gd-4xlarge/README.md).
-- **S2 tail on c7gd.4xlarge:**
-  - At C=4,096 with 16 connections, S2 had a p99 of 5,475 ms. With 32 connections the same point had a p99 of 725 ms.
-  - With 16 connections each pull Worker has exactly 256 task slots, the `matching.maxConcurrentTasksCap` default.
-  - This was not investigated further. See the [c7gd.4xlarge v0.1.23 results](results/2026-11-09-aws-s3-c7gd-4xlarge-v0.1.23/README.md).
+- **S1** is a single 15-second run per point after a 5-second warmup. Each Flow keeps its history local (`FlowConfig.offload_history` false), so it uploads no history segment. Its S3 PUTs are log batches only: 0.06–0.28 PUTs per completed Flow on c7gd.large and 0.005–0.011 on c7gd.4xlarge.
+- **S2 at C=12,288** on c7gd.4xlarge gave 7,164, 8,403, and 9,646 Steps/s in its three runs, following each run's S3 commit latency.
+- **S2 at C=4,096** on c7gd.4xlarge is left out. With 16 connections its p99 was 5,475 ms; with 32 connections it was 725 ms. See the [c7gd.4xlarge v0.1.23 results](results/2026-11-09-aws-s3-c7gd-4xlarge-v0.1.23/README.md).
+- **Plain RPC on c7gd.4xlarge:** 65.1k RPCs/s at C=128, against 49.3k on 2026-10-31 and 30.9k before #1445. The server now uses 68–73% of the host; see the [c7gd.4xlarge v0.1.25 results](results/2026-11-09-aws-s3-c7gd-4xlarge-v0.1.25/README.md).
+- **Attribute-locking RPC at C=8,192** on c7gd.4xlarge used 32 connections and a 16,384 in-flight RPC limit.
+- **Run age:** S2, S3, and S6 keep each Flow open for the whole point. Their throughput no longer falls as a Flow ages; see [`results/2026-11-09-long-lived-runs/`](results/2026-11-09-long-lived-runs/README.md).
+- **Run age on c7gd.large:** S2 at C=128 gave 1,031–1,104 Steps/s after a 2-second warmup and 1,042 after a 240-second warmup. Before v0.1.23 it lost a factor of three to four after 90 seconds.
 - **Snapshots:** a snapshot is requested after 256 MiB of new log data. Every c7gd.4xlarge S2 point above C=4,096 took one or two snapshots of 7–9 s during the point.
-- **S3 requests:**
-  - Plain RPC and S5 write nothing, so their only PUTs are the lease, about 0.3 per second.
-  - Steps, wakes, and Attribute-locking RPCs made 14–120 log PUTs per second.
-  - Long-lived Flows sealed a history segment only when it reached 4 MiB, at most about 2.5 uploads per second.
+- **S3 requests:** plain RPC and S5 write nothing, so their only PUTs are the lease, about 0.3 per second. Steps, wakes, and Attribute-locking RPCs made 14–120 log PUTs per second.
 
-### Settings for 2026-11-09
+### Settings that produced these numbers
 
-- **S1, S2, S3, and S6:** the server-zd v0.1.23 `serve` defaults. Runs offload their history by default, and the window is 50,000 events. S1 Flows set `FlowConfig.offload_history` to false.
-- **S4 and S5:** server-zd `f9254ef20` with these settings, which v0.1.23 replaced with the per-run default:
+- **c7gd.large:** the default server-zd configuration, 4 gRPC connections.
+- **c7gd.4xlarge:** the defaults plus the settings below, with 16 gRPC connections. Attribute-locking RPC at C=8,192 also sets `limits.maxInFlightRpcsPerNode: 16384`.
 
   ```yaml
-  history:
-    offloadEnabled: true
-    deleteExpiredObjects: true
-    windowEvents: 50000
+  commit:
+    maxUnappliedBytes: 268435456
+  limits:
+    maxInFlightRpcsPerNode: 4096
+  localStorage:
+    blockCacheBytes: 8589934592
+    writeBufferBytes: 134217728
   ```
 
-- **c7gd.large:** otherwise the default configuration, with 4 gRPC connections.
-- **c7gd.4xlarge:** four tuned settings (`commit.maxUnappliedBytes: 268435456`, `limits.maxInFlightRpcsPerNode: 4096`, `localStorage.blockCacheBytes: 8589934592`, `localStorage.writeBufferBytes: 134217728`), with 16 gRPC connections.
-  - `matching.maxConcurrentTasksCap` (default 256) limits the task slots of each pull Worker, and `dexbench` gives each connection C divided by the connection count.
-  - Points above C=4,096 therefore used 32 or 48 connections. S1 used 48.
-  - Attribute-locking RPC at C=8,192 also set `limits.maxInFlightRpcsPerNode: 16384`.
+- **History:** the `serve` defaults. Every run offloads its history unless it opts out, and the history window is 50,000 events. S1 Flows opt out.
+- **Connections:** `matching.maxConcurrentTasksCap` (default 256) limits the task slots of each pull Worker, and `dexbench` gives each connection C divided by the connection count. Points above C=4,096 therefore used 32 or 48 connections. S1 used 48.
+
+The defaults follow the host size: applier lanes are `max(8, CPUs)`, and RocksDB background jobs are `max(2, CPUs / 2)`.
 
 The result sets are:
 
+- S4 and S5 on v0.1.25:
+  - [`results/2026-11-09-aws-s3-c7gd-large-v0.1.25/`](results/2026-11-09-aws-s3-c7gd-large-v0.1.25/README.md)
+  - [`results/2026-11-09-aws-s3-c7gd-4xlarge-v0.1.25/`](results/2026-11-09-aws-s3-c7gd-4xlarge-v0.1.25/README.md)
 - S1, S2, S3, and S6 on v0.1.23:
   - [`results/2026-11-09-aws-s3-c7gd-large-v0.1.23/`](results/2026-11-09-aws-s3-c7gd-large-v0.1.23/README.md)
   - [`results/2026-11-09-aws-s3-c7gd-4xlarge-v0.1.23/`](results/2026-11-09-aws-s3-c7gd-4xlarge-v0.1.23/README.md)
-- S4 and S5 on `f9254ef20`:
-  - [`results/2026-11-09-aws-s3-c7gd-large/`](results/2026-11-09-aws-s3-c7gd-large/README.md)
-  - [`results/2026-11-09-aws-s3-c7gd-4xlarge/`](results/2026-11-09-aws-s3-c7gd-4xlarge/README.md)
 
 Each set's `README.md` lists every round of the search and its outcome. Each round directory holds what is needed to rerun it:
 - `config.env`: instance types, placement, disk, versions, and `dexbench` settings.
@@ -171,8 +115,6 @@ Each set's `README.md` lists every round of the search and its outcome. Each rou
 Search rounds also keep a perf profile and thread stacks for every point, in `<point>.server/`.
 
 Rerun a headline point with `benchmark/aws/reproduce.sh`. See [Reproduce a result](#reproduce-a-result).
-
-The defaults follow the host size: applier lanes are `max(8, CPUs)`, and RocksDB background jobs are `max(2, CPUs / 2)`.
 
 The [local search backend results](results/2026-10-31-search-local/README.md)
 measure S7 at 100k and 1M runs on builtin, ParadeDB, and PostgreSQL. They include
@@ -193,9 +135,8 @@ projection, and measure the cost of its acks.
   - An ASYNC Step moves on before its commit, so its per-Step latency is 1.3–1.6 ms at low concurrency. ASYNC throughput is limited by the server, not by latency.
 - **S3 PUTs scale with batches, not with Steps.** Commands are grouped into log batches, with at most `commit.maxInFlight` (default 4) PUTs in flight. A busy node made 23–98 log PUTs per second at the S2, S3, and S6 peaks, independent of instance size. At USD 0.005 per 1,000 PUTs, that is at most about USD 1.8 per busy hour per node.
 - **What limits each instance type:**
-  - c7gd.large uses 94–98% of its two cores at every throughput peak.
-  - c7gd.4xlarge uses 69–87% of its 16 cores at the S2, S3, and S6 peaks.
-  - Plain RPC on c7gd.4xlarge is held back by lock contention at 36% CPU; see [Notes](#notes).
+  - c7gd.large uses 93–99% of its two cores at every throughput peak.
+  - c7gd.4xlarge uses 68–87% of its 16 cores at the S2, S3, S4, and S6 peaks.
   - S5 on c7gd.4xlarge is limited by the 15 Gbps network, not by the server, so its CPU stays near 27%.
 
 Each run writes one JSON file per scenario variant and concurrency, plus

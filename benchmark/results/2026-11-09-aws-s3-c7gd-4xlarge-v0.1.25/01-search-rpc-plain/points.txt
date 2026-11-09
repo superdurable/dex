@@ -1,0 +1,6 @@
+rpc-plain 8
+rpc-plain 48
+rpc-plain 128
+rpc-plain 256
+rpc-plain 512
+rpc-plain 2048

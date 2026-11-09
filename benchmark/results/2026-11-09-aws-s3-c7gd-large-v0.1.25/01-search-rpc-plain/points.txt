@@ -1,0 +1,7 @@
+rpc-plain 4
+rpc-plain 16
+rpc-plain 32
+rpc-plain 64
+rpc-plain 128
+rpc-plain 256
+rpc-plain 512
