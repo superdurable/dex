@@ -28,6 +28,9 @@ import (
 //
 // Unwrap returns the original err. Error returns the original message. Formatting
 // with %+v includes the captured stack. A nil err returns nil.
+//
+// Changed in 1.41.0: Worker failures report the wrapped error's type instead of
+// the stack wrapper's type. The message and captured stack are unchanged.
 func ErrorWithStack(err error) error {
 	if err == nil {
 		return nil

@@ -11,10 +11,10 @@ use std::time::Duration;
 
 use dexzd_cluster_metadata::{ClusterConfig, LeaseConfig, NodeConfig};
 use dexzd_engine::{
-    BlockingWorkPlacement, CommitConfig, CommittedCommandSink, CommittedFlowCommand,
-    DeterministicCommandApplier, EngineCommandAndEffectHooks, EngineIdSource, EngineNode,
-    EngineNodeConfig, EngineNodeDependencies, LocalStoreConfig, PartitionEffectRebuildError,
-    PartitionEffectRebuilder, RecoveryConfig, SnapshotConfig,
+    BlockingWorkPlacement, CommandApplier, CommitConfig, CommittedCommandSink,
+    CommittedFlowCommand, DeterministicCommandApplier, EngineCommandAndEffectHooks, EngineIdSource,
+    EngineNode, EngineNodeConfig, EngineNodeDependencies, LocalStoreConfig,
+    PartitionEffectRebuildError, PartitionEffectRebuilder, RecoveryConfig, SnapshotConfig,
 };
 use dexzd_keyspace::PartitionId;
 use dexzd_object_store::InMemoryObjectStore;
@@ -82,13 +82,31 @@ pub(crate) async fn start_engine_node(
     clock: Arc<ScriptedClock>,
     id_source: Arc<dyn EngineIdSource>,
 ) -> EngineNode {
+    start_engine_node_with_applier(
+        config,
+        object_store,
+        clock,
+        id_source,
+        Arc::new(DeterministicCommandApplier),
+    )
+    .await
+}
+
+/// Starts a node with `applier` and passive runtime hooks.
+pub(crate) async fn start_engine_node_with_applier(
+    config: &EngineNodeConfig,
+    object_store: Arc<InMemoryObjectStore>,
+    clock: Arc<ScriptedClock>,
+    id_source: Arc<dyn EngineIdSource>,
+    applier: Arc<dyn CommandApplier>,
+) -> EngineNode {
     EngineNode::start(
         config,
         EngineNodeDependencies {
             metrics: Arc::new(dexzd_metrics::NodeMetrics::unregistered()),
             object_store,
             clock,
-            applier: Arc::new(DeterministicCommandApplier),
+            applier,
             id_source,
             lease_validity_deadline: dexzd_cluster_metadata::LeaseValidityDeadline::disarmed(),
         },
