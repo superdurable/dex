@@ -139,11 +139,17 @@ impl UploadBacklogTracker {
         pending.extend(changes.sealed);
         pending.retain(|segment| !changes.uploaded.contains(segment));
         segments.pending = pending;
+        // Acknowledgments after the snapshot can empty the set; then its bytes and age are stale.
+        let (bytes, oldest_sealed_at_micros) = if segments.pending.is_empty() {
+            (0, None)
+        } else {
+            (scanned.bytes, scanned.oldest_sealed_at_micros)
+        };
         self.gauges.set_partition(
             usize::from(partition.0),
             segments.pending.len() as u64,
-            scanned.bytes,
-            scanned.oldest_sealed_at_micros,
+            bytes,
+            oldest_sealed_at_micros,
         );
     }
 
@@ -243,11 +249,33 @@ mod tests {
         tracker.record_uploaded(&flow, RUN, 5);
         tracker.finish_scan(partition, scanned(&[5]));
         assert_eq!(gauges.segments(), 0);
-        assert_eq!(gauges.bytes(), 10);
-        // A late report removes nothing twice, and the empty partition clears its bytes.
+        assert_eq!(gauges.bytes(), 0);
+        assert_eq!(gauges.oldest_sealed_at_micros(), None);
+        // A late report removes nothing twice.
         tracker.record_uploaded(&flow, RUN, 5);
         assert_eq!(gauges.segments(), 0);
         assert_eq!(gauges.bytes(), 0);
+    }
+
+    #[test]
+    fn a_scan_whose_last_segment_is_acknowledged_after_the_snapshot_publishes_no_bytes_or_age() {
+        let (tracker, gauges, flow, partition) = tracker();
+        tracker.record_committed_effects(&flow, &[sealed(1)]);
+        tracker.begin_scan(partition);
+        // The snapshot still holds segment 1; its only acknowledgment is reported before publication.
+        tracker.record_uploaded(&flow, RUN, 1);
+        assert_eq!(gauges.segments(), 0);
+        tracker.finish_scan(partition, scanned(&[1]));
+        assert_eq!(gauges.segments(), 0);
+        assert_eq!(gauges.bytes(), 0);
+        assert_eq!(gauges.oldest_sealed_at_micros(), None);
+        // A non-empty result still publishes the scan's bytes and age.
+        tracker.record_committed_effects(&flow, &[sealed(5)]);
+        tracker.begin_scan(partition);
+        tracker.finish_scan(partition, scanned(&[5]));
+        assert_eq!(gauges.segments(), 1);
+        assert_eq!(gauges.bytes(), 10);
+        assert_eq!(gauges.oldest_sealed_at_micros(), Some(1));
     }
 
     #[test]
