@@ -183,7 +183,7 @@ export default function IdeCodeBlockContent(props: Props): ReactNode {
         }
         return (
           <div className={clsx('ide-code__body', isEdited && 'is-edited', props.className)} style={style}>
-            <div className="ide-code__gutter" hidden={isEdited}>{gutter}</div>
+            {isEdited ? null : <div className="ide-code__gutter">{gutter}</div>}
             {isEdited ? (
               <button type="button" className="ide-code__reset" onClick={resetEdits}>
                 {translate({id: 'ideCode.reset', message: 'Reset',

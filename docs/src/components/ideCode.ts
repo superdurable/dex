@@ -102,33 +102,43 @@ const importLine: Record<string, RegExp> = {
   rust: /^(use |extern crate )/,
 };
 
-/** Drops string literals and comments, whose brackets do not open or close a statement. */
+/** Returns the code of one line, scanning strings and comments in order; block comments may span lines. */
 function codeWithoutStringsAndComments(line: string, language: string, state: {inBlockComment: boolean}): string {
-  let text = line;
+  const isPython = language === 'python' || language === 'py';
   let code = '';
-  while (text.length > 0) {
+  let index = 0;
+  while (index < line.length) {
     if (state.inBlockComment) {
-      const close = text.indexOf('*/');
+      const close = line.indexOf('*/', index);
       if (close === -1) {
         return code;
       }
       state.inBlockComment = false;
-      text = text.slice(close + 2);
+      index = close + 2;
       continue;
     }
-    const open = language === 'python' || language === 'py' ? -1 : text.indexOf('/*');
-    if (open === -1) {
-      code += text;
-      break;
+    const character = line[index];
+    if (character === '"' || character === "'" || character === '`') {
+      let end = index + 1;
+      while (end < line.length && line[end] !== character) {
+        end += line[end] === '\\' ? 2 : 1;
+      }
+      code += '""';
+      index = end + 1;
+      continue;
     }
-    code += text.slice(0, open);
-    state.inBlockComment = true;
-    text = text.slice(open + 2);
+    if (isPython ? character === '#' : line.startsWith('//', index)) {
+      return code;
+    }
+    if (!isPython && line.startsWith('/*', index)) {
+      state.inBlockComment = true;
+      index += 2;
+      continue;
+    }
+    code += character;
+    index += 1;
   }
-  const withoutStrings = code.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""');
-  const commentStart = language === 'python' || language === 'py' ? '#' : '//';
-  const commentIndex = withoutStrings.indexOf(commentStart);
-  return commentIndex === -1 ? withoutStrings : withoutStrings.slice(0, commentIndex);
+  return code;
 }
 
 function bracketDepthChange(code: string): number {
@@ -154,21 +164,17 @@ export function importFoldRange(lines: string[], language: string): IdeFoldRange
   const commentState = {inBlockComment: false};
   for (; index < lines.length; index += 1) {
     const line = lines[index];
-    const wasInBlockComment = commentState.inBlockComment;
     const code = codeWithoutStringsAndComments(line, language, commentState);
     if (openBrackets > 0) {
       last = index;
       openBrackets += bracketDepthChange(code);
       continue;
     }
-    if (line.trim() === '') {
+    // Blank and comment-only lines stay in the block only when another import follows.
+    if (code.trim() === '') {
       continue;
     }
-    if (wasInBlockComment || code.trim() === '') {
-      // A comment between imports stays in the block only when another import follows.
-      continue;
-    }
-    if (!startsImport.test(line)) {
+    if (!startsImport.test(code.trimStart())) {
       break;
     }
     last = index;
