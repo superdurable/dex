@@ -34,6 +34,10 @@ describe('pull routing', () => {
     expect(markup).toContain('PaymentFlow');
     expect(markup).toContain('last-worker');
     expect(markup).toContain('Pull');
+    expect(markup).not.toContain('>Flow type<');
+    const overview = renderToStaticMarkup(<FlowRouting flowType="PaymentFlow" routing={routing} showFlowType />);
+    expect(overview.indexOf('>Flow type<')).toBeGreaterThan(-1);
+    expect(overview.indexOf('>Flow type<')).toBeLessThan(overview.indexOf('>Flow type queue<'));
   });
   it('uses closed-run sticky state after an RPC and ignores failed method Workers', () => {
     const routing = flowRoutingData(null, [

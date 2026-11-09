@@ -8,6 +8,7 @@
 
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { usePreferences } from '../providers';
+import type { FlowDefinitionCatalog } from '@/lib/types';
 import { activeV2Mode, v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
 import { useWebCatalog } from '../v2/WebCatalogProvider';
 import { DexMark } from './DexMark';
@@ -19,9 +20,14 @@ export const V2_MODES: { mode: V2Mode; label: string }[] = [
   { mode: 'connectors', label: 'Connectors' },
 ];
 
+/** Flow Rendering has something to show only when the definitions directory holds at least one JSON file. */
+export function hasLoadedFlowDefinitions(definitions: FlowDefinitionCatalog | null): boolean {
+  return definitions?.configured === true && definitions.definitions.length > 0;
+}
+
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
-  const { canUseV2 } = useWebCatalog();
+  const { canUseV2, definitions } = useWebCatalog();
   const location = useLocation();
   const navigate = useNavigate();
   const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
@@ -44,11 +50,8 @@ export function AppHeader() {
           </Link>
       </div>
       <nav className="header-nav" aria-label="Primary navigation">
-        {!isV2 && (
-          <>
-            <Link to="/v1/flows">Flows</Link>
-            <Link to="/v1/rendering">Flow Rendering</Link>
-          </>
+        {!isV2 && hasLoadedFlowDefinitions(definitions) && (
+          <Link to="/v1/rendering">Flow Rendering</Link>
         )}
         {isV2 && canUseV2 && (
           <div className="v2-modes" role="group" aria-label="Dex Web v2 mode">

@@ -31,11 +31,16 @@ export function flowRoutingData(state: FlowState | null, events: FlowHistoryEven
   };
 }
 
-export function FlowRouting({ routing, flowType }: { routing: FlowRoutingData; flowType: string }) {
+export function FlowRouting({ routing, flowType, showFlowType = false }: {
+  routing: FlowRoutingData;
+  flowType: string;
+  showFlowType?: boolean;
+}) {
   const target = routing.workerTarget;
   const isPull = target.isPullMode === true;
   return <Fields compact values={[
     ['Worker target', isPull ? 'Pull' : target.address ? `${target.address}${target.isHeadlessAddress === true ? ' (headless)' : ''}` : '—'],
+    ...(showFlowType ? [['Flow type', flowType]] as [string, unknown][] : []),
     ...(isPull ? [
       ['Flow type queue', flowType],
       ['Sticky app Worker ID', routing.stickyAppWorkerId || '—'],

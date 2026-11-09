@@ -585,7 +585,7 @@ function TimelineEdgeStubs({
               title={stub.location === 'pruned' ? prunedRelatedEventTooltip(stub) : undefined}
             >
               {label}
-              {stub.location === 'pruned' && <span className="timeline-pruned-badge">pruned</span>}
+              {stub.location === 'pruned' && <span className="timeline-pruned-badge">Pruned</span>}
             </span>
           );
         })}

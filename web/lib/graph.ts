@@ -12,7 +12,7 @@ import type {
   StepGraphEdge,
   StepGraphNode,
 } from './types';
-import { isHandlerTimeoutPolicy, subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
+import { flowStatusLabel, isHandlerTimeoutPolicy, subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
 import { generatedSubFlowID } from './subflows';
 
 export const START_NODE_ID = '__start__';
@@ -391,7 +391,7 @@ function addSubFlowNodes(
         : status === 'RUNNING' ? 'Waiting' : 'Completed',
       parentStepId: stepNode.id,
       flowId,
-      subFlowStatus: status,
+      subFlowStatus: flowStatusLabel(result.flowStatus ?? 1),
       reusePolicy: subFlowReusePolicyLabel(options.reusePolicy),
     });
   });

@@ -147,6 +147,11 @@ Dex recursively scans JSON files on every definition-dependent request. Generate
 Dex Web restart. Invalid JSON, unsupported schema versions, and source read
 failures return a typed 503 and make `/readyz` fail.
 
+The **v1** header shows the **Flow Rendering** link only while that directory
+holds at least one definition JSON file. The logo and the breadcrumb lead back
+to the Flows list. Opening `/v1/rendering` directly without definitions shows an
+empty state that explains how to load them.
+
 Starting Dex with `--flow-rendering-dir` opens **v2** at `/v2`. The top-right
 Version menu returns to **v1**. Without that directory, Dex Web opens **v1** at
 `/v1/flows`. v2 lists current runs for one Flow type on the left and renders
@@ -786,7 +791,7 @@ operator follows **Next run**; Dex Web never combines two runs into one graph or
 Timeline and Execution graph show an animated loading indicator while waiting
 for history. Empty states appear after loading finishes. Refreshing retains
 events already on screen. The loading indicator respects reduced-motion settings.
-The page also provides Live Flow State beside Selected event, Run input beside Identity,
+The page also provides Live Flow state beside Selected event, Run input beside Identity,
 attributes, timers, queued
 steps, channels, completed outputs, stop, and time travel. Timeline and Execution graph keep
 Selected event in the sidebar, where the critical-action **Review time travel**
@@ -824,7 +829,8 @@ SetAttributes type label and the changed values in the event details.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.
 SYNC step Context shows the immediately preceding retry failure when available,
 including its backend-native error, worker details, named and numeric gRPC
-status, and an optional Worker-provided stack. Live Flow State shows the latest
+status, and an optional Worker-provided stack. Live Flow state shows the run's
+Flow type and the latest
 pending failure on its matching active Step and expands that stack by default.
 While a run is active, **Set attribute** writes one Attribute and **Publish
 message** publishes one Channel message to that run. Each takes a JSON,
@@ -846,7 +852,8 @@ original terms as described in [LEGACY_NOTICES.md](LEGACY_NOTICES.md).
 
 ### Worker routing
 
-Flow detail shows the Worker target. Pull Flows also show the Flow type queue and
+Flow detail shows the Worker target and the Flow type exactly as registered.
+Pull Flows also show the Flow type queue and
 sticky app Worker ID. Active Steps and Step method history show the serving app
 Worker ID, the sticky ID used at dispatch, and the sticky or Flow type queue
 source. Failed dispatches show no available Worker, unknown Step or RPC name,

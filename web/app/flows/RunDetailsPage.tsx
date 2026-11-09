@@ -630,7 +630,6 @@ export function RunDetailsPage({
         {breadcrumb}
         <div className="run-title-row">
           <div>
-            <p className="eyebrow">{summary?.flowType || 'Flow execution'}</p>
             <h1>{flowId}</h1>
           </div>
           <div className="run-actions">
