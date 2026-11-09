@@ -26,9 +26,9 @@ use serde::{Deserialize, Serialize};
 use super::sorted;
 
 static INVOICE_RECEIVED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("invoice_received"));
+    LazyLock::new(|| Channel::new("invoiceReceived"));
 static PAYMENT_RECEIVED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("payment_received"));
+    LazyLock::new(|| Channel::new("paymentReceived"));
 
 pub const DELIVER_INVOICE: Rpc<String, ()> = Rpc::new("deliver_invoice");
 pub const DELIVER_PAYMENT: Rpc<String, ()> = Rpc::new("deliver_payment");
@@ -147,7 +147,7 @@ fn single_condition_result(context: &Context, channel: &Channel<String>) -> Hand
         .ok_or_else(|| HandlerError::new("MissingChannelMessage", "the join consumed no message"))
 }
 
-static PARCEL_PACKED: LazyLock<Channel<usize>> = LazyLock::new(|| Channel::new("parcel_packed"));
+static PARCEL_PACKED: LazyLock<Channel<usize>> = LazyLock::new(|| Channel::new("parcelPacked"));
 
 /// WCP-42 Thread Split and WCP-41 Thread Merge: GoToMany starts several
 /// executions of one Step type, and the merge waits for one message each.

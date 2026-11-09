@@ -32,8 +32,8 @@ const INTERLEAVED_TASK_DURATION: Duration = Duration::from_millis(200);
 /// How long each Step of a critical section holds the token.
 const CRITICAL_SECTION_STEP_DURATION: Duration = Duration::from_millis(100);
 
-static OFFER_ACCEPTED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("offer_accepted"));
-static OFFER_DECLINED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("offer_declined"));
+static OFFER_ACCEPTED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("offerAccepted"));
+static OFFER_DECLINED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("offerDeclined"));
 
 pub const ACCEPT_OFFER: Rpc<(), ()> = Rpc::new("accept_offer");
 pub const DECLINE_OFFER: Rpc<(), ()> = Rpc::new("decline_offer");
@@ -127,9 +127,9 @@ impl Step for ArchiveOffer {
 }
 
 static ONBOARDING_TASK_LOCK: LazyLock<Attribute<bool>> =
-    LazyLock::new(|| Attribute::new("onboarding_task_lock"));
+    LazyLock::new(|| Attribute::new("onboardingTaskLock"));
 static ONBOARDING_TASK_FINISHED: LazyLock<Channel<TaskInterval>> =
-    LazyLock::new(|| Channel::new("onboarding_task_finished"));
+    LazyLock::new(|| Channel::new("onboardingTaskFinished"));
 
 const ONBOARDING_TASK_COUNT: usize = 3;
 
@@ -246,11 +246,11 @@ impl Step for CompleteOnboardingTasks {
 }
 
 pub static IS_CHANGE_WINDOW_OPEN: LazyLock<Attribute<bool>> =
-    LazyLock::new(|| Attribute::new("is_change_window_open"));
+    LazyLock::new(|| Attribute::new("isChangeWindowOpen"));
 static RELEASE_APPROVED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("release_approved"));
+    LazyLock::new(|| Channel::new("releaseApproved"));
 static RELEASE_FINALIZED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("release_finalized"));
+    LazyLock::new(|| Channel::new("releaseFinalized"));
 
 pub const REQUEST_CONFIG_CHANGE: Rpc<String, bool> = Rpc::new("request_config_change");
 pub const APPROVE_RELEASE: Rpc<(), ()> = Rpc::new("approve_release");
@@ -369,9 +369,9 @@ impl Step for ApplyConfigChange {
 }
 
 static CRITICAL_SECTION_TOKEN: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("critical_section_token"));
+    LazyLock::new(|| Channel::new("criticalSectionToken"));
 static CRITICAL_SECTION_FINISHED: LazyLock<Channel<TaskInterval>> =
-    LazyLock::new(|| Channel::new("critical_section_finished"));
+    LazyLock::new(|| Channel::new("criticalSectionFinished"));
 
 const CRITICAL_SECTION_COUNT: usize = 2;
 const INVENTORY_SECTION: &str = "inventory";
@@ -533,9 +533,9 @@ fn leave_critical_section(
     CRITICAL_SECTION_TOKEN.publish(context, "token".to_string())
 }
 
-static AUDIT_LOCK: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("audit_lock"));
+static AUDIT_LOCK: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("auditLock"));
 static AUDIT_FINISHED: LazyLock<Channel<TaskInterval>> =
-    LazyLock::new(|| Channel::new("audit_finished"));
+    LazyLock::new(|| Channel::new("auditFinished"));
 
 const AUDIT_COUNT: usize = 3;
 

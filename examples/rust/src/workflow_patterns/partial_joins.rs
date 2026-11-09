@@ -33,12 +33,12 @@ const BLOCKING_JOIN_ROUND_COUNT: u32 = 2;
 const BRANCH_LETTERS: [&str; 3] = ["A", "B", "C"];
 
 static SUPPLIER_A_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("supplier_a_released"));
+    LazyLock::new(|| Channel::new("supplierAReleased"));
 static SUPPLIER_B_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("supplier_b_released"));
+    LazyLock::new(|| Channel::new("supplierBReleased"));
 static SUPPLIER_C_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("supplier_c_released"));
-static QUOTE_RECEIVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("quote_received"));
+    LazyLock::new(|| Channel::new("supplierCReleased"));
+static QUOTE_RECEIVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("quoteReceived"));
 
 pub const RELEASE_SUPPLIER_QUOTE: Rpc<String, ()> = Rpc::new("release_supplier_quote");
 
@@ -242,12 +242,9 @@ impl Step for ResetQuoteJoin {
     }
 }
 
-static BRANCH_A_SIGNAL: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("branch_a_signal"));
-static BRANCH_B_SIGNAL: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("branch_b_signal"));
-static BRANCH_C_SIGNAL: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("branch_c_signal"));
+static BRANCH_A_SIGNAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("branchASignal"));
+static BRANCH_B_SIGNAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("branchBSignal"));
+static BRANCH_C_SIGNAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("branchCSignal"));
 
 pub const SEND_BRANCH_SIGNAL: Rpc<String, ()> = Rpc::new("send_branch_signal");
 
@@ -439,12 +436,12 @@ fn branch_signal_channel(letter: &str) -> Option<&'static Channel<String>> {
 }
 
 static CARRIER_A_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("carrier_a_released"));
+    LazyLock::new(|| Channel::new("carrierAReleased"));
 static CARRIER_B_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("carrier_b_released"));
+    LazyLock::new(|| Channel::new("carrierBReleased"));
 static CARRIER_C_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("carrier_c_released"));
-static BID_RECEIVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("bid_received"));
+    LazyLock::new(|| Channel::new("carrierCReleased"));
+static BID_RECEIVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("bidReceived"));
 
 pub const RELEASE_CARRIER_BID: Rpc<String, ()> = Rpc::new("release_carrier_bid");
 

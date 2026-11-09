@@ -88,9 +88,9 @@ impl Step for ShipOrder {
 }
 
 static FULFILLMENT_BRANCH_COMPLETED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("fulfillment_branch_completed"));
+    LazyLock::new(|| Channel::new("fulfillmentBranchCompleted"));
 static PAYMENT_APPROVED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("payment_approved"));
+    LazyLock::new(|| Channel::new("paymentApproved"));
 
 pub const APPROVE_PAYMENT: Rpc<(), ()> = Rpc::new("approve_payment");
 

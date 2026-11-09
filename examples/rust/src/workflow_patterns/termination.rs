@@ -23,7 +23,7 @@ use dex_sdk::{
 };
 
 static PROFILE_COMPLETED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("profile_completed"));
+    LazyLock::new(|| Channel::new("profileCompleted"));
 
 pub const COMPLETE_PROFILE: Rpc<(), ()> = Rpc::new("complete_profile");
 
@@ -121,11 +121,11 @@ impl Step for AwaitProfileCompletion {
 }
 
 static DIAGNOSTICS_COLLECTED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("diagnostics_collected"));
+    LazyLock::new(|| Channel::new("diagnosticsCollected"));
 static ON_CALL_ACKNOWLEDGED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("on_call_acknowledged"));
+    LazyLock::new(|| Channel::new("onCallAcknowledged"));
 static INCIDENT_RESOLVED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("incident_resolved"));
+    LazyLock::new(|| Channel::new("incidentResolved"));
 
 pub const RESOLVE_INCIDENT: Rpc<(), ()> = Rpc::new("resolve_incident");
 

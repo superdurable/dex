@@ -36,7 +36,7 @@ pub struct NotificationChannelSelection {
 }
 
 static NOTIFICATION_SENT: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("notification_sent"));
+    LazyLock::new(|| Channel::new("notificationSent"));
 
 /// WCP-6 Multi-Choice, WCP-7 Structured Synchronizing Merge, and WCP-37
 /// Local Synchronizing Merge: the diverging decision passes the selected

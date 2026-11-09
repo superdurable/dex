@@ -26,7 +26,7 @@ use dex_sdk::{
 use super::sorted;
 
 static COURIER_ARRIVED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("courier_arrived"));
+    LazyLock::new(|| Channel::new("courierArrived"));
 
 pub const CONFIRM_COURIER_PICKUP: Rpc<(), ()> = Rpc::new("confirm_courier_pickup");
 pub const CANCEL_COURIER_PICKUP: Rpc<(), ()> = Rpc::new("cancel_courier_pickup");
@@ -100,7 +100,7 @@ impl Step for ArrangeSelfDelivery {
 }
 
 static APPLICATION_REVIEWED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("application_reviewed"));
+    LazyLock::new(|| Channel::new("applicationReviewed"));
 
 /// WCP-20 Cancel Case: the Client stops the Flow with the cancel stop type,
 /// which cancels every active Step.
@@ -139,11 +139,11 @@ impl Step for ReviewApplication {
 }
 
 static IDENTITY_VERIFIED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("identity_verified"));
+    LazyLock::new(|| Channel::new("identityVerified"));
 static CREDIT_HISTORY_CHECKED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("credit_history_checked"));
+    LazyLock::new(|| Channel::new("creditHistoryChecked"));
 static SANCTIONS_SCREENED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("sanctions_screened"));
+    LazyLock::new(|| Channel::new("sanctionsScreened"));
 
 pub const REJECT_APPLICATION: Rpc<(), ()> = Rpc::new("reject_application");
 pub const COMPLETE_SANCTIONS_SCREENING: Rpc<(), ()> = Rpc::new("complete_sanctions_screening");
@@ -280,9 +280,9 @@ impl Step for NotifyRejection {
 }
 
 pub static FINISHED_TRANSLATION_COUNT: LazyLock<Attribute<i64>> =
-    LazyLock::new(|| Attribute::new("finished_translation_count"));
+    LazyLock::new(|| Attribute::new("finishedTranslationCount"));
 static TRANSLATION_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("translation_released"));
+    LazyLock::new(|| Channel::new("translationReleased"));
 
 pub const RELEASE_TRANSLATION: Rpc<(), ()> = Rpc::new("release_translation");
 pub const CANCEL_TRANSLATIONS: Rpc<(), ()> = Rpc::new("cancel_translations");
@@ -381,9 +381,9 @@ impl Step for ReportTranslations {
 }
 
 static PEER_REVIEW_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("peer_review_released"));
+    LazyLock::new(|| Channel::new("peerReviewReleased"));
 static PEER_REVIEW_SUBMITTED: LazyLock<Channel<usize>> =
-    LazyLock::new(|| Channel::new("peer_review_submitted"));
+    LazyLock::new(|| Channel::new("peerReviewSubmitted"));
 
 pub const RELEASE_PEER_REVIEW: Rpc<(), ()> = Rpc::new("release_peer_review");
 pub const GET_SUBMITTED_PEER_REVIEW_COUNT: Rpc<(), usize> =

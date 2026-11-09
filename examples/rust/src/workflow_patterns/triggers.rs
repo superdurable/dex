@@ -22,10 +22,10 @@ use dex_sdk::{
 };
 
 pub static IS_AWAITING_MOTION_EVENT: LazyLock<Attribute<bool>> =
-    LazyLock::new(|| Attribute::new("is_awaiting_motion_event"));
+    LazyLock::new(|| Attribute::new("isAwaitingMotionEvent"));
 static MOTION_SENSOR_ARMED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("motion_sensor_armed"));
-static MOTION_EVENT: LazyLock<Channel<i64>> = LazyLock::new(|| Channel::new("motion_event"));
+    LazyLock::new(|| Channel::new("motionSensorArmed"));
+static MOTION_EVENT: LazyLock<Channel<i64>> = LazyLock::new(|| Channel::new("motionEvent"));
 
 pub const ARM_MOTION_SENSOR: Rpc<(), ()> = Rpc::new("arm_motion_sensor");
 pub const SEND_MOTION_EVENT: Rpc<i64, bool> = Rpc::new("send_motion_event");
@@ -114,8 +114,8 @@ impl Step for AwaitMotionEvent {
     }
 }
 
-static CARRIER_READY: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("carrier_ready"));
-static SHIPMENT_LABEL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("shipment_label"));
+static CARRIER_READY: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("carrierReady"));
+static SHIPMENT_LABEL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("shipmentLabel"));
 
 pub const MARK_CARRIER_READY: Rpc<(), ()> = Rpc::new("mark_carrier_ready");
 pub const SEND_SHIPMENT_LABEL: Rpc<String, ()> = Rpc::new("send_shipment_label");

@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use super::sorted;
 
 static INVITATION_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("invitation_released"));
+    LazyLock::new(|| Channel::new("invitationReleased"));
 
 pub const RELEASE_INVITATIONS: Rpc<usize, ()> = Rpc::new("release_invitations");
 
@@ -119,7 +119,7 @@ impl Step for ConfirmRegistration {
 }
 
 static REVIEW_COMPLETED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("review_completed"));
+    LazyLock::new(|| Channel::new("reviewCompleted"));
 
 const DESIGN_TIME_REVIEWERS: [&str; 3] = ["legal", "finance", "security"];
 
@@ -239,13 +239,13 @@ impl Step for CollectReviews {
 }
 
 pub static STARTED_SAMPLE_COUNT: LazyLock<Attribute<usize>> =
-    LazyLock::new(|| Attribute::new("started_sample_count"));
+    LazyLock::new(|| Attribute::new("startedSampleCount"));
 pub static IS_SAMPLE_INTAKE_CLOSED: LazyLock<Attribute<bool>> =
-    LazyLock::new(|| Attribute::new("is_sample_intake_closed"));
+    LazyLock::new(|| Attribute::new("isSampleIntakeClosed"));
 static SAMPLE_ANALYZED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("sample_analyzed"));
+    LazyLock::new(|| Channel::new("sampleAnalyzed"));
 static SAMPLE_INTAKE_CLOSED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("sample_intake_closed"));
+    LazyLock::new(|| Channel::new("sampleIntakeClosed"));
 
 pub const ADD_SAMPLE: Rpc<String, bool> = Rpc::new("add_sample");
 pub const CLOSE_SAMPLE_INTAKE: Rpc<(), ()> = Rpc::new("close_sample_intake");
@@ -398,8 +398,8 @@ pub struct InspectionJoin {
 }
 
 static INSPECTION_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("inspection_released"));
-static UNIT_INSPECTED: LazyLock<Channel<usize>> = LazyLock::new(|| Channel::new("unit_inspected"));
+    LazyLock::new(|| Channel::new("inspectionReleased"));
+static UNIT_INSPECTED: LazyLock<Channel<usize>> = LazyLock::new(|| Channel::new("unitInspected"));
 
 pub const RELEASE_INSPECTIONS: Rpc<usize, ()> = Rpc::new("release_inspections");
 
@@ -544,9 +544,9 @@ impl Step for ResetInspectionJoin {
 }
 
 static QUORUM_INSPECTION_RELEASED: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("quorum_inspection_released"));
+    LazyLock::new(|| Channel::new("quorumInspectionReleased"));
 static QUORUM_UNIT_INSPECTED: LazyLock<Channel<usize>> =
-    LazyLock::new(|| Channel::new("quorum_unit_inspected"));
+    LazyLock::new(|| Channel::new("quorumUnitInspected"));
 
 pub const RELEASE_QUORUM_INSPECTIONS: Rpc<usize, ()> = Rpc::new("release_quorum_inspections");
 
@@ -668,9 +668,9 @@ pub struct BidJoinProgress {
 pub const MAXIMUM_ACCEPTED_BID_AMOUNT: i64 = 1000;
 
 pub static IS_BID_ADMISSION_CLOSED: LazyLock<Attribute<bool>> =
-    LazyLock::new(|| Attribute::new("is_bid_admission_closed"));
+    LazyLock::new(|| Attribute::new("isBidAdmissionClosed"));
 static BID_EVALUATED: LazyLock<Channel<BidEvaluation>> =
-    LazyLock::new(|| Channel::new("bid_evaluated"));
+    LazyLock::new(|| Channel::new("bidEvaluated"));
 
 pub const ADD_BID: Rpc<i64, bool> = Rpc::new("add_bid");
 
