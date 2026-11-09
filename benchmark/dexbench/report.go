@@ -54,8 +54,8 @@ func writeScenarioReport(output *strings.Builder, results []Result) {
 	isStepScenario := isSequentialStepsScenario(results[0].Config.Scenario)
 	fmt.Fprintf(output, "## %s\n\n", results[0].Config.Scenario)
 	if isStepScenario {
-		output.WriteString("| Concurrency | Settings | Successes | Errors | Throughput | Flow p50 ms | Flow p99 ms | Step p50 ms | Step p90 ms | Step p99 ms | Step max ms | Server CPU % | Server host % | Load host % | PUT/s | RSS MiB max | Notes |\n")
-		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
+		output.WriteString("| Concurrency | Settings | Steps | Errors | Throughput | Step p50 ms | Step p90 ms | Step p99 ms | Step max ms | Server CPU % | Server host % | Load host % | PUT/s | RSS MiB max | Notes |\n")
+		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
 	} else {
 		output.WriteString("| Concurrency | Settings | Successes | Errors | Throughput | p50 ms | p90 ms | p99 ms | max ms | Server CPU % | Server host % | Load host % | PUT/s | RSS MiB max | Notes |\n")
 		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n")
@@ -65,9 +65,9 @@ func writeScenarioReport(output *strings.Builder, results []Result) {
 		resourceCells := fmt.Sprintf("%s | %s | %s | %s | %s", serverCPUCell(result), serverHostCell(result),
 			loadHostCell(result), putRateCell(result), serverRSSCell(result))
 		if isStepScenario {
-			fmt.Fprintf(output, "| %d | %s | %d | %d | %.2f %s/s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %s | %s |\n",
+			fmt.Fprintf(output, "| %d | %s | %d | %d | %.2f %s/s | %.2f | %.2f | %.2f | %.2f | %s | %s |\n",
 				result.Config.Concurrency, settingsLabel(result), result.Successes, errorCount(result), result.ThroughputPerSecond,
-				result.ThroughputUnit, latency.P50, latency.P99, result.StepLatency.P50, result.StepLatency.P90,
+				result.ThroughputUnit, result.StepLatency.P50, result.StepLatency.P90,
 				result.StepLatency.P99, result.StepLatency.Max, resourceCells, notes(result))
 		} else {
 			fmt.Fprintf(output, "| %d | %s | %d | %d | %.2f %s/s | %.2f | %.2f | %.2f | %.2f | %s | %s |\n",
@@ -107,8 +107,8 @@ func writeTrialSummary(output *strings.Builder, results []Result) {
 	}
 	isStepScenario := isSequentialStepsScenario(results[0].Config.Scenario)
 	if isStepScenario {
-		output.WriteString("\n| Concurrency | Settings | Trials | Median throughput | Max throughput | Median Flow p99 ms | Median Step p99 ms |\n")
-		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: | ---: |\n")
+		output.WriteString("\n| Concurrency | Settings | Trials | Median throughput | Max throughput | Median Step p99 ms |\n")
+		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: |\n")
 	} else {
 		output.WriteString("\n| Concurrency | Settings | Trials | Median throughput | Max throughput | Median p99 ms |\n")
 		output.WriteString("| ---: | --- | ---: | ---: | ---: | ---: |\n")
@@ -127,11 +127,12 @@ func writeTrialSummary(output *strings.Builder, results []Result) {
 			stepTails[index] = result.StepLatency.P99
 		}
 		sort.Float64s(throughputs)
-		fmt.Fprintf(output, "| %d | %s | %d | %.2f %s/s | %.2f %s/s | %.2f |", key.concurrency, key.settings, len(group),
-			median(throughputs), group[0].ThroughputUnit, throughputs[len(throughputs)-1], group[0].ThroughputUnit, median(tails))
+		tail := median(tails)
 		if isStepScenario {
-			fmt.Fprintf(output, " %.2f |", median(stepTails))
+			tail = median(stepTails)
 		}
+		fmt.Fprintf(output, "| %d | %s | %d | %.2f %s/s | %.2f %s/s | %.2f |", key.concurrency, key.settings, len(group),
+			median(throughputs), group[0].ThroughputUnit, throughputs[len(throughputs)-1], group[0].ThroughputUnit, tail)
 		output.WriteString("\n")
 	}
 }

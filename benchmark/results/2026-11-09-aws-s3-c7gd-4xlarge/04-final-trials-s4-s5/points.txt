@@ -1,0 +1,6 @@
+rpc-plain 512
+rpc-plain 8
+rpc-locking 4096
+rpc-locking 512
+attribute-read-direct 256
+attribute-read-direct 5

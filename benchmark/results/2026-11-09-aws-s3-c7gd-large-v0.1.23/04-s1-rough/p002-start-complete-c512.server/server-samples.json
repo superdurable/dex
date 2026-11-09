@@ -1,0 +1,146 @@
+{
+  "cores": 2,
+  "cpu_method": "linux: per-interval delta of /proc/\u003cpid\u003e/stat utime+stime over each root's process tree",
+  "samples": [
+    {
+      "at": "2026-11-09T16:55:41.610052919Z",
+      "interval_seconds": 1.003071519,
+      "cpu_percent": 168.48250279150835,
+      "rss_bytes": 104787968,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:42.610369538Z",
+      "interval_seconds": 1.000316618,
+      "cpu_percent": 195.93796251418465,
+      "rss_bytes": 112652288,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:43.60993725Z",
+      "interval_seconds": 0.999567628,
+      "cpu_percent": 195.0843490101502,
+      "rss_bytes": 120254464,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:44.609925324Z",
+      "interval_seconds": 0.99998816,
+      "cpu_percent": 184.00217858579452,
+      "rss_bytes": 128118784,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:45.609929666Z",
+      "interval_seconds": 1.000004342,
+      "cpu_percent": 191.99916633961968,
+      "rss_bytes": 134541312,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:46.610002506Z",
+      "interval_seconds": 1.000072758,
+      "cpu_percent": 181.9867590073882,
+      "rss_bytes": 141881344,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:47.609927424Z",
+      "interval_seconds": 0.999924919,
+      "cpu_percent": 195.01464189432818,
+      "rss_bytes": 151842816,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:48.609922811Z",
+      "interval_seconds": 0.999995387,
+      "cpu_percent": 194.00089492612824,
+      "rss_bytes": 159313920,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:49.609940607Z",
+      "interval_seconds": 1.000017801,
+      "cpu_percent": 189.9966178702053,
+      "rss_bytes": 166260736,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:50.609923273Z",
+      "interval_seconds": 0.99998266,
+      "cpu_percent": 175.00303455261914,
+      "rss_bytes": 171372544,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:51.609928593Z",
+      "interval_seconds": 1.000005321,
+      "cpu_percent": 192.99897305246435,
+      "rss_bytes": 177401856,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:52.609566898Z",
+      "interval_seconds": 0.999638304,
+      "cpu_percent": 191.06910893242443,
+      "rss_bytes": 183562240,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:53.610011979Z",
+      "interval_seconds": 1.000445162,
+      "cpu_percent": 195.91278707188158,
+      "rss_bytes": 189722624,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:54.609927548Z",
+      "interval_seconds": 0.999915569,
+      "cpu_percent": 192.0162121208054,
+      "rss_bytes": 196276224,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:55.609946447Z",
+      "interval_seconds": 1.0000189,
+      "cpu_percent": 190.99639016822584,
+      "rss_bytes": 208203776,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:56.60992749Z",
+      "interval_seconds": 0.999981043,
+      "cpu_percent": 197.0037345997967,
+      "rss_bytes": 215674880,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:57.609928926Z",
+      "interval_seconds": 1.000001354,
+      "cpu_percent": 194.99973597035745,
+      "rss_bytes": 223014912,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:58.609924982Z",
+      "interval_seconds": 0.999996064,
+      "cpu_percent": 188.00073997091278,
+      "rss_bytes": 229044224,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:55:59.60952957Z",
+      "interval_seconds": 0.999604592,
+      "cpu_percent": 188.07436610895468,
+      "rss_bytes": 235335680,
+      "process_count": 1
+    },
+    {
+      "at": "2026-11-09T16:56:00.609930446Z",
+      "interval_seconds": 1.000400866,
+      "cpu_percent": 194.9218624526856,
+      "rss_bytes": 242151424,
+      "process_count": 1
+    }
+  ]
+}

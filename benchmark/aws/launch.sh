@@ -28,7 +28,10 @@ create_infra() {
   save DEXBENCH_SUBNET "$subnet"
 
   bucket="$name-$(openssl rand -hex 4)"
-  aws_cli s3api create-bucket --bucket "$bucket" --create-bucket-configuration "LocationConstraint=$region" >/dev/null
+  # S3 rejects a LocationConstraint of us-east-1, its default Region.
+  local location_argument=(--create-bucket-configuration "LocationConstraint=$region")
+  if [[ "$region" == us-east-1 ]]; then location_argument=(); fi
+  aws_cli s3api create-bucket --bucket "$bucket" ${location_argument[@]+"${location_argument[@]}"} >/dev/null
   aws_cli s3api put-bucket-tagging --bucket "$bucket" --tagging "TagSet=[{$tag}]"
   aws_cli s3api put-bucket-lifecycle-configuration --bucket "$bucket" --lifecycle-configuration \
     '{"Rules":[{"ID":"expire-after-one-day","Status":"Enabled","Filter":{},"Expiration":{"Days":1},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":1}}]}'

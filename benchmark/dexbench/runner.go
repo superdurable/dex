@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -29,19 +30,22 @@ import (
 )
 
 type Runner struct {
-	config               Config
-	connections          []*benchmarkConnection
-	cache                *blobcache.Cache
-	cacheDir             string
-	completion           completionFlow
-	chain                *chainFlow
-	asyncChain           *asyncChainFlow
-	rpc                  rpcFlow
-	attribute            *attributeFlow
-	wake                 *wakeFlow
-	stepLatencies        latencyCollector
-	nextFlowID           atomic.Int64
-	nextWakeSequence     atomic.Int64
+	config        Config
+	connections   []*benchmarkConnection
+	cache         *blobcache.Cache
+	cacheDir      string
+	completion    completionFlow
+	chain         *chainFlow
+	asyncChain    *asyncChainFlow
+	rpc           rpcFlow
+	attribute     *attributeFlow
+	wake          *wakeFlow
+	stepLatencies latencyCollector
+	nextFlowID    atomic.Int64
+	// wakeSequences holds the sequence each client publishes next; only that client's goroutine touches its entry.
+	wakeSequences []int64
+	// wakeNeedsStatePoll marks clients whose last wake failed; their WaitFor notice may already be consumed.
+	wakeNeedsStatePoll   []bool
 	blobsLoaded          atomic.Int64
 	flowStatePolls       atomic.Int64
 	runPrefix            string
@@ -69,6 +73,8 @@ func NewRunner(config Config) (*Runner, error) {
 	runner.chain = &chainFlow{latencies: &runner.stepLatencies}
 	runner.asyncChain = &asyncChainFlow{latencies: &runner.stepLatencies}
 	runner.wake = &wakeFlow{signals: newWakeSignals(config.Concurrency)}
+	runner.wakeSequences = make([]int64, config.Concurrency)
+	runner.wakeNeedsStatePoll = make([]bool, config.Concurrency)
 	runner.expectedReadValues = make(map[string]string, len(benchmarkReadAttributes))
 	for index, attribute := range benchmarkReadAttributes {
 		value := benchmarkReadValue(index, config.AttributeBytes)
@@ -147,14 +153,19 @@ func benchmarkReadValue(index, size int) string {
 	return fmt.Sprintf("%02d-%s", index, strings.Repeat("x", size))
 }
 
-func (runner *Runner) Run(ctx context.Context) (Result, error) {
+// Run measures one point. It fails when a persistent Flow cannot be confirmed stopped, so no live run leaks into the next point.
+func (runner *Runner) Run(ctx context.Context) (result Result, err error) {
 	config := runner.config
-	result := Result{SchemaVersion: 2, StartedAt: time.Now().UTC(), Config: config, Machine: machineInfo(), Errors: map[string]int64{}, UnmeasuredErrors: map[string]int64{}, SDKVersion: sdkVersion(), ServerVersion: os.Getenv("DEXBENCH_SERVER_VERSION")}
+	result = Result{SchemaVersion: 2, StartedAt: time.Now().UTC(), Config: config, Machine: machineInfo(), Errors: map[string]int64{}, UnmeasuredErrors: map[string]int64{}, SDKVersion: sdkVersion(), ServerVersion: os.Getenv("DEXBENCH_SERVER_VERSION")}
 	if result.ServerVersion == "" {
 		result.ServerVersion = "unknown"
 	}
 	persistentFlowIDs, err := runner.startPersistentFlows(ctx)
-	defer runner.stopPersistentFlows(persistentFlowIDs, &result)
+	defer func() {
+		if cleanupErr := runner.stopPersistentFlows(persistentFlowIDs, &result); cleanupErr != nil {
+			err = errors.Join(err, cleanupErr)
+		}
+	}()
 	if err != nil {
 		return result, fmt.Errorf("setup: %w", err)
 	}
@@ -199,9 +210,11 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 		return result, fmt.Errorf("scrape metrics after run: %w", metricsErr)
 	}
 	result.ObjectStore = metricDifference(beforeMetrics, afterMetrics, actualDuration)
-	stepSamples := runner.stepLatencies.take()
-	result.StepSamples = len(stepSamples)
-	result.StepLatency = calculatePercentiles(stepSamples)
+	if !isSequentialStepsScenario(config.Scenario) {
+		stepSamples := runner.stepLatencies.take()
+		result.StepSamples = len(stepSamples)
+		result.StepLatency = calculatePercentiles(stepSamples)
+	}
 	result.BlobsLoaded = runner.blobsLoaded.Load()
 	if config.Scenario == "channel-wake" && result.Attempts > 0 {
 		result.FlowStatePollsPerWake = float64(runner.flowStatePolls.Load()) / float64(result.Attempts)
@@ -212,9 +225,13 @@ func (runner *Runner) Run(ctx context.Context) (Result, error) {
 	return result, runErr
 }
 
+// usesPersistentFlows reports whether each client works on one long-lived run; only start-complete starts a run per operation.
 func (runner *Runner) usesPersistentFlows() bool {
-	return strings.HasPrefix(runner.config.Scenario, "rpc-") || strings.HasPrefix(runner.config.Scenario, "attribute-")
+	return runner.config.Scenario != "start-complete"
 }
+
+// persistentFlowSetupParallelism bounds the concurrent StartFlow and StopFlow calls around a point.
+const persistentFlowSetupParallelism = 64
 
 // startPersistentFlows starts one Flow per client before warmup, so warmup and measurement share them.
 func (runner *Runner) startPersistentFlows(ctx context.Context) ([]string, error) {
@@ -222,30 +239,131 @@ func (runner *Runner) startPersistentFlows(ctx context.Context) ([]string, error
 	if !runner.usesPersistentFlows() {
 		return flowIDs, nil
 	}
-	for index := range flowIDs {
+	errs := make([]error, len(flowIDs))
+	runner.forEachClientInParallel(len(flowIDs), func(index int) {
 		callContext, cancel := context.WithTimeout(ctx, runner.operationTimeout())
+		defer cancel()
 		flowID := runner.newFlowID()
-		err := runner.startPersistentFlow(callContext, runner.connectionFor(index), flowID)
-		cancel()
-		if err != nil {
-			return flowIDs, fmt.Errorf("start persistent Flow for client %d: %w", index, err)
-		}
+		// IDs are client-chosen, so cleanup also stops a Flow whose StartFlow response was lost.
 		flowIDs[index] = flowID
-	}
-	return flowIDs, nil
+		if err := runner.startPersistentFlow(callContext, index, flowID); err != nil {
+			errs[index] = fmt.Errorf("start persistent Flow for client %d: %w", index, err)
+		}
+	})
+	return flowIDs, errors.Join(errs...)
 }
 
-func (runner *Runner) stopPersistentFlows(flowIDs []string, result *Result) {
-	for index, flowID := range flowIDs {
-		if flowID == "" {
-			continue
+// persistentFlowStopAttempts is how many times cleanup tries to stop one Flow before the point fails.
+const persistentFlowStopAttempts = 3
+
+// stopPersistentFlows stops every persistent Flow and returns an error when any of them may still be running.
+func (runner *Runner) stopPersistentFlows(flowIDs []string, result *Result) error {
+	var mutex sync.Mutex
+	errs := make([]error, len(flowIDs))
+	runner.forEachClientInParallel(len(flowIDs), func(index int) {
+		if flowIDs[index] == "" {
+			return
 		}
-		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := runner.connectionFor(index).client.StopFlow(stopContext, flowID, dex.StopOptions{}); err != nil {
-			result.UnmeasuredErrors["cleanup: "+err.Error()]++
+		err := runner.stopPersistentFlow(index, flowIDs[index])
+		if err == nil {
+			return
 		}
+		errs[index] = fmt.Errorf("stop persistent Flow %s: %w", flowIDs[index], err)
+		mutex.Lock()
+		result.UnmeasuredErrors["cleanup: "+err.Error()]++
+		mutex.Unlock()
+	})
+	return errors.Join(errs...)
+}
+
+// stopPersistentFlow stops one Flow and waits until it is closed, so it cannot overlap the next point.
+func (runner *Runner) stopPersistentFlow(clientIndex int, flowID string) error {
+	return stopAndConfirmFlow(runner.connectionFor(clientIndex).client, flowID, persistentFlowStopTimeout, persistentFlowCloseWait)
+}
+
+// persistentFlowStopper is the part of the Client that cleanup needs.
+type persistentFlowStopper interface {
+	StopFlow(ctx context.Context, flowID string, options dex.StopOptions) error
+	WaitForFlow(ctx context.Context, flowID string, options dex.WaitForFlowOptions) (dex.FlowResult, error)
+}
+
+const (
+	// persistentFlowStopTimeout bounds one StopFlow call.
+	persistentFlowStopTimeout = 10 * time.Second
+	// persistentFlowStopRetryDelay grows linearly between StopFlow retries.
+	persistentFlowStopRetryDelay = 200 * time.Millisecond
+	// persistentFlowCloseWait bounds the wait for a stopped Flow to reach a terminal state.
+	persistentFlowCloseWait = 30 * time.Second
+)
+
+// stopAndConfirmFlow retries StopFlow, then waits until the Flow is terminal.
+// A Flow that is already closed or was never created counts as stopped.
+// It returns an error when the Flow may still be running.
+func stopAndConfirmFlow(stopper persistentFlowStopper, flowID string, stopTimeout, closeWait time.Duration) error {
+	var err error
+	for attempt := range persistentFlowStopAttempts {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * persistentFlowStopRetryDelay)
+		}
+		stopContext, cancel := context.WithTimeout(context.Background(), stopTimeout)
+		err = stopper.StopFlow(stopContext, flowID, dex.StopOptions{})
 		cancel()
+		var notActive *dex.FlowNotActiveOrNotFoundError
+		if errors.As(err, &notActive) {
+			return nil
+		}
+		var closing *dex.FlowClosingError
+		if err == nil || errors.As(err, &closing) {
+			// StopFlow returns once the stop is accepted, before the Flow closes.
+			return waitForFlowClosed(stopper, flowID, closeWait)
+		}
 	}
+	return err
+}
+
+// waitForFlowClosed polls WaitForFlow until the Flow is terminal or closeWait passes.
+func waitForFlowClosed(stopper persistentFlowStopper, flowID string, closeWait time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), closeWait)
+	defer cancel()
+	var lastErr error
+	for {
+		result, err := stopper.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{})
+		var notActive *dex.FlowNotActiveOrNotFoundError
+		var notFound *dex.FlowNotFoundError
+		switch {
+		case err == nil && result.IsTerminal():
+			return nil
+		case errors.As(err, &notActive) || errors.As(err, &notFound):
+			return nil
+		case err != nil:
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("Flow %s was not closed within %v after its stop was accepted: %w", flowID, closeWait, errors.Join(ctx.Err(), lastErr))
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// forEachClientInParallel calls work for every client index with bounded parallelism and returns when all finish.
+func (runner *Runner) forEachClientInParallel(clients int, work func(index int)) {
+	indexes := make(chan int)
+	var waitGroup sync.WaitGroup
+	for range min(clients, persistentFlowSetupParallelism) {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			for index := range indexes {
+				work(index)
+			}
+		}()
+	}
+	for index := range clients {
+		indexes <- index
+	}
+	close(indexes)
+	waitGroup.Wait()
 }
 
 func (runner *Runner) operationTimeout() time.Duration {
@@ -263,6 +381,9 @@ func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isM
 	var attempts int64
 	started := time.Now()
 	deadline := started.Add(duration)
+	if isSequentialStepsScenario(runner.config.Scenario) {
+		return runner.waitForChainWindow(ctx, started, deadline, isMeasured, result)
+	}
 	for clientIndex := 0; clientIndex < runner.config.Concurrency; clientIndex++ {
 		waitGroup.Add(1)
 		go func(index int) {
@@ -299,12 +420,34 @@ func (runner *Runner) runWindow(ctx context.Context, duration time.Duration, isM
 		result.Latency = calculatePercentiles(latencies)
 		result.MeasuredSeconds = elapsed.Seconds()
 		result.ThroughputUnit = throughputUnit(runner.config.Scenario)
-		factor := int64(1)
-		if isSequentialStepsScenario(runner.config.Scenario) {
-			factor = int64(runner.config.Steps)
-		}
 		// Operations that finish after the deadline still count, so divide by elapsed time.
-		result.ThroughputPerSecond = float64(successes*factor) / elapsed.Seconds()
+		result.ThroughputPerSecond = float64(successes) / elapsed.Seconds()
+	}
+	return ctx.Err()
+}
+
+// waitForChainWindow lets the long-lived chain runs execute Steps until the deadline; clients send nothing.
+// A measured window counts only the Steps the Worker starts between its two boundary snapshots.
+func (runner *Runner) waitForChainWindow(ctx context.Context, started, deadline time.Time, isMeasured bool, result *Result) error {
+	runner.stepLatencies.take()
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	stepSamples := runner.stepLatencies.take()
+	elapsed := time.Since(started)
+	if isMeasured {
+		// One operation of a long-lived chain is one Step, measured from the previous Step's start.
+		result.MeasuredSeconds = elapsed.Seconds()
+		result.ThroughputUnit = throughputUnit(runner.config.Scenario)
+		result.StepSamples = len(stepSamples)
+		result.StepLatency = calculatePercentiles(stepSamples)
+		result.Latency = result.StepLatency
+		result.Attempts = int64(len(stepSamples))
+		result.Successes = result.Attempts
+		result.ThroughputPerSecond = float64(len(stepSamples)) / elapsed.Seconds()
 	}
 	return ctx.Err()
 }
@@ -328,7 +471,20 @@ func isSequentialStepsScenario(scenario string) bool {
 	return scenario == "sequential-steps" || scenario == "sequential-steps-async"
 }
 
-func (runner *Runner) startPersistentFlow(ctx context.Context, connection *benchmarkConnection, flowID string) error {
+func (runner *Runner) startPersistentFlow(ctx context.Context, clientIndex int, flowID string) error {
+	connection := runner.connectionFor(clientIndex)
+	switch runner.config.Scenario {
+	case "sequential-steps":
+		_, err := connection.client.StartFlow(ctx, runner.chain, flowID, chainInput{Remaining: math.MaxInt}, dex.StartFlowOptions{})
+		return err
+	case "sequential-steps-async":
+		_, err := connection.client.StartFlow(ctx, runner.asyncChain, flowID, chainInput{Remaining: math.MaxInt}, dex.StartFlowOptions{})
+		return err
+	case "channel-wake":
+		runner.wakeSequences[clientIndex] = 1
+		_, err := connection.client.StartFlow(ctx, runner.wake, flowID, wakeInput{Client: clientIndex}, dex.StartFlowOptions{})
+		return err
+	}
 	if strings.HasPrefix(runner.config.Scenario, "rpc-") {
 		initialCounter, err := dex.InitialAttribute(benchmarkRPCCounter, int64(0))
 		if err != nil {
@@ -355,18 +511,9 @@ func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persist
 	switch runner.config.Scenario {
 	case "start-complete":
 		flowID := runner.newFlowID()
-		if _, err := connection.client.StartFlow(ctx, runner.completion, flowID, nil, dex.StartFlowOptions{}); err != nil {
-			return 0, err
-		}
-		return 0, runner.waitForCompletion(ctx, connection, flowID)
-	case "sequential-steps", "sequential-steps-async":
-		var flow dex.Flow = runner.chain
-		if runner.config.Scenario == "sequential-steps-async" {
-			flow = runner.asyncChain
-		}
-		flowID := runner.newFlowID()
-		input := chainInput{Remaining: runner.config.Steps}
-		if _, err := connection.client.StartFlow(ctx, flow, flowID, input, dex.StartFlowOptions{}); err != nil {
+		// Short runs keep their history local, so closing one uploads no history segment.
+		options := dex.StartFlowOptions{ConfigOverride: &dex.FlowConfig{OffloadHistory: ptr.Any(false)}}
+		if _, err := connection.client.StartFlow(ctx, runner.completion, flowID, nil, options); err != nil {
 			return 0, err
 		}
 		return 0, runner.waitForCompletion(ctx, connection, flowID)
@@ -377,7 +524,7 @@ func (runner *Runner) runOperation(ctx context.Context, clientIndex int, persist
 		var output int64
 		return 0, connection.client.InvokeRPC(ctx, persistentFlowID, runner.rpc.IncrementCounter, nil, &output)
 	case "channel-wake":
-		return runner.wakeWaitingFlow(ctx, connection, clientIndex)
+		return runner.wakeWaitingFlow(ctx, connection, clientIndex, persistentFlowID)
 	case "attribute-read-direct":
 		return 0, runner.readAttributesDirect(ctx, connection, persistentFlowID)
 	default:
@@ -397,19 +544,28 @@ func (runner *Runner) waitForCompletion(ctx context.Context, connection *benchma
 }
 
 // wakeWaitingFlow times PublishToChannel until the waiting Step's Execute starts.
-// Starting the Flow and confirming it waits are not timed.
-func (runner *Runner) wakeWaitingFlow(ctx context.Context, connection *benchmarkConnection, clientIndex int) (time.Duration, error) {
-	flowID := runner.newFlowID()
-	sequence := runner.nextWakeSequence.Add(1)
-	if _, err := connection.client.StartFlow(ctx, runner.wake, flowID, wakeInput{Client: clientIndex, Sequence: sequence}, dex.StartFlowOptions{}); err != nil {
-		return 0, err
-	}
-	if err := runner.waitForWaitForReturn(ctx, clientIndex, sequence); err != nil {
-		return 0, err
+// Confirming that the client's long-lived run waits again is not timed.
+// Every attempt publishes a new sequence, so a failed or timed-out attempt never leaves the client waiting for a stale wake.
+func (runner *Runner) wakeWaitingFlow(ctx context.Context, connection *benchmarkConnection, clientIndex int, flowID string) (time.Duration, error) {
+	latency, err := runner.doWakeWaitingFlow(ctx, connection, clientIndex, flowID)
+	// After a failure the notice of the current wait may be consumed, so the next attempt polls state at once.
+	runner.wakeNeedsStatePoll[clientIndex] = err != nil
+	return latency, err
+}
+
+func (runner *Runner) doWakeWaitingFlow(ctx context.Context, connection *benchmarkConnection, clientIndex int, flowID string) (time.Duration, error) {
+	sequence := runner.wakeSequences[clientIndex]
+	runner.wakeSequences[clientIndex] = sequence + 1
+	if !runner.wakeNeedsStatePoll[clientIndex] {
+		if err := waitForWakeNotice(ctx, runner.wake.signals.waitedChannels[clientIndex], wakeNoticeWait); err != nil {
+			return 0, err
+		}
 	}
 	if err := runner.waitUntilStepWaiting(ctx, connection, flowID); err != nil {
 		return 0, err
 	}
+	// The worker sends a notice before the server records WAITING, so every queued notice is for this wait or older.
+	drainWakeNotices(runner.wake.signals.waitedChannels[clientIndex])
 	message := &dexpb.ChannelMessage{ChannelName: benchmarkWakeChannel.ChannelName(), Value: &dexpb.Value{Kind: &dexpb.Value_IntValue{IntValue: sequence}}}
 	publishedAt := time.Now()
 	if _, err := connection.service.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{FlowId: flowID, Messages: []*dexpb.ChannelMessage{message}}); err != nil {
@@ -424,26 +580,40 @@ func (runner *Runner) wakeWaitingFlow(ctx context.Context, connection *benchmark
 			if signal.sequence != sequence {
 				continue
 			}
-			latency := signal.startedAt.Sub(publishedAt)
-			if err := runner.waitForCompletion(ctx, connection, flowID); err != nil {
-				return 0, err
-			}
-			return latency, nil
+			return signal.startedAt.Sub(publishedAt), nil
 		}
 	}
 }
 
-// waitForWaitForReturn keeps GetFlowState polls, which are server state reads, near one per wake.
-func (runner *Runner) waitForWaitForReturn(ctx context.Context, clientIndex int, sequence int64) error {
-	waited := runner.wake.signals.waitedChannels[clientIndex]
+// wakeNoticeWait bounds the wait for a WaitFor notice; after an error the notice may already be consumed.
+const wakeNoticeWait = 2 * time.Second
+
+// waitForWakeNotice keeps GetFlowState polls, which are server state reads, near one per wake.
+// It waits at most maxWait and at most a quarter of the time left before ctx's deadline, so a missing notice
+// still leaves time to poll and publish. waitUntilStepWaiting confirms the wait either way.
+func waitForWakeNotice(ctx context.Context, notices <-chan struct{}, maxWait time.Duration) error {
+	wait := maxWait
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		wait = min(wait, time.Until(deadline)/4)
+	}
+	timer := time.NewTimer(max(wait, 0))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait for WaitFor: %w", ctx.Err())
+	case <-notices:
+	case <-timer.C:
+	}
+	return nil
+}
+
+// drainWakeNotices discards queued WaitFor notices without blocking, keeping one notice per wake.
+func drainWakeNotices(notices <-chan struct{}) {
 	for {
 		select {
-		case <-ctx.Done():
-			return fmt.Errorf("wait for WaitFor: %w", ctx.Err())
-		case waitedSequence := <-waited:
-			if waitedSequence == sequence {
-				return nil
-			}
+		case <-notices:
+		default:
+			return
 		}
 	}
 }

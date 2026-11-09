@@ -1,0 +1,17 @@
+cluster:
+  nodeId: "dexbench-1"
+objectStore:
+  bucket: "dex-benchmark-2026-11-09w-486417b0"
+  prefix: "2026-11-09w-large-01-search-s4-s5-050857/20261109T050857Z-9dc040/p018-attribute-read-direct-c512"
+  region: "us-west-2"
+  credentialsSource: defaultChain
+localStorage:
+  directory: "/mnt/nvme/dexzd"
+api:
+  listen: "0.0.0.0:8801"
+metrics:
+  listen: "0.0.0.0:9901"
+history:
+  offloadEnabled: true
+  deleteExpiredObjects: true
+  windowEvents: 50000
