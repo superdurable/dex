@@ -24,7 +24,7 @@ Data, resource, and exception-handling patterns are out of scope.
   Channel signals that branches publish for a join, Attribute counters or flags,
   an RPC guard, an extra reset Step, a lock used as a mutex, or a Channel used as
   a token, or one defining clause holds only in a restricted form.
-- `-` not supported. The example is the closest approximation, not the pattern.
+- `-` not supported. The example would be the closest approximation, not the pattern.
   Its test asserts the approximation's behavior, and the spec names the
   defining clause it fails.
 
@@ -74,14 +74,14 @@ child Flows, a **SubFlow** AllOf wait is the native join.
 | WCP-35 | Cancelling Partial Join for Multiple Instances | +/- | A Channel signal join waits ForN(n), then its decision cancels the instance Step type | CancellingPartialJoinForMultipleInstancesFlow |
 | WCP-36 | Dynamic Partial Join for Multiple Instances | +/- | RPC result next Steps add instances; the join re-waits ForOne and evaluates the completion condition; an Attribute disables new instances | DynamicPartialJoinForMultipleInstancesFlow |
 | WCP-37 | Local Synchronizing Merge | +/- | Same as WCP-7: the diverging decision passes the branch count to a Channel signal join | MultiChoiceSynchronizingMergeFlow |
-| WCP-38 | General Synchronizing Merge | - | Closest approximation, not the pattern: a SubFlow wraps the region and completes once none of its Steps can run | GeneralSynchronizingMergeFlow |
+| WCP-38 | General Synchronizing Merge | +/- | An Attribute counts the threads that can still reach the merge, under one shared lock; the commit that brings it to 0 publishes a sentinel that the merge Step waits for | GeneralSynchronizingMergeFlow |
 | WCP-39 | Critical Section | +/- | A single-message Channel used as a token; Attribute locks cover one Step method only, not a multi-Step section | CriticalSectionFlow |
 | WCP-40 | Interleaved Routing | +/- | Execute Attribute lock shared by every task, then a Channel ForN join. A lock covers one Execute only | InterleavedRoutingFlow |
 | WCP-41 | Thread Merge | +/- | Channel ForN(k) join of signals from k executions of one Step type | ThreadSplitMergeFlow |
 | WCP-42 | Thread Split | + | GoToMany k executions of one Step type | ThreadSplitMergeFlow |
 | WCP-43 | Explicit Termination | + | ForceComplete closes the Flow at once and cancels every other Step | ExplicitTerminationFlow |
 
-Totals: 19 `+`, 23 `+/-`, 1 `-`.
+Totals: 19 `+`, 24 `+/-`, 0 `-`.
 
 ### Rating notes
 
@@ -98,13 +98,14 @@ Totals: 19 `+`, 23 `+/-`, 1 `-`.
   blocked by construction. The tests prove it has no effect before the reset.
   The rating stays `+/-` because branches publish their signals explicitly and
   a reset Step is needed.
-- **WCP-38 is `-`.** The definition requires the merge to fire "when either (1)
-  each active incoming branch has been enabled or (2) it is not possible that
-  any branch that has not yet been enabled will be enabled at any future time",
-  in a general process with no structural restriction. A Flow has no merge that
-  decides clause (2). The SubFlow approximation only works when every path into
-  the merge lies inside one separately started region, and it merges at the
-  end of that region, not at an in-Flow merge point.
+- **WCP-38 is `+/-`.** The definition requires the merge to fire "when either
+  (1) each active incoming branch has been enabled or (2) it is not possible
+  that any branch that has not yet been enabled will be enabled at any future
+  time". The pattern expects the merge itself to decide clause (2) from the
+  process structure. In Dex, application code decides reachability at each
+  GoTo: it counts the live threads in an Attribute and publishes a sentinel
+  when the count reaches 0. That is bookkeeping, so the rating is `+/-`. The
+  design follows the Drain Internal Channels sentinel pattern.
 - **WCP-20 is `+/-`.** The definition says "This includes currently executing
   tasks, those which may execute at some future time and all sub-processes."
   Client StopFlow alone leaves running SubFlows alive. The example meets the
@@ -121,7 +122,7 @@ Flows are grouped by WCP category into ten source groups.
 | Group | Flow types |
 | --- | --- |
 | basic control flow | SequenceFlow, ParallelSplitSynchronizationFlow, ExclusiveChoiceSimpleMergeFlow |
-| multi-choice and merges | MultiChoiceSynchronizingMergeFlow, MultiMergeFlow, GeneralSynchronizingMergeFlow, ReviewRegionFlow |
+| multi-choice and merges | MultiChoiceSynchronizingMergeFlow, MultiMergeFlow, GeneralSynchronizingMergeFlow |
 | partial joins | StructuredPartialJoinFlow, BlockingPartialJoinFlow, CancellingPartialJoinFlow |
 | and-join and threads | GeneralizedAndJoinFlow, ThreadSplitMergeFlow |
 | multiple instances | MultipleInstancesWithoutSynchronizationFlow, DesignTimeMultipleInstancesFlow, RunTimeMultipleInstancesFlow, NoPriorKnowledgeMultipleInstancesFlow, StaticPartialJoinForMultipleInstancesFlow, CancellingPartialJoinForMultipleInstancesFlow, DynamicPartialJoinForMultipleInstancesFlow |
@@ -231,22 +232,51 @@ same names with underscores for Python, Go, and Rust.
 - Test: COMPLETED; exactly two RecordReview completions, outputs
   `{"LegalReview", "FinanceReview"}`.
 
-**GeneralSynchronizingMergeFlow** (WCP-38) with child **ReviewRegionFlow**.
-Rated `-`: this is the closest approximation, not the pattern. It fails the
-clause "it is not possible that any branch that has not yet been enabled will
-be enabled at any future time" for a general in-Flow merge: it merges only at
-the end of a separately started region. Its test asserts the approximation.
-- GeneralSynchronizingMergeFlow input: none. Steps: RunReviewRegion (start)
-  waits SubFlow.run(ReviewRegionFlow, 0); Execute decodes every completion
-  output of the SubFlow result as a string and GoTo PublishDecision(sorted
-  outputs). PublishDecision returns GracefulComplete(its input).
-- ReviewRegionFlow input: revision (int). Steps: DraftProposal(revision) ->
-  GoToMany(ReviewProposal(revision), TranslateProposal(revision)).
-  ReviewProposal: revision < 1 -> GoTo(DraftProposal, revision + 1) (the
-  cycle), else GracefulComplete("ReviewProposal-" + revision).
-  TranslateProposal returns GracefulComplete("TranslateProposal-" + revision).
-- Test: COMPLETED; exactly one PublishDecision completion with
-  `["ReviewProposal-1", "TranslateProposal-0", "TranslateProposal-1"]`.
+**GeneralSynchronizingMergeFlow** (WCP-38). A document review: after drafting,
+an OR-split picks a legal check and/or a finance check. Finance can send the
+draft back for rework, which re-drafts and triggers another legal check. The
+finance branch can instead leave to archive and never reach the merge.
+PublishDocument is the merge. The number of arrivals is unknown at the split.
+- Input: DocumentReviewPlan `{isLegalCheckNeeded: bool, isFinanceCheckNeeded:
+  bool, financeReworkRounds: int, isFinanceArchived: bool}`.
+- DocumentDraft: `{plan: DocumentReviewPlan, revision: int}`.
+- Attributes: liveBranchCount (int), the threads that can still reach the
+  merge; mergedReviews (list of strings), the arrivals. Every Step that reads
+  or writes them holds an Execute lock on liveBranchCount.
+- Channel: mergeSentinel (string).
+- Steps:
+  - StartDocumentReview (start, input DocumentReviewPlan, locked): sets
+    liveBranchCount to 1 -> GoToMany(DraftDocument(`{plan, revision: 0}`),
+    PublishDocument).
+  - DraftDocument(DocumentDraft, locked): revision 0 selects CheckLegalTerms
+    when isLegalCheckNeeded and CheckFinanceTerms when isFinanceCheckNeeded; a
+    rework revision (> 0) selects both. With n selected,
+    liveBranchCount += n - 1 in the same commit; if it becomes 0, publish
+    `"done"` to mergeSentinel. GoToMany(CheckLegalTerms(revision),
+    CheckFinanceTerms(DocumentDraft)) for the selected ones, or DeadEnd when
+    n is 0.
+  - CheckLegalTerms(revision, locked): an arrival. Append
+    `"CheckLegalTerms-" + revision` to mergedReviews, liveBranchCount -= 1,
+    publish the sentinel if it becomes 0, DeadEnd.
+  - CheckFinanceTerms(DocumentDraft, locked): revision <
+    financeReworkRounds -> GoTo(DraftDocument, revision + 1), count unchanged;
+    else isFinanceArchived -> liveBranchCount -= 1 (publish the sentinel if 0)
+    and GoTo(ArchiveDocument); else an arrival: append
+    `"CheckFinanceTerms-" + revision`, liveBranchCount -= 1, publish the
+    sentinel if 0, DeadEnd.
+  - ArchiveDocument returns GracefulComplete("ArchiveDocument").
+  - PublishDocument, the merge, waits mergeSentinel.ForOne and returns
+    GracefulComplete(sorted mergedReviews).
+- Test (a) rework adds a review after the split: `{true, true, 1, false}`;
+  COMPLETED; exactly one PublishDocument completion with `["CheckFinanceTerms-1",
+  "CheckLegalTerms-0", "CheckLegalTerms-1"]`.
+- Test (b) an archived branch does not block the merge: `{true, true, 0,
+  true}`; COMPLETED; exactly one PublishDocument completion with
+  `["CheckLegalTerms-0"]` and one ArchiveDocument completion.
+- Test (c) the merge fires once, after the last thread that can reach it:
+  `{false, true, 2, false}`; COMPLETED; exactly one PublishDocument completion,
+  with `["CheckFinanceTerms-2", "CheckLegalTerms-1", "CheckLegalTerms-2"]`, so
+  it includes the last arrival.
 
 ### partial joins
 
