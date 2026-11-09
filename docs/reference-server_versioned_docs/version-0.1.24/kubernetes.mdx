@@ -111,7 +111,7 @@ Steps that are not yet handed to a Worker wait. The successor dispatches them
 after it takes the lease. A Step whose start was already being written when the
 drain began still goes to its Worker and is drained like a running attempt. So
 does a Step that a Worker took from the
-[Step task queue](/reference/server/0.1.17/workers#step-task-queue) before the drain began. Steps still in the
+[Step task queue](/reference/server/0.1.24/workers#step-task-queue) before the drain began. Steps still in the
 task queue stay there for the successor.
 
 **lifecycle.attemptDrainTimeout** defaults to **30s**. Set it to **0s** to disable
@@ -119,7 +119,8 @@ attempt draining. Step method and heartbeat timeouts still apply during the
 drain; the drain does not extend them. Choose a drain timeout long enough for
 the remaining execution time of the Step methods you want to finish.
 **dexcli dev** uses a **2s** drain unless its configuration sets this field,
-because it stops the server after 10 seconds.
+because it stops the server after 10 seconds. **dex-server-zd local** keeps
+the **30s** default.
 
 Set Kubernetes **terminationGracePeriodSeconds** longer than the drain timeout,
 with at least 15 extra seconds for teardown. For the default **30s** drain,
@@ -199,6 +200,12 @@ store. It never sets aside or deletes the active store while another process
 holds its lock. The node never opens a set-aside copy again. Cleanup does not
 check whether another tool has a set-aside copy open.
 
+The history read cache, **history.readCacheMaxBytes** (1 GiB by default), sits
+next to the store directory on the same volume by default. If you mount the
+volume at **localStorage.directory** itself, point **history.readCacheDirectory**
+into a writable volume, or the cache is lost on every restart. See
+[History offload](/reference/server/0.1.24/configuration#history-offload).
+
 Size the volume for the live state, plus **localStorage.maxWalBytes** of
 write-ahead log (256 MiB by default), plus room for uncompacted files after a
 bulk replay. The node compacts the store after such a replay, which returns the
@@ -244,7 +251,7 @@ Use gRPC health for all three probes:
 A serving node that never steps down returns to **NOT_SERVING** only by
 exiting, because a lost lease ends the process. Liveness on gRPC health
 therefore does not cause restart loops for it. A
-[step down](/reference/server/0.1.17/high-availability#step-down) makes the active process report **NOT_SERVING** while
+[step down](/reference/server/0.1.24/high-availability#step-down) makes the active process report **NOT_SERVING** while
 it keeps running as a standby, and a liveness probe on gRPC health would restart
 it. A process that may step down needs the TCP or exec liveness probe of a
 standby.
@@ -252,7 +259,7 @@ standby.
 This probe set is for a single replica. A standby replica stays
 **NOT_SERVING** until it takes over, so it would never pass this startup probe.
 A standby needs a TCP or exec startup probe and liveness probe instead. See
-[hot standby](/reference/server/0.1.17/high-availability#hot-standby-health).
+[hot standby](/reference/server/0.1.24/high-availability#hot-standby-health).
 
 The process exits on its own after a fatal error, such as a lost lease or a
 failed commit. During startup, transient or unknown-outcome object storage read errors are retried
