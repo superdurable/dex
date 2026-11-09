@@ -452,6 +452,7 @@ fn settings(segment_target_bytes: u64) -> RunSettings {
         history_segment_target_bytes: segment_target_bytes,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 
@@ -933,6 +934,13 @@ fn segment_rows_count_as_history_and_never_toward_run_state() {
             RunTable::HistorySegment | RunTable::HistorySegmentValue => {
                 history_bytes += row_bytes;
                 segment_row_bytes += row_bytes;
+            }
+            RunTable::RunRecord => {
+                let mut record = RunRecord::decode(value.as_slice()).expect("run record decodes");
+                let full_size = record.encoded_len();
+                // Run storage never counts the active Step type counts.
+                record.search_active_step_type_counts = None;
+                state_row_bytes += row_bytes - (full_size - record.encoded_len()) as u64;
             }
             _ => state_row_bytes += row_bytes,
         }

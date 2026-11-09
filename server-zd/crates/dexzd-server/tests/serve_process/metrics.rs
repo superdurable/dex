@@ -325,7 +325,8 @@ async fn metrics_endpoint_tracks_one_completed_flow_and_worker_poll() {
         .filter(|line| !line.starts_with('#') && !line.is_empty())
         .count();
     // dexzd_history_reads_total adds six series: two kinds by three sources.
-    assert!(series_count <= 208, "scrape has {series_count} series");
+    // The history upload limiter adds two gauges: its concurrency limit and in-flight bytes.
+    assert!(series_count <= 210, "scrape has {series_count} series");
     eprintln!("metrics scenario series count: {series_count}");
     let status = process.terminate(SHUTDOWN_BUDGET).await;
     assert_eq!(status.code(), Some(0), "{}", process.log());

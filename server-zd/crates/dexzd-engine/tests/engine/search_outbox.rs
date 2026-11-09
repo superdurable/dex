@@ -238,6 +238,7 @@ async fn start_flow(node: &EngineNode, hasher: &PartitionHasher, number: u8) {
                 history_segment_target_bytes: 4 << 20,
                 delete_expired_history_objects: false,
                 superseded_value_grace_micros: 0,
+                offload_history: None,
             }),
             resolved_timeout_policy: FlowTimeoutPolicy::Fail as i32,
             worker_target: Some(WorkerTarget { is_pull_mode: true }),

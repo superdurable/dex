@@ -116,7 +116,7 @@ pub(crate) fn check_open_segment_transitions(
             && current.history_open_segment_first_event_id == current.next_event_id.max(1)
             && current.history_open_segment_bytes == 0
             && current.history_open_segment_superseded_value_count == 0;
-        if !view.is_history_offload_enabled {
+        if !view.is_run_history_offloaded(current) {
             if !moved_after_command || sealed_now {
                 return Err(violation(
                     "H9-open-segment-transition",
@@ -194,6 +194,65 @@ pub(crate) fn check_window_frontier(
             format!(
                 "the window frontier {pruned_through_seq} passed the window start {}",
                 record.window_start_seq
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Checks that no record or checkpoint metadata after genesis and no value garbage lie below the
+/// prune cursors (H18).
+pub(crate) fn check_prune_cursors(
+    context: &RunContext<'_>,
+    run: &RunView,
+) -> Result<(), InvariantViolation> {
+    let Some(record) = &run.record else {
+        return Ok(());
+    };
+    let Some(genesis_seq) = run.attempts.get(&1).map(|attempt| attempt.start_seq) else {
+        return Ok(());
+    };
+    let metadata_cursor = record.history_metadata_pruned_before_seq;
+    let skipped_metadata = (metadata_cursor > genesis_seq + 1)
+        .then(|| {
+            run.history_record_metadata
+                .range(genesis_seq + 1..metadata_cursor)
+                .next()
+        })
+        .flatten();
+    if let Some((seq, _)) = skipped_metadata {
+        return Err(violation(
+            "H18-prune-cursor",
+            context,
+            format!("record {seq} keeps metadata below the metadata cursor {metadata_cursor}"),
+        ));
+    }
+    if let Some((seq, attempt)) = run
+        .history_checkpoint_metadata
+        .iter()
+        .find(|(seq, _)| *seq > genesis_seq && *seq < metadata_cursor)
+    {
+        return Err(violation(
+            "H18-prune-cursor",
+            context,
+            format!(
+                "checkpoint {seq} of attempt {attempt} keeps metadata below the metadata cursor \
+                 {metadata_cursor}"
+            ),
+        ));
+    }
+    let garbage_cursor = record.value_garbage_pruned_before_seq;
+    if let Some((seq, value_id, _)) = run
+        .value_garbage
+        .iter()
+        .find(|(seq, _, _)| *seq < garbage_cursor)
+    {
+        return Err(violation(
+            "H18-prune-cursor",
+            context,
+            format!(
+                "value {}/{} keeps garbage at seq {seq}, below the garbage cursor {garbage_cursor}",
+                value_id.run_seq, value_id.index_in_command
             ),
         ));
     }
@@ -495,13 +554,15 @@ pub(crate) fn check_deletions_were_uploaded(
             }
             _ => continue,
         };
-        let is_fenced = view.is_history_offload_enabled
-            || view.history_upload_pending_runs.contains(&parsed.run_id);
+        let run = view.runs.get(&parsed.run_id);
+        let record = run.and_then(|run| run.record.as_ref());
+        let is_offloaded = record.map_or(view.is_history_offload_enabled, |record| {
+            view.is_run_history_offloaded(record)
+        });
+        let is_fenced = is_offloaded || view.history_upload_pending_runs.contains(&parsed.run_id);
         if !is_fenced {
             continue;
         }
-        let run = view.runs.get(&parsed.run_id);
-        let record = run.and_then(|run| run.record.as_ref());
         let uploaded_through_seq = record.map_or(0, |record| record.history_uploaded_through_seq);
         let window_start_seq = record.map_or(0, |record| record.window_start_seq);
         let is_uploaded =
@@ -814,4 +875,72 @@ fn violation(
     detail: impl std::fmt::Display,
 ) -> InvariantViolation {
     InvariantViolation::new(invariant, format!("{context}: {detail}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use dexzd_protocol::dexzd::v1::{AttemptRecord, HistoryRowMetadata};
+
+    use super::*;
+
+    /// A run whose metadata cursor is 50, holding genesis and the record and checkpoint at 50.
+    fn pruned_run() -> RunView {
+        let mut run = RunView {
+            is_complete: true,
+            record: Some(RunRecord {
+                window_start_seq: 60,
+                history_metadata_pruned_before_seq: 50,
+                ..RunRecord::default()
+            }),
+            ..RunView::default()
+        };
+        run.attempts.insert(
+            1,
+            AttemptRecord {
+                attempt: 1,
+                start_seq: 1,
+                ..AttemptRecord::default()
+            },
+        );
+        for seq in [1, 50] {
+            run.history_record_metadata
+                .insert(seq, HistoryRowMetadata::default());
+            run.history_checkpoint_metadata.insert((seq, 1));
+        }
+        run
+    }
+
+    fn check(run: &RunView) -> Result<(), InvariantViolation> {
+        check_prune_cursors(
+            &RunContext {
+                flow_id: "order-1",
+                run_id: &RunId([9; 16]),
+            },
+            run,
+        )
+    }
+
+    #[test]
+    fn prune_cursor_check_accepts_genesis_and_rows_at_the_cursor() {
+        assert_eq!(check(&pruned_run()), Ok(()));
+    }
+
+    #[test]
+    fn prune_cursor_check_rejects_a_checkpoint_left_below_the_cursor() {
+        // A full page that ended at record 49 and skipped past seq 49 strands its checkpoint.
+        let mut run = pruned_run();
+        run.history_checkpoint_metadata.insert((49, 1));
+        let violation = check(&run).expect_err("the stranded checkpoint is found");
+        assert_eq!(violation.invariant, "H18-prune-cursor");
+        assert!(violation.detail.contains("checkpoint 49"), "{violation:?}");
+    }
+
+    #[test]
+    fn prune_cursor_check_rejects_a_record_left_below_the_cursor() {
+        let mut run = pruned_run();
+        run.history_record_metadata
+            .insert(49, HistoryRowMetadata::default());
+        let violation = check(&run).expect_err("the stranded record is found");
+        assert_eq!(violation.invariant, "H18-prune-cursor");
+    }
 }

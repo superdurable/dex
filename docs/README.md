@@ -66,7 +66,7 @@ npm run generate:flow-definitions
 
 Set `DEX_FLOW_PYTHON` when Python 3.11+ is not the default interpreter.
 
-Feature guides include [durable SubFlows](content/primitives/subflow.mdx).
+Feature guides include [durable SubFlows](content/concepts/primitives/subflow.mdx).
 
 ## Reference versions and release snapshots
 
@@ -77,8 +77,7 @@ SDKs, CLI, and Web use minor versions such as `1.35.x`. Server uses each
 for a component; never invent a missing minor.
 
 The left sidebar selector uses Docusaurus's version metadata. Choosing a
-version in the select does not navigate; the Go button or Enter opens it,
-because keyboard changes on a closed native select fire `change` events. The
+version opens it immediately. The
 selector keeps the document ID when switching versions and falls back to the
 target version's index when that document is absent. It keeps the URL anchor
 when the target page has that anchor, and drops it otherwise. The selector also
@@ -144,7 +143,7 @@ often point at current pages. Then rewrite the moved URL in every retained
 snapshot and run `npm run check`:
 
 ```bash
-node scripts/snapshot-reference.mjs --rewrite-links /primitives/old-page /primitives/new-page
+node scripts/snapshot-reference.mjs --rewrite-links /concepts/old-page /concepts/new-page
 ```
 
 The rewrite matches whole paths in Markdown, MDX, and versioned sidebar files.
@@ -414,8 +413,8 @@ It reads MDX source and loaded document metadata, including each version's route
 and each locale's effective source file. Missing translations use the same
 English fallback as the HTML page. Instance IDs and route prefixes are unrestricted.
 
-Every document has a sibling `.md` file: `/primitives/attribute/` becomes
-`/primitives/attribute.md`, section indexes become `/primitives.md`, and the locale
+Every document has a sibling `.md` file: `/concepts/primitives/attribute/` becomes
+`/concepts/primitives/attribute.md`, section indexes become `/concepts.md`, and the locale
 home pages become `/index.md` and `/zh-Hans/index.md`. The exporter, the robot link,
 and the site audit share this mapping in [`markdownPath.mjs`](src/markdownPath.mjs).
 The robot link follows each page title and opens that file in a new tab. React-only

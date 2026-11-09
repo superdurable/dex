@@ -9,7 +9,7 @@
   },
   {
     "from": "/production/versioning",
-    "to": "/primitives/components/application"
+    "to": "/components/application"
   },
   {
     "from": "/use-cases/ai-agent-email",
@@ -69,11 +69,11 @@
   },
   {
     "from": "/production",
-    "to": "/primitives/components"
+    "to": "/components"
   },
   {
     "from": "/zh-Hans/production",
-    "to": "/zh-Hans/primitives/components"
+    "to": "/zh-Hans/components"
   },
   {
     "from": "/production/agents",
@@ -93,55 +93,55 @@
   },
   {
     "from": "/primitives/flow/basic",
-    "to": "/primitives/flow"
+    "to": "/concepts/flow"
   },
   {
     "from": "/zh-Hans/primitives/flow/basic",
-    "to": "/zh-Hans/primitives/flow"
+    "to": "/zh-Hans/concepts/flow"
   },
   {
     "from": "/primitives/flow/flow-options",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/flow/flow-options",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/step/basic",
-    "to": "/primitives/step"
+    "to": "/concepts/step"
   },
   {
     "from": "/zh-Hans/primitives/step/basic",
-    "to": "/zh-Hans/primitives/step"
+    "to": "/zh-Hans/concepts/step"
   },
   {
     "from": "/primitives/step/waiting-condition",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/step/waiting-condition",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/step/step-decision",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/step/step-decision",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/step/step-options",
-    "to": "/reference/server/runtime-steps"
+    "to": "/reference/python/flows-and-steps"
   },
   {
     "from": "/zh-Hans/primitives/step/step-options",
-    "to": "/zh-Hans/reference/server/runtime-steps"
+    "to": "/zh-Hans/reference/python/flows-and-steps"
   },
   {
     "from": "/primitives/client/basic",
-    "to": "/primitives/client"
+    "to": "/concepts/client"
   },
   {
     "from": "/primitives/client/advanced",
@@ -149,7 +149,7 @@
   },
   {
     "from": "/zh-Hans/primitives/client/basic",
-    "to": "/zh-Hans/primitives/client"
+    "to": "/zh-Hans/concepts/client"
   },
   {
     "from": "/zh-Hans/primitives/client/advanced",
@@ -197,7 +197,7 @@
   },
   {
     "from": "/reference/server/0.1.15/runtime-steps/",
-    "to": "/reference/server/runtime-steps/"
+    "to": "/reference/python/flows-and-steps/"
   },
   {
     "from": "/reference/server/0.1.15/search/",
@@ -253,7 +253,7 @@
   },
   {
     "from": "/zh-Hans/reference/server/0.1.15/runtime-steps/",
-    "to": "/zh-Hans/reference/server/runtime-steps/"
+    "to": "/zh-Hans/reference/python/flows-and-steps/"
   },
   {
     "from": "/zh-Hans/reference/server/0.1.15/search/",
@@ -397,10 +397,154 @@
   },
   {
     "from": "/primitives/connector",
-    "to": "/primitives/components/connector"
+    "to": "/components/connector"
   },
   {
     "from": "/zh-Hans/primitives/connector",
-    "to": "/zh-Hans/primitives/components/connector"
+    "to": "/zh-Hans/components/connector"
+  },
+  {
+    "from": "/reference/server/runtime-steps",
+    "to": "/reference/python/flows-and-steps"
+  },
+  {
+    "from": "/zh-Hans/reference/server/runtime-steps",
+    "to": "/zh-Hans/reference/python/flows-and-steps"
+  },
+  {
+    "from": "/primitives",
+    "to": "/concepts"
+  },
+  {
+    "from": "/primitives/attribute",
+    "to": "/concepts/primitives/attribute"
+  },
+  {
+    "from": "/primitives/channel",
+    "to": "/concepts/primitives/channel"
+  },
+  {
+    "from": "/primitives/client",
+    "to": "/concepts/client"
+  },
+  {
+    "from": "/primitives/components",
+    "to": "/components"
+  },
+  {
+    "from": "/primitives/flow",
+    "to": "/concepts/flow"
+  },
+  {
+    "from": "/primitives/rpc",
+    "to": "/concepts/primitives/rpc"
+  },
+  {
+    "from": "/primitives/step",
+    "to": "/concepts/step"
+  },
+  {
+    "from": "/primitives/stream",
+    "to": "/concepts/primitives/stream"
+  },
+  {
+    "from": "/primitives/subflow",
+    "to": "/concepts/primitives/subflow"
+  },
+  {
+    "from": "/primitives/timer",
+    "to": "/concepts/primitives/timer"
+  },
+  {
+    "from": "/zh-Hans/primitives",
+    "to": "/zh-Hans/concepts"
+  },
+  {
+    "from": "/zh-Hans/primitives/attribute",
+    "to": "/zh-Hans/concepts/primitives/attribute"
+  },
+  {
+    "from": "/zh-Hans/primitives/channel",
+    "to": "/zh-Hans/concepts/primitives/channel"
+  },
+  {
+    "from": "/zh-Hans/primitives/client",
+    "to": "/zh-Hans/concepts/client"
+  },
+  {
+    "from": "/zh-Hans/primitives/components",
+    "to": "/zh-Hans/components"
+  },
+  {
+    "from": "/zh-Hans/primitives/flow",
+    "to": "/zh-Hans/concepts/flow"
+  },
+  {
+    "from": "/zh-Hans/primitives/rpc",
+    "to": "/zh-Hans/concepts/primitives/rpc"
+  },
+  {
+    "from": "/zh-Hans/primitives/step",
+    "to": "/zh-Hans/concepts/step"
+  },
+  {
+    "from": "/zh-Hans/primitives/stream",
+    "to": "/zh-Hans/concepts/primitives/stream"
+  },
+  {
+    "from": "/zh-Hans/primitives/subflow",
+    "to": "/zh-Hans/concepts/primitives/subflow"
+  },
+  {
+    "from": "/zh-Hans/primitives/timer",
+    "to": "/zh-Hans/concepts/primitives/timer"
+  },
+  {
+    "from": "/primitives/components/application",
+    "to": "/components/application"
+  },
+  {
+    "from": "/primitives/components/server",
+    "to": "/components/server"
+  },
+  {
+    "from": "/primitives/components/cli",
+    "to": "/components/cli"
+  },
+  {
+    "from": "/primitives/components/web",
+    "to": "/components/web"
+  },
+  {
+    "from": "/primitives/components/connector",
+    "to": "/components/connector"
+  },
+  {
+    "from": "/primitives/components/external-attribute-sync",
+    "to": "/components/external-attribute-sync"
+  },
+  {
+    "from": "/zh-Hans/primitives/components/application",
+    "to": "/zh-Hans/components/application"
+  },
+  {
+    "from": "/zh-Hans/primitives/components/server",
+    "to": "/zh-Hans/components/server"
+  },
+  {
+    "from": "/zh-Hans/primitives/components/cli",
+    "to": "/zh-Hans/components/cli"
+  },
+  {
+    "from": "/zh-Hans/primitives/components/web",
+    "to": "/zh-Hans/components/web"
+  },
+  {
+    "from": "/zh-Hans/primitives/components/connector",
+    "to": "/zh-Hans/components/connector"
+  },
+  {
+    "from": "/zh-Hans/primitives/components/external-attribute-sync",
+    "to": "/zh-Hans/components/external-attribute-sync"
   }
 ]

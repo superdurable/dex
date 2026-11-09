@@ -6,7 +6,7 @@ sidebar_label: Client requests
 # Client requests
 
 This page describes how server-zd handles each Client request. The
-[Client](/primitives/client) page explains the concepts. The SDK doc comments
+[Client](/concepts/client) page explains the concepts. The SDK doc comments
 give each language's names, parameters, and errors. See the language
 references, such as the [Go reference](/reference/go/).
 
@@ -17,7 +17,7 @@ accepts the request. It takes a registered Flow, a business **Flow ID**, the
 start Step input, and **StartFlowOptions**.
 
 The Flow ID is the identity your application chooses. The server creates the
-Run ID. See [StartFlowOptions](/reference/server/runtime-steps#start-flow-options) for the timeout,
+Run ID. See [StartFlowOptions](/reference/python/flows-and-steps/start-flow-options) for the timeout,
 request idempotency, ID reuse, retry, initial Attributes, and configuration
 overrides.
 
@@ -29,7 +29,7 @@ reason.
 
 ## Invoke an RPC {#invoke-an-rpc}
 
-**InvokeRPC** calls a registered [RPC](/primitives/rpc) handler and returns its
+**InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and returns its
 result. A query-only RPC can read a retained terminal execution. An RPC that
 commits effects needs an active execution.
 
@@ -319,7 +319,7 @@ continue a search. Keep the query unchanged across pages. See
 
 ## Skip a Timer {#skip-a-timer}
 
-**SkipTimer** makes one waiting [Timer](/primitives/timer) ready immediately.
+**SkipTimer** makes one waiting [Timer](/concepts/primitives/timer) ready immediately.
 Choose the Step execution, and either the Timer's condition ID or its zero-based
 condition index.
 
@@ -328,17 +328,11 @@ condition index.
 ## Update FlowConfig {#update-flowconfig}
 
 **UpdateFlowConfig** changes the **FlowConfig** of an active Flow. See
-[Update FlowConfig with a Client](/reference/server/runtime-steps#update-flow-config-with-a-client)
+[Update FlowConfig with a Client](/reference/python/flows-and-steps/flow-config#update-flow-config-with-a-client)
 for the merge rules and the fields.
 
 <a id="触发-continue-as-new"></a>
-
-## TriggerContinueAsNew {#trigger-continue-as-new}
-
-**TriggerContinueAsNew** is deprecated. Dex does not continue Flows as new. The
-call always fails with **UNIMPLEMENTED**. Do not call it. A long-running Flow
-needs no rollover, because the server keeps a
-[recent history window](/reference/server/configuration#history-window).
+<a id="trigger-continue-as-new"></a>
 
 ## Time travel {#time-travel}
 

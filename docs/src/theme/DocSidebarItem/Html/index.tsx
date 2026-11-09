@@ -14,8 +14,9 @@ import ReferenceVersionSelector from '@site/src/components/ReferenceVersionSelec
 import type {Props} from '@theme/DocSidebarItem/Html';
 
 export default function ReferenceSidebarHtml(props: Props): ReactNode {
-  if (props.item.className === 'reference-version-selector-item') {
-    return <li className={props.item.className}><ReferenceVersionSelector /></li>;
+  const referencePluginId = props.item.customProps?.referencePluginId;
+  if (props.item.className === 'reference-version-selector-item' && typeof referencePluginId === 'string') {
+    return <li className={props.item.className}><ReferenceVersionSelector pluginId={referencePluginId} /></li>;
   }
   return <DocSidebarItemHtml {...props} />;
 }

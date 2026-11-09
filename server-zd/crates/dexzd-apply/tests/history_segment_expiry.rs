@@ -8,7 +8,9 @@
 
 //! Expired history segments (plan section 5.7): segments the window passed expire, their value
 //! lists and the birth records only their objects held go, the delete switch keeps the delete
-//! pending index, and recorded object deletions remove catalog rows oldest first.
+//! pending index, and recorded object deletions remove catalog rows oldest first. A run that
+//! records its offload choice at start follows it whatever its partition's mode, ignores the
+//! delete switch, and counts the rows of superseded values as history.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -153,6 +155,16 @@ impl Harness {
     /// A run whose partition offloads history from its start, with `flow_config` as its start
     /// override.
     fn offloading(settings: RunSettings, flow_config: FlowConfig) -> Self {
+        Self::on_partition(settings, flow_config, true)
+    }
+
+    /// A run started with `settings` and the `flow_config` start override, on a partition that
+    /// offloads history when `is_partition_offloading`.
+    fn on_partition(
+        settings: RunSettings,
+        flow_config: FlowConfig,
+        is_partition_offloading: bool,
+    ) -> Self {
         let flow_id = "segment-expiry-flow";
         let hasher = PartitionHasher::new(&[7; 16], 1024).expect("valid partition hasher");
         let flow_hash = hasher.flow_hash(TenantId::DEFAULT, flow_id);
@@ -171,7 +183,7 @@ impl Harness {
         };
         let mode = harness.apply(Command::SetHistoryOffloadMode(
             SetHistoryOffloadModeCommand {
-                enabled: true,
+                enabled: is_partition_offloading,
                 partition: u32::from(harness.context.partition.0),
             },
         ));
@@ -239,9 +251,15 @@ impl Harness {
     }
 
     fn set_attributes(&mut self, writes: Vec<(String, String)>) -> ApplyOutcome {
+        let outcome = self.try_set_attributes(writes);
+        assert!(is_ok(&outcome.reply), "{:?}", outcome.reply);
+        outcome
+    }
+
+    fn try_set_attributes(&mut self, writes: Vec<(String, String)>) -> ApplyOutcome {
         self.request_count += 1;
         let request_id = format!("write-{}", self.request_count);
-        let outcome = self.apply(Command::AttributesSet(AttributesSetCommand {
+        self.apply(Command::AttributesSet(AttributesSetCommand {
             request: Some(SetAttributesRequest {
                 attributes: writes
                     .into_iter()
@@ -258,9 +276,7 @@ impl Harness {
             }),
             hard_delete_objects: Vec::new(),
             request_fingerprint: request_id.into_bytes(),
-        }));
-        assert!(is_ok(&outcome.reply), "{:?}", outcome.reply);
-        outcome
+        }))
     }
 
     fn set_attribute(&mut self, key: &str, text: String) -> ApplyOutcome {
@@ -463,6 +479,12 @@ impl Harness {
     /// Recounts the run's storage from its rows, as the accounting rules state them.
     fn recount_storage(&self) -> RunStorageUsage {
         let prefix = run_prefix(self.context.flow_hash, self.run());
+        let counts_superseded_rows_as_history = self
+            .run_record()
+            .settings
+            .unwrap_or_default()
+            .offload_history
+            .is_some();
         let mut usage = RunStorageUsage::default();
         let mut birth_bytes = 0;
         for ((column_family, key), value) in &self.state.rows {
@@ -483,16 +505,26 @@ impl Harness {
                     let birth = ValueBirthRecord::decode(value.as_slice()).expect("birth decodes");
                     if birth.is_offloaded {
                         usage.history_bytes += row_bytes;
+                    } else if counts_superseded_rows_as_history && birth.garbage_seq != 0 {
+                        usage.history_bytes += row_bytes;
+                        birth_bytes += birth.size_bytes;
                     } else {
                         usage.state_row_bytes += row_bytes;
                         birth_bytes += birth.size_bytes;
                     }
                 }
                 RunTable::ValueGarbage => {
-                    usage.state_row_bytes += row_bytes;
+                    if counts_superseded_rows_as_history {
+                        usage.history_bytes += row_bytes;
+                    } else {
+                        usage.state_row_bytes += row_bytes;
+                    }
                     usage.superseded_value_bytes += ValueGarbageRecord::decode(value.as_slice())
                         .expect("garbage decodes")
                         .size_bytes;
+                }
+                RunTable::RunRecord => {
+                    usage.state_row_bytes += row_bytes - run_record_search_cache_bytes(value);
                 }
                 _ => usage.state_row_bytes += row_bytes,
             }
@@ -686,11 +718,53 @@ fn settings(is_deletion_enabled: bool) -> RunSettings {
         history_segment_target_bytes: 1,
         delete_expired_history_objects: is_deletion_enabled,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 
+/// Bytes of a run record's active Step type counts, which run storage never counts.
+fn run_record_search_cache_bytes(value: &[u8]) -> u64 {
+    let mut record = RunRecord::decode(value).expect("run record decodes");
+    let full_size = record.encoded_len();
+    record.search_active_step_type_counts = None;
+    (full_size - record.encoded_len()) as u64
+}
+
+/// A 32 KiB state budget, which the rows of a few hundred superseded values fill while they
+/// count as state and wait for an upload.
+fn small_budget_settings(offload_history: Option<bool>) -> RunSettings {
+    RunSettings {
+        history_window_events: 8,
+        max_run_state_bytes: SMALL_RUN_STATE_BYTES,
+        request_dedup_capacity: 16,
+        history_segment_target_bytes: 64 << 10,
+        offload_history,
+        ..settings(true)
+    }
+}
+
+const SMALL_RUN_STATE_BYTES: u64 = 32 << 10;
+const RESOURCE_EXHAUSTED: i32 = 8;
+
 fn is_ok(reply: &CommandReply) -> bool {
     matches!(reply.reply, Some(command_reply::Reply::Ok(_)))
+}
+
+fn active_bytes(usage: &RunStorageUsage) -> u64 {
+    usage.state_row_bytes + usage.live_value_bytes
+}
+
+/// Rewrites `profile` with 200-byte values until the run rejects one, at most `limit` times;
+/// returns how many it accepted and the rejection.
+fn rewrite_until_rejected(harness: &mut Harness, limit: usize) -> (usize, Option<ApplyOutcome>) {
+    for accepted in 0..limit {
+        let text = large_text(&format!("rewrite-{accepted}"), 200);
+        let outcome = harness.try_set_attributes(vec![("profile".to_owned(), text)]);
+        if !is_ok(&outcome.reply) {
+            return (accepted, Some(outcome));
+        }
+    }
+    (limit, None)
 }
 
 fn large_text(tag: &str, length: usize) -> String {
@@ -919,6 +993,178 @@ fn the_start_override_and_flow_config_updates_switch_deletion_per_run() {
         ..FlowConfig::default()
     });
     assert!(defaulted.is_delete_pending());
+}
+
+#[test]
+fn a_run_that_records_offload_offloads_and_deletes_expired_objects_on_any_partition() {
+    let mut harness = Harness::on_partition(
+        RunSettings {
+            offload_history: Some(true),
+            ..settings(false)
+        },
+        FlowConfig {
+            delete_expired_history_objects: Some(false),
+            ..FlowConfig::default()
+        },
+        false,
+    );
+    assert_ne!(harness.run_record().history_open_segment_first_seq, 0);
+    harness.write_until("an expired segment", |harness| {
+        !harness.expired_segments().is_empty()
+    });
+    assert!(
+        harness.is_delete_pending(),
+        "a run that records its offload choice ignores the delete switch"
+    );
+    assert!(harness.expiry_signals > 0);
+    harness.set_delete_switch(false);
+    assert!(harness.is_delete_pending());
+    harness.assert_storage_recounts();
+}
+
+#[test]
+fn a_run_that_records_no_offload_keeps_its_history_local_on_an_offloading_partition() {
+    let mut harness = Harness::on_partition(
+        RunSettings {
+            offload_history: Some(false),
+            history_window_events: 4,
+            max_retained_superseded_bytes: 1,
+            ..settings(true)
+        },
+        FlowConfig::default(),
+        true,
+    );
+    assert_eq!(harness.run_record().history_open_segment_first_seq, 0);
+    let first_profile = {
+        harness.set_attribute("profile", large_text("first", 300));
+        harness.attribute_value_id("profile")
+    };
+    for round in 0..40 {
+        harness.set_attribute("profile", large_text(&format!("round-{round}"), 300));
+        harness.set_attribute("other", format!("small-{round}"));
+        harness.assert_storage_recounts();
+    }
+    let record = harness.run_record();
+    assert_eq!(record.history_open_segment_first_seq, 0, "no segment state");
+    assert_eq!(record.history_uploaded_through_seq, 0, "nothing uploads");
+    assert!(harness.segments().is_empty());
+    assert!(
+        harness.birth(first_profile).is_none() && harness.value_row(first_profile).is_none(),
+        "the window passed the first value, so it is deleted locally"
+    );
+    let window_rows = harness
+        .state
+        .rows
+        .keys()
+        .filter(|(family, key)| {
+            *family == ColumnFamily::Flow
+                && key.starts_with(&run_table_prefix(
+                    harness.context.flow_hash,
+                    harness.run(),
+                    RunTable::HistoryRowMetadata,
+                ))
+        })
+        .count();
+    assert!(
+        window_rows < 20,
+        "the window prunes local history: {window_rows} rows"
+    );
+    let usage = record.storage.expect("the run counts storage");
+    assert!(
+        usage.superseded_value_bytes > 1,
+        "no superseded byte cap shrinks the window: {usage:?}"
+    );
+}
+
+#[test]
+fn superseded_value_rows_never_fill_the_state_budget_of_a_run_that_records_offload() {
+    // A run without a recorded choice counts the rows of superseded values as state until an
+    // upload, so rewrites of one value fill its budget before a segment seals.
+    let mut legacy = Harness::offloading(small_budget_settings(None), FlowConfig::default());
+    let (legacy_accepted, rejection) = rewrite_until_rejected(&mut legacy, 1_000);
+    let rejection = rejection.expect("superseded value rows fill the legacy budget");
+    assert!(
+        matches!(&rejection.reply.reply, Some(command_reply::Reply::Error(error))
+            if error.grpc_code == RESOURCE_EXHAUSTED),
+        "{:?}",
+        rejection.reply
+    );
+    legacy.assert_storage_recounts();
+
+    let mut offloaded =
+        Harness::offloading(small_budget_settings(Some(true)), FlowConfig::default());
+    let (accepted, rejection) = rewrite_until_rejected(&mut offloaded, 3 * legacy_accepted);
+    assert!(
+        rejection.is_none(),
+        "{:?}",
+        rejection.map(|outcome| outcome.reply)
+    );
+    assert_eq!(accepted, 3 * legacy_accepted);
+    offloaded.assert_storage_recounts();
+    let usage = offloaded
+        .run_record()
+        .storage
+        .expect("the run counts storage");
+    assert!(active_bytes(&usage) < SMALL_RUN_STATE_BYTES, "{usage:?}");
+    assert!(
+        !offloaded.segments().is_empty(),
+        "segments sealed meanwhile"
+    );
+
+    // Uploads let pruning delete those rows, and history bytes shrink by exactly their size.
+    offloaded.ack_all();
+    offloaded.set_attribute("other", "after uploads".to_owned());
+    offloaded.ack_all();
+    offloaded.assert_storage_recounts();
+    let uploaded = offloaded
+        .run_record()
+        .storage
+        .expect("the run counts storage");
+    assert!(uploaded.history_bytes < usage.history_bytes, "{uploaded:?}");
+
+    // A run without offload deletes superseded values at the window, within the same budget.
+    let mut local = Harness::offloading(small_budget_settings(Some(false)), FlowConfig::default());
+    let (accepted, rejection) = rewrite_until_rejected(&mut local, 3 * legacy_accepted);
+    assert!(
+        rejection.is_none(),
+        "{:?}",
+        rejection.map(|outcome| outcome.reply)
+    );
+    assert_eq!(accepted, 3 * legacy_accepted);
+    local.assert_storage_recounts();
+}
+
+#[test]
+fn the_flow_config_choice_replaces_the_proposed_default_and_older_commands_record_none() {
+    for (proposed, chosen, recorded) in [
+        (Some(true), None, Some(true)),
+        (Some(true), Some(false), Some(false)),
+        (Some(false), Some(true), Some(true)),
+        (None, Some(false), None),
+    ] {
+        let harness = Harness::on_partition(
+            RunSettings {
+                offload_history: proposed,
+                ..settings(true)
+            },
+            FlowConfig {
+                offload_history: chosen,
+                ..FlowConfig::default()
+            },
+            true,
+        );
+        let record = harness.run_record();
+        assert_eq!(
+            record.settings.unwrap_or_default().offload_history,
+            recorded,
+            "proposed {proposed:?}, chosen {chosen:?}"
+        );
+        assert_eq!(
+            record.history_open_segment_first_seq != 0,
+            recorded.unwrap_or(true),
+            "proposed {proposed:?}, chosen {chosen:?}"
+        );
+    }
 }
 
 #[test]

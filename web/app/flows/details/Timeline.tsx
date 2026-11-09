@@ -10,16 +10,18 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
 import { positiveRunAttempt, runAttemptSearch } from '@/lib/timeTravel';
 import {
   buildSelectedTimelineRelations,
   formatElapsedDuration,
+  formatTimelineOffset,
   newestTimelineEvents,
   PRUNED_RELATED_EVENT_EXPLANATION,
   prunedRelatedEventTooltip,
+  rowsShowingAbsoluteTime,
   timelineRelatedEventLabel,
   type TimelineRelatedEvent,
   type TimelineSelectedRelations,
@@ -56,21 +58,14 @@ interface StepLinkLayout {
   stubPaths: StubLinkPath[];
 }
 
-/** Older and newer page navigation for a paged Timeline. */
+/** Whether a paged Timeline has events on other pages; the run header pages through them. */
 export interface TimelinePaging {
   hasOlder: boolean;
   hasNewer: boolean;
-  /** Whether the page is the newest window, which Live extends. */
-  isNewest: boolean;
   isLoading: boolean;
-  canGoBack: boolean;
-  onOlder: () => void;
-  onNewer: () => void;
-  onNewest: () => void;
-  onBack: () => void;
 }
 
-function eventTone(event: FlowHistoryEvent) {
+export function eventTone(event: FlowHistoryEvent) {
   if (event.type === 'TimeTravelFork') return 'fork';
   if (event.type.endsWith('Pending')) return 'pending';
   if (event.type.endsWith('Failed')) return 'failed';
@@ -86,7 +81,7 @@ function stepMethodClass(event: FlowHistoryEvent) {
   return '';
 }
 
-function executionSummary(event: FlowHistoryEvent): string {
+export function executionSummary(event: FlowHistoryEvent): string {
   const context = event.payload.context;
   if (!context || typeof context !== 'object') return '';
   const info = context as Record<string, unknown>;
@@ -133,8 +128,11 @@ export function Timeline({
   prunedEventIdRange,
   highlightedEventId = null,
   onJumpToEvent,
+  runStepDurability,
 }: {
   flowId: string;
+  /** The run's configured Step durability; rows name a Step's durability only when it differs. */
+  runStepDurability?: unknown;
   /** One page of events, at most one history window. */
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
@@ -151,6 +149,7 @@ export function Timeline({
   const eventCards = useRef(new Map<number, HTMLDivElement>());
   const stubElements = useRef(new Map<string, HTMLElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
+  const absoluteTimeRows = useMemo(() => rowsShowingAbsoluteTime(orderedEvents), [orderedEvents]);
   const spansRunAttempts = useMemo(
     () => new Set(events.map((event) => positiveRunAttempt(event.runAttempt))).size > 1,
     [events],
@@ -281,23 +280,11 @@ export function Timeline({
   const activeStepLinkID = interactionStepLinkID ?? pinnedStepLink?.id ?? selectedStepLink?.id ?? null;
   const activeStepLink = stepLinkLayout.paths.find((link) => link.id === activeStepLinkID);
   const firstEventId = orderedEvents[orderedEvents.length - 1].eventId;
-  const lastEventId = orderedEvents[0].eventId;
   const showsPrunedBanner = prunedEventIdRange !== undefined && firstEventId === 1;
   const newerStubs = stubs.filter((stub) => stub.direction === 'newer');
   const olderStubs = stubs.filter((stub) => stub.direction === 'older');
   return (
     <div className="timeline-wrap">
-      <div className="view-toolbar">
-        <div>
-          <h2>{events.length} events</h2>
-          {paging && (
-            <p className="muted timeline-page-range">
-              Events #{firstEventId} to #{lastEventId}{paging.isNewest ? ', newest page' : ''}
-            </p>
-          )}
-        </div>
-        {paging && <TimelinePager paging={paging} />}
-      </div>
       {showsPrunedBanner && (
         <div className="warning-banner timeline-pruned-banner" role="note" title={PRUNED_RELATED_EVENT_EXPLANATION}>
           {prunedRangeMessage(prunedEventIdRange)}
@@ -402,11 +389,16 @@ export function Timeline({
             })}
           </svg>
         )}
-        {orderedEvents.map((event) => {
+        {orderedEvents.map((event, index) => {
           const linked = activeStepLink?.fromEventId === event.eventId || activeStepLink?.toEventId === event.eventId;
           const selected = selectedEvent?.eventId === event.eventId;
+          const absoluteTime = formatDate(event.eventTime, timezone);
+          const isNewAbsoluteTime = absoluteTimeRows[index];
           return (
             <TimelineRow
+              absoluteTime={absoluteTime}
+              isNewAbsoluteTime={isNewAbsoluteTime}
+              runStepDurability={runStepDurability}
               counterpart={activeStepLink?.id === selectedStepLink?.id && linked && !selected}
               event={event}
               flowId={flowId}
@@ -418,7 +410,6 @@ export function Timeline({
               selected={selected}
               showRunAttempt={spansRunAttempts}
               startMs={startMs}
-              timezone={timezone}
             />
           );
         })}
@@ -438,7 +429,9 @@ export function Timeline({
 const TimelineRow = memo(function TimelineRow({
   event,
   flowId,
-  timezone,
+  absoluteTime,
+  isNewAbsoluteTime,
+  runStepDurability,
   startMs,
   selected,
   linked,
@@ -450,7 +443,10 @@ const TimelineRow = memo(function TimelineRow({
 }: {
   event: FlowHistoryEvent;
   flowId: string;
-  timezone: TimezonePreference;
+  /** The formatted event time; rows show it only when it differs from the row above. */
+  absoluteTime: string;
+  isNewAbsoluteTime: boolean;
+  runStepDurability: unknown;
   startMs: number;
   selected: boolean;
   linked: boolean;
@@ -470,9 +466,9 @@ const TimelineRow = memo(function TimelineRow({
       data-event-id={event.eventId}
       onClick={() => onSelect(event)}
     >
-      <div className="timeline-time">
-        <b>{formatDate(event.eventTime, timezone)}</b>
-        {relative !== null && <span>+{relative}s</span>}
+      <div className="timeline-time" title={absoluteTime}>
+        {isNewAbsoluteTime ? <b>{absoluteTime}</b> : <b className="sr-only">{absoluteTime}</b>}
+        {relative !== null && <span>+{formatTimelineOffset(relative)}</span>}
       </div>
       <div className="timeline-rail">
         <span
@@ -483,7 +479,7 @@ const TimelineRow = memo(function TimelineRow({
         <header>
           <div>
             <span className="event-id">#{event.eventId}</span>
-            <h3>
+            <h3 title={eventTypeLabel(event)}>
               {previousRunTarget ? (
                 <Link
                   className="event-run-link"
@@ -496,47 +492,12 @@ const TimelineRow = memo(function TimelineRow({
             </h3>
             {executionSummary(event) && <p>{executionSummary(event)}</p>}
           </div>
-          <span className={`event-type tone-${eventTone(event)}`}>{eventTypeLabel(event)}</span>
         </header>
-        <EventHighlights event={event} showRunAttempt={showRunAttempt} />
+        <EventHighlights event={event} runStepDurability={runStepDurability} showRunAttempt={showRunAttempt} />
       </div>
     </article>
   );
 });
-
-function TimelinePager({ paging }: { paging: TimelinePaging }) {
-  return (
-    <div aria-label="Timeline pages" className="timeline-pager" role="group">
-      {paging.isLoading && <span className="muted">Loading…</span>}
-      {paging.canGoBack && (
-        <button className="button ghost" disabled={paging.isLoading} onClick={paging.onBack} type="button">
-          Back
-        </button>
-      )}
-      {!paging.isNewest && (
-        <button className="button ghost" disabled={paging.isLoading} onClick={paging.onNewest} type="button">
-          Newest
-        </button>
-      )}
-      <button
-        className="button ghost"
-        disabled={paging.isLoading || paging.isNewest || !paging.hasNewer}
-        onClick={paging.onNewer}
-        type="button"
-      >
-        Newer events
-      </button>
-      <button
-        className="button ghost"
-        disabled={paging.isLoading || !paging.hasOlder}
-        onClick={paging.onOlder}
-        type="button"
-      >
-        Older events
-      </button>
-    </div>
-  );
-}
 
 /** Ends links whose far end is on another page, or was pruned, at the top or bottom edge. */
 function TimelineEdgeStubs({
@@ -585,7 +546,7 @@ function TimelineEdgeStubs({
               title={stub.location === 'pruned' ? prunedRelatedEventTooltip(stub) : undefined}
             >
               {label}
-              {stub.location === 'pruned' && <span className="timeline-pruned-badge">pruned</span>}
+              {stub.location === 'pruned' && <span className="timeline-pruned-badge">Pruned</span>}
             </span>
           );
         })}
@@ -601,13 +562,31 @@ function prunedRangeMessage(range: EventIdRange): string {
   return `${removed} removed by the history window; FlowStart is kept.`;
 }
 
-function EventHighlights({ event, showRunAttempt }: { event: FlowHistoryEvent; showRunAttempt: boolean }) {
+/** An unset or unspecified run durability means the server default, sync. */
+function effectiveRunStepDurability(value: unknown): unknown {
+  const isUnset = value === undefined || value === null || value === 0 || value === 'STEP_DURABILITY_UNSPECIFIED';
+  return isUnset ? 1 : value;
+}
+
+function EventHighlights({
+  event,
+  runStepDurability,
+  showRunAttempt,
+}: {
+  event: FlowHistoryEvent;
+  runStepDurability: unknown;
+  showRunAttempt: boolean;
+}) {
   const context = event.payload.context as Record<string, unknown> | undefined;
   const output = event.payload.output as Record<string, unknown> | undefined;
   const failure = output?.failure as Record<string, unknown> | undefined;
   const activityPhase = pendingPhase(event);
   const runAttempt = showRunAttempt ? positiveRunAttempt(event.runAttempt) : 0;
-  if (!context && !failure && !activityPhase && runAttempt === 0) return null;
+  const durability = context?.durability !== undefined ? durabilityLabel(context.durability) : '';
+  const isDurabilityOverride = durability !== '' && durability !== durabilityLabel(effectiveRunStepDurability(runStepDurability));
+  const finalAttempt = Number(context?.finalAttempt);
+  const isRetried = Number.isFinite(finalAttempt) && finalAttempt > 1;
+  if (!failure && !activityPhase && runAttempt === 0 && !isDurabilityOverride && !isRetried) return null;
   const backendError = typeof failure?.backendError === 'string'
     && failure.backendError.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.backendError)
@@ -616,8 +595,8 @@ function EventHighlights({ event, showRunAttempt }: { event: FlowHistoryEvent; s
     <div className="event-highlights">
       {runAttempt > 0 && <span>Run attempt <b>{runAttempt}</b></span>}
       {activityPhase && <span>Activity phase <b>{activityPhase}</b></span>}
-      {context?.durability !== undefined && <span>Durability <b>{durabilityLabel(context.durability)}</b></span>}
-      {context?.finalAttempt !== undefined && <span>Final attempt <b>{String(context.finalAttempt)}</b></span>}
+      {isDurabilityOverride && <span>Durability <b>{durability}</b></span>}
+      {isRetried && <span>Attempt <b>{finalAttempt}</b></span>}
       {typeof backendError === 'string' && backendError && (
         <span className="failure-message">{backendError}</span>
       )}

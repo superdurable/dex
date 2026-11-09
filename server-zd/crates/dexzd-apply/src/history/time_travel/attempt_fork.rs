@@ -18,9 +18,9 @@ use dexzd_protocol::dex::{
 };
 use dexzd_protocol::dexzd::v1::{
     AttemptRecord, AttributeRecord, CheckpointRunStatus, CommandErrorReply, CommandReply,
-    FlowCommand, RetentionTimerId, RunRecord, StepExecutionRecord, StepInvocationKey,
-    StepInvocationPhase, StepInvocationRecord, TimeTravelCommand, TimeTravelReply, TimerId,
-    TimerRecord, command_reply, flow_command::Command, timer_id,
+    EndedStepRowSweep, FlowCommand, RetentionTimerId, RunRecord, StepExecutionRecord,
+    StepInvocationKey, StepInvocationPhase, StepInvocationRecord, TimeTravelCommand,
+    TimeTravelReply, TimerId, TimerRecord, command_reply, flow_command::Command, timer_id,
 };
 use prost::Message;
 
@@ -98,6 +98,8 @@ pub(super) fn fork_attempt(
     );
     cursor.record.current_attempt = new_attempt;
     set_run_status(&mut cursor.record, &restored_status);
+    // Restored rows may come from a checkpoint that an older binary wrote.
+    cursor.record.ended_step_row_sweep = Some(EndedStepRowSweep::default());
     cursor.is_starting_attempt = true;
     replace_attempt_rows(
         transaction,

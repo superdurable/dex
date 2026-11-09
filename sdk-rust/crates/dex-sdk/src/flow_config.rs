@@ -24,7 +24,7 @@ pub struct FlowConfig {
     pub(crate) continue_as_new_page_size_bytes: Option<u32>,
     pub(crate) step_durability: Option<StepDurability>,
     pub(crate) history_window_events: Option<u32>,
-    pub(crate) delete_expired_history_objects: Option<bool>,
+    pub(crate) offload_history: Option<bool>,
 }
 
 impl FlowConfig {
@@ -69,36 +69,31 @@ impl FlowConfig {
         self
     }
 
-    /// Controls deletion of object storage objects for expired history segments.
+    /// Has no effect. The SDK does not send this value to the server.
     ///
-    /// `true` deletes each expired segment's object about one hour after expiry. `false` keeps
-    /// objects until the run is deleted after retention. This only matters when history
-    /// offload is enabled. Omission uses `history.deleteExpiredObjects` on the server: true
-    /// for dev/local and false for serve. The run records that default at start.
-    /// The server-side switch is experimental.
-    /// Servers older than server-zd 0.1.22 ignore the value.
+    /// server-zd 0.1.23 and later ignore the field for runs that start with them. Such a run,
+    /// when it offloads its history, always deletes the objects of expired history segments about
+    /// one hour after the history window passes them.
     ///
-    /// Set it through [`crate::StartFlowOptions::config_override`],
-    /// update it with [`crate::Client::update_flow_config`], or override it with
-    /// [`crate::SubFlowOptions::config_override`]. Children otherwise inherit the parent's value.
-    /// An omitted update preserves the current value; it cannot be cleared to the server
-    /// default. Enabling deletion includes already expired objects. Disabling it stops
-    /// deletions that have not started; requests already sent may complete, and deleted
-    /// objects never return. History reads and Time Travel exclude expired history even
-    /// when its objects are kept.
+    /// A run that started under server-zd 0.1.22 still follows the value it recorded then. When
+    /// that value is false, the run's expired history objects stay in object storage until its
+    /// retention ends, and a run that never closes keeps them. To delete them sooner, set the
+    /// field to true for that run with UpdateFlowConfig through an SDK older than 1.40.0 or a
+    /// direct gRPC request. See <https://docs.superdurable.io/reference/server/configuration#history-offload>.
     ///
-    /// ```no_run
-    /// # fn update(client: &dex_sdk::Client) -> dex_sdk::SdkResult<()> {
-    /// client.update_flow_config("order-42",
-    ///     dex_sdk::FlowConfig::new().delete_expired_history_objects(false))?;
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// The method remains so existing code still compiles. Returns this config unchanged.
     ///
     /// Since 1.39.0.
+    ///
+    /// Deprecated in 1.40.0: the SDK no longer sends the value, and runs that start with
+    /// server-zd 0.1.23 or later ignore it. Remove the call.
+    #[deprecated(
+        since = "1.40.0",
+        note = "has no effect; the SDK no longer sends it, and runs started on server-zd 0.1.23 \
+                or later ignore it"
+    )]
     #[must_use]
-    pub fn delete_expired_history_objects(mut self, value: bool) -> Self {
-        self.delete_expired_history_objects = Some(value);
+    pub fn delete_expired_history_objects(self, _value: bool) -> Self {
         self
     }
 
@@ -144,6 +139,60 @@ impl FlowConfig {
     #[must_use]
     pub fn history_window_events(mut self, value: u32) -> Self {
         self.history_window_events = Some(value);
+        self
+    }
+
+    /// Sets whether Dex offloads the run's history to object storage.
+    ///
+    /// Without this builder, the run offloads its history, as if `true` were passed. Leave it unset
+    /// for most runs.
+    ///
+    /// An offloaded run uploads its history to object storage in segment objects. Once a segment
+    /// is uploaded and a grace period has passed, Dex deletes its history records and superseded
+    /// values from the local disk. History reads then fetch them from object storage. When the
+    /// history window passes a whole segment, Dex deletes the segment's object about one hour
+    /// later.
+    ///
+    /// A run that does not offload keeps its history on the local disk. It never writes a history
+    /// object. The history window still applies: Dex prunes the oldest events and deletes the
+    /// superseded values that the window passed.
+    ///
+    /// A long-running run that offloads keeps only its newest history and current state on the
+    /// local disk. Pass `false` for many short runs that close soon after they start. Each
+    /// offloaded run writes at least one history object when it closes. It deletes that object
+    /// when its retention ends. Short runs at a high rate therefore add object storage requests,
+    /// while their small history costs little local disk. A run that does not offload keeps
+    /// every superseded value its history window covers on the local disk, with no byte limit;
+    /// for a run that rewrites large values, keep offload or set a smaller history window.
+    ///
+    /// Set it only at start, through [`crate::StartFlowOptions::config_override`], or for a
+    /// SubFlow through [`crate::SubFlowOptions::config_override`]. A SubFlow inherits the value
+    /// from its parent unless its own override sets it. The run keeps the value for its whole
+    /// life. [`crate::Client::update_flow_config`] with this builder returns
+    /// [`crate::SdkError::Service`] whose [`crate::ServiceError::code`] is `InvalidArgument`. Runs
+    /// that started before server-zd 0.1.23 keep the history offload behavior that their server
+    /// gave them. Servers older than server-zd 0.1.23 ignore the value.
+    ///
+    /// ```no_run
+    /// # fn start<F: dex_sdk::Flow>(
+    /// #     client: &dex_sdk::Client,
+    /// #     notification_flow: &F,
+    /// #     input: F::StartInput,
+    /// # ) -> dex_sdk::SdkResult<String> {
+    /// client.start_flow_with_options(
+    ///     notification_flow,
+    ///     "notification-42",
+    ///     input,
+    ///     dex_sdk::StartFlowOptions::new()
+    ///         .config_override(dex_sdk::FlowConfig::new().offload_history(false)),
+    /// )
+    /// # }
+    /// ```
+    ///
+    /// Since 1.40.0.
+    #[must_use]
+    pub fn offload_history(mut self, value: bool) -> Self {
+        self.offload_history = Some(value);
         self
     }
 }

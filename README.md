@@ -5,7 +5,7 @@
 
 # Durable Execution(D-EX). No Replay, Zero Dependencies.
 
-**Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/primitives) as Durable Execution Engine.  
+**Dex** provides a structural programming model as [primitives](https://docs.superdurable.io/concepts) as Durable Execution Engine.  
 
 You use Dex to write a Flow filled with native programming code: Steps, Attributes, RPCs, Conditions, Stream. Worker hosts the Flow code and pull tasks from Dex server.
 
@@ -28,7 +28,7 @@ So why **"No Replay"** Matters?
 Using our unique structural programming model:
 1. Simpler & Cleaner APIs. Less primitives. Less code, less bug
 2. Eliminate the "Non Deterministic Error", completely
-3. Eliminate the "Continue-As-New" restriction, completely
+3. Support long-running Flows without manual history rollover
 4. No requires to rely on memory to cache workflow state as "sticky cache"
 5. Data native -- explicit data storage primitives as "data attributes" (Note: no execution runs without data)
 6. A large & growing [connector library](https://github.com/superdurable/dex-connectors-library) to integrate with internet products(Stripe,Gmail etc), from prototype to production, as Step or Trigger.

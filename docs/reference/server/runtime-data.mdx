@@ -8,9 +8,9 @@ sidebar_label: Data primitives
 This page holds the detailed rules for Attributes, RPCs, Channels, Streams, and
 SubFlows: parameters, defaults, limits, errors, and edge cases. The concept
 pages explain what each primitive is and when to use it:
-[Attribute](/primitives/attribute), [RPC](/primitives/rpc),
-[Channel](/primitives/channel), [Stream](/primitives/stream),
-[Timer](/primitives/timer), and [SubFlow](/primitives/subflow). The SDK doc
+[Attribute](/concepts/primitives/attribute), [RPC](/concepts/primitives/rpc),
+[Channel](/concepts/primitives/channel), [Stream](/concepts/primitives/stream),
+[Timer](/concepts/primitives/timer), and [SubFlow](/concepts/primitives/subflow). The SDK doc
 comments describe each API in its own language.
 
 ## Attributes {#attributes}
@@ -19,7 +19,7 @@ comments describe each API in its own language.
 
 **StartFlowOptions** can set initial Attributes when the Flow is created.
 Initial values and Flow creation are one operation, so the first Step sees them
-immediately. See [Attributes](/reference/server/runtime-steps#attributes) in
+immediately. See [Attributes](/reference/python/flows-and-steps/start-flow-options#attributes) in
 StartFlowOptions.
 
 Applications use Flow RPCs to write Attributes after a Flow starts. A Client can
@@ -441,7 +441,7 @@ stored objects. Other writes to a closed run return NOT_FOUND.
 Dex Server lets only one Step execution or RPC invocation hold an Attribute lock
 at a time. A Step declares locks separately for **WaitFor** and **Execute** in
 its Step options. An RPC declares its locks when it is registered. The
-[Attribute](/primitives/attribute#locking) page shows an **Execute** lock.
+[Attribute](/concepts/primitives/attribute#locking) page shows an **Execute** lock.
 
 A Step attempt takes its locks when Dex hands it to a Worker. A first attempt
 that no Worker took yet holds no locks, but later Steps that need the same lock
@@ -658,7 +658,7 @@ type: **with_canceling_steps** in Python, **CancelSteps** in Go,
 **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no
 parent Step execution, so it cannot cancel sibling Steps. A Step can cancel
 other Steps the same way from its
-[StepDecision](/reference/server/runtime-steps#cancellation-on-stepdecision).
+[StepDecision](/reference/python/flows-and-steps/step-decisions#cancellation-on-stepdecision).
 
 In the example, **GenerateReport** writes a report section by section. The
 **stop_report** RPC cancels it and starts **FinishReportStop**.
@@ -970,7 +970,7 @@ still running, Dex closes the Worker stream that carried it. The handler keeps
 running inside the Worker process until it returns, and its external calls
 still take effect. A canceled attempt may also have done part of its work before
 it stopped. Keep its external effects idempotent. See
-[Failure and redelivery](/reference/server/runtime-steps#failure-and-redelivery).
+[Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery).
 
 ### Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
 

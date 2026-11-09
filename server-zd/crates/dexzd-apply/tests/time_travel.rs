@@ -8,6 +8,9 @@
 
 //! History, checkpoints, the window, and time travel over an in-memory state.
 
+#[path = "support/prune_cursors.rs"]
+mod prune_cursors;
+
 use std::collections::BTreeMap;
 
 use dexzd_apply::diagnostics::{
@@ -203,6 +206,13 @@ impl Harness {
             "effects must be deterministic"
         );
         self.state.commit(&outcome);
+        if let Ok(run_id) = RunId::from_slice(&self.run_id) {
+            prune_cursors::assert_prune_cursors_skip_no_rows(
+                &self.state.rows,
+                self.context.flow_hash,
+                run_id,
+            );
+        }
         outcome
     }
 
@@ -328,6 +338,18 @@ impl Harness {
         );
         self.get(ColumnFamily::Flow, &key)
             .expect("the Step execution exists")
+    }
+
+    /// Whether the Step has a row; completions and plain cancellations delete it.
+    fn has_step(&self, step_execution_id: &str) -> bool {
+        let key = dexzd_keyspace::row_keys::run_named_key(
+            self.context.flow_hash,
+            self.run(),
+            RunTable::StepExecution,
+            step_execution_id,
+        );
+        self.get::<StepExecutionRecord>(ColumnFamily::Flow, &key)
+            .is_some()
     }
 
     fn attribute_keys(&self) -> Vec<String> {
@@ -514,6 +536,7 @@ fn settings() -> RunSettings {
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 
@@ -1523,7 +1546,10 @@ fn assert_retry_snapshot_rebuild_with_collected_values(should_checkpoint_running
     ));
     harness.state.commit(&outcome);
     assert_eq!(harness.run_record().current_attempt, 2);
-    assert!(harness.step("ChargeStep-1").invocation.is_none());
+    assert!(
+        !harness.has_step("ChargeStep-1"),
+        "the restored Step had completed, so the time travel deletes its row"
+    );
     assert_eq!(pending_count(&harness, "commands"), 0);
     assert!(value_row(&harness, attribute_seq).is_none());
     assert!(value_row(&harness, channel_seq).is_none());
@@ -3761,8 +3787,10 @@ fn step_events_record_their_wait_for_and_source_event_ids() {
     harness.start(start_request());
     harness.start_attempt("ChargeStep-1", StepMethod::WaitFor, 1);
     harness.complete_wait_for("ChargeStep-1");
+    assert_eq!(harness.step("ChargeStep-1").wait_for_completed_event_id, 2);
     harness.start_attempt("ChargeStep-1", StepMethod::Execute, 1);
     harness.complete_execute("ChargeStep-1", 1, next_steps(&["ShipStep"]));
+    assert_eq!(harness.step("ShipStep-1").from_event_id, 3);
     harness.start_attempt("ShipStep-1", StepMethod::Execute, 1);
     harness.complete_execute("ShipStep-1", 1, force_complete());
     let events = history_page(&harness, 0).events;
@@ -3786,8 +3814,6 @@ fn step_events_record_their_wait_for_and_source_event_ids() {
         (3, 0, None),
         "ShipStep-1 skipped WaitFor and was started by event 3"
     );
-    assert_eq!(harness.step("ChargeStep-1").wait_for_completed_event_id, 2);
-    assert_eq!(harness.step("ShipStep-1").from_event_id, 3);
 }
 
 #[test]

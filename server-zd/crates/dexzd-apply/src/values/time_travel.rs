@@ -320,7 +320,7 @@ mod tests {
             key_suffix: b"ReportStep-1".to_vec(),
             value: step.encode_to_vec(),
         }];
-        let cursor = crate::command_handlers::run_cursor::RunCursor::for_new_run(
+        let mut cursor = crate::command_handlers::run_cursor::RunCursor::for_new_run(
             rows,
             RunRecord {
                 next_run_seq: 4,
@@ -335,12 +335,12 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert_eq!(prune_garbage(&mut transaction, &cursor, 5).unwrap(), 0);
+        assert_eq!(prune_garbage(&mut transaction, &mut cursor, 5).unwrap(), 0);
         rewrite_holders_for_time_travel(&mut transaction, &cursor, &restored_rows, &[], 5)
             .expect("ending the attempt releases the pin");
-        assert_eq!(prune_garbage(&mut transaction, &cursor, 5).unwrap(), 0);
-        assert_eq!(prune_garbage(&mut transaction, &cursor, 6).unwrap(), 1);
-        assert_eq!(prune_garbage(&mut transaction, &cursor, 6).unwrap(), 0);
+        assert_eq!(prune_garbage(&mut transaction, &mut cursor, 5).unwrap(), 0);
+        assert_eq!(prune_garbage(&mut transaction, &mut cursor, 6).unwrap(), 1);
+        assert_eq!(prune_garbage(&mut transaction, &mut cursor, 6).unwrap(), 0);
         assert!(
             transaction
                 .get(

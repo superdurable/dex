@@ -106,6 +106,20 @@ async fn offloaded_profiles(
     (run, offloaded)
 }
 
+/// Like [`offloaded_profiles`], for a run that, like runs of older releases, recorded no offload
+/// choice and follows its partition's mode.
+async fn offloaded_profiles_of_a_run_without_a_choice(
+    rewrites: usize,
+    segment_target_bytes: u64,
+) -> (OffloadedRun, Vec<(String, String)>) {
+    let mut run = OffloadedRun::start(RunSettings {
+        offload_history: None,
+        ..offloading_settings(segment_target_bytes)
+    });
+    let offloaded = offload_profiles(&mut run, rewrites).await;
+    (run, offloaded)
+}
+
 pub(super) fn offloading_settings(segment_target_bytes: u64) -> RunSettings {
     RunSettings {
         history_segment_target_bytes: segment_target_bytes,
@@ -285,7 +299,7 @@ async fn a_value_whose_segment_is_not_uploaded_reads_as_absent() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn load_blobs_takes_at_most_a_thousand_entries_only_while_offload_is_on() {
-    let (mut run, offloaded) = offloaded_profiles(2, 1).await;
+    let (mut run, offloaded) = offloaded_profiles_of_a_run_without_a_choice(2, 1).await;
     let (reference, text) = offloaded.first().expect("a value is offloaded").clone();
     let harness = run.harness(run.reader(
         &HistoryReadsConfig::default(),
@@ -304,7 +318,8 @@ async fn load_blobs_takes_at_most_a_thousand_entries_only_while_offload_is_on() 
         .expect("1000 entries load");
     assert_eq!(text_of(&response.values[&reference]), text);
 
-    // With offload off, LoadBlobs takes any number of entries, as before.
+    // A run without a recorded choice follows its partition: with offload off, LoadBlobs
+    // takes any number of its entries, as before.
     let partition = u32::from(run.context.partition.0);
     run.apply(Command::SetHistoryOffloadMode(
         SetHistoryOffloadModeCommand {

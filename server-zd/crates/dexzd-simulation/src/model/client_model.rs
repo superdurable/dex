@@ -63,6 +63,7 @@ pub(crate) fn run_settings() -> RunSettings {
         history_segment_target_bytes: 0,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 
@@ -358,11 +359,14 @@ pub(crate) fn later_handler_command(
     run_id: RunId,
     run: &RunView,
 ) -> Command {
+    // Ended Steps may have no row, so the attempt's first Step ID comes from the Step counters.
     let any_step = run
-        .step_executions
-        .keys()
-        .next()
-        .cloned()
+        .step_counters
+        .iter()
+        .filter(|(_, counter)| counter.last_step_number > 0)
+        .map(|(step_type, _)| format!("{step_type}-1"))
+        .chain(run.step_executions.keys().cloned())
+        .min()
         .unwrap_or_default();
     match rng.random_range(0..3) {
         0 => {

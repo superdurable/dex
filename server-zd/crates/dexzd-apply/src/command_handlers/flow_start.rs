@@ -16,9 +16,9 @@ use dexzd_protocol::dex::{
     StopFlowRequest, StopType,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttemptRecord, CommandReply, FlowCommand, FlowDirectoryRun, FlowStartCommand, FlowStopCommand,
-    FlowTimeoutTimerId, HardDeleteObjectReference, RunRecord, RunSettings, TimerId, command_reply,
-    flow_command::Command, timer_id,
+    AttemptRecord, CommandReply, EndedStepRowSweep, FlowCommand, FlowDirectoryRun,
+    FlowStartCommand, FlowStopCommand, FlowTimeoutTimerId, HardDeleteObjectReference, RunRecord,
+    RunSettings, TimerId, command_reply, flow_command::Command, timer_id,
 };
 
 use prost::Message;
@@ -146,7 +146,10 @@ pub(crate) fn start_run(
         flow_type: request.flow_type.clone(),
         start_request_id: request.request_id.clone(),
         started_at_micros: scope.now_micros,
-        settings: Some(*start.settings),
+        settings: Some(run_settings_with_offload_choice(
+            *start.settings,
+            &start.flow_config,
+        )),
         status: FlowStatus::Running as i32,
         current_attempt: 1,
         next_run_seq: 1,
@@ -164,6 +167,11 @@ pub(crate) fn start_run(
         parent: start.parent.clone(),
         window_start_seq: 1,
         window_event_count: Some(0),
+        // A new run never holds rows that older binaries kept.
+        ended_step_row_sweep: Some(EndedStepRowSweep {
+            is_complete: true,
+            ..EndedStepRowSweep::default()
+        }),
         ..RunRecord::default()
     };
     let mut cursor = RunCursor::for_new_run(rows, record);
@@ -298,6 +306,19 @@ pub(crate) fn start_run(
     terminated_run_effects.extend(output.effects);
     output.effects = terminated_run_effects;
     Ok(HandlerResult::Applied(output))
+}
+
+/// Returns `settings` with the run's history offload choice: the Flow config's when the owner
+/// proposed a default. Commands of older releases propose none, so their runs keep none and
+/// follow their partition's offload mode.
+pub(crate) fn run_settings_with_offload_choice(
+    mut settings: RunSettings,
+    flow_config: &FlowConfig,
+) -> RunSettings {
+    settings.offload_history = settings
+        .offload_history
+        .map(|default_choice| flow_config.offload_history.unwrap_or(default_choice));
+    settings
 }
 
 /// Initial Attributes stay readable for the whole run so "back to the beginning" always works

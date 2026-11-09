@@ -224,10 +224,8 @@ a {
 
 .brand-name > span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.115em;
-  text-transform: uppercase;
 }
 
 .header-nav {
@@ -607,10 +605,9 @@ a {
   border-radius: 999px;
   color: var(--pass);
   background: var(--pass-subtle);
-  font-size: 8px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .flow-definition-file-list em.is-invalid {
@@ -699,10 +696,8 @@ h3 {
 .eyebrow {
   margin-bottom: 7px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 .card {
@@ -836,7 +831,6 @@ h3 {
 .saved-query-panel strong {
   margin-bottom: 5px;
   font-size: 12px;
-  text-transform: uppercase;
 }
 
 .saved-query-panel button {
@@ -943,8 +937,6 @@ h3 {
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .query-preview code {
@@ -1079,9 +1071,7 @@ h3 {
   color: var(--muted);
   text-align: left;
   background: var(--raised);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11px;
 }
 
 .flow-table td {
@@ -1138,10 +1128,8 @@ pre {
   border-radius: 999px;
   color: var(--ink-dim);
   background: var(--hover);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
 .status-running {
@@ -1250,70 +1238,27 @@ pre {
   text-overflow: ellipsis;
 }
 
-.run-title-row {
-  justify-content: space-between;
-  gap: 20px;
-}
-
 .run-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.toggle-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 10px;
+.run-events-range {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 600;
 }
 
-.toggle-label input {
-  accent-color: var(--cta);
-}
-
-.summary-strip {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  margin-top: 22px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  background: var(--paper);
-  box-shadow: var(--shadow);
-}
-
-.summary-strip > div {
+.run-events-pager {
   display: flex;
-  min-width: 0;
-  min-height: 72px;
-  padding: 13px;
-  flex-direction: column;
-  justify-content: center;
-  gap: 7px;
-  border-right: 1px solid var(--line);
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
-.summary-strip > div:last-child {
-  border-right: 0;
-}
-
-.summary-strip span:first-child {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.summary-strip b {
-  overflow: hidden;
+.run-events-pager .button {
+  min-height: 26px;
+  padding: 3px 8px;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .run-error {
@@ -2118,9 +2063,8 @@ pre {
 .phase {
   padding: 3px 6px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
 }
 
 .phase-active {
@@ -2140,49 +2084,6 @@ pre {
 
 .run-content--overview {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.overview-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.overview-column {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.overview-card {
-  padding: 18px;
-  min-width: 0;
-}
-
-.overview-card.wide {
-  grid-column: 1 / -1;
-}
-
-.overview-live-state .metric-grid {
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
-}
-
-.overview-selected-event-header > h2 {
-  margin-bottom: 10px;
-}
-
-.overview-selected-event-header .event-meta {
-  margin-bottom: 0;
-}
-
-.overview-selected-event-body {
-  margin-top: 14px;
-}
-
-.overview-selected-event-body .event-details {
-  margin-top: 0;
 }
 
 .definition-list {
@@ -2207,13 +2108,6 @@ pre {
   overflow: hidden;
   font-size: 12px;
   text-overflow: ellipsis;
-}
-
-.history-settings-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
 }
 
 .history-settings-form {
@@ -2262,72 +2156,6 @@ pre {
 .history-settings-note {
   margin: 12px 0 0;
   font-size: 11px;
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.metric-grid > div {
-  display: flex;
-  padding: 12px;
-  flex-direction: column;
-  gap: 5px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--raised);
-}
-
-.metric-grid span {
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.metric-grid b {
-  font-size: 22px;
-}
-
-.live-state-block {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line-faint);
-}
-
-.live-state-block-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.live-state-block-heading > .eyebrow {
-  margin-bottom: 0;
-}
-
-.live-state-block-actions {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 10px;
-}
-
-.live-state-write-button {
-  padding: 4px 10px;
-  font-size: 11px;
-}
-
-.live-state-block-heading > div > .eyebrow {
-  margin-bottom: 0;
-}
-
-.live-state-block > h3,
-.live-state-block-heading h3 {
-  margin: 4px 0 8px;
-  font-size: 14px;
 }
 
 .section-expand-toggle {
@@ -2496,7 +2324,6 @@ pre {
   transform: translateY(-1px);
 }
 
-
 .timeline-time {
   display: flex;
   padding: 13px 8px 28px 0;
@@ -2647,9 +2474,8 @@ pre {
 
 .semantic-run-link-row > span:first-child {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
 }
 
 .timeline-dot.tone-waiting {
@@ -2699,10 +2525,8 @@ pre {
   color: var(--door);
   content: "Linked event";
   background: var(--door-subtle);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .timeline-row.step-method-wait-for.link-counterpart .event-card {
@@ -2739,7 +2563,6 @@ pre {
   box-shadow: inset 5px 0 0 var(--pass-rule), 0 0 0 4px color-mix(in srgb, var(--pass-rule) 24%, transparent), var(--shadow);
 }
 
-
 .timeline-row.step-method-wait-for.selected .timeline-dot {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--busy-rule) 28%, transparent);
 }
@@ -2751,19 +2574,6 @@ pre {
 .event-type.tone-waiting {
   color: var(--busy);
   background: var(--busy-subtle);
-}
-
-.timeline-page-range {
-  margin-top: 2px;
-}
-
-.view-toolbar .timeline-pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-left: auto;
 }
 
 .timeline-pruned-banner {
@@ -2842,8 +2652,6 @@ button.timeline-edge-stub:focus-visible {
   border-radius: 999px;
   color: var(--muted);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .timeline-stub-link {
@@ -2889,8 +2697,6 @@ button.timeline-edge-stub:focus-visible {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .related-event-label {
@@ -2904,11 +2710,6 @@ button.timeline-edge-stub:focus-visible {
 
 .related-event.location-pruned .related-event-label {
   color: var(--muted);
-}
-
-.run-window-note {
-  margin: 0 0 10px;
-  font-size: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3232,8 +3033,11 @@ button.timeline-edge-stub:focus-visible {
 }
 
 .graph-node-label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -3247,37 +3051,57 @@ button.timeline-edge-stub:focus-visible {
 .graph-node-label code {
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .graph-step-label {
-  min-height: 136px;
-}
-
-.graph-step-label--execute-only {
-  min-height: 114px;
-}
-
-.graph-step-label--execute-only .graph-method {
-  min-height: 58px;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
 }
 
 .graph-step-heading {
   position: relative;
   display: grid;
   padding: 10px 12px 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 8px;
-  border-bottom: 1px solid var(--line);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 8px;
 }
 
-.graph-step-heading > span {
-  grid-column: 1 / -1;
+.graph-step-meta {
+  display: flex;
+  min-width: 0;
+  grid-column: 2;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.graph-step-status-text {
+  flex: none;
   color: var(--muted);
-  font-size: 10px;
   font-weight: 600;
+}
+
+.graph-step-status-text.status-tone-active,
+.graph-step-status-text.status-tone-pending {
+  color: var(--accent);
+}
+
+.graph-step-status-text.status-tone-waiting {
+  color: var(--clock);
+}
+
+.graph-step-status-text.status-tone-completed {
+  color: var(--pass);
+}
+
+.graph-step-status-text.status-tone-failed {
+  color: var(--fail);
 }
 
 .graph-step-heading b,
@@ -3289,19 +3113,23 @@ button.timeline-edge-stub:focus-visible {
 
 .graph-step-heading b {
   font-size: 13.5px;
+  line-height: 18px;
 }
 
 .graph-step-heading code {
+  min-width: 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .graph-methods {
   display: grid;
-  padding: 9px 10px 10px;
+  min-height: 0;
+  flex: 1;
+  padding: 0 10px 10px;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: stretch;
-  gap: 16px;
+  gap: 8px;
   background: transparent;
 }
 
@@ -3312,12 +3140,12 @@ button.timeline-edge-stub:focus-visible {
 .graph-method {
   display: flex;
   min-width: 0;
-  min-height: 78px;
-  padding: 9px 11px;
+  padding: 8px 10px;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
-  border: 1px solid var(--line);
+  justify-content: center;
+  gap: 2px;
+  border: 0;
   border-radius: 8px;
   color: inherit;
   text-align: left;
@@ -3327,47 +3155,17 @@ button.timeline-edge-stub:focus-visible {
 
 .graph-method-waitfor {
   position: relative;
-  isolation: isolate;
-  padding-right: 20px;
-  border: 0;
-  border-radius: 0;
-  background: var(--clock-rule);
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
-}
-
-.graph-method-waitfor::before {
-  position: absolute;
-  z-index: 0;
-  inset: 1px;
-  content: '';
-  background: var(--raised);
-  clip-path: inherit;
-}
-
-.graph-method-waitfor > * {
-  position: relative;
-  z-index: 1;
+  padding-right: 22px;
+  border-radius: 8px 0 0 8px;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
 }
 
 .graph-method-execute {
-  border-color: var(--pass-rule);
   background: var(--raised);
 }
 
-.graph-method + .graph-method {
-  border-left-width: 1px;
-}
-
-.graph-method-waitfor:hover:not(:disabled)::before {
-  background: var(--paper);
-}
-
-.graph-method-execute.graph-method-failed {
-  border-color: var(--fail-rule);
-}
-
 .graph-method-execute:hover:not(:disabled) {
-  background: var(--pass-subtle);
+  filter: brightness(0.97);
 }
 
 .graph-method:focus-visible {
@@ -3387,12 +3185,17 @@ button.timeline-edge-stub:focus-visible {
 
 .graph-method span {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 14px;
 }
 
 .graph-method strong {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .graph-method .graph-conditions {
@@ -3400,7 +3203,7 @@ button.timeline-edge-stub:focus-visible {
   width: 100%;
   min-width: 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   margin-top: 2px;
 }
 
@@ -3410,8 +3213,9 @@ button.timeline-edge-stub:focus-visible {
   align-items: center;
   gap: 4px;
   color: var(--clock);
-  font-size: 9px;
+  font-size: 11px;
   font-style: normal;
+  line-height: 14px;
   white-space: nowrap;
 }
 
@@ -3537,18 +3341,6 @@ button.timeline-edge-stub:focus-visible {
     max-height: 360px;
   }
 
-  .summary-strip {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .summary-strip > div:nth-child(3) {
-    border-right: 0;
-  }
-
-  .summary-strip > div:nth-child(-n + 3) {
-    border-bottom: 1px solid var(--line);
-  }
-
   .run-content {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3563,10 +3355,6 @@ button.timeline-edge-stub:focus-visible {
     overflow: visible;
     overscroll-behavior: auto;
     scrollbar-gutter: auto;
-  }
-
-  .metric-grid {
-    grid-template-columns: repeat(3, 1fr);
   }
 }
 
@@ -3626,22 +3414,6 @@ button.timeline-edge-stub:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .overview-card.wide {
-    grid-column: auto;
-  }
-
-  .summary-strip {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .summary-strip > div {
-    border-bottom: 1px solid var(--line);
-  }
-
-  .summary-strip > div:nth-child(2n) {
-    border-right: 0;
-  }
-
   .run-tabs {
     overflow-x: auto;
   }
@@ -3658,10 +3430,6 @@ button.timeline-edge-stub:focus-visible {
 
   .stream-listening-status {
     align-self: flex-start;
-  }
-
-  .metric-grid {
-    grid-template-columns: 1fr 1fr;
   }
 
   .timeline-row {
@@ -3704,4 +3472,45 @@ button.timeline-edge-stub:focus-visible {
     min-height: 520px;
   }
 
+}
+
+/* Method fills carry the method status, so the node needs no inner borders. */
+.graph-method-execute.graph-method-completed {
+  background: var(--pass-subtle);
+}
+
+.graph-method-waitfor.graph-method-started,
+.graph-method-waitfor.graph-method-waiting {
+  background: var(--busy-subtle);
+}
+
+.graph-method-running {
+  background: var(--accent-subtle);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.graph-method-failed {
+  background: var(--fail-subtle);
+}
+
+.graph-step-status {
+  display: inline-flex;
+  color: var(--muted);
+}
+
+.graph-step-status.status-tone-active,
+.graph-step-status.status-tone-pending {
+  color: var(--accent);
+}
+
+.graph-step-status.status-tone-waiting {
+  color: var(--clock);
+}
+
+.graph-step-status.status-tone-completed {
+  color: var(--pass);
+}
+
+.graph-step-status.status-tone-failed {
+  color: var(--fail);
 }

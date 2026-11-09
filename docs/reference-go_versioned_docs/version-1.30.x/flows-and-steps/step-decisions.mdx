@@ -1,0 +1,143 @@
+---
+id: step-decisions
+title: Step decisions
+sidebar_label: Step decisions
+---
+
+# Step decisions
+
+**Execute** returns a **StepDecision**. It moves to next Steps, closes the
+Flow, or both stops this branch and cancels other Steps.
+
+## Multiple next Steps {#gotomulti}
+
+**GoTo** starts one next Step. **GoToMany** starts multiple next Steps. Each
+Step movement has its own input and can also have its own
+[Step options](./step-options.mdx#stepoptions-override-per-stepexecution).
+
+```go
+func (route) Execute(_ dex.Context, input StepDecisionInput) (*dex.StepDecision, error) {
+	switch input.Mode {
+	case "graceful":
+		return dex.GracefulComplete("done"), nil
+	case "dead-end":
+		return dex.GoToMany(
+			dex.MovementOf(branchWorker{}, "left"),
+			dex.MovementOf(branchWorker{}, "right"),
+		), nil
+	default:
+		quote := Quote{Carrier: "winner", Price: 9}
+		return dex.GoToMany(
+			dex.MovementOf(carrierA{}, Quote{Carrier: "A", Price: 10}),
+			dex.MovementOf(carrierB{}, Quote{Carrier: "B", Price: 12}),
+			dex.MovementOf(winnerStep{}, quote),
+		), nil
+	}
+}
+```
+
+Example: [examples/go/primitives/step-decision/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/step-decision/workflow.go)
+
+## Close decisions {#close-decisions}
+
+| Decision | What it does |
+| --- | --- |
+| **GracefulComplete** | Stops this branch and triggers the Flow to prepare for completion. When all branches and Steps are stopped, the Flow completes. |
+| **DeadEnd** | Stops this branch only. |
+| **ForceComplete** | Completes the Flow immediately. |
+| **ForceFail** | Fails the Flow immediately. |
+
+**GracefulComplete** and **ForceComplete** can return an output. **ForceFail**
+returns a failure reason. The Flow result returns each output with the Step
+type and Step execution ID. When multiple Steps complete gracefully, all their
+outputs return together.
+
+A Flow can have no active Steps and still keep running. **DeadEnd** stops this
+branch without making a decision that triggers the Flow to complete.
+
+```go
+func (route) Execute(_ dex.Context, input StepDecisionInput) (*dex.StepDecision, error) {
+	switch input.Mode {
+	case "graceful":
+		return dex.GracefulComplete("done"), nil
+	case "dead-end":
+		return dex.GoToMany(
+			dex.MovementOf(branchWorker{}, "left"),
+			dex.MovementOf(branchWorker{}, "right"),
+		), nil
+	default:
+		quote := Quote{Carrier: "winner", Price: 9}
+		return dex.GoToMany(
+			dex.MovementOf(carrierA{}, Quote{Carrier: "A", Price: 10}),
+			dex.MovementOf(carrierB{}, Quote{Carrier: "B", Price: 12}),
+			dex.MovementOf(winnerStep{}, quote),
+		), nil
+	}
+}
+
+func (branchWorker) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
+	return dex.DeadEnd(), nil
+}
+```
+
+Example: [examples/go/primitives/step-decision/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/step-decision/workflow.go)
+
+```go
+func (*FlowGracefulTimeout) HandleTimeout(
+	_ dex.Context,
+) (*dex.StepDecision, error) {
+	return dex.ForceFail("Workflow did not finish the task in time"), nil
+}
+
+func (longWait) Execute(
+	_ dex.Context,
+	_ bool,
+) (*dex.StepDecision, error) {
+	return dex.ForceComplete("Workflow completed successfully"), nil
+}
+```
+
+Example: [examples/go/patterns/timeout/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/timeout/workflow.go)
+
+## Cancel other Steps {#cancellation-on-stepdecision}
+
+A **StepDecision** can cancel other active Steps.
+
+- **CancelSteps** selects active Steps by Step type.
+- **CancelSiblingSteps** selects active Steps that were triggered by the same
+  parent Step execution.
+
+An RPC can also cancel Steps by type. See
+[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps). For how a
+running attempt observes cancellation, see [Cancellation](./step-options.mdx#cancellation).
+
+```go
+func (winnerStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
+	return dex.GoTo(recordQuote{}, quote).
+		CancelSteps(carrierA{}, carrierB{}), nil
+}
+```
+
+Example: [examples/go/primitives/step-decision/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/primitives/step-decision/workflow.go)
+
+## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+
+**ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels
+are empty. A Channel with queued messages is non-empty. After a message is
+consumed and committed to a Step, that Channel remains non-empty until the Step
+finishes processing **Execute**. If every named Channel is empty, it completes
+the Flow. Otherwise, it goes to other Steps.
+
+Use it to drain Channels and complete the Flow, so the Flow can stay short. See
+[Drain External Channel](/design-patterns/draining-channel-for-external-publishing)
+for the full example.
+
+```go
+return dex.ForceCompleteIfChannelsEmpty(
+	nil,
+	[]dex.ChannelDef{QueueChannel},
+	dex.MovementOf(processMessage{}, ""),
+), nil
+```
+
+Example: [examples/go/patterns/drain-channels/external-publishing/workflow.go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/drain-channels/external-publishing/workflow.go)

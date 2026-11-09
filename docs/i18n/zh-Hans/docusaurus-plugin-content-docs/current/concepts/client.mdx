@@ -1,0 +1,106 @@
+---
+title: Client
+sidebar_label: Client
+slug: /concepts/client
+---
+
+# Client
+
+**Client** 是应用在 Worker 之外与 Dex 交互的方式。HTTP handler、后台任务或脚本都通过它调用 Dex。Client 把请求发给 Dex Server。它不运行 Flow 代码，Flow 代码由 Worker 运行。
+
+## 什么时候用 Client
+
+在应用和它的 Flow 之间的边界上使用 Client：
+
+- <a id="启动-flow"></a>**启动** Flow：一个请求开始一个业务流程时。见 [Start a Flow](/reference/server/runtime-client#start-a-flow)。
+- <a id="调用-rpc"></a><a id="读写-flow-状态"></a>**调用 RPC**：向 Flow 发送命令，或读取需要 Flow 逻辑的视图。见 [Invoke an RPC](/reference/server/runtime-client#invoke-an-rpc)。
+- <a id="read-attributes"></a>**读取 Attribute**：只需要已存储的值时。见 [Read Attributes](/reference/server/runtime-client#read-attributes)。
+- **等待**：等 Flow 结束、Step 完成，或 Attribute 达到某个值。
+- **搜索**：按 Flow type、状态或已索引的 Attribute 查找 Flow。
+- <a id="停止-flow"></a>**运维** Flow：查看、停止、跳过 Timer、更新配置或 time travel。停止 Flow 见 [Stop a Flow](/reference/server/runtime-client#stop-a-flow)。
+
+## 和其他 Primitive 的关系 {#related-primitives}
+
+- [Flow](/concepts/flow)：**StartFlow** 用你选择的 **Flow ID** 创建 Flow execution。Flow ID 是业务身份，例如订单号。Dex 创建 Run ID。之后的调用都用 Flow ID 指定 Flow。
+- [RPC](/concepts/primitives/rpc)：RPC 是写入边界。要修改 Attribute、AttributeMap、Channel 或 ChannelMap 状态，为每个命令定义一个 typed RPC，再用 **InvokeRPC** 调用。这样 validation、authorization、lock 和 transaction 都留在 Flow 内。
+- [Attribute](/concepts/primitives/attribute)：**GetAttributes** 直接从 server 读取已存储的值，不需要 Worker 运行。如果读取需要 Flow 内的 validation、authorization、Channel 消息、派生视图或 Attribute lock，改用 RPC。
+- [Step](/concepts/step)：**WaitForStepCompletion** 阻塞到 Step 完成。**WaitForAttributeMatch** 阻塞到 Attribute 达到某个值。需要等 Flow 有了进展再响应请求时，使用它们。见 [Responsive Update](/design-patterns/responsive-update)。
+- [Stream](/concepts/primitives/stream)：Stream 把进度等实时更新推给 UI。它是 best effort。重要的结果要重新读取 durable 状态。
+- 搜索：**SearchFlows** 用搜索查询查找 Flow，例如按 Flow type 或某个已索引的 Attribute。**DescribeFlow** 读取一个已知 Flow ID 的状态。
+
+## 保证
+
+- **StartFlow** 返回时，Dex 已经保存了这个 Flow。即使你的进程退出，它也会继续运行。
+- **GetAttributes** 返回的所有值来自同一次提交。它只看到已提交的状态。
+- 等待观察的是 durable 状态。条件满足、Flow 关闭或请求超时到期时，它就返回。之后再调用，会从当前状态重新开始等待。
+- 等待不是最终结果。要判断发生了什么，读取 Flow 结果或业务状态。
+- Flow 正在关闭的错误，不能证明之前的请求已经成功。再次操作前，先读取保留的状态。
+
+## 示例
+
+这个 handler 启动一个 Flow。Query string 提供 Flow ID 和 start input。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+flow_id = required_query("workflowId")
+run_id = await app_state.client.start_flow(
+    app_state.client_apis,
+    flow_id,
+    required_query("keyword"),
+    start_options(),
+)
+return started_flow(flow_id, run_id)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+runID, err := controller.client.StartFlow(
+	request.Request.Context(),
+	controller.flow,
+	flowID,
+	keyword,
+	primitiveStartOptions(),
+)
+httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final String runId =
+        client.startFlow(flow, workflowId, keyword, ExampleFlows.startOptions());
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const runId = await client.startFlow(clientApisFlow, workflowId, keyword, startOptions());
+response.json({ flowID: workflowId, runID: runId });
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let flow = ClientApisFlow::default();
+client
+    .start_flow(&flow, &flow_id, keyword)
+    .map(|run_id| StartResponse { flow_id, run_id })
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+可以从 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 运行它。Client 等待变化、再调用读取 RPC 的例子，见 [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match)。
+
+## 参考
+
+- [Client requests](/reference/server/runtime-client) 说明 server 如何处理每个调用：Attribute 读取、等待、超时和上限、搜索，以及运维调用。
+- [StartFlowOptions](/reference/python/flows-and-steps/start-flow-options) 说明 start option，例如 ID reuse 和 request idempotency。
+- 各语言的名称、参数和错误写在 SDK 文档注释里。可以从各语言的 reference 开始，例如 [Go reference](/reference/go/)。

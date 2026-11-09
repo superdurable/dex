@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! With offload on, pages read while uploads continue return every event once, in order.
+//! Pages read while uploads continue return every event once, in order.
 //!
 //! A page holds at most 1000 events.
 
@@ -35,9 +35,8 @@ const OBJECT_STORE_PAGE_READS: &str =
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn history_pages_read_uploaded_segments_and_local_rows_without_gaps_or_duplicates() {
     let metrics = free_loopback_address();
-    let overrides = format!(
-        "history:\n  offloadEnabled: true\n  segmentTargetBytes: 4096\nmetrics:\n  listen: '{metrics}'\n"
-    );
+    let overrides =
+        format!("history:\n  segmentTargetBytes: 4096\nmetrics:\n  listen: '{metrics}'\n");
     let server = DevServer::start_with_config_overrides(Some(&overrides)).await;
     let mut flow_client = server.flow_client();
     start_pull_flow(

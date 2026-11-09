@@ -35,7 +35,7 @@ No series has a Flow, Flow type, partition, tenant, or key label.
 | Timers | **dexzd_timer_lag_seconds** |
 | Snapshots | **dexzd_snapshots_total** with **outcome**; **dexzd_snapshot_last_duration_seconds** |
 | Local disk | **dexzd_local_storage_bytes** |
-| History offload (experimental) | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source**; **dexzd_history_value_revivals_total**; **dexzd_history_expired_objects_deleted_total**; **dexzd_history_orphan_objects_deleted_total** |
+| History offload | **dexzd_history_upload_backlog_segments**; **dexzd_history_upload_backlog_bytes**; **dexzd_history_upload_oldest_sealed_age_seconds**; **dexzd_history_upload_concurrency_limit**; **dexzd_history_upload_in_flight_bytes**; **dexzd_history_uploads_total** with **outcome**; **dexzd_history_upload_bytes_total**; **dexzd_history_upload_checksum_mismatches_total**; **dexzd_history_upload_rescan_errors_total**; **dexzd_history_reads_total** with **kind** and **source**; **dexzd_history_value_revivals_total**; **dexzd_history_expired_objects_deleted_total**; **dexzd_history_orphan_objects_deleted_total** |
 | Attribute Store sync | See [Monitoring](/reference/server/attribute-store-sync#attribute-store-monitoring) |
 | External search projection | See [Monitoring](/reference/server/search#search-projection-monitoring) |
 
@@ -79,10 +79,23 @@ Worker polls use one persistent stream, so there is no empty-poll count.
 **event="delivered"**, every task frame sent, including RPC task frames. A returned attempt
 that Dex hands out again counts again. Long-poll waits count toward **flow_read** latency.
 
-The history offload gauges come from a rescan of every partition each minute.
+Changed in 0.1.23: **dexzd_history_offload_mode_skipped_partitions_total** was
+removed with the **history.offloadEnabled** switch. Each run now chooses history
+offload when it starts, so partitions no longer record an offload mode.
+
 **dexzd_history_upload_backlog_segments** counts sealed history segments that
-are not uploaded yet. **dexzd_history_upload_backlog_bytes** is their
-uncompressed size. **outcome** of **dexzd_history_uploads_total** is one of
+are not uploaded yet. It counts each seal and each recorded upload as it
+commits. **dexzd_history_upload_backlog_bytes** is their uncompressed size.
+That gauge and **dexzd_history_upload_oldest_sealed_age_seconds** come from a
+rescan of every partition each minute, and drop to 0 once the segment count
+does. The rescan also corrects the segment count, for example after a run with
+waiting segments is deleted. Changed in 0.1.23:
+the segment count also came only from that rescan, so a backlog that grew
+after a rescan did not show until the next one. A node that ran for less than
+a minute showed 0. **dexzd_history_upload_concurrency_limit** is the number of uploads the
+node currently allows at once, and **dexzd_history_upload_in_flight_bytes** is
+the bytes those uploads reserve for encoding and encoded objects; both are since 0.1.23. See
+[Upload concurrency](/reference/server/configuration#history-upload-concurrency). **outcome** of **dexzd_history_uploads_total** is one of
 **created**, **already_present** (a repeated upload found the same content),
 **replaced** (an existing object had other content), each counted once the
 upload is recorded, and **failed**. A transient object storage failure is

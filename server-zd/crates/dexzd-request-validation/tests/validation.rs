@@ -1556,7 +1556,7 @@ fn history_window_events_must_be_positive_and_within_the_server_maximum() {
 }
 
 #[test]
-fn the_start_override_sets_the_delete_switch_of_the_effective_config() {
+fn the_start_override_accepts_and_drops_the_deprecated_delete_switch() {
     let config = config();
     for is_enabled in [true, false] {
         let effective = dexzd_request_validation::validate_start_flow_request(
@@ -1572,14 +1572,67 @@ fn the_start_override_sets_the_delete_switch_of_the_effective_config() {
             },
             &config,
         )
-        .expect("any delete switch is valid");
-        assert_eq!(effective.delete_expired_history_objects, Some(is_enabled));
+        .expect("any delete switch is accepted");
+        assert_eq!(
+            effective.delete_expired_history_objects, None,
+            "expired history is always deleted, so the run never stores the switch"
+        );
     }
-    let effective =
-        dexzd_request_validation::validate_start_flow_request(&start_request(), &config)
-            .expect("a start without an override is valid");
+}
+
+#[test]
+fn the_offload_choice_is_accepted_at_start_and_for_sub_flows_but_never_by_update_flow_config() {
+    let config = config();
+    for is_offloaded in [true, false] {
+        let flow_config = FlowConfig {
+            offload_history: Some(is_offloaded),
+            ..FlowConfig::default()
+        };
+        let effective = dexzd_request_validation::validate_start_flow_request(
+            &dex::StartFlowRequest {
+                flow_start_options: Some(FlowStartOptions {
+                    flow_config_override: Some(flow_config.clone()),
+                    ..FlowStartOptions::default()
+                }),
+                ..start_request()
+            },
+            &config,
+        )
+        .expect("StartFlow accepts the offload choice");
+        assert_eq!(effective.offload_history, Some(is_offloaded));
+        let waiting = WaitingCondition {
+            waiting_condition_type: 1,
+            sub_flow_conditions: vec![SubFlowCondition {
+                sub_flow_type: "ChildFlow".into(),
+                start_step_type: "StartStep".into(),
+                options: Some(SubFlowOptions {
+                    flow_config_override: Some(flow_config.clone()),
+                    ..SubFlowOptions::default()
+                }),
+                ..SubFlowCondition::default()
+            }],
+            ..WaitingCondition::default()
+        };
+        validate_waiting_condition(Some(&waiting), &config.default_flow_config, &config)
+            .expect("a SubFlow override accepts the offload choice");
+        let update = dex::UpdateFlowConfigRequest {
+            flow_id: "flow-1".into(),
+            flow_config: Some(flow_config),
+            ..dex::UpdateFlowConfigRequest::default()
+        };
+        let error = validate_client_request(ClientRequest::UpdateFlowConfig(&update), &config)
+            .expect_err("a running Flow keeps its offload choice");
+        assert_eq!(error.category, ValidationCategory::InvalidArgument);
+        assert_eq!(error.field_path, "flow_config.offload_history");
+        assert_eq!(
+            error.message,
+            "offload_history can be set only when the Flow starts"
+        );
+    }
+    let unset = dexzd_request_validation::validate_start_flow_request(&start_request(), &config)
+        .expect("StartFlow without an override is valid");
     assert_eq!(
-        effective.delete_expired_history_objects, None,
-        "without an override the run keeps the server default"
+        unset.offload_history, None,
+        "the run start resolves the default"
     );
 }

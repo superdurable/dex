@@ -67,10 +67,8 @@
 .flow-definition-toolbar .eyebrow {
   margin-bottom: 7px;
   color: var(--flow-definition-brand);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
 }
 
 .flow-definition-title {
@@ -85,9 +83,8 @@
   border-radius: 999px;
   color: var(--flow-definition-brand-dark);
   background: var(--flow-definition-brand-soft);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
-  text-transform: uppercase;
 }
 
 .flow-definition-title span.is-invalid {
@@ -281,9 +278,8 @@
   border-radius: 999px;
   color: #1d4ed8;
   background: #dbeafe;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 850;
-  letter-spacing: 0.05em;
 }
 
 .definition-wait-shape {
@@ -498,9 +494,8 @@
 .definition-timeout-kicker {
   margin-bottom: 3px;
   color: #985f0d;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 850;
-  letter-spacing: 0.08em;
 }
 
 .definition-timeout-handler > strong {

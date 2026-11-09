@@ -1,0 +1,46 @@
+---
+title: Web (Dex Web)
+sidebar_label: Web
+---
+
+# Web (Dex Web)
+
+Dex Web is the operator UI for Dex. Use it to find Flows, follow a run, read its
+inputs, Attributes, and failures, and act on it.
+
+## What it shows
+
+- **Search and Summary** find Flows and show their state.
+- The **Timeline** and **Details** panels show each event of a run with its
+  inputs, outputs, and Attribute changes.
+- The **Flow canvas** draws a Flow's Steps and transitions from its source. The
+  **dexcli visualize** analyzer produces this Flow Definition Graph.
+- **Start Flow** starts a Flow, and **Actions** call RPCs on a selected run.
+
+## How it fits with the other components
+
+Dex Web runs as its own process. It connects to the
+[server](/components/server) API, the same API that
+[Workers and Clients](/components/application) use. A Flow that Dex
+Web starts runs on your Workers. Dex Web also configures
+[Connectors](/components/connector) for local development.
+
+## Run it
+
+- **dexcli dev** starts Dex Web together with a local server-zd.
+- **dex-web** is a standalone binary and container image for production.
+- **dexcli web** serves Dex Web against an existing server, for example over an
+  SSH tunnel.
+
+```bash
+dex-web --flow-service-address 127.0.0.1:8801
+```
+
+Dex Web has no end-user authentication. Place it behind TLS and an
+authenticating reverse proxy, and never expose it to the public Internet.
+
+## Reference
+
+The [Web reference](/reference/web/) covers the **dex-web** settings, access
+control, each UI page, the Flow source analyzer, and a read-only debugging
+workflow.

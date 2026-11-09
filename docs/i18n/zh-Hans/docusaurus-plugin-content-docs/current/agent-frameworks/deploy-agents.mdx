@@ -9,7 +9,7 @@ sidebar_label: Durable Agents
 一次 Flow 执行就是一个 agent session。每次模型调用是一个 **RunModel** Step，每个
 tool call 是独立的 Step。本页中的服务器限制都是 server-zd 的默认值。其余配置见
 [Server 参考](/reference/server/) 和
-[Application](/primitives/components/application)。
+[Application](/components/application)。
 
 ## 安装包 {#install}
 
@@ -52,7 +52,7 @@ peer 依赖的方式依赖它。每个版本都固定了它支持的 Dex SDK，�
 ## Stream 后端 {#stream-backend}
 
 模型的实时文本、推理摘要、tool 进度和审批事件都写入 **AgentEvents**
-[Stream](/primitives/stream)。无论是 **dexcli dev** 还是生产 server，**streamStore.backend**
+[Stream](/concepts/primitives/stream)。无论是 **dexcli dev** 还是生产 server，**streamStore.backend**
 的默认值都是 **memory**，所以实时事件不需要额外的服务器配置。不要为 agent 把后端设为
 **disabled**。设为 **disabled** 时，Step 写入会被丢弃，但不会让 Step 失败；Client 写入和
 Stream 读取则返回 **FAILED_PRECONDITION**。默认配置等同于：
@@ -146,7 +146,7 @@ runner 工作时，**RunModel**、**CompactContext** 和两种 tool Step 每 20 
 
 一次模型调用必须在 15 分钟内完成。把 provider 或 framework 的请求超时设得比它短，这样慢
 调用会带着 provider 的错误失败，后续 attempt 也还能落在 30 分钟的重试窗口内。Dex 如何发现
-丢失的 attempt，见 [Heartbeat](/reference/server/runtime-steps#heartbeat)。
+丢失的 attempt，见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat)。
 
 Claude Agent SDK session 在一个 **RunModel** 中运行整段轮次：多次模型调用和内联 tool call，
 直到 CLI 给出回答或推迟一个 tool call。默认情况下这一段必须在 15 分钟内完成。更长的段需要
@@ -183,7 +183,7 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 | --- | --- | --- |
 | **limits.maxFlowStateBytes** | 64 MiB | 一个 session 的活动状态：当前状态，包括它持有的 Attribute 和 Channel 值。history 以及 history 为 time travel 保留的被替换值不计入。 |
 | **values.maxValueBytes** | 16 MiB | 单个值的上限，比如一条消息、一条 tool call 记录或一份 framework run state |
-| **history.windowEvents** | 约 10,000 个事件 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
+| **history.windowEvents** | 约 50,000 个事件；**dev** 和 **local** 为 5,000 个 | 每个 run 保留的 Flow history。更早的事件会被裁剪。 |
 | **retention.closedFlowDuration** | 7 天 | 已停止的 session 还能读取多久 |
 
 每个 run 在启动时记录这些值。新值只对服务器带着新值重启之后启动的 session 生效。
@@ -214,12 +214,11 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 
 已失败的 session 无法恢复。提高上限只对新 session 生效。规划时让 session 远低于 64 MiB。
 
-Flow history 大约保留一个 session 最新的 10,000 个事件。读取对话用
-**get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
+Flow history 大约保留一个 session 最新的 50,000 个事件；**dev** 和 **local** 为 5,000 个。
+读取对话用 **get_agent_snapshot** 或 **list_agent_messages**，不要从 Flow history 读。
 [Time travel](/reference/server/runtime-client#time-travel) 只能以
 [history 窗口](/reference/server/configuration#history-window)内的时间点为目标。
-Time travel 到起点始终可用。重写大值（比如 **FrameworkRunState**）的 session 可用的
-Time travel 范围可能更短。运维人员可以调整 **history.windowEvents** 和每个 run 的 history 窗口；
+Time travel 到起点始终可用。运维人员可以调整 **history.windowEvents** 和每个 run 的 history 窗口；
 参见 [history 窗口配置](/reference/server/configuration#history-window)。
 
 session 不会自己结束。完成后用 **StopFlow** 停止它。已停止的 session 及其
@@ -509,7 +508,7 @@ attempt。报告还带有包含这次调用的 session 用量，按 session 计�
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
 已经运行过时记录 **outcome_unknown**。tool 确定没有运行时，这次调用改为记录 **failed**，模型
 可以再次调用这个 tool。有一种情况会打破“最多运行一次”这一承诺，要提前准备。它源于 Dex 停止任何
-Step attempt 的方式。见[失败与重新投递](/reference/server/runtime-steps#failure-and-redelivery)。
+Step attempt 的方式。见[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
 
@@ -529,7 +528,7 @@ session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **se
 ### 从未运行的调用也可能记录 outcome_unknown {#never-run-outcome-unknown}
 
 tool Step 失败时，它的 failure route 会从 recovery error 中读取 **attempt_progress**。见
-[失败与重新投递](/reference/server/runtime-steps#unknown-outcome)。**CallTool** 和
+[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery#unknown-outcome)。**CallTool** 和
 **CallSingleAttemptTool** 的处理方式相同：
 
 | **attempt_progress** | 这次调用记录的结果 |
@@ -591,7 +590,7 @@ session 的两个 Step 可能运行在不同版本上。
   少量 chunk。此后如果 0.1.0 Worker 运行这个 session 的 Step，这一轮会失败，因为它读不到被移走
   的消息。
 
-通用规则见 [Flow 代码版本控制](/primitives/components/application#versioning-flow-code)。
+通用规则见 [Flow 代码版本控制](/components/application#versioning-flow-code)。
 
 ### 滚动部署期间的 session settings {#session-settings-rollout}
 
@@ -614,7 +613,7 @@ settings 属于启动输入和 session 状态，**get_agent_snapshot** 和浏览
 
 属于某个用户的凭证，让 tool 在调用时从 secret store 中查找，查找用的 key 不能是凭证本身。
 当你自己的 Flow 必须持有短期 secret 时，把它存放在
-[hard-delete Attribute](/primitives/attribute#hard-delete-attributes) 中，Flow 不再需要时
+[hard-delete Attribute](/concepts/primitives/attribute#hard-delete-attributes) 中，Flow 不再需要时
 删除它。
 
 Worker 和 Client 使用 bearer 凭证向 Dex Server 认证。见
@@ -624,7 +623,7 @@ Worker 和 Client 使用 bearer 凭证向 Dex Server 认证。见
 
 - [Agent Framework](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
-- [Stream](/primitives/stream)
-- [Application](/primitives/components/application)
+- [Stream](/concepts/primitives/stream)
+- [Application](/components/application)
 - [Server 参考](/reference/server/)
 - [Agents 包 README](https://github.com/superdurable/dex/blob/main/agents/README.md)

@@ -8,7 +8,7 @@ Use this pattern when a Flow takes inbound messages until a resolution arrives o
 
 ## Shape
 
-```text
+```pseudocode
 rpc sendReply(text)   -> validate text; if invalid: return a rejection
                          Replies.publish(text); return accepted
 rpc resolve(reason)   -> Resolutions.publish(reason)
@@ -47,7 +47,7 @@ This pattern does not have its own runnable example yet; one will follow. The cl
 
 ## Related
 
-- [Channel](/primitives/channel)
-- [Timer](/primitives/timer)
-- [RPC](/primitives/rpc)
+- [Channel](/concepts/primitives/channel)
+- [Timer](/concepts/primitives/timer)
+- [RPC](/concepts/primitives/rpc)
 - [Drain Channels](/design-patterns/drain-channels)

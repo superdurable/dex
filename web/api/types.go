@@ -121,12 +121,13 @@ type setAttributeRequest struct {
 	Value     interface{} `json:"value"`
 }
 
-// updateFlowHistoryConfigRequest leaves a nil field unchanged on the run.
+// updateFlowHistoryConfigRequest changes only the run's history window.
 type updateFlowHistoryConfigRequest struct {
-	FlowID                      string `json:"flowId"`
-	RunID                       string `json:"runId"`
-	HistoryWindowEvents         *int32 `json:"historyWindowEvents"`
-	DeleteExpiredHistoryObjects *bool  `json:"deleteExpiredHistoryObjects"`
+	FlowID              string `json:"flowId"`
+	RunID               string `json:"runId"`
+	HistoryWindowEvents *int32 `json:"historyWindowEvents"`
+	// Accepted for compatibility and never forwarded; the server always deletes expired history.
+	DeleteExpiredHistoryObjects *bool `json:"deleteExpiredHistoryObjects"`
 }
 
 type deleteChannelMessageRequest struct {

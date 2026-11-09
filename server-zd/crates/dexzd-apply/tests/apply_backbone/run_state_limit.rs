@@ -159,6 +159,7 @@ fn state_limit_rejects_a_turn_that_grows_while_freeing_its_lock() {
     harness.start_turn_flow(0, options);
     harness.start_attempt("TurnStep-1", StepMethod::Execute, 1);
     harness.set_max_run_state_bytes(1);
+    // The next turn replaces the ended Step's deleted row, so only the Attribute grows.
     harness.complete_turn(
         "TurnStep-1",
         vec![AttributeWrite {
@@ -166,9 +167,32 @@ fn state_limit_rejects_a_turn_that_grows_while_freeing_its_lock() {
             value: Some(string_value(&"n".repeat(60))),
             ..AttributeWrite::default()
         }],
-        StepDecision::default(),
+        next_turn(1),
     );
     harness.assert_failed_by_state_limit();
+}
+
+#[test]
+fn state_limit_allows_growth_smaller_than_the_row_of_a_step_that_ends() {
+    let mut harness = Harness::new("order-1");
+    harness.start_turn_flow(0, turn_options(&[]));
+    harness.start_attempt("TurnStep-1", StepMethod::Execute, 1);
+    harness.set_max_run_state_bytes(1);
+    let outcome = harness.complete_turn(
+        "TurnStep-1",
+        vec![AttributeWrite {
+            key: "messages/1".to_owned(),
+            value: Some(string_value("n")),
+            ..AttributeWrite::default()
+        }],
+        StepDecision::default(),
+    );
+    assert!(!is_error(&outcome.reply, 8), "{:?}", outcome.reply);
+    assert_eq!(
+        harness.run_record().status,
+        FlowStatus::Running as i32,
+        "the ended Step's deleted row shrinks the state more than the Attribute grows it"
+    );
 }
 
 #[test]
@@ -220,7 +244,7 @@ fn state_limit_measures_concurrent_attempts_separately() {
     harness.complete_turn(
         "TurnStep-3",
         vec![append_message(SEEDED_MESSAGES)],
-        StepDecision::default(),
+        next_turn(1),
     );
     harness.assert_failed_by_state_limit();
 }

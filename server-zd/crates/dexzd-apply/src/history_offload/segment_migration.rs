@@ -18,7 +18,7 @@ use dexzd_protocol::dexzd::v1::{HistoryRecord, HistoryRowMetadata, RunRecord, Va
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::genesis_seq;
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_run_history_offloaded;
 use crate::history_offload::segment_seal::{
     MAX_SEGMENT_SUPERSEDED_VALUES, SealedSegmentBounds, garbage_identity,
     open_segment_after_command, seal_history_segment_if_due, segment_target_bytes,
@@ -43,7 +43,10 @@ pub(crate) fn seal_or_migrate_history_segment(
     let record = &cursor.record;
     if record.history_open_segment_first_seq == 0 {
         // Closed runs never start: migrating them only uploads history that purge deletes next.
-        if is_running(record) && !record.is_purging && is_history_offload_enabled(transaction)? {
+        if is_running(record)
+            && !record.is_purging
+            && is_run_history_offloaded(transaction, record)?
+        {
             start_migration(transaction, cursor)?;
             migrate_one_segment(transaction, cursor, now_micros)?;
         }
@@ -52,7 +55,7 @@ pub(crate) fn seal_or_migrate_history_segment(
     if record.history_migration_started_seq == 0 {
         return seal_history_segment_if_due(transaction, cursor, now_micros, has_closed_run);
     }
-    if !is_history_offload_enabled(transaction)? {
+    if !is_run_history_offloaded(transaction, record)? {
         // The unsealed rest joins the gap of commands applied while offload is off.
         cursor.record.history_migration_started_seq = 0;
         return seal_history_segment_if_due(transaction, cursor, now_micros, has_closed_run);

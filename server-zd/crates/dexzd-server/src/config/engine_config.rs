@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
 /// Identifies this node and the cluster's immutable partition layout.
@@ -211,7 +212,8 @@ impl Default for RecoveryConfig {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(try_from = "HistoryConfigSource", rename_all = "camelCase")]
 pub struct HistoryConfig {
-    /// Defaults to 10000; approximate number of the newest history events in each run's window.
+    /// Defaults to 50000 for `serve` and 5000 for `dev` and `local`; approximate number of the
+    /// newest history events in each run's window.
     ///
     /// The window serves history reads and Time Travel. A history record counts its events, and
     /// a semantic record without events counts as one. When a run holds more than this many
@@ -219,7 +221,7 @@ pub struct HistoryConfig {
     /// A run's `FlowConfig.history_window_events` overrides it. Must be positive.
     /// Recorded in RunRecord at FlowStart; changes affect only later runs.
     /// Set by `history.windowEvents`; the deprecated key `history.windowSemanticEvents` is still
-    /// accepted with a startup warning.
+    /// accepted with a startup warning. Changed in 0.1.23: the default was 10000 in every mode.
     pub window_events: u32,
     /// Defaults to 1000; largest number of old history events pruned at once, no greater than
     /// `window_events`.
@@ -259,9 +261,6 @@ pub struct HistoryConfig {
     /// Set by `history.checkpointCommandThreshold`; the deprecated key
     /// `history.checkpointCommandInterval` is still accepted with a startup warning.
     pub checkpoint_command_threshold: u32,
-    /// Defaults to 256 MiB per run; cap on superseded values retained for reconstruction within the window.
-    /// Recorded in RunRecord at FlowStart; changes affect only later runs.
-    pub max_retained_superseded_bytes: u64,
     /// Defaults to 1 GiB; most bytes that one Time Travel computation holds in memory: the
     /// writes it replays from the checkpoint before its target, the rebuilt state and its
     /// values, the external input it reapplies, and the staged result.
@@ -271,43 +270,41 @@ pub struct HistoryConfig {
     /// with RESOURCE_EXHAUSTED; choose a later target point, skip reapplying writes, or raise
     /// this value. Must be positive. Changes apply to later ResetFlow requests.
     pub time_travel_replay_memory_bytes: u64,
-    /// Defaults to false for `serve` and true for `dev` and `local`; experimental switch that
-    /// offloads run history to object storage. Do not enable it on `serve` until the release
-    /// notes announce the feature: enabling it early can grow local disk or fail Steps. At start,
-    /// the lease holder commits this value to every partition whose stored mode differs, so
-    /// turning it off again takes effect at the next start.
-    #[serde(rename = "offloadEnabled")]
-    pub is_offload_enabled: bool,
-    /// Defaults to false for `serve` and true for `dev` and `local`; whether the lease holder
-    /// deletes the object of a history segment once the window has passed the whole segment.
-    ///
-    /// A run's `FlowConfig.delete_expired_history_objects` overrides it. When false, such objects
-    /// stay in object storage until the run is deleted after its retention, though no read
-    /// returns them. Deletion starts about one hour after the window passes the segment.
-    /// Recorded in RunRecord at FlowStart; changes affect only later runs.
-    #[serde(rename = "deleteExpiredObjects")]
-    pub should_delete_expired_objects: bool,
-    /// Defaults to 4 MiB; from 1 byte to 256 MiB. While history offload is on, a run seals its
-    /// open history segment for upload once the segment's history records, checkpoints, and
-    /// superseded values reach this many bytes. Recorded in RunRecord at FlowStart; changes
-    /// affect only later runs.
+    /// Defaults to 4 MiB; from 1 byte to 256 MiB. A run seals its open history segment for upload
+    /// to object storage once the segment's history records, checkpoints, and superseded values
+    /// reach this many bytes. Recorded in RunRecord at FlowStart; changes affect only later runs.
     pub segment_target_bytes: u64,
     /// Defaults to 10 minutes; how long a superseded value stays on local disk after the command
     /// that superseded it, so a value reference that a Worker or Client just read still resolves
     /// locally.
     ///
-    /// While history offload is on, a superseded value is deleted locally once its history
-    /// segment is uploaded and this period has passed; reads then fetch it from object storage.
+    /// A superseded value is deleted locally once its history segment is uploaded and this period
+    /// has passed; reads then fetch it from object storage.
     /// A run that receives no more commands deletes such values about one minute after the period
     /// ends. Must be at least 1 microsecond. Recorded in RunRecord at FlowStart; changes affect
     /// only later runs.
     #[serde(with = "humantime_serde")]
     pub superseded_value_grace_period: Duration,
-    /// Defaults to 16; from 1 to 1024. Most sealed history segments the lease holder reads,
+    /// Defaults to 256; from 1 to 1024. Most sealed history segments the lease holder reads,
     /// encodes, and uploads to object storage at once. Higher values drain an upload backlog
     /// faster and hold more segments in memory; each in-flight segment holds about its encoded
     /// size, usually up to `segmentTargetBytes` plus one command's history.
+    ///
+    /// The uploader adapts its limit between `uploadMinConcurrency` and this value: it grows
+    /// while uploads wait, shrinks once they drain, and halves after a retryable object storage
+    /// failure such as S3 503 SlowDown. `uploadMaxInFlightBytes` bounds the memory.
+    /// Changed in 0.1.23: the default was 16 and the limit was fixed.
     pub upload_concurrency: u32,
+    /// Defaults to 16; from 1 to 1024. History segment uploads the lease holder allows at once
+    /// while no upload waits. Values above `uploadConcurrency` count as `uploadConcurrency`, so
+    /// a configuration that sets only a smaller `uploadConcurrency` keeps a fixed limit.
+    /// Since 0.1.23.
+    pub upload_min_concurrency: u32,
+    /// Defaults to 128 MiB; from 1 MiB to 64 GiB. Most bytes that the lease holder's uploads in
+    /// flight hold at once for encoding history segments and keeping the encoded objects. Each
+    /// upload reserves the most memory its encoding can allocate before it encodes; a segment
+    /// larger than this uploads alone. Since 0.1.23.
+    pub upload_max_in_flight_bytes: u64,
     /// Defaults to 1 GiB; most bytes of uploaded history the node keeps in its disk read cache,
     /// the sibling directory `<localStorage.directory>-history-read-cache`, such as
     /// `/var/lib/dex-server-zd/store-history-read-cache`. History pages read
@@ -329,6 +326,9 @@ pub struct HistoryConfig {
     /// Deprecated keys that the parsed YAML used; never serialized.
     #[serde(skip)]
     deprecated_keys: Vec<DeprecatedConfigKey>,
+    /// Removed keys that the parsed YAML used and that have no effect; never serialized.
+    #[serde(skip)]
+    ignored_keys: Vec<IgnoredConfigKey>,
 }
 
 impl HistoryConfig {
@@ -336,30 +336,38 @@ impl HistoryConfig {
     pub fn deprecated_keys(&self) -> &[DeprecatedConfigKey] {
         &self.deprecated_keys
     }
+
+    /// Returns the removed keys the parsed YAML used; startup logs a warning for each.
+    pub fn ignored_keys(&self) -> &[IgnoredConfigKey] {
+        &self.ignored_keys
+    }
 }
 
 impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
-            window_events: 10_000,
+            window_events: SERVE_HISTORY_WINDOW_EVENTS,
             prune_chunk_size: 1_000,
             max_window_events: 100_000,
             checkpoint_row_write_bytes_threshold: 1024 * 1024,
             checkpoint_command_threshold: 1_000,
-            max_retained_superseded_bytes: 256 * 1024 * 1024,
             time_travel_replay_memory_bytes: 1024 * 1024 * 1024,
-            is_offload_enabled: false,
-            should_delete_expired_objects: false,
             segment_target_bytes: 4 * 1024 * 1024,
             superseded_value_grace_period: Duration::from_secs(10 * 60),
-            upload_concurrency: 16,
+            upload_concurrency: 256,
+            upload_min_concurrency: 16,
+            upload_max_in_flight_bytes: 128 * 1024 * 1024,
             read_cache_max_bytes: 1 << 30,
             read_cache_directory: None,
             object_read_concurrency: 32,
             deprecated_keys: Vec::new(),
+            ignored_keys: Vec::new(),
         }
     }
 }
+
+/// Default `history.windowEvents` of `serve`; `dev` and `local` default to a smaller window.
+pub(crate) const SERVE_HISTORY_WINDOW_EVENTS: u32 = 50_000;
 
 /// A renamed configuration key that is still accepted under its old name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -383,6 +391,28 @@ const CHECKPOINT_COMMAND_THRESHOLD_RENAME: DeprecatedConfigKey = DeprecatedConfi
     replacement_key: "history.checkpointCommandThreshold",
 };
 
+/// A removed configuration key that is still accepted and has no effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IgnoredConfigKey {
+    /// Full YAML path of the removed key, such as `history.maxRetainedSupersededBytes`.
+    pub ignored_key: &'static str,
+    /// Why the key no longer has an effect.
+    pub reason: &'static str,
+}
+
+const OFFLOAD_ENABLED_REMOVAL: IgnoredConfigKey = IgnoredConfigKey {
+    ignored_key: "history.offloadEnabled",
+    reason: "since 0.1.23 each run chooses history offload at start with FlowConfig.offload_history",
+};
+const DELETE_EXPIRED_OBJECTS_REMOVAL: IgnoredConfigKey = IgnoredConfigKey {
+    ignored_key: "history.deleteExpiredObjects",
+    reason: "since 0.1.23 runs that offload history always delete the objects of expired segments",
+};
+const MAX_RETAINED_SUPERSEDED_BYTES_REMOVAL: IgnoredConfigKey = IgnoredConfigKey {
+    ignored_key: "history.maxRetainedSupersededBytes",
+    reason: "since 0.1.23 runs delete superseded values when the window passes them or once uploaded",
+};
+
 /// The YAML shape of [`HistoryConfig`], including deprecated keys.
 #[derive(Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -401,16 +431,16 @@ struct HistoryConfigSource {
     checkpoint_command_threshold: PresentKey<u32>,
     #[serde(deserialize_with = "deserialize_present_key")]
     checkpoint_command_interval: PresentKey<u32>,
-    max_retained_superseded_bytes: u64,
+    max_retained_superseded_bytes: Option<IgnoredAny>,
     time_travel_replay_memory_bytes: u64,
-    #[serde(rename = "offloadEnabled")]
-    is_offload_enabled: bool,
-    #[serde(rename = "deleteExpiredObjects")]
-    should_delete_expired_objects: bool,
+    offload_enabled: Option<bool>,
+    delete_expired_objects: Option<IgnoredAny>,
     segment_target_bytes: u64,
     #[serde(with = "humantime_serde")]
     superseded_value_grace_period: Duration,
     upload_concurrency: u32,
+    upload_min_concurrency: u32,
+    upload_max_in_flight_bytes: u64,
     read_cache_max_bytes: u64,
     read_cache_directory: Option<PathBuf>,
     object_read_concurrency: u32,
@@ -440,13 +470,15 @@ impl Default for HistoryConfigSource {
             checkpoint_min_written_bytes: None,
             checkpoint_command_threshold: None,
             checkpoint_command_interval: None,
-            max_retained_superseded_bytes: defaults.max_retained_superseded_bytes,
+            max_retained_superseded_bytes: None,
             time_travel_replay_memory_bytes: defaults.time_travel_replay_memory_bytes,
-            is_offload_enabled: defaults.is_offload_enabled,
-            should_delete_expired_objects: defaults.should_delete_expired_objects,
+            offload_enabled: None,
+            delete_expired_objects: None,
             segment_target_bytes: defaults.segment_target_bytes,
             superseded_value_grace_period: defaults.superseded_value_grace_period,
             upload_concurrency: defaults.upload_concurrency,
+            upload_min_concurrency: defaults.upload_min_concurrency,
+            upload_max_in_flight_bytes: defaults.upload_max_in_flight_bytes,
             read_cache_max_bytes: defaults.read_cache_max_bytes,
             read_cache_directory: defaults.read_cache_directory,
             object_read_concurrency: defaults.object_read_concurrency,
@@ -481,25 +513,56 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             &mut deprecated_keys,
         )?
         .unwrap_or(defaults.checkpoint_command_threshold);
+        let ignored_keys = removed_keys_in(&source)?;
         Ok(Self {
             window_events,
             prune_chunk_size: source.prune_chunk_size,
             max_window_events: source.max_window_events,
             checkpoint_row_write_bytes_threshold,
             checkpoint_command_threshold,
-            max_retained_superseded_bytes: source.max_retained_superseded_bytes,
             time_travel_replay_memory_bytes: source.time_travel_replay_memory_bytes,
-            is_offload_enabled: source.is_offload_enabled,
-            should_delete_expired_objects: source.should_delete_expired_objects,
             segment_target_bytes: source.segment_target_bytes,
             superseded_value_grace_period: source.superseded_value_grace_period,
             upload_concurrency: source.upload_concurrency,
+            upload_min_concurrency: source.upload_min_concurrency,
+            upload_max_in_flight_bytes: source.upload_max_in_flight_bytes,
             read_cache_max_bytes: source.read_cache_max_bytes,
             read_cache_directory: source.read_cache_directory,
             object_read_concurrency: source.object_read_concurrency,
             deprecated_keys,
+            ignored_keys,
         })
     }
+}
+
+/// Returns the removed keys that `source` sets, which are accepted and ignored.
+///
+/// Returns an error for `history.offloadEnabled: false`, which operators must not believe still
+/// keeps the history of new runs local.
+fn removed_keys_in(source: &HistoryConfigSource) -> Result<Vec<IgnoredConfigKey>, String> {
+    if source.offload_enabled == Some(false) {
+        return Err(format!(
+            "{key} is false, but the server can no longer turn history offload off: since 0.1.23 \
+             each run chooses at start with FlowConfig.offload_history, which defaults to true; \
+             remove {key} from the configuration and set offload_history to false for the Flows \
+             that keep their history on local disk",
+            key = OFFLOAD_ENABLED_REMOVAL.ignored_key
+        ));
+    }
+    Ok([
+        (source.offload_enabled.is_some(), OFFLOAD_ENABLED_REMOVAL),
+        (
+            source.delete_expired_objects.is_some(),
+            DELETE_EXPIRED_OBJECTS_REMOVAL,
+        ),
+        (
+            source.max_retained_superseded_bytes.is_some(),
+            MAX_RETAINED_SUPERSEDED_BYTES_REMOVAL,
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(is_set, key)| is_set.then_some(key))
+    .collect())
 }
 
 /// Returns the value of a renamed key, read from its new or deprecated name but not both.

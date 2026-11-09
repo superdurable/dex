@@ -5,7 +5,8 @@ on:
     paths:
       - 'skills/**'
       # The doc-map folders; keep them in step with DOCS_DIRECTORIES in check-doc-map.py.
-      - 'docs/content/primitives/**'
+      - 'docs/content/concepts/**'
+      - 'docs/content/components/**'
       - 'docs/content/design-patterns/**'
       - '.github/workflows/skills-ci.yml'
   push:
@@ -13,7 +14,8 @@ on:
       - main
     paths:
       - 'skills/**'
-      - 'docs/content/primitives/**'
+      - 'docs/content/concepts/**'
+      - 'docs/content/components/**'
       - 'docs/content/design-patterns/**'
       - '.github/workflows/skills-ci.yml'
 

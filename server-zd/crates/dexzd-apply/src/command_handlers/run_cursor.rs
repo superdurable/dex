@@ -26,6 +26,7 @@ use crate::projections::history_event_links::{
 };
 use crate::projections::search_document;
 use crate::state_access::{FlowTransaction, RunRows};
+use crate::steps::{delete_ended_step_rows, sweep_ended_step_rows};
 use crate::values::{ValueIdAllocator, ValueLimits};
 use crate::values::{enforce_superseded_byte_cap, reconcile_run_storage};
 use crate::{ApplyEffect, ApplyError, WaitableChange};
@@ -283,7 +284,9 @@ impl RunCursor {
             self.record.next_event_id - 1,
             window_event_count_before,
         );
-        search_document::refresh_search_document(transaction, &self, scope)?;
+        delete_ended_step_rows(transaction, self.rows)?;
+        sweep_ended_step_rows(transaction, self.rows, &mut self.record)?;
+        search_document::refresh_search_document(transaction, &mut self, scope)?;
         stamp_superseded_values(transaction, self.rows, scope.now_micros)?;
         history::after_command(transaction, &mut self, window_events)?;
         seal_or_migrate_history_segment(transaction, &mut self, scope.now_micros, has_closed_run)?;
@@ -351,6 +354,8 @@ impl RunCursor {
             for payload in events.into_iter().filter_map(|event| event.payload) {
                 self.events.push(payload);
             }
+            // Reapplied input leaves deletion to its TimeTravel, which resolves the links later.
+            delete_ended_step_rows(transaction, self.rows)?;
         }
         self.rows.put_run_record(transaction, &self.record);
         Ok(HandlerOutput {

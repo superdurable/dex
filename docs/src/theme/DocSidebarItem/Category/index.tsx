@@ -10,6 +10,7 @@ import React, {
   type ReactNode,
   useEffect,
   useMemo,
+  useState,
 } from 'react';
 import clsx from 'clsx';
 import {
@@ -27,44 +28,25 @@ import {translate} from '@docusaurus/Translate';
 import useIsBrowser from '@docusaurus/useIsBrowser';
 import DocSidebarItems from '@theme/DocSidebarItems';
 import type {Props} from '@theme/DocSidebarItem/Category';
+import {
+  hasSidebarHydrated,
+  persistSidebarCategoryState,
+  readSavedCategoryCollapsedBeforePaint,
+  readSidebarCategoryState,
+  rememberVisibleCategoryCollapsed,
+} from '@site/src/components/sidebarState';
+import {docsSectionIcons, isDocsSectionKey} from '@site/src/components/docsSections';
 
-const SIDEBAR_STATE_STORAGE_KEY = 'dex.docs.sidebar.category-state.v1';
-
-type SidebarCategoryState = Record<string, boolean>;
-
-function readSidebarCategoryState(): SidebarCategoryState {
-  try {
-    const serializedState = window.localStorage.getItem(SIDEBAR_STATE_STORAGE_KEY);
-    if (serializedState === null) {
-      return {};
-    }
-    const parsedState: unknown = JSON.parse(serializedState);
-    if (
-      parsedState === null ||
-      typeof parsedState !== 'object' ||
-      Array.isArray(parsedState)
-    ) {
-      return {};
-    }
-    return Object.fromEntries(
-      Object.entries(parsedState).filter(
-        ([, value]) => typeof value === 'boolean',
-      ),
-    );
-  } catch {
-    return {};
+function SidebarSectionIcon({section}: {section: unknown}): ReactNode {
+  if (!isDocsSectionKey(section)) {
+    return null;
   }
-}
-
-function persistSidebarCategoryState(categoryKey: string, collapsed: boolean) {
-  try {
-    window.localStorage.setItem(
-      SIDEBAR_STATE_STORAGE_KEY,
-      JSON.stringify({...readSidebarCategoryState(), [categoryKey]: collapsed}),
-    );
-  } catch {
-    // The sidebar remains usable when browser storage is unavailable.
-  }
+  const Icon = docsSectionIcons[section];
+  return (
+    <span className="sidebar-section-icon" data-docs-section={section} aria-hidden="true">
+      <Icon size={15} strokeWidth={2.25} />
+    </span>
+  );
 }
 
 function CollapseButton({
@@ -133,16 +115,31 @@ export default function DocSidebarItemCategory({
   const isActive = isActiveSidebarItem(item, activePath);
   const isCurrentPage = isSamePath(href, activePath);
   const {collapsed, setCollapsed} = useCollapsible({
-    initialState: () =>
-      collapsible ? !isActive && (item.collapsed ?? true) : false,
+    initialState: () => {
+      if (!collapsible || isActive) {
+        return false;
+      }
+      return readSavedCategoryCollapsedBeforePaint(categoryKey) ?? item.collapsed ?? true;
+    },
   });
 
+  // Only the first hydrated page applies saved state late. Later mounts read it while rendering.
+  const [isMountedAfterHydration] = useState(hasSidebarHydrated);
   useEffect(() => {
+    if (isMountedAfterHydration) {
+      return;
+    }
     const savedCollapsedState = readSidebarCategoryState()[categoryKey];
-    if (typeof savedCollapsedState === 'boolean') {
+    if (typeof savedCollapsedState === 'boolean' && !isActive) {
       setCollapsed(savedCollapsedState);
     }
-  }, [categoryKey, setCollapsed]);
+    // Runs once per mount: a later page change must not reapply the saved state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    rememberVisibleCategoryCollapsed(categoryKey, collapsed);
+  }, [categoryKey, collapsed]);
 
   // The category of the current page stays open, even when the reader collapsed it before.
   useEffect(() => {
@@ -175,7 +172,7 @@ export default function DocSidebarItemCategory({
           className={clsx('menu__link', {
             'menu__link--sublist': collapsible,
             'menu__link--sublist-caret': !href && collapsible,
-            'menu__link--active': isActive,
+            'menu__link--active': isCurrentPage,
           })}
           onClick={
             collapsible
@@ -200,6 +197,7 @@ export default function DocSidebarItemCategory({
           aria-expanded={collapsible && !href ? !collapsed : undefined}
           href={collapsible ? hrefWithSSRFallback ?? '#' : hrefWithSSRFallback}
           {...props}>
+          <SidebarSectionIcon section={item.customProps?.section} />
           {label}
         </Link>
         {href && collapsible && (

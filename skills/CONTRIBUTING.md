@@ -23,7 +23,7 @@ companion skill, or duplicated Core/Go handbooks.
 ## Skill content
 
 The Skills are the coding-agent version of Dex's stable docs layer. They cover
-the same scope as the docs Primitives, Components, and Design pattern pages,
+the same scope as the docs Concepts, Components, and Design pattern pages,
 written as mental models, decision tables, rules, anti-patterns, code
 skeletons, and checklists. Each rule must be complete without its links.
 
@@ -31,7 +31,7 @@ Ask one question of each fact: will this still hold in the next minor release?
 If yes, it may belong in the Skills. If no, it belongs in SDK doc comments or
 the versioned docs Developer reference. Skills contain no Dex version numbers
 and no release-tag pins. They link only to the Developer reference and to
-`examples/`, never to the Primitives, Components, or Design pattern pages.
+`examples/`, never to the Concepts, Components, or Design pattern pages.
 
 Change the Skills only when a stable programming rule, a Primitive concept or
 relation, a Component, or a design pattern changes. Update the matching docs
@@ -43,10 +43,11 @@ never requires a skills change.
 
 `doc-map.yaml` maps each skills file to the docs pages that hold the same
 stable knowledge. Each `mappings` entry names one skills file, relative to
-this directory, and the English docs pages under `docs/content/primitives/` or
-`docs/content/design-patterns/` that it mirrors. The `unmapped` list
+this directory, and the English docs pages under `docs/content/concepts/`,
+`docs/content/components/`, or `docs/content/design-patterns/` that it
+mirrors. The `unmapped` list
 classifies files that have no counterpart. Every Markdown file in the three
-skills and every page in those two docs folders must be mapped or unmapped, so
+skills and every page in those three docs folders must be mapped or unmapped, so
 a new file needs an explicit decision. An empty map fails.
 Check Gate CI fails a pull request that changes a mapped file on one side but
 none of its counterparts. When the other side really needs no change, add this

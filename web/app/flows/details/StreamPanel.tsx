@@ -126,11 +126,7 @@ export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
   return (
     <section className="stream-panel">
       <div className="stream-panel-header">
-        <div>
-          <p className="eyebrow">Resumable stream</p>
-          <h2>Stream messages</h2>
-          <p>Messages are best effort and may be trimmed as the Stream reaches its configured capacity.</p>
-        </div>
+        <h2 className="sr-only">Stream messages</h2>
         {activeStreamName && (
           <span className="stream-listening-status" aria-live="polite">
             <span className={isListening ? 'stream-listening-dot' : ''} />

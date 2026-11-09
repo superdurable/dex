@@ -182,6 +182,30 @@ export function formatElapsedDuration(milliseconds: number | null): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
+/** Formats a row offset with at most two units, such as "12m 5s" or "3d 4h". */
+export function formatTimelineOffset(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  if (whole < 60) return `${whole}s`;
+  const minutes = Math.floor(whole / 60);
+  if (minutes < 60) return `${minutes}m ${whole % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+/** Returns, per row in display order, whether its minute differs from the nearest timed row above. */
+export function rowsShowingAbsoluteTime(events: readonly FlowHistoryEvent[]): boolean[] {
+  let minuteAbove: number | null = null;
+  return events.map((event) => {
+    const eventMs = event.eventTime ? Date.parse(event.eventTime) : Number.NaN;
+    if (!Number.isFinite(eventMs)) return false;
+    const minute = Math.floor(eventMs / 60_000);
+    const isNewMinute = minute !== minuteAbove;
+    minuteAbove = minute;
+    return isNewMinute;
+  });
+}
+
 /** Builds lookup tables in one O(n log n) pass and caches them per events array. */
 function timelineEventIndex(events: FlowHistoryEvent[]): TimelineEventIndex {
   const cached = timelineEventIndexes.get(events);
@@ -220,7 +244,7 @@ function unassignedTimelineLinks(index: TimelineEventIndex): UnassignedTimelineL
     stepExecutionId: link.stepExecutionId,
     fromEventId: link.waitForEventId,
     toEventId: link.executeEventId,
-    label: `${link.stepExecutionId}: WaitForCondition started to Execute`,
+    label: `${link.stepExecutionId}: Waiting for conditions to Execute`,
     elapsedDurationMs: link.conditionWaitDurationMs,
   }));
   index.links = [...lineageLinks(index), ...conditionLinks];

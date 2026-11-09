@@ -23,7 +23,7 @@ use crate::command_handlers::command_replies::{error_reply, grpc_code, ok_reply}
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::command_handlers::{CommandScope, HandlerOutput, HandlerResult};
 use crate::history::{LocalCleanupCaller, clean_up_local_history, schedule_local_cleanup};
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_run_history_offloaded;
 use crate::state_access::{FlowTransaction, RunRows};
 use crate::values::reconcile_run_storage;
 
@@ -162,7 +162,7 @@ pub(crate) fn first_seq_kept_until_upload(
 ) -> Result<u64, ApplyError> {
     let record = &cursor.record;
     let uploaded_through_seq = record.history_uploaded_through_seq;
-    let is_fenced = is_history_offload_enabled(transaction)?
+    let is_fenced = is_run_history_offloaded(transaction, record)?
         || (record.history_open_segment_first_seq != 0
             && !sealed_history_segments(transaction, cursor.rows, uploaded_through_seq, 1)?
                 .is_empty());

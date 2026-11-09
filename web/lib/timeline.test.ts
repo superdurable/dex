@@ -9,6 +9,8 @@
 import { describe, expect, it } from 'vitest';
 import { sequentialStepHistory, stepEvent } from './historyTestServer';
 import {
+  formatTimelineOffset,
+  rowsShowingAbsoluteTime,
   buildSelectedTimelineLinks,
   buildSelectedTimelineRelations,
   buildTimelineLinks,
@@ -134,7 +136,7 @@ describe('timeline', () => {
         stepExecutionId: 'A-1',
         fromEventId: 10,
         toEventId: 20,
-        label: 'A-1: WaitForCondition started to Execute',
+        label: 'A-1: Waiting for conditions to Execute',
         elapsedDurationMs: null,
         lane: 0,
       },
@@ -177,7 +179,7 @@ describe('timeline', () => {
         stepExecutionId: 'terminal-failure-1',
         fromEventId: 8,
         toEventId: 9,
-        label: 'terminal-failure-1: WaitForCondition started to Execute',
+        label: 'terminal-failure-1: Waiting for conditions to Execute',
         elapsedDurationMs: null,
         lane: 0,
       },
@@ -187,7 +189,7 @@ describe('timeline', () => {
       stepExecutionId: 'terminal-failure-1',
       fromEventId: 8,
       toEventId: 9,
-      label: 'terminal-failure-1: WaitForCondition started to Execute',
+      label: 'terminal-failure-1: Waiting for conditions to Execute',
       elapsedDurationMs: null,
       lane: 0,
     }]);
@@ -416,3 +418,33 @@ describe('selected event relations across pages', () => {
   });
 });
 
+describe('Timeline row times', () => {
+  it.each([
+    [0, '0s'],
+    [34, '34s'],
+    [725, '12m 5s'],
+    [9397, '2h 36m'],
+    [10002, '2h 46m'],
+    [86400 * 3 + 3600 * 4 + 59, '3d 4h'],
+  ])('formats an offset of %ss as %s', (seconds, expected) => {
+    expect(formatTimelineOffset(seconds)).toBe(expected);
+  });
+
+  it('shows the absolute time whenever the minute changes from the timed row above', () => {
+    const row = (eventId: number, eventTime: string | null): FlowHistoryEvent => ({
+      eventId,
+      eventTime,
+      type: 'StepExecuteCompleted',
+      payload: {},
+    });
+    // Newest first: #10510 and #10509 share a minute, #10508 is minutes earlier, #10507 has no time.
+    expect(rowsShowingAbsoluteTime([
+      row(10510, '2026-11-08T10:15:40Z'),
+      row(10509, '2026-11-08T10:15:05Z'),
+      row(10508, '2026-11-08T10:11:59Z'),
+      row(10507, null),
+      row(10506, '2026-11-08T10:11:01Z'),
+      row(10505, '2026-11-08T10:09:00Z'),
+    ])).toEqual([true, false, true, false, false, true]);
+  });
+});

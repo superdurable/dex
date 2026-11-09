@@ -178,10 +178,13 @@ pub struct NodeMetrics {
     pub search_initial_loads: Counter,
     /// Stopped partitions that kept their previous search projection mode at startup.
     pub search_projection_mode_skipped_partitions: Counter,
-    /// Stopped partitions that kept their previous history offload mode at startup.
-    pub history_offload_mode_skipped_partitions: Counter,
-    /// Sealed history segments waiting for upload, per partition, as of the uploader's last scan.
+    /// Sealed history segments waiting for upload, per partition; the count follows seals and
+    /// acknowledgments, and bytes and age are as of the uploader's last scan.
     pub history_upload_backlog: HistoryUploadBacklog,
+    /// History segment uploads the uploader currently allows at once.
+    pub history_upload_concurrency_limit: Gauge,
+    /// Bytes that history segment uploads in flight reserve for encoding and encoded objects.
+    pub history_upload_in_flight_bytes: Gauge,
     /// History segment uploads by outcome: each upload once its acknowledgment committed, and
     /// each failed attempt.
     pub history_uploads: HistoryUploadOutcomes,
@@ -571,11 +574,6 @@ impl NodeMetrics {
             metrics.search_projection_mode_skipped_partitions.clone(),
         );
         registry.register(
-            "dexzd_history_offload_mode_skipped_partitions",
-            "Stopped partitions that kept their previous history offload mode at startup.",
-            metrics.history_offload_mode_skipped_partitions.clone(),
-        );
-        registry.register(
             "dexzd_history_upload_backlog_segments",
             "Sealed history segments waiting for upload.",
             HistoryUploadBacklogSegments(metrics.history_upload_backlog.clone()),
@@ -589,6 +587,16 @@ impl NodeMetrics {
             "dexzd_history_upload_oldest_sealed_age_seconds",
             "Age of the oldest sealed history segment waiting for upload.",
             HistoryUploadOldestSealedAge(metrics.history_upload_backlog.clone()),
+        );
+        registry.register(
+            "dexzd_history_upload_concurrency_limit",
+            "History segment uploads the uploader currently allows at once.",
+            metrics.history_upload_concurrency_limit.clone(),
+        );
+        registry.register(
+            "dexzd_history_upload_in_flight_bytes",
+            "Bytes that history segment uploads in flight reserve for encoding and encoded objects.",
+            metrics.history_upload_in_flight_bytes.clone(),
         );
         registry.register(
             "dexzd_history_uploads",
@@ -737,8 +745,9 @@ impl NodeMetrics {
             search_initial_load_documents: Counter::default(),
             search_initial_loads: Counter::default(),
             search_projection_mode_skipped_partitions: Counter::default(),
-            history_offload_mode_skipped_partitions: Counter::default(),
             history_upload_backlog: HistoryUploadBacklog::new(partition_count),
+            history_upload_concurrency_limit: Gauge::default(),
+            history_upload_in_flight_bytes: Gauge::default(),
             history_uploads: HistoryUploadOutcomes::default(),
             history_upload_bytes: Counter::default(),
             history_upload_checksum_mismatches: Counter::default(),

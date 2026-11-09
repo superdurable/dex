@@ -1,0 +1,39 @@
+---
+id: index
+title: Components
+sidebar_label: Overview
+---
+
+# Components
+
+一个 Dex 应用由少数几个组件组成。你的代码是其中之一，其余由 Dex 提供。
+
+| 组件 | 作用 |
+| --- | --- |
+| [Application](/components/application) | 你的 Worker 和 Client。Worker 承载 Flow 定义，运行 Step 和 RPC。Client 启动 Flow、调用 RPC、读取 Attribute。 |
+| [Server](/components/server) | server-zd 保存 Flow 状态，并把工作交给 Worker。 |
+| [CLI](/components/cli) | **dexcli** 在本地运行 Dex，并在 shell 中操作 Flow。 |
+| [Web](/components/web) | Dex Web 是查看和操作 Flow 的运维界面。 |
+| [Connector](/components/connector) | Connector 是 Flow 调用的、已发布的集成。Dex Web 在本地配置它们。 |
+| [External Attribute Sync](/components/external-attribute-sync) | server-zd 把选定的 Attribute 复制到 PostgreSQL 表。 |
+
+## 组件之间的关系
+
+```text
+Client  ──▶ server-zd ◀── Worker
+Dex Web ──▶     │
+dexcli  ──▶     ├──▶ object storage
+                └──▶ PostgreSQL (Attribute Sync)
+```
+
+Worker、Client、Dex Web 和 **dexcli** 都连接 server 的 API 端口。Worker 主动向 server 建立出站 stream，从不监听调用。server 把 Flow 状态保存在对象存储中。它也可以把选定的 Attribute 写入 PostgreSQL，供你自己查询。
+
+## 本地和生产环境
+
+| 组件 | 本地开发 | 生产环境 |
+| --- | --- | --- |
+| Server | **dexcli dev** 启动 server-zd | 使用对象存储运行 **dex-server-zd serve** |
+| Web | **dexcli dev** 启动 Dex Web | 单独的 **dex-web** 进程，或 **dexcli web** |
+| Application | 你的 Worker 进程 | 你的 Worker 服务，像其他服务一样扩缩容 |
+
+每个组件页都链接到它的[开发者参考](/reference)，那里有配置、限制和版本细节。

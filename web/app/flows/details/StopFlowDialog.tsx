@@ -65,7 +65,7 @@ export function StopFlowDialog({
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <div><p className="eyebrow">Destructive operation</p><h2>Stop flow</h2></div>
+          <h2 className="modal-title-danger">Stop flow</h2>
           <button className="icon-button" onClick={onClose}>×</button>
         </div>
         <p>

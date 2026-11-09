@@ -296,31 +296,62 @@ type FlowConfig struct {
 	// Since 1.38.0.
 	HistoryWindowEvents *int32
 
-	// DeleteExpiredHistoryObjects controls deletion of object storage objects for expired history segments.
+	// DeleteExpiredHistoryObjects has no effect. The SDK does not send it to the server.
 	//
-	// A true value deletes each expired segment's object about one hour after expiry. A false value keeps
-	// objects until the run is deleted after retention. This only matters when history
-	// offload is enabled. Nil uses history.deleteExpiredObjects on the server: true
-	// for dev/local and false for serve. The run records that default at start.
-	// The server-side switch is experimental.
-	// Servers older than server-zd 0.1.22 ignore the value.
+	// server-zd 0.1.23 and later ignore the field for runs that start with them. Such a run,
+	// when it offloads its history, always deletes the objects of expired history segments about
+	// one hour after the history window passes them.
 	//
-	// Set it through StartFlowOptions.ConfigOverride, update it with Client.UpdateFlowConfig,
-	// or override it with SubFlowOptions.ConfigOverride. Children otherwise inherit the parent's value.
-	// An omitted update preserves the current value; it cannot be cleared to the server
-	// default. Enabling deletion includes already expired objects. Disabling it stops
-	// deletions that have not started; requests already sent may complete, and deleted
-	// objects never return. History reads and Time Travel exclude expired history even
-	// when its objects are kept.
+	// A run that started under server-zd 0.1.22 still follows the value it recorded then. When
+	// that value is false, the run's expired history objects stay in object storage until its
+	// retention ends, and a run that never closes keeps them. To delete them sooner, set the
+	// field to true for that run with UpdateFlowConfig through an SDK older than 1.40.0 or a
+	// direct gRPC request. See https://docs.superdurable.io/reference/server/configuration#history-offload.
 	//
-	// Example:
-	//
-	//	err := client.UpdateFlowConfig(ctx, "order-42", dex.FlowConfig{
-	//	    DeleteExpiredHistoryObjects: ptr.Any(false),
-	//	})
+	// The field remains so existing code still compiles.
 	//
 	// Since 1.39.0.
+	//
+	// Deprecated: this field has no effect, because the SDK no longer sends it and runs that
+	// start with server-zd 0.1.23 or later ignore it. Remove it from your code. Deprecated in
+	// 1.40.0.
 	DeleteExpiredHistoryObjects *bool
+
+	// OffloadHistory sets whether Dex offloads the run's history to object storage. Nil means true.
+	//
+	// An offloaded run uploads its history to object storage in segment objects. Once a segment
+	// is uploaded and a grace period has passed, Dex deletes its history records and superseded
+	// values from the local disk. History reads then fetch them from object storage. When the
+	// history window passes a whole segment, Dex deletes the segment's object about one hour later.
+	//
+	// A run that does not offload keeps its history on the local disk. It never writes a history
+	// object. The history window still applies: Dex prunes the oldest events and deletes the
+	// superseded values that the window passed.
+	//
+	// Leave it nil for most runs. A long-running run then keeps only its newest history and
+	// current state on the local disk. Set it to false for many short runs that close soon after
+	// they start. Each offloaded run writes at least one history object when it closes. It deletes
+	// that object when its retention ends. Short runs at a high rate therefore add object storage
+	// requests, while their small history costs little local disk. A run that does not offload
+	// keeps every superseded value its history window covers on the local disk, with no byte
+	// limit; for a run that rewrites large values, keep offload or set a smaller
+	// HistoryWindowEvents.
+	//
+	// Set it only at start, through StartFlowOptions.ConfigOverride, or for a SubFlow through
+	// SubFlowOptions.ConfigOverride. A SubFlow inherits the value from its parent unless its own
+	// override sets it. The run keeps the value for its whole life. Client.UpdateFlowConfig with a
+	// non-nil OffloadHistory returns a *ServiceError whose Code is codes.InvalidArgument. Runs that
+	// started before server-zd 0.1.23 keep the history offload behavior that their server gave
+	// them. Servers older than server-zd 0.1.23 ignore the field.
+	//
+	// Keep the history of a short-lived Flow on the local disk:
+	//
+	//	_, err := client.StartFlow(ctx, notificationFlow, flowID, input, dex.StartFlowOptions{
+	//		ConfigOverride: &dex.FlowConfig{OffloadHistory: ptr.Any(false)},
+	//	})
+	//
+	// Since 1.40.0.
+	OffloadHistory *bool
 }
 
 // StartFlowOptions configures a new Flow execution.

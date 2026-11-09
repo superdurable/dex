@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use dexzd_keyspace::row_keys::{prefix_range, value_row_key};
-use dexzd_keyspace::{ColumnFamily, RunTable, ValueId, run_table_prefix};
+use dexzd_keyspace::{ColumnFamily, RunTable, run_table_prefix};
 use dexzd_protocol::dexzd::v1::ValueGarbageRecord;
 
 use crate::ApplyError;
@@ -16,8 +16,9 @@ use crate::history::{
     HISTORY_ROWS_PER_COMMAND, LocalCleanupBacklog, WindowAdvanceTarget, advance_window,
     prune_window_history,
 };
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_superseded_byte_cap_applied;
 use crate::history_offload::segment_expiry::expire_passed_history_segments;
+use crate::history_offload::segment_seal::garbage_identity;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 use crate::values::projected_superseded_value_bytes;
@@ -26,50 +27,43 @@ const GARBAGE_ROWS_PER_CALL: usize = 128;
 
 /// Collects at most 128 values whose last holder disappeared before the window start, and only
 /// within the run's uploaded seqs while the partition offloads or the run has a SEALED segment.
+///
+/// Scans from `value_garbage_pruned_before_seq`, skipping deleted rows the store has not
+/// compacted.
 pub(crate) fn prune_garbage(
     transaction: &mut FlowTransaction<'_>,
-    cursor: &RunCursor,
+    cursor: &mut RunCursor,
     window_start_seq: u64,
 ) -> Result<usize, ApplyError> {
     let rows = cursor.rows;
     let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::ValueGarbage);
-    let (start, end) = prefix_range(&prefix);
+    let delete_before_seq = window_start_seq.min(first_seq_kept_until_upload(transaction, cursor)?);
+    let scan_start_seq = cursor.record.value_garbage_pruned_before_seq;
+    debug_assert!(
+        transaction
+            .first_buffered_put_key(
+                ColumnFamily::Flow,
+                &prefix,
+                &garbage_seq_key(&prefix, scan_start_seq)
+            )
+            .is_none(),
+        "value garbage is added at or after the window start, which the garbage cursor never passes"
+    );
+    if scan_start_seq >= delete_before_seq {
+        return Ok(0);
+    }
     let garbage = transaction.scan_messages::<ValueGarbageRecord>(
         ColumnFamily::Flow,
-        &start,
-        &end,
+        &garbage_seq_key(&prefix, scan_start_seq),
+        &garbage_seq_key(&prefix, delete_before_seq),
         GARBAGE_ROWS_PER_CALL,
         "value garbage",
     )?;
-    let delete_before_seq = window_start_seq.min(first_seq_kept_until_upload(transaction, cursor)?);
     let mut collected = 0;
+    let mut last_collected_seq = scan_start_seq;
     for (garbage_key, _) in garbage {
-        let suffix = &garbage_key[prefix.len()..];
-        if suffix.len() != 20 {
-            return Err(ApplyError::InvariantViolation {
-                detail: "value garbage key must have a 20-byte suffix".to_owned(),
-            });
-        }
-        let lost_last_holder_seq = u64::from_be_bytes(
-            suffix[..8]
-                .try_into()
-                .expect("the garbage key suffix has at least eight bytes"),
-        );
-        if lost_last_holder_seq >= delete_before_seq {
-            break;
-        }
-        let value_id = ValueId {
-            run_seq: u64::from_be_bytes(
-                suffix[8..16]
-                    .try_into()
-                    .expect("the garbage key suffix has twelve value ID bytes"),
-            ),
-            index_in_command: u32::from_be_bytes(
-                suffix[16..20]
-                    .try_into()
-                    .expect("the garbage key suffix has four index bytes"),
-            ),
-        };
+        let (lost_last_holder_seq, value_id) = garbage_identity(&garbage_key, &prefix)?;
+        last_collected_seq = lost_last_holder_seq;
         transaction.delete(
             ColumnFamily::Value,
             value_row_key(rows.flow_hash, rows.run_id, RunTable::Value, value_id),
@@ -80,6 +74,16 @@ pub(crate) fn prune_garbage(
         );
         transaction.delete(ColumnFamily::Flow, garbage_key);
         collected += 1;
+    }
+    // A full page may end between rows of its last seq, so that seq is scanned again.
+    let pruned_before_seq = if collected == GARBAGE_ROWS_PER_CALL {
+        last_collected_seq
+    } else {
+        delete_before_seq
+    };
+    // Window starts begin at 1, so leaving 1 unrecorded keeps never-pruned runs unchanged.
+    if pruned_before_seq > cursor.record.value_garbage_pruned_before_seq.max(1) {
+        cursor.record.value_garbage_pruned_before_seq = pruned_before_seq;
     }
     Ok(collected)
 }
@@ -109,7 +113,7 @@ pub(crate) fn enforce_superseded_byte_cap(
 ) -> Result<LocalCleanupBacklog, ApplyError> {
     let mut backlog = LocalCleanupBacklog::default();
     prune_garbage_before_window(transaction, cursor, &mut backlog)?;
-    if !is_history_offload_enabled(transaction)? {
+    if is_superseded_byte_cap_applied(transaction, &cursor.record)? {
         let superseded_bytes = projected_superseded_value_bytes(transaction, cursor)?;
         let cap = cursor
             .record
@@ -146,7 +150,7 @@ pub(crate) fn prune_passed_history(
 
 fn prune_garbage_before_window(
     transaction: &mut FlowTransaction<'_>,
-    cursor: &RunCursor,
+    cursor: &mut RunCursor,
     backlog: &mut LocalCleanupBacklog,
 ) -> Result<(), ApplyError> {
     if prune_garbage(transaction, cursor, cursor.record.window_start_seq)? == GARBAGE_ROWS_PER_CALL
@@ -213,4 +217,11 @@ fn garbage_seq_to_fit_cap(
         }
     }
     Ok(target_seq)
+}
+
+/// Returns the smallest ValueGarbage key with lost-holder seq `seq`.
+fn garbage_seq_key(prefix: &[u8], seq: u64) -> Vec<u8> {
+    let mut key = prefix.to_vec();
+    key.extend_from_slice(&seq.to_be_bytes());
+    key
 }

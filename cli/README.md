@@ -98,7 +98,7 @@ with the default. To keep it, pass a `--zd-config` file that sets
 With `--attribute-store-config`, the CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its
 `attributeStore` section. zd supports only `type: postgres`, and each database
-needs the fencing table described in `server-zd/README.md`. Do not also set
+needs the [fencing table](https://docs.superdurable.io/reference/server/attribute-store-sync#attribute-store-fencing-table). Do not also set
 `attributeStore` in the `--zd-config` file.
 The Temporal engine was removed. `--engine temporal`, every
 `--external-temporal-*` or `--temporal-*` flag, `--sqlite-db-filename`,
@@ -645,7 +645,6 @@ dexcli flow skip-timer FLOW_ID --step-type TYPE [--execution N]
                     (--condition-id ID|--condition-index N) --yes
 dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--request-timeout DURATION]
 dexcli flow update-config FLOW_ID --config JSON|@FILE|- --yes
-dexcli flow trigger-continue-as-new FLOW_ID --yes
 dexcli flow time-travel FLOW_ID [--run-id RUN_ID]
                         --type beginning|history-event-time|step-type|step-execution-id
                         [--target VALUE] [--step-method wait-for|execute]
@@ -674,7 +673,8 @@ dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
 `--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
 `wait-for`, or `disabled`), state-transfer thresholds, `stepDurability`
 (`sync` or `async`), `attributeStoreNames`, `historyWindowEvents`, and
-`deleteExpiredHistoryObjects`. It rejects a non-null `workerTarget` because Dex
+`offloadHistory`. It still accepts `deleteExpiredHistoryObjects` but ignores it and does not send it.
+It rejects a non-null `workerTarget` because Dex
 routes Flow work to pull Workers. `--retry-policy` uses
 `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
 `maximumAttempts`; intervals are Go duration strings. `--step-options` accepts
@@ -696,14 +696,30 @@ on an active Flow:
 dexcli flow update-config order-123 --config '{"historyWindowEvents":50000}' --yes
 ```
 
-`deleteExpiredHistoryObjects` controls deletion of expired history segment objects.
-True deletes them about one hour after expiry; false keeps them until run deletion
-after retention. It applies only with history offload enabled. Omission uses the
-server default at start (true for dev/local, false for serve), inherits for children,
-and preserves the current value on update. Enabling it includes already expired
-objects; disabling it stops deletions that have not started. Requests already sent
-may complete, and deleted objects never return. Once set, it cannot be cleared to
-the server default.
+`offloadHistory` sets whether the run offloads its history to object storage.
+Omitting it means true. An offloaded run uploads its history in segment objects
+and later deletes it from the local disk. A run that does not offload keeps its
+history on the local disk and never writes a history object. Set it to false for
+many short runs that close soon after they start, to avoid one history object
+per run. Set it only at `flow start`; a child Flow inherits it from its parent
+unless its own override sets it. The server rejects it at `update-config` with
+`INVALID_ARGUMENT`. For example:
+
+```bash
+dexcli flow start notification-42 --flow-type NotificationFlow \
+  --start-step-type SendNotification --config '{"offloadHistory":false}' --yes
+```
+
+`deleteExpiredHistoryObjects` is deprecated and has no effect. dexcli accepts
+the key so existing scripts keep working, but it does not send the value.
+server-zd 0.1.23 and later ignore it for runs that start with them: such a run,
+when it offloads its history, always deletes the objects of expired history
+segments about one hour after the history window passes them. A run that
+started under server-zd 0.1.22 still follows the value it recorded then. When
+that value is false, its expired history objects stay until its retention ends.
+To delete them sooner, set the field to true for that run with UpdateFlowConfig
+through an older dexcli or SDK, or a direct gRPC request; see
+[History offload](https://docs.superdurable.io/reference/server/configuration#history-offload).
 
 ## Call any FlowService API
 

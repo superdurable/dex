@@ -16,6 +16,52 @@ and node restart. Conflicting RPCs fail immediately while those locks are held.
 Locks release when the logical method ends. Value pins transfer to each retry
 and release when the method ends; time travel rebuilds pins for retained snapshots in running, backoff, and pending invocations.
 
+## Active Step types
+
+A run's search document lists its active Step types. The run record keeps the
+run's active Step executions counted by Step type and WaitFor use. Each command
+adjusts the counts by the Step execution rows it changed, so its cost does not
+grow with the Steps the run has executed. TimeTravel, a switch from DISABLED,
+and a run recorded without counts count every Step execution once. While active
+Step search is DISABLED, the run record keeps no counts and apply reads no Step
+execution for search. The counts are an internal cache, so `state_row_bytes` and
+the run-state limit leave them out, and a command is admitted exactly as without
+them.
+
+## Ended Step rows
+
+A command deletes the StepExecution row of every Step it ends when
+WaitForStepCompletion answers Completed for that Step with or without the row:
+a Step that completed, or one that a cancellation without a Flow close ended.
+The deletion runs at the end of the command, live and in a history rebuild,
+after the command resolved its event links and recorded its pending method
+calls and before its checkpoint and storage accounting. Input that a TimeTravel
+reapplies leaves the deletion to the TimeTravel's own end, which resolves the
+reapplied events' links. The TimeTravel also deletes such rows that it restores
+from older checkpoints.
+
+A Failed Step, a Step that a Flow close canceled, a cancellation recorded before
+`is_canceled_by_flow_close` existed, and the Flow timeout handler keep their
+rows, because their answer, or a second handler start, depends on them. Step
+execution numbers come from the StepCounter table, so a deleted row never frees
+its number. The StepExecution table therefore holds the active Steps plus those
+kept rows, and checkpoints and the run state limit grow with them only.
+
+Checkpoints, snapshots, and staged TimeTravel results that a binary from before
+this deletion wrote still hold such rows. A TimeTravel deletes the ones it
+restores, in its own command. The debug semantic hash that compares a TimeTravel
+target with the live state skips them on both sides, because a deletable row
+answers every read as an absent row does.
+
+A run recorded before this deletion keeps such rows. The run record's
+`ended_step_row_sweep` tracks deleting them: each live command visits at most
+256 Step rows after the last one the previous command visited, deletes the
+deletable ones, and marks the sweep complete when a page ends short. FlowStart
+records it complete, and a TimeTravel starts it again because its restored rows
+may come from an older checkpoint. A replay never sweeps, since the progress is
+run-scoped, so a rebuilt state may keep rows the live state deleted, which the
+debug semantic hash also skips.
+
 ## Search outbox
 
 While a partition's `SearchProjectionModeRecord` is enabled, every search

@@ -32,7 +32,9 @@ pub use segment_decoding::{
     decode_checkpoints_block, decode_history_segment, decode_history_segment_header,
     decode_records_block, decode_value,
 };
-pub use segment_encoding::{EncodedHistorySegment, encode_history_segment};
+pub use segment_encoding::{
+    EncodedHistorySegment, encode_history_segment, max_history_segment_encoding_bytes,
+};
 pub use segment_layout::{
     HISTORY_SEGMENT_PREFIX_BYTES, HISTORY_SEGMENT_TRAILER_BYTES, HistorySegmentLayout,
 };

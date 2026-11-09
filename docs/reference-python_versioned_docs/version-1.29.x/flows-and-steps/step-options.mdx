@@ -1,0 +1,311 @@
+---
+id: step-options
+title: StepOptions
+sidebar_label: StepOptions
+---
+
+# StepOptions
+
+A Step type returns **StepOptions** to customize its methods. **WaitFor** and
+**Execute** have separate retry policies, timeouts, failure policies, state
+selections, and lock sets.
+
+## Override StepOptions per Step execution {#stepoptions-override-per-stepexecution}
+
+The **StepOptions** returned by a Step implementation apply to every Step
+execution by default. To override them for one Step execution, provide the
+**StepOptions** override when a **StepDecision** goes to the next Steps.
+
+```python
+def execute(self, context: Context, input: str) -> StepDecision:
+    override = StepOptions(
+        wait_for_retry=RetryPolicy(maximum_attempts=2),
+        wait_for_failure=WaitForFailurePolicy.PROCEED,
+    )
+    payload = f"{input}_state1"
+    return go_to_many(StepMovement.of(OverrideSecond, payload, options=override))
+```
+
+Example: [examples/python/dex_examples/primitives/options_override/options_override_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/options_override/options_override_flow.py)
+
+## Retry and failure policies {#retry-and-failure-policies}
+
+- **Timeout** limits a single attempt of the method invocation. See
+  [Timeouts and total duration](#timeouts-and-total-duration).
+- **Retry policy** re-invokes the **same** method on the **same** Step
+  execution until attempts are exhausted.
+- **Failure policy** decides what happens **after** retries end. The default
+  fails the Flow. **WaitFor** can run **Execute** anyway, and **Execute** can
+  go to a recovery Step.
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(
+            initial_interval=timedelta(seconds=1),
+            backoff_coefficient=2.0,
+            maximum_attempts=5,
+        )
+    )
+```
+
+Example: [examples/python/dex_examples/primitives/step/retry_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/step/retry_flow.py)
+
+### WaitFor failure policy {#waitfor-failure-policy}
+
+When **WaitFor** retries are exhausted:
+
+- **FailFlow** fails the Flow. This is the default.
+- **PROCEED** continues to invoke **Execute**.
+
+With **PROCEED**, the same Step's **Execute** receives the durable input
+unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has
+the error type and detail from the final failed **WaitFor** attempt.
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        wait_for_retry=RetryPolicy(maximum_attempts=2),
+        wait_for_failure=WaitForFailurePolicy.PROCEED,
+    )
+
+def wait_for(self, context: Context, input: str) -> Wait:
+    raise RuntimeError("planned WaitFor failure")
+
+def execute(self, context: Context, input: str) -> StepDecision:
+    if not context.wait_for_method_failed():
+        raise RuntimeError("waitFor failure was not reported")
+    return go_to(Finish, f"{input}_recovered")
+```
+
+Example: [examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py)
+
+### Execute failure policy {#execute-failure-policy}
+
+When **Execute** retries are exhausted, **onExecuteFailureProceedTo** /
+**ExecuteFailure.proceedTo(...)** proceeds to a **recovery Step** with the same
+input.
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(maximum_attempts=5)
+    ).on_execute_failure_proceed_to(UpdateQuantityRecovery)
+```
+
+Example: [examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py)
+
+The recovery Step receives the failed Step's durable input unchanged.
+**getRecoveryError()** has the error type and detail from the final failed
+**Execute** attempt. See the
+[Failure Handling](/design-patterns/failure-handling) pattern and the
+[money-transfer](/use-cases/money-transfer) use case.
+
+### Last failure info {#last-failure-info}
+
+- Terminal events **StepExecuteFailed** / **StepWaitForFailed** carry failure
+  output when the Step ultimately fails.
+- **During retries**, before the failure policy runs, Step events and live Flow
+  state expose **lastFailureInfo**: the most recent attempt's error type,
+  detail, and Worker metadata.
+- In Dex Web, open event details to see **Last failure** while retries are in
+  flight. Active Steps in the Flow overview also show **lastFailureInfo**.
+
+## RetryAfter {#retry-after}
+
+Use **RetryAfter** to choose the delay before the next attempt. It overrides
+the retry schedule of the **RetryPolicy**.
+
+Retries recover from failed attempts. Do not use **RetryAfter** to wait for an
+external system; use the [Polling](/design-patterns/polling) pattern.
+
+A retry of one **Execute** call reuses the
+[state snapshot](#selective-state-loading) loaded for its first attempt, so it
+does not see Attribute writes made after that load.
+To wait for an external write, have the writer also publish a
+[Channel](/concepts/primitives/channel) message, directly or from an RPC handler, and
+wait on that message in the **WaitFor** of the next Step. Alternatively, the
+next Step can wait on a [Timer](/concepts/primitives/timer) and read fresh state when it
+runs.
+
+```python
+def execute(self, context: Context, ready_after_attempt: int) -> StepDecision:
+    if context.attempt < ready_after_attempt:
+        cause = RuntimeError(f"not ready on attempt {context.attempt}")
+        raise retry_after(7, cause)
+    return graceful_complete("ready")
+```
+
+Example: [examples/python/dex_examples/primitives/custom_retry/custom_retry_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/custom_retry/custom_retry_flow.py)
+
+## Durability {#durability}
+
+**SYNC** durability records the Step completion in Dex Server and persists it
+to storage synchronously.
+
+**ASYNC** durability does this asynchronously. Dex Server starts the next work
+before the Step completion is persisted, and it batches these commits within
+about 20 milliseconds.
+
+If a Dex Server node fails before the commit, a recent **ASYNC** result is
+lost. The method runs again, and so does any later work that started from that
+result. Make **ASYNC** methods and the work they start idempotent.
+
+**SYNC** is the default. Dex resolves durability in this order: a method
+override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
+
+Durability changes only when Dex Server persists a result. Retry policy, method
+timeout, and heartbeat settings apply to every attempt in both modes.
+
+```python
+class SyncWork(Step[str]):
+    def __init__(self, flow: DurabilityFlow) -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_durability=StepDurability.SYNC)
+
+    def execute(self, context: Context, mode: str) -> StepDecision:
+        return go_to(FinishDurability, f"sync:{mode}")
+
+class AsyncWork(Step[str]):
+    def __init__(self, flow: DurabilityFlow) -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_durability=StepDurability.ASYNC)
+
+    def execute(self, context: Context, mode: str) -> StepDecision:
+        return go_to(FinishDurability, f"async:{mode}")
+```
+
+Example: [examples/python/dex_examples/primitives/durability/durability_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/durability/durability_flow.py)
+
+## Timeouts and total duration {#timeouts-and-total-duration}
+
+Three options bound the time a Step method can take.
+
+| Limit | Option | Default | Enforcement |
+| --- | --- | --- | --- |
+| Longest single attempt | **WaitForMethodTimeout** or **ExecuteMethodTimeout** | Two hours. The server has no hard cap. | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
+| Longest total time, including every retry | **TotalDuration** in the retry policy | Four hours, for both durability modes. | The budget starts when the first attempt is scheduled and covers every retry. It also stops the attempt in progress. |
+| Stalled Worker | **HeartbeatTimeout** | One minute. The default allowed minimum is 10 seconds. | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. See [Heartbeat](#heartbeat). |
+
+An attempt's deadline is the method timeout, shortened to the time left in
+**TotalDuration**. An attempt that **TotalDuration** stops fails with the
+RETRY_DEADLINE failure kind.
+
+To bound a long wait, set the method timeout and **TotalDuration** to the same
+maximum. Dex enforces both, so the Step does not need its own deadline. Give
+the retry policy a few attempts with backoff for transient errors and Worker
+crashes.
+
+When a timeout expires, Dex fails the attempt with a timeout error. After
+retries end, the failure policy decides what happens next. If no failure route
+is configured, the Flow fails. See
+[Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+For a long wait on an external system, see
+[Polling](/design-patterns/polling).
+
+## Heartbeat {#heartbeat}
+
+During an attempt, the Worker must send a heartbeat or a
+[Stream message](/concepts/primitives/stream) before the **HeartbeatTimeout** expires.
+Sending a Stream message is an implicit heartbeat.
+
+For example, an **Execute** method timeout of 60 seconds and a
+**HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds
+instead of waiting for the full 60 seconds. To wait for an external system in
+one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
+
+A heartbeat can persist a checkpoint value. The next attempt receives the
+latest stored value and can resume from it. An explicit heartbeat without a
+value clears the previous checkpoint. An implicit heartbeat from a Stream
+message preserves the latest explicit state, including an explicitly cleared
+state. Checkpoints are lossy; see
+[Heartbeats are not acknowledged](./failure-and-redelivery.mdx#heartbeats-not-acknowledged).
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_method_timeout=timedelta(seconds=60),
+        heartbeat_timeout=timedelta(seconds=10),
+        execute_retry=RetryPolicy(maximum_attempts=3),
+    )
+
+async def execute(
+    self, context: AsyncContext, batches: int
+) -> StepDecision:
+    completed_batches = context.get_last_heartbeat_value(int) or 0
+    for batch in range(completed_batches, batches):
+        if context.is_cancellation_requested():
+            return dead_end()
+        await asyncio.sleep(2)
+        await context.heartbeat(batch + 1)
+    return graceful_complete("processed")
+```
+
+Example: [examples/python/dex_examples/primitives/heartbeat/heartbeat_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/heartbeat/heartbeat_flow.py)
+
+## Cancellation {#cancellation}
+
+Dex cancels a running attempt directly. It sends a cancel request to the
+Worker when the Step is canceled, for example by a **StepDecision** or an RPC,
+and when the attempt times out. The SDK also cancels the handler when the
+attempt deadline in the task passes. The handler does not need to complete,
+fail, or record a heartbeat to receive cancellation.
+
+Cancellation is cooperative. The SDK cannot stop running code. A long handler
+must check for cancellation and return, as the heartbeat example above does.
+See [Make the Step stop](/reference/server/runtime-data#cancel-honour) for the
+check in each language, and
+[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for
+how Dex ends a canceled attempt.
+
+Because cancellation is cooperative, an interrupted execution may still run
+while the next attempt or the failure route starts.
+
+## Selective state loading {#selective-state-loading}
+
+Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary
+Attributes and size metadata for every Channel and ChannelMap instance.
+AttributeMap values and pending Channel messages are not loaded unless that
+method selects them.
+
+**StepOptions** has separate selections for **WaitFor** and **Execute**. Select
+an entire AttributeMap or ChannelMap when the method must enumerate current
+instances. Select an exact map instance when its key is already known. An
+Attribute lock controls concurrency but does not load the AttributeMap value.
+
+The two methods receive independent snapshots. **Execute** reads its snapshot
+after the winning Wait conditions consume their messages, so it does not see
+those consumed messages again. Retries of one logical method call reuse its
+first snapshot.
+
+This Step loads pending queued messages only for **Execute**. It deletes the
+first pending message in the same successful handler response.
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_load_channels=(self.queued_messages,))
+```
+
+Example: [examples/python/dex_examples/primitives/channel/channel_flow.py](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/channel/channel_flow.py)
+
+Reading an unselected AttributeMap value or pending Channel message returns the
+SDK's not-loaded error. A selected empty Channel returns an empty message list.
+Size and map-key introspection remains available without loading message
+bodies. For Go, **dexcli visualize** reports a Step method that reads
+unselected state. See
+[State loads](/reference/web/flow-visualization#state-loads).
+
+## Attribute locks {#attribute-locks}
+
+Concurrent Steps and RPC invocations can read and write the same Attribute. To
+avoid races, use Attribute locks. Dex Server ensures only one Step execution or
+RPC handling can acquire the lock at a time. **WaitFor** and **Execute** have
+separate lock sets. Set them by returning **StepOptions**.
+
+See [Attribute locks](/reference/server/runtime-data#attribute-locks) for when
+a Step attempt takes and holds its locks, with **WaitFor** and **Execute**
+examples. See [Locks](/concepts/primitives/attribute#locking) for the lock model.

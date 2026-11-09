@@ -19,6 +19,9 @@ use crate::{ApplyContext, ApplyError, FlowStateReader, StateWrite};
 /// Rows fetched from the reader per page while merging a scan with buffered writes.
 const SCAN_PAGE_ROWS: usize = 256;
 
+/// A stored key with its value after a call's writes; None when the call deleted the row.
+pub(crate) type StoredRowWithBufferedValue = (Vec<u8>, Option<Vec<u8>>);
+
 /// One buffered row change with its committed value.
 pub(crate) struct StateRowChange {
     pub(crate) column_family: ColumnFamily,
@@ -113,6 +116,37 @@ impl<'reader> FlowTransaction<'reader> {
             });
         merged.extend(buffered);
         Ok(merged.into_iter().take(limit).collect())
+    }
+
+    /// Reads at most `limit` stored rows in `[start, end)`, ascending, never refilling past shadowed rows.
+    ///
+    /// Returns each stored key with its value after this call's writes: the buffered value,
+    /// None when this call deleted the row, or the stored value. Rows only this call put are left
+    /// out.
+    pub(crate) fn scan_stored_rows_with_buffered_values(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StoredRowWithBufferedValue>, ApplyError> {
+        self.check_key_scope(column_family, start);
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .reader
+            .scan(column_family, start, end, limit)?
+            .into_iter()
+            .map(|(key, stored)| {
+                let current = match self.rows.get(&(column_family, key.clone())) {
+                    Some(buffered) => buffered.clone(),
+                    None if self.is_range_deleted(column_family, &key) => None,
+                    None => Some(stored),
+                };
+                (key, current)
+            })
+            .collect())
     }
 
     pub(crate) fn put(&mut self, column_family: ColumnFamily, key: Vec<u8>, value: Vec<u8>) {
@@ -225,6 +259,22 @@ impl<'reader> FlowTransaction<'reader> {
             .map_err(|error| corrupt_row(table, key, &error))
     }
 
+    /// Decodes the protobuf row at `key` as the reader holds it, ignoring this call's writes.
+    pub(crate) fn get_committed_message<RowMessage: Message + Default>(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+        table: &'static str,
+    ) -> Result<Option<RowMessage>, ApplyError> {
+        self.check_key_scope(column_family, key);
+        let Some(bytes) = self.reader.get(column_family, key)? else {
+            return Ok(None);
+        };
+        RowMessage::decode(bytes.as_slice())
+            .map(Some)
+            .map_err(|error| corrupt_row(table, key, &error))
+    }
+
     /// Decodes every protobuf row with keys in `[start, end)`, up to `limit` rows.
     pub(crate) fn scan_messages<RowMessage: Message + Default>(
         &self,
@@ -323,6 +373,18 @@ impl<'reader> FlowTransaction<'reader> {
             .collect()
     }
 
+    /// Returns the first key in `[start, end)` that this call put, without reading the reader.
+    pub(crate) fn first_buffered_put_key(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+    ) -> Option<&[u8]> {
+        self.rows
+            .range((column_family, start.to_vec())..(column_family, end.to_vec()))
+            .find_map(|((_, key), value)| value.is_some().then_some(key.as_slice()))
+    }
+
     /// Returns the rows this call put in `column_family`, in key order.
     pub(crate) fn buffered_puts(
         &self,
@@ -331,6 +393,18 @@ impl<'reader> FlowTransaction<'reader> {
         self.rows
             .range((column_family, Vec::new())..)
             .take_while(move |((family, _), _)| *family == column_family)
+            .filter_map(|((_, key), value)| value.as_deref().map(|value| (key.as_slice(), value)))
+    }
+
+    /// Returns the rows this call put under `prefix` in `column_family`, in key order.
+    pub(crate) fn buffered_puts_with_prefix(
+        &self,
+        column_family: ColumnFamily,
+        prefix: &[u8],
+    ) -> impl Iterator<Item = (&[u8], &[u8])> {
+        let (start, end) = dexzd_keyspace::row_keys::prefix_range(prefix);
+        self.rows
+            .range((column_family, start)..(column_family, end))
             .filter_map(|((_, key), value)| value.as_deref().map(|value| (key.as_slice(), value)))
     }
 

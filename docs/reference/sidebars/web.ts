@@ -8,6 +8,7 @@ const sidebars: SidebarsConfig = {
     'flow-visualization',
     'local-connector-setup',
     'debugging',
+    'changelog',
   ],
 };
 

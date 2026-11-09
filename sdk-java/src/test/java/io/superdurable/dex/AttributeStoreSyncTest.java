@@ -59,15 +59,14 @@ final class AttributeStoreSyncTest {
             assertFalse(absent.hasHistoryWindowEvents());
             assertFalse(absent.hasDeleteExpiredHistoryObjects());
             for (boolean shouldDelete : new boolean[] {true, false}) {
+                @SuppressWarnings("deprecation")
                 final FlowConfig config = FlowConfig.newBuilder()
                         .deleteExpiredHistoryObjects(shouldDelete).build();
                 final io.superdurable.gen.FlowConfig mapped = client.mapFlowConfig(config);
-                assertTrue(mapped.hasDeleteExpiredHistoryObjects());
-                assertEquals(shouldDelete, mapped.getDeleteExpiredHistoryObjects());
+                assertFalse(mapped.hasDeleteExpiredHistoryObjects());
                 final FlowStartOptions configuredStart = client.mapStartOptions(
                         StartFlowOptions.newBuilder().configOverride(config).build());
-                assertTrue(configuredStart.getFlowConfigOverride().hasDeleteExpiredHistoryObjects());
-                assertEquals(shouldDelete, configuredStart.getFlowConfigOverride().getDeleteExpiredHistoryObjects());
+                assertFalse(configuredStart.getFlowConfigOverride().hasDeleteExpiredHistoryObjects());
             }
 
             final io.superdurable.gen.FlowConfig windowed = client.mapFlowConfig(
@@ -79,6 +78,16 @@ final class AttributeStoreSyncTest {
                             .configOverride(FlowConfig.newBuilder().historyWindowEvents(2500).build())
                             .build());
             assertEquals(2500, windowedStart.getFlowConfigOverride().getHistoryWindowEvents());
+
+            assertFalse(absent.hasOffloadHistory());
+            final FlowConfig localHistoryConfig = FlowConfig.newBuilder().offloadHistory(false).build();
+            final io.superdurable.gen.FlowConfig localHistory = client.mapFlowConfig(localHistoryConfig);
+            assertTrue(localHistory.hasOffloadHistory());
+            assertFalse(localHistory.getOffloadHistory());
+            final FlowStartOptions localHistoryStart = client.mapStartOptions(
+                    StartFlowOptions.newBuilder().configOverride(localHistoryConfig).build());
+            assertTrue(localHistoryStart.getFlowConfigOverride().hasOffloadHistory());
+            assertFalse(localHistoryStart.getFlowConfigOverride().getOffloadHistory());
 
             final FlowStartOptions start = client.mapStartOptions(
                     StartFlowOptions.newBuilder()

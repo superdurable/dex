@@ -9,13 +9,32 @@ slug: /
 
 Dex 是 **Durable Execution**——面向后端工程的分布式系统抽象。Durable 存储持久化数据；Durable Execution 持久化 **数据和作为 execution 的动作**。Dex 把这个想法做成结构：Flow、Step、Connector、Attribute、Channel、RPC，就是普通应用代码。
 
-- [什么是 Durable Execution？](/intro/what-is-durable-execution)
-- [为什么是 Dex？](/intro/what-is-dex)
-- [Quick Start](/quick-start)
-- [Primitives](/primitives)
-- [使用 AI 构建](/build-with-ai/dex-developer-skill)
-- [Design Patterns](/design-patterns)
-- [产品示例](/use-cases)
-- [Production](/primitives/components)
-- [References](/reference)
-- [Glossary](/glossary)
+<div className="docs-home-sections">
+  <DocsSection section="intro" to="/intro/what-is-durable-execution" title="从这里开始">
+    什么是 Durable Execution、为什么选 Dex，以及在 Quick Start 里写出第一个 Flow。
+  </DocsSection>
+  <DocsSection section="concepts" to="/concepts" title="Concepts">
+    Flow、Step、Attribute、RPC、Channel、Stream、Timer、SubFlow 和 Client。
+  </DocsSection>
+  <DocsSection section="components" to="/components" title="Components">
+    Application、server、CLI、Web、connector，以及它们如何一起运行。
+  </DocsSection>
+  <DocsSection section="design-patterns" to="/design-patterns" title="Design Patterns">
+    并行任务、定时器、失败处理、轮询和 Channel 排空等经过验证的写法。
+  </DocsSection>
+  <DocsSection section="product-examples" to="/use-cases" title="产品示例">
+    完整的业务流程，例如 AI agent、订阅和转账。
+  </DocsSection>
+  <DocsSection section="agent-skills" to="/build-with-ai/dex-developer-skill" title="使用 AI 构建">
+    安装 Dex skills，让 coding agent 写出正确的 Dex 代码。
+  </DocsSection>
+  <DocsSection section="agent-frameworks" to="/agent-frameworks" title="Agent Frameworks">
+    把 AI agent 框架作为 durable Flow 跑在 Dex 上。
+  </DocsSection>
+  <DocsSection section="reference" to="/reference" title="Developer Reference">
+    每个 SDK、server、CLI 和 Web 的分版本细节。
+  </DocsSection>
+  <DocsSection section="glossary" to="/glossary" title="Glossary">
+    所有 Dex 术语集中在一页。
+  </DocsSection>
+</div>

@@ -25,7 +25,8 @@ use dexzd_protocol::dexzd::v1::{
     ChannelMetaRecord, DispatchQueueRecord, FlowDirectoryRecord, HardDeleteObjectRecord,
     HistoryOffloadModeRecord, HistoryRecord, HistoryRowMetadata, HistorySegmentRecord,
     HistorySegmentValueRecord, LockRecord, RequestDedupRecord, RunRecord, SearchDocumentRecord,
-    StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord, ValueGarbageRecord,
+    StepCounterRecord, StepExecutionRecord, SubFlowResultRecord, TimerRecord, ValueBirthRecord,
+    ValueGarbageRecord,
 };
 use prost::Message;
 
@@ -53,7 +54,7 @@ pub struct FlowView {
     pub history_object_delete_pending_runs: BTreeSet<RunId>,
     /// Runs of this Flow named by the partition's HistoryLocalCleanupPending index.
     pub history_local_cleanup_pending_runs: BTreeSet<RunId>,
-    /// True when the Flow's partition offloads history.
+    /// True when the Flow's partition offloads the history of runs without an offload choice.
     pub is_history_offload_enabled: bool,
     /// The partition and Flow hash the view was read for.
     pub location: Option<(PartitionId, FlowHash)>,
@@ -94,6 +95,8 @@ pub struct RunView {
     pub channel_metas: BTreeMap<String, ChannelMetaRecord>,
     /// Step executions by Step execution ID.
     pub step_executions: BTreeMap<String, StepExecutionRecord>,
+    /// Step counters by Step type.
+    pub step_counters: BTreeMap<String, StepCounterRecord>,
     /// Lock rows by lock key.
     pub locks: BTreeMap<String, LockRecord>,
     /// Timer rows: encoded TimerId (the key suffix) and record.
@@ -116,6 +119,8 @@ pub struct RunView {
     pub history: Vec<(u64, HistoryRecord)>,
     /// Metadata of the History records by seq.
     pub history_record_metadata: BTreeMap<u64, HistoryRowMetadata>,
+    /// Seqs and attempts of the checkpoints that have a metadata row.
+    pub history_checkpoint_metadata: BTreeSet<(u64, u32)>,
     /// Current hard-delete objects by Attribute key.
     pub hard_delete_current: BTreeMap<String, HardDeleteObjectRecord>,
     /// Attribute Sync outbox entries by store name and Attribute key.
@@ -344,6 +349,16 @@ impl FlowView {
     }
 
     /// Returns the last run of the directory and its view.
+    /// Returns whether `record`'s run offloads its history: the choice it recorded at start, or,
+    /// for a run without one, whether the Flow's partition offloads.
+    pub fn is_run_history_offloaded(&self, record: &RunRecord) -> bool {
+        record
+            .settings
+            .unwrap_or_default()
+            .offload_history
+            .unwrap_or(self.is_history_offload_enabled)
+    }
+
     pub fn latest_run(&self) -> Option<(RunId, &RunView)> {
         let directory = self.directory.as_ref()?;
         let run = directory.runs.last()?;
@@ -380,6 +395,10 @@ impl FlowView {
             RunTable::StepExecution => {
                 run.step_executions
                     .insert(name(key, suffix)?, decode(key, value, "Step execution")?);
+            }
+            RunTable::StepCounter => {
+                run.step_counters
+                    .insert(name(key, suffix)?, decode(key, value, "Step counter")?);
             }
             RunTable::LockTable => {
                 run.locks
@@ -448,6 +467,17 @@ impl FlowView {
                     let seq = u64_from_suffix(key, suffix.get(..8).unwrap_or_default())?;
                     run.history_record_metadata
                         .insert(seq, decode(key, value, "history metadata")?);
+                } else if suffix.get(8) == Some(&(RunTable::Checkpoint as u8)) {
+                    let seq = u64_from_suffix(key, suffix.get(..8).unwrap_or_default())?;
+                    let attempt_bytes: [u8; 4] = suffix
+                        .get(9..)
+                        .unwrap_or_default()
+                        .try_into()
+                        .map_err(|_| {
+                            view_error(key, "checkpoint metadata", "attempt is not 4 bytes")
+                        })?;
+                    run.history_checkpoint_metadata
+                        .insert((seq, u32::from_be_bytes(attempt_bytes)));
                 }
             }
             RunTable::AttributeSyncOutbox => {
@@ -480,8 +510,7 @@ impl FlowView {
                     decode(key, value, "history segment value")?,
                 );
             }
-            RunTable::StepCounter
-            | RunTable::Waiter
+            RunTable::Waiter
             | RunTable::Outbox
             | RunTable::InboxDedup
             | RunTable::PermissionSet

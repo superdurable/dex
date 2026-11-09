@@ -2,7 +2,24 @@
 
 ## Unreleased
 
+### Deprecated
+
+- Deprecated `FlowConfig.DeleteExpiredHistoryObjects`. It has no effect, and the SDK no longer sends it.
+  Runs that start with server-zd 0.1.23 or later ignore the field and, when
+  they offload, always delete the objects of expired history segments. A run
+  that started under server-zd 0.1.22 still follows the value it recorded; to
+  change it, use an SDK older than 1.40.0 or a direct gRPC UpdateFlowConfig.
+  Existing code that sets it still compiles.
+
 ### Added
+
+- Add `FlowConfig.OffloadHistory` to choose whether a run offloads its history
+  to object storage. Nil means true. Set it to false for many short runs that
+  close soon, to avoid object storage requests. Set it at start through
+  `StartFlowOptions.ConfigOverride` or for a SubFlow through
+  `SubFlowOptions.ConfigOverride`; a SubFlow otherwise inherits its parent's
+  value. `Client.UpdateFlowConfig` rejects it with `INVALID_ARGUMENT`.
+  Requires server-zd 0.1.23 or later; older servers ignore the field.
 
 - Add `FlowConfig.DeleteExpiredHistoryObjects` to control expired history object
   deletion at start, on update, and for SubFlows. Omission uses the server default at

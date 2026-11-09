@@ -22,7 +22,7 @@ use dexzd_protocol::dexzd::v1::{HistoryRowMetadata, RunRecord};
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::lineage::{genesis_seq, required_attempt_record};
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_superseded_byte_cap_applied;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
 use crate::state_access::FlowTransaction;
 
@@ -104,7 +104,7 @@ pub(crate) fn advance_window_if_full(
     }
     let settings = cursor.record.settings.unwrap_or_default();
     // Offloaded superseded values leave local disk, so the cap applies only while offload is off.
-    if !is_history_offload_enabled(transaction)?
+    if is_superseded_byte_cap_applied(transaction, &cursor.record)?
         && crate::values::projected_superseded_value_bytes(transaction, cursor)?
             > settings.max_retained_superseded_bytes
     {
@@ -296,6 +296,9 @@ fn find_new_window_start(
 ///
 /// Rows after the run's uploaded seq stay while the partition offloads history or the run has a
 /// SEALED segment.
+///
+/// Scans from `history_metadata_pruned_before_seq`, skipping deleted rows the store has not
+/// compacted.
 pub(crate) fn prune_window_history(
     transaction: &mut FlowTransaction<'_>,
     cursor: &mut RunCursor,
@@ -332,38 +335,74 @@ pub(crate) fn prune_window_history(
         return Ok(0);
     }
     let prefix = run_table_prefix(rows.flow_hash, rows.run_id, RunTable::HistoryRowMetadata);
-    let start = history_row_metadata_key(
-        rows.flow_hash,
-        rows.run_id,
-        genesis + 1,
-        RunTable::HistoryRecord,
-        0,
+    let scan_start_seq = cursor
+        .record
+        .history_metadata_pruned_before_seq
+        .max(genesis + 1);
+    debug_assert!(
+        transaction
+            .first_buffered_put_key(
+                ColumnFamily::Flow,
+                &history_row_metadata_key(
+                    rows.flow_hash,
+                    rows.run_id,
+                    genesis + 1,
+                    RunTable::HistoryRecord,
+                    0
+                ),
+                &history_row_metadata_key(
+                    rows.flow_hash,
+                    rows.run_id,
+                    scan_start_seq,
+                    RunTable::HistoryRecord,
+                    0
+                ),
+            )
+            .is_none(),
+        "history metadata is written at the command's seq, which the metadata cursor never passes"
     );
-    let end = history_row_metadata_key(
-        rows.flow_hash,
-        rows.run_id,
-        keep_from,
-        RunTable::HistoryRecord,
-        0,
-    );
-    let page = transaction.scan_messages::<HistoryRowMetadata>(
-        ColumnFamily::Flow,
-        &start,
-        &end,
-        HISTORY_ROWS_PER_COMMAND,
-        "history metadata",
-    )?;
+    let page = if scan_start_seq < keep_from {
+        transaction.scan_messages::<HistoryRowMetadata>(
+            ColumnFamily::Flow,
+            &history_row_metadata_key(
+                rows.flow_hash,
+                rows.run_id,
+                scan_start_seq,
+                RunTable::HistoryRecord,
+                0,
+            ),
+            &history_row_metadata_key(
+                rows.flow_hash,
+                rows.run_id,
+                keep_from,
+                RunTable::HistoryRecord,
+                0,
+            ),
+            HISTORY_ROWS_PER_COMMAND,
+            "history metadata",
+        )?
+    } else {
+        Vec::new()
+    };
     let mut deleted_checkpoints = BTreeMap::<u32, BTreeSet<u64>>::new();
     let count = page.len();
+    let is_page_full = count == HISTORY_ROWS_PER_COMMAND;
     // Record rows sort before checkpoint rows, so every record through the last row is deleted.
     let pruned_through_seq = match page.last() {
-        Some((key, _)) if count == HISTORY_ROWS_PER_COMMAND => metadata_identity(key, &prefix)?.0,
+        Some((key, _)) if is_page_full => metadata_identity(key, &prefix)?.0,
         _ => keep_from - 1,
     };
     cursor.record.history_window_pruned_through_seq = cursor
         .record
         .history_window_pruned_through_seq
         .max(pruned_through_seq);
+    // A full page may end between rows of its last seq, so that seq is scanned again.
+    let pruned_before_seq = if is_page_full {
+        pruned_through_seq
+    } else {
+        keep_from
+    };
+    cursor.record.history_metadata_pruned_before_seq = scan_start_seq.max(pruned_before_seq);
     let mut identities = Vec::with_capacity(count);
     for (key, metadata) in &page {
         let (seq, history_table, attempt) = metadata_identity(key, &prefix)?;

@@ -568,6 +568,13 @@ summary:focus-visible {
   color: var(--forest);
 }
 
+.theme-doc-sidebar-menu .menu__link[aria-current='page'] {
+  background: color-mix(in srgb, var(--forest) 14%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--forest);
+  color: var(--forest);
+  font-weight: 700;
+}
+
 .pagination-nav__link {
   background: var(--surface);
 }

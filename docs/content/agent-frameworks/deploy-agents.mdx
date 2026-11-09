@@ -9,7 +9,7 @@ This page covers running [agent framework](/agent-frameworks) sessions in
 production. One Flow execution is one agent session. Every model call is a
 **RunModel** Step, and every tool call is its own Step. Server limits on this
 page are server-zd defaults. See [Server reference](/reference/server/)
-and [Application](/primitives/components/application) for the rest of the setup.
+and [Application](/components/application) for the rest of the setup.
 
 ## Install the packages {#install}
 
@@ -57,7 +57,7 @@ their RPCs.
 ## Stream backend {#stream-backend}
 
 Live model text, reasoning summaries, tool progress, and approval events go to
-the **AgentEvents** [Stream](/primitives/stream). **streamStore.backend**
+the **AgentEvents** [Stream](/concepts/primitives/stream). **streamStore.backend**
 defaults to **memory** for both **dexcli dev** and a production server, so live
 events need no extra server configuration. Do not set the backend to
 **disabled** for agents. With **disabled**, a Step write is dropped without
@@ -175,7 +175,7 @@ loop also stops the background heartbeat.
 One model call must finish within 15 minutes. Set the provider or framework
 request timeout below that, so a slow call fails with the provider's error and
 later attempts still fit in the 30-minute retry window. See
-[Heartbeat](/reference/server/runtime-steps#heartbeat) for how Dex detects a lost attempt.
+[Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) for how Dex detects a lost attempt.
 
 A Claude Agent SDK session runs a whole turn segment in one **RunModel**: several
 model calls and inline tool calls, until the CLI answers or defers a tool call.
@@ -218,7 +218,7 @@ A session can stay open for months. These server-zd
 | --- | --- | --- |
 | **limits.maxFlowStateBytes** | 64 MiB | The active state of one session: its current state, including the Attribute and Channel values it holds. History and the superseded values that history keeps for time travel do not count. |
 | **values.maxValueBytes** | 16 MiB | The largest single value, such as one message, one tool call record, or one framework run state |
-| **history.windowEvents** | About 10,000 events | The Flow history kept for each run. Older events are pruned. |
+| **history.windowEvents** | About 50,000 events, or 5,000 with **dev** and **local** | The Flow history kept for each run. Older events are pruned. |
 | **retention.closedFlowDuration** | 7 days | How long a stopped session stays readable |
 
 Each run records these values when it starts. A new value applies only to
@@ -284,13 +284,12 @@ refused. What happens next depends on what was writing.
 A failed session cannot be recovered. Raising the limit applies only to new
 sessions. Plan sessions to stay well below 64 MiB.
 
-The Flow history keeps about the newest 10,000 events of a session. Read the
+The Flow history keeps about the newest 50,000 events of a session, or 5,000
+with **dev** and **local**. Read the
 conversation with **get_agent_snapshot** or **list_agent_messages**, not from
 Flow history. [Time travel](/reference/server/runtime-client#time-travel) can target
 only a point inside the [history window](/reference/server/configuration#history-window).
-Time travel to the beginning is always available. A session that rewrites large
-values, such as **FrameworkRunState**, may have a shorter time travel range.
-Operators can tune **history.windowEvents** and the per-run history window; see
+Time travel to the beginning is always available. Operators can tune **history.windowEvents** and the per-run history window; see
 [history window configuration](/reference/server/configuration#history-window).
 
 A session never completes by itself. Stop it with **StopFlow** when it is done.
@@ -669,7 +668,7 @@ most once, and record **outcome_unknown** when the tool may have run. When the
 tool certainly did not run, the call records **failed** instead, so the model
 can call the tool again. One case breaks the at-most-once promise. Plan for
 it. It follows from how Dex stops any Step attempt. See
-[Failure and redelivery](/reference/server/runtime-steps#failure-and-redelivery).
+[Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery).
 
 ### A single-attempt tool can run twice {#tool-runs-twice}
 
@@ -692,7 +691,7 @@ the turn ID, and the tool call ID, joined by slashes, such as
 ### A call that never ran can record outcome_unknown {#never-run-outcome-unknown}
 
 When a tool Step fails, its failure route reads **attempt_progress** from the
-recovery error. See [Failure and redelivery](/reference/server/runtime-steps#unknown-outcome).
+recovery error. See [Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery#unknown-outcome).
 **CallTool** and **CallSingleAttemptTool** use it the same way:
 
 | **attempt_progress** | What the call records |
@@ -773,7 +772,7 @@ session can run on different versions.
   few chunks per Step. If a 0.1.0 Worker then runs a Step of that session, the
   turn fails, because it cannot read the moved messages.
 
-See [Versioning Flow code](/primitives/components/application#versioning-flow-code)
+See [Versioning Flow code](/components/application#versioning-flow-code)
 for the general rules.
 
 ### Session settings during a rollout {#session-settings-rollout}
@@ -804,7 +803,7 @@ Client can read **AgentEvents**.
 For a credential that belongs to one user, let the tool look it up at call time
 from a secret store, with a key that is not the secret itself. When a Flow of
 your own must hold a short-lived secret, store it in a
-[hard-delete Attribute](/primitives/attribute#hard-delete-attributes) and
+[hard-delete Attribute](/concepts/primitives/attribute#hard-delete-attributes) and
 delete it when the Flow no longer needs it.
 
 Workers and Clients authenticate to Dex Server with bearer credentials. See
@@ -814,7 +813,7 @@ Workers and Clients authenticate to Dex Server with bearer credentials. See
 
 - [Agent Frameworks](/agent-frameworks)
 - [AI Agent](/use-cases/ai-agent)
-- [Stream](/primitives/stream)
-- [Application](/primitives/components/application)
+- [Stream](/concepts/primitives/stream)
+- [Application](/components/application)
 - [Server reference](/reference/server/)
 - [Agents packages README](https://github.com/superdurable/dex/blob/main/agents/README.md)

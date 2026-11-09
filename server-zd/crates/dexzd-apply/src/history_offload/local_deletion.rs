@@ -27,7 +27,7 @@ use prost::Message;
 use crate::ApplyError;
 use crate::command_handlers::run_cursor::RunCursor;
 use crate::history::{LocalCleanupBacklog, genesis_seq, metadata_identity};
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_run_history_offloaded;
 use crate::history_offload::segment_catalog::{CatalogPosition, SegmentCatalog, is_uploaded};
 use crate::history_offload::segment_seal::garbage_identity;
 use crate::history_offload::segmented_history::first_window_seq_after_pruning;
@@ -73,7 +73,8 @@ pub(crate) fn delete_uploaded_history(
     now_micros: i64,
 ) -> Result<LocalCleanupBacklog, ApplyError> {
     let mut backlog = LocalCleanupBacklog::default();
-    if cursor.record.history_uploaded_through_seq == 0 || !is_history_offload_enabled(transaction)?
+    if cursor.record.history_uploaded_through_seq == 0
+        || !is_run_history_offloaded(transaction, &cursor.record)?
     {
         return Ok(backlog);
     }
@@ -114,7 +115,7 @@ pub(crate) fn suspended_deletion_recheck_micros(
 ) -> Result<Option<i64>, ApplyError> {
     let record = &cursor.record;
     let uploaded_through_seq = record.history_uploaded_through_seq;
-    if uploaded_through_seq == 0 || is_history_offload_enabled(transaction)? {
+    if uploaded_through_seq == 0 || is_run_history_offloaded(transaction, record)? {
         return Ok(None);
     }
     let genesis = genesis_seq(transaction, cursor.rows)?;

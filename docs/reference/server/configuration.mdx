@@ -222,7 +222,7 @@ explains.
 | Step attempt drain on stop | 2 seconds. | 30 seconds. | 30 seconds. |
 | Lease duration | 30 seconds. | 30 seconds. | 10 seconds. |
 | Default **snapshot.logDeletionDelay** | 1 hour. | 1 hour. | 24 hours. |
-| Default **history.offloadEnabled** | true | true | false |
+| Default **history.windowEvents** | 5000 | 5000 | 50000 |
 | Default partition count | 32 | 32 | 1024 |
 | Default listen address | 127.0.0.1:8801 | 127.0.0.1:8801 | 0.0.0.0:8801 |
 | Configuration | Flags and an optional overrides file. | Flags and an optional overrides file. | One YAML file. |
@@ -251,10 +251,10 @@ server-zd rejects any write that such a handler returns.
 ## History window {#history-window}
 
 server-zd keeps a recent window of each run's history. The window holds the
-**FlowStart** event and about the newest 10,000 history events. Older events
-are pruned in chunks of up to 1,000. The window also shrinks when the superseded
-values kept for time travel exceed 256 MiB. This shortens the range that time
-travel can reach. It never rejects a command or fails a Flow.
+**FlowStart** event and about the newest **history.windowEvents** history
+events: 50,000 on **serve** and 5,000 on **dev** and **local** by default. Older
+events are pruned in chunks of up to 1,000. Pruning never rejects a command or
+fails a Flow.
 
 The window counts history events. A command that changes the Flow but records
 no event, such as a failed Step attempt that will be retried, counts as one
@@ -291,14 +291,21 @@ on another page.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| **history.windowEvents** | 10000 | Approximate number of the newest history events kept in the window of a run that sets no window of its own. Pruning starts when the window exceeds this value plus one prune chunk. Must be positive. The deprecated name **history.windowSemanticEvents** is still accepted with a startup warning; setting both names is an error. Changed in 0.1.21: the window counted semantic commands, not events, and the key was named **history.windowSemanticEvents**. A run that started before 0.1.21 keeps its recorded size, which now counts events, so its window reaches a little less far back. |
+| **history.windowEvents** | 50000 for **serve**; 5000 for **dev** and **local** | Approximate number of the newest history events kept in the window of a run that sets no window of its own. Pruning starts when the window exceeds this value plus one prune chunk. Must be positive. The deprecated name **history.windowSemanticEvents** is still accepted with a startup warning; setting both names is an error. Changed in 0.1.21: the window counted semantic commands, not events, and the key was named **history.windowSemanticEvents**. A run that started before 0.1.21 keeps its recorded size, which now counts events, so its window reaches a little less far back. Changed in 0.1.23: the default was 10000 in every command. Runs that started earlier keep the size they recorded. |
 | **history.pruneChunkSize** | 1000 | Most old history events pruned at a time. A run prunes at most one tenth of its window at a time, and at least one event, when that is smaller. Must be positive and must not exceed **windowEvents**. Changed in 0.1.21: the unit was semantic commands. |
 | **history.maxWindowEvents** | 100000 | Largest window that a run's **history_window_events** may set. StartFlow and UpdateFlowConfig with a larger value fail with INVALID_ARGUMENT. A Step result that starts a SubFlow with a larger value is an invalid Worker response, and the Step attempt is retried under the Step's retry policy. It does not limit **windowEvents**. Must be positive. Changing it affects later requests only. Since 0.1.21. |
-| **history.maxRetainedSupersededBytes** | 268435456 (256 MiB) | Most superseded value bytes kept for time travel inside the window. A superseded value is a stored value that the run no longer holds, such as the earlier value of a rewritten Attribute. When a run's superseded values exceed this cap, the window moves forward and the oldest of them are deleted. The cap is a soft target: the window always keeps the current point, and each command does a bounded amount of pruning, so local superseded bytes can exceed the cap for a while until later commands prune them. Time travel then reaches less far back. The cap never rejects a command or fails a Flow, and superseded values do not count toward **limits.maxFlowStateBytes**. It does not apply while history offload is on; see [History offload](#history-offload). A run that keeps rewriting large values can hold up to this many superseded value bytes on local disk. Its history records, which also hold each written value, stay until a later checkpoint lets the window prune them, so they can take more space than this cap. Changed in 0.1.21: before, the 64 MiB **limits.maxFlowStateBytes** default counted superseded values, so a Flow failed before this cap took effect. |
+Each run records **windowEvents** and **pruneChunkSize** when it starts. A new
+value applies only to runs that start after the node restarts with it. Changed
+in 0.1.23: a child Flow that a SubFlow starts records them too; before, it
+recorded 10000 and 1000.
 
-Each run records **windowEvents**, **pruneChunkSize**, and
-**maxRetainedSupersededBytes** when it starts. A new value applies only to runs
-that start after the node restarts with it.
+Changed in 0.1.23: **history.maxRetainedSupersededBytes** was removed. It capped
+the superseded values that a run without history offload kept on local disk for
+time travel. A run that starts with 0.1.23 or later moves its window only by its
+event count. Without offload, it deletes a superseded value when the window
+passes it. With offload, it deletes the value once its history is uploaded. The
+key is still accepted, has no effect, and logs a warning at startup. A run that
+started earlier keeps the cap it recorded.
 
 ### Checkpoints {#history-checkpoints}
 
@@ -341,45 +348,86 @@ configuration error.
 
 ### History offload {#history-offload}
 
-Since 0.1.21, **history.offloadEnabled** is an experimental switch
-for moving run history to object storage. On **serve**, leave it at **false**
-until the release notes announce history offload. Enabling it before then can
-grow local disk or fail Steps.
+Each run decides when it starts whether it offloads its history to object
+storage. The **offload_history** field of the run's Flow configuration holds the
+choice, and it defaults to true. Set it in the Flow configuration override of
+StartFlow, or in the override of a SubFlow. A child Flow inherits its parent's
+choice unless its own override sets one. A run keeps its choice for its whole
+life: UpdateFlowConfig rejects a request that sets it with INVALID_ARGUMENT.
+Since 0.1.23.
 
-Changed in 0.1.22: **dev** and **local** default to **true**, so the commands
-that **dexcli dev** starts offload history too. Offload is still experimental
-there. An existing data directory turns offload on at its next start, the same
-way as an explicit **true**, and its running runs migrate as described below.
-Once offload has been on, do not downgrade that data directory, even if you
-turn offload off again: history already removed from local disk still needs
-object storage reads. See [Upgrades and compatibility](/reference/server/upgrades).
-To opt out, set **history.offloadEnabled: false** in the overrides file. Set it
-before the first start with this release to keep all history on local disk. A
-value you set wins in every command.
+An offloaded run seals its history into segments and uploads them to object
+storage. It then deletes the uploaded history from local disk. Local disk keeps
+the run's active state, the history that waits for upload, and a small metadata
+row for each point in the history window. The lease holder deletes a segment's
+object after the history window passes the whole segment.
+
+A run without offload keeps all of its history on local disk and never writes a
+history object. The history window still applies to it. The run prunes its
+oldest events and deletes the superseded values that the window passed.
+
+Choose for each run:
+
+- Keep offload, the default, for most runs and for every long-running run. Local
+  disk then holds only the newest history and the current state of the run.
+- Turn it off for many short runs that close soon after they start. Each
+  offloaded run writes at least one history object when it closes, and deletes
+  it when its retention ends. Short runs at a high rate therefore add object
+  storage requests, while their small history costs little local disk until
+  their retention ends.
+- A run without offload keeps every superseded value that its window covers on
+  local disk. No byte cap applies. A run that rewrites large values can then use
+  much local disk. Keep offload for such a run, or give it a smaller
+  **history_window_events**.
+
+Runs that started before 0.1.23 recorded no choice. Each follows, for its whole
+life, the offload mode that its partition recorded at the upgrade:
+
+- Where offload was off at the upgrade, these runs keep their new history on local
+  disk and never migrate to object storage. That is the case on **serve** unless
+  **history.offloadEnabled** was on, and in a **dev** or **local** data
+  directory that 0.1.23 starts directly after 0.1.21.
+- A partition where an earlier release turned offload on and then off again is
+  off as well: its runs seal no new segments and stop migrating. Segments sealed
+  before can still finish uploading, and uploaded history stays readable.
+- Where offload was on at the upgrade, as 0.1.22 sets it by default on **dev**
+  and **local**, the runs it offloaded stay offloaded. A run that recorded
+  history before offload was turned on migrates that history lazily, as
+  described below.
+- These runs also keep the superseded byte cap they recorded and follow their
+  delete switch. UpdateFlowConfig can still change that switch.
+
+Changed in 0.1.23: the server switches of history offload were removed.
+
+- **history.offloadEnabled** was removed. **true** is still accepted, has no
+  effect, and logs a warning at startup. **false** fails startup with a
+  configuration error that asks you to remove the key. To keep a run's history
+  on local disk, set the run's **offload_history** to false instead.
+- **history.deleteExpiredObjects** was removed. It is still accepted, has no
+  effect, and logs a warning at startup. A run that starts with 0.1.23 or later
+  and offloads always deletes the objects of its expired segments.
+- A run that starts with 0.1.23 or later ignores its
+  **FlowConfig.delete_expired_history_objects**. StartFlow, SubFlow overrides,
+  and UpdateFlowConfig still accept the field, and StartFlow drops it.
+- Partitions no longer record an offload mode at startup, so
+  **dexzd_history_offload_mode_skipped_partitions_total** was removed.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| **history.offloadEnabled** | false for **serve**; true for **dev** and **local** | Experimental. Whether partitions offload run history to object storage. Changed in 0.1.22: **dev** and **local** default to true. |
-| **history.deleteExpiredObjects** | false for **serve**; true for **dev** and **local** | Experimental. Since 0.1.22. Whether the lease holder deletes the object of a history segment about one hour after the history window passes the whole segment. A run's **delete_expired_history_objects** in **FlowConfig** overrides it. Each run records the value when it starts, so a new value applies only to runs that start after the node restarts with it. See the data retention consequences below. |
-| **history.segmentTargetBytes** | 4194304 (4 MiB) | Experimental. Since 0.1.21. Bytes of history records, checkpoints, and superseded values after which a run seals its open history segment for upload. From 1 byte to 268435456 (256 MiB). |
-| **history.supersededValueGracePeriod** | 10m | Experimental. Since 0.1.22. How long a superseded value of an uploaded segment stays on local disk after the command that superseded it, measured in command time. Must be at least 1 microsecond. Each run records the value when it starts, so a new value applies only to runs that start after the node restarts with it. Runs that started before 0.1.22 keep 10 minutes. |
-| **history.uploadConcurrency** | 16 | Experimental. Since 0.1.21. Most sealed history segments the lease holder reads, encodes, and uploads at once. From 1 to 1024. Each upload in flight holds about one encoded segment in memory. |
-| **history.readCacheMaxBytes** | 1073741824 (1 GiB) | Experimental. Since 0.1.22. Most bytes of uploaded history that the node keeps in its disk read cache. 0 disables the cache. |
-| **history.readCacheDirectory** | **localStorage.directory** with the suffix **-history-read-cache**, such as **/var/lib/dex-server-zd/store-history-read-cache** | Experimental. Since 0.1.22. Directory of the disk read cache, which the cache owns. It must be outside **localStorage.directory**, which a local store rebuild sets aside, and must not contain **..** components; startup fails otherwise. If the node cannot create it, the node logs one warning and reads from object storage without a cache. |
-| **history.objectReadConcurrency** | 32 | Experimental. Since 0.1.22. Most object storage reads of uploaded history segments that the node runs at once. From 1 to 1024. A history read beyond it waits for a free read. |
+| **history.segmentTargetBytes** | 4194304 (4 MiB) | Since 0.1.21. Bytes of history records, checkpoints, and superseded values after which an offloaded run seals its open history segment for upload. From 1 byte to 268435456 (256 MiB). |
+| **history.supersededValueGracePeriod** | 10m | Since 0.1.22. How long a superseded value of an uploaded segment stays on local disk after the command that superseded it, measured in command time. Must be at least 1 microsecond. Each run records the value when it starts, so a new value applies only to runs that start after the node restarts with it. Runs that started before 0.1.22 keep 10 minutes. |
+| **history.uploadConcurrency** | 256 | Since 0.1.21. Most sealed history segments the lease holder reads, encodes, and uploads at once. From 1 to 1024. Each upload in flight holds about one encoded segment in memory, and **history.uploadMaxInFlightBytes** bounds their total. The limit adapts between **history.uploadMinConcurrency** and this value; see [Upload concurrency](#history-upload-concurrency). Changed in 0.1.23: the default was 16, and the limit stayed fixed at this value. |
+| **history.uploadMinConcurrency** | 16 | Since 0.1.23. Uploads the lease holder allows at once while no upload waits. From 1 to 1024. A value above **history.uploadConcurrency** counts as **history.uploadConcurrency**, so a configuration that sets only a smaller **history.uploadConcurrency** keeps a fixed limit. |
+| **history.uploadMaxInFlightBytes** | 134217728 (128 MiB) | Since 0.1.23. Most bytes that the lease holder's uploads in flight hold at once for encoding history segments and keeping the encoded objects. From 1048576 (1 MiB) to 68719476736 (64 GiB). Each upload reserves the most memory its encoding can allocate before it encodes, and waits while the budget is used. A segment larger than the budget uploads alone. See [Upload concurrency](#history-upload-concurrency). |
+| **history.readCacheMaxBytes** | 1073741824 (1 GiB) | Since 0.1.22. Most bytes of uploaded history that the node keeps in its disk read cache. 0 disables the cache. |
+| **history.readCacheDirectory** | **localStorage.directory** with the suffix **-history-read-cache**, such as **/var/lib/dex-server-zd/store-history-read-cache** | Since 0.1.22. Directory of the disk read cache, which the cache owns. It must be outside **localStorage.directory**, which a local store rebuild sets aside, and must not contain **..** components; startup fails otherwise. If the node cannot create it, the node logs one warning and reads from object storage without a cache. |
+| **history.objectReadConcurrency** | 32 | Since 0.1.22. Most object storage reads of uploaded history segments that the node runs at once. From 1 to 1024. A history read beyond it waits for a free read. |
 
-The setting applies to every partition, not to each run. When a node takes the
-lease, it records the value in every partition whose recorded value differs,
-before the partitions resume work. Turning the switch off takes effect at the
-next start in the same way. A partition that has stopped applying commands keeps
-its previous value. The node then logs an error and increments
-**dexzd_history_offload_mode_skipped_partitions_total**.
-
-While offload is on, each run that starts in that partition divides its history
-into segments. A segment is sealed when it reaches **history.segmentTargetBytes**,
-when 10,000 values were superseded inside it, or when the run closes. Each run
-records **history.segmentTargetBytes** when it starts, so a new value applies only
-to runs that start after the node restarts with it.
+An offloaded run divides its history into segments. A segment is sealed when it
+reaches **history.segmentTargetBytes**, when 10,000 values were superseded inside
+it, or when the run closes. Each run records **history.segmentTargetBytes** when
+it starts, so a new value applies only to runs that start after the node restarts
+with it.
 
 Once a segment is uploaded, the run deletes its history records and checkpoints
 from local disk. The run's first record and checkpoint stay. The small metadata
@@ -402,29 +450,23 @@ commands for the run, which record no history event. The first comes about one
 minute after the run's last command, or when the period of a waiting superseded
 value ends, whichever is later. While a run waits for such periods, it gets at
 most one cleanup command a minute. Values superseded in the open segment of an
-idle running run stay on local disk until that segment is sealed. While offload is on,
-**history.maxRetainedSupersededBytes** does not apply: superseded values leave
-local disk once they are uploaded.
+idle running run stay on local disk until that segment is sealed.
 
-Runs that already exist when offload turns on migrate, including runs that
-started while it was off. The first command that leaves such a run running seals
-the oldest part of its local history. Each later command of the run seals one
-more segment, until a segment reaches the command itself. The run then continues
-like a run that started with offload on. Events that the history window removed
-before the migration stay removed. A run that is already closed is not migrated;
-deleting it after its retention deletes its local history. A run that closes
-during its migration keeps the rest of its history on local disk until it is
-deleted.
+A run that recorded history without offload, on a partition whose offload an
+earlier release then turned on and that was still on at the upgrade, migrates
+its older history lazily. Only such runs migrate. Each command that records history and leaves the run running
+seals one more segment of that older history, oldest first. When a segment
+reaches the command itself, the run continues like a run that started with
+offload. Nothing else drives the migration. A run that receives no more
+commands keeps its older history on local disk, for as long as it stays idle.
+Events that the history window removed before the migration stay removed. A run
+that is already closed does not migrate: its local history stays until its
+retention ends and the run is deleted. A run that closes during its migration
+keeps the rest of its older history on local disk until it is deleted.
 
-Turning offload off stops sealing and stops deleting uploaded history from local
-disk. History of segments sealed earlier stays on local disk until each segment
-is uploaded; then pruning returns to the window rule. History that offload
-already deleted stays readable from object storage. Commands applied while
-offload is off belong to no segment, so turning it on again starts a new segment
-after them. Turning offload off also ends every migration; the rest of each such
-run's history follows the window rule like those commands. Since 0.1.22, uploaded
-history that waits for deletion while offload is off is deleted within about an
-hour after offload turns on again, also in runs that receive no more commands.
+A **dev** or **local** data directory where an earlier release turned offload
+off and on again can hold history of commands that belong to no segment. That
+history stays on local disk and follows the window rule.
 
 The lease holder uploads each sealed segment to the primary object store, under
 the **history/** prefix of the bucket that holds the commit log. It uploads a
@@ -437,8 +479,7 @@ error and increments **dexzd_history_upload_checksum_mismatches_total**.
 Uploads never delay commands. While object storage fails them, they retry
 with backoff, sealed segments stay on local disk, and the upload backlog metrics
 grow; see [Metrics](/reference/server/metrics). A permanent rejection, such as
-denied access, is retried once a minute instead. Uploads of segments sealed
-earlier continue after **history.offloadEnabled** is turned off. Retention
+denied access, is retried once a minute instead. Retention
 postpones the deletion of a closed run until its sealed segments are uploaded.
 Deleting a run also deletes every object under its **history/** prefix. That
 deletion starts a minute after the run's deletion begins, so that uploads an
@@ -446,38 +487,67 @@ earlier lease holder abandoned have ended on its side. An upload that object
 storage accepted just before can still leave an object of the deleted run; no
 read returns it. Since 0.1.22, the lease holder lists **history/** every six
 hours and deletes such objects once they are an hour old. Do not configure a
-bucket lifecycle rule that expires objects under **history/**. To delete old
-history objects, use **history.deleteExpiredObjects** or the run's delete
-switch.
+bucket lifecycle rule that expires objects under **history/**. The lease holder
+deletes old history objects itself, as described next.
+
+#### Upload concurrency {#history-upload-concurrency}
+
+Changed in 0.1.23: the number of uploads in flight adapts to the backlog. Before,
+it stayed at **history.uploadConcurrency**, 16 by default. Every closed run
+seals and uploads at least one segment, so short runs need one object storage
+write each. With a write round trip of about 30 ms, 16 uploads at once drain
+about 530 segments a second.
+
+The limit starts at **history.uploadMinConcurrency**. Each upload that object
+storage accepts while other uploads wait raises the limit by one, up to
+**history.uploadConcurrency**. The limit therefore about doubles each round trip
+while a backlog grows. Each upload that ends while no upload waits lowers the
+limit by one, back to **history.uploadMinConcurrency**.
+
+A retryable object storage failure, such as an S3 503 SlowDown reply, halves
+the limit, but not below **history.uploadMinConcurrency**. Uploads that started
+before the last reduction do not reduce it again. After a reduction, the limit
+grows again only after as many successful uploads as the reduced limit. The
+failed upload retries with backoff, as before.
+
+Memory stays bounded by **history.uploadMaxInFlightBytes**. After an upload reads
+a segment's rows, it computes the most memory encoding them can allocate: the
+block buffers, the compressed frames, the header, and the object. It reserves
+that much before it encodes, then keeps only the encoded object's size until
+the upload ends. An upload waits while the reservations use the budget.
+Reservations count whole KiB. Only a segment larger than the whole budget
+exceeds it, and that segment uploads alone. The budget does not count the rows
+an upload reads from local disk before it reserves, or the compressor's working
+state.
+
+**dexzd_history_upload_concurrency_limit** shows the current limit and
+**dexzd_history_upload_in_flight_bytes** the reserved bytes. To keep the limit
+fixed, set **history.uploadMinConcurrency** and **history.uploadConcurrency** to
+the same value.
 
 Since 0.1.22, a segment expires once the history window passes every command it
 holds. GetHistoryEvents, LoadBlobs, and ResetFlow never read an expired segment,
 from object storage or from the disk read cache, whether or not its object still
-exists. When a run's delete switch is on, the lease holder deletes the object of
-each expired segment about one hour after it expired, so reads that started
-before the expiry can finish. The switch is the run's
-**FlowConfig.delete_expired_history_objects**, set at StartFlow, in a SubFlow
-override, or with UpdateFlowConfig. A run that leaves it unset uses
-**history.deleteExpiredObjects** as recorded when the run started. Turning the
-switch on deletes the objects that already expired. Turning it off stops the
-deletions that have not started; a deletion request already sent to object
-storage may still complete, and deleted objects never come back. Runs that
-started before 0.1.22 recorded no default, so their switch is off until
-UpdateFlowConfig turns it on.
+exists. The lease holder deletes the object of each expired segment about one
+hour after it expired, so reads that started before the expiry can finish.
+Object storage use therefore stays bounded by the window, also for a run that
+never closes. Deleting a run deletes its remaining objects with the rest.
 
-When the switch is off, expired objects stay in object storage until the run is
-deleted after its retention. They hold the run's old history, including earlier
-values of rewritten Attributes. No API returns them, but anyone who can read the
-bucket can read them. A run that never closes keeps every history object it
-wrote, so its object storage use grows with its history. For sensitive values,
-use hard-delete Attributes or turn the switch on. Deleting a run deletes its
-expired objects with the rest.
+Changed in 0.1.23: a run that starts with 0.1.23 or later and offloads always
+deletes the objects of its expired segments. A run that started under 0.1.22
+keeps following its delete switch. When that switch is off, the run's expired
+objects stay in object storage until its retention ends and the run is deleted.
+Until then, anyone who can read the bucket can read the old history they hold,
+including earlier values of rewritten Attributes. To delete them sooner, turn
+the run's switch on with UpdateFlowConfig. SDK 1.40.0 and later no longer send
+the field, so use an earlier SDK or a direct gRPC request. For sensitive values,
+use hard-delete Attributes.
 
 GetHistoryEvents reads the events of uploaded segments from object storage and
 every other event from local disk. Each event comes from one place, so paging
-returns every event once, also while uploads continue. Events of commands that
-belong to no segment, such as those applied while offload was off, stay on local
-disk and follow the window rule. A read never returns events that the window
+returns every event once, also while uploads continue. Events of a run without
+offload, and of commands that belong to no segment, stay on local disk and
+follow the window rule. A read never returns events that the window
 pruned, even when their segment object still exists. A read that object storage
 fails, or whose uploaded segment object is missing, fails with UNAVAILABLE; the
 client may retry it. A page that needs many segments can hold fewer events than
@@ -503,6 +573,10 @@ most 1000 values. A request with more entries fails with INVALID_ARGUMENT when
 the partition of a Flow it names offloads history. With offload off, LoadBlobs
 takes any number of entries, as before.
 
+Changed in 0.1.23: the limit counts the entries whose run offloads history. A
+request with more than 1000 such entries fails with INVALID_ARGUMENT. Entries of
+runs without offload are not limited.
+
 The node keeps uploaded segment headers in memory and keeps segment headers,
 records, and values in its disk read cache, up to **history.readCacheMaxBytes**.
 Uploaded segments never change, so cached entries are never stale. The cache
@@ -520,7 +594,7 @@ evicts the oldest request IDs instead.
 | --- | --- | --- |
 | **values.maxValueBytes** | 16777216 (16 MiB) | Largest serialized application value, such as an Attribute value or a Channel message. A larger value is rejected. |
 | **api.grpcMaxMessageBytes** | 33554432 (32 MiB) | Largest incoming or outgoing gRPC message. Must exceed **values.maxValueBytes**. Since 0.1.21, a GetHistoryEvents page ends before an event that would make the response larger, and its next page token continues the read. A single event larger than this limit fails the read with RESOURCE_EXHAUSTED and names the event ID. |
-| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Active state budget of one Flow run. Active state is the run's current rows and the values they hold: Attributes, Channel messages, Step executions with their inputs, locals, and attempt snapshots, timers, locks, request IDs kept for deduplication, and outbox rows. It also counts a small bookkeeping row, under 100 bytes, for each stored value, superseded ones included. It does not count history records, checkpoints, or the superseded values that history keeps for time travel. server-zd checks it when a command increases the run's active state while that active state exceeds the budget. The checked commands are a Flow start, a Client Attribute write, a Client Channel publish, an RPC that changes Flow state, a Step heartbeat, and a Step completion. An RPC changes Flow state when it writes or deletes Attributes, publishes or deletes Channel messages, or starts or cancels Steps. The increase leaves out what a Step attempt holds only until its method ends, such as the Attributes and Channel messages it loaded and its locks. Such a Flow start, Client write, or RPC fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Client deletions, reads, and RPCs that change no Flow state still run. On a run over its budget, an RPC that changes no Flow state keeps no reply value or request ID for deduplication. A retry with the same request ID is then handled as a new RPC: it runs again while the Flow is running, and fails with NOT_FOUND once the Flow has closed, even if that RPC's own commit closed it. The history of a transactional RPC still records its output. A child Flow result that reaches its parent is not checked; **limits.maxChildFlowResultBytes** bounds it instead. Changed in 0.1.21: superseded values no longer count. A Flow that already failed on this limit stays failed; time travel can resume it. |
+| **limits.maxFlowStateBytes** | 67108864 (64 MiB) | Active state budget of one Flow run. Active state is the run's current rows and the values they hold: Attributes, Channel messages, Step executions with their inputs, locals, and attempt snapshots, timers, locks, request IDs kept for deduplication, and outbox rows. A Step that completed, or that a cancellation without a Flow close ended, keeps no Step execution row. A Failed Step and a Step that a Flow close canceled keep a small one. It also counts a small bookkeeping row, under 100 bytes, for each stored value, superseded ones included, in runs that started before 0.1.23. It does not count history records, checkpoints, or the superseded values that history keeps for time travel. server-zd checks it when a command increases the run's active state while that active state exceeds the budget. The checked commands are a Flow start, a Client Attribute write, a Client Channel publish, an RPC that changes Flow state, a Step heartbeat, and a Step completion. An RPC changes Flow state when it writes or deletes Attributes, publishes or deletes Channel messages, or starts or cancels Steps. The increase leaves out what a Step attempt holds only until its method ends, such as the Attributes and Channel messages it loaded and its locks. Such a Flow start, Client write, or RPC fails with RESOURCE_EXHAUSTED. Such a Step heartbeat or completion fails the attempt without retry. Client deletions, reads, and RPCs that change no Flow state still run. On a run over its budget, an RPC that changes no Flow state keeps no reply value or request ID for deduplication. A retry with the same request ID is then handled as a new RPC: it runs again while the Flow is running, and fails with NOT_FOUND once the Flow has closed, even if that RPC's own commit closed it. The history of a transactional RPC still records its output. A child Flow result that reaches its parent is not checked; **limits.maxChildFlowResultBytes** bounds it instead. Changed in 0.1.21: superseded values no longer count. A Flow that already failed on this limit stays failed; time travel can resume it. Changed in 0.1.23: the rows of completed Steps and of Steps canceled without a Flow close no longer count, so a long-lived run's active state stops growing with every Step it ran. Changed in 0.1.23: a run that starts with 0.1.23 or later no longer counts the bookkeeping rows of superseded values. Those rows wait for the history window or for an upload, like history. Before, a run that offloads history and rewrites values often could fill a small budget with them before its first history segment was sealed and uploaded. |
 | **limits.maxChildFlowResultBytes** | 16777216 (16 MiB) | Largest total size of the result outputs that a child Flow delivers to its parent. A Step completion that would make a child Flow's collected outputs larger fails the attempt without retry. Unless the Step's failure policy recovers, the child Flow fails, and the parent receives that failure. A Flow without a parent has no such limit. |
 | **limits.maxFlowIdBytes** | 1000 | Longest Flow ID, in UTF-8 bytes. |
 | **limits.maxRequestIdsPerRun** | 1000 | Newest request IDs that one run keeps for deduplication. A retry with an older request ID runs as a new request. |
@@ -561,7 +635,7 @@ startup.
 ## Streams {#streams}
 
 Set **streamStore.backend** to **memory** (default) or **disabled** to control
-best-effort [Streams](/primitives/stream). Memory Streams live only in the
+best-effort [Streams](/concepts/primitives/stream). Memory Streams live only in the
 active server process. They start empty after a restart, a standby takeover, or
 a step down, and trimming can remove older messages. While the backend is
 disabled, Client Stream writes and reads fail with **FAILED_PRECONDITION**. A

@@ -96,7 +96,17 @@ fn apply_model(
             flow_type: request.flow_type.clone(),
             start_request_id: request.request_id,
             started_at_micros: command.proposed_at_micros,
-            settings: start.settings,
+            settings: start.settings.map(|mut settings| {
+                // As apply does: the Flow config's offload choice replaces the proposed default.
+                settings.offload_history = settings.offload_history.map(|default_choice| {
+                    start
+                        .effective_flow_config
+                        .as_ref()
+                        .and_then(|config| config.offload_history)
+                        .unwrap_or(default_choice)
+                });
+                settings
+            }),
             status: FlowStatus::Running as i32,
             current_attempt: 1,
             next_run_seq: 2,

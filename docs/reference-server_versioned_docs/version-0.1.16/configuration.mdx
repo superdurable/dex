@@ -149,7 +149,7 @@ startup.
 ## Streams {#streams}
 
 Set **streamStore.backend** to **disabled** (default) or **memory** to control
-best-effort [Streams](/primitives/stream). **dex-server-zd dev**, which
+best-effort [Streams](/concepts/primitives/stream). **dex-server-zd dev**, which
 **dexcli dev** starts, uses **memory** unless its overrides set the backend.
 Memory Streams live only in the active server process. They start empty after a
 restart, a standby takeover, or a step down, and trimming can remove older

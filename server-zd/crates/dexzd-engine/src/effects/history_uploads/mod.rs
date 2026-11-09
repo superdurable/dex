@@ -25,6 +25,8 @@ mod local_cleanup;
 mod orphan_sweep;
 mod run_history_objects;
 mod segment_upload;
+mod upload_backlog;
+mod upload_limiter;
 mod upload_rescan;
 
 use std::future::Future;
@@ -36,7 +38,12 @@ pub(crate) use local_cleanup::clean_up_local_history;
 pub(crate) use orphan_sweep::run_history_orphan_sweep;
 pub(crate) use run_history_objects::delete_run_history_objects;
 pub(crate) use segment_upload::upload_sealed_history_segments;
-pub(crate) use upload_rescan::{request_partition_backlog_rescan, run_history_upload_rescan};
+pub(crate) use upload_backlog::UploadBacklogTracker;
+pub(crate) use upload_limiter::HistoryUploadLimiter;
+pub use upload_limiter::HistoryUploadLimits;
+pub(crate) use upload_rescan::{
+    oldest_sealed_first_seq, request_partition_backlog_rescan, run_history_upload_rescan,
+};
 
 use crate::effects::{EffectContext, EffectError};
 

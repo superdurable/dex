@@ -120,5 +120,6 @@ pub fn default_run_settings() -> RunSettings {
         history_segment_target_bytes: 4 * 1024 * 1024,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 10 * 60 * 1_000_000,
+        offload_history: Some(true),
     }
 }

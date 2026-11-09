@@ -29,8 +29,8 @@ pub use attribute_store_config::{
 };
 pub use auth_config::{AuthConfig, AuthenticatorConfig, AuthenticatorKind};
 pub use engine_config::{
-    ClusterConfig, CommitConfig, DeprecatedConfigKey, HistoryConfig, LeaseConfig, LimitsConfig,
-    RecoveryConfig, RetentionConfig, SnapshotConfig, ValuesConfig,
+    ClusterConfig, CommitConfig, DeprecatedConfigKey, HistoryConfig, IgnoredConfigKey, LeaseConfig,
+    LimitsConfig, RecoveryConfig, RetentionConfig, SnapshotConfig, ValuesConfig,
 };
 pub use service_config::{
     ApiConfig, LifecycleConfig, MatchingConfig, MetricsConfig, SearchBackend, SearchConfig,
@@ -96,13 +96,20 @@ pub struct Config {
 }
 
 impl Config {
-    /// Logs one warning for each deprecated key that the parsed YAML used.
+    /// Logs one warning for each deprecated or removed key that the parsed YAML used.
     pub(crate) fn warn_about_deprecated_keys(&self) {
         for key in self.history.deprecated_keys() {
             tracing::warn!(
                 deprecated_key = key.deprecated_key,
                 replacement_key = key.replacement_key,
                 "configuration uses a deprecated key; rename it to the replacement key"
+            );
+        }
+        for key in self.history.ignored_keys() {
+            tracing::warn!(
+                ignored_key = key.ignored_key,
+                reason = key.reason,
+                "configuration uses a removed key that has no effect; remove it"
             );
         }
     }

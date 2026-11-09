@@ -14,12 +14,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dexzd_engine::{EffectsConfig, LocalStoreConfig};
+use dexzd_engine::{EffectsConfig, HistoryUploadLimits, LocalStoreConfig};
 
+use super::engine_config::SERVE_HISTORY_WINDOW_EVENTS;
 use super::{
     AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
-    DevDurabilityMode, LifecycleConfig, ObjectStoreLocationConfig, SearchBackend, StandbyMode,
-    StreamStoreBackend, dsn_environment_variable,
+    DevDurabilityMode, HistoryConfig, LifecycleConfig, ObjectStoreLocationConfig, SearchBackend,
+    StandbyMode, StreamStoreBackend, dsn_environment_variable,
 };
 use crate::DevCommandOptions;
 use crate::component_configs::ComponentConfigs;
@@ -215,39 +216,104 @@ fn superseded_value_grace_period_reaches_run_and_child_settings() {
 }
 
 #[test]
-fn delete_expired_objects_reaches_run_and_child_settings() {
-    assert!(!Config::default().history.should_delete_expired_objects);
-    let default_components =
-        ComponentConfigs::from_config(&valid_config(), false).expect("component config");
-    assert!(
-        !default_components
-            .flow_coordination
-            .run_settings
-            .delete_expired_history_objects
+fn removed_history_keys_are_accepted_ignored_and_logged_at_startup() {
+    let yaml = "history:\n  offloadEnabled: true\n  deleteExpiredObjects: true\n  \
+                maxRetainedSupersededBytes: 1048576\n";
+    let parsed = Config::parse_yaml(yaml).expect("removed history keys still parse");
+    let ignored_keys: Vec<_> = parsed
+        .history
+        .ignored_keys()
+        .iter()
+        .map(|key| key.ignored_key)
+        .collect();
+    assert_eq!(
+        ignored_keys,
+        [
+            "history.offloadEnabled",
+            "history.deleteExpiredObjects",
+            "history.maxRetainedSupersededBytes",
+        ]
     );
-    let parsed = Config::parse_yaml("history:\n  deleteExpiredObjects: true\n")
-        .expect("parse the delete switch");
+    assert!(parsed.history.deprecated_keys().is_empty());
+    let log = captured_warnings(&parsed);
+    for key in &ignored_keys {
+        assert!(
+            log.contains("configuration uses a removed key that has no effect")
+                && log.contains(&format!("ignored_key=\"{key}\"")),
+            "{log}"
+        );
+    }
     let mut configuration = valid_config();
-    configuration.history.should_delete_expired_objects =
-        parsed.history.should_delete_expired_objects;
+    configuration.history = parsed.history;
+    configuration
+        .validate()
+        .expect("removed keys never fail validation");
     let components =
         ComponentConfigs::from_config(&configuration, false).expect("component config");
-    assert!(
-        components
-            .flow_coordination
-            .run_settings
-            .delete_expired_history_objects
-    );
-    assert!(
-        components
-            .effects
-            .child_run_settings
-            .delete_expired_history_objects
-    );
+    for settings in [
+        components.flow_coordination.run_settings,
+        components.effects.child_run_settings,
+    ] {
+        assert_eq!(
+            (
+                settings.max_retained_superseded_bytes,
+                settings.delete_expired_history_objects,
+                settings.offload_history,
+            ),
+            (256 * 1024 * 1024, false, Some(true)),
+            "runs record the built-in values, which runs with an offload choice ignore"
+        );
+    }
+
+    let temporary = tempfile::tempdir().expect("test directory");
+    let overrides_path = temporary.path().join("removed-history-keys.yaml");
+    fs::write(&overrides_path, yaml).expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        let loaded = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(overrides_path.clone()),
+        ))
+        .expect("single-node commands accept the removed keys");
+        assert_eq!(loaded.history.ignored_keys().len(), 3);
+    }
 }
 
 #[test]
-fn single_node_delete_expired_objects_defaults_to_true_unless_the_overrides_set_it() {
+fn history_offload_set_to_false_fails_startup_in_every_mode() {
+    let yaml = "history:\n  offloadEnabled: false\n";
+    let assert_offload_error = |error: ConfigError| {
+        assert!(matches!(error, ConfigError::Yaml { .. }), "{error}");
+        let message = error.to_string();
+        assert!(
+            message.contains("the server can no longer turn history offload off")
+                && message.contains("remove history.offloadEnabled"),
+            "{message}"
+        );
+    };
+    assert_offload_error(
+        Config::parse_yaml(yaml).expect_err("serve rejects offloadEnabled: false"),
+    );
+    let temporary = tempfile::tempdir().expect("test directory");
+    let overrides_path = temporary.path().join("offload-disabled.yaml");
+    fs::write(&overrides_path, yaml).expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        assert_offload_error(
+            load(&single_node_options(
+                temporary.path().join("data"),
+                Some(overrides_path.clone()),
+            ))
+            .expect_err("single-node commands reject offloadEnabled: false"),
+        );
+    }
+}
+
+#[test]
+fn each_mode_gets_its_default_history_window() {
+    let max_window_events = HistoryConfig::default().max_window_events;
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert_eq!(serve.history.window_events, SERVE_HISTORY_WINDOW_EVENTS);
+    assert_eq!(serve.history.window_events, 50_000);
+    assert_eq!(Config::default().history.window_events, 50_000);
     let temporary = tempfile::tempdir().expect("test directory");
     let other_history_key_path = temporary.path().join("history-upload-concurrency.yaml");
     fs::write(
@@ -255,85 +321,81 @@ fn single_node_delete_expired_objects_defaults_to_true_unless_the_overrides_set_
         "history:\n  uploadConcurrency: 5\n",
     )
     .expect("write test config");
-    let explicit_switch_path = temporary.path().join("delete-expired-objects.yaml");
+    let window_path = temporary.path().join("history-window.yaml");
+    fs::write(&window_path, "history:\n  windowEvents: 2000\n").expect("write test config");
+    let deprecated_window_path = temporary.path().join("history-semantic-window.yaml");
     fs::write(
-        &explicit_switch_path,
-        "history:\n  deleteExpiredObjects: false\n",
+        &deprecated_window_path,
+        "history:\n  windowSemanticEvents: 3000\n",
     )
     .expect("write test config");
     for load in [Config::load_dev, Config::load_local] {
-        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
-            .expect("configuration without YAML");
-        assert!(without_overrides.history.should_delete_expired_objects);
-        let with_other_history_key = load(&single_node_options(
-            temporary.path().join("data"),
-            Some(other_history_key_path.clone()),
-        ))
-        .expect("configuration with another history key");
-        assert!(with_other_history_key.history.should_delete_expired_objects);
-        assert_eq!(with_other_history_key.history.upload_concurrency, 5);
-        let with_explicit_switch = load(&single_node_options(
-            temporary.path().join("data"),
-            Some(explicit_switch_path.clone()),
-        ))
-        .expect("configuration with an explicit delete switch");
-        assert!(!with_explicit_switch.history.should_delete_expired_objects);
+        let load_with = |overrides: Option<PathBuf>| {
+            load(&single_node_options(
+                temporary.path().join("data"),
+                overrides,
+            ))
+            .expect("single-node configuration")
+        };
+        let without_overrides = load_with(None);
+        assert_eq!(without_overrides.history.window_events, 5_000);
+        assert_eq!(
+            load_with(Some(other_history_key_path.clone()))
+                .history
+                .window_events,
+            5_000
+        );
+        assert_eq!(
+            load_with(Some(window_path.clone())).history.window_events,
+            2_000
+        );
+        assert_eq!(
+            load_with(Some(deprecated_window_path.clone()))
+                .history
+                .window_events,
+            3_000,
+            "a window under the deprecated key is not replaced by the default"
+        );
+        let components =
+            ComponentConfigs::from_config(&without_overrides, false).expect("component config");
+        assert_eq!(
+            components
+                .flow_coordination
+                .run_settings
+                .history_window_events,
+            5_000
+        );
+        assert_eq!(
+            components.effects.child_run_settings.history_window_events,
+            5_000
+        );
+        assert!(without_overrides.history.window_events <= max_window_events);
+        assert!(
+            without_overrides.history.prune_chunk_size <= without_overrides.history.window_events
+        );
     }
-
-    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
-    assert!(!serve.history.should_delete_expired_objects);
+    assert!(serve.history.window_events <= max_window_events);
+    assert!(serve.history.prune_chunk_size <= serve.history.window_events);
 }
 
 #[test]
-fn single_node_history_offload_defaults_to_enabled_unless_the_overrides_set_it() {
-    let temporary = tempfile::tempdir().expect("test directory");
-    let other_history_key_path = temporary.path().join("history-upload-concurrency.yaml");
-    fs::write(
-        &other_history_key_path,
-        "history:\n  uploadConcurrency: 5\n",
-    )
-    .expect("write test config");
-    let explicit_switch_path = temporary.path().join("offload-disabled.yaml");
-    fs::write(&explicit_switch_path, "history:\n  offloadEnabled: false\n")
-        .expect("write test config");
-    for load in [Config::load_dev, Config::load_local] {
-        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
-            .expect("configuration without YAML");
-        assert!(without_overrides.history.is_offload_enabled);
-        let with_other_history_key = load(&single_node_options(
-            temporary.path().join("data"),
-            Some(other_history_key_path.clone()),
-        ))
-        .expect("configuration with another history key");
-        assert!(with_other_history_key.history.is_offload_enabled);
-        assert_eq!(with_other_history_key.history.upload_concurrency, 5);
-        let with_explicit_switch = load(&single_node_options(
-            temporary.path().join("data"),
-            Some(explicit_switch_path.clone()),
-        ))
-        .expect("configuration with an explicit offload switch");
-        assert!(!with_explicit_switch.history.is_offload_enabled);
-    }
-
-    assert!(!Config::default().history.is_offload_enabled);
-    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
-    assert!(!serve.history.is_offload_enabled);
-    let serve_enabled =
-        Config::parse_yaml("cluster:\n  nodeId: node-a\nhistory:\n  offloadEnabled: true\n")
-            .expect("serve YAML with offload");
-    assert!(serve_enabled.history.is_offload_enabled);
-}
-
-#[test]
-fn history_upload_concurrency_reaches_the_effect_runner() {
-    assert_eq!(Config::default().history.upload_concurrency, 16);
+fn history_upload_limits_reach_the_effect_runner() {
+    let defaults = Config::default().history;
+    assert_eq!(defaults.upload_concurrency, 256);
+    assert_eq!(defaults.upload_min_concurrency, 16);
+    assert_eq!(defaults.upload_max_in_flight_bytes, 128 * 1024 * 1024);
     assert_eq!(
         ComponentConfigs::from_config(&valid_config(), false)
             .expect("component config")
             .effects
-            .history_upload_concurrency,
-        16
+            .history_upload_limits,
+        HistoryUploadLimits {
+            max_concurrency: 256,
+            min_concurrency: 16,
+            max_in_flight_bytes: 128 * 1024 * 1024,
+        }
     );
+    // A configuration from before the adaptive limit still validates, with a smaller cap.
     let parsed = Config::parse_yaml("history:\n  uploadConcurrency: 3\n")
         .expect("parse the history upload concurrency");
     let mut configuration = valid_config();
@@ -343,7 +405,26 @@ fn history_upload_concurrency_reaches_the_effect_runner() {
         .expect("a valid history upload concurrency");
     let components =
         ComponentConfigs::from_config(&configuration, false).expect("component config");
-    assert_eq!(components.effects.history_upload_concurrency, 3);
+    assert_eq!(components.effects.history_upload_limits.max_concurrency, 3);
+    assert_eq!(components.effects.history_upload_limits.min_concurrency, 16);
+
+    let parsed = Config::parse_yaml(
+        "history:\n  uploadMinConcurrency: 8\n  uploadMaxInFlightBytes: 33554432\n",
+    )
+    .expect("parse the history upload limits");
+    let mut configuration = valid_config();
+    configuration.history.upload_min_concurrency = parsed.history.upload_min_concurrency;
+    configuration.history.upload_max_in_flight_bytes = parsed.history.upload_max_in_flight_bytes;
+    configuration
+        .validate()
+        .expect("valid history upload limits");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(components.effects.history_upload_limits.min_concurrency, 8);
+    assert_eq!(
+        components.effects.history_upload_limits.max_in_flight_bytes,
+        32 * 1024 * 1024
+    );
 }
 
 #[test]
@@ -647,12 +728,12 @@ fn time_travel_replay_memory_reaches_the_flow_runtime_and_must_be_positive() {
 fn history_window_settings_default_and_reach_run_settings_and_validation() {
     let defaults = ComponentConfigs::from_config(&valid_config(), false).expect("component config");
     let default_run_settings = defaults.flow_coordination.run_settings;
-    assert_eq!(default_run_settings.history_window_events, 10_000);
+    assert_eq!(default_run_settings.history_window_events, 50_000);
     assert_eq!(default_run_settings.history_prune_chunk_events, 1_000);
     assert_eq!(defaults.validation().max_history_window_events, 100_000);
     assert_eq!(
         defaults.effects.child_run_settings.history_window_events,
-        10_000
+        50_000
     );
     let parsed = Config::parse_yaml(
         "history:\n  windowEvents: 2000\n  pruneChunkSize: 50\n  maxWindowEvents: 5000\n",
@@ -668,6 +749,9 @@ fn history_window_settings_default_and_reach_run_settings_and_validation() {
     assert_eq!(run_settings.history_window_events, 2000);
     assert_eq!(run_settings.history_prune_chunk_events, 50);
     assert_eq!(components.validation().max_history_window_events, 5000);
+    let child_run_settings = components.effects.child_run_settings;
+    assert_eq!(child_run_settings.history_window_events, 2000);
+    assert_eq!(child_run_settings.history_prune_chunk_events, 50);
     // The per-run maximum does not limit the server window.
     let mut configuration = valid_config();
     configuration.history.window_events = 200_000;
@@ -1576,7 +1660,7 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
             config.history.window_events = 0
         }),
         ("history.pruneChunkSize", |config| {
-            config.history.prune_chunk_size = 10_001
+            config.history.prune_chunk_size = config.history.window_events + 1
         }),
         ("history.maxWindowEvents", |config| {
             config.history.max_window_events = 0
@@ -1586,9 +1670,6 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("history.checkpointCommandThreshold", |config| {
             config.history.checkpoint_command_threshold = 0
-        }),
-        ("history.maxRetainedSupersededBytes", |config| {
-            config.history.max_retained_superseded_bytes = 1
         }),
         ("history.segmentTargetBytes", |config| {
             config.history.segment_target_bytes = 0
@@ -1601,6 +1682,18 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("history.uploadConcurrency", |config| {
             config.history.upload_concurrency = 1025
+        }),
+        ("history.uploadMinConcurrency", |config| {
+            config.history.upload_min_concurrency = 0
+        }),
+        ("history.uploadMinConcurrency", |config| {
+            config.history.upload_min_concurrency = 1025
+        }),
+        ("history.uploadMaxInFlightBytes", |config| {
+            config.history.upload_max_in_flight_bytes = 1024 * 1024 - 1
+        }),
+        ("history.uploadMaxInFlightBytes", |config| {
+            config.history.upload_max_in_flight_bytes = 64 * 1024 * 1024 * 1024 + 1
         }),
         ("history.objectReadConcurrency", |config| {
             config.history.object_read_concurrency = 0

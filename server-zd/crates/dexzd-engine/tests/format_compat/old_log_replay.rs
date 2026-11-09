@@ -11,20 +11,21 @@
 //! older-log path: the replay must reach the older binary's state, except for the attempt
 //! fields that only the new binary writes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use dexzd_apply::FlowStateReader;
+use dexzd_apply::read_model::{StepCompletionState, step_completion_state};
+use dexzd_apply::{FlowStateReader, StateReadError, StateRow};
 use dexzd_engine::SystemEngineIdSource;
-use dexzd_keyspace::row_keys::value_row_key;
+use dexzd_keyspace::row_keys::{history_record_key, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueReference, parse_run_key};
 use dexzd_protocol::dex::flow_started_or_continued_history_event::StartOrContinue;
 use dexzd_protocol::dex::{
     AttributeWrite, ChannelMessage, FlowStatus, Kv, Value, flow_history_event, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    CheckpointRecord, HistoryRecord, RunRecord, StepExecutionRecord, StepInvocationPhase,
-    ValueRecord,
+    CheckpointRecord, HistoryRecord, RunRecord, StepExecutionPhase, StepExecutionRecord,
+    StepInvocationPhase, ValueRecord,
 };
 use prost::Message;
 
@@ -32,7 +33,7 @@ use crate::compat_node::{engine_node_config, start_engine_node};
 use crate::format_decoding::decode_objects;
 use crate::golden_replay::{RESTART_DELAY_MICROS, SnapshotUse, forget_snapshots};
 use crate::scripted_clock::ScriptedClock;
-use crate::state_dump::{StateDump, dump_committed_state, dumped_value, parse_state_dump};
+use crate::state_dump::{StateDump, dump_committed_state, dumped_value, hex, parse_state_dump};
 use crate::testdata_tree::{
     OBJECTS_DIRECTORY, STATE_DUMP_FILE, load_objects, read_files, testdata_root,
 };
@@ -42,8 +43,15 @@ const OLDER_LOG_DIRECTORY: &str = "pre-attempt-handout-log";
 /// Full values of the recorded run records, which `state.txt` only hashes.
 const RUN_RECORDS_FILE: &str = "run_records.txt";
 
+/// Full values of the older binary's StepExecution and Checkpoint rows, which `state.txt` only
+/// hashes; see the file's header.
+const OLDER_STEP_AND_CHECKPOINT_ROWS: &str = include_str!("pre_attempt_handout_rows.txt");
+
 /// Committed rows by column family name and key, as stored.
-type StoredRows = BTreeMap<(String, Vec<u8>), Vec<u8>>;
+pub(crate) type StoredRows = BTreeMap<(String, Vec<u8>), Vec<u8>>;
+
+/// Rows of the older binary by column family name and hex key, as `state.txt` names them.
+pub(crate) type OlderRows = BTreeMap<(String, String), Vec<u8>>;
 
 #[tokio::test]
 async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
@@ -53,14 +61,39 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
             .expect("read the older state dump");
         let recorded = parse_state_dump(&recorded_text);
         let recorded_run_records = read_run_records(&directory);
+        let older_rows = read_older_rows(&recorded);
         let (replayed, stored) = replay(&directory, snapshot_use).await;
+        // Rows that the restored snapshot holds are not rewritten, so only a full replay deletes
+        // every eligible row.
+        let deletion = if snapshot_use == SnapshotUse::Ignore {
+            ExpectedDeletion::EveryEligibleRow
+        } else {
+            ExpectedDeletion::OnlyEligibleRows
+        };
+        let deleted_step_rows = deleted_ended_step_rows(
+            &recorded,
+            &replayed,
+            &older_rows,
+            &recorded_run_records,
+            &stored,
+            deletion,
+        )
+        .unwrap_or_else(|error| panic!("{snapshot_use:?}: {error}"));
+        assert!(
+            !deleted_step_rows.is_empty(),
+            "{snapshot_use:?}: the older binary kept rows of completed Steps"
+        );
         assert_eq!(
-            recorded.keys().collect::<Vec<_>>(),
+            recorded
+                .keys()
+                .filter(|key| !deleted_step_rows.contains(*key))
+                .collect::<Vec<_>>(),
             replayed.keys().collect::<Vec<_>>(),
             "{snapshot_use:?}: the replay writes and deletes the same rows"
         );
         let changed_rows: Vec<_> = recorded
             .iter()
+            .filter(|(key, _)| !deleted_step_rows.contains(*key))
             .filter(|(key, value)| replayed.get(*key) != Some(*value))
             .filter(|((column_family, key), value)| {
                 !matches_without_new_fields(
@@ -68,6 +101,7 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
                     key,
                     value,
                     &recorded_run_records,
+                    &older_rows,
                     &stored,
                 )
             })
@@ -115,6 +149,413 @@ async fn a_log_without_task_ids_or_failure_guards_replays_to_the_older_state() {
     }
 }
 
+/// Each oracle must reject a replay that deletes a row it must keep or changes a checkpoint.
+#[tokio::test]
+async fn the_older_log_oracles_reject_wrong_deletions_and_checkpoint_changes() {
+    let directory = testdata_root().join(OLDER_LOG_DIRECTORY);
+    let recorded = parse_state_dump(
+        &std::fs::read_to_string(directory.join(STATE_DUMP_FILE))
+            .expect("read the older state dump"),
+    );
+    let recorded_run_records = read_run_records(&directory);
+    let older_rows = read_older_rows(&recorded);
+    let (replayed, stored) = replay(&directory, SnapshotUse::Restore).await;
+    let deleted = deleted_ended_step_rows(
+        &recorded,
+        &replayed,
+        &older_rows,
+        &recorded_run_records,
+        &stored,
+        ExpectedDeletion::OnlyEligibleRows,
+    )
+    .expect("the replay deletes only eligible rows");
+
+    let mut kept_phases = BTreeSet::new();
+    for (row_key, older_value) in &older_rows {
+        let (parsed_key, step) = match older_step_row(row_key, older_value) {
+            Some(row) => row,
+            None => continue,
+        };
+        let parsed = parse_run_key(&parsed_key).expect("pinned keys parse");
+        if deleted.contains(row_key)
+            || is_expected_deletion(&step, parsed.flow_hash, parsed.run_id, &stored)
+        {
+            continue;
+        }
+        kept_phases.insert(step.phase);
+        let mut wrongly_deleted = replayed.clone();
+        wrongly_deleted.remove(row_key);
+        let mut wrongly_stored = stored.clone();
+        wrongly_stored.remove(&(row_key.0.clone(), parsed_key));
+        assert!(
+            deleted_ended_step_rows(
+                &recorded,
+                &wrongly_deleted,
+                &older_rows,
+                &recorded_run_records,
+                &wrongly_stored,
+                ExpectedDeletion::OnlyEligibleRows,
+            )
+            .is_err(),
+            "deleting kept {} in phase {} must fail the oracle",
+            step.step_execution_id,
+            step.phase
+        );
+    }
+    assert!(
+        kept_phases.contains(&(StepExecutionPhase::Canceled as i32)),
+        "the fixture keeps a Step that a Flow close canceled: {kept_phases:?}"
+    );
+
+    let (checkpoint_key, older_checkpoint) = older_rows
+        .iter()
+        .find(|((column_family, hex_key), older)| {
+            let key = decode_hex(hex_key);
+            column_family == ColumnFamily::History.name()
+                && checkpoint_without_dropped_eligible_rows(
+                    &key,
+                    &stored[&(column_family.clone(), key.clone())],
+                    older,
+                    &stored,
+                ) != **older
+        })
+        .expect("a TimeTravel checkpoint restored rows that newer binaries delete");
+    let key = decode_hex(&checkpoint_key.1);
+    let replayed_checkpoint = &stored[&(checkpoint_key.0.clone(), key.clone())];
+    let mut without_step_row =
+        CheckpointRecord::decode(replayed_checkpoint.as_slice()).expect("checkpoint rows decode");
+    let kept_step_row = without_step_row
+        .rows
+        .iter()
+        .position(|row| row.table == RunTable::StepExecution as u32)
+        .expect("the checkpoint keeps a Step row");
+    without_step_row.rows.remove(kept_step_row);
+    assert!(
+        !checkpoint_matches_older(
+            &key,
+            &without_step_row.encode_to_vec(),
+            older_checkpoint,
+            &stored
+        ),
+        "dropping a Step row that newer binaries keep must fail the comparison"
+    );
+    assert!(checkpoint_matches_older(
+        &key,
+        replayed_checkpoint,
+        older_checkpoint,
+        &stored
+    ));
+    let mut without_other_row =
+        CheckpointRecord::decode(replayed_checkpoint.as_slice()).expect("checkpoint rows decode");
+    let other_row = without_other_row
+        .rows
+        .iter()
+        .position(|row| row.table != RunTable::StepExecution as u32)
+        .expect("the checkpoint holds a row besides Step executions");
+    without_other_row.rows.remove(other_row);
+    assert!(!checkpoint_matches_older(
+        &key,
+        &without_other_row.encode_to_vec(),
+        older_checkpoint,
+        &stored
+    ));
+    let mut changed_status =
+        CheckpointRecord::decode(replayed_checkpoint.as_slice()).expect("checkpoint rows decode");
+    changed_status.run_status.get_or_insert_default().status = FlowStatus::Terminated as i32;
+    assert!(!checkpoint_matches_older(
+        &key,
+        &changed_status.encode_to_vec(),
+        older_checkpoint,
+        &stored
+    ));
+}
+
+/// Reads the pinned older rows; each must hash to its `state.txt` value, and none may be missing.
+fn read_older_rows(recorded: &StateDump) -> OlderRows {
+    read_pinned_rows(
+        recorded,
+        OLDER_STEP_AND_CHECKPOINT_ROWS,
+        &[
+            (ColumnFamily::Flow, RunTable::StepExecution),
+            (ColumnFamily::History, RunTable::Checkpoint),
+        ],
+    )
+}
+
+/// Reads the full row values that `pinned_text` holds, one `<column family> <key hex> <value
+/// hex>` line each, after `#` comment lines.
+///
+/// Panics unless each value hashes to its `recorded` entry and every recorded row of
+/// `pinned_tables` is pinned, so the values are the recorded ones.
+pub(crate) fn read_pinned_rows(
+    recorded: &StateDump,
+    pinned_text: &str,
+    pinned_tables: &[(ColumnFamily, RunTable)],
+) -> OlderRows {
+    let mut older_rows = OlderRows::new();
+    for line in pinned_text.lines().filter(|line| !line.starts_with('#')) {
+        let mut fields = line.split(' ');
+        let (Some(column_family), Some(hex_key), Some(hex_value), None) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            panic!("a pinned row line has a column family, a key, and a value");
+        };
+        let row_key = (column_family.to_owned(), hex_key.to_owned());
+        let value = decode_hex(hex_value);
+        assert_eq!(
+            recorded.get(&row_key),
+            Some(&dumped_value(&value)),
+            "the pinned row {row_key:?} is the row that state.txt records"
+        );
+        older_rows.insert(row_key, value);
+    }
+    for (column_family, hex_key) in recorded.keys() {
+        let table = parse_run_key(&decode_hex(hex_key)).map(|parsed| parsed.table);
+        let is_pinned_table = pinned_tables.iter().any(|(pinned_family, pinned_table)| {
+            column_family == pinned_family.name() && table == Ok(*pinned_table)
+        });
+        if is_pinned_table {
+            assert!(
+                older_rows.contains_key(&(column_family.clone(), hex_key.clone())),
+                "the recorded row {column_family} {hex_key} is pinned"
+            );
+        }
+    }
+    older_rows
+}
+
+/// Returns the key and decoded row of a pinned StepExecution row, or None for another row.
+fn older_step_row(
+    (column_family, hex_key): &(String, String),
+    value: &[u8],
+) -> Option<(Vec<u8>, StepExecutionRecord)> {
+    if column_family != ColumnFamily::Flow.name() {
+        return None;
+    }
+    let key = decode_hex(hex_key);
+    let is_step_row =
+        parse_run_key(&key).is_ok_and(|parsed| parsed.table == RunTable::StepExecution);
+    is_step_row.then(|| {
+        let step = StepExecutionRecord::decode(value).expect("pinned Step rows decode");
+        (key, step)
+    })
+}
+
+/// Which eligible older Step rows a replay must have deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExpectedDeletion {
+    /// Every eligible row, because the replay rewrote every row.
+    EveryEligibleRow,
+    /// Some eligible rows: rows a restored snapshot holds stay until a command rewrites them.
+    OnlyEligibleRows,
+}
+
+/// Returns the recorded Step execution rows that the replay deleted.
+///
+/// Returns an error when the replay deleted an older row that newer binaries keep, when a
+/// deleted row did not answer Completed in the older state and the replayed one, or when
+/// `deletion` requires every eligible row deleted and one remains.
+pub(crate) fn deleted_ended_step_rows(
+    recorded: &StateDump,
+    replayed: &StateDump,
+    older_rows: &OlderRows,
+    recorded_run_records: &BTreeMap<String, Vec<u8>>,
+    stored: &StoredRows,
+    deletion: ExpectedDeletion,
+) -> Result<BTreeSet<(String, String)>, String> {
+    let mut deleted = BTreeSet::new();
+    let mut expected = BTreeSet::new();
+    for (row_key, older_value) in older_rows {
+        let Some((key, step)) = older_step_row(row_key, older_value) else {
+            continue;
+        };
+        if !recorded.contains_key(row_key) {
+            continue;
+        }
+        let parsed = parse_run_key(&key).expect("pinned keys parse");
+        if is_expected_deletion(&step, parsed.flow_hash, parsed.run_id, stored) {
+            expected.insert(row_key.clone());
+        }
+        if replayed.contains_key(row_key) {
+            continue;
+        }
+        deleted.insert(row_key.clone());
+        let (step_type, number) = step
+            .step_execution_id
+            .rsplit_once('-')
+            .expect("a Step execution ID ends with its number");
+        let number: u32 = number.parse().expect("a Step execution number");
+        let run_record_key = hex(&dexzd_keyspace::row_keys::run_singleton_key(
+            parsed.flow_hash,
+            parsed.run_id,
+            RunTable::RunRecord,
+        ));
+        let older_run_record = recorded_run_records
+            .get(&run_record_key)
+            .ok_or_else(|| format!("no recorded run record for {}", step.step_execution_id))?;
+        let older_reader = OverlayReader {
+            stored,
+            overlay: BTreeMap::from([
+                (key.clone(), older_value.clone()),
+                (decode_hex(&run_record_key), older_run_record.clone()),
+            ]),
+        };
+        let replayed_reader = OverlayReader {
+            stored,
+            overlay: BTreeMap::new(),
+        };
+        for (state, reader) in [("older", &older_reader), ("replayed", &replayed_reader)] {
+            let answer =
+                step_completion_state(reader, parsed.flow_hash, parsed.run_id, step_type, number)
+                    .map_err(|error| format!("{} reads: {error}", step.step_execution_id))?;
+            if answer != StepCompletionState::Completed {
+                return Err(format!(
+                    "{} answers {answer:?} in the {state} state",
+                    step.step_execution_id
+                ));
+            }
+        }
+    }
+    let unexpected: Vec<_> = deleted.difference(&expected).collect();
+    if !unexpected.is_empty() {
+        return Err(format!(
+            "the replay deleted rows it must keep: {unexpected:?}"
+        ));
+    }
+    let remaining: Vec<_> = expected.difference(&deleted).collect();
+    if deletion == ExpectedDeletion::EveryEligibleRow && !remaining.is_empty() {
+        return Err(format!("the replay kept eligible rows: {remaining:?}"));
+    }
+    Ok(deleted)
+}
+
+/// Whether newer binaries delete this older row: it completed, or a cancel without FlowClosed ended it.
+pub(crate) fn is_expected_deletion(
+    step: &StepExecutionRecord,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    stored: &StoredRows,
+) -> bool {
+    if step.is_timeout_handler {
+        return false;
+    }
+    match StepExecutionPhase::try_from(step.phase) {
+        Ok(StepExecutionPhase::Completed) => true,
+        Ok(StepExecutionPhase::Canceled) => {
+            let key = history_record_key(flow_hash, run_id, step.completed_seq);
+            let record = stored
+                .get(&(ColumnFamily::History.name().to_owned(), key))
+                .map(|bytes| HistoryRecord::decode(bytes.as_slice()).expect("history rows decode"));
+            record.is_some_and(|record| {
+                !record.events.iter().any(|event| {
+                    matches!(
+                        event.payload,
+                        Some(flow_history_event::Payload::FlowClosed(_))
+                    )
+                })
+            })
+        }
+        _ => false,
+    }
+}
+
+/// Returns `older` without the eligible Step rows that the `replayed` checkpoint lacks.
+fn checkpoint_without_dropped_eligible_rows(
+    key: &[u8],
+    replayed: &[u8],
+    older: &[u8],
+    stored: &StoredRows,
+) -> Vec<u8> {
+    let parsed = parse_run_key(key).expect("checkpoint keys parse");
+    let replayed_step_keys: BTreeSet<Vec<u8>> = CheckpointRecord::decode(replayed)
+        .expect("checkpoint rows decode")
+        .rows
+        .into_iter()
+        .filter(|row| row.table == RunTable::StepExecution as u32)
+        .map(|row| row.key_suffix)
+        .collect();
+    let mut checkpoint = CheckpointRecord::decode(older).expect("checkpoint rows decode");
+    checkpoint.rows.retain(|row| {
+        row.table != RunTable::StepExecution as u32
+            || replayed_step_keys.contains(&row.key_suffix)
+            || !is_expected_deletion(
+                &StepExecutionRecord::decode(row.value.as_slice()).expect("Step rows decode"),
+                parsed.flow_hash,
+                parsed.run_id,
+                stored,
+            )
+    });
+    checkpoint.encode_to_vec()
+}
+
+/// Whether the replayed checkpoint equals the older one minus dropped eligible Step rows, ignoring newer fields.
+fn checkpoint_matches_older(
+    key: &[u8],
+    replayed: &[u8],
+    older: &[u8],
+    stored: &StoredRows,
+) -> bool {
+    let expected = checkpoint_without_dropped_eligible_rows(key, replayed, older, stored);
+    checkpoint_without_new_fields(replayed) == checkpoint_without_new_fields(&expected)
+}
+
+fn checkpoint_without_new_fields(value: &[u8]) -> Vec<u8> {
+    let mut checkpoint = CheckpointRecord::decode(value).expect("checkpoint rows decode");
+    for row in &mut checkpoint.rows {
+        if row.table == RunTable::StepExecution as u32 {
+            row.value = step_execution_without_new_fields(&row.value);
+        }
+    }
+    checkpoint.encode_to_vec()
+}
+
+/// Reads the rows that a replay committed, with `overlay` rows of the Flow column family in place.
+struct OverlayReader<'rows> {
+    stored: &'rows StoredRows,
+    overlay: BTreeMap<Vec<u8>, Vec<u8>>,
+}
+
+impl FlowStateReader for OverlayReader<'_> {
+    fn get(
+        &self,
+        column_family: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>, StateReadError> {
+        if column_family == ColumnFamily::Flow
+            && let Some(value) = self.overlay.get(key)
+        {
+            return Ok(Some(value.clone()));
+        }
+        Ok(self
+            .stored
+            .get(&(column_family.name().to_owned(), key.to_vec()))
+            .cloned())
+    }
+
+    fn scan(
+        &self,
+        column_family: ColumnFamily,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<StateRow>, StateReadError> {
+        let name = column_family.name().to_owned();
+        let mut rows: BTreeMap<Vec<u8>, Vec<u8>> = self
+            .stored
+            .range((name.clone(), start.to_vec())..(name, end.to_vec()))
+            .map(|((_, key), value)| (key.clone(), value.clone()))
+            .collect();
+        if column_family == ColumnFamily::Flow {
+            rows.extend(
+                self.overlay
+                    .range(start.to_vec()..end.to_vec())
+                    .map(|(key, value)| (key.clone(), value.clone())),
+            );
+        }
+        Ok(rows.into_iter().take(limit).collect())
+    }
+}
+
 /// Returns whether the replayed row equals the recorded one after clearing the fields that only
 /// the new binary writes: the attempt progress and the flow close marker on Step executions
 /// and in attempt checkpoints.
@@ -125,6 +566,7 @@ fn matches_without_new_fields(
     hex_key: &str,
     recorded_value: &str,
     recorded_run_records: &BTreeMap<String, Vec<u8>>,
+    older_rows: &OlderRows,
     stored: &StoredRows,
 ) -> bool {
     let key = decode_hex(hex_key);
@@ -139,14 +581,11 @@ fn matches_without_new_fields(
             step_execution_without_new_fields(value)
         }
         (name, RunTable::Checkpoint) if name == ColumnFamily::History.name() => {
-            let mut checkpoint =
-                CheckpointRecord::decode(value.as_slice()).expect("checkpoint rows decode");
-            for row in &mut checkpoint.rows {
-                if row.table == RunTable::StepExecution as u32 {
-                    row.value = step_execution_without_new_fields(&row.value);
-                }
-            }
-            checkpoint.encode_to_vec()
+            let Some(older) = older_rows.get(&(column_family.to_owned(), hex_key.to_owned()))
+            else {
+                return false;
+            };
+            return checkpoint_matches_older(&key, value, older, stored);
         }
         (name, RunTable::HistoryRecord) if name == ColumnFamily::History.name() => {
             history_without_scheduled_time(&history_with_inline_effect_values(
@@ -294,8 +733,10 @@ fn history_without_scheduled_time(value: &[u8]) -> Vec<u8> {
 ///
 /// It also clears the window event counters, which the older binary did not write. A run that
 /// counts events counts at least one per semantic record.
+/// The ended Step row sweep progress, also newer, is cleared too.
 fn run_record_without_storage(value: &[u8]) -> RunRecord {
     let mut run = RunRecord::decode(value).expect("run record rows decode");
+    run.ended_step_row_sweep = None;
     run.storage = None;
     run.row_write_bytes_since_checkpoint = 0;
     run.last_checkpoint_state_bytes = 0;
@@ -348,7 +789,7 @@ fn decoded_rows<T: Message + Default>(stored: &StoredRows, table: RunTable) -> V
         .collect()
 }
 
-fn decode_hex(hex_key: &str) -> Vec<u8> {
+pub(crate) fn decode_hex(hex_key: &str) -> Vec<u8> {
     (0..hex_key.len())
         .step_by(2)
         .map(|index| u8::from_str_radix(&hex_key[index..index + 2], 16).expect("hex key"))
@@ -357,6 +798,16 @@ fn decode_hex(hex_key: &str) -> Vec<u8> {
 
 /// Starts a node on the older objects and returns its committed state dump and stored rows.
 async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (StateDump, StoredRows) {
+    replay_with_checks(directory, snapshot_use, true).await
+}
+
+/// Starts a node on the recorded objects, with or without the debug replay checks, and returns
+/// its committed state dump and stored rows.
+pub(crate) async fn replay_with_checks(
+    directory: &std::path::Path,
+    snapshot_use: SnapshotUse,
+    debug_replay_checks: bool,
+) -> (StateDump, StoredRows) {
     let decoded = decode_objects(&read_files(&directory.join(OBJECTS_DIRECTORY)));
     let object_store = Arc::new(load_objects(directory).await);
     if snapshot_use == SnapshotUse::Ignore {
@@ -377,11 +828,12 @@ async fn replay(directory: &std::path::Path, snapshot_use: SnapshotUse) -> (Stat
     let clock = Arc::new(ScriptedClock::starting_at(
         last_command_micros + RESTART_DELAY_MICROS,
     ));
-    let config = engine_node_config(
+    let mut config = engine_node_config(
         &node.node_id,
         node.incarnation,
         decoded.cluster.partition_count,
     );
+    config.commit.debug_replay_checks = debug_replay_checks;
     let engine =
         start_engine_node(&config, object_store, clock, Arc::new(SystemEngineIdSource)).await;
     let view = engine

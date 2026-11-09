@@ -6,7 +6,7 @@ sidebar_label: Client requests
 # Client requests
 
 This page describes how server-zd handles each Client request. The
-[Client](/primitives/client) page explains the concepts. The SDK doc comments
+[Client](/concepts/client) page explains the concepts. The SDK doc comments
 give each language's names, parameters, and errors. See the language
 references, such as the [Go reference](/reference/go/).
 
@@ -29,7 +29,7 @@ reason.
 
 ## Invoke an RPC {#invoke-an-rpc}
 
-**InvokeRPC** calls a registered [RPC](/primitives/rpc) handler and returns its
+**InvokeRPC** calls a registered [RPC](/concepts/primitives/rpc) handler and returns its
 result. A query-only RPC can read a retained terminal execution. An RPC that
 commits effects needs an active execution.
 
@@ -319,7 +319,7 @@ continue a search. Keep the query unchanged across pages. See
 
 ## Skip a Timer {#skip-a-timer}
 
-**SkipTimer** makes one waiting [Timer](/primitives/timer) ready immediately.
+**SkipTimer** makes one waiting [Timer](/concepts/primitives/timer) ready immediately.
 Choose the Step execution, and either the Timer's condition ID or its zero-based
 condition index.
 

@@ -179,13 +179,50 @@ describe('selected step event details', () => {
     };
     const markup = renderDetails(event);
 
-    expect(markup).toContain('complete');
-    expect(markup).toContain('Cancel Step executions');
-    expect(markup).toContain('Entire Flow');
-    expect(markup).toContain('global-loser, shared-loser');
-    expect(markup).toContain('Cancel sibling Step executions');
-    expect(markup).toContain('Same parent execution');
-    expect(markup).toContain('sibling-loser');
+    expect(markup).toContain('<strong>→ complete</strong>');
+    expect(markup).toContain('<strong>Cancel global-loser, shared-loser</strong><span class="decision-summary-part">entire Flow</span>');
+    expect(markup).toContain('<strong>Cancel sibling-loser</strong><span class="decision-summary-part">same parent execution</span>');
+    // Nothing beyond the summary rows, so no collapsed detail repeats them.
+    expect(markup).not.toContain('Decision details');
+  });
+
+  it('shows a failed method routing once, in Context', () => {
+    const routing = { servedByAppWorkerId: 'worker-7', source: 1 };
+    const event = executeEvent(2);
+    event.type = 'StepExecuteFailed';
+    event.payload.context = { ...event.payload.context as Record<string, unknown>, pullRouting: routing };
+    event.payload.output = { failure: { attempt: 1, backendError: 'declined', pullRouting: routing } };
+    const markup = renderDetails(event);
+
+    expect(markup.match(/>worker-7</g)).toHaveLength(1);
+    expect(markup).not.toContain('<h5>Pull routing</h5>');
+  });
+
+  it('summarizes each movement on one row and collapses its options below', () => {
+    const event = executeEvent(2);
+    event.payload.output = {
+      stepDecision: {
+        nextSteps: [
+          {
+            stepType: 'WritePayloadStep',
+            stepInput: { stringValue: 'next' },
+            stepOptions: { skipWaitFor: true, executeLockAttributeKeys: ['balance'] },
+          },
+          { stepType: 'AuditStep' },
+        ],
+      },
+      upsertAttributes: [{ key: 'step-count', value: { intValue: 3 } }],
+    };
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('<strong>→ WritePayloadStep</strong><span class="decision-summary-part">input <span class="inline-value"><code>next</code></span></span><span class="decision-summary-part">Skip WaitFor</span>');
+    expect(markup).toContain('<strong>→ AuditStep</strong><span class="decision-summary-part">upserts step-count</span>');
+    expect(markup).toContain('<details class="decision-summary-details"><summary>Decision details</summary>');
+    expect(markup).not.toContain('<details class="decision-summary-details" open');
+
+    // Options the summary already names leave nothing to expand.
+    event.payload.output = { stepDecision: { nextSteps: [{ stepType: 'AuditStep', stepOptions: { skipWaitFor: true } }] } };
+    expect(renderDetails(event)).not.toContain('Decision details');
   });
 
   it('renders the latest sync failure in context', () => {
@@ -582,7 +619,7 @@ describe('RPC event details', () => {
     expect(markup).not.toContain('RPC name');
   });
 
-  it('keeps Attribute and Channel values collapsed, with two levels for maps', () => {
+  it('previews Attribute values on compact rows and groups map instances', () => {
     const attributesEvent: FlowHistoryEvent = {
       eventId: 10,
       eventTime: '2026-08-05T23:44:31Z',
@@ -614,16 +651,16 @@ describe('RPC event details', () => {
     const attributeMarkup = renderDetails(attributesEvent);
     const channelMarkup = renderDetails(channelEvent);
 
-    expect(attributeMarkup).toContain('<details class="semantic-record">');
-    expect(attributeMarkup).toContain('<details class="semantic-record semantic-map-record">');
+    expect(attributeMarkup).toContain('<strong class="compact-row-label">status</strong><div class="compact-row-value"><span class="inline-value"><code>ready</code></span></div>');
+    expect(attributeMarkup).toContain('aria-label="AttributeMap orders"');
     expect(attributeMarkup).toContain('first order');
-    expect(attributeMarkup).not.toContain('<details class="semantic-record" open="">');
-    expect(channelMarkup).toContain('<details class="semantic-record channel-record">');
-    expect(channelMarkup).toContain('<details class="semantic-record channel-record semantic-map-record">');
-    expect(channelMarkup).toContain('first order');
-    expect(channelMarkup).not.toContain('<details class="semantic-record channel-record" open="">');
+    // Published messages show decoded values inline, grouped by Channel.
+    expect(channelMarkup).toContain('aria-label="Channel notifications"');
+    expect(channelMarkup).toContain('>sent<');
+    expect(channelMarkup).toContain('>eleven<');
+    expect(channelMarkup).not.toContain('stringValue');
     expectStrongLabelsInOrder(attributeMarkup, ['2', '11', 'first order']);
-    expectStrongLabelsInOrder(channelMarkup, ['2', '11', 'first order']);
+    expectStrongLabelsInOrder(channelMarkup, ['updates / 2', 'updates / 11', 'updates / first order']);
   });
 });
 
@@ -754,7 +791,7 @@ describe('routing context and dispatch failures', () => {
     const markup = renderDetails(event);
     expect(markup).toContain('worker-new');
     expect(markup).toContain('worker-old');
-    expect(markup).toContain('Flow type queue');
+    expect(markup).toContain('Task queue');
   });
   it.each([
     ['no Worker available for queue PaymentFlow', 'No Worker available'],
@@ -780,3 +817,18 @@ describe('routing context and dispatch failures', () => {
     expect(renderDetails(event)).toContain('Unknown Step type: dispatch timed out');
   });
 });
+
+describe('empty step method sections', () => {
+  it('hides condition results and attributes that hold nothing', () => {
+    const event = executeEvent(1);
+    const input = event.payload.input as Record<string, unknown>;
+    input.conditionResults = {};
+    input.attributes = [];
+    const markup = renderDetails(event);
+    expect(markup).not.toContain('>Condition results<');
+    expect(markup).not.toContain('>Attributes<');
+    expect(markup).not.toContain('No attributes');
+    expect(markup).toContain('Step input');
+  });
+});
+

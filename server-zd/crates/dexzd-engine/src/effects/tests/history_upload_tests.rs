@@ -45,7 +45,7 @@ use super::{
     DurableState, EffectHarness, RecordedCommand, SECOND_MICROS, is_error_reply, ok_reply,
     settings, start_request, string_value,
 };
-use crate::effects::EffectsConfig;
+use crate::effects::{EffectsConfig, HistoryUploadLimits};
 use crate::flow_coordination::CommitUrgency;
 
 /// Rounds of 100 ms that a wait allows; paused time makes them instant.
@@ -157,12 +157,11 @@ pub(super) fn set_history_offload_mode(harness: &EffectHarness, is_enabled: bool
 
 /// Takes every upload slot, so uploads wait until the permits drop.
 async fn hold_upload_slots(harness: &EffectHarness) -> OwnedSemaphorePermit {
-    let slots = u32::try_from(EffectsConfig::default().history_upload_concurrency)
-        .expect("the default concurrency fits");
-    Arc::clone(&harness.effect_context().history_upload_slots)
-        .acquire_many_owned(slots)
+    harness
+        .effect_context()
+        .history_upload_limiter
+        .hold_every_slot_for_test()
         .await
-        .expect("the upload slots stay open")
 }
 
 /// Terminates the run; the closing command seals its open segment.
@@ -1087,7 +1086,10 @@ async fn uploads_hold_no_slot_or_object_bytes_while_their_acknowledgments_wait()
     let harness = EffectHarness::with_config(
         durable_with_faults(Arc::clone(&faults)),
         EffectsConfig {
-            history_upload_concurrency: concurrency,
+            history_upload_limits: HistoryUploadLimits {
+                max_concurrency: concurrency,
+                ..HistoryUploadLimits::default()
+            },
             ..EffectsConfig::default()
         },
     );
@@ -1129,12 +1131,20 @@ async fn uploads_hold_no_slot_or_object_bytes_while_their_acknowledgments_wait()
     );
     assert!(acknowledgments(&harness).is_empty());
     // Encoded bytes live only with an upload slot, so free slots mean no bytes are held.
-    assert_eq!(
+    assert_eq!(harness.metrics.history_upload_in_flight_bytes.get(), 0);
+    let held_slots = tokio::time::timeout(
+        Duration::from_secs(1),
         harness
             .effect_context()
-            .history_upload_slots
-            .available_permits(),
-        concurrency
+            .history_upload_limiter
+            .hold_every_slot_for_test(),
+    )
+    .await
+    .expect("every upload slot is free");
+    drop(held_slots);
+    assert_eq!(
+        harness.metrics.history_upload_concurrency_limit.get(),
+        i64::try_from(concurrency).expect("small")
     );
     harness.shutdown().await;
 }

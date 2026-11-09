@@ -7,7 +7,9 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 //! Runs recorded while their partition did not offload history, and their migration once a
-//! node restored from the recording turns offload on (plan section 5.17).
+//! node restored from the recording turns offload on (plan section 5.17). The frozen log of
+//! `testdata/pre-offload-choice-log` checks that runs started before runs recorded their own
+//! offload choice keep the semantics of the release that recorded them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -27,7 +29,9 @@ use super::*;
 use crate::compat_node::{engine_node_config, start_engine_node};
 use crate::format_decoding::decode_objects;
 use crate::golden_replay::RESTART_DELAY_MICROS;
-use crate::testdata_tree::{OBJECTS_DIRECTORY, load_objects, read_files, testdata_versions};
+use crate::testdata_tree::{
+    OBJECTS_DIRECTORY, TestdataVersion, load_objects, read_files, testdata_root, testdata_versions,
+};
 
 /// Never offloads history in the recording.
 const NEVER_OFFLOADED_PARTITION: PartitionId = PartitionId(2);
@@ -44,6 +48,19 @@ const LEGACY_ROUNDS: usize = 30;
 /// Most commands a migration may take in these tests.
 const MAX_MIGRATION_COMMANDS: usize = 60;
 const RESTORE_SEED: u64 = 0x5eed_2026_1107;
+/// A log that the release before runs recorded their offload choice wrote; see its README.
+const OFFLOAD_CHOICE_LOG_DIRECTORY: &str = "pre-offload-choice-log";
+const REUSED_FLOW_PREFIX: &str = "reused";
+const CHOSEN_OFFLOAD_FLOW_PREFIX: &str = "chosen-offload";
+const CHOSEN_LOCAL_FLOW_PREFIX: &str = "chosen-local";
+const SMALL_BUDGET_FLOW_PREFIX: &str = "small-budget";
+/// Rounds the reused Flow ID's replacement run recorded.
+const REPLACEMENT_ROUNDS: usize = 6;
+/// Rewrites of one value by each small-budget run of the frozen log.
+const SMALL_BUDGET_REWRITES: usize = 400;
+const SMALL_BUDGET_MAX_RUN_STATE_BYTES: u64 = 32 * 1024;
+/// Rewrites submitted together, so that a log batch holds several of them.
+const SMALL_BUDGET_REWRITES_PER_BATCH: usize = 20;
 
 impl Workload<'_> {
     /// `legacy-running`, `legacy-closed`, and `legacy-migrating`: runs with a small window
@@ -136,6 +153,47 @@ impl Workload<'_> {
         panic!("no segment of {} expired", run.flow_id);
     }
 
+    /// `chosen-offload`, in partition 2, which never offloads, and `chosen-local`, in partition 1,
+    /// which does: runs that record their offload choice at start follow it whatever their
+    /// partition's mode. The offloaded run seals and uploads segments; the local one never seals.
+    pub(super) async fn runs_follow_their_offload_choice(&self) {
+        let offloaded = self
+            .start_legacy_run(
+                CHOSEN_OFFLOAD_FLOW_PREFIX,
+                NEVER_OFFLOADED_PARTITION,
+                RunSettings {
+                    offload_history: Some(true),
+                    ..legacy_run_settings()
+                },
+            )
+            .await;
+        let local = self
+            .start_legacy_run(
+                CHOSEN_LOCAL_FLOW_PREFIX,
+                OFFLOADED_PARTITION,
+                RunSettings {
+                    offload_history: Some(false),
+                    ..legacy_run_settings()
+                },
+            )
+            .await;
+        let mut sealed = 0;
+        for round in 0..LEGACY_ROUNDS {
+            sealed += sealed_segment_count(&self.apply_legacy_round(&offloaded, round).await);
+            let outcome = self.apply_legacy_round(&local, round).await;
+            assert_eq!(
+                sealed_segment_count(&outcome),
+                0,
+                "the local run never seals"
+            );
+        }
+        assert!(
+            sealed > 0,
+            "the offloaded run seals in a partition without offload"
+        );
+        self.acknowledge_sealed_segments(&offloaded).await;
+    }
+
     async fn start_legacy_run(
         &self,
         prefix: &str,
@@ -210,6 +268,64 @@ impl Workload<'_> {
         .await
         .expect("the read task completes");
         FlowRun { flow_id, run_id }
+    }
+
+    /// Replaces `profile` with a 200-byte value in each of the rounds from `first_round`;
+    /// returns how many of the writes the run rejected.
+    async fn rewrite_small_budget_values(&self, run: &FlowRun, first_round: usize) -> usize {
+        let last_round = first_round + SMALL_BUDGET_REWRITES_PER_BATCH - 1;
+        let tickets: Vec<CommitTicket> = (first_round..=last_round)
+            .map(|round| {
+                let request = SetAttributesRequest {
+                    flow_id: run.flow_id.clone(),
+                    attributes: vec![attribute(
+                        "profile",
+                        string_value(&small_budget_text(round)),
+                    )],
+                    request_id: format!("{}-rewrite-{round}", run.flow_id),
+                    ..SetAttributesRequest::default()
+                };
+                let urgency = if round == last_round {
+                    CommitUrgency::Prompt
+                } else {
+                    CommitUrgency::Batched
+                };
+                self.submit(
+                    run,
+                    Command::AttributesSet(AttributesSetCommand {
+                        request_fingerprint: request_fingerprint(&request),
+                        request: Some(request),
+                        hard_delete_objects: Vec::new(),
+                    }),
+                    urgency,
+                )
+            })
+            .collect();
+        let mut rejected = 0;
+        for ticket in tickets {
+            let CommittedCommand { outcome, .. } =
+                ticket.wait().await.expect("the command commits");
+            if matches!(outcome.reply.reply, Some(command_reply::Reply::Error(_))) {
+                rejected += 1;
+            }
+        }
+        rejected
+    }
+
+    /// Rewrites `profile` `rewrites` times from `first_round`; returns how many were rejected.
+    async fn rewrite_small_budget_rounds(
+        &self,
+        run: &FlowRun,
+        first_round: usize,
+        rewrites: usize,
+    ) -> usize {
+        let mut rejected = 0;
+        for batch_round in
+            (first_round..first_round + rewrites).step_by(SMALL_BUDGET_REWRITES_PER_BATCH)
+        {
+            rejected += self.rewrite_small_budget_values(run, batch_round).await;
+        }
+        rejected
     }
 
     async fn run_record_of(&self, run: &FlowRun) -> RunRecord {
@@ -392,6 +508,34 @@ fn legacy_run_settings() -> RunSettings {
     }
 }
 
+fn small_budget_run_settings() -> RunSettings {
+    RunSettings {
+        max_run_state_bytes: SMALL_BUDGET_MAX_RUN_STATE_BYTES,
+        max_value_bytes: 16 * 1024,
+        history_window_events: 8,
+        history_prune_chunk_events: 1,
+        checkpoint_command_threshold: 4,
+        request_dedup_capacity: 16,
+        ..workload_run_settings()
+    }
+}
+
+fn small_budget_text(round: usize) -> String {
+    format!("{round:0>200}")
+}
+
+fn active_run_state_bytes(record: &RunRecord) -> u64 {
+    let usage = record.storage.unwrap_or_default();
+    usage.state_row_bytes + usage.live_value_bytes
+}
+
+fn offload_choice_log() -> TestdataVersion {
+    TestdataVersion {
+        name: OFFLOAD_CHOICE_LOG_DIRECTORY.to_owned(),
+        directory: testdata_root().join(OFFLOAD_CHOICE_LOG_DIRECTORY),
+    }
+}
+
 fn cancel_command(run: &FlowRun) -> Command {
     Command::FlowStop(FlowStopCommand {
         request: Some(StopFlowRequest {
@@ -470,6 +614,10 @@ struct RestoredNode {
 impl RestoredNode {
     async fn start() -> Self {
         let version = testdata_versions().pop().expect("testdata holds a version");
+        Self::start_from(&version).await
+    }
+
+    async fn start_from(version: &TestdataVersion) -> Self {
         let decoded = decode_objects(&read_files(&version.directory.join(OBJECTS_DIRECTORY)));
         let object_store = Arc::new(load_objects(&version.directory).await);
         let recorded_node = decoded
@@ -739,5 +887,159 @@ async fn time_travel_during_the_migration_of_a_recorded_run_is_correct() {
     let record = workload.run_record_of(&run).await;
     assert_eq!(record.current_attempt, 2);
     assert_segment_chain(&workload.history_segments(&run).await, &record);
+    restored.shutdown().await;
+}
+
+/// `reused`, in the partition that never offloaded: the log purged the first run after its
+/// retention and started a replacement under the same Flow ID with DisallowReuse. Recovery
+/// keeps the purge, so the replacement run and its state survive, and it keeps recording
+/// history locally.
+#[tokio::test(start_paused = true)]
+async fn a_flow_id_reused_after_a_purge_keeps_its_replacement_run_after_recovery() {
+    let log = offload_choice_log();
+    let decoded = decode_objects(&read_files(&log.directory.join(OBJECTS_DIRECTORY)));
+    let restored = RestoredNode::start_from(&log).await;
+    let workload = restored.workload();
+    let flow_id = workload.legacy_flow_id(REUSED_FLOW_PREFIX, NEVER_OFFLOADED_PARTITION);
+    let started_run_ids: Vec<Vec<u8>> = decoded
+        .commands
+        .iter()
+        .filter(|command| command.flow_id == flow_id)
+        .filter_map(|command| match &command.command {
+            Some(Command::FlowStart(start)) => Some(start.new_run_id.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        started_run_ids.len(),
+        2,
+        "the log started two runs of {flow_id}"
+    );
+    let purged = FlowRun {
+        flow_id: flow_id.clone(),
+        run_id: RunId::from_slice(&started_run_ids[0]).expect("16-byte run ID"),
+    };
+    assert!(
+        workload
+            .run_rows::<RunRecord>(&purged, RunTable::RunRecord)
+            .await
+            .is_empty(),
+        "the purge of the first run stays applied"
+    );
+
+    let replacement = workload
+        .legacy_run(REUSED_FLOW_PREFIX, NEVER_OFFLOADED_PARTITION)
+        .await;
+    assert_eq!(replacement.run_id.as_bytes().as_slice(), started_run_ids[1]);
+    let record = workload.run_record_of(&replacement).await;
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert_eq!(record.settings.unwrap_or_default().offload_history, None);
+    let attributes = workload
+        .run_rows::<AttributeRecord>(&replacement, RunTable::Attribute)
+        .await;
+    assert!(
+        profile_value_seq(&attributes) > 1,
+        "the replacement run holds the profile it wrote"
+    );
+    let events_before = workload.history_events(&replacement).await.events.len();
+    assert!(events_before > REPLACEMENT_ROUNDS, "{events_before} events");
+
+    for round in REPLACEMENT_ROUNDS..REPLACEMENT_ROUNDS + 4 {
+        let outcome = workload.apply_legacy_round(&replacement, round).await;
+        assert_eq!(sealed_segment_count(&outcome), 0, "the run never migrates");
+    }
+    let record = workload.run_record_of(&replacement).await;
+    assert_eq!(
+        record.history_open_segment_first_seq, 0,
+        "history stays local"
+    );
+    assert!(workload.history_segments(&replacement).await.is_empty());
+    restored.shutdown().await;
+}
+
+/// `small-budget`: in the partition that never offloaded, the window deleted superseded values,
+/// so all 400 recorded rewrites applied, and the run keeps applying rewrites after recovery. In
+/// the offloading partition the rows of superseded values waited for an upload as state, so the
+/// log rejected later rewrites; that run keeps its release's accounting, while a run started
+/// after recovery with the same budget counts those rows as history and applies every rewrite.
+#[tokio::test(start_paused = true)]
+async fn small_budget_runs_keep_their_admission_and_new_runs_never_stall() {
+    let restored = RestoredNode::start_from(&offload_choice_log()).await;
+    let workload = restored.workload();
+    let local = workload
+        .legacy_run(SMALL_BUDGET_FLOW_PREFIX, NEVER_OFFLOADED_PARTITION)
+        .await;
+    let rejected = workload
+        .rewrite_small_budget_rounds(&local, SMALL_BUDGET_REWRITES, SMALL_BUDGET_REWRITES)
+        .await;
+    assert_eq!(
+        rejected, 0,
+        "the run without offload keeps applying rewrites"
+    );
+    let record = workload.run_record_of(&local).await;
+    assert_eq!(
+        record.history_open_segment_first_seq, 0,
+        "history stays local"
+    );
+    assert!(active_run_state_bytes(&record) <= SMALL_BUDGET_MAX_RUN_STATE_BYTES);
+
+    let stalled = workload
+        .legacy_run(SMALL_BUDGET_FLOW_PREFIX, OFFLOADED_PARTITION)
+        .await;
+    let rejected = workload
+        .rewrite_small_budget_rounds(
+            &stalled,
+            SMALL_BUDGET_REWRITES,
+            SMALL_BUDGET_REWRITES_PER_BATCH,
+        )
+        .await;
+    assert_eq!(
+        rejected, SMALL_BUDGET_REWRITES_PER_BATCH,
+        "a run of the older release keeps counting its superseded value rows as state"
+    );
+
+    let new_run = workload
+        .start_legacy_run(
+            "small-budget-new",
+            OFFLOADED_PARTITION,
+            RunSettings {
+                offload_history: Some(true),
+                ..small_budget_run_settings()
+            },
+        )
+        .await;
+    let rejected = workload
+        .rewrite_small_budget_rounds(&new_run, 0, 2 * SMALL_BUDGET_REWRITES)
+        .await;
+    assert_eq!(
+        rejected, 0,
+        "a new run counts superseded value rows as history"
+    );
+    let record = workload.run_record_of(&new_run).await;
+    assert_ne!(
+        record.history_open_segment_first_seq, 0,
+        "the new run offloads"
+    );
+    assert!(active_run_state_bytes(&record) <= SMALL_BUDGET_MAX_RUN_STATE_BYTES);
+    restored.shutdown().await;
+}
+
+/// `legacy-running`, in the partition that never offloaded: a run of the older release keeps
+/// its history local for its whole life, so recovery never starts its migration.
+#[tokio::test(start_paused = true)]
+async fn a_recorded_run_of_a_partition_without_offload_never_migrates_after_recovery() {
+    let restored = RestoredNode::start_from(&offload_choice_log()).await;
+    let workload = restored.workload();
+    let run = workload
+        .legacy_run(RUNNING_FLOW_PREFIX, NEVER_OFFLOADED_PARTITION)
+        .await;
+    for round in LEGACY_ROUNDS..LEGACY_ROUNDS + 6 {
+        let outcome = workload.apply_legacy_round(&run, round).await;
+        assert_eq!(sealed_segment_count(&outcome), 0);
+    }
+    let record = workload.run_record_of(&run).await;
+    assert_eq!(record.history_open_segment_first_seq, 0);
+    assert_eq!(record.history_migration_started_seq, 0);
+    assert!(workload.history_segments(&run).await.is_empty());
     restored.shutdown().await;
 }

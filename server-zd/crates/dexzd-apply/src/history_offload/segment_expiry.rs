@@ -269,9 +269,18 @@ pub(crate) fn update_history_object_delete_pending(
     Ok(())
 }
 
-/// Returns whether the owner deletes the objects of the run's expired history segments: the
-/// run's FlowConfig override when set, or else the server default the run recorded at start.
+/// Returns whether the owner deletes the objects of the run's expired history segments: always
+/// for a run that recorded its offload choice at start; otherwise the run's FlowConfig override
+/// when set, or else the server default the run recorded at start.
 pub fn is_expired_history_object_deletion_enabled(record: &RunRecord) -> bool {
+    if record
+        .settings
+        .unwrap_or_default()
+        .offload_history
+        .is_some()
+    {
+        return true;
+    }
     record
         .flow_config
         .as_ref()

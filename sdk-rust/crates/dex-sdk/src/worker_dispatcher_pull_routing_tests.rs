@@ -60,7 +60,29 @@ fn sub_flow_config_override_maps_history_window_events() {
 }
 
 #[test]
-fn sub_flow_config_override_maps_delete_expired_history_objects() {
+fn sub_flow_config_override_maps_offload_history() {
+    let registry = Registry::new()
+        .register(PullRoutingFlow)
+        .expect("register SubFlow");
+    let target = registry.flow("PullRoutingFlow").expect("lookup SubFlow");
+    let options = map_sub_flow_options(
+        target,
+        &SubFlowOptions::new().config_override(FlowConfig::new().offload_history(false)),
+        &NegotiatedServerProtocolVersion::default(),
+    )
+    .expect("map SubFlow options");
+
+    let config = options.flow_config_override.expect("SubFlow config");
+    assert_eq!(config.offload_history, Some(false));
+    assert_eq!(
+        config.worker_target,
+        Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })
+    );
+}
+
+#[test]
+#[expect(deprecated, reason = "verify the deprecated builder is not forwarded")]
+fn sub_flow_config_override_drops_delete_expired_history_objects() {
     let registry = Registry::new()
         .register(PullRoutingFlow)
         .expect("register SubFlow");
@@ -74,7 +96,7 @@ fn sub_flow_config_override_maps_delete_expired_history_objects() {
     .expect("map SubFlow options");
 
     let config = options.flow_config_override.expect("SubFlow config");
-    assert_eq!(config.delete_expired_history_objects, Some(false));
+    assert_eq!(config.delete_expired_history_objects, None);
     assert_eq!(
         config.worker_target,
         Some(dex_protocol::dex::WorkerTarget { is_pull_mode: true })

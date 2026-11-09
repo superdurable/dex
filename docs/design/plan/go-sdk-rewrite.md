@@ -2686,7 +2686,10 @@ type FlowConfig struct {
 	ContinueAsNewPageSizeBytes  *int32
 	StepDurability              *StepDurability
 	HistoryWindowEvents         *int32
+	// Deprecated: no effect and not sent; the server always deletes expired history objects.
 	DeleteExpiredHistoryObjects *bool
+	// Whether the run offloads its history; nil means true. Set only at start.
+	OffloadHistory *bool
 }
 
 type StartFlowOptions struct {

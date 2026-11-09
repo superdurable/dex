@@ -1,0 +1,197 @@
+---
+title: SubFlow
+sidebar_label: SubFlow
+slug: /concepts/primitives/subflow
+---
+
+# SubFlow
+
+**SubFlow** 是父 Flow 从它的某个 Step 启动的 Flow execution。子 Flow 是一个普通的 Flow，有自己的 Step、Attribute 和 Channel。父 Flow 像等待 **WaitFor** 中的其他 condition 一样等待它。
+
+## 什么时候用 SubFlow
+
+SubFlow 主要有两种用途：
+
+1. 把复杂逻辑拆到更小的 Flow 中。这让业务逻辑更容易维护，层次也更清楚。
+2. 扇出工作。一个 Flow execution 不能同时运行太多操作，但可以把工作交给很多 SubFlow。这些 SubFlow 同时运行，父 Flow 因此能达到高得多的并发。
+
+## 保证
+
+Dex Server 根据父 Flow ID、Step execution 和 condition 序号生成 SubFlow ID。因此重试或重复启动会找到同一个子 Flow，而不是再启动一个。默认情况下，父 Flow 继续等待运行中的子 Flow，使用已完成子 Flow 的结果，并重启异常结束的子 Flow。
+
+## 启动并等待 SubFlow
+
+目标 Flow 必须注册在 Worker 上。它的 start Step 必须接受传给 **SubFlow** 的输入。**WaitFor** 启动子 Flow。子 Flow 完成后，**Execute** 读取它的结果。
+
+<SdkTabs
+examples={{
+  python: 'examples/python/dex_examples/primitives/subflow/parent_flow.py',
+  go: 'examples/go/primitives/subflow/parent_flow.go',
+  java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
+  typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
+  rust: 'examples/rust/src/primitives/subflow/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+class SubFlowParent(Step[int]):
+    def __init__(self, target: Flow[int]) -> None:
+        self.target = target
+        self.options = SubFlowOptions(
+            timeout=timedelta(hours=1),
+            timeout_policy=FlowTimeoutPolicy.CANCEL,
+        )
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        return Wait.until(SubFlow.run(self.target, input, self.options))
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        result = SubFlow.get_condition_results(context)
+        output = result.single_output(int)
+        return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type subFlowParent struct {
+	dex.StepDefaults
+	child *SubFlowChildFlow
+}
+
+func (step subFlowParent) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+	timeout := time.Hour
+	return dex.Until(dex.SubFlow(step.child, input, dex.SubFlowOptions{
+		Timeout:       &timeout,
+		TimeoutPolicy: dex.TimeoutCancel,
+	})), nil
+}
+
+func (subFlowParent) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var output int
+	if err := result.DecodeSingleOutput(&output); err != nil {
+		return nil, err
+	}
+	flowID, err := dex.SubFlowID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+static final class SubFlowParent implements Step<Integer> {
+    private final SubFlowOptions options = SubFlowOptions.newBuilder()
+            .timeout(Duration.ofHours(1))
+            .timeoutPolicy(FlowTimeoutPolicy.CANCEL)
+            .build();
+
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.until(SubFlow.run(SubFlowChildFlow.class, input, options));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        final Integer output =
+                SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
+        return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class SubFlowParent implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public constructor(private readonly target: SubFlowChildFlow) {}
+
+  public getStepType(): string {
+    return "SubFlowParent";
+  }
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.until(
+      SubFlow.run(this.target, input, {
+        timeoutMs: HOUR_MS,
+        timeoutPolicy: FlowTimeoutPolicy.CANCEL,
+      }),
+    );
+  }
+
+  public execute(context: Context, _input: number): StepDecision {
+    const result = SubFlow.getConditionResults(context);
+    const output = result.singleOutput(doubleCodec);
+    const flowId = SubFlow.getFlowId(context);
+    return gracefulComplete(`${flowId}|${output}`);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct SubFlowParent;
+
+impl Step for SubFlowParent {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        let child = SubFlowChildFlow::default();
+        let condition = SubFlow::run_with_options(
+            &child,
+            input,
+            SubFlowOptions::new()
+                .timeout(Duration::from_secs(3600))
+                .timeout_policy(FlowTimeoutPolicy::Cancel),
+        )
+        .map_err(HandlerError::from_error)?;
+        Ok(Wait::until(condition))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let result = SubFlow::condition_result(context)?;
+        let output: i32 = result.single_output().map_err(HandlerError::from_error)?;
+        let flow_id = SubFlow::flow_id_at(context, 0)?;
+        Ok(StepDecision::graceful_complete(format!(
+            "{flow_id}|{output}"
+        )))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<a id="与其他-condition-一起使用-subflow"></a>
+
+## 等待多个 SubFlow
+
+用 **allOf** 让父 Flow 等待所有 SubFlow 完成。
+
+父 Flow 不需要等待全部 SubFlow 时，用 **anyOf**。**WaitFor** 停止等待后，SubFlow 仍会继续运行。**Execute** 仍然可以拿到 SubFlow ID 来停止它，或者把 ID 传给另一个 Step 决定如何处理。SubFlow 与其他 condition 的组合见 [SubFlow results](/reference/python/flows-and-steps/waits#subflow-results)。
+
+<a id="subflowoptions-和-subflowreusepolicy"></a>
+
+## 参考
+
+**SubFlowOptions** 接受与 Client 启动 Flow 相同的选项，另加一个 reuse policy。选项和面对已有子 Flow 各种状态时的 reuse policy，见 [SubFlowOptions](/reference/server/runtime-data#subflow-options) 和 [SubFlowReusePolicy](/reference/server/runtime-data#subflow-reuse-policy)。

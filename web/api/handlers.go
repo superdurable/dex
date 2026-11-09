@@ -120,7 +120,8 @@ func (h *handler) setAttribute(response http.ResponseWriter, request *http.Reque
 	writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
 }
 
-// updateFlowHistoryConfig sends only the edited fields because UpdateFlowConfig merges set fields.
+// updateFlowHistoryConfig sends only the window because UpdateFlowConfig merges set fields.
+// deleteExpiredHistoryObjects is never forwarded, since the server always deletes expired history.
 func (h *handler) updateFlowHistoryConfig(response http.ResponseWriter, request *http.Request) {
 	var body updateFlowHistoryConfigRequest
 	if err := decodeJSON(response, request, &body); err != nil {
@@ -140,7 +141,20 @@ func (h *handler) updateFlowHistoryConfig(response http.ResponseWriter, request 
 		)
 		return
 	}
-	if body.HistoryWindowEvents != nil && *body.HistoryWindowEvents <= 0 {
+	if body.HistoryWindowEvents == nil {
+		// An older page may still send only the delete switch; check the run and change nothing.
+		_, err := h.client.GetFlowSummary(request.Context(), &dexpb.GetFlowSummaryRequest{
+			FlowId: body.FlowID,
+			RunId:  body.RunID,
+		})
+		if err != nil {
+			writeGRPCError(response, err, "GetFlowSummary")
+			return
+		}
+		writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
+		return
+	}
+	if *body.HistoryWindowEvents <= 0 {
 		WriteError(response, http.StatusBadRequest, "historyWindowEvents must be a positive integer", nil)
 		return
 	}
@@ -148,8 +162,7 @@ func (h *handler) updateFlowHistoryConfig(response http.ResponseWriter, request 
 		FlowId: body.FlowID,
 		RunId:  body.RunID,
 		FlowConfig: &dexpb.FlowConfig{
-			HistoryWindowEvents:         body.HistoryWindowEvents,
-			DeleteExpiredHistoryObjects: body.DeleteExpiredHistoryObjects,
+			HistoryWindowEvents: body.HistoryWindowEvents,
 		},
 	})
 	if err != nil {

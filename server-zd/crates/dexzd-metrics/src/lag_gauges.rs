@@ -6,8 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use prometheus_client::encoding::{EncodeMetric, MetricEncoder};
@@ -173,19 +173,21 @@ impl EncodeMetric for SearchOutboxOldestEntryAge {
     }
 }
 
-/// Sealed history segments waiting for upload in each partition, as of the uploader's last scan.
+/// Sealed history segments waiting for upload in each partition.
+///
+/// The uploader publishes the count as segments commit; bytes and age come from its scans.
 #[derive(Clone, Debug)]
 pub struct HistoryUploadBacklog {
-    partitions: Arc<Vec<PartitionHistoryUploadBacklog>>,
+    partitions: Arc<Vec<Mutex<PartitionHistoryUploadBacklog>>>,
 }
 
 #[derive(Debug, Default)]
 struct PartitionHistoryUploadBacklog {
-    segments: AtomicU64,
+    segments: u64,
     /// Uncompressed bytes of the waiting segments' history rows and superseded values.
-    bytes: AtomicU64,
+    bytes: u64,
     /// Seal time of the oldest waiting segment, the sealing command's proposed_at_micros; 0 when none.
-    oldest_sealed_at_micros: AtomicI64,
+    oldest_sealed_at_micros: i64,
 }
 
 impl HistoryUploadBacklog {
@@ -193,10 +195,21 @@ impl HistoryUploadBacklog {
         Self {
             partitions: Arc::new(
                 (0..partition_count)
-                    .map(|_| PartitionHistoryUploadBacklog::default())
+                    .map(|_| Mutex::new(PartitionHistoryUploadBacklog::default()))
                     .collect(),
             ),
         }
+    }
+
+    /// Sets the waiting segment count of `partition`; zero also clears its bytes and seal time.
+    pub fn set_partition_segments(&self, partition: usize, segments: u64) {
+        self.update_partition(partition, |backlog| {
+            backlog.segments = segments;
+            if segments == 0 {
+                backlog.bytes = 0;
+                backlog.oldest_sealed_at_micros = 0;
+            }
+        });
     }
 
     /// Records what the uploader's last scan of `partition` found waiting: the segment count,
@@ -209,46 +222,67 @@ impl HistoryUploadBacklog {
         bytes: u64,
         oldest_sealed_at_micros: Option<i64>,
     ) {
-        if let Some(backlog) = self.partitions.get(partition) {
-            backlog.segments.store(segments, Ordering::Relaxed);
-            backlog.bytes.store(bytes, Ordering::Relaxed);
-            backlog
-                .oldest_sealed_at_micros
-                .store(oldest_sealed_at_micros.unwrap_or(0), Ordering::Relaxed);
-        }
+        self.update_partition(partition, |backlog| {
+            backlog.segments = segments;
+            backlog.bytes = bytes;
+            backlog.oldest_sealed_at_micros = oldest_sealed_at_micros.unwrap_or(0);
+        });
     }
 
     /// Clears every partition, for a node that stopped uploading.
     pub fn clear(&self) {
         for partition in 0..self.partitions.len() {
-            self.set_partition(partition, 0, 0, None);
+            self.update_partition(partition, |backlog| {
+                *backlog = PartitionHistoryUploadBacklog::default();
+            });
         }
     }
 
     /// Returns the segments waiting in every partition.
     pub fn segments(&self) -> u64 {
-        self.partitions
-            .iter()
-            .map(|backlog| backlog.segments.load(Ordering::Relaxed))
+        self.read_partitions(|backlog| backlog.segments)
             .fold(0, u64::saturating_add)
     }
 
     /// Returns the uncompressed bytes waiting in every partition.
     pub fn bytes(&self) -> u64 {
-        self.partitions
-            .iter()
-            .map(|backlog| backlog.bytes.load(Ordering::Relaxed))
+        self.read_partitions(|backlog| backlog.bytes)
             .fold(0, u64::saturating_add)
     }
 
     /// Returns the seal time of the oldest segment waiting in any partition, or `None` when none
     /// waits.
     pub fn oldest_sealed_at_micros(&self) -> Option<i64> {
-        self.partitions
-            .iter()
-            .map(|backlog| backlog.oldest_sealed_at_micros.load(Ordering::Relaxed))
+        self.read_partitions(|backlog| backlog.oldest_sealed_at_micros)
             .filter(|sealed_at| *sealed_at > 0)
             .min()
+    }
+
+    fn update_partition(
+        &self,
+        partition: usize,
+        update: impl FnOnce(&mut PartitionHistoryUploadBacklog),
+    ) {
+        if let Some(backlog) = self.partitions.get(partition) {
+            update(
+                &mut backlog
+                    .lock()
+                    .expect("the history upload backlog lock is never poisoned"),
+            );
+        }
+    }
+
+    fn read_partitions<T>(
+        &self,
+        read: impl Fn(&PartitionHistoryUploadBacklog) -> T,
+    ) -> impl Iterator<Item = T> {
+        self.partitions.iter().map(move |backlog| {
+            read(
+                &backlog
+                    .lock()
+                    .expect("the history upload backlog lock is never poisoned"),
+            )
+        })
     }
 }
 
@@ -327,5 +361,20 @@ mod tests {
         backlog.clear();
         assert_eq!(backlog.segments(), 0);
         assert_eq!(backlog.oldest_sealed_at_micros(), None);
+    }
+
+    #[test]
+    fn history_upload_backlog_clears_bytes_and_age_with_the_last_segment() {
+        let backlog = HistoryUploadBacklog::new(2);
+        backlog.set_partition(0, 2, 100, Some(5));
+        backlog.set_partition_segments(0, 1);
+        assert_eq!(backlog.segments(), 1);
+        assert_eq!(backlog.bytes(), 100);
+        backlog.set_partition_segments(0, 0);
+        assert_eq!(backlog.segments(), 0);
+        assert_eq!(backlog.bytes(), 0);
+        assert_eq!(backlog.oldest_sealed_at_micros(), None);
+        backlog.set_partition_segments(9, 4);
+        assert_eq!(backlog.segments(), 0);
     }
 }

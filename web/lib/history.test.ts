@@ -11,10 +11,15 @@ import {
   appendToNewestHistoryWindow,
   latestEventIdOfWait,
   loadHistoryWindowAround,
+  loadHistoryWindowBetween,
   loadHistoryWindowFrom,
   loadNewestHistoryWindow,
   loadOlderHistoryWindow,
+  loadOldestHistoryWindow,
+  timelinePagePositionOf,
   withFlowStart,
+  withFlowStartOnOldestRetainedPage,
+  type HistoryWindow,
 } from './history';
 import { historyTestServer, sequentialStepHistory, stepEvent } from './historyTestServer';
 import type { FlowHistoryEvent } from './types';
@@ -92,6 +97,90 @@ describe('history windows', () => {
 
     expect(eventIds(oldest.events)).toEqual([1, ...range(4001, 4999)]);
     expect(oldest.hasOlder).toBe(false);
+  });
+
+  it('loads the oldest page from the window start, ending where the next newer page starts', async () => {
+    const server = historyTestServer(sequentialStepHistory(2500));
+
+    const oldest = await loadOldestHistoryWindow(server.loadPage, 501);
+    expect(eventIds(oldest.events)).toEqual(range(1, 500));
+    expect(oldest).toMatchObject({ hasOlder: false, hasNewer: true, nextInternalEventId: 501 });
+
+    const unclipped = await loadOldestHistoryWindow(server.loadPage, 2501);
+    expect(eventIds(unclipped.events)).toEqual(range(1, 1001));
+    expect(unclipped.hasNewer).toBe(true);
+  });
+
+  it('follows page tokens when a Server ends the oldest page early', async () => {
+    const events = sequentialStepHistory(6000).filter((event) => event.eventId === 1 || event.eventId >= 4001);
+    const server = historyTestServer(events);
+    const loadCappedPage: typeof server.loadPage = (request) => server.loadPage({
+      ...request,
+      estimatePageSize: Math.min(request.estimatePageSize, 300),
+    });
+
+    const oldest = await loadOldestHistoryWindow(loadCappedPage, 5001);
+
+    expect(eventIds(oldest.events)).toEqual([1, ...range(4001, 5000)]);
+    expect(oldest).toMatchObject({ hasOlder: false, hasNewer: true, nextInternalEventId: 5001 });
+  });
+
+  it('follows page tokens when a Server ends a page early on Back', async () => {
+    const server = historyTestServer(sequentialStepHistory(3500));
+    const loadCappedPage: typeof server.loadPage = (request) => server.loadPage({
+      ...request,
+      estimatePageSize: Math.min(request.estimatePageSize, 300),
+    });
+
+    const oldest = await loadHistoryWindowBetween(loadCappedPage, 1, 1001);
+    expect(eventIds(oldest.events)).toEqual(range(1, 1001));
+    expect(oldest).toMatchObject({ hasOlder: false, hasNewer: true, nextInternalEventId: 1002 });
+
+    const middle = await loadHistoryWindowBetween(loadCappedPage, 1501, 2500);
+    expect(eventIds(middle.events)).toEqual(range(1501, 2500));
+    expect(middle).toMatchObject({ hasOlder: true, hasNewer: true });
+  });
+
+  it('adds FlowStart to the page that starts at the oldest retained event', async () => {
+    const events = sequentialStepHistory(1502).filter((event) => event.eventId === 1 || event.eventId >= 1001);
+    const server = historyTestServer(events);
+    const newest = await loadNewestHistoryWindow(server.loadPage, 1502);
+    expect(newest.hasOlder).toBe(true);
+
+    const page = withFlowStartOnOldestRetainedPage(newest, [events[0], events[1]]);
+    expect(eventIds(page.events)).toEqual([1, ...range(1001, 1502)]);
+    expect(page.hasOlder).toBe(false);
+    expect(withFlowStartOnOldestRetainedPage(newest, [events[0], events[2]])).toBe(newest);
+  });
+
+  it('numbers the pages that Older page reaches from the newest page', () => {
+    const [flowStart] = sequentialStepHistory(1);
+    const page = (first: number, last: number, extraEventIds: number[] = []): HistoryWindow => ({
+      events: [...extraEventIds, ...range(first, last)].map((eventId) => ({ ...flowStart, eventId })),
+      hasOlder: false,
+      hasNewer: false,
+      nextInternalEventId: last + 1,
+    });
+    const newest = page(9506, 10_505);
+    expect(timelinePagePositionOf(newest, newest, undefined)).toEqual({
+      pageNumber: 1,
+      pageCount: 11,
+      oldestPageLastEventId: 505,
+    });
+    expect(timelinePagePositionOf(page(1, 505), newest, undefined)?.pageNumber).toBe(11);
+    expect(timelinePagePositionOf(page(8506, 9505), newest, undefined)?.pageNumber).toBe(2);
+    expect(timelinePagePositionOf(page(8000, 8999), newest, undefined)?.pageNumber).toBeNull();
+
+    // A Older page that starts in the pruned range reads from FlowStart.
+    const pruned = { firstEventId: 2, lastEventId: 8000 };
+    expect(timelinePagePositionOf(newest, newest, pruned)).toMatchObject({ pageCount: 3, oldestPageLastEventId: 8505 });
+    expect(timelinePagePositionOf(page(8001, 8505, [1]), newest, pruned)?.pageNumber).toBe(3);
+    // A page that starts at the oldest retained event shows FlowStart and is the oldest page.
+    expect(timelinePagePositionOf(newest, newest, { firstEventId: 2, lastEventId: 7505 })?.pageCount).toBe(3);
+    expect(timelinePagePositionOf(page(1001, 1502, [1]), page(1001, 1502, [1]), { firstEventId: 2, lastEventId: 1000 }))
+      .toEqual({ pageNumber: 1, pageCount: 1, oldestPageLastEventId: 1502 });
+    // Event IDs that skip more than the pruned range give no position.
+    expect(timelinePagePositionOf(newest, page(9001, 10_000, [1]), pruned)).toBeNull();
   });
 
   it('skips event IDs that time travel left out of the lineage', async () => {

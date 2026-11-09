@@ -91,6 +91,14 @@ fn history_window_events_builder_compiles() {
 }
 
 #[test]
+fn offload_history_builder_compiles() {
+    let _start_options = dex_sdk::StartFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().offload_history(false));
+    let _sub_flow_options = dex_sdk::SubFlowOptions::new()
+        .config_override(dex_sdk::FlowConfig::new().offload_history(true));
+}
+
+#[test]
 fn stream_definitions_and_client_calls_compile() {
     let stream = dex_sdk::Stream::<String>::new("thinking", 1_048_576);
     let _schema = dex_sdk::PersistenceSchema::new().stream(&stream);
@@ -195,6 +203,7 @@ fn credential_options_compile() {
 }
 
 #[test]
+#[expect(deprecated, reason = "the deprecated builder must keep compiling")]
 fn delete_expired_history_objects_builder_compiles() {
     let _start_options = dex_sdk::StartFlowOptions::new()
         .config_override(dex_sdk::FlowConfig::new().delete_expired_history_objects(true));

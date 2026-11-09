@@ -18,6 +18,7 @@ mod history_expiry_tests;
 mod history_local_cleanup_tests;
 mod history_migration_upload_tests;
 mod history_upload_tests;
+mod history_upload_throughput_tests;
 mod keyword_index_tests;
 mod outbox_and_purge_tests;
 mod rebuild_tests;
@@ -1714,6 +1715,7 @@ pub(super) fn settings() -> RunSettings {
         history_segment_target_bytes: 4 << 20,
         delete_expired_history_objects: false,
         superseded_value_grace_micros: 0,
+        offload_history: None,
     }
 }
 
