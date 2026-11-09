@@ -8,9 +8,9 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StructuredValue } from '@/app/components/StructuredValue';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
@@ -177,7 +177,7 @@ describe('live Flow state failures', () => {
     expect(markup).not.toContain('WaitFor invocation');
   });
 
-  it('expands Attributes while keeping AttributeMap instance values collapsed', () => {
+  it('lists AttributeMap instances as compact rows under their map, in numeric order', () => {
     const summary: FlowSummary = {
       flowId: 'flow-1',
       runId: 'run-1',
@@ -215,7 +215,9 @@ describe('live Flow state failures', () => {
     expect(markup).toContain('ready');
     expect(markup).toContain('orders');
     expect(markup).toContain('first order');
-    expect(markup).toContain('<details class="semantic-record semantic-map-entry">');
+    expect(markup).toContain('aria-label="AttributeMap orders"');
+    expect(markup).toContain('7 instances');
+    expect(markup).not.toContain('semantic-map-entry');
     expectStrongLabelsInOrder(markup, [
       '02',
       '2',
@@ -522,5 +524,66 @@ describe('nested arrays in decoded values', () => {
     const markup = renderToStaticMarkup(<StructuredValue value={jsonValue([[11, 22]])} />);
     expect(markup).toContain('>11<');
     expect(markup).toContain('>22<');
+  });
+});
+
+describe('grouped Channel rows', () => {
+  const summary: FlowSummary = {
+    flowId: 'flow-1',
+    runId: 'run-1',
+    firstRunId: 'run-1',
+    requestId: 'request-1',
+    flowType: 'PaymentFlow',
+    flowStatus: 'Running',
+    flowStatusCode: 1,
+    startTime: '2026-08-10T00:00:00Z',
+    closeTime: null,
+  };
+  const jsonValue = (value: unknown) => ({ objValue: { encoding: 'json', payload: btoa(JSON.stringify(value)) } });
+  const longMessageId = '01a1bec0-7632-7009-a392-f5ea2af2a0cd';
+  const state: FlowState = {
+    flowConfig: {},
+    attributes: [],
+    activeStepExecutions: [],
+    queuedSteps: [],
+    pendingChannelMessages: {
+      test: {
+        messages: [
+          { channelName: 'test', messageId: longMessageId, value: jsonValue(true) },
+          { channelName: 'test', messageId: 'group-m-2', value: { intValue: 123 } },
+        ],
+      },
+      'updates/2': { messages: [{ channelName: 'updates/2', messageId: 'group-m-3', value: jsonValue({ step: 2 }) }] },
+    },
+    completedSteps: [],
+  };
+
+  it('groups messages under each Channel with one view toggle and no duplicate list', () => {
+    render(<FlowOverview summary={summary} events={[]} state={state} onDeleteChannelMessage={async () => {}} />);
+    const test = screen.getByRole('region', { name: 'Channel test' });
+    expect(test.textContent).toContain('2 messages');
+    expect(test.textContent).toContain('true');
+    expect(test.textContent).toContain('123');
+    expect(test.textContent).not.toContain('objValue');
+    expect(screen.getByRole('region', { name: 'Channel updates / 2' }).textContent).toContain('1 message');
+    expect(screen.getAllByRole('tablist', { name: 'Channels view' })).toHaveLength(1);
+    expect(screen.queryByText('All pending messages by Channel')).toBeNull();
+    expect(screen.getByText('01a1bec0…a0cd').getAttribute('title')).toBe(longMessageId);
+    expect(screen.getByRole('button', { name: `Copy message ID ${longMessageId}` })).toBeTruthy();
+  });
+
+  it('deletes one message through its icon button', () => {
+    const onDelete = vi.fn(async () => {});
+    render(<FlowOverview summary={summary} events={[]} state={state} onDeleteChannelMessage={onDelete} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete message group-m-2 from test' }));
+    expect(onDelete).toHaveBeenCalledWith('test', 'group-m-2');
+  });
+
+  it('switches the whole section to Raw JSON', () => {
+    render(<FlowOverview summary={summary} events={[]} state={state} />);
+    const toggle = screen.getByRole('tablist', { name: 'Channels view' });
+    fireEvent.click(within(toggle).getByRole('tab', { name: 'Raw JSON' }));
+    expect(document.body.textContent).toContain('dHJ1ZQ==');
+    expect(screen.queryByRole('region', { name: 'Channel test' })).toBeNull();
   });
 });

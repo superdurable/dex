@@ -100,13 +100,13 @@ function Fields({ values }: { values: Array<[string, unknown]> }) {
 const longValueCharacters = 320;
 const longValueLines = 8;
 
-function isLongValue(text: string): boolean {
-  return text.length > longValueCharacters || text.split('\n').length > longValueLines;
+function isLongValue(text: string, characterLimit: number): boolean {
+  return text.length > characterLimit || text.split('\n').length > longValueLines;
 }
 
-function truncatedValue(text: string): string {
+function truncatedValue(text: string, characterLimit: number): string {
   const firstLines = text.split('\n').slice(0, longValueLines).join('\n');
-  return `${firstLines.slice(0, longValueCharacters)}…`;
+  return `${firstLines.slice(0, characterLimit)}…`;
 }
 
 function valueSizeLabel(text: string): string {
@@ -119,15 +119,18 @@ export function LongValue({
   text,
   isBlock,
   isForcedOpen = false,
+  characterLimit = longValueCharacters,
 }: {
   text: string;
   isBlock: boolean;
   isForcedOpen?: boolean;
+  /** How many characters show before Show all; compact rows use a shorter limit. */
+  characterLimit?: number;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const isLong = isLongValue(text);
+  const isLong = isLongValue(text, characterLimit);
   const isShowingAll = !isLong || isExpanded || isForcedOpen;
-  const shown = isShowingAll ? text : truncatedValue(text);
+  const shown = isShowingAll ? text : truncatedValue(text, characterLimit);
   return (
     <>
       {isBlock ? <pre>{shown}</pre> : <code>{shown}</code>}
@@ -142,6 +145,33 @@ export function LongValue({
         </button>
       )}
     </>
+  );
+}
+
+const inlinePreviewCharacters = 96;
+const inlineValueCharacters = 160;
+
+/**
+ * Shows one decoded value on a single line: a primitive with Show all when long, or an object or list
+ * as a one-line preview that expands into its structured view.
+ */
+export function InlineValue({ value, expandValues = false }: { value: unknown; expandValues?: boolean }) {
+  const decoded = isDexValue(value) ? decodedValue(value) : value;
+  if (decoded && typeof decoded === 'object') {
+    const preview = JSON.stringify(decoded, storedValueJSONReplacer) ?? '';
+    return (
+      <details className="inline-value-object" open={expandValues || undefined}>
+        <summary>
+          <code>{preview.length > inlinePreviewCharacters ? `${preview.slice(0, inlinePreviewCharacters)}…` : preview}</code>
+        </summary>
+        <StructuredValue value={decoded} expandValues={expandValues} />
+      </details>
+    );
+  }
+  return (
+    <span className="inline-value">
+      <LongValue characterLimit={inlineValueCharacters} text={displayValue(decoded)} isBlock={false} isForcedOpen={expandValues} />
+    </span>
   );
 }
 

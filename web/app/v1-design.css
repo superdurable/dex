@@ -1061,41 +1061,183 @@ body:has(.v1-page) {
   box-shadow: var(--shadow-soft);
 }
 
-/* Pending channel messages and the history settings list. */
+/* Compact grouped rows for Attributes and pending Channel messages. */
 
-.v1-page .run-overview .channel-message-list {
-  gap: 8px;
-  margin-top: 0;
+.compact-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.v1-page .run-overview .channel-message-row {
-  align-items: flex-start;
-  padding: 12px 14px;
-  border: 0;
-  border-radius: var(--ui-radius-item);
+.compact-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.compact-group-head strong {
+  font-size: var(--ui-text-sm);
+  font-weight: 650;
+}
+
+.compact-group-head span {
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+}
+
+.compact-rows {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  list-style: none;
+}
+
+.compact-group .compact-rows {
+  padding-left: 12px;
+  border-left: 2px solid var(--ui-hairline);
+}
+
+.compact-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(96px, 200px) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 16px;
+  padding: 6px 8px;
+  border-radius: var(--ui-radius-control);
+}
+
+.compact-row--message {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}
+
+.compact-row:hover {
   background: var(--ui-well);
 }
 
-.channel-message-main {
+.compact-row-label {
+  color: var(--ui-ink-2);
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.compact-row-value {
   display: flex;
   min-width: 0;
-  flex: 1;
   flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
 }
 
-.channel-message-meta {
+.v1-page .compact-row-value :is(.inline-value code, .inline-value-object summary code) {
+  padding: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--ui-ink);
+  background: transparent;
+  font-size: var(--ui-text-sm);
+}
+
+.inline-value-object {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.inline-value-object > summary {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 10px;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
 }
 
-.v1-page .run-overview .channel-message-meta code {
-  display: inline;
-  margin: 0;
+.inline-value-object > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inline-value-object > summary::before {
+  flex: none;
+  color: var(--ui-ink-3);
+  content: '▸';
+  font-size: 11px;
+  transition: transform 120ms ease;
+}
+
+.inline-value-object[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.inline-value-object > .structured-value,
+.inline-value-object > .muted {
+  margin: 8px 0 4px 16px;
+}
+
+.compact-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ui-ink-3);
+}
+
+.compact-row-meta code {
   color: var(--ui-ink-3);
   font-size: var(--ui-text-xs);
+}
+
+.compact-row-meta .copy-button--icon {
+  width: 22px;
+  height: 22px;
+  background: transparent;
+}
+
+.compact-row-meta .copy-button--icon:hover {
+  background: var(--ui-chip);
+}
+
+.icon-action {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--ui-radius-control);
+  color: var(--ui-ink-3);
+  background: transparent;
+}
+
+.icon-action.danger:hover:enabled {
+  color: var(--tone-fail-ink);
+  background: var(--tone-fail-soft);
+}
+
+.section-view-toggle {
+  align-self: center;
+}
+
+.v1-page .section-raw-json {
+  max-height: 420px;
+  margin: 0;
+  padding: 11px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .compact-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compact-row--message {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .compact-row--message .compact-row-value {
+    grid-column: 1 / -1;
+  }
 }
 
 .v1-page .run-overview .definition-list > div {

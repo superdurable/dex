@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useState, type ReactNode } from 'react';
-import { ChevronRight, CircleAlert, Hourglass, Play, Plus, Send, Trash2 } from 'lucide-react';
+import { ChevronRight, CircleAlert, Hourglass, Play, Plus, Send } from 'lucide-react';
 import { flowErrorTypeLabel } from '@/lib/semantic';
 import type { ActiveStepExecution, FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { FlowRouting, PullRouting, flowRoutingData } from './PullRouting';
@@ -16,6 +16,7 @@ import { HistorySettingsCard, type HistorySettingsChange } from './HistorySettin
 import { JsonView } from '../../components/JsonView';
 import { FailureContent, SemanticEventDetails } from './EventDetails';
 import { Fields } from './StepMethodSections';
+import { AttributeRows, ChannelRows, pendingChannelGroups, RawStateJSON, SectionViewToggle } from './CompactStateLists';
 import type { StateWriteKind } from './StateWriteDialog';
 
 const sectionExpandByKey = new Map<string, boolean>();
@@ -126,7 +127,10 @@ export function FlowOverview({
   const activeStepIds = state?.activeStepExecutions.map((step) => step.stepExecutionId) ?? [];
   const allActiveStepsExpanded = activeStepIds.length > 0
     && activeStepIds.every((stepExecutionId) => !collapsedActiveStepIds.has(stepExecutionId));
-  const pendingMessages = pendingChannelEntries(state?.pendingChannelMessages ?? {});
+  const channelGroups = pendingChannelGroups(state?.pendingChannelMessages ?? {});
+  const pendingMessageCount = channelGroups.reduce((count, channel) => count + channel.messages.length, 0);
+  const [attributesView, setAttributesView] = useState<'details' | 'raw'>('details');
+  const [channelsView, setChannelsView] = useState<'details' | 'raw'>('details');
   const flowConfig = state?.flowConfig ? withoutIgnoredFlowConfig(state.flowConfig) : undefined;
   const failure = closed ? closeFailureOf(closed) : undefined;
 
@@ -221,23 +225,21 @@ export function FlowOverview({
                 </button>
               )}
               {state.attributes.length > 0 && (
-                <SectionExpandToggle
-                  expanded={attributesExpand.expanded}
-                  onChange={attributesExpand.setExpanded}
-                  label="attributes"
-                />
+                <>
+                  <SectionExpandToggle
+                    expanded={attributesExpand.expanded}
+                    onChange={attributesExpand.setExpanded}
+                    label="attributes"
+                  />
+                  <SectionViewToggle label="Attributes" onChange={setAttributesView} view={attributesView} />
+                </>
               )}
             </>}
           >
             {state.attributes.length > 0 ? (
-              <JsonView
-                value={state.attributes}
-                label="Attributes"
-                variant="inline"
-                persistKey="overview:attributes"
-                persistenceKind="attributes"
-                expandValues={attributesExpand.expanded}
-              />
+              attributesView === 'raw'
+                ? <RawStateJSON value={state.attributes} />
+                : <AttributeRows attributes={state.attributes} expandValues={attributesExpand.expanded} />
             ) : (
               <p className="overview-quiet">No attributes are set.</p>
             )}
@@ -247,7 +249,7 @@ export function FlowOverview({
         {state && (
           <OverviewSection
             title="Channels"
-            count={pendingMessages.length}
+            count={pendingMessageCount}
             actions={<>
               {onOpenStateWrite && (
                 <button className="button quiet" onClick={() => onOpenStateWrite('channel')} type="button">
@@ -255,60 +257,29 @@ export function FlowOverview({
                   Publish message
                 </button>
               )}
-              {pendingMessages.length > 0 && (
-                <SectionExpandToggle
-                  expanded={channelsExpand.expanded}
-                  onChange={channelsExpand.setExpanded}
-                  label="channel messages"
-                />
+              {pendingMessageCount > 0 && (
+                <>
+                  <SectionExpandToggle
+                    expanded={channelsExpand.expanded}
+                    onChange={channelsExpand.setExpanded}
+                    label="channel messages"
+                  />
+                  <SectionViewToggle label="Channels" onChange={setChannelsView} view={channelsView} />
+                </>
               )}
             </>}
           >
-            {pendingMessages.length > 0 ? (
-              <>
-                <div className="channel-message-list">
-                  {pendingMessages.map((message) => (
-                    <div className="channel-message-row" key={`${message.channelName}:${message.messageId}`}>
-                      <div className="channel-message-main">
-                        <div className="channel-message-meta">
-                          <b>{message.channelName}</b>
-                          <code>{message.messageId}</code>
-                        </div>
-                        <JsonView
-                          value={message.value}
-                          label="Value"
-                          variant="inline"
-                          persistKey={`overview:channel-message:${message.messageId}`}
-                          expandValues={channelsExpand.expanded}
-                        />
-                      </div>
-                      {onDeleteChannelMessage && (
-                        <button
-                          className="button quiet danger"
-                          disabled={deletingChannelMessage === message.messageId}
-                          onClick={() => void onDeleteChannelMessage(
-                            message.channelName,
-                            message.messageId,
-                          )}
-                          type="button"
-                        >
-                          <Trash2 aria-hidden="true" size={15} strokeWidth={2} />
-                          {deletingChannelMessage === message.messageId ? 'Deleting…' : 'Delete'}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <JsonView
-                  value={state.pendingChannelMessages}
-                  label="All pending messages by Channel"
-                  persistKey="overview:pending-channels"
-                  persistenceKind="channels"
-                  forceOpen={channelsExpand.expanded || undefined}
-                  collapseNonce={channelsExpand.collapseNonce}
-                  expandValues={channelsExpand.expanded}
-                />
-              </>
+            {pendingMessageCount > 0 ? (
+              channelsView === 'raw'
+                ? <RawStateJSON value={state.pendingChannelMessages} />
+                : (
+                  <ChannelRows
+                    channels={channelGroups}
+                    deletingChannelMessage={deletingChannelMessage}
+                    expandValues={channelsExpand.expanded}
+                    onDeleteChannelMessage={onDeleteChannelMessage}
+                  />
+                )
             ) : (
               <p className="overview-quiet">No pending channel messages.</p>
             )}
@@ -480,24 +451,4 @@ function withoutIgnoredFlowConfig(flowConfig: Record<string, unknown>): Record<s
 
 function statusTone(status: string): string {
   return status.toLowerCase().replaceAll(' ', '-');
-}
-
-interface PendingChannelEntry {
-  channelName: string;
-  messageId: string;
-  value: unknown;
-}
-
-function pendingChannelEntries(channels: Record<string, unknown>): PendingChannelEntry[] {
-  return Object.entries(channels).flatMap(([channelName, entry]) => {
-    if (typeof entry !== 'object' || entry === null) return [];
-    const messages = 'messages' in entry ? (entry as { messages?: unknown }).messages : undefined;
-    if (!Array.isArray(messages)) return [];
-    return messages.flatMap((message) => {
-      if (typeof message !== 'object' || message === null) return [];
-      const envelope = message as { messageId?: unknown; value?: unknown };
-      if (typeof envelope.messageId !== 'string' || envelope.messageId.length === 0) return [];
-      return [{ channelName, messageId: envelope.messageId, value: envelope.value }];
-    });
-  });
 }
