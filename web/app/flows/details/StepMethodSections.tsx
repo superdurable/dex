@@ -10,6 +10,7 @@
 
 import type { ReactNode } from 'react';
 import { LongValue } from '@/app/components/StructuredValue';
+import { ChannelRows, messageChannelGroups } from './CompactStateLists';
 import {
   isBlobReferenceValue,
   isStoredValueUnavailable,
@@ -124,7 +125,7 @@ export function Fields({
       {visible.map(([label, value, wide]) => (
         <div className={wide ? 'semantic-field-wide' : undefined} key={label}>
           <dt>{label}</dt>
-          <dd>{displayValue(value)}</dd>
+          <dd title={displayValue(value) === '—' ? undefined : displayValue(value)}>{displayValue(value)}</dd>
         </div>
       ))}
     </dl>
@@ -203,37 +204,12 @@ export function KeyValues({ values, emptyLabel }: { values: unknown; emptyLabel?
   );
 }
 
+/** Lists event Channel messages grouped by Channel, each with its decoded value and short message ID. */
 export function ChannelMessages({ values }: { values: unknown }) {
-  const messages = asDataArray(values);
-  if (messages.length === 0) return null;
-  const groups = groupPersistenceEntries(messages, (message) => displayValue(message.channelName));
+  const channels = messageChannelGroups(values);
+  if (channels.length === 0) return null;
   return (
-    <div className="semantic-records">
-      {groups.map((group) => group.kind === 'value' ? (
-        <CollapsedValueRecord
-          channel
-          key={`${String(group.entry.channelName)}-${group.index}`}
-          label={displayValue(group.entry.channelName)}
-          value={group.entry.value}
-          valueLabel="Message"
-        />
-      ) : (
-        <details className="semantic-record channel-record semantic-map-record" key={group.name}>
-          <summary><strong><ChannelIcon />{group.name}</strong></summary>
-          <div className="semantic-record-content semantic-map-list">
-            {group.entries.map(({ entry, instance, index }) => (
-              <CollapsedValueRecord
-                channel
-                key={`${instance}-${index}`}
-                label={instance}
-                value={entry.value}
-                valueLabel="Message"
-              />
-            ))}
-          </div>
-        </details>
-      ))}
-    </div>
+    <ChannelRows channels={channels} expandValues={false} />
   );
 }
 
@@ -1078,14 +1054,26 @@ function pullDispatchFailureLabel(reason: unknown, value: unknown): string | und
   return undefined;
 }
 
-export function PullRouting({ value, label = 'Pull routing' }: { value: unknown; label?: string }) {
+/**
+ * Shows where a method was routed. With hideEmpty, unknown fields are left out and a routing with no known
+ * field renders nothing, so live views show no rows of dashes.
+ */
+export function PullRouting({ value, label = 'Pull routing', hideEmpty = false }: {
+  value: unknown;
+  label?: string;
+  hideEmpty?: boolean;
+}) {
   const routing = asData(value);
+  const blank = hideEmpty ? undefined : '—';
+  const queueSource = routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Task queue' : blank;
+  const values: Field[] = [
+    ['Serving Worker ID', routing.servedByAppWorkerId || blank],
+    ['Queue source', queueSource],
+    ['Dispatch sticky Worker ID', routing.stickyAppWorkerId || blank],
+  ];
+  if (hideEmpty && values.every(([, fieldValue]) => !isPresent(fieldValue))) return null;
   return <div className="semantic-subsection">
     <h5>{label}</h5>
-    <Fields compact values={[
-      ['Serving Worker ID', routing.servedByAppWorkerId || '—'],
-      ['Queue source', routing.source === 1 ? 'Sticky queue' : routing.source === 2 ? 'Task queue' : '—'],
-      ['Dispatch sticky Worker ID', routing.stickyAppWorkerId || '—'],
-    ]} />
+    <Fields compact values={values} />
   </div>;
 }

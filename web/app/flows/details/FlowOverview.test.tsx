@@ -132,7 +132,8 @@ describe('live Flow state failures', () => {
     expect(markup).toContain('INTERNAL (13)');
     expect(markup).toContain('java stack trace');
     expect(markup).toContain('<details class="active-step-card" open="">');
-    expect(markup).toContain('Collapse all');
+    // One active Step needs no Collapse all control.
+    expect(markup).not.toContain('Collapse all');
     expect(markup).toContain('<details class="failure-stack" open="">');
   });
 
@@ -585,5 +586,57 @@ describe('grouped Channel rows', () => {
     fireEvent.click(within(toggle).getByRole('tab', { name: 'Raw JSON' }));
     expect(document.body.textContent).toContain('dHJ1ZQ==');
     expect(screen.queryByRole('region', { name: 'Channel test' })).toBeNull();
+  });
+});
+
+describe('Active steps controls', () => {
+  const summary: FlowSummary = {
+    flowId: 'flow-1',
+    runId: 'run-1',
+    firstRunId: 'run-1',
+    requestId: 'request-1',
+    flowType: 'PaymentFlow',
+    flowStatus: 'Running',
+    flowStatusCode: 1,
+    startTime: '2026-08-10T00:00:00Z',
+    closeTime: null,
+  };
+  const activeStep = (id: string) => ({
+    stepExecutionId: id,
+    fromStepExecutionId: '',
+    stepType: 'ReviewStep',
+    phase: 'Waiting' as const,
+    stepExecutionLocals: [],
+    timers: [],
+    waitForPullRouting: { servedByAppWorkerId: 'worker-a', stickyAppWorkerId: 'worker-a', source: 1 },
+    executePullRouting: {},
+  });
+  const state = (steps: ReturnType<typeof activeStep>[]): FlowState => ({
+    flowConfig: { workerTarget: { isPullMode: true } },
+    attributes: [],
+    activeStepExecutions: steps,
+    queuedSteps: [],
+    pendingChannelMessages: {},
+    completedSteps: [],
+  });
+
+  it('toggles every active Step with a text button', () => {
+    render(<FlowOverview summary={summary} events={[]} state={state([activeStep('Review-1'), activeStep('Review-2')])} />);
+    const toggle = screen.getByRole('button', { name: /Collapse all/ });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: /Expand all/ }).getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelectorAll('details.active-step-card[open]')).toHaveLength(0);
+  });
+
+  it('hides routing groups and fields that hold no value', () => {
+    const markup = renderToStaticMarkup(
+      <FlowOverview summary={summary} events={[]} state={state([activeStep('Review-1')])} />,
+    );
+    const activeStepMarkup = markup.slice(markup.indexOf('<details class="active-step-card"'), markup.indexOf('</details>'));
+    expect(activeStepMarkup).toContain('WaitFor routing');
+    expect(activeStepMarkup).not.toContain('Execute routing');
+    expect(activeStepMarkup).not.toContain('>From<');
+    expect(activeStepMarkup).not.toContain('>—<');
   });
 });

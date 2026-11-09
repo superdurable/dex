@@ -872,6 +872,7 @@ export function RunDetailsPage({
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
               onJumpToEvent={(eventId) => void jumpToEvent(eventId)}
+              runStepDurability={runStepDurabilityOf(flowStartEvent)}
             />
           )}
           {tab === 'stream' && summary && (
@@ -938,6 +939,12 @@ export function RunDetailsPage({
       )}
     </div>
   );
+}
+
+/** Reads the run's configured Step durability from its start event, when loaded. */
+function runStepDurabilityOf(flowStartEvent: FlowHistoryEvent | null | undefined): unknown {
+  const flowConfig = flowStartEvent?.payload.flowConfig;
+  return flowConfig && typeof flowConfig === 'object' ? (flowConfig as Record<string, unknown>).stepDurability : undefined;
 }
 
 /** Whether event IDs are missing between FlowStart and the next event of a page. */

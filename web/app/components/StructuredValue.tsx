@@ -90,7 +90,7 @@ function Fields({ values }: { values: Array<[string, unknown]> }) {
       {visible.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
-          <dd>{displayValue(value)}</dd>
+          <dd title={displayValue(value) === '—' ? undefined : displayValue(value)}>{displayValue(value)}</dd>
         </div>
       ))}
     </dl>

@@ -882,6 +882,12 @@ body:has(.v1-page) {
   font-weight: 500;
 }
 
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields dd:not(:has(pre, details, .value-expand-button)) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .semantic-fields dd {
   color: var(--ui-ink);
   font-size: var(--ui-text-sm);
@@ -1317,9 +1323,28 @@ body:has(.v1-page) {
 }
 
 .v1-page .event-card {
+  margin-bottom: 6px;
+  padding: 8px 12px;
   border: 0;
   border-radius: var(--ui-radius-item);
   background: var(--ui-well);
+}
+
+.v1-page .event-card header p {
+  margin-top: 2px;
+}
+
+.v1-page .event-highlights {
+  margin-top: 6px;
+}
+
+.v1-page .timeline-time {
+  padding: 9px 8px 6px 0;
+  gap: 2px;
+}
+
+.v1-page .timeline-dot {
+  margin-top: 13px;
 }
 
 .v1-page .timeline-row:hover .event-card {
@@ -1342,7 +1367,7 @@ body:has(.v1-page) {
 }
 
 .v1-page .event-card h3 {
-  font-size: var(--ui-text-lg);
+  font-size: var(--ui-text-md);
 }
 
 .v1-page .event-id {

@@ -618,12 +618,13 @@ describe('RPC event details', () => {
     expect(attributeMarkup).toContain('<details class="semantic-record semantic-map-record">');
     expect(attributeMarkup).toContain('first order');
     expect(attributeMarkup).not.toContain('<details class="semantic-record" open="">');
-    expect(channelMarkup).toContain('<details class="semantic-record channel-record">');
-    expect(channelMarkup).toContain('<details class="semantic-record channel-record semantic-map-record">');
-    expect(channelMarkup).toContain('first order');
-    expect(channelMarkup).not.toContain('<details class="semantic-record channel-record" open="">');
+    // Published messages show decoded values inline, grouped by Channel.
+    expect(channelMarkup).toContain('aria-label="Channel notifications"');
+    expect(channelMarkup).toContain('>sent<');
+    expect(channelMarkup).toContain('>eleven<');
+    expect(channelMarkup).not.toContain('stringValue');
     expectStrongLabelsInOrder(attributeMarkup, ['2', '11', 'first order']);
-    expectStrongLabelsInOrder(channelMarkup, ['2', '11', 'first order']);
+    expectStrongLabelsInOrder(channelMarkup, ['updates / 2', 'updates / 11', 'updates / first order']);
   });
 });
 

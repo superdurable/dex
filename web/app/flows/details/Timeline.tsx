@@ -10,7 +10,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { formatDate, type TimezonePreference } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import type { EventIdRange } from '@/lib/historyRelations';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
 import { positiveRunAttempt, runAttemptSearch } from '@/lib/timeTravel';
@@ -126,8 +126,11 @@ export function Timeline({
   prunedEventIdRange,
   highlightedEventId = null,
   onJumpToEvent,
+  runStepDurability,
 }: {
   flowId: string;
+  /** The run's configured Step durability; rows name a Step's durability only when it differs. */
+  runStepDurability?: unknown;
   /** One page of events, at most one history window. */
   events: FlowHistoryEvent[];
   selectedEvent: FlowHistoryEvent | null;
@@ -388,11 +391,17 @@ export function Timeline({
             })}
           </svg>
         )}
-        {orderedEvents.map((event) => {
+        {orderedEvents.map((event, index) => {
           const linked = activeStepLink?.fromEventId === event.eventId || activeStepLink?.toEventId === event.eventId;
           const selected = selectedEvent?.eventId === event.eventId;
+          const absoluteTime = formatDate(event.eventTime, timezone);
+          const previousEvent = orderedEvents[index - 1];
+          const isNewAbsoluteTime = !previousEvent || formatDate(previousEvent.eventTime, timezone) !== absoluteTime;
           return (
             <TimelineRow
+              absoluteTime={absoluteTime}
+              isNewAbsoluteTime={isNewAbsoluteTime}
+              runStepDurability={runStepDurability}
               counterpart={activeStepLink?.id === selectedStepLink?.id && linked && !selected}
               event={event}
               flowId={flowId}
@@ -404,7 +413,6 @@ export function Timeline({
               selected={selected}
               showRunAttempt={spansRunAttempts}
               startMs={startMs}
-              timezone={timezone}
             />
           );
         })}
@@ -424,7 +432,9 @@ export function Timeline({
 const TimelineRow = memo(function TimelineRow({
   event,
   flowId,
-  timezone,
+  absoluteTime,
+  isNewAbsoluteTime,
+  runStepDurability,
   startMs,
   selected,
   linked,
@@ -436,7 +446,10 @@ const TimelineRow = memo(function TimelineRow({
 }: {
   event: FlowHistoryEvent;
   flowId: string;
-  timezone: TimezonePreference;
+  /** The formatted event time; rows show it only when it differs from the row above. */
+  absoluteTime: string;
+  isNewAbsoluteTime: boolean;
+  runStepDurability: unknown;
   startMs: number;
   selected: boolean;
   linked: boolean;
@@ -456,8 +469,8 @@ const TimelineRow = memo(function TimelineRow({
       data-event-id={event.eventId}
       onClick={() => onSelect(event)}
     >
-      <div className="timeline-time">
-        <b>{formatDate(event.eventTime, timezone)}</b>
+      <div className="timeline-time" title={absoluteTime}>
+        {isNewAbsoluteTime ? <b>{absoluteTime}</b> : <b className="sr-only">{absoluteTime}</b>}
         {relative !== null && <span>+{relative}s</span>}
       </div>
       <div className="timeline-rail">
@@ -469,7 +482,7 @@ const TimelineRow = memo(function TimelineRow({
         <header>
           <div>
             <span className="event-id">#{event.eventId}</span>
-            <h3>
+            <h3 title={eventTypeLabel(event)}>
               {previousRunTarget ? (
                 <Link
                   className="event-run-link"
@@ -482,9 +495,8 @@ const TimelineRow = memo(function TimelineRow({
             </h3>
             {executionSummary(event) && <p>{executionSummary(event)}</p>}
           </div>
-          <span className={`event-type tone-${eventTone(event)}`}>{eventTypeLabel(event)}</span>
         </header>
-        <EventHighlights event={event} showRunAttempt={showRunAttempt} />
+        <EventHighlights event={event} runStepDurability={runStepDurability} showRunAttempt={showRunAttempt} />
       </div>
     </article>
   );
@@ -553,13 +565,26 @@ function prunedRangeMessage(range: EventIdRange): string {
   return `${removed} removed by the history window; FlowStart is kept.`;
 }
 
-function EventHighlights({ event, showRunAttempt }: { event: FlowHistoryEvent; showRunAttempt: boolean }) {
+function EventHighlights({
+  event,
+  runStepDurability,
+  showRunAttempt,
+}: {
+  event: FlowHistoryEvent;
+  runStepDurability: unknown;
+  showRunAttempt: boolean;
+}) {
   const context = event.payload.context as Record<string, unknown> | undefined;
   const output = event.payload.output as Record<string, unknown> | undefined;
   const failure = output?.failure as Record<string, unknown> | undefined;
   const activityPhase = pendingPhase(event);
   const runAttempt = showRunAttempt ? positiveRunAttempt(event.runAttempt) : 0;
-  if (!context && !failure && !activityPhase && runAttempt === 0) return null;
+  // An unset run durability is the server default, sync.
+  const durability = context?.durability !== undefined ? durabilityLabel(context.durability) : '';
+  const isDurabilityOverride = durability !== '' && durability !== durabilityLabel(runStepDurability ?? 1);
+  const finalAttempt = Number(context?.finalAttempt);
+  const isRetried = Number.isFinite(finalAttempt) && finalAttempt > 1;
+  if (!failure && !activityPhase && runAttempt === 0 && !isDurabilityOverride && !isRetried) return null;
   const backendError = typeof failure?.backendError === 'string'
     && failure.backendError.startsWith('FLOW_ERROR_TYPE_')
     ? flowErrorTypeLabel(failure.backendError)
@@ -568,8 +593,8 @@ function EventHighlights({ event, showRunAttempt }: { event: FlowHistoryEvent; s
     <div className="event-highlights">
       {runAttempt > 0 && <span>Run attempt <b>{runAttempt}</b></span>}
       {activityPhase && <span>Activity phase <b>{activityPhase}</b></span>}
-      {context?.durability !== undefined && <span>Durability <b>{durabilityLabel(context.durability)}</b></span>}
-      {context?.finalAttempt !== undefined && <span>Final attempt <b>{String(context.finalAttempt)}</b></span>}
+      {isDurabilityOverride && <span>Durability <b>{durability}</b></span>}
+      {isRetried && <span>Attempt <b>{finalAttempt}</b></span>}
       {typeof backendError === 'string' && backendError && (
         <span className="failure-message">{backendError}</span>
       )}

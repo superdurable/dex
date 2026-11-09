@@ -108,6 +108,22 @@ export function pendingChannelGroups(channels: Record<string, unknown>): Pending
     .filter((channel) => channel.messages.length > 0);
 }
 
+/** Groups event messages, each naming its Channel, the same way pending messages group. */
+export function messageChannelGroups(messages: unknown): PendingChannel[] {
+  const byChannel = new Map<string, PendingMessage[]>();
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (typeof message !== 'object' || message === null) continue;
+    const envelope = message as { channelName?: unknown; messageId?: unknown; value?: unknown };
+    const channelName = typeof envelope.channelName === 'string' ? envelope.channelName : '';
+    const list = byChannel.get(channelName) ?? [];
+    list.push({ messageId: typeof envelope.messageId === 'string' ? envelope.messageId : '', value: envelope.value });
+    byChannel.set(channelName, list);
+  }
+  return pendingChannelGroups(Object.fromEntries(
+    [...byChannel].map(([channelName, channelMessages]) => [channelName, { messages: channelMessages }]),
+  ));
+}
+
 function messagesOf(entry: unknown): PendingMessage[] {
   if (typeof entry !== 'object' || entry === null) return [];
   const messages = (entry as { messages?: unknown }).messages;

@@ -52,15 +52,10 @@ function SectionExpandToggle({
   label: string;
 }) {
   return (
-    <label className="section-expand-toggle">
-      <input
-        type="checkbox"
-        checked={expanded}
-        onChange={(event) => onChange(event.target.checked)}
-      />
+    <button aria-pressed={expanded} className="button quiet section-expand-toggle" onClick={() => onChange(!expanded)} type="button">
       {expanded ? 'Collapse all' : 'Expand all'}
-      <span className="sr-only">{label}</span>
-    </label>
+      <span className="sr-only"> {label}</span>
+    </button>
   );
 }
 
@@ -162,7 +157,7 @@ export function FlowOverview({
             title="Active steps"
             count={state.activeStepExecutions.length}
             className="overview-focus"
-            actions={state.activeStepExecutions.length > 0 && (
+            actions={state.activeStepExecutions.length > 1 && (
               <SectionExpandToggle
                 expanded={allActiveStepsExpanded}
                 onChange={setAllActiveStepsExpanded}
@@ -376,13 +371,13 @@ function ActiveStep({
       <div className="active-step-content">
         <Fields compact values={[
           ['Step execution ID', step.stepExecutionId],
-          ['From', step.fromStepExecutionId || '—'],
+          ['From', step.fromStepExecutionId || undefined],
         ]} />
         <StepMethodInvocation value={step.waitForInvocation} label="WaitFor invocation" />
         <StepMethodInvocation value={step.executeInvocation} label="Execute invocation" />
         {isPullMode && <>
-          <PullRouting value={step.waitForPullRouting} label="WaitFor routing" />
-          <PullRouting value={step.executePullRouting} label="Execute routing" />
+          <PullRouting value={step.waitForPullRouting} label="WaitFor routing" hideEmpty />
+          <PullRouting value={step.executePullRouting} label="Execute routing" hideEmpty />
         </>}
         {step.waitingCondition && Object.keys(step.waitingCondition).length > 0 && (
           <JsonView
