@@ -124,8 +124,9 @@ node scripts/snapshot-reference.mjs web 1.35.x
 Every component needs a hidden snapshot equal to its label in
 `reference/versions.json`, made from that release's reference content. The
 historical backfill created these snapshots together with the older versions.
-A new component needs one before its first release snapshot. Until then, the
-release snapshot job fails for that component without affecting the release.
+A new component needs one before its first release snapshot. Until then,
+`npm run check` fails, because its `test:reference` case simulates the next
+release of every component in `reference/versions.json`.
 
 ### Editing archived snapshots
 
