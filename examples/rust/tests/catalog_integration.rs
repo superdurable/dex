@@ -44,7 +44,39 @@ use dex_examples_rust::products::{
     order_processing::OrderProcessingFlow, signup::UserOnboardingFlow,
     subscription::SubscriptionFlow,
 };
-use dex_examples_rust::{PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES, create_example_registry};
+use dex_examples_rust::workflow_patterns::{
+    and_join_and_threads::{GeneralizedAndJoinFlow, ThreadSplitMergeFlow},
+    basic_control_flow::{
+        ExclusiveChoiceSimpleMergeFlow, ParallelSplitSynchronizationFlow, SequenceFlow,
+    },
+    cancellation::{
+        CancelCaseFlow, CancelMultipleInstanceTaskFlow, CancelRegionFlow, CancelTaskFlow,
+        CompleteMultipleInstanceTaskFlow,
+    },
+    iteration::{ArbitraryCyclesFlow, FactorialRecursionFlow, StructuredLoopFlow},
+    multi_choice_and_merges::{
+        GeneralSynchronizingMergeFlow, MultiChoiceSynchronizingMergeFlow, MultiMergeFlow,
+        ReviewRegionFlow,
+    },
+    multiple_instances::{
+        CancellingPartialJoinForMultipleInstancesFlow, DesignTimeMultipleInstancesFlow,
+        DynamicPartialJoinForMultipleInstancesFlow, MultipleInstancesWithoutSynchronizationFlow,
+        NoPriorKnowledgeMultipleInstancesFlow, RunTimeMultipleInstancesFlow,
+        StaticPartialJoinForMultipleInstancesFlow,
+    },
+    partial_joins::{
+        BlockingPartialJoinFlow, CancellingPartialJoinFlow, StructuredPartialJoinFlow,
+    },
+    state_based::{
+        CriticalSectionFlow, DeferredChoiceFlow, InterleavedParallelRoutingFlow,
+        InterleavedRoutingFlow, MilestoneFlow,
+    },
+    termination::{ExplicitTerminationFlow, ImplicitTerminationFlow},
+    triggers::{PersistentTriggerFlow, TransientTriggerFlow},
+};
+use dex_examples_rust::{
+    PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES, WORKFLOW_PATTERN_FLOW_TYPES, create_example_registry,
+};
 use dex_sdk::Flow;
 
 #[test]
@@ -98,6 +130,61 @@ fn catalog_matches_every_cross_language_example() {
     );
     create_example_registry(Arc::new(FakeJobService::default()))
         .expect("all 31 example Flow definitions must register together");
+}
+
+#[test]
+fn workflow_pattern_catalog_matches_the_mapping() {
+    let workflow_pattern_flows = [
+        SequenceFlow::default().flow_type(),
+        ParallelSplitSynchronizationFlow::default().flow_type(),
+        ExclusiveChoiceSimpleMergeFlow::default().flow_type(),
+        MultiChoiceSynchronizingMergeFlow::default().flow_type(),
+        MultiMergeFlow::default().flow_type(),
+        GeneralSynchronizingMergeFlow::default().flow_type(),
+        ReviewRegionFlow::default().flow_type(),
+        StructuredPartialJoinFlow::default().flow_type(),
+        BlockingPartialJoinFlow::default().flow_type(),
+        CancellingPartialJoinFlow::default().flow_type(),
+        GeneralizedAndJoinFlow::default().flow_type(),
+        ThreadSplitMergeFlow::default().flow_type(),
+        MultipleInstancesWithoutSynchronizationFlow::default().flow_type(),
+        DesignTimeMultipleInstancesFlow::default().flow_type(),
+        RunTimeMultipleInstancesFlow::default().flow_type(),
+        NoPriorKnowledgeMultipleInstancesFlow::default().flow_type(),
+        StaticPartialJoinForMultipleInstancesFlow::default().flow_type(),
+        CancellingPartialJoinForMultipleInstancesFlow::default().flow_type(),
+        DynamicPartialJoinForMultipleInstancesFlow::default().flow_type(),
+        DeferredChoiceFlow::default().flow_type(),
+        InterleavedParallelRoutingFlow::default().flow_type(),
+        MilestoneFlow::default().flow_type(),
+        CriticalSectionFlow::default().flow_type(),
+        InterleavedRoutingFlow::default().flow_type(),
+        CancelTaskFlow::default().flow_type(),
+        CancelCaseFlow::default().flow_type(),
+        CancelRegionFlow::default().flow_type(),
+        CancelMultipleInstanceTaskFlow::default().flow_type(),
+        CompleteMultipleInstanceTaskFlow::default().flow_type(),
+        ArbitraryCyclesFlow::default().flow_type(),
+        StructuredLoopFlow::default().flow_type(),
+        FactorialRecursionFlow::default().flow_type(),
+        ImplicitTerminationFlow::default().flow_type(),
+        ExplicitTerminationFlow::default().flow_type(),
+        TransientTriggerFlow::default().flow_type(),
+        PersistentTriggerFlow::default().flow_type(),
+    ];
+
+    assert_eq!(workflow_pattern_flows, WORKFLOW_PATTERN_FLOW_TYPES);
+    let every_flow_type = PRODUCT_FLOW_TYPES
+        .into_iter()
+        .chain(PATTERN_FLOW_TYPES)
+        .chain(workflow_pattern_flows)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        every_flow_type.len(),
+        PRODUCT_FLOW_TYPES.len() + PATTERN_FLOW_TYPES.len() + WORKFLOW_PATTERN_FLOW_TYPES.len()
+    );
+    create_example_registry(Arc::new(FakeJobService::default()))
+        .expect("Workflow Patterns Flows must register with every other example");
 }
 
 #[test]
