@@ -200,8 +200,8 @@ impl StepRowRecordingApplier {
 /// Returns the Step row with its last failure's category text replaced by the raw text of
 /// the failure command.
 ///
-/// Panics when no applied failure command matches, when the row holds another category, or
-/// when the command's raw text disagrees with `older_backend_error`.
+/// Panics when an applied failure command's failure lacks its category, when a category has no
+/// applied command, or when the command's raw text disagrees with `older_backend_error`.
 fn older_step_row(value: &[u8], run_id: [u8; 16], failures: &AppliedFailures) -> Vec<u8> {
     let mut step = StepExecutionRecord::decode(value).expect("Step rows decode");
     assert_eq!(
@@ -217,10 +217,11 @@ fn older_step_row(value: &[u8], run_id: [u8; 16], failures: &AppliedFailures) ->
     let Some(failure) = invocation.last_failure.as_mut() else {
         return value.to_vec();
     };
-    if !is_flow_error_category(&failure.backend_error) {
+    let Some(raw_text) =
+        applied_failure_raw_text(failures, run_id, &step_execution_id, method, failure)
+    else {
         return value.to_vec();
-    }
-    let raw_text = applied_failure_raw_text(failures, run_id, &step_execution_id, method, failure);
+    };
     let is_dispatch_failure = failure.details.as_ref().is_some_and(|details| {
         details.dispatch_task_error_reason != DispatchTaskErrorReason::Unspecified as i32
     });
@@ -374,8 +375,8 @@ fn replace_row(
 
 /// Returns the history row with every category `backend_error` mapped back to its raw text.
 ///
-/// Panics when the row does not encode back to the same bytes, or when a category does not
-/// match its applied failure command.
+/// Panics when the row does not encode back to the same bytes, or when a failure disagrees with
+/// `applied_failure_raw_text`.
 pub(crate) fn history_with_older_backend_errors(
     key: &[u8],
     value: &[u8],
@@ -414,59 +415,68 @@ pub(crate) fn history_with_older_backend_errors(
             ),
             _ => continue,
         };
-        let step_execution_id = context
-            .as_ref()
-            .map(|context| context.step_execution_id.clone())
-            .unwrap_or_default();
+        let Some(context) = context else {
+            assert!(
+                output.is_none_or(|output| output.failure.is_none()),
+                "a Step method failure event names its Step execution"
+            );
+            continue;
+        };
+        let step_execution_id = context.step_execution_id.clone();
         let event_failures = context
-            .and_then(|context| context.last_failure_info.as_mut())
+            .last_failure_info
+            .as_mut()
             .into_iter()
             .chain(output.and_then(|output| output.failure.as_mut()));
         for failure in event_failures {
-            if let Some(raw_text) = older_backend_error(failure) {
-                assert_eq!(
-                    applied_failure_raw_text(
-                        failures,
-                        run_id,
-                        &step_execution_id,
-                        method as i32,
-                        failure,
-                    ),
-                    raw_text,
-                    "the failure details give the failure command's raw text"
-                );
-                failure.backend_error = raw_text;
-            }
+            let Some(raw_text) = applied_failure_raw_text(
+                failures,
+                run_id,
+                &step_execution_id,
+                method as i32,
+                failure,
+            ) else {
+                continue;
+            };
+            assert_eq!(
+                older_backend_error(failure).as_deref(),
+                Some(raw_text.as_str()),
+                "the failure details give the failure command's raw text"
+            );
+            failure.backend_error = raw_text;
         }
     }
     record.encode_to_vec()
 }
 
-/// Returns the raw text of the applied command that failed this attempt.
+/// Returns the raw text of the applied command that failed this attempt, or `None` for a
+/// restored failure that no replayed command wrote.
 ///
-/// Panics when no applied command matches, or when `failure` holds another category.
+/// Panics when an applied command matches but `failure` lacks its category, or when a category
+/// has no applied command.
 fn applied_failure_raw_text(
     failures: &AppliedFailures,
     run_id: [u8; 16],
     step_execution_id: &str,
     method: i32,
     failure: &StepMethodFailure,
-) -> String {
+) -> Option<String> {
     let attempt = u32::try_from(failure.attempt).expect("failure attempts are positive");
-    let applied = failures
-        .get(&(run_id, step_execution_id.to_owned(), method, attempt))
-        .unwrap_or_else(|| {
-            panic!(
-                "no applied command failed attempt {attempt} of method {method} of \
-                 {step_execution_id}"
-            )
-        });
+    let Some(applied) = failures.get(&(run_id, step_execution_id.to_owned(), method, attempt))
+    else {
+        assert!(
+            !is_flow_error_category(&failure.backend_error),
+            "no applied command failed attempt {attempt} of method {method} of \
+             {step_execution_id}"
+        );
+        return None;
+    };
     assert_eq!(
         failure.backend_error,
         applied.category.as_str_name(),
         "attempt {attempt} of {step_execution_id} records its failure command's category"
     );
-    applied.raw_text.clone()
+    Some(applied.raw_text.clone())
 }
 
 /// Returns the raw text that older binaries recorded as this failure's `backend_error`, or
