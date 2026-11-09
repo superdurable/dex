@@ -148,7 +148,9 @@ Dex Web restart. Invalid JSON, unsupported schema versions, and source read
 failures return a typed 503 and make `/readyz` fail.
 
 The **v1** header shows the **Flow Rendering** link only while that directory
-holds at least one definition JSON file. The logo and the breadcrumb lead back
+holds at least one definition JSON file. It checks the directory again on every
+**v1** page change, so added or removed files show up after the next
+navigation. The logo and the breadcrumb lead back
 to the Flows list. Opening `/v1/rendering` directly without definitions shows an
 empty state that explains how to load them.
 

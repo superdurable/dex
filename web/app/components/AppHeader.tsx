@@ -6,7 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { readResponseJSON } from '@/lib/http';
 import { usePreferences } from '../providers';
 import type { FlowDefinitionCatalog } from '@/lib/types';
 import { activeV2Mode, v2HomePath, v2ModePath, type V2Mode } from '../v2/contract';
@@ -25,12 +27,32 @@ export function hasLoadedFlowDefinitions(definitions: FlowDefinitionCatalog | nu
   return definitions?.configured === true && definitions.definitions.length > 0;
 }
 
+/**
+ * Reports whether the v1 Flow Rendering link should show.
+ * It rereads the catalog on every v1 route change, so a failed read or a changed directory recovers on the next navigation.
+ */
+function useHasLoadedFlowDefinitions(isV1: boolean, pathname: string): boolean {
+  const [hasDefinitions, setHasDefinitions] = useState(false);
+  useEffect(() => {
+    if (!isV1) return undefined;
+    const controller = new AbortController();
+    fetch('/api/flow-definitions', { signal: controller.signal })
+      .then((response) => readResponseJSON<FlowDefinitionCatalog>(response))
+      .then((catalog) => setHasDefinitions(hasLoadedFlowDefinitions(catalog)))
+      // A failed read keeps the last known answer; the next v1 navigation retries.
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [isV1, pathname]);
+  return hasDefinitions;
+}
+
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
-  const { canUseV2, definitions } = useWebCatalog();
+  const { canUseV2 } = useWebCatalog();
   const location = useLocation();
   const navigate = useNavigate();
   const isV2 = location.pathname === '/v2' || location.pathname.startsWith('/v2/');
+  const hasFlowDefinitions = useHasLoadedFlowDefinitions(!isV2, location.pathname);
   const activeMode = activeV2Mode(location.pathname);
   // Absolute timestamps are a Deep Dive concern; the other views show relative or local time.
   const isDebug = location.pathname.includes('/debug');
@@ -50,7 +72,7 @@ export function AppHeader() {
           </Link>
       </div>
       <nav className="header-nav" aria-label="Primary navigation">
-        {!isV2 && hasLoadedFlowDefinitions(definitions) && (
+        {!isV2 && hasFlowDefinitions && (
           <Link to="/v1/rendering">Flow Rendering</Link>
         )}
         {isV2 && canUseV2 && (
