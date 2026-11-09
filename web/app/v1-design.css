@@ -2362,6 +2362,15 @@ body:has(.v1-page) {
   white-space: normal;
 }
 
+/* The reader expanded this value, and its nested fields carry no title, so show them in full. */
+.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .structured-value .semantic-fields dd:not(:has(pre, details, .value-expand-button)) {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  white-space: normal;
+}
+
 .v1-page .run-sidebar .compact-row {
   padding: 4px 0;
 }

@@ -269,6 +269,35 @@ describe('selected step event details', () => {
     expect(block('.v1-page .run-sidebar .semantic-fields')).toContain('minmax(min(200px, 100%), 1fr)');
   });
 
+  it('shows an expanded object scalar in full, because it has no title or Show all', () => {
+    const event = executeEvent(1);
+    const description = 'a long description with multiple words '.repeat(7);
+    event.payload.output = {
+      stepDecision: {
+        nextSteps: [{
+          stepType: 'ShipStep',
+          stepInput: { objValue: { encoding: 'json', payload: btoa(JSON.stringify({ description })) } },
+        }],
+      },
+    };
+    const markup = renderDetails(event);
+
+    // The nested field has no title and its length is under the Show all limit.
+    expect(markup).toContain(`<div class="semantic-field-wide"><dt>description</dt><dd><code>${description}</code></dd></div>`);
+
+    const designCss = readFileSync('app/v1-design.css', 'utf8');
+    const selector = '.v1-page :is(.run-overview, .run-sidebar, .stream-panel, .modal) .structured-value .semantic-fields dd:not(:has(pre, details, .value-expand-button)) {';
+    const clampStart = designCss.indexOf('.v1-page .run-sidebar .semantic-fields dd:not(:has(pre, details, .value-expand-button)) {');
+    const start = designCss.indexOf(selector);
+    // It follows the two-line clamp and is more specific, so it wins.
+    expect(clampStart).toBeGreaterThanOrEqual(0);
+    expect(start).toBeGreaterThan(clampStart);
+    const rule = designCss.slice(start, designCss.indexOf('}', start));
+    expect(rule).toContain('-webkit-line-clamp: none');
+    expect(rule).toContain('overflow: visible');
+    expect(rule).toContain('white-space: normal');
+  });
+
   it('renders the latest sync failure in context', () => {
     const event = executeEvent(1);
     event.payload.context = {
