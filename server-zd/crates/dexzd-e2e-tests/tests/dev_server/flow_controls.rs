@@ -15,9 +15,10 @@ use dexzd_protocol::dex::{
     ActiveStepSearchMode, ConditionStatus, ErrorSubStatus, FlowConfig, FlowErrorType, FlowResult,
     FlowStartOptions, FlowStatus, GetFlowStateRequest, GetFlowSummaryRequest,
     GetHistoryEventsRequest, IdReusePolicy, InvokeExecuteMethodResponse,
-    InvokeWaitForMethodResponse, SkipTimerRequest, StartFlowRequest, StepDurability, StepOptions,
-    StopFlowRequest, StopType, TimerCondition, TimerResult, UpdateFlowConfigRequest,
-    WaitForFlowRequest, WaitingCondition, WaitingConditionType, WorkerTarget, flow_history_event,
+    InvokeWaitForMethodResponse, SearchFlowsRequest, SkipTimerRequest, StartFlowRequest,
+    StepDurability, StepOptions, StopFlowRequest, StopType, TimerCondition, TimerResult,
+    UpdateFlowConfigRequest, WaitForFlowRequest, WaitingCondition, WaitingConditionType,
+    WorkerTarget, flow_history_event,
 };
 use tonic::transport::Channel;
 
@@ -649,6 +650,89 @@ async fn update_flow_config_merges_into_the_stored_config() {
         "Flow run is not found for flow ID missing-config-flow"
     );
     server.shutdown().await;
+}
+
+/// Enabling active Step search through UpdateFlowConfig makes a running Flow searchable by the
+/// Step type it runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enabling_active_step_search_finds_a_running_flow_by_step_type() {
+    let server = DevServer::start().await;
+    let mut flow_client = server.flow_client();
+    let flow_id = "active-step-search-flow";
+    flow_client
+        .start_flow(StartFlowRequest {
+            flow_id: flow_id.to_owned(),
+            flow_type: IDLE_FLOW_TYPE.to_owned(),
+            start_step_type: IDLE_STEP_TYPE.to_owned(),
+            step_input: Some(string_value("idle")),
+            step_options: Some(StepOptions::default()),
+            flow_start_options: Some(FlowStartOptions {
+                flow_config_override: Some(FlowConfig {
+                    worker_target: Some(WorkerTarget { is_pull_mode: true }),
+                    active_step_search_mode: Some(ActiveStepSearchMode::Disabled.into()),
+                    ..FlowConfig::default()
+                }),
+                ..FlowStartOptions::default()
+            }),
+            request_id: format!("{flow_id}-start"),
+            ..StartFlowRequest::default()
+        })
+        .await
+        .expect("StartFlow succeeds");
+    let by_flow_type = format!("FlowType = '{IDLE_FLOW_TYPE}'");
+    wait_until_search_finds(&mut flow_client, &by_flow_type, &[flow_id]).await;
+    let by_step_type = format!("ActiveStepTypes = '{IDLE_STEP_TYPE}'");
+    assert!(
+        search_flow_ids(&mut flow_client, &by_step_type)
+            .await
+            .is_empty(),
+        "DISABLED search lists no active Step type"
+    );
+
+    flow_client
+        .update_flow_config(UpdateFlowConfigRequest {
+            flow_id: flow_id.to_owned(),
+            flow_config: Some(FlowConfig {
+                active_step_search_mode: Some(
+                    ActiveStepSearchMode::EnabledForStepsWithWaitFor.into(),
+                ),
+                ..FlowConfig::default()
+            }),
+            ..UpdateFlowConfigRequest::default()
+        })
+        .await
+        .expect("UpdateFlowConfig succeeds");
+    wait_until_search_finds(&mut flow_client, &by_step_type, &[flow_id]).await;
+    server.shutdown().await;
+}
+
+async fn search_flow_ids(flow_client: &mut FlowServiceClient<Channel>, query: &str) -> Vec<String> {
+    flow_client
+        .search_flows(SearchFlowsRequest {
+            query: query.to_owned(),
+            ..SearchFlowsRequest::default()
+        })
+        .await
+        .expect("SearchFlows succeeds")
+        .into_inner()
+        .flow_runs
+        .into_iter()
+        .map(|run| run.flow_id)
+        .collect()
+}
+
+async fn wait_until_search_finds(
+    flow_client: &mut FlowServiceClient<Channel>,
+    query: &str,
+    flow_ids: &[&str],
+) {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while search_flow_ids(flow_client, query).await != flow_ids {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{query} finds {flow_ids:?} within 30 seconds"));
 }
 
 async fn stored_flow_config(

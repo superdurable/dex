@@ -283,7 +283,7 @@ impl RunCursor {
             self.record.next_event_id - 1,
             window_event_count_before,
         );
-        search_document::refresh_search_document(transaction, &self, scope)?;
+        search_document::refresh_search_document(transaction, &mut self, scope)?;
         stamp_superseded_values(transaction, self.rows, scope.now_micros)?;
         history::after_command(transaction, &mut self, window_events)?;
         seal_or_migrate_history_segment(transaction, &mut self, scope.now_micros, has_closed_run)?;

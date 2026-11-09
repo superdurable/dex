@@ -16,6 +16,16 @@ and node restart. Conflicting RPCs fail immediately while those locks are held.
 Locks release when the logical method ends. Value pins transfer to each retry
 and release when the method ends; time travel rebuilds pins for retained snapshots in running, backoff, and pending invocations.
 
+## Active Step types
+
+A run's search document lists its active Step types. The run record keeps the
+run's active Step executions counted by Step type and WaitFor use. Each command
+adjusts the counts by the Step execution rows it changed, so its cost does not
+grow with the Steps the run has executed. TimeTravel, a switch from DISABLED,
+and a run recorded without counts count every Step execution once. While active
+Step search is DISABLED, the run record keeps no counts and apply reads no Step
+execution for search.
+
 ## Search outbox
 
 While a partition's `SearchProjectionModeRecord` is enabled, every search

@@ -150,6 +150,7 @@ pub fn check_flow(
     for (run_id, run) in view.runs.iter().filter(|(_, run)| run.is_complete) {
         let context = RunContext { flow_id, run_id };
         directory_invariants::check_run_record(&context, run)?;
+        search_order_invariants::check_active_step_types(&context, run)?;
         directory_invariants::check_time_travel_staging(&context, run)?;
         directory_invariants::check_history(&context, run)?;
         directory_invariants::check_timers(&context, run, view)?;
