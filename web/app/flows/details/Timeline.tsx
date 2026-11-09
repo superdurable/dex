@@ -56,18 +56,11 @@ interface StepLinkLayout {
   stubPaths: StubLinkPath[];
 }
 
-/** Older and newer page navigation for a paged Timeline. */
+/** Whether a paged Timeline has events on other pages; the run header pages through them. */
 export interface TimelinePaging {
   hasOlder: boolean;
   hasNewer: boolean;
-  /** Whether the page is the newest window, which Live extends. */
-  isNewest: boolean;
   isLoading: boolean;
-  canGoBack: boolean;
-  onOlder: () => void;
-  onNewer: () => void;
-  onNewest: () => void;
-  onBack: () => void;
 }
 
 function eventTone(event: FlowHistoryEvent) {
@@ -281,7 +274,6 @@ export function Timeline({
   const activeStepLinkID = interactionStepLinkID ?? pinnedStepLink?.id ?? selectedStepLink?.id ?? null;
   const activeStepLink = stepLinkLayout.paths.find((link) => link.id === activeStepLinkID);
   const firstEventId = orderedEvents[orderedEvents.length - 1].eventId;
-  const lastEventId = orderedEvents[0].eventId;
   const showsPrunedBanner = prunedEventIdRange !== undefined && firstEventId === 1;
   const newerStubs = stubs.filter((stub) => stub.direction === 'newer');
   const olderStubs = stubs.filter((stub) => stub.direction === 'older');
@@ -290,13 +282,7 @@ export function Timeline({
       <div className="view-toolbar">
         <div>
           <h2>{events.length} events</h2>
-          {paging && (
-            <p className="muted timeline-page-range">
-              Events #{firstEventId} to #{lastEventId}{paging.isNewest ? ', newest page' : ''}
-            </p>
-          )}
         </div>
-        {paging && <TimelinePager paging={paging} />}
       </div>
       {showsPrunedBanner && (
         <div className="warning-banner timeline-pruned-banner" role="note" title={PRUNED_RELATED_EVENT_EXPLANATION}>
@@ -503,40 +489,6 @@ const TimelineRow = memo(function TimelineRow({
     </article>
   );
 });
-
-function TimelinePager({ paging }: { paging: TimelinePaging }) {
-  return (
-    <div aria-label="Timeline pages" className="timeline-pager" role="group">
-      {paging.isLoading && <span className="muted">Loading…</span>}
-      {paging.canGoBack && (
-        <button className="button ghost" disabled={paging.isLoading} onClick={paging.onBack} type="button">
-          Back
-        </button>
-      )}
-      {!paging.isNewest && (
-        <button className="button ghost" disabled={paging.isLoading} onClick={paging.onNewest} type="button">
-          Newest
-        </button>
-      )}
-      <button
-        className="button ghost"
-        disabled={paging.isLoading || paging.isNewest || !paging.hasNewer}
-        onClick={paging.onNewer}
-        type="button"
-      >
-        Newer events
-      </button>
-      <button
-        className="button ghost"
-        disabled={paging.isLoading || !paging.hasOlder}
-        onClick={paging.onOlder}
-        type="button"
-      >
-        Older events
-      </button>
-    </div>
-  );
-}
 
 /** Ends links whose far end is on another page, or was pruned, at the top or bottom edge. */
 function TimelineEdgeStubs({

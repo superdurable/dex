@@ -15,7 +15,7 @@ import type {
 } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
-import { latestEventIdOfWait, withFlowStart } from '@/lib/history';
+import { latestEventIdOfWait, timelinePagePositionOf, withFlowStart } from '@/lib/history';
 import { isTransientGatewayResponse, readResponseJSON } from '@/lib/http';
 import { buildSelectedTimelineRelations } from '@/lib/timeline';
 import { positiveRunAttempt, RUN_ATTEMPT_SEARCH_PARAM } from '@/lib/timeTravel';
@@ -35,6 +35,7 @@ import { TimeTravelDialog, type TimeTravelResult } from './details/TimeTravelDia
 import { StateWriteDialog, type StateWriteKind } from './details/StateWriteDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { ExecutionGraph } from './details/ExecutionGraph';
+import { RunEventsTile, type RunEventsPaging } from './details/RunEventsTile';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 import { useRunHistory } from './useRunHistory';
@@ -464,7 +465,22 @@ export function RunDetailsPage({
     () => timelineEvents.map((event) => hydratedEvents[event.eventId] ?? event),
     [hydratedEvents, timelineEvents],
   );
-  const isSelectionOnTimeline = tab === 'timeline';
+  // The Execution graph and the Timeline share one event page.
+  const isSelectionOnTimeline = tab === 'timeline' || tab === 'steps';
+  const pageEventsWithFlowStart = useMemo(
+    () => withFlowStart(displayedTimelineEvents, flowStartEvent),
+    [displayedTimelineEvents, flowStartEvent],
+  );
+  const pageHasEarlierEvents = (timelineWindow?.hasOlder ?? false) || hasGapAfterFlowStart(timelineEvents);
+  const displayedRunAttemptNumber = summary
+    ? historyRunAttempt(summary) || positiveRunAttempt(summary.runAttempt)
+    : 0;
+  // Time travel skips event IDs, so page numbers are exact only for a first run attempt.
+  const pagePosition = useMemo(() => (
+    displayedRunAttemptNumber <= 1 && timelineWindow && runHistory.newestTimelinePage
+      ? timelinePagePositionOf(timelineWindow, runHistory.newestTimelinePage, prunedEventIdRange)
+      : null
+  ), [displayedRunAttemptNumber, prunedEventIdRange, runHistory.newestTimelinePage, timelineWindow]);
   const selectionEvents = isSelectionOnTimeline ? displayedTimelineEvents : displayedHistory;
   const selectionWindow = isSelectionOnTimeline ? timelineWindow : runHistory.newest;
   const selectionHasOlder = selectionWindow?.hasOlder ?? false;
@@ -515,6 +531,29 @@ export function RunDetailsPage({
       if (result.kind === 'restored') setSelectedEvent(result.selectedEvent);
     });
   }, [backInTimeline, navigateTimeline]);
+
+  const pageFirstEventId = timelineEvents[0]?.eventId;
+  const pageLastEventId = timelineEvents.at(-1)?.eventId;
+  const eventsPaging: RunEventsPaging | null = pageFirstEventId === undefined || pageLastEventId === undefined
+    ? null
+    : {
+      firstEventId: pageFirstEventId,
+      lastEventId: pageLastEventId,
+      pageNumber: runHistory.isTimelineOnNewest ? 1 : pagePosition?.pageNumber ?? null,
+      pageCount: pagePosition?.pageCount ?? null,
+      hasOlder: timelineWindow?.hasOlder ?? false,
+      hasNewer: runHistory.timelineHasNewer,
+      isNewest: runHistory.isTimelineOnNewest,
+      isLoading: runHistory.isLoadingTimelinePage,
+      canGoBack: runHistory.canGoBack,
+      onBack: goBackInTimeline,
+      onFirstPage: runHistory.showNewest,
+      onPrevPage: () => navigateTimeline(runHistory.showNewer),
+      onNextPage: () => navigateTimeline(runHistory.showOlder),
+      onLastPage: () => navigateTimeline(() => runHistory.showOldest(
+        pagePosition && pagePosition.pageCount > 1 ? pagePosition.oldestPageLastEventId + 1 : undefined,
+      )),
+    };
 
   useEffect(() => {
     if (selectedRaw) void hydrateEvent(selectedRaw);
@@ -684,7 +723,7 @@ export function RunDetailsPage({
             ) : (
               <div><span>Run chain</span><b>{runChain.length}</b></div>
             )}
-            <div><span>Latest event</span><b>{latestEvent ? `#${latestEvent.eventId}` : 'None'}</b></div>
+            <RunEventsTile latestEventId={latestEvent?.eventId ?? null} paging={eventsPaging} />
           </div>
         )}
       </section>
@@ -755,17 +794,11 @@ export function RunDetailsPage({
               onHistorySettingsSaved={showSavedHistorySettings}
             />
           )}
-          {tab === 'steps' && !isWaitingForHistory && runHistory.newest?.hasOlder && (
-            <p className="muted run-window-note">
-              The graph shows Steps from events #{history[0]?.eventId} to #{latestEvent?.eventId}. Older events are
-              on earlier Timeline pages.
-            </p>
-          )}
           {tab === 'steps' && !isWaitingForHistory && (
             <ExecutionGraph
               flowId={flowId}
-              events={displayedHistory}
-              hasEarlierEvents={runHistory.newest?.hasOlder ?? false}
+              events={pageEventsWithFlowStart}
+              hasEarlierEvents={pageHasEarlierEvents}
               state={state}
               selectedEvent={selectedEvent}
               onSelectEvent={setSelectedEvent}
@@ -781,13 +814,7 @@ export function RunDetailsPage({
               paging={{
                 hasOlder: timelineWindow?.hasOlder ?? false,
                 hasNewer: runHistory.timelineHasNewer,
-                isNewest: runHistory.isTimelineOnNewest,
                 isLoading: runHistory.isLoadingTimelinePage,
-                canGoBack: runHistory.canGoBack,
-                onOlder: () => navigateTimeline(runHistory.showOlder),
-                onNewer: () => navigateTimeline(runHistory.showNewer),
-                onNewest: runHistory.showNewest,
-                onBack: goBackInTimeline,
               }}
               prunedEventIdRange={prunedEventIdRange}
               highlightedEventId={runHistory.highlightedEventId}
@@ -858,6 +885,11 @@ export function RunDetailsPage({
       )}
     </div>
   );
+}
+
+/** Whether event IDs are missing between FlowStart and the next event of a page. */
+function hasGapAfterFlowStart(events: FlowHistoryEvent[]): boolean {
+  return events[0]?.eventId === 1 && events.length > 1 && events[1].eventId > 2;
 }
 
 /** Lists every run attempt of a run, newest first. Run attempts are numbered from 1 without gaps. */

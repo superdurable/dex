@@ -760,8 +760,29 @@ two-event page, so start details and pull routing stay available. Live appends
 new events to the newest window and drops its oldest events. Refresh reloads
 only the newest window.
 
-Timeline shows one window per page, newest first, with **Older events**,
-**Newer events**, and **Newest**. Event numbers are event IDs, so they stay
+The **Events** tile in the run header names the latest event and pages through
+events. Execution graph and Timeline share its page; Overview and Streams keep
+reading the newest window. The tile reads "Latest #10505" and "Showing
+#9506–#10505 · Page 1 of 11", then offers **First page** (the newest page),
+**Prev page** (one page toward newer events), **Next page** (one page toward
+older events), and **Last page** (the oldest retained page). **Back** sits before
+them after a link jump. First page and Prev page are disabled on the newest
+page; Next page and Last page are disabled on the oldest page. Next page reads
+up to 1000 events before the page. Last page reads FlowStart and up to 1000
+events from the window start, and stops where Next page would start the next
+newer page. The page that starts at the oldest retained event also shows
+FlowStart, so it is the oldest page, and a retained history that fits one page
+shows on one page. Prev page reads up to 1000 events after the page; a page that
+reaches the newest event is the newest page. Live extends only the newest page.
+An older page stays in place while Live adds events, and First page returns to
+the live newest page. The tile shows the page number when it follows from event
+IDs: the run attempt has no time travel, and the page is one that Next page
+reaches from the current newest page. The newest page is always page 1.
+Otherwise, it shows only the range. Time travel skips event IDs, and Live moves
+the newest page, so neither keeps the number exact. The page count needs only
+the first condition.
+
+Timeline shows one page, newest first. Event numbers are event IDs, so they stay
 stable across pages and pruning. Condition-wait and lineage links are resolved
 by event ID. A link whose far end is on another page ends in an edge stub. The
 stub loads the page that holds the far end, highlights it, and offers **Back**.
@@ -773,9 +794,10 @@ stub, and the oldest retained page names the removed event range. Selected
 event lists the same **Related events**. `web/lib/historyRelations.ts` is the
 only reader of the optional retained-history boundary and related event IDs.
 Without them, Dex Web scans the loaded page, and it infers pruning from a gap
-after FlowStart. Execution graph, Overview, and the v2 canvas read the newest
-window, so Step executions recorded before it do not appear there. The
-Execution graph starts a Step whose source is before the window from an
+after FlowStart. Overview and the v2 canvas read the newest window, and the
+Execution graph reads the selected page, so Step executions recorded before it
+do not appear there. The Execution graph starts a Step whose source is before
+the page from an
 **Earlier events, not loaded** node, never from Flow start. The v2 canvas says
 how many events it shows, marks per-Step counts as lower bounds, and labels a
 WaitFor before the window as earlier, not loaded. Its Step panel loads the

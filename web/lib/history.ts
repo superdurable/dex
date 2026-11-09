@@ -16,7 +16,11 @@ import { readResponseJSON } from './http';
 import { RUN_ATTEMPT_SEARCH_PARAM } from './timeTravel';
 import type { FlowHistoryEvent, HistoryPage } from './types';
 
-/** The most events one history window holds, and so the most one Timeline page shows. */
+/**
+ * The most events one history window holds, and so the most one Timeline page shows.
+ *
+ * The oldest retained page also shows FlowStart, so it may hold one more event.
+ */
 export const HISTORY_WINDOW_EVENT_LIMIT = 1000;
 
 const LATEST_EVENT_ID_HINT_TIMEOUT_MS = 5000;
@@ -183,6 +187,124 @@ export async function loadOlderHistoryWindow(
     nextInternalEventId: olderEvents[olderEvents.length - 1].eventId + 1,
     reportedRetainedHistory: older.reportedRetainedHistory,
   };
+}
+
+/**
+ * Loads the oldest retained page: FlowStart and up to `limit` events read from the window start.
+ *
+ * The page stops before `beforeEventId`, the first event of the next newer page.
+ * Returns the unclipped page instead when only FlowStart precedes that event.
+ */
+export async function loadOldestHistoryWindow(
+  loadPage: HistoryPageLoader,
+  beforeEventId: number,
+  limit = HISTORY_WINDOW_EVENT_LIMIT,
+): Promise<HistoryWindow> {
+  const fromStart = await loadHistoryWindowFrom(loadPage, 1, limit + 1);
+  const events = fromStart.events.filter((event) => event.eventId < beforeEventId);
+  if (events.length === fromStart.events.length || events.length <= 1) return fromStart;
+  return {
+    events,
+    hasOlder: events[0].eventId > 1,
+    hasNewer: true,
+    nextInternalEventId: events[events.length - 1].eventId + 1,
+    reportedRetainedHistory: fromStart.reportedRetainedHistory,
+  };
+}
+
+/**
+ * Adds FlowStart to the page that starts at the oldest retained event after it.
+ *
+ * Only FlowStart precedes that page, so it becomes the oldest page instead of a page of FlowStart alone.
+ */
+export function withFlowStartOnOldestRetainedPage(
+  page: HistoryWindow,
+  oldestRetainedEvents: FlowHistoryEvent[],
+): HistoryWindow {
+  const [flowStart, oldestRetainedEvent] = oldestRetainedEvents;
+  const firstEventId = page.events[0]?.eventId;
+  if (
+    !page.hasOlder
+    || flowStart?.eventId !== 1
+    || oldestRetainedEvent === undefined
+    || firstEventId !== oldestRetainedEvent.eventId
+  ) return page;
+  return { ...page, events: [flowStart, ...page.events], hasOlder: false };
+}
+
+/** Where a Timeline page sits among the pages that paging from the newest page reaches. */
+export interface TimelinePagePosition {
+  /** The 1-based page number, newest first, or null when the page is not one of those pages. */
+  pageNumber: number | null;
+  pageCount: number;
+  /** The newest event ID of the oldest page. */
+  oldestPageLastEventId: number;
+}
+
+/**
+ * Numbers the pages that Next page reaches from the newest page, from event IDs alone.
+ *
+ * Callers pass only lineages without time travel, whose retained event IDs are contiguous outside
+ * the pruned range.
+ *
+ * Returns null when the newest page shows that event IDs are not contiguous.
+ */
+export function timelinePagePositionOf(
+  displayedPage: HistoryWindow,
+  newestPage: HistoryWindow,
+  prunedEventIdRange: EventIdRange | undefined,
+  limit = HISTORY_WINDOW_EVENT_LIMIT,
+): TimelinePagePosition | null {
+  const newestEventIds = newestPage.events.map((event) => event.eventId);
+  if (newestEventIds.length === 0 || !hasContiguousRetainedEventIds(newestEventIds, prunedEventIdRange)) return null;
+  const pageRanges = nextPageRangesFromNewest(newestEventIds, prunedEventIdRange, limit);
+  const displayedFirstEventId = displayedPage.events[0]?.eventId;
+  const displayedLastEventId = displayedPage.events.at(-1)?.eventId;
+  const pageIndex = pageRanges.findIndex((pageRange) => (
+    pageRange.firstEventId === displayedFirstEventId && pageRange.lastEventId === displayedLastEventId
+  ));
+  return {
+    pageNumber: pageIndex >= 0 ? pageIndex + 1 : null,
+    pageCount: pageRanges.length,
+    oldestPageLastEventId: pageRanges[pageRanges.length - 1].lastEventId,
+  };
+}
+
+/** Mirrors Next page: each older page ends before the newer page and holds up to `limit` events. */
+function nextPageRangesFromNewest(
+  newestEventIds: number[],
+  prunedEventIdRange: EventIdRange | undefined,
+  limit: number,
+): EventIdRange[] {
+  const hasRetainedEventIdIn = (low: number, high: number) => (
+    low <= high
+    && !(prunedEventIdRange !== undefined
+      && prunedEventIdRange.firstEventId <= low
+      && high <= prunedEventIdRange.lastEventId)
+  );
+  const pageRanges: EventIdRange[] = [];
+  let firstEventId = newestEventIds[0];
+  let lastEventId = newestEventIds[newestEventIds.length - 1];
+  for (;;) {
+    if (firstEventId > 1 && !hasRetainedEventIdIn(2, firstEventId - 1)) firstEventId = 1;
+    pageRanges.push({ firstEventId, lastEventId });
+    if (firstEventId === 1) return pageRanges;
+    lastEventId = firstEventId - 1;
+    const start = Math.max(1, firstEventId - limit);
+    firstEventId = isEventIdInRange(prunedEventIdRange, start) ? 1 : start;
+  }
+}
+
+/** Whether ascending event IDs skip only the pruned range. */
+function hasContiguousRetainedEventIds(eventIds: number[], prunedEventIdRange: EventIdRange | undefined): boolean {
+  return eventIds.every((eventId, index) => {
+    if (index === 0) return true;
+    const previousEventId = eventIds[index - 1];
+    return eventId === previousEventId + 1
+      || (prunedEventIdRange !== undefined
+        && previousEventId + 1 === prunedEventIdRange.firstEventId
+        && eventId === prunedEventIdRange.lastEventId + 1);
+  });
 }
 
 /** Appends new events, keeping the newest `limit`; reloads the window when the hint is a window ahead. */

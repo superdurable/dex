@@ -1277,7 +1277,7 @@ pre {
 
 .summary-strip {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2.4fr);
   margin-top: 22px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -1314,6 +1314,27 @@ pre {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.summary-strip > .run-events-tile {
+  gap: 5px;
+}
+
+.run-events-range {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.run-events-pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.run-events-pager .button {
+  min-height: 26px;
+  padding: 3px 8px;
+  font-size: 12px;
 }
 
 .run-error {
@@ -2753,19 +2774,6 @@ pre {
   background: var(--busy-subtle);
 }
 
-.timeline-page-range {
-  margin-top: 2px;
-}
-
-.view-toolbar .timeline-pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-left: auto;
-}
-
 .timeline-pruned-banner {
   margin: 0 0 14px;
 }
@@ -2904,11 +2912,6 @@ button.timeline-edge-stub:focus-visible {
 
 .related-event.location-pruned .related-event-label {
   color: var(--muted);
-}
-
-.run-window-note {
-  margin: 0 0 10px;
-  font-size: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3538,15 +3541,19 @@ button.timeline-edge-stub:focus-visible {
   }
 
   .summary-strip {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
-  .summary-strip > div:nth-child(3) {
+  .summary-strip > div:nth-child(5) {
     border-right: 0;
   }
 
-  .summary-strip > div:nth-child(-n + 3) {
+  .summary-strip > div:nth-child(-n + 5) {
     border-bottom: 1px solid var(--line);
+  }
+
+  .summary-strip > .run-events-tile {
+    grid-column: 1 / -1;
   }
 
   .run-content {
@@ -3640,6 +3647,14 @@ button.timeline-edge-stub:focus-visible {
 
   .summary-strip > div:nth-child(2n) {
     border-right: 0;
+  }
+
+  .summary-strip > div:nth-child(5) {
+    border-right: 0;
+  }
+
+  .summary-strip > .run-events-tile {
+    border-bottom: 0;
   }
 
   .run-tabs {
