@@ -100,6 +100,12 @@ Then the node took a snapshot. After the snapshot:
   such commands and is canceled; its 60-second retention timer stays pending.
 - `legacy-migrating`, in partition 3, records the same thirty commands. Then partition 3 enables
   history offload, and each of the run's next two commands seals one migration segment.
+- Every run above records no history offload choice, as runs of releases before 0.1.23, so it
+  follows its partition's offload mode.
+- `chosen-offload`, in partition 2, and `chosen-local`, in partition 1, record their offload
+  choice at start: true and false. Both record the same thirty commands. `chosen-offload` seals
+  and acknowledges segments although its partition never offloads; `chosen-local` never seals
+  although its partition does.
 
 Every `FlowCommand` kind of behavior version 1 appears in the log. Hand-out commands outside
 `handout-sync` and `handout-travel` carry no task ID, as an older log does. Log cleanup did not run,

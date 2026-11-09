@@ -16,7 +16,7 @@ use crate::history::{
     HISTORY_ROWS_PER_COMMAND, LocalCleanupBacklog, WindowAdvanceTarget, advance_window,
     prune_window_history,
 };
-use crate::history_offload::offload_mode::is_history_offload_enabled;
+use crate::history_offload::offload_mode::is_superseded_byte_cap_applied;
 use crate::history_offload::segment_expiry::expire_passed_history_segments;
 use crate::history_offload::segment_seal::garbage_identity;
 use crate::history_offload::segment_upload::first_seq_kept_until_upload;
@@ -113,7 +113,7 @@ pub(crate) fn enforce_superseded_byte_cap(
 ) -> Result<LocalCleanupBacklog, ApplyError> {
     let mut backlog = LocalCleanupBacklog::default();
     prune_garbage_before_window(transaction, cursor, &mut backlog)?;
-    if !is_history_offload_enabled(transaction)? {
+    if is_superseded_byte_cap_applied(transaction, &cursor.record)? {
         let superseded_bytes = projected_superseded_value_bytes(transaction, cursor)?;
         let cap = cursor
             .record

@@ -586,6 +586,8 @@ fn run_settings(retention_after_close: Duration, profile: EngineSimulationProfil
         history_segment_target_bytes: 0,
         // Zero (the 10-minute default) keeps the pinned canonical command bytes too.
         superseded_value_grace_micros: 0,
+        // No offload choice keeps them as well: runs follow the partition mode, as before.
+        offload_history: None,
         ..default_run_settings()
     };
     if profile == EngineSimulationProfile::RedeploysWithShortHistoryWindow {

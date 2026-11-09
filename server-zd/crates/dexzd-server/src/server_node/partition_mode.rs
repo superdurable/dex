@@ -16,15 +16,10 @@ use dexzd_engine::{
     CommandCommitter, CommitError, CommitTicket, CommitUrgency, PartitionEffectRebuildError,
     PartitionEffectRebuilder,
 };
-use dexzd_keyspace::row_keys::history_offload_mode_key;
-use dexzd_keyspace::{ColumnFamily, PartitionHasher, PartitionId, TenantId};
+use dexzd_keyspace::{PartitionHasher, PartitionId, TenantId};
 use dexzd_metrics::NodeMetrics;
-use dexzd_protocol::dexzd::v1::{
-    FlowCommand, HistoryOffloadModeRecord, SetHistoryOffloadModeCommand, command_reply,
-    flow_command,
-};
+use dexzd_protocol::dexzd::v1::{FlowCommand, command_reply, flow_command};
 use futures::future::BoxFuture;
-use prost::Message;
 use tokio::sync::OnceCell;
 
 use super::search_projection::SearchProjectionModeRebuilder;
@@ -234,65 +229,20 @@ fn partitions_with_other_mode<Mode: CommittedPartitionMode>(
     Ok(partitions)
 }
 
-/// The experimental switch that offloads run history to object storage, from `history.offloadEnabled`.
-pub(crate) struct HistoryOffloadMode;
-
-impl CommittedPartitionMode for HistoryOffloadMode {
-    const NAME: &'static str = "history offload mode";
-
-    fn is_stored_enabled(
-        view: &dyn FlowStateReader,
-        partition: PartitionId,
-    ) -> Result<bool, String> {
-        Ok(view
-            .get(
-                ColumnFamily::PartitionIndex,
-                &history_offload_mode_key(partition),
-            )
-            .map_err(|error| error.to_string())?
-            .map(|bytes| HistoryOffloadModeRecord::decode(bytes.as_slice()))
-            .transpose()
-            .map_err(|error| format!("decode the history offload mode: {error}"))?
-            .is_some_and(|mode| mode.enabled))
-    }
-
-    fn set_mode_command(partition: PartitionId, is_enabled: bool) -> flow_command::Command {
-        flow_command::Command::SetHistoryOffloadMode(SetHistoryOffloadModeCommand {
-            enabled: is_enabled,
-            partition: u32::from(partition.0),
-        })
-    }
-
-    fn record_skipped_partition(metrics: &NodeMetrics) {
-        metrics.history_offload_mode_skipped_partitions.inc();
-    }
-}
-
-/// Commits the history offload mode before partitions rebuild work.
-pub(crate) type HistoryOffloadModeRebuilder = PartitionModeRebuilder<HistoryOffloadMode>;
-
-/// Returns the rebuilder that commits the history offload and search projection modes, then
-/// delegates to `effects` for each partition.
+/// Returns the rebuilder that commits the search projection mode, then delegates to `effects` for
+/// each partition.
 pub(crate) fn partition_mode_rebuilder(
     effects: Arc<dyn PartitionEffectRebuilder>,
     committer: &CommandCommitter,
     metrics: &Arc<NodeMetrics>,
     partition_hasher: &PartitionHasher,
     is_search_projection_enabled: bool,
-    is_history_offload_enabled: bool,
-) -> HistoryOffloadModeRebuilder {
-    let search_mode_rebuilder = SearchProjectionModeRebuilder::new(
+) -> SearchProjectionModeRebuilder {
+    SearchProjectionModeRebuilder::new(
         effects,
         committer.clone(),
         metrics.clone(),
         partition_hasher.clone(),
         is_search_projection_enabled,
-    );
-    HistoryOffloadModeRebuilder::new(
-        Arc::new(search_mode_rebuilder),
-        committer.clone(),
-        metrics.clone(),
-        partition_hasher.clone(),
-        is_history_offload_enabled,
     )
 }

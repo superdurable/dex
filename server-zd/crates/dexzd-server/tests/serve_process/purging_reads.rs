@@ -36,7 +36,8 @@ use crate::{
 const PURGING_FLOW_ID: &str = "purging-flow-1";
 const CLOSED_FLOW_RETENTION: &str = "2s";
 /// Covers the retention period and the timer that commits the purge decision.
-const PURGE_BUDGET: Duration = Duration::from_secs(30);
+/// The purge then waits a minute for history writes to settle before deleting objects.
+const PURGE_BUDGET: Duration = Duration::from_secs(120);
 const SECRET_ATTRIBUTE: &str = "secret";
 const REPORT_ATTRIBUTE: &str = "report";
 const ORDERS_CHANNEL: &str = "orders";

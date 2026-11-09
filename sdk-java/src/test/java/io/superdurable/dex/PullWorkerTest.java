@@ -1472,8 +1472,9 @@ final class PullWorkerTest {
             assertTrue(subFlowConfig.getWorkerTarget().getIsPullMode());
             assertTrue(subFlowConfig.hasHistoryWindowEvents());
             assertEquals(2500, subFlowConfig.getHistoryWindowEvents());
-            assertTrue(subFlowConfig.hasDeleteExpiredHistoryObjects());
-            assertFalse(subFlowConfig.getDeleteExpiredHistoryObjects());
+            assertFalse(subFlowConfig.hasDeleteExpiredHistoryObjects());
+            assertTrue(subFlowConfig.hasOffloadHistory());
+            assertFalse(subFlowConfig.getOffloadHistory());
         } finally {
             channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS);
         }
@@ -1494,9 +1495,13 @@ final class PullWorkerTest {
 
         @Override
         public Wait waitFor(final Context context, final String input) {
+            @SuppressWarnings("deprecation")
+            final FlowConfig childConfig = FlowConfig.newBuilder()
+                    .historyWindowEvents(2500).deleteExpiredHistoryObjects(false)
+                    .offloadHistory(false).build();
             return Wait.until(SubFlow.run(ChildFlow.class, input,
                     SubFlowOptions.newBuilder()
-                            .configOverride(FlowConfig.newBuilder().historyWindowEvents(2500).deleteExpiredHistoryObjects(false).build())
+                            .configOverride(childConfig)
                             .build()));
         }
 

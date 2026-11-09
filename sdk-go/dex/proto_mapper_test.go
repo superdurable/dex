@@ -656,19 +656,18 @@ func TestFlowConfigMappingCarriesHistoryWindowEvents(t *testing.T) {
 	require.Nil(t, unset.HistoryWindowEvents)
 }
 
-func TestFlowConfigMappingCarriesDeleteExpiredHistoryObjects(t *testing.T) {
-	shouldDelete := false
-	config := &FlowConfig{DeleteExpiredHistoryObjects: ptr.Any(shouldDelete)}
+func TestFlowConfigMappingCarriesOffloadHistory(t *testing.T) {
+	config := &FlowConfig{OffloadHistory: ptr.Any(false)}
 
 	updated, err := mapFlowConfig(config)
 	require.NoError(t, err)
-	require.NotNil(t, updated.DeleteExpiredHistoryObjects)
-	require.Equal(t, shouldDelete, updated.GetDeleteExpiredHistoryObjects())
+	require.NotNil(t, updated.OffloadHistory)
+	require.False(t, updated.GetOffloadHistory())
 
 	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{ConfigOverride: config})
 	require.NoError(t, err)
-	require.NotNil(t, startOptions.FlowConfigOverride.DeleteExpiredHistoryObjects)
-	require.Equal(t, shouldDelete, startOptions.FlowConfigOverride.GetDeleteExpiredHistoryObjects())
+	require.NotNil(t, startOptions.FlowConfigOverride.OffloadHistory)
+	require.False(t, startOptions.FlowConfigOverride.GetOffloadHistory())
 
 	registry, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)
@@ -676,10 +675,30 @@ func TestFlowConfigMappingCarriesDeleteExpiredHistoryObjects(t *testing.T) {
 	require.True(t, found)
 	subFlowOptions, err := mapSubFlowOptions(registered, SubFlowOptions{ConfigOverride: config})
 	require.NoError(t, err)
-	require.NotNil(t, subFlowOptions.FlowConfigOverride.DeleteExpiredHistoryObjects)
-	require.Equal(t, shouldDelete, subFlowOptions.FlowConfigOverride.GetDeleteExpiredHistoryObjects())
+	require.NotNil(t, subFlowOptions.FlowConfigOverride.OffloadHistory)
+	require.False(t, subFlowOptions.FlowConfigOverride.GetOffloadHistory())
 
 	unset, err := mapFlowConfig(&FlowConfig{})
 	require.NoError(t, err)
-	require.Nil(t, unset.DeleteExpiredHistoryObjects)
+	require.Nil(t, unset.OffloadHistory)
+}
+
+func TestFlowConfigMappingDropsDeleteExpiredHistoryObjects(t *testing.T) {
+	config := &FlowConfig{DeleteExpiredHistoryObjects: ptr.Any(false)} //nolint:staticcheck // Proves the deprecated field is not forwarded.
+
+	updated, err := mapFlowConfig(config)
+	require.NoError(t, err)
+	require.Nil(t, updated.DeleteExpiredHistoryObjects)
+
+	_, _, startOptions, err := mapStartFlowOptions(StartFlowOptions{ConfigOverride: config})
+	require.NoError(t, err)
+	require.Nil(t, startOptions.FlowConfigOverride.DeleteExpiredHistoryObjects)
+
+	registry, err := NewRegistry([]Flow{workerFlow})
+	require.NoError(t, err)
+	registered, found := registry.lookupFlow(GetFinalFlowType(workerFlow))
+	require.True(t, found)
+	subFlowOptions, err := mapSubFlowOptions(registered, SubFlowOptions{ConfigOverride: config})
+	require.NoError(t, err)
+	require.Nil(t, subFlowOptions.FlowConfigOverride.DeleteExpiredHistoryObjects)
 }

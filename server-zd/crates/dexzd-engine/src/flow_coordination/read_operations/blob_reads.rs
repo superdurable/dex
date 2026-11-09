@@ -8,7 +8,7 @@
 
 //! LoadBlobs across local values and uploaded segments; see the crate README.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use dexzd_apply::FlowStateReader;
 use dexzd_apply::read_model::{OffloadedReference, OffloadedValueLocation, locate_offloaded_value};
@@ -137,28 +137,16 @@ impl FlowCoordinatorRegistry {
     /// Finds each entry's value on one committed view, which is released before this returns.
     ///
     /// Returns `None` for an entry whose run or Flow no longer owns it. Returns NOT_FOUND when
-    /// a listed run has no matching run record.
+    /// a listed run has no matching run record. Returns INVALID_ARGUMENT when more than
+    /// [`MAX_LOAD_BLOBS_ENTRIES`] entries name runs that offload history.
     fn look_up_blobs(
         &self,
         entries: &[BlobEntry],
     ) -> Result<Vec<Option<BlobLookup>>, FlowCoordinationError> {
         let committed = self.inner.dependencies.committer.committed_view()?;
         let state = committed.as_ref();
-        if entries.len() > MAX_LOAD_BLOBS_ENTRIES {
-            let partitions: BTreeSet<PartitionId> = entries
-                .iter()
-                .map(|entry| self.flow_context(&entry.flow).partition)
-                .collect();
-            for partition in partitions {
-                if is_history_offload_enabled(state, partition)? {
-                    return Err(FlowCoordinationError::invalid_argument(format!(
-                        "while history offload is on, LoadBlobs takes at most \
-                         {MAX_LOAD_BLOBS_ENTRIES} entries; this request has {}",
-                        entries.len()
-                    )));
-                }
-            }
-        }
+        let mut partition_offload_modes: BTreeMap<PartitionId, bool> = BTreeMap::new();
+        let mut offloaded_entry_count = 0_usize;
         let mut lookups = Vec::with_capacity(entries.len());
         for entry in entries {
             let flow = &entry.flow;
@@ -193,7 +181,30 @@ impl FlowCoordinatorRegistry {
                     continue;
                 }
                 Some(record)
-                    if record.flow_id == flow.flow_id && record.tenant_id == flow.tenant_id.0 => {}
+                    if record.flow_id == flow.flow_id && record.tenant_id == flow.tenant_id.0 =>
+                {
+                    let is_offloaded = match record.settings.unwrap_or_default().offload_history {
+                        Some(is_offloaded) => is_offloaded,
+                        None => match partition_offload_modes.get(&context.partition) {
+                            Some(is_enabled) => *is_enabled,
+                            None => {
+                                let is_enabled =
+                                    is_history_offload_enabled(state, context.partition)?;
+                                partition_offload_modes.insert(context.partition, is_enabled);
+                                is_enabled
+                            }
+                        },
+                    };
+                    if is_offloaded {
+                        offloaded_entry_count += 1;
+                    }
+                    if offloaded_entry_count > MAX_LOAD_BLOBS_ENTRIES {
+                        return Err(FlowCoordinationError::invalid_argument(format!(
+                            "LoadBlobs takes at most {MAX_LOAD_BLOBS_ENTRIES} entries of runs \
+                             that offload history; this request has more"
+                        )));
+                    }
+                }
                 _ => return Err(FlowCoordinationError::flow_not_found(&flow.flow_id)),
             }
             let value_id = entry.reference.value_id;
@@ -384,7 +395,8 @@ fn parse_blob_entries(
         .collect()
 }
 
-/// Returns whether `partition` offloads run history; an absent mode record means it does not.
+/// Returns whether `partition` offloads the history of runs that recorded no offload choice; an
+/// absent mode record means it does not.
 fn is_history_offload_enabled(
     state: &dyn FlowStateReader,
     partition: PartitionId,

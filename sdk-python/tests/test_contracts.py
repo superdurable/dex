@@ -933,6 +933,16 @@ def test_attribute_store_sync_mapping_preserves_presence() -> None:
         StartFlowOptions(config_override=FlowConfig(history_window_events=2500)),
     )
     assert windowed_start.flow_config_override.history_window_events == 2500
+    assert not absent.HasField("offload_history")
+    local_history = client._map_flow_config(FlowConfig(offload_history=False))
+    assert local_history.HasField("offload_history")
+    assert local_history.offload_history is False
+    local_history_start = client._map_start_options(
+        client.registry._flow_for_instance(ORDERS),
+        StartFlowOptions(config_override=FlowConfig(offload_history=False)),
+    )
+    assert local_history_start.flow_config_override.HasField("offload_history")
+    assert local_history_start.flow_config_override.offload_history is False
     client.close()
 
 

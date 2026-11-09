@@ -92,7 +92,8 @@ message RunSettings {
   uint32 history_prune_chunk_events = 2;
   // Renamed fields; these names must never be used again.
   reserved "history_window_semantic_events", "history_prune_chunk_semantic_events";
-  // Bytes of superseded values the window may retain before it shrinks (default 256 MiB).
+  // Bytes of superseded values the window may retain before it shrinks (default 256 MiB). Only
+  // a run without offload_history applies it, while its partition does not offload history.
   uint64 max_retained_superseded_bytes = 3;
   // Time after close before the run is deleted (default 7 days).
   int64 retention_after_close_micros = 4;
@@ -125,11 +126,19 @@ message RunSettings {
   // reach this many bytes (default 4 MiB). Zero, as in records of older binaries, means 4 MiB.
   uint64 history_segment_target_bytes = 13;
   // Whether the owner deletes the objects of the run's expired history segments (default false;
-  // true in dev and local). A run's FlowConfig.delete_expired_history_objects overrides it.
+  // true in dev and local). A run's FlowConfig.delete_expired_history_objects overrides it. A
+  // run with offload_history ignores both and always deletes them.
   bool delete_expired_history_objects = 14;
   // Command time a superseded value stays local before offload may delete it (default 10
   // minutes). Zero means 10 minutes.
   int64 superseded_value_grace_micros = 15;
+  // Whether the run offloads its history to object storage. The owner proposes its default,
+  // true since server-zd 0.1.23; at start, apply replaces it with FlowConfig.offload_history
+  // when that is set, and the run keeps the result for its whole life. Runs that started before
+  // server-zd 0.1.23 leave it unset and follow their partition's HistoryOffloadModeRecord. A run
+  // that sets it, true or false, counts the ValueBirth rows of its superseded values and its
+  // ValueGarbage rows as history bytes, not state row bytes.
+  optional bool offload_history = 16;
 }
 
 // A hard-delete Attribute value that the owner uploaded as its own object before proposing.
@@ -517,7 +526,9 @@ message HistorySegmentObjectsDeletedCommand {
 // run seq.
 message HistoryLocalCleanupCommand {}
 
-// Sets whether this partition offloads run history to object storage.
+// Sets whether this partition offloads run history to object storage. Only runs without
+// RunSettings.offload_history follow it. Since server-zd 0.1.23 the owner no longer proposes it;
+// logs of older releases hold it, and apply keeps its meaning.
 message SetHistoryOffloadModeCommand {
   bool enabled = 1;
   // Partition the owner routed the command to; apply rejects a command applied elsewhere.

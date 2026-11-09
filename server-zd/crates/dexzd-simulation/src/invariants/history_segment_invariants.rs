@@ -116,7 +116,7 @@ pub(crate) fn check_open_segment_transitions(
             && current.history_open_segment_first_event_id == current.next_event_id.max(1)
             && current.history_open_segment_bytes == 0
             && current.history_open_segment_superseded_value_count == 0;
-        if !view.is_history_offload_enabled {
+        if !view.is_run_history_offloaded(current) {
             if !moved_after_command || sealed_now {
                 return Err(violation(
                     "H9-open-segment-transition",
@@ -554,13 +554,15 @@ pub(crate) fn check_deletions_were_uploaded(
             }
             _ => continue,
         };
-        let is_fenced = view.is_history_offload_enabled
-            || view.history_upload_pending_runs.contains(&parsed.run_id);
+        let run = view.runs.get(&parsed.run_id);
+        let record = run.and_then(|run| run.record.as_ref());
+        let is_offloaded = record.map_or(view.is_history_offload_enabled, |record| {
+            view.is_run_history_offloaded(record)
+        });
+        let is_fenced = is_offloaded || view.history_upload_pending_runs.contains(&parsed.run_id);
         if !is_fenced {
             continue;
         }
-        let run = view.runs.get(&parsed.run_id);
-        let record = run.and_then(|run| run.record.as_ref());
         let uploaded_through_seq = record.map_or(0, |record| record.history_uploaded_through_seq);
         let window_start_seq = record.map_or(0, |record| record.window_start_seq);
         let is_uploaded =

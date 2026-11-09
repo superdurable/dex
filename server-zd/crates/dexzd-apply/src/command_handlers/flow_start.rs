@@ -146,7 +146,10 @@ pub(crate) fn start_run(
         flow_type: request.flow_type.clone(),
         start_request_id: request.request_id.clone(),
         started_at_micros: scope.now_micros,
-        settings: Some(*start.settings),
+        settings: Some(run_settings_with_offload_choice(
+            *start.settings,
+            &start.flow_config,
+        )),
         status: FlowStatus::Running as i32,
         current_attempt: 1,
         next_run_seq: 1,
@@ -303,6 +306,19 @@ pub(crate) fn start_run(
     terminated_run_effects.extend(output.effects);
     output.effects = terminated_run_effects;
     Ok(HandlerResult::Applied(output))
+}
+
+/// Returns `settings` with the run's history offload choice: the Flow config's when the owner
+/// proposed a default. Commands of older releases propose none, so their runs keep none and
+/// follow their partition's offload mode.
+pub(crate) fn run_settings_with_offload_choice(
+    mut settings: RunSettings,
+    flow_config: &FlowConfig,
+) -> RunSettings {
+    settings.offload_history = settings
+        .offload_history
+        .map(|default_choice| flow_config.offload_history.unwrap_or(default_choice));
+    settings
 }
 
 /// Initial Attributes stay readable for the whole run so "back to the beginning" always works

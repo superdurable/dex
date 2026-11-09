@@ -157,11 +157,15 @@ public class UserContractsTest {
                         .stopDrainTimeout(java.time.Duration.ofSeconds(30))
                         .build())
                 .build());
+        // The deprecated no-op setter must keep compiling.
+        @SuppressWarnings("deprecation")
+        final io.superdurable.dex.FlowConfig historyConfig = io.superdurable.dex.FlowConfig.newBuilder()
+                .historyWindowEvents(50_000)
+                .deleteExpiredHistoryObjects(false)
+                .offloadHistory(false)
+                .build();
         Assertions.assertNotNull(io.superdurable.dex.StartFlowOptions.newBuilder()
-                .configOverride(io.superdurable.dex.FlowConfig.newBuilder()
-                        .historyWindowEvents(50_000)
-                        .deleteExpiredHistoryObjects(false)
-                        .build())
+                .configOverride(historyConfig)
                 .build());
     }
 

@@ -101,7 +101,7 @@ pub(crate) fn check_cleanup_drained(
     }
     let genesis_seq = run.attempts.get(&1).map_or(1, |attempt| attempt.start_seq);
     let uploaded_through_seq = record.history_uploaded_through_seq;
-    if view.is_history_offload_enabled && uploaded_through_seq > 0 {
+    if view.is_run_history_offloaded(record) && uploaded_through_seq > 0 {
         // Window pruning may have deleted uploaded rows and values while offload was off.
         let rows_gone_through_seq = record
             .history_local_rows_deleted_through_seq
@@ -125,7 +125,7 @@ pub(crate) fn check_cleanup_drained(
         .history_segments
         .values()
         .any(|segment| segment.state == HistorySegmentState::Sealed as i32);
-    let is_fenced = view.is_history_offload_enabled
+    let is_fenced = view.is_run_history_offloaded(record)
         || (record.history_open_segment_first_seq != 0 && has_sealed_segment);
     let fence_seq = if is_fenced {
         uploaded_through_seq.saturating_add(1)

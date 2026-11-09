@@ -403,7 +403,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	startResult := executeTestCommand(t, nil,
 		"flow", "start", "flow-1", "--flow-type", "OrderFlow", "--start-step-type", "StartOrder",
 		"--input", `{"order":42}`, "--attributes", `[{"key":"status","value":"new","index":{"type":"keyword"},"sync":true}]`,
-		"--config", `{"activeStepSearchMode":"all","continueAsNewThreshold":12,"stepDurability":"sync"}`,
+		"--config", `{"activeStepSearchMode":"all","continueAsNewThreshold":12,"stepDurability":"sync","offloadHistory":false}`,
 		"--retry-policy", `{"initialInterval":"1500ms","backoffCoefficient":2,"maximumInterval":"5s","maximumAttempts":3}`,
 		"--step-options", `{"skipWaitFor":true}`, "--timeout-handler-options", `{"methodTimeoutSeconds":20,"loadChannelNames":["commands"]}`,
 		"--flow-timeout", "90s", "--flow-timeout-policy", "handler",
@@ -447,7 +447,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	if attribute.GetKey() != "status" || attribute.GetValue().GetStringValue() != "new" || attribute.GetIndexConfig().GetType() != dexpb.IndexType_INDEX_TYPE_KEYWORD || !attribute.GetSyncConfig().GetEnabled() {
 		t.Fatalf("unexpected start attributes: %#v", attribute)
 	}
-	if startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetActiveStepSearchMode() != dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL || startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget() != nil {
+	if startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetActiveStepSearchMode() != dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL || startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetWorkerTarget() != nil || startRequest.GetFlowStartOptions().GetFlowConfigOverride().OffloadHistory == nil || startRequest.GetFlowStartOptions().GetFlowConfigOverride().GetOffloadHistory() {
 		t.Fatalf("unexpected start config: %#v", startRequest.GetFlowStartOptions().GetFlowConfigOverride())
 	}
 	if service.waitRequest.GetWaitTimeSeconds() != 4 || !service.waitRequest.GetNeedsResults() {
@@ -459,7 +459,7 @@ func TestFlowClientOperationsMapSDKEquivalentRequests(t *testing.T) {
 	if service.waitStepRequest.GetStepExecutionNumber() != "2" || service.waitStepRequest.GetRequestTimeoutSeconds() != 2 || service.waitStepRequest.GetRequestId() == "" {
 		t.Fatalf("unexpected wait-step request: %#v", service.waitStepRequest)
 	}
-	if service.updateConfigRequest.GetFlowConfig().GetContinueAsNewPageSizeInBytes() != 1024 || service.updateConfigRequest.GetFlowConfig().AttributeStoreNames == nil || len(service.updateConfigRequest.GetFlowConfig().GetAttributeStoreNames().GetNames()) != 0 || service.updateConfigRequest.GetFlowConfig().GetHistoryWindowEvents() != 5000 || service.updateConfigRequest.GetFlowConfig().DeleteExpiredHistoryObjects == nil || service.updateConfigRequest.GetFlowConfig().GetDeleteExpiredHistoryObjects() {
+	if service.updateConfigRequest.GetFlowConfig().GetContinueAsNewPageSizeInBytes() != 1024 || service.updateConfigRequest.GetFlowConfig().AttributeStoreNames == nil || len(service.updateConfigRequest.GetFlowConfig().GetAttributeStoreNames().GetNames()) != 0 || service.updateConfigRequest.GetFlowConfig().GetHistoryWindowEvents() != 5000 || service.updateConfigRequest.GetFlowConfig().DeleteExpiredHistoryObjects != nil || service.updateConfigRequest.GetFlowConfig().OffloadHistory != nil {
 		t.Fatalf("unexpected update-config request: %#v", service.updateConfigRequest)
 	}
 	if service.continueAsNewRequest.GetFlowId() != "flow-1" {

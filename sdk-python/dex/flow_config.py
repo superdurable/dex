@@ -86,29 +86,77 @@ class FlowConfig:
                 ... )
 
             .. versionadded:: 1.38.0
-        delete_expired_history_objects: Controls deletion of object storage objects for expired history segments.
+        delete_expired_history_objects: Has no effect. The SDK does not send it
+            to the server.
 
-            True deletes each expired segment's object about one hour after expiry. False keeps
-            objects until the run is deleted after retention. This only matters when history
-            offload is enabled. ``None``, the default, uses ``history.deleteExpiredObjects`` on the server: true
-            for dev/local and false for serve. The run records that default at start.
-            The server-side switch is experimental.
-            Servers older than server-zd 0.1.22 ignore the value.
+            server-zd 0.1.23 and later ignore the field for runs that start with
+            them. Such a run, when it offloads its history, always deletes the
+            objects of expired history segments about one hour after the history
+            window passes them.
 
-            Set it through ``StartFlowOptions.config_override``, update it with ``update_flow_config``,
-            or override it with ``SubFlowOptions.config_override``. Children otherwise inherit the parent's value.
-            An omitted update preserves the current value; it cannot be cleared to the server
-            default. Enabling deletion includes already expired objects. Disabling it stops
-            deletions that have not started; requests already sent may complete, and deleted
-            objects never return. History reads and Time Travel exclude expired history even
-            when its objects are kept.
+            A run that started under server-zd 0.1.22 still follows the value it
+            recorded then. When that value is false, the run's expired history
+            objects stay in object storage until its retention ends, and a run
+            that never closes keeps them. To delete them sooner, set the field to
+            true for that run with UpdateFlowConfig through an SDK older than
+            1.40.0 or a direct gRPC request. See
+            https://docs.superdurable.io/reference/server/configuration#history-offload.
 
-            Example:
-                >>> client.update_flow_config(
-                ...     "order-42", FlowConfig(delete_expired_history_objects=False)
-                ... )
+            The field remains so existing code keeps working.
 
             .. versionadded:: 1.39.0
+
+            .. deprecated:: 1.40.0
+               The SDK no longer sends the field, and runs that start with
+               server-zd 0.1.23 or later ignore it. Remove this field from
+               your code.
+        offload_history: Whether Dex offloads the run's history to object
+            storage. ``None``, the default, means ``True``.
+
+            An offloaded run uploads its history to object storage in segment
+            objects. Once a segment is uploaded and a grace period has passed,
+            Dex deletes its history records and superseded values from the
+            local disk. History reads then fetch them from object storage. When
+            the history window passes a whole segment, Dex deletes the
+            segment's object about one hour later.
+
+            A run that does not offload keeps its history on the local disk. It
+            never writes a history object. The history window still applies:
+            Dex prunes the oldest events and deletes the superseded values that
+            the window passed.
+
+            Leave it ``None`` for most runs. A long-running run then keeps only
+            its newest history and current state on the local disk. Set it to
+            ``False`` for many short runs that close soon after they start.
+            Each offloaded run writes at least one history object when it
+            closes. It deletes that object when its retention ends. Short runs
+            at a high rate therefore add object storage requests, while their
+            small history costs little local disk.
+            A run that does not offload keeps every superseded value its history window
+            covers on the local disk, with no byte limit; for a run that rewrites large
+            values, keep offload or set a smaller history window.
+
+            Set it only at start, through ``StartFlowOptions.config_override``,
+            or for a SubFlow through its ``SubFlowOptions.config_override``. A
+            SubFlow inherits the value from its parent unless its own override
+            sets it. The run keeps the value for its whole life.
+            ``update_flow_config`` with ``offload_history`` set raises
+            ``DexServiceError`` with code ``grpc.StatusCode.INVALID_ARGUMENT``.
+            Runs that started before server-zd 0.1.23 keep the history offload
+            behavior that their server gave them. Servers older than server-zd
+            0.1.23 ignore the field.
+
+            Example:
+                >>> client.start_flow(
+                ...     notification_flow,
+                ...     "notification-42",
+                ...     None,
+                ...     StartFlowOptions(
+                ...         config_override=FlowConfig(offload_history=False)
+                ...     ),
+                ... )
+
+            .. versionadded:: 1.40.0
     """
 
     active_step_search_mode: ActiveStepSearchMode | None = None
@@ -118,3 +166,4 @@ class FlowConfig:
     attribute_store_names: list[str] | None = None
     history_window_events: int | None = None
     delete_expired_history_objects: bool | None = None
+    offload_history: bool | None = None

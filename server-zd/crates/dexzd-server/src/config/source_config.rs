@@ -27,6 +27,8 @@ const SINGLE_NODE_LEASE_DURATION: Duration = Duration::from_secs(30);
 pub(crate) const SINGLE_NODE_PARTITION_COUNT: u32 = 32;
 /// No standby catches up from the log, and superseded objects share the RocksDB disk.
 const SINGLE_NODE_LOG_DELETION_DELAY: Duration = Duration::from_secs(60 * 60);
+/// A single node shares one disk among every run's history window, so it keeps a smaller one.
+const SINGLE_NODE_HISTORY_WINDOW_EVENTS: u32 = 5_000;
 /// Keeps the drain and teardown inside the 10-second stop budget of dexcli dev.
 const DEV_ATTEMPT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -217,12 +219,12 @@ impl Config {
             override_document.as_ref(),
             &["snapshot", "logDeletionDelay"],
         );
-        let has_delete_expired_objects_override = has_yaml_key(
-            override_document.as_ref(),
-            &["history", "deleteExpiredObjects"],
-        );
-        let has_offload_enabled_override =
-            has_yaml_key(override_document.as_ref(), &["history", "offloadEnabled"]);
+        let has_window_events_override =
+            has_yaml_key(override_document.as_ref(), &["history", "windowEvents"])
+                || has_yaml_key(
+                    override_document.as_ref(),
+                    &["history", "windowSemanticEvents"],
+                );
         let has_attempt_drain_timeout_override = has_yaml_key(
             override_document.as_ref(),
             &["lifecycle", "attemptDrainTimeout"],
@@ -278,12 +280,8 @@ impl Config {
         if !has_log_deletion_delay_override {
             configuration.snapshot.log_deletion_delay = SINGLE_NODE_LOG_DELETION_DELAY;
         }
-        // Single-node data is disposable, so expired history objects need not use storage.
-        if !has_delete_expired_objects_override {
-            configuration.history.should_delete_expired_objects = true;
-        }
-        if !has_offload_enabled_override {
-            configuration.history.is_offload_enabled = true;
+        if !has_window_events_override {
+            configuration.history.window_events = SINGLE_NODE_HISTORY_WINDOW_EVENTS;
         }
         if !has_partition_count_override {
             configuration.cluster.partition_count = SINGLE_NODE_PARTITION_COUNT;

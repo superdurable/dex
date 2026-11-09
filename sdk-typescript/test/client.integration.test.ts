@@ -345,7 +345,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.search?.nextPageToken, "next");
     assert.equal(requests.search?.query, "WorkflowId = 'flow-1'");
     assert.equal(await client.startFlow(flow, "flow-1", { message: "hello" }, {
-      configOverride: { deleteExpiredHistoryObjects: false },
+      configOverride: { deleteExpiredHistoryObjects: false, offloadHistory: false },
       timeoutMs: 30_000,
       timeoutPolicy: FlowTimeoutPolicy.HANDLER,
       timeoutHandlerOptions: {
@@ -479,11 +479,15 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.updateFlowConfig.flowConfig.deleteExpiredHistoryObjects, undefined);
     for (const shouldDelete of [true, false]) {
       await client.updateFlowConfig("flow-1", { deleteExpiredHistoryObjects: shouldDelete });
-      assert.equal(requests.updateFlowConfig.flowConfig.deleteExpiredHistoryObjects, shouldDelete);
+      assert.equal(requests.updateFlowConfig.flowConfig.deleteExpiredHistoryObjects, undefined);
     }
     await client.updateFlowConfig("flow-1", { historyWindowEvents: 2500 });
     assert.equal(requests.updateFlowConfig.flowConfig.historyWindowEvents, 2500);
-    assert.equal(requests.start?.flowStartOptions?.flowConfigOverride?.deleteExpiredHistoryObjects, false);
+    assert.equal(requests.updateFlowConfig.flowConfig.offloadHistory, undefined);
+    await client.updateFlowConfig("flow-1", { offloadHistory: false });
+    assert.equal(requests.updateFlowConfig.flowConfig.offloadHistory, false);
+    assert.equal(requests.start?.flowStartOptions?.flowConfigOverride?.offloadHistory, false);
+    assert.equal(requests.start?.flowStartOptions?.flowConfigOverride?.deleteExpiredHistoryObjects, undefined);
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);

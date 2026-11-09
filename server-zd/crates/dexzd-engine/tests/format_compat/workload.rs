@@ -146,6 +146,7 @@ impl Workload<'_> {
         self.set_history_offload_modes(&[PartitionId(0)], false)
             .await;
         self.legacy_runs_record_history_without_offload().await;
+        self.runs_follow_their_offload_choice().await;
     }
 
     /// `history-flow`, in partition 1, which offloads history: a replaced Attribute supersedes a
@@ -165,7 +166,10 @@ impl Workload<'_> {
                     request_id: "start-history-flow".to_owned(),
                     ..StartFlowRequest::default()
                 },
-                default_run_settings(),
+                RunSettings {
+                    offload_history: None,
+                    ..default_run_settings()
+                },
             )
             .await;
         self.set_attributes(
@@ -233,6 +237,7 @@ impl Workload<'_> {
                 },
                 RunSettings {
                     history_segment_target_bytes: 1,
+                    offload_history: None,
                     ..default_run_settings()
                 },
             )
@@ -2194,9 +2199,12 @@ fn skip_wait_for() -> StepOptions {
 }
 
 /// The default run settings with the checkpoint command threshold that `testdata/v1` recorded.
+/// Its runs record no offload choice, as runs of the release that recorded it, so they follow
+/// their partition's offload mode.
 fn workload_run_settings() -> RunSettings {
     RunSettings {
         checkpoint_command_threshold: 10_000,
+        offload_history: None,
         ..default_run_settings()
     }
 }
