@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 
 use dexzd_apply::diagnostics::{current_semantic_point_hash, time_travel_target_hash};
+use dexzd_apply::read_model::get_channel_messages;
 use dexzd_apply::{
     ApplyContext, ApplyEffect, ApplyOutcome, FlowStateReader, StateReadError, StateRow, StateWrite,
     TERMINAL_CLEANUP_MESSAGE, WaitableChange, apply_flow_command,
@@ -481,6 +482,20 @@ impl Harness {
             .expect("the Step execution exists")
     }
 
+    fn channel_message_ids(&self, channel_name: &str) -> Vec<String> {
+        get_channel_messages(
+            &self.state,
+            self.context.flow_hash,
+            self.run(),
+            channel_name,
+        )
+        .expect("the Channel reads")
+        .messages
+        .into_iter()
+        .map(|message| message.message_id)
+        .collect()
+    }
+
     fn has_step(&self, step_execution_id: &str) -> bool {
         let key = run_named_key(
             self.context.flow_hash,
@@ -849,6 +864,35 @@ fn client_publications_fail_during_cleanup_and_store_nothing() {
     );
     assert_eq!(harness.last_seq(), deferred_seq, "no history is recorded");
     assert_eq!(harness.run_record().status, FlowStatus::Running as i32);
+
+    let rpc = harness.apply(Command::RpcCommitted(RpcCommittedCommand {
+        request: Some(InvokeRpcRequest {
+            flow_id: FLOW_ID.to_owned(),
+            rpc_name: "notifyOrder".to_owned(),
+            request_id: "publishing-rpc".to_owned(),
+            ..InvokeRpcRequest::default()
+        }),
+        response: Some(InvokeWorkerRpcResponse {
+            publish_to_channel: vec![ChannelMessage {
+                channel_name: "orders".to_owned(),
+                value: Some(string_value("from-rpc")),
+                message_id: "from-rpc".to_owned(),
+            }],
+            ..InvokeWorkerRpcResponse::default()
+        }),
+        app_worker_id: "worker-rpc".to_owned(),
+        request_fingerprint: b"publishing-rpc".to_vec(),
+        ..RpcCommittedCommand::default()
+    }));
+    assert!(
+        matches!(rpc.reply.reply, Some(command_reply::Reply::Rpc(_))),
+        "an RPC commit during cleanup keeps its publications: {:?}",
+        rpc.reply
+    );
+    assert_eq!(
+        harness.channel_message_ids("orders"),
+        vec!["before-close".to_owned(), "from-rpc".to_owned()]
+    );
 
     harness.ack(PRIMARY, deferred_seq);
     assert_eq!(harness.run_record().status, FlowStatus::Completed as i32);
