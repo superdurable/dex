@@ -43,6 +43,8 @@ import io.superdurable.dex.primitives.stream.StreamFlow;
 import io.superdurable.dex.products.subscription.SubscriptionFlow;
 import io.superdurable.dex.products.signup.UserOnboardingFlow;
 
+import org.springframework.beans.factory.ObjectProvider;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -147,7 +149,19 @@ final class IntegEnvironment implements AutoCloseable {
         final FakeJobService fakeJobService = new FakeJobService();
         final PollingFlow pollingFlow = new PollingFlow(fakeJobService);
         final ReportGenerationFlow reportGenerationFlow = new ReportGenerationFlow();
-        final WorkflowPatternFlows workflowPatternFlows = new WorkflowPatternFlows();
+        // The Client depends on the Registry, so Flows that call it resolve it lazily.
+        final AtomicReference<Client> clientReference = new AtomicReference<Client>();
+        final WorkflowPatternFlows workflowPatternFlows =
+                new WorkflowPatternFlows(new ObjectProvider<Client>() {
+                    @Override
+                    public Client getObject() {
+                        final Client client = clientReference.get();
+                        if (client == null) {
+                            throw new IllegalStateException("integ Client is not started");
+                        }
+                        return client;
+                    }
+                });
         final List<Flow<?>> flows = new ArrayList<Flow<?>>(Arrays.<Flow<?>>asList(
                 moneyTransferFlow,
                 orderProcessingFlow,
@@ -191,6 +205,7 @@ final class IntegEnvironment implements AutoCloseable {
                 registry,
                 blobCache,
                 new ClientOptions(serverAddress));
+        clientReference.set(client);
         return new IntegEnvironment(
                 cacheDirectory,
                 blobCache,

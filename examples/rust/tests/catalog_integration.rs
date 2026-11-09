@@ -50,13 +50,12 @@ use dex_examples_rust::workflow_patterns::{
         ExclusiveChoiceSimpleMergeFlow, ParallelSplitSynchronizationFlow, SequenceFlow,
     },
     cancellation::{
-        CancelCaseFlow, CancelMultipleInstanceTaskFlow, CancelRegionFlow, CancelTaskFlow,
-        CompleteMultipleInstanceTaskFlow,
+        BackgroundCheckFlow, CancelCaseFlow, CancelMultipleInstanceTaskFlow, CancelRegionFlow,
+        CancelTaskFlow, CompleteMultipleInstanceTaskFlow,
     },
     iteration::{ArbitraryCyclesFlow, FactorialRecursionFlow, StructuredLoopFlow},
     multi_choice_and_merges::{
         GeneralSynchronizingMergeFlow, MultiChoiceSynchronizingMergeFlow, MultiMergeFlow,
-        ReviewRegionFlow,
     },
     multiple_instances::{
         CancellingPartialJoinForMultipleInstancesFlow, DesignTimeMultipleInstancesFlow,
@@ -141,7 +140,6 @@ fn workflow_pattern_catalog_matches_the_mapping() {
         MultiChoiceSynchronizingMergeFlow::default().flow_type(),
         MultiMergeFlow::default().flow_type(),
         GeneralSynchronizingMergeFlow::default().flow_type(),
-        ReviewRegionFlow::default().flow_type(),
         StructuredPartialJoinFlow::default().flow_type(),
         BlockingPartialJoinFlow::default().flow_type(),
         CancellingPartialJoinFlow::default().flow_type(),
@@ -161,6 +159,7 @@ fn workflow_pattern_catalog_matches_the_mapping() {
         InterleavedRoutingFlow::default().flow_type(),
         CancelTaskFlow::default().flow_type(),
         CancelCaseFlow::default().flow_type(),
+        BackgroundCheckFlow::default().flow_type(),
         CancelRegionFlow::default().flow_type(),
         CancelMultipleInstanceTaskFlow::default().flow_type(),
         CompleteMultipleInstanceTaskFlow::default().flow_type(),

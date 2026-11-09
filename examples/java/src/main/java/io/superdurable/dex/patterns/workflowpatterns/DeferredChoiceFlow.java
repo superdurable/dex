@@ -30,21 +30,30 @@ import org.springframework.stereotype.Component;
 /** WCP-16 Deferred Choice: the first external event decides the branch. */
 @Component
 public class DeferredChoiceFlow implements Flow<Void> {
+    public static final Channel<String> offerPresented =
+            Channel.define("offerPresented", String.class);
     public static final Channel<String> offerAccepted = Channel.define("offerAccepted", String.class);
     public static final Channel<String> offerDeclined = Channel.define("offerDeclined", String.class);
 
+    private final PresentOffer presentOffer = new PresentOffer();
     private final AwaitCustomerResponse awaitCustomerResponse = new AwaitCustomerResponse();
     private final FulfillOffer fulfillOffer = new FulfillOffer();
     private final ArchiveOffer archiveOffer = new ArchiveOffer();
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(awaitCustomerResponse).otherSteps(fulfillOffer, archiveOffer);
+        return StepList.startStep(presentOffer)
+                .otherSteps(awaitCustomerResponse, fulfillOffer, archiveOffer);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(offerAccepted, offerDeclined);
+        return PersistenceSchema.of(offerPresented, offerAccepted, offerDeclined);
+    }
+
+    @RPC
+    public void presentOffer(final Context context) {
+        offerPresented.publish(context, "presented");
     }
 
     @RPC
@@ -55,6 +64,23 @@ public class DeferredChoiceFlow implements Flow<Void> {
     @RPC
     public void declineOffer(final Context context) {
         offerDeclined.publish(context, "declined");
+    }
+
+    static final class PresentOffer implements Step<Void> {
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final Void input) {
+            return Wait.until(offerPresented.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            return StepDecision.goTo(AwaitCustomerResponse.class, null);
+        }
     }
 
     static final class AwaitCustomerResponse implements Step<Void> {

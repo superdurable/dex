@@ -248,6 +248,9 @@ class ArchiveDocument(Step[None]):
 
 
 class PublishDocument(Step[None]):
+    def get_step_options(self) -> StepOptions:
+        return LIVE_BRANCH_COUNT_LOCK
+
     def wait_for(self, context: Context, input: None) -> Wait:
         return Wait.until(MERGE_SENTINEL.for_one())
 

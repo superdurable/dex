@@ -16,11 +16,12 @@
 //! (WCP-25), Cancel Multiple Instance Activity (WCP-26), and Complete
 //! Multiple Instance Activity (WCP-27).
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use dex_sdk::{
-    Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
-    Step, StepDecision, StepList, StepMovement, StepOptions, Wait,
+    Attribute, Channel, Client, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc,
+    RpcList, RpcResult, SdkError, Step, StepDecision, StepList, StepMovement, StepOptions,
+    StopFlowOptions, SubFlow, Wait,
 };
 
 use super::sorted;
@@ -99,25 +100,76 @@ impl Step for ArrangeSelfDelivery {
     }
 }
 
+pub static STOPPED_CHILD_FLOW_IDS: LazyLock<Attribute<Vec<String>>> =
+    LazyLock::new(|| Attribute::new("stoppedChildFlowIds"));
 static APPLICATION_REVIEWED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("applicationReviewed"));
+static CANCEL_CASE_REQUESTED: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("cancelCase"));
 
-/// WCP-20 Cancel Case: the Client stops the Flow with the cancel stop type,
-/// which cancels every active Step.
+pub const CANCEL_CASE: Rpc<String, ()> = Rpc::new("cancel_case");
+
+/// WCP-20 Cancel Case: the Step that starts the child Flow also waits for a
+/// cancel request. On cancel it stops the child, then fails the case, which
+/// cancels every other active Step.
 #[derive(Default)]
 pub struct CancelCaseFlow {
+    start_application: StartApplication,
     review_application: ReviewApplication,
+    run_background_check: RunBackgroundCheck,
+    watch_case_cancellation: WatchCaseCancellation,
+}
+
+impl CancelCaseFlow {
+    /// Creates the Flow for a Worker, whose background check stops its child
+    /// Flow through `client`.
+    pub fn new(client: Arc<Client>) -> Self {
+        Self {
+            run_background_check: RunBackgroundCheck {
+                client: Some(client),
+            },
+            ..Self::default()
+        }
+    }
+
+    fn cancel_case(&self, context: &mut Context, reason: String) -> HandlerResult<()> {
+        CANCEL_CASE_REQUESTED.publish(context, reason)
+    }
 }
 
 impl Flow for CancelCaseFlow {
     type StartInput = ();
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.review_application)
+        StepList::start(&self.start_application)
+            .and(&self.review_application)
+            .and(&self.run_background_check)
+            .and(&self.watch_case_cancellation)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&APPLICATION_REVIEWED)
+        PersistenceSchema::new()
+            .attribute(&STOPPED_CHILD_FLOW_IDS)
+            .channel(&APPLICATION_REVIEWED)
+            .channel(&CANCEL_CASE_REQUESTED)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().procedure(CANCEL_CASE, Self::cancel_case)
+    }
+}
+
+#[derive(Default)]
+pub struct StartApplication;
+
+impl Step for StartApplication {
+    type Input = ();
+
+    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&ReviewApplication, ()),
+            StepMovement::to(&RunBackgroundCheck::default(), ()),
+        ]))
     }
 }
 
@@ -129,6 +181,121 @@ impl Step for ReviewApplication {
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::until(APPLICATION_REVIEWED.for_one()))
+    }
+
+    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(
+            self.step_type().to_string(),
+        ))
+    }
+}
+
+#[derive(Default)]
+struct RunBackgroundCheck {
+    client: Option<Arc<Client>>,
+}
+
+impl RunBackgroundCheck {
+    /// Stops the child Flow; a missing or closed child already stopped.
+    fn stop_child_flow(&self, child_flow_id: &str) -> HandlerResult<()> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| HandlerError::new("CancelCase", "the Dex Client is not initialized"))?;
+        match client.stop_flow(
+            child_flow_id,
+            StopFlowOptions::cancel().reason("parent case canceled"),
+        ) {
+            Ok(())
+            | Err(
+                SdkError::FlowNotFound { .. }
+                | SdkError::FlowNotActiveOrNotFound { .. }
+                | SdkError::FlowClosing { .. },
+            ) => Ok(()),
+            Err(error) => Err(HandlerError::from_error(error)),
+        }
+    }
+}
+
+impl Step for RunBackgroundCheck {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        let background_check =
+            SubFlow::run(&BackgroundCheckFlow::default(), ()).map_err(HandlerError::from_error)?;
+        Ok(Wait::any_of([
+            background_check,
+            CANCEL_CASE_REQUESTED.for_one(),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let Some(reason) = CANCEL_CASE_REQUESTED
+            .condition_results(context)?
+            .into_iter()
+            .next()
+        else {
+            return Ok(StepDecision::go_to(&WatchCaseCancellation, ()));
+        };
+        let child_flow_id = SubFlow::flow_id_at(context, 0)?;
+        self.stop_child_flow(&child_flow_id)?;
+        STOPPED_CHILD_FLOW_IDS.set(context, vec![child_flow_id])?;
+        Ok(StepDecision::force_fail(format!("case canceled: {reason}")))
+    }
+}
+
+/// Covers a cancel request that arrives after the child Flow finished.
+#[derive(Default)]
+struct WatchCaseCancellation;
+
+impl Step for WatchCaseCancellation {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(CANCEL_CASE_REQUESTED.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let reason = CANCEL_CASE_REQUESTED
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                HandlerError::new("MissingCancelReason", "no cancel request consumed")
+            })?;
+        Ok(StepDecision::force_fail(format!("case canceled: {reason}")))
+    }
+}
+
+static BACKGROUND_CHECK_COMPLETED: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("backgroundCheckCompleted"));
+
+/// The child Flow of WCP-20. It parks until a check result arrives.
+#[derive(Default)]
+pub struct BackgroundCheckFlow {
+    await_background_check: AwaitBackgroundCheck,
+}
+
+impl Flow for BackgroundCheckFlow {
+    type StartInput = ();
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.await_background_check)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().channel(&BACKGROUND_CHECK_COMPLETED)
+    }
+}
+
+#[derive(Default)]
+struct AwaitBackgroundCheck;
+
+impl Step for AwaitBackgroundCheck {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(BACKGROUND_CHECK_COMPLETED.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {

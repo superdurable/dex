@@ -21,6 +21,7 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -38,22 +39,48 @@ public class CancellingPartialJoinFlow implements Flow<Integer> {
     public static final Channel<String> carrierCReleased =
             Channel.define("carrierCReleased", String.class);
     public static final Channel<String> bidReceived = Channel.define("bidReceived", String.class);
+    public static final Channel<String> carrierBookingConfirmed =
+            Channel.define("carrierBookingConfirmed", String.class);
 
     private final RequestBids requestBids = new RequestBids();
     private final BidFromCarrierA bidFromCarrierA = new BidFromCarrierA();
     private final BidFromCarrierB bidFromCarrierB = new BidFromCarrierB();
     private final BidFromCarrierC bidFromCarrierC = new BidFromCarrierC();
     private final AcceptBids acceptBids = new AcceptBids();
+    private final ConfirmCarrierBooking confirmCarrierBooking = new ConfirmCarrierBooking();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(requestBids)
-                .otherSteps(bidFromCarrierA, bidFromCarrierB, bidFromCarrierC, acceptBids);
+                .otherSteps(
+                        bidFromCarrierA,
+                        bidFromCarrierB,
+                        bidFromCarrierC,
+                        acceptBids,
+                        confirmCarrierBooking);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(carrierAReleased, carrierBReleased, carrierCReleased, bidReceived);
+        return PersistenceSchema.of(
+                carrierAReleased,
+                carrierBReleased,
+                carrierCReleased,
+                bidReceived,
+                carrierBookingConfirmed);
+    }
+
+    /** Counts unconsumed carrier releases, which proves no late branch ran. */
+    @RPC(loadChannels = {"carrierAReleased", "carrierBReleased", "carrierCReleased"})
+    public RPCResult<Integer> getQueuedCarrierReleaseCount(final Context context) {
+        return RPCResult.of(carrierAReleased.size(context)
+                + carrierBReleased.size(context)
+                + carrierCReleased.size(context));
+    }
+
+    @RPC
+    public void confirmCarrierBooking(final Context context) {
+        carrierBookingConfirmed.publish(context, "confirmed");
     }
 
     /** Releases the bid of carrier "A", "B", or "C". */
@@ -159,10 +186,28 @@ public class CancellingPartialJoinFlow implements Flow<Integer> {
         @Override
         @SuppressWarnings("unchecked")
         public StepDecision execute(final Context context, final Integer requiredBids) {
-            return StepDecision.gracefulComplete(
-                            bidReceived.getConditionResults(context).stream().sorted().toList())
+            final String[] accepted =
+                    bidReceived.getConditionResults(context).stream().sorted().toArray(String[]::new);
+            return StepDecision.goTo(ConfirmCarrierBooking.class, accepted)
                     .withCancelingSteps(
                             BidFromCarrierA.class, BidFromCarrierB.class, BidFromCarrierC.class);
+        }
+    }
+
+    static final class ConfirmCarrierBooking implements Step<String[]> {
+        @Override
+        public Class<String[]> getInputType() {
+            return String[].class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String[] acceptedCarriers) {
+            return Wait.until(carrierBookingConfirmed.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String[] acceptedCarriers) {
+            return StepDecision.gracefulComplete(acceptedCarriers);
         }
     }
 }

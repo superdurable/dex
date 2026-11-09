@@ -16,7 +16,9 @@
 
 package io.superdurable.dex.integ;
 
+import io.superdurable.dex.Client;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.patterns.workflowpatterns.BackgroundCheckFlow;
 import io.superdurable.dex.patterns.workflowpatterns.ArbitraryCyclesFlow;
 import io.superdurable.dex.patterns.workflowpatterns.BlockingPartialJoinFlow;
 import io.superdurable.dex.patterns.workflowpatterns.CancelCaseFlow;
@@ -45,7 +47,6 @@ import io.superdurable.dex.patterns.workflowpatterns.MultipleInstancesWithoutSyn
 import io.superdurable.dex.patterns.workflowpatterns.NoPriorKnowledgeMultipleInstancesFlow;
 import io.superdurable.dex.patterns.workflowpatterns.ParallelSplitSynchronizationFlow;
 import io.superdurable.dex.patterns.workflowpatterns.PersistentTriggerFlow;
-import io.superdurable.dex.patterns.workflowpatterns.ReviewRegionFlow;
 import io.superdurable.dex.patterns.workflowpatterns.RunTimeMultipleInstancesFlow;
 import io.superdurable.dex.patterns.workflowpatterns.SequenceFlow;
 import io.superdurable.dex.patterns.workflowpatterns.StaticPartialJoinForMultipleInstancesFlow;
@@ -53,6 +54,8 @@ import io.superdurable.dex.patterns.workflowpatterns.StructuredLoopFlow;
 import io.superdurable.dex.patterns.workflowpatterns.StructuredPartialJoinFlow;
 import io.superdurable.dex.patterns.workflowpatterns.ThreadSplitMergeFlow;
 import io.superdurable.dex.patterns.workflowpatterns.TransientTriggerFlow;
+
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -62,7 +65,7 @@ import java.util.Map;
 final class WorkflowPatternFlows {
     private final Map<Class<?>, Flow<?>> flowsByClass = new LinkedHashMap<Class<?>, Flow<?>>();
 
-    WorkflowPatternFlows() {
+    WorkflowPatternFlows(final ObjectProvider<Client> clientProvider) {
         for (final Flow<?> flow : List.<Flow<?>>of(
                 new SequenceFlow(),
                 new ParallelSplitSynchronizationFlow(),
@@ -70,7 +73,6 @@ final class WorkflowPatternFlows {
                 new MultiChoiceSynchronizingMergeFlow(),
                 new MultiMergeFlow(),
                 new GeneralSynchronizingMergeFlow(),
-                new ReviewRegionFlow(),
                 new StructuredPartialJoinFlow(),
                 new BlockingPartialJoinFlow(),
                 new CancellingPartialJoinFlow(),
@@ -89,7 +91,8 @@ final class WorkflowPatternFlows {
                 new CriticalSectionFlow(),
                 new InterleavedRoutingFlow(),
                 new CancelTaskFlow(),
-                new CancelCaseFlow(),
+                new CancelCaseFlow(clientProvider),
+                new BackgroundCheckFlow(),
                 new CancelRegionFlow(),
                 new CancelMultipleInstanceTaskFlow(),
                 new CompleteMultipleInstanceTaskFlow(),

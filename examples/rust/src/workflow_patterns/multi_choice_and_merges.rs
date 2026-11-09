@@ -19,8 +19,8 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step, StepDecision,
-    StepList, StepMovement, SubFlow, Wait,
+    Attribute, Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step,
+    StepDecision, StepList, StepMovement, StepOptions, Value, Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -231,131 +231,208 @@ impl Step for RecordReview {
     }
 }
 
-/// WCP-38 General Synchronizing Merge: the region runs as a SubFlow, which
-/// completes once no Step in it can run, however often its cycle repeats.
+/// Which checks a document review runs and how its finance branch ends.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentReviewPlan {
+    pub is_legal_check_needed: bool,
+    pub is_finance_check_needed: bool,
+    pub finance_rework_rounds: u32,
+    pub is_finance_archived: bool,
+}
+
+/// One draft of the document under review.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentDraft {
+    pub plan: DocumentReviewPlan,
+    pub revision: u32,
+}
+
+static LIVE_BRANCH_COUNT: LazyLock<Attribute<i64>> =
+    LazyLock::new(|| Attribute::new("liveBranchCount"));
+static MERGED_REVIEWS: LazyLock<Attribute<Vec<String>>> =
+    LazyLock::new(|| Attribute::new("mergedReviews"));
+static MERGE_SENTINEL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("mergeSentinel"));
+
+/// WCP-38 General Synchronizing Merge: an Attribute counts the threads that
+/// can still reach the merge, and the commit that brings it to 0 publishes
+/// the sentinel the merge waits for.
 #[derive(Default)]
 pub struct GeneralSynchronizingMergeFlow {
-    run_review_region: RunReviewRegion,
-    publish_decision: PublishDecision,
+    start_document_review: StartDocumentReview,
+    draft_document: DraftDocument,
+    check_legal_terms: CheckLegalTerms,
+    check_finance_terms: CheckFinanceTerms,
+    archive_document: ArchiveDocument,
+    publish_document: PublishDocument,
 }
 
 impl Flow for GeneralSynchronizingMergeFlow {
-    type StartInput = ();
+    type StartInput = DocumentReviewPlan;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.run_review_region).and(&self.publish_decision)
+        StepList::start(&self.start_document_review)
+            .and(&self.draft_document)
+            .and(&self.check_legal_terms)
+            .and(&self.check_finance_terms)
+            .and(&self.archive_document)
+            .and(&self.publish_document)
     }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&LIVE_BRANCH_COUNT)
+            .attribute(&MERGED_REVIEWS)
+            .channel(&MERGE_SENTINEL)
+    }
+}
+
+/// Holds the lock on the live branch count for one Execute.
+fn live_branch_lock_options<Input: Value>() -> StepOptions<Input> {
+    StepOptions::new().execute_lock(LIVE_BRANCH_COUNT.lock())
+}
+
+/// Adds `delta` to the live branch count and publishes the sentinel when no
+/// thread can reach the merge any more.
+fn change_live_branch_count(context: &mut Context, delta: i64) -> HandlerResult<()> {
+    let live_branch_count = LIVE_BRANCH_COUNT.get(context)?.unwrap_or(0) + delta;
+    LIVE_BRANCH_COUNT.set(context, live_branch_count)?;
+    if live_branch_count == 0 {
+        MERGE_SENTINEL.publish(context, "done".to_string())?;
+    }
+    Ok(())
+}
+
+/// Records one arrival at the merge and retires its thread.
+fn record_merge_arrival(context: &mut Context, review: String) -> HandlerResult<()> {
+    let mut merged_reviews = MERGED_REVIEWS.get(context)?.unwrap_or_default();
+    merged_reviews.push(review);
+    MERGED_REVIEWS.set(context, merged_reviews)?;
+    change_live_branch_count(context, -1)
 }
 
 #[derive(Default)]
-struct RunReviewRegion;
+struct StartDocumentReview;
 
-impl Step for RunReviewRegion {
-    type Input = ();
+impl Step for StartDocumentReview {
+    type Input = DocumentReviewPlan;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        let region =
-            SubFlow::run(&ReviewRegionFlow::default(), 0).map_err(HandlerError::from_error)?;
-        Ok(Wait::until(region))
+    fn options(&self) -> StepOptions<Self::Input> {
+        live_branch_lock_options()
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let region_result = SubFlow::condition_result(context)?;
-        let outputs = region_result
-            .completions()
-            .iter()
-            .map(|completion| completion.decode::<String>())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(HandlerError::from_error)?;
-        Ok(StepDecision::go_to(&PublishDecision, sorted(outputs)))
-    }
-}
-
-#[derive(Default)]
-struct PublishDecision;
-
-impl Step for PublishDecision {
-    type Input = Vec<String>;
-
-    fn execute(&self, _context: &mut Context, outputs: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(outputs))
-    }
-}
-
-/// The SubFlow region of WCP-38: a review cycle that drafts a proposal
-/// again until its revision reaches 1, in parallel with translations.
-#[derive(Default)]
-pub struct ReviewRegionFlow {
-    draft_proposal: DraftProposal,
-    review_proposal: ReviewProposal,
-    translate_proposal: TranslateProposal,
-}
-
-impl Flow for ReviewRegionFlow {
-    type StartInput = i64;
-
-    fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.draft_proposal)
-            .and(&self.review_proposal)
-            .and(&self.translate_proposal)
-    }
-}
-
-const ACCEPTED_PROPOSAL_REVISION: i64 = 1;
-
-#[derive(Default)]
-struct DraftProposal;
-
-impl Step for DraftProposal {
-    type Input = i64;
-
-    fn execute(
-        &self,
-        _context: &mut Context,
-        revision: Self::Input,
-    ) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, plan: Self::Input) -> HandlerResult<StepDecision> {
+        LIVE_BRANCH_COUNT.set(context, 1)?;
         Ok(StepDecision::go_to_many([
-            StepMovement::to(&ReviewProposal, revision),
-            StepMovement::to(&TranslateProposal, revision),
+            StepMovement::to(&DraftDocument, DocumentDraft { plan, revision: 0 }),
+            StepMovement::to(&PublishDocument, ()),
         ]))
     }
 }
 
 #[derive(Default)]
-struct ReviewProposal;
+struct DraftDocument;
 
-impl Step for ReviewProposal {
-    type Input = i64;
+impl Step for DraftDocument {
+    type Input = DocumentDraft;
 
-    fn execute(
-        &self,
-        _context: &mut Context,
-        revision: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        if revision < ACCEPTED_PROPOSAL_REVISION {
-            return Ok(StepDecision::go_to(&DraftProposal, revision + 1));
+    fn options(&self) -> StepOptions<Self::Input> {
+        live_branch_lock_options()
+    }
+
+    fn execute(&self, context: &mut Context, draft: Self::Input) -> HandlerResult<StepDecision> {
+        let is_rework = draft.revision > 0;
+        let mut checks = Vec::new();
+        if is_rework || draft.plan.is_legal_check_needed {
+            checks.push(StepMovement::to(&CheckLegalTerms, draft.revision));
         }
-        Ok(StepDecision::graceful_complete(format!(
-            "{}-{revision}",
-            self.step_type()
-        )))
+        if is_rework || draft.plan.is_finance_check_needed {
+            checks.push(StepMovement::to(&CheckFinanceTerms, draft));
+        }
+        let selected_check_count = i64::try_from(checks.len()).map_err(HandlerError::from_error)?;
+        change_live_branch_count(context, selected_check_count - 1)?;
+        if checks.is_empty() {
+            return Ok(StepDecision::dead_end());
+        }
+        Ok(StepDecision::go_to_many(checks))
     }
 }
 
 #[derive(Default)]
-struct TranslateProposal;
+struct CheckLegalTerms;
 
-impl Step for TranslateProposal {
-    type Input = i64;
+impl Step for CheckLegalTerms {
+    type Input = u32;
 
-    fn execute(
-        &self,
-        _context: &mut Context,
-        revision: Self::Input,
-    ) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(format!(
-            "{}-{revision}",
-            self.step_type()
-        )))
+    fn options(&self) -> StepOptions<Self::Input> {
+        live_branch_lock_options()
+    }
+
+    fn execute(&self, context: &mut Context, revision: Self::Input) -> HandlerResult<StepDecision> {
+        record_merge_arrival(context, format!("{}-{revision}", self.step_type()))?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+#[derive(Default)]
+struct CheckFinanceTerms;
+
+impl Step for CheckFinanceTerms {
+    type Input = DocumentDraft;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        live_branch_lock_options()
+    }
+
+    fn execute(&self, context: &mut Context, draft: Self::Input) -> HandlerResult<StepDecision> {
+        if draft.revision < draft.plan.finance_rework_rounds {
+            return Ok(StepDecision::go_to(
+                &DraftDocument,
+                DocumentDraft {
+                    revision: draft.revision + 1,
+                    plan: draft.plan,
+                },
+            ));
+        }
+        if draft.plan.is_finance_archived {
+            change_live_branch_count(context, -1)?;
+            return Ok(StepDecision::go_to(&ArchiveDocument, ()));
+        }
+        record_merge_arrival(context, format!("{}-{}", self.step_type(), draft.revision))?;
+        Ok(StepDecision::dead_end())
+    }
+}
+
+#[derive(Default)]
+struct ArchiveDocument;
+
+impl Step for ArchiveDocument {
+    type Input = ();
+
+    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(
+            self.step_type().to_string(),
+        ))
+    }
+}
+
+#[derive(Default)]
+struct PublishDocument;
+
+impl Step for PublishDocument {
+    type Input = ();
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        live_branch_lock_options()
+    }
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(MERGE_SENTINEL.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let merged_reviews = MERGED_REVIEWS.get(context)?.unwrap_or_default();
+        Ok(StepDecision::graceful_complete(sorted(merged_reviews)))
     }
 }

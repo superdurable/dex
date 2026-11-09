@@ -16,10 +16,13 @@
 
 package io.superdurable.dex.patterns.workflowpatterns;
 
+import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -30,6 +33,10 @@ import org.springframework.stereotype.Component;
 /** WCP-13 Multiple Instances with Design-Time Knowledge: the Flow code fixes the instance count. */
 @Component
 public class DesignTimeMultipleInstancesFlow implements Flow<Void> {
+    public static final AttributeMap<Boolean> startedReviewers =
+            AttributeMap.define("startedReviewers", Boolean.class);
+    public static final Channel<String> reviewGateOpened =
+            Channel.define("reviewGateOpened", String.class);
     public static final Channel<String> reviewCompleted =
             Channel.define("reviewCompleted", String.class);
     private static final String[] DESIGN_TIME_REVIEWERS = {"legal", "finance", "security"};
@@ -45,7 +52,25 @@ public class DesignTimeMultipleInstancesFlow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(reviewCompleted);
+        return reviewPersistenceSchema();
+    }
+
+    static PersistenceSchema reviewPersistenceSchema() {
+        return PersistenceSchema.of(startedReviewers, reviewGateOpened, reviewCompleted);
+    }
+
+    /** Counts the ReviewDocument instances that are in flight at the gate. */
+    @RPC(loadAttributeMaps = {"startedReviewers"})
+    public RPCResult<Integer> getStartedDesignTimeReviewCount(final Context context) {
+        return RPCResult.of(DesignTimeMultipleInstancesFlow.startedReviewers.getMapSize(context));
+    }
+
+    /** Lets count waiting ReviewDocument instances finish. */
+    @RPC
+    public void openDesignTimeReviewGate(final Context context, final Integer count) {
+        for (int index = 0; index < count; index++) {
+            DesignTimeMultipleInstancesFlow.reviewGateOpened.publish(context, "opened");
+        }
     }
 
     static StepDecision startReviews(final String[] reviewers) {
@@ -73,6 +98,12 @@ public class DesignTimeMultipleInstancesFlow implements Flow<Void> {
         @Override
         public Class<String> getInputType() {
             return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String reviewer) {
+            startedReviewers.set(context, reviewer, true);
+            return Wait.until(reviewGateOpened.forOne());
         }
 
         @Override

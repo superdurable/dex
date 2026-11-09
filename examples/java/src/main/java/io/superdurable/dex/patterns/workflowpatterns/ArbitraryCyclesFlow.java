@@ -23,27 +23,29 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import org.springframework.stereotype.Component;
 
-/** WCP-10 Arbitrary Cycles: a cycle between two Steps with two entry points. */
+/** WCP-10 Arbitrary Cycles: a two-Step cycle with two entry points and two exit points. */
 @Component
 public class ArbitraryCyclesFlow implements Flow<ArbitraryCyclesFlow.ArticleSubmission> {
     private static final int FINAL_REVISION = 1;
 
-    /** Whether the submission already contains a draft. */
-    public record ArticleSubmission(boolean hasDraft) {
+    /** Whether the submission already contains a draft and whether to abandon it. */
+    public record ArticleSubmission(boolean hasDraft, boolean shouldAbandon) {
     }
 
-    /** The article revision and the Step types run so far. */
-    public record ArticleRevision(int revision, String[] trail) {
+    /** The article revision, the abandon choice, and the Step types run so far. */
+    public record ArticleRevision(int revision, boolean shouldAbandon, String[] trail) {
     }
 
     private final RouteSubmission routeSubmission = new RouteSubmission();
     private final DraftArticle draftArticle = new DraftArticle();
     private final EditArticle editArticle = new EditArticle();
     private final PublishArticle publishArticle = new PublishArticle();
+    private final AbandonArticle abandonArticle = new AbandonArticle();
 
     @Override
     public StepList<ArticleSubmission> getSteps() {
-        return StepList.startStep(routeSubmission).otherSteps(draftArticle, editArticle, publishArticle);
+        return StepList.startStep(routeSubmission)
+                .otherSteps(draftArticle, editArticle, publishArticle, abandonArticle);
     }
 
     static final class RouteSubmission implements Step<ArticleSubmission> {
@@ -54,7 +56,8 @@ public class ArbitraryCyclesFlow implements Flow<ArbitraryCyclesFlow.ArticleSubm
 
         @Override
         public StepDecision execute(final Context context, final ArticleSubmission submission) {
-            final ArticleRevision revision = new ArticleRevision(0, new String[] {getStepType()});
+            final ArticleRevision revision = new ArticleRevision(
+                    0, submission.shouldAbandon(), new String[] {getStepType()});
             if (submission.hasDraft()) {
                 return StepDecision.goTo(EditArticle.class, revision);
             }
@@ -70,10 +73,13 @@ public class ArbitraryCyclesFlow implements Flow<ArbitraryCyclesFlow.ArticleSubm
 
         @Override
         public StepDecision execute(final Context context, final ArticleRevision revision) {
+            final String[] trail = StepTrail.append(revision.trail(), getStepType());
+            if (revision.shouldAbandon() && revision.revision() >= FINAL_REVISION) {
+                return StepDecision.goTo(AbandonArticle.class, trail);
+            }
             return StepDecision.goTo(
                     EditArticle.class,
-                    new ArticleRevision(
-                            revision.revision(), StepTrail.append(revision.trail(), getStepType())));
+                    new ArticleRevision(revision.revision(), revision.shouldAbandon(), trail));
         }
     }
 
@@ -90,11 +96,24 @@ public class ArbitraryCyclesFlow implements Flow<ArbitraryCyclesFlow.ArticleSubm
                 return StepDecision.goTo(PublishArticle.class, trail);
             }
             return StepDecision.goTo(
-                    DraftArticle.class, new ArticleRevision(revision.revision() + 1, trail));
+                    DraftArticle.class,
+                    new ArticleRevision(revision.revision() + 1, revision.shouldAbandon(), trail));
         }
     }
 
     static final class PublishArticle implements Step<String[]> {
+        @Override
+        public Class<String[]> getInputType() {
+            return String[].class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String[] trail) {
+            return StepDecision.gracefulComplete(StepTrail.append(trail, getStepType()));
+        }
+    }
+
+    static final class AbandonArticle implements Step<String[]> {
         @Override
         public Class<String[]> getInputType() {
             return String[].class;

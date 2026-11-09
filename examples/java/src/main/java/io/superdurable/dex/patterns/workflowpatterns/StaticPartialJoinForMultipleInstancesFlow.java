@@ -17,6 +17,7 @@
 package io.superdurable.dex.patterns.workflowpatterns;
 
 import io.superdurable.dex.Channel;
+import io.superdurable.dex.ChannelMap;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -30,21 +31,26 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** WCP-34: the join fires after the required inspections; a reset Step absorbs the rest. */
+/** WCP-34: the join fires after the required inspections; a reset Step re-enables it. */
 @Component
 public class StaticPartialJoinForMultipleInstancesFlow
-        implements Flow<StaticPartialJoinForMultipleInstancesFlow.InspectionPlan> {
+        implements Flow<StaticPartialJoinForMultipleInstancesFlow.InspectionRound> {
     public static final Channel<String> inspectionReleased =
             Channel.define("inspectionReleased", String.class);
-    public static final Channel<Integer> unitInspected =
-            Channel.define("unitInspected", Integer.class);
+    public static final ChannelMap<Integer> unitInspected =
+            ChannelMap.define("unitInspected", Integer.class);
 
-    /** How many units to inspect and how many inspections approve the batch. */
-    public record InspectionPlan(int inspectionCount, int requiredInspections) {
+    /** One join round: the instances, the inspections it needs, its number, and the round count. */
+    public record InspectionRound(
+            int inspectionCount, int requiredInspections, int round, int roundCount) {
     }
 
-    /** The join thresholds: the inspections to accept and the inspections to absorb afterwards. */
-    public record InspectionJoin(int requiredInspections, int remainingInspections) {
+    /** One instance of a round. */
+    public record UnitInspection(int round, int unitIndex) {
+    }
+
+    /** The unit indexes a join or reset consumed in one round. */
+    public record InspectedUnits(int round, List<Integer> unitIndexes) {
     }
 
     private final StartInspections startInspections = new StartInspections();
@@ -54,7 +60,7 @@ public class StaticPartialJoinForMultipleInstancesFlow
     private final ResetInspectionJoin resetInspectionJoin = new ResetInspectionJoin();
 
     @Override
-    public StepList<InspectionPlan> getSteps() {
+    public StepList<InspectionRound> getSteps() {
         return StepList.startStep(startInspections)
                 .otherSteps(inspectUnit, acceptInspections, approveBatch, resetInspectionJoin);
     }
@@ -71,92 +77,110 @@ public class StaticPartialJoinForMultipleInstancesFlow
         }
     }
 
-    static final class StartInspections implements Step<InspectionPlan> {
+    private static List<Integer> sortedRoundIndexes(final Context context, final int round) {
+        return unitInspected.getConditionResults(context, JoinRoundInstance.of(round)).stream()
+                .sorted()
+                .toList();
+    }
+
+    static final class StartInspections implements Step<InspectionRound> {
         @Override
-        public Class<InspectionPlan> getInputType() {
-            return InspectionPlan.class;
+        public Class<InspectionRound> getInputType() {
+            return InspectionRound.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final InspectionPlan plan) {
-            final StepMovement<?>[] movements = new StepMovement<?>[plan.inspectionCount() + 1];
-            for (int index = 0; index < plan.inspectionCount(); index++) {
-                movements[index] = StepMovement.of(InspectUnit.class, index);
+        public StepDecision execute(final Context context, final InspectionRound inspectionRound) {
+            final int count = inspectionRound.inspectionCount();
+            final StepMovement<?>[] movements = new StepMovement<?>[count + 1];
+            for (int index = 0; index < count; index++) {
+                movements[index] = StepMovement.of(
+                        InspectUnit.class, new UnitInspection(inspectionRound.round(), index));
             }
-            movements[plan.inspectionCount()] = StepMovement.of(
-                    AcceptInspections.class,
-                    new InspectionJoin(
-                            plan.requiredInspections(),
-                            plan.inspectionCount() - plan.requiredInspections()));
+            movements[count] = StepMovement.of(AcceptInspections.class, inspectionRound);
             return StepDecision.goToMany(movements);
         }
     }
 
-    static final class InspectUnit implements Step<Integer> {
+    static final class InspectUnit implements Step<UnitInspection> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<UnitInspection> getInputType() {
+            return UnitInspection.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer unitIndex) {
+        public Wait waitFor(final Context context, final UnitInspection unit) {
             return Wait.until(inspectionReleased.forOne());
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer unitIndex) {
-            unitInspected.publish(context, unitIndex);
+        public StepDecision execute(final Context context, final UnitInspection unit) {
+            unitInspected.publish(context, JoinRoundInstance.of(unit.round()), unit.unitIndex());
             return StepDecision.deadEnd();
         }
     }
 
-    static final class AcceptInspections implements Step<InspectionJoin> {
+    static final class AcceptInspections implements Step<InspectionRound> {
         @Override
-        public Class<InspectionJoin> getInputType() {
-            return InspectionJoin.class;
+        public Class<InspectionRound> getInputType() {
+            return InspectionRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final InspectionJoin join) {
-            return Wait.until(unitInspected.forN(join.requiredInspections()));
+        public Wait waitFor(final Context context, final InspectionRound inspectionRound) {
+            return Wait.until(unitInspected.forN(
+                    JoinRoundInstance.of(inspectionRound.round()),
+                    inspectionRound.requiredInspections()));
         }
 
         @Override
-        public StepDecision execute(final Context context, final InspectionJoin join) {
-            final List<Integer> inspected = unitInspected.getConditionResults(context);
+        public StepDecision execute(final Context context, final InspectionRound inspectionRound) {
+            final InspectedUnits approved = new InspectedUnits(
+                    inspectionRound.round(), sortedRoundIndexes(context, inspectionRound.round()));
             return StepDecision.goToMany(
-                    StepMovement.of(ApproveBatch.class, inspected.toArray(new Integer[0])),
-                    StepMovement.of(ResetInspectionJoin.class, join.remainingInspections()));
+                    StepMovement.of(ApproveBatch.class, approved),
+                    StepMovement.of(ResetInspectionJoin.class, inspectionRound));
         }
     }
 
-    static final class ApproveBatch implements Step<Integer[]> {
+    static final class ApproveBatch implements Step<InspectedUnits> {
         @Override
-        public Class<Integer[]> getInputType() {
-            return Integer[].class;
+        public Class<InspectedUnits> getInputType() {
+            return InspectedUnits.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer[] unitIndexes) {
-            return StepDecision.gracefulComplete(List.of(unitIndexes).stream().sorted().toList());
+        public StepDecision execute(final Context context, final InspectedUnits approved) {
+            return StepDecision.gracefulComplete(approved);
         }
     }
 
-    static final class ResetInspectionJoin implements Step<Integer> {
+    static final class ResetInspectionJoin implements Step<InspectionRound> {
         @Override
-        public Class<Integer> getInputType() {
-            return Integer.class;
+        public Class<InspectionRound> getInputType() {
+            return InspectionRound.class;
         }
 
         @Override
-        public Wait waitFor(final Context context, final Integer remainingInspections) {
-            return Wait.until(unitInspected.forN(remainingInspections));
+        public Wait waitFor(final Context context, final InspectionRound inspectionRound) {
+            return Wait.until(unitInspected.forN(
+                    JoinRoundInstance.of(inspectionRound.round()),
+                    inspectionRound.inspectionCount() - inspectionRound.requiredInspections()));
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer remainingInspections) {
-            return StepDecision.gracefulComplete(
-                    unitInspected.getConditionResults(context).stream().sorted().toList());
+        public StepDecision execute(final Context context, final InspectionRound inspectionRound) {
+            if (inspectionRound.round() < inspectionRound.roundCount()) {
+                return StepDecision.goTo(
+                        StartInspections.class,
+                        new InspectionRound(
+                                inspectionRound.inspectionCount(),
+                                inspectionRound.requiredInspections(),
+                                inspectionRound.round() + 1,
+                                inspectionRound.roundCount()));
+            }
+            return StepDecision.gracefulComplete(new InspectedUnits(
+                    inspectionRound.round(), sortedRoundIndexes(context, inspectionRound.round())));
         }
     }
 }

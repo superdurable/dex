@@ -22,11 +22,12 @@ use serde::{Deserialize, Serialize};
 
 use super::extend_trail;
 
-/// Whether the author submits an existing draft.
+/// How the author submits an article.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArticleSubmission {
     pub has_draft: bool,
+    pub should_abandon: bool,
 }
 
 /// The current revision and the Step types run so far.
@@ -34,19 +35,21 @@ pub struct ArticleSubmission {
 #[serde(rename_all = "camelCase")]
 pub struct ArticleRevision {
     pub revision: u32,
+    pub should_abandon: bool,
     pub trail: Vec<String>,
 }
 
-const PUBLISHABLE_ARTICLE_REVISION: u32 = 1;
+const FINAL_ARTICLE_REVISION: u32 = 1;
 
-/// WCP-10 Arbitrary Cycles: the draft-edit cycle has two entry points, and
-/// GoTo may target a Step that already ran.
+/// WCP-10 Arbitrary Cycles: the draft-edit cycle has two entry points and
+/// two exit points, and GoTo may target a Step that already ran.
 #[derive(Default)]
 pub struct ArbitraryCyclesFlow {
     route_submission: RouteSubmission,
     draft_article: DraftArticle,
     edit_article: EditArticle,
     publish_article: PublishArticle,
+    abandon_article: AbandonArticle,
 }
 
 impl Flow for ArbitraryCyclesFlow {
@@ -57,6 +60,7 @@ impl Flow for ArbitraryCyclesFlow {
             .and(&self.draft_article)
             .and(&self.edit_article)
             .and(&self.publish_article)
+            .and(&self.abandon_article)
     }
 }
 
@@ -73,6 +77,7 @@ impl Step for RouteSubmission {
     ) -> HandlerResult<StepDecision> {
         let revision = ArticleRevision {
             revision: 0,
+            should_abandon: submission.should_abandon,
             trail: vec![self.step_type().to_string()],
         };
         if submission.has_draft {
@@ -93,12 +98,13 @@ impl Step for DraftArticle {
         _context: &mut Context,
         revision: Self::Input,
     ) -> HandlerResult<StepDecision> {
+        let trail = extend_trail(revision.trail, self.step_type());
+        if revision.should_abandon && revision.revision >= FINAL_ARTICLE_REVISION {
+            return Ok(StepDecision::go_to(&AbandonArticle, trail));
+        }
         Ok(StepDecision::go_to(
             &EditArticle,
-            ArticleRevision {
-                revision: revision.revision,
-                trail: extend_trail(revision.trail, self.step_type()),
-            },
+            ArticleRevision { trail, ..revision },
         ))
     }
 }
@@ -115,13 +121,14 @@ impl Step for EditArticle {
         revision: Self::Input,
     ) -> HandlerResult<StepDecision> {
         let trail = extend_trail(revision.trail, self.step_type());
-        if revision.revision >= PUBLISHABLE_ARTICLE_REVISION {
+        if revision.revision >= FINAL_ARTICLE_REVISION {
             return Ok(StepDecision::go_to(&PublishArticle, trail));
         }
         Ok(StepDecision::go_to(
             &DraftArticle,
             ArticleRevision {
                 revision: revision.revision + 1,
+                should_abandon: revision.should_abandon,
                 trail,
             },
         ))
@@ -142,19 +149,34 @@ impl Step for PublishArticle {
     }
 }
 
+#[derive(Default)]
+struct AbandonArticle;
+
+impl Step for AbandonArticle {
+    type Input = Vec<String>;
+
+    fn execute(&self, _context: &mut Context, trail: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(extend_trail(
+            trail,
+            self.step_type(),
+        )))
+    }
+}
+
 /// The batches still to process and those already processed.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchProgress {
     pub remaining_batches: u32,
-    pub processed_batches: u32,
+    pub processed_batches: Vec<String>,
 }
 
-/// WCP-21 Structured Loop: the Step tests its condition before each
-/// iteration and moves to itself until no batch remains.
+/// WCP-21 Structured Loop: a pre-test Step moves to the loop body or the
+/// exit, and the body moves back to the test.
 #[derive(Default)]
 pub struct StructuredLoopFlow {
-    process_batches: ProcessBatches,
+    check_batches: CheckBatches,
+    process_batch: ProcessBatch,
     finish_batches: FinishBatches,
 }
 
@@ -162,14 +184,16 @@ impl Flow for StructuredLoopFlow {
     type StartInput = BatchProgress;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.process_batches).and(&self.finish_batches)
+        StepList::start(&self.check_batches)
+            .and(&self.process_batch)
+            .and(&self.finish_batches)
     }
 }
 
 #[derive(Default)]
-struct ProcessBatches;
+struct CheckBatches;
 
-impl Step for ProcessBatches {
+impl Step for CheckBatches {
     type Input = BatchProgress;
 
     fn execute(
@@ -183,11 +207,29 @@ impl Step for ProcessBatches {
                 progress.processed_batches,
             ));
         }
+        Ok(StepDecision::go_to(&ProcessBatch, progress))
+    }
+}
+
+#[derive(Default)]
+struct ProcessBatch;
+
+impl Step for ProcessBatch {
+    type Input = BatchProgress;
+
+    fn execute(
+        &self,
+        _context: &mut Context,
+        mut progress: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        progress
+            .processed_batches
+            .push(format!("batch-{}", progress.remaining_batches));
         Ok(StepDecision::go_to(
-            &ProcessBatches,
+            &CheckBatches,
             BatchProgress {
                 remaining_batches: progress.remaining_batches - 1,
-                processed_batches: progress.processed_batches + 1,
+                processed_batches: progress.processed_batches,
             },
         ))
     }
@@ -197,7 +239,7 @@ impl Step for ProcessBatches {
 struct FinishBatches;
 
 impl Step for FinishBatches {
-    type Input = u32;
+    type Input = Vec<String>;
 
     fn execute(
         &self,

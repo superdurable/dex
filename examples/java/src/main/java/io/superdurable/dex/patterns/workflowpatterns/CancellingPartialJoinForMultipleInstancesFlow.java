@@ -21,6 +21,7 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -39,6 +40,8 @@ public class CancellingPartialJoinForMultipleInstancesFlow
             Channel.define("quorumInspectionReleased", String.class);
     public static final Channel<Integer> quorumUnitInspected =
             Channel.define("quorumUnitInspected", Integer.class);
+    public static final Channel<String> quorumCertified =
+            Channel.define("quorumCertified", String.class);
 
     /** How many units to inspect and how many inspections form a quorum. */
     public record QuorumInspectionPlan(int inspectionCount, int requiredInspections) {
@@ -47,16 +50,28 @@ public class CancellingPartialJoinForMultipleInstancesFlow
     private final StartQuorumInspections startQuorumInspections = new StartQuorumInspections();
     private final InspectQuorumUnit inspectQuorumUnit = new InspectQuorumUnit();
     private final AcceptQuorumInspections acceptQuorumInspections = new AcceptQuorumInspections();
+    private final CertifyQuorum certifyQuorum = new CertifyQuorum();
 
     @Override
     public StepList<QuorumInspectionPlan> getSteps() {
         return StepList.startStep(startQuorumInspections)
-                .otherSteps(inspectQuorumUnit, acceptQuorumInspections);
+                .otherSteps(inspectQuorumUnit, acceptQuorumInspections, certifyQuorum);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(quorumInspectionReleased, quorumUnitInspected);
+        return PersistenceSchema.of(quorumInspectionReleased, quorumUnitInspected, quorumCertified);
+    }
+
+    /** Counts unconsumed releases, which proves no late instance ran. */
+    @RPC(loadChannels = {"quorumInspectionReleased"})
+    public RPCResult<Integer> getQueuedQuorumReleaseCount(final Context context) {
+        return RPCResult.of(quorumInspectionReleased.size(context));
+    }
+
+    @RPC
+    public void certifyQuorum(final Context context) {
+        quorumCertified.publish(context, "certified");
     }
 
     @RPC
@@ -116,9 +131,28 @@ public class CancellingPartialJoinForMultipleInstancesFlow
         @Override
         @SuppressWarnings("unchecked")
         public StepDecision execute(final Context context, final Integer requiredInspections) {
-            return StepDecision.gracefulComplete(
-                            quorumUnitInspected.getConditionResults(context).stream().sorted().toList())
+            final Integer[] unitIndexes = quorumUnitInspected.getConditionResults(context).stream()
+                    .sorted()
+                    .toArray(Integer[]::new);
+            return StepDecision.goTo(CertifyQuorum.class, unitIndexes)
                     .withCancelingSteps(InspectQuorumUnit.class);
+        }
+    }
+
+    static final class CertifyQuorum implements Step<Integer[]> {
+        @Override
+        public Class<Integer[]> getInputType() {
+            return Integer[].class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final Integer[] unitIndexes) {
+            return Wait.until(quorumCertified.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer[] unitIndexes) {
+            return StepDecision.gracefulComplete(unitIndexes);
         }
     }
 }

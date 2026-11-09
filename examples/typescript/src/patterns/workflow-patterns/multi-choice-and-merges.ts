@@ -349,6 +349,10 @@ class PublishDocument implements Step<void> {
     return "PublishDocument";
   }
 
+  public getStepOptions(): StepOptions {
+    return liveBranchCountLock;
+  }
+
   public waitFor(_context: Context, _input: void): Wait {
     return Wait.until(mergeSentinel.forOne());
   }

@@ -17,6 +17,7 @@
 package io.superdurable.dex.patterns.workflowpatterns;
 
 import io.superdurable.dex.Attribute;
+import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
@@ -26,6 +27,7 @@ import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
@@ -40,18 +42,22 @@ public class TransientTriggerFlow implements Flow<Void> {
     public static final Channel<String> motionSensorArmed =
             Channel.define("motionSensorArmed", String.class);
     public static final Channel<Integer> motionEvent = Channel.define("motionEvent", Integer.class);
+    public static final Channel<String> motionMonitoringStopped =
+            Channel.define("motionMonitoringStopped", String.class);
 
     private final AwaitMotionSensorArmed awaitMotionSensorArmed = new AwaitMotionSensorArmed();
     private final AwaitMotionEvent awaitMotionEvent = new AwaitMotionEvent();
+    private final AwaitMonitoringStop awaitMonitoringStop = new AwaitMonitoringStop();
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(awaitMotionSensorArmed).otherSteps(awaitMotionEvent);
+        return StepList.startStep(awaitMotionSensorArmed).otherSteps(awaitMotionEvent, awaitMonitoringStop);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(isAwaitingMotionEvent, motionSensorArmed, motionEvent);
+        return PersistenceSchema.of(
+                isAwaitingMotionEvent, motionSensorArmed, motionEvent, motionMonitoringStopped);
     }
 
     @RPC
@@ -59,12 +65,19 @@ public class TransientTriggerFlow implements Flow<Void> {
         motionSensorArmed.publish(context, "armed");
     }
 
-    /** Delivers the event only while a Step waits for it; otherwise drops it and returns false. */
     @RPC
+    public void stopMotionMonitoring(final Context context) {
+        motionMonitoringStopped.publish(context, "stopped");
+    }
+
+    /** Delivers one event while a Step waits for it; otherwise drops it and returns false. */
+    @RPC(lockAttributes = {"isAwaitingMotionEvent"})
     public RPCResult<Boolean> sendMotionEvent(final Context context, final Integer value) {
         if (!Boolean.TRUE.equals(isAwaitingMotionEvent.get(context))) {
             return RPCResult.of(false);
         }
+        // Clearing the guard in this locked commit accepts only the first trigger.
+        isAwaitingMotionEvent.set(context, false);
         motionEvent.publish(context, value);
         return RPCResult.of(true);
     }
@@ -93,6 +106,13 @@ public class TransientTriggerFlow implements Flow<Void> {
         }
 
         @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addWaitForLock(AttributeLock.of(isAwaitingMotionEvent))
+                    .build();
+        }
+
+        @Override
         public Wait waitFor(final Context context, final Void input) {
             isAwaitingMotionEvent.set(context, true);
             return Wait.until(motionEvent.forOne());
@@ -100,8 +120,25 @@ public class TransientTriggerFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            isAwaitingMotionEvent.set(context, false);
-            return StepDecision.gracefulComplete(motionEvent.getConditionResults(context).get(0));
+            return StepDecision.goTo(
+                    AwaitMonitoringStop.class, motionEvent.getConditionResults(context).get(0));
+        }
+    }
+
+    static final class AwaitMonitoringStop implements Step<Integer> {
+        @Override
+        public Class<Integer> getInputType() {
+            return Integer.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final Integer motionValue) {
+            return Wait.until(motionMonitoringStopped.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer motionValue) {
+            return StepDecision.gracefulComplete(motionValue);
         }
     }
 }
