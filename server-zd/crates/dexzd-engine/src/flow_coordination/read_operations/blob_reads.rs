@@ -11,10 +11,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_apply::FlowStateReader;
-use dexzd_apply::read_model::{OffloadedValueLocation, locate_offloaded_value};
+use dexzd_apply::read_model::{OffloadedReference, OffloadedValueLocation, locate_offloaded_value};
 use dexzd_keyspace::row_keys::history_offload_mode_key;
 use dexzd_keyspace::{
-    ColumnFamily, PartitionId, RunId, RunTable, TenantId, ValueReference, run_key,
+    ColumnFamily, PartitionId, RunId, RunTable, TenantId, ValueId, ValueReference, run_key,
 };
 use dexzd_protocol::dex::{
     LoadBlobRequestEntry, LoadBlobsRequest, LoadBlobsResponse, Value, value,
@@ -90,6 +90,48 @@ impl FlowCoordinatorRegistry {
             self.load_uploaded_blobs(uploaded, &mut values).await?;
         }
         Ok(LoadBlobsResponse { values })
+    }
+
+    /// Reads the run's offloaded values in `offloaded` from the disk read cache or object
+    /// storage, keyed by value ID. No committed view is held while object storage is read.
+    ///
+    /// A value whose run was purged or whose object went missing while the window passed it is
+    /// left out. Returns `UNAVAILABLE` when object storage fails or lacks an uploaded segment.
+    pub(crate) async fn read_offloaded_values(
+        &self,
+        flow: &FlowAddress,
+        run_id: RunId,
+        offloaded: &[OffloadedReference],
+    ) -> Result<BTreeMap<ValueId, Value>, FlowCoordinationError> {
+        let entries: Vec<BlobEntry> = offloaded
+            .iter()
+            .map(|reference| {
+                let reference = ValueReference {
+                    run_id,
+                    value_id: reference.value_id,
+                };
+                BlobEntry {
+                    reference_text: reference.to_string(),
+                    flow: flow.clone(),
+                    reference,
+                }
+            })
+            .collect();
+        let uploaded = entries
+            .iter()
+            .zip(offloaded)
+            .map(|(entry, reference)| (entry, reference.segment.clone()))
+            .collect();
+        let mut values = BTreeMap::new();
+        self.load_uploaded_blobs(uploaded, &mut values).await?;
+        Ok(entries
+            .iter()
+            .filter_map(|entry| {
+                values
+                    .remove(&entry.reference_text)
+                    .map(|value| (entry.reference.value_id, value))
+            })
+            .collect())
     }
 
     /// Finds each entry's value on one committed view, which is released before this returns.

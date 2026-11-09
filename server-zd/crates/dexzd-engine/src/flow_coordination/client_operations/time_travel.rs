@@ -617,8 +617,8 @@ impl TimeTravelSegmentReads {
                 ErrorSubStatus::Uncategorized,
                 format!(
                     "time travel of flow {} needs more than {} bytes of memory to hold the \
-                     history it reads from object storage; choose a later target point, travel \
-                     without reapplying writes, or raise history.timeTravelReplayMemoryBytes",
+                     history it reads from object storage; choose a later target point, set \
+                     skip_writes_reapply to true, or raise history.timeTravelReplayMemoryBytes",
                     flow.flow_id, self.max_loaded_bytes
                 ),
             ));

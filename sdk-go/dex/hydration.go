@@ -55,6 +55,9 @@ type pendingBlob struct {
 	valueDescriptions []string
 }
 
+// The server rejects more than 1000 entries while history offload is on.
+const maxLoadBlobsEntries = 1000
+
 func newValueHydrator(
 	client dexpb.FlowServiceClient,
 	cache *blobcache.Cache,
@@ -202,6 +205,7 @@ func (hydrator *valueHydratorImpl) hydrateBlobValues(
 }
 
 // loadBlobValues returns the hydrated values keyed by blob ID.
+// Each request holds at most 1000 entries.
 // A batch whose response exceeds a gRPC message size limit is split in half,
 // so N misses take at most 2N-1 LoadBlobs calls.
 // It returns a BlobMessageTooLargeError when one blob alone exceeds the limit.
@@ -209,6 +213,17 @@ func (hydrator *valueHydratorImpl) loadBlobValues(
 	ctx context.Context,
 	misses []*pendingBlob,
 ) (map[string]*dexpb.Value, error) {
+	if len(misses) > maxLoadBlobsEntries {
+		values := make(map[string]*dexpb.Value, len(misses))
+		for start := 0; start < len(misses); start += maxLoadBlobsEntries {
+			batchValues, err := hydrator.loadBlobValues(ctx, misses[start:min(start+maxLoadBlobsEntries, len(misses))])
+			if err != nil {
+				return nil, err
+			}
+			maps.Copy(values, batchValues)
+		}
+		return values, nil
+	}
 	entries := make([]*dexpb.LoadBlobRequestEntry, 0, len(misses))
 	for _, miss := range misses {
 		entries = append(entries, &dexpb.LoadBlobRequestEntry{

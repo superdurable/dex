@@ -10,6 +10,8 @@ package command
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,6 +30,7 @@ type sizeLimitedBlobClient struct {
 	tooLarge         func(size int) error
 	failure          error
 	batchSizes       []int
+	batches          [][]string
 }
 
 func (client *sizeLimitedBlobClient) LoadBlobs(
@@ -39,6 +42,11 @@ func (client *sizeLimitedBlobClient) LoadBlobs(
 	if client.failure != nil {
 		return nil, client.failure
 	}
+	blobIDs := make([]string, 0, len(request.Entries))
+	for _, entry := range request.Entries {
+		blobIDs = append(blobIDs, loadBlobEntryID(entry))
+	}
+	client.batches = append(client.batches, blobIDs)
 	response := &dexpb.LoadBlobsResponse{Values: map[string]*dexpb.Value{}}
 	for _, entry := range request.GetEntries() {
 		blobID := loadBlobEntryID(entry)
@@ -151,6 +159,59 @@ func TestHydrateBlobReferencesReturnsErrorsOtherThanMessageSizeWithoutSplitting(
 			}
 			if len(client.batchSizes) != 1 {
 				t.Errorf("batches = %v, want one call without splitting", client.batchSizes)
+			}
+		})
+	}
+}
+
+func TestLoadBlobValuesCountBatchesPreserveSizeSplitting(t *testing.T) {
+	for _, hasSizeFailure := range []bool{false, true} {
+		t.Run(fmt.Sprint(hasSizeFailure), func(t *testing.T) {
+			entries := make([]*dexpb.LoadBlobRequestEntry, 2500)
+			client := &sizeLimitedBlobClient{
+				blobs:            make(map[string]*dexpb.Value),
+				maxResponseBytes: 60000,
+				tooLarge: func(size int) error {
+					return status.Errorf(codes.ResourceExhausted, "message larger than max: %d", size)
+				},
+			}
+			for index := range entries {
+				blobID := fmt.Sprintf("blob-%d", index)
+				entries[index] = &dexpb.LoadBlobRequestEntry{
+					FlowId: "flow", BlobValue: &dexpb.Value{
+						Kind: &dexpb.Value_InternalBlobIdForStringValue{InternalBlobIdForStringValue: blobID},
+					},
+				}
+				payload := blobID
+				if hasSizeFailure && index >= 1000 && index < 2000 {
+					payload = strings.Repeat("v", 100)
+				}
+				client.blobs[blobID] = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: payload}}
+			}
+			values, unavailable, err := loadBlobValues(context.Background(), client, entries)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(values) != 2500 || len(unavailable) != 0 {
+				t.Fatalf("values=%d unavailable=%v", len(values), unavailable)
+			}
+			for blobID, expected := range client.blobs {
+				if !proto.Equal(expected, values[blobID]) {
+					t.Fatalf("wrong value for %s", blobID)
+				}
+			}
+			expectedRanges := [][2]int{{0, 1000}, {1000, 2000}, {2000, 2500}}
+			if hasSizeFailure {
+				expectedRanges = [][2]int{{0, 1000}, {1000, 2000}, {1000, 1500}, {1500, 2000}, {2000, 2500}}
+			}
+			expectedBatches := make([][]string, len(expectedRanges))
+			for index, bounds := range expectedRanges {
+				for offset := bounds[0]; offset < bounds[1]; offset++ {
+					expectedBatches[index] = append(expectedBatches[index], fmt.Sprintf("blob-%d", offset))
+				}
+			}
+			if !reflect.DeepEqual(expectedBatches, client.batches) {
+				t.Fatalf("unexpected request order or batch sizes")
 			}
 		})
 	}

@@ -203,6 +203,18 @@ class LimitedBlobService:
         return response
 
 
+class SecondChunkFailingBlobService(LimitedBlobService):
+    def __init__(self, error: grpc.RpcError) -> None:
+        super().__init__(1000)
+        self.error = error
+
+    def LoadBlobs(self, request: pb.LoadBlobsRequest) -> pb.LoadBlobsResponse:
+        if len(self.requested_blob_ids) == 1:
+            record_request(self.requested_blob_ids, request)
+            raise self.error
+        return super().LoadBlobs(request)
+
+
 class AsyncLimitedBlobService(LimitedBlobService):
     async def LoadBlobs(  # type: ignore[override]
         self, request: pb.LoadBlobsRequest
@@ -427,3 +439,56 @@ def test_other_failures_are_not_split(tmp_path: Path, error: FakeRpcError) -> No
         hydrator.hydrate_all("flow", blob_values(3))
     assert raised.value is error
     assert [len(blob_ids) for blob_ids in service.requested_blob_ids] == [3]
+
+
+@pytest.mark.parametrize("max_blobs", [1000, 500])
+@pytest.mark.parametrize("is_async", [False, True])
+def test_count_batches_preserve_order_and_size_splitting(
+    tmp_path: Path, max_blobs: int, is_async: bool
+) -> None:
+    service = (
+        AsyncLimitedBlobService(max_blobs)
+        if is_async
+        else LimitedBlobService(max_blobs)
+    )
+    if is_async:
+        async_hydrator = AsyncValueHydrator(service, open_cache(tmp_path))  # type: ignore[arg-type]
+        hydrated = asyncio.run(async_hydrator.hydrate_all("flow", blob_values(2500)))
+    else:
+        hydrator = ValueHydrator(service, open_cache(tmp_path))  # type: ignore[arg-type]
+        hydrated = hydrator.hydrate_all("flow", blob_values(2500))
+    expected_ranges = [(0, 1000), (1000, 2000), (2000, 2500)]
+    if max_blobs == 500:
+        expected_ranges = [
+            (0, 1000),
+            (0, 500),
+            (500, 1000),
+            (1000, 2000),
+            (1000, 1500),
+            (1500, 2000),
+            (2000, 2500),
+        ]
+    assert service.requested_blob_ids == [
+        [f"blob-{index}" for index in range(start, end)]
+        for start, end in expected_ranges
+    ]
+    assert [value.string_value for value in hydrated] == [
+        f"value-blob-{index}" for index in range(2500)
+    ]
+
+
+def test_second_chunk_failure_returns_no_partial_results(tmp_path: Path) -> None:
+    error = FakeRpcError(grpc.StatusCode.UNAVAILABLE, "second chunk unavailable")
+    service = SecondChunkFailingBlobService(error)
+    hydrator = ValueHydrator(service, open_cache(tmp_path))  # type: ignore[arg-type]
+    values = blob_values(2500)
+    original = [value.SerializeToString() for value in values]
+    hydrated = None
+    with pytest.raises(grpc.RpcError) as raised:
+        hydrated = hydrator.hydrate_all("flow", values)
+    assert raised.value is error
+    assert hydrated is None
+    assert service.requested_blob_ids == [
+        [f"blob-{index}" for index in range(start, start + 1000)] for start in (0, 1000)
+    ]
+    assert [value.SerializeToString() for value in values] == original

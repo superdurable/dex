@@ -560,6 +560,8 @@ fn settings(history_window_events: u32, checkpoint_command_threshold: u32) -> Ru
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 4 << 20,
+        delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
     }
 }
 
@@ -897,11 +899,13 @@ impl Harness {
         (response.pruned_event_id_range, reader.take_history_reads())
     }
 
-    /// The removed event IDs according to the History rows still stored.
+    /// The event IDs before the window start W after FlowStart, according to the History rows.
     fn reference_pruned_range(&self) -> Option<HistoryEventIdRange> {
         let records = self.history_records();
+        let window_start_seq = self.run_record().window_start_seq;
         let first_kept_event_id = records[1..]
             .iter()
+            .filter(|record| record.seq >= window_start_seq)
             .find_map(|record| record.events.first())
             .map_or(self.run_record().next_event_id, |event| event.event_id);
         let end_event_id = first_kept_event_id - 1;
@@ -993,6 +997,32 @@ fn an_unmoved_window_reports_no_range_without_history_reads() {
     assert_eq!(range, None);
     assert_eq!(reads.calls, 0);
     assert_eq!(harness.run_record().max_pruned_event_id, 0);
+}
+
+#[test]
+fn history_event_waits_skip_records_before_the_window_start_without_the_watermark() {
+    // A checkpoint every 7 commands keeps records before W that rebuild it.
+    let mut harness = Harness::new(settings(20, 7));
+    for _ in 0..30 {
+        harness.append_round(2);
+    }
+    let mut run = harness.run_record();
+    let first_kept_seq = harness.history_records()[1].seq;
+    assert!(
+        first_kept_seq < run.window_start_seq,
+        "records before W rebuild it"
+    );
+    run.max_pruned_event_id = 0;
+    let run_key = run_singleton_key(
+        harness.context.flow_hash,
+        harness.run_id,
+        RunTable::RunRecord,
+    );
+    harness
+        .state
+        .rows
+        .insert((ColumnFamily::Flow, run_key), run.encode_to_vec());
+    harness.assert_history_event_waits_match_oracle("a run without the watermark");
 }
 
 #[test]

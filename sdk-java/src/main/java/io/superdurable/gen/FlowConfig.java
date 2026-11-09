@@ -304,6 +304,85 @@ private static final long serialVersionUID = 0L;
     return historyWindowEvents_;
   }
 
+  public static final int DELETE_EXPIRED_HISTORY_OBJECTS_FIELD_NUMBER = 8;
+  private boolean deleteExpiredHistoryObjects_ = false;
+  /**
+   * <pre>
+   * Whether Dex deletes the run's history objects from object storage once the history window
+   * has passed them.
+   *
+   * It applies only while the server offloads run history to object storage, which the
+   * server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+   * objects. Once the window passes a whole segment, no read returns its events or values any
+   * more. When this is true, Dex deletes such a segment's object about one hour later. When it
+   * is false, the object stays in object storage until the run is deleted after its retention.
+   * Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+   * true for dev and local servers and to false otherwise. The run records that default when it
+   * starts.
+   *
+   * Set it to true for a run whose old history must not stay in object storage, such as a
+   * long-running session that holds sensitive values. A run that never closes otherwise keeps
+   * every history object it ever wrote. Set it to false to keep old history objects for audit
+   * or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+   * that the window passed, whatever this value is.
+   *
+   * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+   * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+   * window already passed. Changing it from true to false stops the deletions that have not
+   * started; a deletion request already sent to object storage may still complete, and objects
+   * already deleted never come back. Once set, the value can be changed
+   * but not cleared back to the server default. A child Flow inherits it from its parent unless
+   * its own override sets it.
+   *
+   * Since server-zd 0.1.22.
+   * </pre>
+   *
+   * <code>optional bool delete_expired_history_objects = 8;</code>
+   * @return Whether the deleteExpiredHistoryObjects field is set.
+   */
+  @java.lang.Override
+  public boolean hasDeleteExpiredHistoryObjects() {
+    return ((bitField0_ & 0x00000080) != 0);
+  }
+  /**
+   * <pre>
+   * Whether Dex deletes the run's history objects from object storage once the history window
+   * has passed them.
+   *
+   * It applies only while the server offloads run history to object storage, which the
+   * server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+   * objects. Once the window passes a whole segment, no read returns its events or values any
+   * more. When this is true, Dex deletes such a segment's object about one hour later. When it
+   * is false, the object stays in object storage until the run is deleted after its retention.
+   * Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+   * true for dev and local servers and to false otherwise. The run records that default when it
+   * starts.
+   *
+   * Set it to true for a run whose old history must not stay in object storage, such as a
+   * long-running session that holds sensitive values. A run that never closes otherwise keeps
+   * every history object it ever wrote. Set it to false to keep old history objects for audit
+   * or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+   * that the window passed, whatever this value is.
+   *
+   * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+   * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+   * window already passed. Changing it from true to false stops the deletions that have not
+   * started; a deletion request already sent to object storage may still complete, and objects
+   * already deleted never come back. Once set, the value can be changed
+   * but not cleared back to the server default. A child Flow inherits it from its parent unless
+   * its own override sets it.
+   *
+   * Since server-zd 0.1.22.
+   * </pre>
+   *
+   * <code>optional bool delete_expired_history_objects = 8;</code>
+   * @return The deleteExpiredHistoryObjects.
+   */
+  @java.lang.Override
+  public boolean getDeleteExpiredHistoryObjects() {
+    return deleteExpiredHistoryObjects_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -339,6 +418,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000040) != 0)) {
       output.writeInt32(7, historyWindowEvents_);
     }
+    if (((bitField0_ & 0x00000080) != 0)) {
+      output.writeBool(8, deleteExpiredHistoryObjects_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -370,6 +452,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000040) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(7, historyWindowEvents_);
+    }
+    if (((bitField0_ & 0x00000080) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(8, deleteExpiredHistoryObjects_);
     }
     return size;
   }
@@ -428,6 +514,11 @@ private static final long serialVersionUID = 0L;
       if (getHistoryWindowEvents()
           != other.getHistoryWindowEvents()) return false;
     }
+    if (hasDeleteExpiredHistoryObjects() != other.hasDeleteExpiredHistoryObjects()) return false;
+    if (hasDeleteExpiredHistoryObjects()) {
+      if (getDeleteExpiredHistoryObjects()
+          != other.getDeleteExpiredHistoryObjects()) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -466,6 +557,11 @@ private static final long serialVersionUID = 0L;
     if (hasHistoryWindowEvents()) {
       hash = (37 * hash) + HISTORY_WINDOW_EVENTS_FIELD_NUMBER;
       hash = (53 * hash) + getHistoryWindowEvents();
+    }
+    if (hasDeleteExpiredHistoryObjects()) {
+      hash = (37 * hash) + DELETE_EXPIRED_HISTORY_OBJECTS_FIELD_NUMBER;
+      hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+          getDeleteExpiredHistoryObjects());
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -620,6 +716,7 @@ private static final long serialVersionUID = 0L;
         attributeStoreNamesBuilder_ = null;
       }
       historyWindowEvents_ = 0;
+      deleteExpiredHistoryObjects_ = false;
       return this;
     }
 
@@ -686,6 +783,10 @@ private static final long serialVersionUID = 0L;
         result.historyWindowEvents_ = historyWindowEvents_;
         to_bitField0_ |= 0x00000040;
       }
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.deleteExpiredHistoryObjects_ = deleteExpiredHistoryObjects_;
+        to_bitField0_ |= 0x00000080;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -721,6 +822,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasHistoryWindowEvents()) {
         setHistoryWindowEvents(other.getHistoryWindowEvents());
+      }
+      if (other.hasDeleteExpiredHistoryObjects()) {
+        setDeleteExpiredHistoryObjects(other.getDeleteExpiredHistoryObjects());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -787,6 +891,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000040;
               break;
             } // case 56
+            case 64: {
+              deleteExpiredHistoryObjects_ = input.readBool();
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 64
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1480,6 +1589,166 @@ private static final long serialVersionUID = 0L;
     public Builder clearHistoryWindowEvents() {
       bitField0_ = (bitField0_ & ~0x00000040);
       historyWindowEvents_ = 0;
+      onChanged();
+      return this;
+    }
+
+    private boolean deleteExpiredHistoryObjects_ ;
+    /**
+     * <pre>
+     * Whether Dex deletes the run's history objects from object storage once the history window
+     * has passed them.
+     *
+     * It applies only while the server offloads run history to object storage, which the
+     * server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+     * objects. Once the window passes a whole segment, no read returns its events or values any
+     * more. When this is true, Dex deletes such a segment's object about one hour later. When it
+     * is false, the object stays in object storage until the run is deleted after its retention.
+     * Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+     * true for dev and local servers and to false otherwise. The run records that default when it
+     * starts.
+     *
+     * Set it to true for a run whose old history must not stay in object storage, such as a
+     * long-running session that holds sensitive values. A run that never closes otherwise keeps
+     * every history object it ever wrote. Set it to false to keep old history objects for audit
+     * or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+     * that the window passed, whatever this value is.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+     * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+     * window already passed. Changing it from true to false stops the deletions that have not
+     * started; a deletion request already sent to object storage may still complete, and objects
+     * already deleted never come back. Once set, the value can be changed
+     * but not cleared back to the server default. A child Flow inherits it from its parent unless
+     * its own override sets it.
+     *
+     * Since server-zd 0.1.22.
+     * </pre>
+     *
+     * <code>optional bool delete_expired_history_objects = 8;</code>
+     * @return Whether the deleteExpiredHistoryObjects field is set.
+     */
+    @java.lang.Override
+    public boolean hasDeleteExpiredHistoryObjects() {
+      return ((bitField0_ & 0x00000080) != 0);
+    }
+    /**
+     * <pre>
+     * Whether Dex deletes the run's history objects from object storage once the history window
+     * has passed them.
+     *
+     * It applies only while the server offloads run history to object storage, which the
+     * server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+     * objects. Once the window passes a whole segment, no read returns its events or values any
+     * more. When this is true, Dex deletes such a segment's object about one hour later. When it
+     * is false, the object stays in object storage until the run is deleted after its retention.
+     * Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+     * true for dev and local servers and to false otherwise. The run records that default when it
+     * starts.
+     *
+     * Set it to true for a run whose old history must not stay in object storage, such as a
+     * long-running session that holds sensitive values. A run that never closes otherwise keeps
+     * every history object it ever wrote. Set it to false to keep old history objects for audit
+     * or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+     * that the window passed, whatever this value is.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+     * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+     * window already passed. Changing it from true to false stops the deletions that have not
+     * started; a deletion request already sent to object storage may still complete, and objects
+     * already deleted never come back. Once set, the value can be changed
+     * but not cleared back to the server default. A child Flow inherits it from its parent unless
+     * its own override sets it.
+     *
+     * Since server-zd 0.1.22.
+     * </pre>
+     *
+     * <code>optional bool delete_expired_history_objects = 8;</code>
+     * @return The deleteExpiredHistoryObjects.
+     */
+    @java.lang.Override
+    public boolean getDeleteExpiredHistoryObjects() {
+      return deleteExpiredHistoryObjects_;
+    }
+    /**
+     * <pre>
+     * Whether Dex deletes the run's history objects from object storage once the history window
+     * has passed them.
+     *
+     * It applies only while the server offloads run history to object storage, which the
+     * server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+     * objects. Once the window passes a whole segment, no read returns its events or values any
+     * more. When this is true, Dex deletes such a segment's object about one hour later. When it
+     * is false, the object stays in object storage until the run is deleted after its retention.
+     * Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+     * true for dev and local servers and to false otherwise. The run records that default when it
+     * starts.
+     *
+     * Set it to true for a run whose old history must not stay in object storage, such as a
+     * long-running session that holds sensitive values. A run that never closes otherwise keeps
+     * every history object it ever wrote. Set it to false to keep old history objects for audit
+     * or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+     * that the window passed, whatever this value is.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+     * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+     * window already passed. Changing it from true to false stops the deletions that have not
+     * started; a deletion request already sent to object storage may still complete, and objects
+     * already deleted never come back. Once set, the value can be changed
+     * but not cleared back to the server default. A child Flow inherits it from its parent unless
+     * its own override sets it.
+     *
+     * Since server-zd 0.1.22.
+     * </pre>
+     *
+     * <code>optional bool delete_expired_history_objects = 8;</code>
+     * @param value The deleteExpiredHistoryObjects to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDeleteExpiredHistoryObjects(boolean value) {
+
+      deleteExpiredHistoryObjects_ = value;
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether Dex deletes the run's history objects from object storage once the history window
+     * has passed them.
+     *
+     * It applies only while the server offloads run history to object storage, which the
+     * server's history.offloadEnabled setting turns on. Offloaded history is kept in segment
+     * objects. Once the window passes a whole segment, no read returns its events or values any
+     * more. When this is true, Dex deletes such a segment's object about one hour later. When it
+     * is false, the object stays in object storage until the run is deleted after its retention.
+     * Leave it unset to use the server's history.deleteExpiredObjects setting, which defaults to
+     * true for dev and local servers and to false otherwise. The run records that default when it
+     * starts.
+     *
+     * Set it to true for a run whose old history must not stay in object storage, such as a
+     * long-running session that holds sensitive values. A run that never closes otherwise keeps
+     * every history object it ever wrote. Set it to false to keep old history objects for audit
+     * or recovery outside Dex. GetHistoryEvents, LoadBlobs, and Time Travel never return history
+     * that the window passed, whatever this value is.
+     *
+     * Set it at start through FlowStartOptions.flow_config_override, or change it on a running
+     * Flow with UpdateFlowConfig. Changing it from false to true deletes the objects that the
+     * window already passed. Changing it from true to false stops the deletions that have not
+     * started; a deletion request already sent to object storage may still complete, and objects
+     * already deleted never come back. Once set, the value can be changed
+     * but not cleared back to the server default. A child Flow inherits it from its parent unless
+     * its own override sets it.
+     *
+     * Since server-zd 0.1.22.
+     * </pre>
+     *
+     * <code>optional bool delete_expired_history_objects = 8;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDeleteExpiredHistoryObjects() {
+      bitField0_ = (bitField0_ & ~0x00000080);
+      deleteExpiredHistoryObjects_ = false;
       onChanged();
       return this;
     }

@@ -163,6 +163,168 @@ fn history_segment_target_bytes_reaches_run_and_child_settings() {
 }
 
 #[test]
+fn superseded_value_grace_period_reaches_run_and_child_settings() {
+    let default_components =
+        ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    assert_eq!(
+        default_components
+            .flow_coordination
+            .run_settings
+            .superseded_value_grace_micros,
+        10 * 60 * 1_000_000
+    );
+    let parsed = Config::parse_yaml("history:\n  supersededValueGracePeriod: 90s\n")
+        .expect("parse the superseded value grace period");
+    let mut configuration = valid_config();
+    configuration.history.superseded_value_grace_period =
+        parsed.history.superseded_value_grace_period;
+    configuration.validate().expect("a valid grace period");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(
+        components
+            .flow_coordination
+            .run_settings
+            .superseded_value_grace_micros,
+        90 * 1_000_000
+    );
+    assert_eq!(
+        components
+            .effects
+            .child_run_settings
+            .superseded_value_grace_micros,
+        90 * 1_000_000
+    );
+    for too_short in [Duration::ZERO, Duration::from_nanos(500)] {
+        configuration.history.superseded_value_grace_period = too_short;
+        assert!(
+            matches!(
+                configuration.validate(),
+                Err(ConfigError::Invalid {
+                    field: "history.supersededValueGracePeriod",
+                    ..
+                })
+            ),
+            "{too_short:?} is rejected"
+        );
+    }
+    configuration.history.superseded_value_grace_period = Duration::from_micros(1);
+    configuration
+        .validate()
+        .expect("one microsecond is the shortest grace period");
+}
+
+#[test]
+fn delete_expired_objects_reaches_run_and_child_settings() {
+    assert!(!Config::default().history.should_delete_expired_objects);
+    let default_components =
+        ComponentConfigs::from_config(&valid_config(), false).expect("component config");
+    assert!(
+        !default_components
+            .flow_coordination
+            .run_settings
+            .delete_expired_history_objects
+    );
+    let parsed = Config::parse_yaml("history:\n  deleteExpiredObjects: true\n")
+        .expect("parse the delete switch");
+    let mut configuration = valid_config();
+    configuration.history.should_delete_expired_objects =
+        parsed.history.should_delete_expired_objects;
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert!(
+        components
+            .flow_coordination
+            .run_settings
+            .delete_expired_history_objects
+    );
+    assert!(
+        components
+            .effects
+            .child_run_settings
+            .delete_expired_history_objects
+    );
+}
+
+#[test]
+fn single_node_delete_expired_objects_defaults_to_true_unless_the_overrides_set_it() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let other_history_key_path = temporary.path().join("history-upload-concurrency.yaml");
+    fs::write(
+        &other_history_key_path,
+        "history:\n  uploadConcurrency: 5\n",
+    )
+    .expect("write test config");
+    let explicit_switch_path = temporary.path().join("delete-expired-objects.yaml");
+    fs::write(
+        &explicit_switch_path,
+        "history:\n  deleteExpiredObjects: false\n",
+    )
+    .expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
+            .expect("configuration without YAML");
+        assert!(without_overrides.history.should_delete_expired_objects);
+        let with_other_history_key = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(other_history_key_path.clone()),
+        ))
+        .expect("configuration with another history key");
+        assert!(with_other_history_key.history.should_delete_expired_objects);
+        assert_eq!(with_other_history_key.history.upload_concurrency, 5);
+        let with_explicit_switch = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(explicit_switch_path.clone()),
+        ))
+        .expect("configuration with an explicit delete switch");
+        assert!(!with_explicit_switch.history.should_delete_expired_objects);
+    }
+
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert!(!serve.history.should_delete_expired_objects);
+}
+
+#[test]
+fn single_node_history_offload_defaults_to_enabled_unless_the_overrides_set_it() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let other_history_key_path = temporary.path().join("history-upload-concurrency.yaml");
+    fs::write(
+        &other_history_key_path,
+        "history:\n  uploadConcurrency: 5\n",
+    )
+    .expect("write test config");
+    let explicit_switch_path = temporary.path().join("offload-disabled.yaml");
+    fs::write(&explicit_switch_path, "history:\n  offloadEnabled: false\n")
+        .expect("write test config");
+    for load in [Config::load_dev, Config::load_local] {
+        let without_overrides = load(&single_node_options(temporary.path().join("data"), None))
+            .expect("configuration without YAML");
+        assert!(without_overrides.history.is_offload_enabled);
+        let with_other_history_key = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(other_history_key_path.clone()),
+        ))
+        .expect("configuration with another history key");
+        assert!(with_other_history_key.history.is_offload_enabled);
+        assert_eq!(with_other_history_key.history.upload_concurrency, 5);
+        let with_explicit_switch = load(&single_node_options(
+            temporary.path().join("data"),
+            Some(explicit_switch_path.clone()),
+        ))
+        .expect("configuration with an explicit offload switch");
+        assert!(!with_explicit_switch.history.is_offload_enabled);
+    }
+
+    assert!(!Config::default().history.is_offload_enabled);
+    let serve = Config::parse_yaml("cluster:\n  nodeId: node-a\n").expect("serve YAML");
+    assert!(!serve.history.is_offload_enabled);
+    let serve_enabled =
+        Config::parse_yaml("cluster:\n  nodeId: node-a\nhistory:\n  offloadEnabled: true\n")
+            .expect("serve YAML with offload");
+    assert!(serve_enabled.history.is_offload_enabled);
+}
+
+#[test]
 fn history_upload_concurrency_reaches_the_effect_runner() {
     assert_eq!(Config::default().history.upload_concurrency, 16);
     assert_eq!(

@@ -26,10 +26,12 @@ use std::collections::BTreeSet;
 use dexzd_apply::{TransactionalRpcHold, transactional_rpc_hold};
 use dexzd_keyspace::RunId;
 use dexzd_protocol::dex::{
-    AttributeWrite, FlowStatus, SetAttributesRequest, StopFlowRequest, StopType, Value, value,
+    AttributeWrite, FlowConfig, FlowStatus, SetAttributesRequest, StopFlowRequest, StopType,
+    UpdateFlowConfigRequest, Value, value,
 };
 use dexzd_protocol::dexzd::v1::{
-    AttributesSetCommand, FlowCommand, FlowStopCommand, HardDeleteObjectReference,
+    AttributesSetCommand, FlowCommand, FlowConfigUpdateCommand, FlowStopCommand,
+    HardDeleteObjectReference, HistoryLocalCleanupCommand, HistorySegmentObjectsDeletedCommand,
     HistorySegmentUploadedCommand, PendingCloseCheckCommand, SetHistoryOffloadModeCommand,
     StepInvocationPhase, TimerId, flow_command::Command, timer_id,
 };
@@ -38,7 +40,9 @@ use rand_chacha::ChaCha8Rng;
 
 use crate::apply_checker::ApplyChecker;
 use crate::invariants::InvariantViolation;
-use crate::model::history_offload_model::history_segment_acknowledgments;
+use crate::model::history_offload_model::{
+    expired_object_proposals, history_segment_acknowledgments, local_cleanup_proposals,
+};
 use crate::model::worker_model::Call;
 use crate::state_view::{FlowView, RunSelection, RunView};
 
@@ -67,6 +71,8 @@ const HISTORY_OFFLOAD_COMMAND_PROBABILITY: f64 = 0.5;
 const HISTORY_OFFLOAD_SEGMENT_TARGET_BYTES: u64 = 3_000;
 /// Weight of turning offload on again; low enough that runs apply several commands while off.
 const HISTORY_OFFLOAD_REENABLE_WEIGHT: u32 = 4;
+/// Grace period of superseded values in one history offload Flow; the other keeps 10 minutes.
+const HISTORY_OFFLOAD_SHORT_GRACE_MICROS: i64 = 30_000_000;
 /// Chance that the Step failure stream proposes a command after each main command.
 const STEP_FAILURE_COMMAND_PROBABILITY: f64 = 0.8;
 /// Proposal time of the first command: 2027-01-15 in microseconds.
@@ -154,6 +160,22 @@ enum Proposal<'view> {
     AcknowledgeHistorySegment {
         run_id: RunId,
         acknowledgment: HistorySegmentUploadedCommand,
+    },
+    /// The owner records deleted objects of expired segments; a stale record changes nothing.
+    RecordDeletedHistoryObjects {
+        run_id: RunId,
+        deleted: HistorySegmentObjectsDeletedCommand,
+    },
+    /// A client turns the run's delete switch on or off with UpdateFlowConfig.
+    SetExpiredObjectDeletion {
+        run_id: RunId,
+        is_enabled: bool,
+    },
+    /// The owner proposes the run's local history cleanup, usually once it is due; an early
+    /// one changes nothing.
+    CleanUpLocalHistory {
+        run_id: RunId,
+        due_micros: i64,
     },
 }
 
@@ -328,6 +350,11 @@ impl CommandGenerator {
         self.now_micros = self.now_micros.max(other.now_micros);
     }
 
+    /// Returns the command time of this stream's latest command.
+    pub fn now_micros(&self) -> i64 {
+        self.now_micros
+    }
+
     /// Proposes the next command for the checker's committed state.
     ///
     /// Returns a violation when the committed state cannot be decoded.
@@ -379,6 +406,12 @@ impl CommandGenerator {
             && let Some(settings) = start.settings.as_mut()
         {
             settings.history_segment_target_bytes = HISTORY_OFFLOAD_SEGMENT_TARGET_BYTES;
+            // One Flow starts its runs deleting expired objects, the other keeping them.
+            settings.delete_expired_history_objects = flow_id == HISTORY_OFFLOAD_FLOW_IDS[0];
+            // The other Flow's runs keep superseded values a short grace period.
+            if flow_id != HISTORY_OFFLOAD_FLOW_IDS[0] {
+                settings.superseded_value_grace_micros = HISTORY_OFFLOAD_SHORT_GRACE_MICROS;
+            }
         }
         Ok(command)
     }
@@ -422,6 +455,8 @@ impl CommandGenerator {
         };
         if self.stream == CommandStream::HistoryOffload {
             proposals.extend(history_segment_acknowledgments(view, checker)?);
+            proposals.extend(expired_object_proposals(view));
+            proposals.extend(local_cleanup_proposals(view));
         }
         let is_running = latest_run
             .record
@@ -616,6 +651,36 @@ impl CommandGenerator {
                 // The uploader never binds an acknowledgment to an attempt.
                 command.expected_run_attempt = 0;
                 command
+            }
+            Proposal::RecordDeletedHistoryObjects { run_id, deleted } => {
+                let body = Command::HistorySegmentObjectsDeleted(deleted);
+                let mut command = self.envelope(flow_id, run_id.as_bytes().to_vec(), body);
+                // The owner never binds a deletion record to an attempt.
+                command.expected_run_attempt = 0;
+                command
+            }
+            Proposal::CleanUpLocalHistory { run_id, due_micros } => {
+                if rng.random_bool(0.8) {
+                    self.now_micros = self.now_micros.max(due_micros);
+                }
+                let body = Command::HistoryLocalCleanup(HistoryLocalCleanupCommand {});
+                let mut command = self.envelope(flow_id, run_id.as_bytes().to_vec(), body);
+                // The owner never binds a cleanup to an attempt.
+                command.expected_run_attempt = 0;
+                command
+            }
+            Proposal::SetExpiredObjectDeletion { run_id, is_enabled } => {
+                let body = Command::FlowConfigUpdate(FlowConfigUpdateCommand {
+                    request: Some(UpdateFlowConfigRequest {
+                        flow_id: flow_id.to_owned(),
+                        flow_config: Some(FlowConfig {
+                            delete_expired_history_objects: Some(is_enabled),
+                            ..FlowConfig::default()
+                        }),
+                        ..UpdateFlowConfigRequest::default()
+                    }),
+                });
+                self.envelope(flow_id, run_id.as_bytes().to_vec(), body)
             }
             Proposal::StartAttempt(call) => {
                 // Only the Step failure stream queues, so main-stream trajectories stay pinned.

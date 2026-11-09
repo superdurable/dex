@@ -152,7 +152,8 @@ message RunRecord {
   int64 last_pruned_semantic_timestamp_micros = 55;
   // Set while a natural close waits for the Attribute Sync outbox; the status stays RUNNING.
   PendingFlowClose pending_close = 56;
-  // Largest event ID deleted by window pruning; 1 means none deleted, 0 means unknown and reads scan.
+  // Newest event ID before the window start, which reads hide after FlowStart; 0 means unknown and
+  // reads scan from the window start.
   int64 max_pruned_event_id = 57;
   // Window events recorded so far: each history record adds its event count, or one when it is
   // semantic without events. Unset in runs recorded before the window counted events; their next
@@ -188,6 +189,19 @@ message RunRecord {
   // history show no seq between genesis and it. Zero in runs that have not recorded it, whose
   // readers take the seq before the first kept HistoryRecord metadata row instead.
   uint64 history_window_pruned_through_seq = 69;
+  // Last seq of the newest history segment that expired because window pruning passed it; zero
+  // before the first expiry. Every segment that starts after genesis and ends at or before it is
+  // EXPIRED or deleted; the segment that holds genesis never expires.
+  uint64 history_expired_through_seq = 70;
+  // Last seq of the newest expired history segment whose object the owner deleted and whose
+  // catalog row is gone; zero before the first deletion. Objects are deleted oldest first.
+  uint64 history_objects_deleted_through_seq = 71;
+  // Newest event ID of the history records a window scan inspected before window_scan_seq; zero
+  // when window_scan_seq is zero or the event ID is unknown.
+  int64 window_scan_last_event_id = 72;
+  // Command time from which local history cleanup is due; set exactly while the
+  // HistoryLocalCleanupPending row exists.
+  optional int64 history_local_cleanup_due_micros = 73;
 }
 
 // A staged TimeTravel result of a run; see TimeTravelStageCommand.
@@ -778,6 +792,9 @@ enum HistorySegmentState {
   HISTORY_SEGMENT_STATE_SEALED = 1;
   // Its object exists in object storage, and last_seq is at most the run's uploaded seq.
   HISTORY_SEGMENT_STATE_UPLOADED = 2;
+  // Window pruning passed the whole segment, so no read uses it. Its object stays until the
+  // owner deletes it or the run is purged.
+  HISTORY_SEGMENT_STATE_EXPIRED = 3;
 }
 
 // Row of RunTable::HistorySegment, keyed by first_seq (8 bytes big-endian): the contiguous seq
@@ -797,11 +814,13 @@ message HistorySegmentRecord {
   bytes content_checksum = 8;
   // Set by the upload acknowledgment: size of the uploaded object.
   uint64 object_size_bytes = 9;
+  // Set at expiry: proposal time of the command that marked the segment EXPIRED.
+  int64 expired_at_micros = 10;
 }
 
 // Row of RunTable::HistorySegmentValue, keyed by the segment's first_seq (8 bytes big-endian)
 // and the value ID: a value that was superseded inside the segment when apply sealed it. A later
-// revival of the value leaves the row unchanged.
+// revival of the value leaves the row unchanged. The segment's expiry deletes the row.
 message HistorySegmentValueRecord {
   // Seq at which the value lost its last holder; inside the segment's seq range.
   uint64 superseded_seq = 1;

@@ -10,6 +10,7 @@
 //! the SYNC barrier, and lock checks.
 
 mod flow_effect_operations_adapter;
+mod value_revival;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -42,10 +43,10 @@ use crate::flow_coordination::speculative_overlay::{
     CommittedMatch, OverlayEntry, OwnedOverlayView,
 };
 use crate::flow_coordination::{
-    CommitTicket, CommitUrgency, CommittedFlowCommand, FlowAddress, FlowCommandCommitter,
-    FlowCoordinationConfig, FlowCoordinationEffectSink, FlowCoordinationError,
-    HardDeleteValueReader, HardDeleteValueUploader, HistorySegmentReader, RpcWorkerInvoker,
-    StepQueueStatus, TimeTravelHistoryOpener, grpc_code,
+    CommitError, CommitTicket, CommitUrgency, CommittedFlowCommand, FlowAddress,
+    FlowCommandCommitter, FlowCoordinationConfig, FlowCoordinationEffectSink,
+    FlowCoordinationError, HardDeleteValueReader, HardDeleteValueUploader, HistorySegmentReader,
+    RpcWorkerInvoker, StepQueueStatus, TimeTravelHistoryOpener, grpc_code,
 };
 use crate::long_poll::WaiterRegistry;
 
@@ -475,9 +476,9 @@ impl FlowCoordinatorRegistry {
             .await
     }
 
-    /// Like [`Self::propose_with`]; without `should_wait_for_capacity`, the speculation limit
-    /// fails with `Unavailable` at once.
-    async fn propose_with_admission<T>(
+    /// Proposes once, without reviving referenced values; without `should_wait_for_capacity`,
+    /// the speculation limit fails with `Unavailable` at once.
+    async fn propose_once_with_admission<T>(
         &self,
         flow: &FlowAddress,
         urgency: CommitUrgency,
@@ -548,9 +549,10 @@ impl FlowCoordinatorRegistry {
         ticket.observe_failure(Box::new(move |error| {
             // A registry that is already gone serves nothing.
             if let Some(inner) = inner.upgrade() {
-                inner.halt(format!(
-                    "commit of a command of Flow {flow_id} failed: {error}"
-                ));
+                inner.halt_with_shutdown_status(
+                    format!("commit of a command of Flow {flow_id} failed: {error}"),
+                    matches!(error, CommitError::NodeStopping { .. }),
+                );
             }
         }));
     }
@@ -930,13 +932,21 @@ impl RegistryInner {
     }
 
     fn halt(&self, reason: String) {
+        self.halt_with_shutdown_status(reason, false);
+    }
+
+    fn halt_with_shutdown_status(&self, reason: String, is_node_stopping: bool) {
         {
             let mut halt_reason = self
                 .halt_reason
                 .lock()
                 .expect("halt reason lock is poisoned only if a holder panicked");
             if halt_reason.is_none() {
-                tracing::error!(reason = %reason, "flow runtime registry halted");
+                if is_node_stopping {
+                    tracing::warn!(reason = %reason, "flow runtime registry halted");
+                } else {
+                    tracing::error!(reason = %reason, "flow runtime registry halted");
+                }
                 *halt_reason = Some(reason);
             }
         }

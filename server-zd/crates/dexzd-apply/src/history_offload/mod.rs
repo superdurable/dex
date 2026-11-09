@@ -11,7 +11,9 @@
 pub(crate) mod local_deletion;
 pub(crate) mod offload_mode;
 pub(crate) mod segment_catalog;
+pub(crate) mod segment_expiry;
 pub(crate) mod segment_migration;
 pub(crate) mod segment_seal;
 pub(crate) mod segment_upload;
 pub(crate) mod segmented_history;
+pub(crate) mod value_revive;

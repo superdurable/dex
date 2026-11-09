@@ -134,6 +134,8 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
         "AttributeSyncAck",
         "SetHistoryOffloadMode",
         "HistorySegmentUploaded",
+        "HistorySegmentObjectsDeleted",
+        "HistoryLocalCleanup",
     ] {
         assert!(
             total.applied(kind) > 0,
@@ -158,6 +160,11 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
          uploaded history: {total:#?}"
     );
     assert!(
+        local_offload.values_revived > 0,
+        "the seed set never revived an offloaded value that a Worker result references: \
+         {total:#?}"
+    );
+    assert!(
         total.history_offload_off_time_travels > 0,
         "the seed set never time traveled a run while its partition did not offload: {total:#?}"
     );
@@ -167,6 +174,20 @@ fn apply_keeps_every_invariant_over_random_command_sequences() {
             .get("HistorySegmentUploaded")
             .is_some_and(|count| *count > 0),
         "the seed set never proposed a stale history segment acknowledgment: {total:#?}"
+    );
+    assert!(
+        total
+            .rejected_by_kind
+            .get("HistorySegmentObjectsDeleted")
+            .is_some_and(|count| *count > 0),
+        "the seed set never proposed a stale record of deleted history objects: {total:#?}"
+    );
+    assert!(
+        total
+            .rejected_by_kind
+            .get("HistoryLocalCleanup")
+            .is_some_and(|count| *count > 0),
+        "the seed set never proposed a local history cleanup before it was due: {total:#?}"
     );
     assert!(
         total.close_barrier.held_by_rpcs > 0 && total.close_barrier.finalized_after_rpcs > 0,

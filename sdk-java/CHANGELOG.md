@@ -39,6 +39,12 @@ when preserving application capacity during migration.
 
 ### Added
 
+Added `FlowConfig.Builder.deleteExpiredHistoryObjects(boolean)` to control expired
+history object deletion at start, on update, and for SubFlows. Omission uses the
+server default at start and inherits for children; explicit false is preserved.
+Requires history offload. See the API reference for deletion timing and update
+semantics. Requires server-zd 0.1.22 or later; older servers ignore the value.
+
 Added `FlowConfig.Builder.historyWindowEvents(int)`, which sets about how many of the
 newest history events a run keeps for history reads and Time Travel. Set it at start
 through `StartFlowOptions.Builder.configOverride`, change it with
@@ -68,6 +74,9 @@ LoadBlobs and the BlobCache. Unregistered or mismatched definitions raise
 `FlowNotFoundException`.
 
 ### Fixed
+
+Limit LoadBlobs requests to 1000 entries, preserving input order when hydrating
+more values with history offload enabled.
 
 Reject heartbeat and Stream writes from a cancelled or completed Step invocation,
 including when its pull stream has been reused for another task. A handler that

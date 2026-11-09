@@ -19,8 +19,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// The server rejects more than 1000 entries while history offload is on.
+const maxLoadBlobsEntries = 1000
+
 // loadBlobValues loads every entry through LoadBlobs. A batch whose response exceeds a gRPC
 // message size limit is split in half, in order, until it fits or holds one entry.
+// Each request holds at most 1000 entries.
 //
 // It returns the loaded values by blob ID, and the reason for each blob ID whose value does not
 // fit in a response by itself. Any other LoadBlobs error ends the load and is returned.
@@ -31,8 +35,11 @@ func loadBlobValues(
 ) (map[string]*dexpb.Value, map[string]string, error) {
 	values := make(map[string]*dexpb.Value, len(entries))
 	unavailable := make(map[string]string)
-	if err := loadBlobBatch(ctx, client, entries, values, unavailable); err != nil {
-		return nil, nil, err
+	for start := 0; start < len(entries); start += maxLoadBlobsEntries {
+		batch := entries[start:min(start+maxLoadBlobsEntries, len(entries))]
+		if err := loadBlobBatch(ctx, client, batch, values, unavailable); err != nil {
+			return nil, nil, err
+		}
 	}
 	return values, unavailable, nil
 }

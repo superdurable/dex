@@ -257,7 +257,8 @@ pub(super) fn restore_held_values(
             ))));
         }
         if !is_stored_value(transaction, rows, value_id)? {
-            restore_unheld_value(transaction, rows, value_id, &birth, value, cursor.seq);
+            // The command's finish stamps the garbage row with its time.
+            restore_unheld_value(transaction, rows, value_id, &birth, value, cursor.seq, 0);
         }
     }
     let mut missing = BTreeSet::new();

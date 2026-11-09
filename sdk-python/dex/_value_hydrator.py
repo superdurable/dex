@@ -20,6 +20,9 @@ from dex.dexpb import dex_pb2 as pb
 from dex.dexpb import dex_pb2_grpc
 from dex.runtime_errors import BlobMessageTooLargeError
 
+# The server rejects more than 1000 entries while history offload is on.
+_MAX_LOAD_BLOBS_ENTRIES = 1000
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -222,6 +225,15 @@ class ValueHydrator:
 
     def _load_blob_values(self, misses: list[_PendingBlob]) -> dict[str, pb.Value]:
         """Load blobs, halving a batch whose response exceeds a gRPC size limit."""
+        if len(misses) > _MAX_LOAD_BLOBS_ENTRIES:
+            values: dict[str, pb.Value] = {}
+            for start in range(0, len(misses), _MAX_LOAD_BLOBS_ENTRIES):
+                values.update(
+                    self._load_blob_values(
+                        misses[start : start + _MAX_LOAD_BLOBS_ENTRIES]
+                    )
+                )
+            return values
         try:
             response = self._service.LoadBlobs(
                 pb.LoadBlobsRequest(

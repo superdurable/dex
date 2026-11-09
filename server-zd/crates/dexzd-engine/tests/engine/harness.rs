@@ -440,6 +440,11 @@ impl SwitchableFaults {
         self.arm_delay(ObjectStoreOperation::Put, prefix, true, delay);
     }
 
+    /// Delays the next `delete_many` call by `delay`; it records an empty key.
+    pub(crate) fn delay_next_batch_delete(&self, delay: Duration) {
+        self.arm_delay(ObjectStoreOperation::Delete, "", false, delay);
+    }
+
     /// Waits until the operation armed by a `delay_next_*` call starts waiting.
     pub(crate) async fn wait_until_delayed_operation_entered(&self) {
         self.delayed_entered.notified().await;

@@ -31,6 +31,7 @@ import {
   WaitForMethodFailurePolicy,
   WaitingCondition,
   WaitingConditionType,
+  type ActionPermissionMappings,
   type AttributeWrite,
   type ChannelMessage,
   type ChannelValues,
@@ -42,6 +43,7 @@ import {
   type RetryPolicy as ProtoRetryPolicy,
   type Value,
 } from "./gen/dex.js";
+import { actionPermissionMappingsForWrites, appendInitialWorkQueuePermissions } from "./action.js";
 import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
   registeredFlowByName,
@@ -140,7 +142,7 @@ export class WorkerDispatcher {
       let response: InvokeWaitForMethodResponse;
       try {
         response = InvokeWaitForMethodResponse.create({
-          upsertAttributes: [...context.getAttributeWrites()],
+          ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
           waitingCondition: mapWait(this.registry, flow, wait),
           upsertStepExeLocals: [...context.getLocalWrites()],
           recordEvents: [...context.getEvents()],
@@ -204,7 +206,7 @@ export class WorkerDispatcher {
       try {
         response = InvokeExecuteMethodResponse.create({
           stepDecision: mapDecision(flow, decision),
-          upsertAttributes: [...context.getAttributeWrites()],
+          ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
           recordEvents: [...context.getEvents()],
           upsertStepExeLocals: [...context.getLocalWrites()],
           publishToChannel: [...context.getPublications()],
@@ -258,7 +260,7 @@ export class WorkerDispatcher {
         const decision = await flow.flow.handleTimeout(context);
         const response = InvokeExecuteMethodResponse.create({
           stepDecision: mapDecision(flow, decision),
-          upsertAttributes: [...context.getAttributeWrites()],
+          ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
           recordEvents: [...context.getEvents()],
           upsertStepExeLocals: [...context.getLocalWrites()],
           publishToChannel: [...context.getPublications()],
@@ -311,7 +313,7 @@ export class WorkerDispatcher {
             ? encodeUnknown(undefined)
             : encodeValue(codecOrJson(rpc.options.outputCodec), result.output),
         stepDecision: rpcDecision(flow, result),
-        upsertAttributes: [...context.getAttributeWrites()],
+        ...attributeWritesWithActionPermissionMappings(flow, context.getAttributeWrites()),
         recordEvents: [...context.getEvents()],
         publishToChannel: [...context.getPublications()],
         deleteFromChannel: [...context.getChannelDeletions()],
@@ -823,6 +825,17 @@ class ConditionMapper {
   }
 }
 
+function attributeWritesWithActionPermissionMappings(
+  flow: RegisteredFlow,
+  writes: readonly AttributeWrite[],
+): { upsertAttributes: AttributeWrite[]; actionPermissionMappings: ActionPermissionMappings | undefined } {
+  const upsertAttributes = [...writes];
+  return {
+    upsertAttributes,
+    actionPermissionMappings: actionPermissionMappingsForWrites(flow.actions, upsertAttributes),
+  };
+}
+
 function mapSubFlowOptions(
   target: RegisteredFlow,
   options: SubFlowOptions,
@@ -876,7 +889,7 @@ function mapSubFlowOptions(
     ),
     flowStartDelaySeconds: seconds(options.startDelayMs),
     retryPolicy: mapFlowRetry(options.retryPolicy),
-    attributes,
+    attributes: appendInitialWorkQueuePermissions(target.actions, attributes),
     flowConfigOverride: mapSubFlowConfig(options.configOverride),
   });
 }
@@ -1096,6 +1109,7 @@ function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig {
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     historyWindowEvents: config?.historyWindowEvents,
+    deleteExpiredHistoryObjects: config?.deleteExpiredHistoryObjects,
     stepDurability:
       config?.stepDurability === "sync"
         ? ProtoStepDurability.STEP_DURABILITY_SYNC

@@ -12,10 +12,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dexzd_apply::StateWrite;
 use dexzd_apply::read_model::read_history_segment_content;
+use dexzd_apply::{StateWrite, is_expired_history_object_deletion_enabled};
 use dexzd_history_segment::encode_history_segment;
-use dexzd_keyspace::row_keys::{value_garbage_key, value_row_key};
+use dexzd_keyspace::row_keys::{run_singleton_key, value_garbage_key, value_row_key};
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId, parse_run_key};
 use dexzd_protocol::dexzd::v1::{
     FlowCommand, HistorySegmentState, RunRecord, ValueBirthRecord, ValueGarbageRecord,
@@ -24,6 +24,7 @@ use dexzd_protocol::dexzd::v1::{
 use prost::Message;
 
 use crate::invariants::history_migration_invariants::{is_migration_step, must_migrate};
+use crate::invariants::local_cleanup_invariants::superseded_value_grace_micros;
 use crate::invariants::value_invariants::{covering_uploaded_segment, offloaded_value_row};
 use crate::invariants::{InvariantViolation, RunContext};
 use crate::memory_state::MemoryFlowState;
@@ -199,8 +200,71 @@ pub(crate) fn check_window_frontier(
     Ok(())
 }
 
+/// Checks the run's expiry cursors and its HistoryObjectDeletePending index row (H15).
+///
+/// Only segments that window pruning passed expire, objects are deleted only after expiry, and
+/// the index row exists exactly while the run's delete switch is on and an EXPIRED segment keeps
+/// its object.
+pub(crate) fn check_segment_expiry(
+    context: &RunContext<'_>,
+    run: &RunView,
+    view: &FlowView,
+) -> Result<(), InvariantViolation> {
+    let Some(record) = &run.record else {
+        return Ok(());
+    };
+    let expired_through_seq = record.history_expired_through_seq;
+    let deleted_through_seq = record.history_objects_deleted_through_seq;
+    if deleted_through_seq > expired_through_seq
+        || expired_through_seq
+            > record
+                .history_window_pruned_through_seq
+                .max(deleted_through_seq)
+    {
+        return Err(violation(
+            "H15-segment-expiry",
+            context,
+            format!(
+                "deleted seq {deleted_through_seq}, expired seq {expired_through_seq}, and window \
+                 frontier {} are out of order",
+                record.history_window_pruned_through_seq
+            ),
+        ));
+    }
+    let names_expired_segment = expired_through_seq == deleted_through_seq
+        || run
+            .history_segments
+            .values()
+            .any(|segment| segment.last_seq == expired_through_seq);
+    if !names_expired_segment {
+        return Err(violation(
+            "H15-segment-expiry",
+            context,
+            format!("expired seq {expired_through_seq} ends no remaining segment"),
+        ));
+    }
+    let is_pending_wanted = is_expired_history_object_deletion_enabled(record)
+        && expired_through_seq > deleted_through_seq;
+    let is_pending = view
+        .history_object_delete_pending_runs
+        .contains(context.run_id);
+    if is_pending != is_pending_wanted {
+        return Err(violation(
+            "H15-segment-expiry",
+            context,
+            format!(
+                "has a delete pending index row: {is_pending}; expects one: {is_pending_wanted}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Segments are contiguous in seqs and events, except across exactly the seqs and events that
-/// `gaps` recorded for commands applied while offload was off.
+/// `gaps` recorded for commands applied while offload was off. Segments whose objects were
+/// deleted leave the catalog as a prefix after the segment that holds genesis, which never
+/// expires. A later segment that ends at or before the run's expired seq is EXPIRED and lists no
+/// values.
 pub(crate) fn check_segment_chain(
     context: &RunContext<'_>,
     run: &RunView,
@@ -231,15 +295,33 @@ pub(crate) fn check_segment_chain(
         return Ok(());
     }
     let uploaded_through_seq = record.history_uploaded_through_seq;
-    let mut next_seq = run.attempts.get(&1).map_or(1, |attempt| attempt.start_seq);
-    let mut next_event_id: i64 = 1;
+    let expired_through_seq = record.history_expired_through_seq;
+    let deleted_through_seq = record.history_objects_deleted_through_seq;
+    let genesis_seq = run.attempts.get(&1).map_or(1, |attempt| attempt.start_seq);
+    let mut next_seq = genesis_seq;
+    let mut next_event_id: Option<i64> = Some(1);
+    // Deleted segments follow the genesis segment, when one holds genesis; their events are
+    // unknown, so the first remaining one sets the next event.
+    let has_genesis_segment = run
+        .history_segments
+        .values()
+        .next()
+        .is_some_and(|segment| segment.first_seq <= genesis_seq);
+    let skip_deleted = |next_seq: &mut u64, next_event_id: &mut Option<i64>| {
+        let is_after_genesis_segment = *next_seq > genesis_seq || !has_genesis_segment;
+        if is_after_genesis_segment && deleted_through_seq >= *next_seq {
+            *next_seq = deleted_through_seq + 1;
+            *next_event_id = None;
+        }
+    };
     let mut has_sealed = false;
-    let mut names_uploaded_seq = uploaded_through_seq == 0;
+    let mut names_uploaded_seq = uploaded_through_seq <= deleted_through_seq;
     for (first_seq, segment) in &run.history_segments {
+        skip_deleted(&mut next_seq, &mut next_event_id);
         if *first_seq != segment.first_seq
             || !continues(segment.first_seq, next_seq)
             || segment.first_seq > segment.last_seq
-            || !continues_events(segment.first_event_id, next_event_id)
+            || next_event_id.is_some_and(|next| !continues_events(segment.first_event_id, next))
             || gaps
                 .seqs
                 .range(segment.first_seq..=segment.last_seq)
@@ -250,18 +332,24 @@ pub(crate) fn check_segment_chain(
                 "H1-segment-chain",
                 context,
                 format!(
-                    "segment {segment:?} does not continue at seq {next_seq}, event {next_event_id}"
+                    "segment {segment:?} does not continue at seq {next_seq}, event \
+                     {next_event_id:?}"
                 ),
             ));
         }
         let is_uploaded = segment.last_seq <= uploaded_through_seq;
-        let expected_state = if is_uploaded {
+        // The segment that holds genesis never expires.
+        let is_expired = segment.last_seq <= expired_through_seq && segment.first_seq > genesis_seq;
+        let expected_state = if is_expired {
+            HistorySegmentState::Expired
+        } else if is_uploaded {
             HistorySegmentState::Uploaded
         } else {
             HistorySegmentState::Sealed
         };
         if segment.state != expected_state as i32
             || (segment.content_checksum.len() == 16) != is_uploaded
+            || (segment.expired_at_micros != 0) != is_expired
         {
             return Err(violation(
                 "H2-uploaded-in-order",
@@ -296,21 +384,28 @@ pub(crate) fn check_segment_chain(
                 ));
             }
         }
-        if listed_count != segment.superseded_value_count {
+        let expected_listed_count = if is_expired {
+            0
+        } else {
+            segment.superseded_value_count
+        };
+        if listed_count != expected_listed_count {
             return Err(violation(
                 "H4-segment-values",
                 context,
                 format!(
-                    "segment {first_seq} lists {listed_count} values but records {}",
-                    segment.superseded_value_count
+                    "segment {first_seq} lists {listed_count} values instead of \
+                     {expected_listed_count}"
                 ),
             ));
         }
         next_seq = segment.last_seq + 1;
-        next_event_id = segment.last_event_id + 1;
+        next_event_id = Some(segment.last_event_id + 1);
     }
+    skip_deleted(&mut next_seq, &mut next_event_id);
+    let open_first_event_id = record.history_open_segment_first_event_id;
     if !continues(record.history_open_segment_first_seq, next_seq)
-        || !continues_events(record.history_open_segment_first_event_id, next_event_id)
+        || next_event_id.is_some_and(|next| !continues_events(open_first_event_id, next))
         || !names_uploaded_seq
     {
         return Err(violation(
@@ -318,7 +413,7 @@ pub(crate) fn check_segment_chain(
             context,
             format!(
                 "the open segment starts at seq {}, event {}, instead of seq {next_seq}, event \
-                 {next_event_id}, or uploaded seq {uploaded_through_seq} names no segment",
+                 {next_event_id:?}, or uploaded seq {uploaded_through_seq} names no segment",
                 record.history_open_segment_first_seq, record.history_open_segment_first_event_id
             ),
         ));
@@ -335,7 +430,8 @@ pub(crate) fn check_segment_chain(
         else {
             continue;
         };
-        if *garbage_seq > segment.last_seq {
+        // Expiry deletes the list; window pruning deletes the values it named later.
+        if *garbage_seq > segment.last_seq || segment.state == HistorySegmentState::Expired as i32 {
             continue;
         }
         let is_listed = run
@@ -444,6 +540,8 @@ pub struct LocalOffloadCounts {
     pub rows_deleted: usize,
     /// Superseded values offloaded after their grace period.
     pub values_offloaded: usize,
+    /// Offloaded values revived before a command that references them.
+    pub values_revived: usize,
     /// Applied TimeTravel commands whose computation read uploaded history or values.
     pub time_travels_from_uploaded_history: usize,
 }
@@ -453,12 +551,10 @@ impl LocalOffloadCounts {
     pub fn merge(&mut self, other: &Self) {
         self.rows_deleted += other.rows_deleted;
         self.values_offloaded += other.values_offloaded;
+        self.values_revived += other.values_revived;
         self.time_travels_from_uploaded_history += other.time_travels_from_uploaded_history;
     }
 }
-
-/// Grace period of superseded values by command time; an oracle independent of apply.
-const SUPERSEDED_VALUE_GRACE_MICROS: i64 = 10 * 60 * 1_000_000;
 
 /// What the store held for a value that a command offloaded, read before the command committed.
 pub(crate) struct ValueOffload {
@@ -469,8 +565,8 @@ pub(crate) struct ValueOffload {
 }
 
 /// Reads, before `writes` commit, the values the command offloads, and requires each to have
-/// passed its grace period by the command's time. Also requires every garbage row the command
-/// adds to carry the command's time.
+/// passed the grace period its run recorded, by the command's time. Also requires every garbage
+/// row the command adds to carry the command's time.
 ///
 /// Returns the offloads for [`check_value_offloads`], or the first violation.
 pub(crate) fn collect_value_offloads(
@@ -540,9 +636,17 @@ pub(crate) fn collect_value_offloads(
                         ),
                     ));
                 };
+                let run_record = state
+                    .row(
+                        ColumnFamily::Flow,
+                        &run_singleton_key(flow_hash, parsed.run_id, RunTable::RunRecord),
+                    )
+                    .map(|bytes| decode::<RunRecord>(bytes, "run record"))
+                    .transpose()?
+                    .unwrap_or_default();
                 let is_in_grace = garbage.superseded_at_micros != 0
                     && command.proposed_at_micros - garbage.superseded_at_micros
-                        < SUPERSEDED_VALUE_GRACE_MICROS;
+                        < superseded_value_grace_micros(&run_record);
                 if is_in_grace {
                     return Err(InvariantViolation::new(
                         "H13-superseded-value-grace",

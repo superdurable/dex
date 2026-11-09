@@ -8,6 +8,7 @@
 
 import { Metadata, status, type ServiceError } from "@grpc/grpc-js";
 
+import { appendInitialWorkQueuePermissions } from "./action.js";
 import type { BlobCache } from "./blob-cache.js";
 import { AttributeMatch } from "./attribute-match.js";
 import { credentialInterceptors } from "./credential.js";
@@ -221,8 +222,9 @@ export class Client {
       flowTimeoutSeconds,
       options.timeoutPolicy,
     );
-    const initialAttributeWrites = (options.attributes ?? []).map((initial) =>
-      mapInitialAttributeWrite(registered, initial),
+    const initialAttributeWrites = appendInitialWorkQueuePermissions(
+      registered.actions,
+      (options.attributes ?? []).map((initial) => mapInitialAttributeWrite(registered, initial)),
     );
     const request = StartFlowRequest.create({
       flowId: requireName(flowId),
@@ -1692,6 +1694,7 @@ function mapFlowConfig(
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     historyWindowEvents: config?.historyWindowEvents,
+    deleteExpiredHistoryObjects: config?.deleteExpiredHistoryObjects,
     stepDurability:
       config?.stepDurability === undefined ? undefined : mapDurability(config.stepDurability),
     workerTarget: undefined,

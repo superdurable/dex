@@ -37,6 +37,8 @@ const (
 	v2WorkQueuePermissionsIndex = "DexWorkQueuePermissions"
 	v2ActiveStepTypesIndex      = "ActiveStepTypes"
 	V2DefinitionRevisionHeader  = "X-Dex-Flow-Definition-Revision"
+	v2RPCLocksUnresolvedCode    = "rpc_locks_unresolved"
+	v2RPCLockConflictCode       = "rpc_lock_conflict"
 )
 
 var v2PermissionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
@@ -49,6 +51,16 @@ type V2Definition struct {
 	Actions                  []V2Action                  `json:"actions"`
 	Start                    *V2StartDefinition          `json:"start,omitempty"`
 	ConnectorTriggerBindings []V2ConnectorTriggerBinding `json:"connectorTriggerBindings,omitempty"`
+	// RPCLocks is derived from the validated graph's RPC lock edges and is never browser input.
+	RPCLocks map[string]V2RPCLocks `json:"-"`
+}
+
+// V2RPCLocks describes the Attribute locks one RPC declares, as its Flow Definition Graph records them.
+type V2RPCLocks struct {
+	// AttributeKeys are the sorted, unique Attribute names that InvokeRPC must lock.
+	AttributeKeys []string
+	// UnresolvedReason is non-empty when the graph names a lock that Dex Web cannot take.
+	UnresolvedReason string
 }
 
 // V2ConnectorTriggerBinding describes one configurable external Trigger binding.
@@ -434,8 +446,8 @@ func (h *v2Handler) loadSummaries(
 			defer func() { <-semaphore }()
 			callContext, cancelCall := context.WithTimeout(ctx, v2RPCTimeout)
 			defer cancelCall()
-			view := definitions[flows[index].FlowType].Summary
-			values, err := h.invokeView(callContext, flows[index].FlowID, view)
+			definition := definitions[flows[index].FlowType]
+			values, err := h.invokeView(callContext, flows[index].FlowID, definition, definition.Summary)
 			if err != nil {
 				flows[index].SummaryError = publicGRPCErrorMessage(err, "Summary")
 				return
@@ -473,7 +485,7 @@ func (h *v2Handler) display(response http.ResponseWriter, request *http.Request)
 		WriteError(response, http.StatusNotFound, "Flow does not match the requested flowType", nil)
 		return
 	}
-	displayValues, err := h.invokeView(request.Context(), flowID, definition.Display)
+	displayValues, err := h.invokeView(request.Context(), flowID, definition, definition.Display)
 	if err != nil {
 		writeGRPCError(response, err, definition.Display.RPCName)
 		return
@@ -678,12 +690,14 @@ func (h *v2Handler) invokeAction(response http.ResponseWriter, request *http.Req
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	result, err := h.client.InvokeRPC(request.Context(), &dexpb.InvokeRPCRequest{
-		FlowId: body.FlowID, RpcName: action.RPCName, Input: input,
-		TimeoutSeconds: int32(v2RPCTimeout.Seconds()), RequestId: uuid.NewString(),
-	})
+	invokeRequest, err := newV2InvokeRPCRequest(definition, body.FlowID, action.RPCName, input)
 	if err != nil {
-		writeGRPCError(response, err, action.RPCName)
+		WriteCodedError(response, http.StatusUnprocessableEntity, v2RPCLocksUnresolvedCode, err.Error())
+		return
+	}
+	result, err := h.client.InvokeRPC(request.Context(), invokeRequest)
+	if err != nil {
+		writeV2ActionError(response, err, action.RPCName)
 		return
 	}
 	output, err := h.hydrateV2Value(request.Context(), body.FlowID, result.GetOutput())
@@ -753,17 +767,21 @@ func setDefinitionETag(response http.ResponseWriter, revision string) {
 func (h *v2Handler) invokeView(
 	ctx context.Context,
 	flowID string,
+	definition V2Definition,
 	view V2RPCView,
 ) (map[string]interface{}, error) {
 	// The view RPC may only return its declared fields, so a view without fields needs no Worker.
 	if len(view.Fields) == 0 {
 		return map[string]interface{}{}, nil
 	}
-	result, err := h.client.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		FlowId: flowID, RpcName: view.RPCName,
-		Input:          &dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}},
-		TimeoutSeconds: int32(v2RPCTimeout.Seconds()), RequestId: uuid.NewString(),
-	})
+	invokeRequest, err := newV2InvokeRPCRequest(
+		definition, flowID, view.RPCName,
+		&dexpb.Value{Kind: &dexpb.Value_NullValue{NullValue: structpb.NullValue_NULL_VALUE}},
+	)
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	result, err := h.client.InvokeRPC(ctx, invokeRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -782,6 +800,38 @@ func (h *v2Handler) invokeView(
 		values[field.AttributeKey] = v2ResponseValue(values[field.AttributeKey], field.ValueType)
 	}
 	return values, nil
+}
+
+// newV2InvokeRPCRequest sends the RPC's declared locks, as the SDK Clients do.
+func newV2InvokeRPCRequest(
+	definition V2Definition,
+	flowID string,
+	rpcName string,
+	input *dexpb.Value,
+) (*dexpb.InvokeRPCRequest, error) {
+	locks := definition.RPCLocks[rpcName]
+	if locks.UnresolvedReason != "" {
+		return nil, fmt.Errorf("Dex Web cannot invoke RPC %s: %s", rpcName, locks.UnresolvedReason)
+	}
+	return &dexpb.InvokeRPCRequest{
+		FlowId: flowID, RpcName: rpcName, Input: input,
+		TimeoutSeconds: int32(v2RPCTimeout.Seconds()), RequestId: uuid.NewString(),
+		LockAttributeKeys: append([]string(nil), locks.AttributeKeys...),
+		// The Server makes a locking RPC transactional; the graph records no other transactional RPC.
+		IsTransactional: len(locks.AttributeKeys) > 0,
+	}, nil
+}
+
+// writeV2ActionError answers a lock conflict with 409 and the code the browser retries on.
+func writeV2ActionError(response http.ResponseWriter, err error, rpcName string) {
+	if status.Code(err) != codes.Aborted {
+		writeGRPCError(response, err, rpcName)
+		return
+	}
+	grpcCode := int32(codes.Aborted)
+	writeJSON(response, http.StatusConflict, errorResponse{
+		Error: publicGRPCErrorMessage(err, rpcName), Code: v2RPCLockConflictCode, GRPCCode: &grpcCode,
+	})
 }
 
 // InvokeRPC leaves large outputs as blob IDs when lazy loading is enabled.

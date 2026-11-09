@@ -217,6 +217,12 @@ impl Config {
             override_document.as_ref(),
             &["snapshot", "logDeletionDelay"],
         );
+        let has_delete_expired_objects_override = has_yaml_key(
+            override_document.as_ref(),
+            &["history", "deleteExpiredObjects"],
+        );
+        let has_offload_enabled_override =
+            has_yaml_key(override_document.as_ref(), &["history", "offloadEnabled"]);
         let has_attempt_drain_timeout_override = has_yaml_key(
             override_document.as_ref(),
             &["lifecycle", "attemptDrainTimeout"],
@@ -271,6 +277,13 @@ impl Config {
         }
         if !has_log_deletion_delay_override {
             configuration.snapshot.log_deletion_delay = SINGLE_NODE_LOG_DELETION_DELAY;
+        }
+        // Single-node data is disposable, so expired history objects need not use storage.
+        if !has_delete_expired_objects_override {
+            configuration.history.should_delete_expired_objects = true;
+        }
+        if !has_offload_enabled_override {
+            configuration.history.is_offload_enabled = true;
         }
         if !has_partition_count_override {
             configuration.cluster.partition_count = SINGLE_NODE_PARTITION_COUNT;

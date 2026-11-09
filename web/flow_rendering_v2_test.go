@@ -391,3 +391,105 @@ func TestLoadFlowDefinitionsAcceptsTheAgentSessionGraph(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadFlowDefinitionsReadsRPCLocksFromLockEdges(t *testing.T) {
+	directory := t.TempDir()
+	graph := withV2Graph(withV2Action("RefundFlow", ""), `[
+		{"id":"rpc:confirmCaseMethod","kind":"rpc","name":"confirmCaseMethod"},
+		{"id":"rpc:resolve_interrupt","kind":"rpc","name":"resolve_interrupt"},
+		{"id":"step:control","kind":"step","name":"Control"},
+		{"id":"resource:attribute:status","kind":"attribute","name":"case-status","resource":{"valueType":"string"}},
+		{"id":"resource:attribute:gate","kind":"attribute","name":"gate-key","resource":{"valueType":"string"}},
+		{"id":"resource:attribute:pending","kind":"attribute","name":"PendingInterrupts","resource":{"valueType":"list"}}
+	]`, `[
+		{"id":"edge:0001","kind":"resource_lock","from":"rpc:confirmCaseMethod","to":"resource:attribute:status","metadata":{"phase":"rpc","rpcName":"ConfirmCase"}},
+		{"id":"edge:0002","kind":"resource_lock","from":"rpc:confirmCaseMethod","to":"resource:attribute:gate","metadata":{"phase":"rpc","rpcName":"ConfirmCase"}},
+		{"id":"edge:0003","kind":"resource_lock","from":"rpc:confirmCaseMethod","to":"resource:attribute:status","metadata":{"phase":"rpc","rpcName":"ConfirmCase"}},
+		{"id":"edge:0004","kind":"resource_lock","from":"rpc:resolve_interrupt","to":"resource:attribute:pending","label":"Lock"},
+		{"id":"edge:0005","kind":"resource_lock","from":"step:control","to":"resource:attribute:gate","metadata":{"phase":"execute"}},
+		{"id":"edge:0006","kind":"resource_write","from":"rpc:resolve_interrupt","to":"resource:attribute:status"}
+	]`)
+	writeFlowDefinitionTestFile(t, directory, "refund.json", graph)
+
+	handler, err := loadFlowDefinitions(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locks := handler.V2Definitions()["RefundFlow"].RPCLocks
+	if got := strings.Join(locks["ConfirmCase"].AttributeKeys, ","); got != "case-status,gate-key" || locks["ConfirmCase"].UnresolvedReason != "" {
+		t.Fatalf("ConfirmCase locks = %+v", locks["ConfirmCase"])
+	}
+	if got := strings.Join(locks["resolve_interrupt"].AttributeKeys, ","); got != "PendingInterrupts" {
+		t.Fatalf("resolve_interrupt locks = %+v", locks["resolve_interrupt"])
+	}
+	if _, found := locks["confirmCaseMethod"]; found {
+		t.Fatalf("locks are keyed by method name instead of RPC name: %+v", locks)
+	}
+	if len(locks) != 2 {
+		t.Fatalf("Step locks or non-lock edges leaked into RPC locks: %+v", locks)
+	}
+}
+
+func TestLoadFlowDefinitionsMarksUnresolvableRPCLocks(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "AttributeMap instance", target: "resource:attribute:progress", want: `locks an instance of AttributeMap "progress"`},
+		{name: "missing node", target: "resource:attribute:missing", want: `"resource:attribute:missing", which is not an Attribute`},
+		{name: "Channel", target: "resource:channel:events", want: `"resource:channel:events", which is not an Attribute`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			graph := withV2Graph(withV2Action("RefundFlow", ""), `[
+				{"id":"rpc:ConfirmCase","kind":"rpc","name":"ConfirmCase"},
+				{"id":"resource:attribute:status","kind":"attribute","name":"case-status","resource":{"valueType":"string"}},
+				{"id":"resource:attribute:progress","kind":"attribute","name":"progress","resource":{"valueType":"string","map":true}},
+				{"id":"resource:channel:events","kind":"channel","name":"events","resource":{"valueType":"string"}}
+			]`, `[
+				{"id":"edge:0001","kind":"resource_lock","from":"rpc:ConfirmCase","to":"resource:attribute:status"},
+				{"id":"edge:0002","kind":"resource_lock","from":"rpc:ConfirmCase","to":"`+test.target+`"}
+			]`)
+			writeFlowDefinitionTestFile(t, directory, "refund.json", graph)
+
+			handler, err := loadFlowDefinitions(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			locks := handler.V2Definitions()["RefundFlow"].RPCLocks["ConfirmCase"]
+			if !strings.Contains(locks.UnresolvedReason, test.want) {
+				t.Fatalf("unresolved reason = %q, want %q", locks.UnresolvedReason, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadFlowDefinitionsReadsSessionGraphRPCLocks(t *testing.T) {
+	template, err := os.ReadFile(filepath.Join("..", "agents", "conformance", "session_graph.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := strings.NewReplacer(`"<flow-type>"`, `"SupportAgent"`, `"<action-permission>"`, `"agent.operate"`).
+		Replace(string(template))
+	definition, err := flowDefinitionFromGraph("support-agent.json", []byte(graph))
+	if err != nil {
+		t.Fatal(err)
+	}
+	locks := definition.V2.RPCLocks
+	for rpcName, want := range map[string]string{
+		"resolve_interrupt": "PendingInterrupts",
+		"answer_question":   "PendingInterrupts",
+		"cancel_turn":       "PendingInterrupts,TurnCancellationRequest",
+	} {
+		if got := strings.Join(locks[rpcName].AttributeKeys, ","); got != want || locks[rpcName].UnresolvedReason != "" {
+			t.Fatalf("%s locks = %+v, want %s", rpcName, locks[rpcName], want)
+		}
+	}
+}
+
+func withV2Graph(definition string, nodes string, edges string) string {
+	definition = strings.Replace(definition, `"nodes":[]`, `"nodes":`+nodes, 1)
+	return strings.Replace(definition, `"edges":[]`, `"edges":`+edges, 1)
+}

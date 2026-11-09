@@ -709,7 +709,7 @@ class FlowStartOptions(_message.Message):
     def __init__(self, id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ..., timeout_handler_options: _Optional[_Union[FlowTimeoutHandlerOptions, _Mapping]] = ...) -> None: ...
 
 class FlowConfig(_message.Message):
-    __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target", "attribute_store_names", "history_window_events")
+    __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target", "attribute_store_names", "history_window_events", "delete_expired_history_objects")
     ACTIVE_STEP_SEARCH_MODE_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_THRESHOLD_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_PAGE_SIZE_IN_BYTES_FIELD_NUMBER: _ClassVar[int]
@@ -717,6 +717,7 @@ class FlowConfig(_message.Message):
     WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTE_STORE_NAMES_FIELD_NUMBER: _ClassVar[int]
     HISTORY_WINDOW_EVENTS_FIELD_NUMBER: _ClassVar[int]
+    DELETE_EXPIRED_HISTORY_OBJECTS_FIELD_NUMBER: _ClassVar[int]
     active_step_search_mode: ActiveStepSearchMode
     continue_as_new_threshold: int
     continue_as_new_page_size_in_bytes: int
@@ -724,7 +725,8 @@ class FlowConfig(_message.Message):
     worker_target: WorkerTarget
     attribute_store_names: AttributeStoreNames
     history_window_events: int
-    def __init__(self, active_step_search_mode: _Optional[_Union[ActiveStepSearchMode, str]] = ..., continue_as_new_threshold: _Optional[int] = ..., continue_as_new_page_size_in_bytes: _Optional[int] = ..., step_durability: _Optional[_Union[StepDurability, str]] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., attribute_store_names: _Optional[_Union[AttributeStoreNames, _Mapping]] = ..., history_window_events: _Optional[int] = ...) -> None: ...
+    delete_expired_history_objects: bool
+    def __init__(self, active_step_search_mode: _Optional[_Union[ActiveStepSearchMode, str]] = ..., continue_as_new_threshold: _Optional[int] = ..., continue_as_new_page_size_in_bytes: _Optional[int] = ..., step_durability: _Optional[_Union[StepDurability, str]] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., attribute_store_names: _Optional[_Union[AttributeStoreNames, _Mapping]] = ..., history_window_events: _Optional[int] = ..., delete_expired_history_objects: _Optional[bool] = ...) -> None: ...
 
 class AttributeStoreNames(_message.Message):
     __slots__ = ("names",)

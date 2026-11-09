@@ -284,19 +284,27 @@ Edits are available only while the current run is active. Dex Web writes the Att
 
 ## Actions
 
-An Action is an RPC registered with **RPCOptions.Action**. **DefineAction** receives its label, an Attribute condition, and one **ActionRequiresPermission** option. The visualizer reads this typed Go registration directly. Dex Web re-reads the condition Attribute before invoking the RPC, and answers **409** without running it when the condition no longer matches.
+An Action is an RPC that declares one in its registration options. Each SDK takes a label, one required permission, and an Attribute condition:
 
-The Go SDK requires a condition. A Flow Definition Graph from another source can omit **condition** from an Action when its RPC checks current state itself. Dex Web then reads no Attribute before invoking the RPC, and offers the Action while the run is active. The permission check is unchanged. An omitted condition gives the Action no permission mapping, so its permission enters **DexWorkQueuePermissions** only through another Action with a condition. The Action is offered on every active run instead, so **Working as** does not filter that Flow type by permission history. See the rule below. A malformed condition, including an empty object, still makes the graph invalid.
+| SDK | Declaration |
+| --- | --- |
+| Go | **RPCOptions.Action** set to **DefineAction**, with a **WhenAttributeMatches** condition and one **ActionRequiresPermission** option |
+| Python | **action=Action(...)** on the **rpc** decorator, with **required_permission** and an optional **condition** from **when_attribute_matches** |
+| TypeScript | **action: new Action(options)** in the **rpc** decorator or **declareRPCMethod** options, with **requiredPermission** and an optional **condition** from **whenAttributeMatches** |
+
+Python and TypeScript Actions are available since 1.39. A condition matches one scalar Attribute against one or more values, each made with **AttributeMatch** equality. The per-language rules are in each SDK's API reference. The visualizer reads these typed registrations directly; see [Flow visualization](/reference/web/flow-visualization#actions-in-python-and-typescript). Dex Web re-reads the condition Attribute before invoking the RPC, and answers **409** without running it when the condition no longer matches.
+
+The Go SDK requires a condition. Python and TypeScript accept an Action without one. A Flow Definition Graph from another source can also omit **condition** from an Action when its RPC checks current state itself. Dex Web then reads no Attribute before invoking the RPC, and offers the Action while the run is active. The permission check is unchanged. An omitted condition gives the Action no permission mapping, so its permission enters **DexWorkQueuePermissions** only through another Action with a condition. The Action is offered on every active run instead, so **Working as** does not filter that Flow type by permission history. See the rule below. A malformed condition, including an empty object, still makes the graph invalid.
 
 **POST /api/v2/actions** answers with **invoked** set to true and **output** set to the value the RPC returned, or null when it returned none. An integer output is decimal text so it keeps its exact value. Numbers inside an object stay JSON numbers. Dex Web reads a large output from its blob first. If that read fails, the RPC has still run: the response stays **200** and **output** holds a blob reference for **POST /api/blobs/load**. The Run page does not display the output.
 
-An Action without input accepts **dex.None** and renders as a direct button. An Action with input accepts a named Go struct. User-sourced fields render controls in directive order. Attribute-sourced fields stay hidden and use the selected run's Attribute snapshot.
+An Action without input accepts **dex.None** in Go, or takes no input parameter in Python and TypeScript. It renders as a direct button. An Action with input accepts a named Go struct, a Python dataclass, or a TypeScript interface or object type alias, declared in the Flow's source file. Describe every input field with one **dex:input** directive on the RPC method: a **//** comment above the Go method or TypeScript method or **declareRPCMethod** call, or a **#** comment above the Python decorators. A field is optional when it is a Go pointer, a Python dataclass field with a default, or an optional TypeScript property; set **required** to match. User-sourced fields render controls in directive order. Attribute-sourced fields stay hidden and use the selected run's Attribute snapshot.
 
 A user-sourced string field can declare **capture:qr-code**. Dex Web keeps the text field for scanners, paste, and manual entry, and adds **Scan QR code**. Opening the scanner requests the camera and loads the QR reader. A successful scan copies the decoded text into the field; it does not submit the Action. The user can review the value before choosing the Action.
 
 Camera capture requires HTTPS or localhost. A denied permission, missing camera, unsupported environment, or host policy leaves manual entry available. Closing the scanner, changing runs, or leaving the page releases its camera tracks. Scanning does not grant permission, bypass the Action condition, or change the RPC protocol.
 
-Each Action requires one permission such as **refund.manage**. Permission keys begin with a lowercase letter and contain lowercase letters, digits, dots, or hyphens. When a successful Worker invocation writes an Action condition source, the Worker sends the complete mapping with that response. Unrelated writes and query-only RPCs omit it.
+Each Action requires one permission such as **refund.manage**. Permission keys begin with a lowercase letter and contain lowercase letters, digits, dots, or hyphens. When a successful Worker invocation writes an Action condition source, the Worker sends the complete mapping with that response. Unrelated writes and query-only RPCs omit it. Go, Python, and TypeScript Workers send the same mapping: one entry per Action with a condition, with its Attribute name, its values, and its permission. A Client or SubFlow start also writes **DexWorkQueuePermissions** for each Action whose condition the initial Attributes already match.
 
 The Server overlays the business writes on authoritative Attribute state and evaluates the mapping atomically with those writes. It sorts and deduplicates the permissions of currently available Actions, then adds newly matching permissions to the internal **DexWorkQueuePermissions** KeywordList Search Attribute. Once added, a permission remains for that Flow execution even when no Action currently matches it. Projection maintenance does not require application Steps to lock every Action source.
 
@@ -309,6 +317,15 @@ Since 1.39, the permission filter applies per Flow type. When a searched Flow ty
 A matching permission means an Action is or was available; it does not mean the Action is available now. A keyed gate also needs its current key, and the list reads an eventually consistent index. The run decides which Actions are currently available once it is open.
 
 The browser condition only controls presentation. Every Action RPC must check the current state again before changing durable state or publishing a Channel message. Use locks when that check and the effect must be atomic.
+
+Since 1.39, Dex Web takes the Attribute locks that the invoked RPC declares, as the SDK Clients do. It reads them from the graph's **resource_lock** edges from the RPC's node, and sends their Attribute names as **lock_attribute_keys**. A locking RPC runs transactionally. Summary and Display RPCs follow the same rule. Regenerate a Go graph with this release of **dexcli visualize**: an older one records no RPC locks, so Dex Web invokes its RPCs without them. Python graphs recorded RPC locks before 1.39, keyed by method name; regenerate one whose RPC sets **name** so the locks follow the RPC name. TypeScript graphs record RPC locks since 1.39.
+
+Dex Web refuses an Action with **422** and code **rpc_locks_unresolved**, without invoking the RPC, when the graph names a lock it cannot take:
+
+- The RPC locks an AttributeMap instance. The graph records the map but not the instance. Invoke such an RPC with an SDK Client.
+- A lock edge names a node that is not an Attribute of the graph.
+
+When another Step or RPC holds a lock, the Server rejects the call before the RPC runs, and nothing is committed. Dex Web answers **409** with code **rpc_lock_conflict** and **grpcCode** 10. The call is safe to retry.
 
 Work Queue does not add login or enforce authorization. **Working as** selects work; it does not grant the chosen permission. The trusted application boundary remains responsible for authenticating users, mapping roles to permissions, and limiting which permissions it sends. Deploy Dex Web behind that boundary.
 

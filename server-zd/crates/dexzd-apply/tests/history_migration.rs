@@ -442,9 +442,11 @@ impl Harness {
             .collect()
     }
 
-    /// Event IDs of the history records that window pruning kept, from local rows or, once
-    /// offload deleted them, from their uploaded segment.
-    fn stored_event_ids(&self) -> BTreeSet<i64> {
+    /// Event IDs of the history records that window pruning kept in the window, FlowStart and
+    /// those from the window start, from local rows or, once offload deleted them, from their
+    /// uploaded segment.
+    fn window_event_ids(&self) -> BTreeSet<i64> {
+        let window_start_seq = self.run_record().window_start_seq;
         let metadata_prefix = run_table_prefix(
             self.context.flow_hash,
             self.run(),
@@ -458,6 +460,7 @@ impl Harness {
             .map(|((_, key), _)| &key[metadata_prefix.len()..])
             .filter(|suffix| suffix[8] == RunTable::HistoryRecord as u8)
             .map(|suffix| u64::from_be_bytes(suffix[..8].try_into().expect("eight-byte seq")))
+            .filter(|seq| *seq == 1 || *seq >= window_start_seq)
             .collect();
         kept_record_seqs
             .into_iter()
@@ -643,6 +646,8 @@ fn legacy_settings() -> RunSettings {
         max_active_step_executions: 10_000,
         max_child_flow_result_bytes: 16 << 20,
         history_segment_target_bytes: 1_500,
+        delete_expired_history_objects: false,
+        superseded_value_grace_micros: 0,
     }
 }
 
@@ -699,13 +704,20 @@ fn assert_segment_chain(harness: &Harness) {
 }
 
 fn assert_segment_state(harness: &Harness, segment: &HistorySegmentRecord, record: &RunRecord) {
-    let state = if segment.last_seq <= record.history_uploaded_through_seq {
+    // An acknowledgment also prunes, so the segments pruning passed may already be EXPIRED.
+    let state = if segment.first_seq > 1 && segment.last_seq <= record.history_expired_through_seq {
+        HistorySegmentState::Expired
+    } else if segment.last_seq <= record.history_uploaded_through_seq {
         HistorySegmentState::Uploaded
     } else {
         HistorySegmentState::Sealed
     };
     assert_eq!(segment.state, state as i32, "{segment:?}");
     let values = harness.segment_values(segment.first_seq);
+    if state == HistorySegmentState::Expired {
+        assert!(values.is_empty(), "expiry deletes the value list");
+        return;
+    }
     assert_eq!(segment.superseded_value_count, values.len() as u64);
     assert!(
         values
@@ -725,12 +737,12 @@ fn assert_segment_state(harness: &Harness, segment: &HistorySegmentRecord, recor
     }
 }
 
-/// Asserts that a history read returns exactly the stored events and reports every other event
-/// ID since event 1 as pruned.
+/// Asserts that a history read returns exactly the stored events in the window and reports every
+/// other event ID since event 1 as pruned.
 fn assert_history_reads_match_stored_events(harness: &Harness) {
     let page = harness.history_page();
     let returned: BTreeSet<i64> = page.events.iter().map(|event| event.event_id).collect();
-    assert_eq!(returned, harness.stored_event_ids());
+    assert_eq!(returned, harness.window_event_ids());
     let pruned = page
         .pruned_event_id_range
         .map_or(0..=0, |range| range.start_event_id..=range.end_event_id);
@@ -797,9 +809,13 @@ fn a_running_legacy_run_migrates_one_segment_per_command_until_caught_up() {
             "pruned records stay holes"
         );
     }
-    assert_eq!(
-        harness.history_page().pruned_event_id_range,
-        Some(pruned_range),
+    let range_after_migration = harness
+        .history_page()
+        .pruned_event_id_range
+        .expect("pruned events are reported");
+    assert_eq!(range_after_migration.start_event_id, 2);
+    assert!(
+        range_after_migration.end_event_id >= pruned_range.end_event_id,
         "the migration deletes nothing, so earlier pruned events stay reported as pruned"
     );
     assert_history_reads_match_stored_events(&harness);
@@ -1203,7 +1219,30 @@ fn assert_gap_is_skipped(
         assert!(round < 20, "a segment seals after offload is on again");
     }
     let segments = harness.segments();
-    assert_eq!(&segments[..before_gap.len()], before_gap);
+    // The window may pass earlier segments, which then expire; nothing else about them changes.
+    let unexpired = |segments: &[HistorySegmentRecord]| -> Vec<HistorySegmentRecord> {
+        segments
+            .iter()
+            .map(|segment| {
+                if segment.state != HistorySegmentState::Expired as i32 {
+                    return segment.clone();
+                }
+                assert!(
+                    segment.expired_at_micros > 0,
+                    "{segment:?} records its expiry"
+                );
+                HistorySegmentRecord {
+                    state: HistorySegmentState::Uploaded as i32,
+                    expired_at_micros: 0,
+                    ..segment.clone()
+                }
+            })
+            .collect()
+    };
+    assert_eq!(
+        unexpired(&segments[..before_gap.len()]),
+        unexpired(before_gap)
+    );
     let reopened = &segments[before_gap.len()];
     assert_eq!(reopened.first_seq, gap.end() + 1);
     assert_eq!(reopened.first_event_id, gap_last_event_id + 1);

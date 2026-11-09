@@ -830,6 +830,14 @@ While a run is active, **Set attribute** writes one Attribute and **Publish
 message** publishes one Channel message to that run. Each takes a JSON,
 string, int64, double, or boolean value. Int64 values travel as decimal text so
 large values keep their precision.
+The Overview **History** card shows the run's `FlowConfig.history_window_events`
+and `delete_expired_history_objects`. An unset field reads **Server default**.
+While the run is active, **Edit** changes either field through
+`PUT /api/flows/config/history`, which calls `UpdateFlowConfig` with only the
+changed fields. `UpdateFlowConfig` merges the fields it receives, so the run's
+other settings stay unchanged. A saved value cannot be cleared back to the
+server default, so the editor offers only a positive window and On or Off.
+Closed runs show no live config and offer no editing.
 Selected event Context uses the same failure view with the stack collapsed.
 ## License
 

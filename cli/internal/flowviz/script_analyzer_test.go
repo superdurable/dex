@@ -43,6 +43,27 @@ func TestScriptConnectorDefinitionGolden(t *testing.T) {
 	}
 }
 
+func TestScriptActionsGolden(t *testing.T) {
+	for language, file := range map[string]string{"python": "actions.py", "typescript": "actions.ts"} {
+		t.Run(language, func(t *testing.T) {
+			sourcePath := filepath.Join(filepath.Dir(scriptFixture(t, language)), file)
+			graph, err := Analyze(context.Background(), sourcePath, AnalyzeOptions{SchemaVersion: SchemaVersionV2})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, "%+v", graph.Diagnostics)
+			graph.Source.Path = file
+			actual, err := MarshalJSON(graph)
+			require.NoError(t, err)
+			goldenPath := filepath.Join("testdata", language, "actions.golden.json")
+			if os.Getenv("UPDATE_SCRIPT_GOLDENS") == "1" {
+				require.NoError(t, os.WriteFile(goldenPath, actual, 0o644))
+			}
+			expected, err := os.ReadFile(goldenPath)
+			require.NoError(t, err)
+			require.Equal(t, string(expected), string(actual))
+		})
+	}
+}
+
 func TestScriptStepAnnotationDiagnostics(t *testing.T) {
 	for _, language := range []string{"python", "typescript"} {
 		for _, replacement := range []string{"", "dex:explanation text:\"\"", "dex:explanation text:\"First.\"\nCOMMENT dex:explanation text:\"Second.\"", "dex:explanation text:\"First.\" extra:true"} {
@@ -311,6 +332,8 @@ func TestConnectorManifestSchemaDeclaresToolMetadata(t *testing.T) {
 	}
 	require.Contains(t, document.Definitions["agent"].Properties, "exposed")
 	require.Contains(t, document.Definitions["agent"].Properties, "approval")
+	branches := document.Definitions["agent"].Properties["branches"].(map[string]any)
+	require.Equal(t, map[string]any{"enum": []any{"rejected", "unknown"}}, branches["additionalProperties"])
 	require.Equal(t, false, document.Definitions["agent"].AdditionalProperties, "authors still get an error for a typo")
 	require.Equal(t, map[string]any{"enum": []any{"safe"}, "description": document.Definitions["agent"].Properties["retry"].(map[string]any)["description"]}, document.Definitions["agent"].Properties["retry"])
 }

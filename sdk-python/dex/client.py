@@ -1445,6 +1445,9 @@ class Client:
             _apply_attribute_store_sync(write, definition)
             _apply_hard_delete_on_null(write, definition)
             mapped.attributes.append(write)
+        mapped.attributes.extend(
+            registered.initial_work_queue_permissions_writes(mapped.attributes)
+        )
         mapped.flow_config_override.CopyFrom(
             self._map_flow_config(options.config_override)
         )
@@ -1489,6 +1492,10 @@ class Client:
                 )
             if config.history_window_events is not None:
                 mapped.history_window_events = config.history_window_events
+            if config.delete_expired_history_objects is not None:
+                mapped.delete_expired_history_objects = (
+                    config.delete_expired_history_objects
+                )
         return mapped
 
     @staticmethod

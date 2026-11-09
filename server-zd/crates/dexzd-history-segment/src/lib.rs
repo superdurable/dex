@@ -21,7 +21,8 @@ mod segment_layout;
 
 pub use codec_error::{HistorySegmentBlockKind, HistorySegmentCodecError};
 pub use object_key::{
-    HISTORY_SEGMENT_OBJECT_KEY_PREFIX, history_run_object_key_prefix, history_segment_object_key,
+    HISTORY_SEGMENT_OBJECT_KEY_PREFIX, HistoryObjectRun, history_run_object_key_prefix,
+    history_segment_object_key, parse_history_object_key,
 };
 pub use segment_content::{
     HistorySegmentCheckpointRow, HistorySegmentContent, HistorySegmentIdentity,

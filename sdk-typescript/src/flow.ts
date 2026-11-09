@@ -12,6 +12,7 @@ import {
 import { Attribute, AttributeMap, IndexType, type PersistenceSchema } from "./persistence.js";
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
+import { compileAction, WORK_QUEUE_PERMISSIONS_INDEX_KEY, type RegisteredAction } from "./action.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
 import {
   StepList, StepRef, type Step, type StepClass, type StepDecision,
@@ -131,6 +132,7 @@ export interface RegisteredFlow {
   readonly stepsByClass: ReadonlyMap<StepClass<any>, readonly RegisteredStep[]>;
   readonly startStep?: RegisteredStep;
   readonly rpcs: readonly RegisteredRPC[];
+  readonly actions: readonly RegisteredAction[];
   readonly persistence: ReadonlyMap<
     string,
     Attribute<unknown> | AttributeMap<unknown> | Channel<unknown> | ChannelMap<unknown> | Stream<unknown>
@@ -384,6 +386,7 @@ function doRegisterFlow(
   const rpcNames = new Set<string>();
   const attributes = new Set(schema.attributes ?? []);
   const rpcs = registeredRPCs(flow);
+  const actions: RegisteredAction[] = [];
   for (const registeredRPC of rpcs) {
     if (rpcNames.has(registeredRPC.name)) {
       throw new FlowDefinitionError(`Flow ${name} has duplicate RPC ${registeredRPC.name}`);
@@ -395,6 +398,19 @@ function doRegisterFlow(
       throw new FlowDefinitionError(`Flow ${name} RPC ${registeredRPC.name} locks an unregistered attribute`);
     }
     validateRPCStateLoads(name, registeredRPC, schema);
+    if (registeredRPC.options.action !== undefined) {
+      actions.push(compileAction(registeredRPC.name, registeredRPC.options.action, persistence, name));
+    }
+  }
+  if (actions.length > 0) {
+    const existing = attributeIndexes.get(WORK_QUEUE_PERMISSIONS_INDEX_KEY);
+    const keywordArray = ProtoIndexType.INDEX_TYPE_KEYWORD_ARRAY;
+    if (existing !== undefined && existing !== keywordArray) {
+      throw new FlowDefinitionError(
+        `Attribute index ${WORK_QUEUE_PERMISSIONS_INDEX_KEY} has conflicting types ${existing} and ${keywordArray}`,
+      );
+    }
+    attributeIndexes.set(WORK_QUEUE_PERMISSIONS_INDEX_KEY, keywordArray);
   }
   const registeredFlow = Object.freeze({
     name,
@@ -405,6 +421,7 @@ function doRegisterFlow(
     stepsByClass,
     ...(startStep === undefined ? {} : { startStep }),
     rpcs,
+    actions: Object.freeze(actions),
     persistence,
     streams: new Set(schema.streams ?? []),
   });

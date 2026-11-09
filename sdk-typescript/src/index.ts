@@ -6,6 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
+export { Action, ActionCondition, WORK_QUEUE_PERMISSIONS_INDEX_KEY, whenAttributeMatches } from "./action.js";
+export type { ActionOptions } from "./action.js";
 export * from "./blob-cache.js";
 export * from "./attribute-match.js";
 export * from "./client.js";

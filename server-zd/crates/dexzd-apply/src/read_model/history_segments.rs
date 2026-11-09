@@ -17,8 +17,10 @@ use dexzd_keyspace::row_keys::{
     prefix_range, value_row_key,
 };
 use dexzd_keyspace::{ColumnFamily, FlowHash, RunId, RunTable, ValueId, run_table_prefix};
-use dexzd_protocol::dexzd::v1::HistorySegmentRecord;
+use dexzd_protocol::dexzd::v1::{HistorySegmentRecord, HistorySegmentState};
 
+use crate::history::genesis_seq;
+use crate::history_offload::segment_expiry::is_expired_history_object_deletion_enabled;
 use crate::history_offload::segment_upload::sealed_history_segments;
 use crate::read_model::{ReadModelError, RunView};
 use crate::{ApplyError, FlowStateReader};
@@ -41,6 +43,64 @@ pub fn oldest_sealed_history_segment(
     )?
     .into_iter()
     .next())
+}
+
+/// The EXPIRED history segments of a run whose objects remain, oldest first.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExpiredHistorySegments {
+    /// Whether the run's delete switch is on, so the owner deletes their objects.
+    pub is_deletion_enabled: bool,
+    /// Up to the requested number of EXPIRED segments; objects are deleted in this order.
+    pub segments: Vec<HistorySegmentRecord>,
+}
+
+/// Returns up to `limit` EXPIRED history segments of the run whose objects remain, oldest
+/// first, and whether the run's delete switch is on.
+///
+/// Returns `RunNotFound` when the run is gone or purging, and an error when stored state is
+/// corrupt or a row in the EXPIRED range is not EXPIRED.
+pub fn expired_history_segments(
+    reader: &dyn FlowStateReader,
+    flow_hash: FlowHash,
+    run_id: RunId,
+    limit: usize,
+) -> Result<ExpiredHistorySegments, ReadModelError> {
+    let view = RunView::open(reader, flow_hash, run_id)?;
+    let record = &view.record;
+    let expired_through_seq = record.history_expired_through_seq;
+    let deleted_through_seq = record.history_objects_deleted_through_seq;
+    let segments = if expired_through_seq > deleted_through_seq {
+        let genesis = genesis_seq(&view.transaction, view.rows)?;
+        view.transaction.scan_messages::<HistorySegmentRecord>(
+            ColumnFamily::Flow,
+            &history_segment_key(flow_hash, run_id, deleted_through_seq.max(genesis) + 1),
+            &history_segment_key(flow_hash, run_id, expired_through_seq.saturating_add(1)),
+            limit,
+            "history segment",
+        )?
+    } else {
+        Vec::new()
+    };
+    let segments = segments
+        .into_iter()
+        .map(|(_, segment)| {
+            if segment.state == HistorySegmentState::Expired as i32 {
+                Ok(segment)
+            } else {
+                Err(ApplyError::InvariantViolation {
+                    detail: format!(
+                        "history segment {}..={} at or before expired seq {expired_through_seq} \
+                         is not EXPIRED",
+                        segment.first_seq, segment.last_seq
+                    ),
+                })
+            }
+        })
+        .collect::<Result<Vec<_>, ApplyError>>()?;
+    Ok(ExpiredHistorySegments {
+        is_deletion_enabled: is_expired_history_object_deletion_enabled(record),
+        segments,
+    })
 }
 
 /// Assembles what the run's history segment that starts at `first_seq` uploads: the stored

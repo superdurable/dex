@@ -286,11 +286,12 @@ func TestPublicContractsCompile(t *testing.T) {
 	mode := dex.SearchAllActiveSteps
 	durability := dex.StepDurabilitySync
 	config := dex.FlowConfig{
-		ActiveStepSearchMode:   &mode,
-		ContinueAsNewThreshold: ptr.Any(int32(100)),
-		StepDurability:         &durability,
-		AttributeStoreNames:    []string{"profiles"},
-		HistoryWindowEvents:    ptr.Any(int32(50000)),
+		ActiveStepSearchMode:        &mode,
+		ContinueAsNewThreshold:      ptr.Any(int32(100)),
+		StepDurability:              &durability,
+		AttributeStoreNames:         []string{"profiles"},
+		HistoryWindowEvents:         ptr.Any(int32(50000)),
+		DeleteExpiredHistoryObjects: ptr.Any(false),
 	}
 	options := dex.StartFlowOptions{
 		Timeout:        ptr.Any(time.Minute),
@@ -302,6 +303,9 @@ func TestPublicContractsCompile(t *testing.T) {
 		options.StartDelay == nil ||
 		len(options.Attributes) != 2 {
 		t.Fatal("start flow options are missing")
+	}
+	if config.DeleteExpiredHistoryObjects == nil || *config.DeleteExpiredHistoryObjects {
+		t.Fatal("delete expired history objects override is missing")
 	}
 	if config.HistoryWindowEvents == nil || *config.HistoryWindowEvents != 50000 {
 		t.Fatal("history window events are missing")

@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dexzd_keyspace::row_keys::value_row_key;
 use dexzd_keyspace::{
@@ -14,14 +14,16 @@ use dexzd_keyspace::{
 };
 use dexzd_protocol::dex::{LoadBlobRequestEntry, LoadBlobsResponse, value};
 use dexzd_protocol::dexzd::v1::{
-    HistorySegmentRecord, StoredValue, StoredValueId, StoredValueReference, ValueBirthRecord,
-    stored_value,
+    FlowCommand, HistorySegmentRecord, StoredValue, StoredValueId, StoredValueReference,
+    ValueBirthRecord, stored_value,
 };
 
 use crate::FlowStateReader;
 use crate::history_offload::segment_catalog::{CatalogPosition, SegmentCatalog, is_uploaded};
+use crate::history_offload::value_revive::is_offloaded_in_window;
 use crate::read_model::{ReadModelError, RunView};
-use crate::values::load_stored_value;
+use crate::state_access::RunRows;
+use crate::values::{RpcOutputValue, command_values, load_stored_value, own_referenced_value_id};
 
 /// Loads references under each entry's Flow; missing and hard-delete values are omitted.
 pub fn load_blobs(
@@ -120,15 +122,31 @@ pub fn locate_offloaded_value(
     value_id: ValueId,
 ) -> Result<OffloadedValueLocation, ReadModelError> {
     let view = RunView::open(reader, flow_hash, run_id)?;
+    Ok(match uploaded_value_birth(&view, value_id)? {
+        Some((_, segment)) => OffloadedValueLocation::Uploaded(segment),
+        None => OffloadedValueLocation::Absent,
+    })
+}
+
+/// Returns the birth record of value `value_id` of the run of `view` and the UPLOADED segment
+/// that holds it, or `None` when the value is not offloaded inside the window or no UPLOADED
+/// segment covers its superseded seq.
+fn uploaded_value_birth(
+    view: &RunView<'_>,
+    value_id: ValueId,
+) -> Result<Option<(ValueBirthRecord, HistorySegmentRecord)>, ReadModelError> {
     let birth: Option<ValueBirthRecord> = view.transaction.get_message(
         ColumnFamily::Flow,
-        &value_row_key(flow_hash, run_id, RunTable::ValueBirth, value_id),
+        &value_row_key(
+            view.rows.flow_hash,
+            view.rows.run_id,
+            RunTable::ValueBirth,
+            value_id,
+        ),
         "value birth",
     )?;
-    let Some(birth) = birth
-        .filter(|birth| birth.is_offloaded && birth.garbage_seq >= view.record.window_start_seq)
-    else {
-        return Ok(OffloadedValueLocation::Absent);
+    let Some(birth) = birth.filter(|birth| is_offloaded_in_window(birth, &view.record)) else {
+        return Ok(None);
     };
     let catalog = SegmentCatalog::new(
         &view.transaction,
@@ -136,9 +154,60 @@ pub fn locate_offloaded_value(
         view.record.history_uploaded_through_seq,
     );
     Ok(match catalog.position(birth.garbage_seq)? {
-        CatalogPosition::Covered(segment) if is_uploaded(&segment) => {
-            OffloadedValueLocation::Uploaded(segment)
-        }
-        CatalogPosition::Covered(_) | CatalogPosition::Gap { .. } => OffloadedValueLocation::Absent,
+        CatalogPosition::Covered(segment) if is_uploaded(&segment) => Some((birth, segment)),
+        CatalogPosition::Covered(_) | CatalogPosition::Gap { .. } => None,
     })
+}
+
+/// A value that a command references by value reference and that only an UPLOADED segment of
+/// the run holds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OffloadedReference {
+    /// ID of the referenced value in the command's run.
+    pub value_id: ValueId,
+    /// Encoded size of the value, as its birth record holds it.
+    pub size_bytes: u64,
+    /// The UPLOADED segment whose object holds the value.
+    pub segment: HistorySegmentRecord,
+}
+
+/// Returns the values of the command's run that `command` references and that only uploaded
+/// segments hold, in value ID order, so the owner revives them before it proposes the command.
+/// Reads only `reader`; the caller reads the objects afterwards.
+///
+/// Returns none for a command without a run ID and for a missing or purging run, whose commands
+/// apply rejects without resolving references. References to other runs, local values, and
+/// values outside the window are not listed. Returns an error when stored state is corrupt.
+pub fn offloaded_command_references(
+    reader: &dyn FlowStateReader,
+    flow_hash: FlowHash,
+    command: &FlowCommand,
+) -> Result<Vec<OffloadedReference>, ReadModelError> {
+    let Ok(run_id) = RunId::from_slice(&command.run_id) else {
+        return Ok(Vec::new());
+    };
+    let rows = RunRows::new(flow_hash, run_id);
+    let value_ids: BTreeSet<ValueId> = command_values(command, RpcOutputValue::Included)
+        .into_iter()
+        .filter_map(|value| own_referenced_value_id(value, rows))
+        .collect();
+    if value_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let view = match RunView::open(reader, flow_hash, run_id) {
+        Ok(view) => view,
+        Err(ReadModelError::RunNotFound { .. }) => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut offloaded = Vec::new();
+    for value_id in value_ids {
+        if let Some((birth, segment)) = uploaded_value_birth(&view, value_id)? {
+            offloaded.push(OffloadedReference {
+                value_id,
+                size_bytes: birth.size_bytes,
+                segment,
+            });
+        }
+    }
+    Ok(offloaded)
 }

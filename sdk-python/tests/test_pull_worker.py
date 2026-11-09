@@ -109,6 +109,21 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
     assert not WorkerDispatcher._map_sub_flow_config(FlowConfig()).HasField(
         "history_window_events"
     )
+    for should_delete in (True, False):
+        config = FlowConfig(delete_expired_history_objects=should_delete)
+        mapped = WorkerDispatcher._map_sub_flow_config(config)
+        assert mapped.HasField("delete_expired_history_objects")
+        assert mapped.delete_expired_history_objects == should_delete
+        start = client._map_start_options(
+            registry._flow_for_instance(flow), StartFlowOptions(config_override=config)
+        )
+        assert start.flow_config_override.HasField("delete_expired_history_objects")
+        assert (
+            start.flow_config_override.delete_expired_history_objects == should_delete
+        )
+    assert not WorkerDispatcher._map_sub_flow_config(FlowConfig()).HasField(
+        "delete_expired_history_objects"
+    )
     assert WorkerOptions().pull == PullWorkerOptions()
     if isinstance(client, AsyncClient):
         await client.close()
@@ -123,6 +138,8 @@ async def _default_flow_and_subflow_config_use_pull_protocol(
         FlowConfig(),
         FlowConfig(continue_as_new_threshold=500),
         FlowConfig(history_window_events=2500),
+        FlowConfig(delete_expired_history_objects=True),
+        FlowConfig(delete_expired_history_objects=False),
     ],
 )
 def test_update_flow_config_leaves_worker_target_unset(
@@ -152,6 +169,14 @@ async def _update_flow_config_leaves_worker_target_unset(
             assert request.flow_config.HasField("history_window_events") == (
                 config.history_window_events is not None
             )
+            assert request.flow_config.HasField("delete_expired_history_objects") == (
+                config.delete_expired_history_objects is not None
+            )
+            if config.delete_expired_history_objects is not None:
+                assert (
+                    request.flow_config.delete_expired_history_objects
+                    == config.delete_expired_history_objects
+                )
             if config.history_window_events is not None:
                 assert request.flow_config.history_window_events == 2500
     finally:

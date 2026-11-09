@@ -17,6 +17,9 @@ import {
 } from "./gen/dex.js";
 import { isGrpcMessageSizeError } from "./grpc-status.js";
 
+// The server rejects more than 1000 entries while history offload is on.
+const maxLoadBlobsEntries = 1000;
+
 const jsonValueCodec = jsonCodec<unknown>();
 
 /** Returns `codec`, or the identity JSON codec when the caller omitted one. */
@@ -231,6 +234,7 @@ export class ValueHydrator {
 
   /**
    * Loads blobs, halving a batch that gRPC rejects for size, so N blobs take at most 2N-1 calls.
+   * Each request holds at most 1000 entries.
    * @returns The hydrated values keyed by blob ID.
    * @throws {@link BlobMessageTooLargeError} when one blob alone exceeds the limit.
    */
@@ -238,6 +242,13 @@ export class ValueHydrator {
     flowId: string,
     blobs: readonly PendingBlob[],
   ): Promise<{ [key: string]: ProtoValue }> {
+    if (blobs.length > maxLoadBlobsEntries) {
+      const values: { [key: string]: ProtoValue } = {};
+      for (let start = 0; start < blobs.length; start += maxLoadBlobsEntries) {
+        Object.assign(values, await this.loadBlobValues(flowId, blobs.slice(start, start + maxLoadBlobsEntries)));
+      }
+      return values;
+    }
     try {
       const response = await unary<LoadBlobsResponse>((callback) =>
         this.service.loadBlobs(

@@ -22,6 +22,10 @@ type scriptAnalysis struct {
 	Graph       Graph                   `json:"graph"`
 	Annotations []scriptStepAnnotations `json:"annotations"`
 	Factories   []scriptFactoryUse      `json:"factories"`
+	// Attributes, Actions, and RPCLockErrors feed the 2.0 Actions; see script_actions.go.
+	Attributes    []scriptAttribute    `json:"attributes"`
+	Actions       []scriptAction       `json:"actions"`
+	RPCLockErrors []scriptRPCLockError `json:"rpcLockErrors"`
 }
 
 type scriptStepAnnotations struct {
@@ -110,6 +114,7 @@ func (analysis *scriptAnalysis) definition(schemaVersion string) *Graph {
 	}
 	if schemaVersion == SchemaVersionV2 {
 		analysis.applyStepAnnotations()
+		analysis.applyActions()
 	}
 	return graph
 }

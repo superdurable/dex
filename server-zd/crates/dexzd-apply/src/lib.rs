@@ -43,6 +43,7 @@ pub use history::{
     StagedTimeTravelForTest, apply_staged_time_travel_for_test, is_unstaged_time_travel_for_test,
     stage_computed_time_travel_for_test, stage_time_travel_for_test,
 };
+pub use history_offload::segment_expiry::is_expired_history_object_deletion_enabled;
 pub use history_offload::segmented_history::{
     LoadedHistorySegments, MissingHistorySegments, SegmentCheckpoint,
 };

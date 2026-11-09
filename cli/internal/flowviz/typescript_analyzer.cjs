@@ -44,6 +44,9 @@ class TypeScriptAnalyzer {
     this.failureTransitions = new Set();
     this.annotations = [];
     this.uses = [];
+    this.actions = [];
+    this.rpcLockErrors = [];
+    this.inputTypes = new Map();
   }
 
   analyze() {
@@ -52,6 +55,7 @@ class TypeScriptAnalyzer {
     }
     if (!this.graph.valid) return this.result();
     for (const statement of this.tree.statements) {
+      if ((this.ts.isInterfaceDeclaration(statement) || this.ts.isTypeAliasDeclaration(statement)) && statement.name) this.inputTypes.set(statement.name.text,statement);
       if (this.ts.isImportDeclaration(statement)) this.indexImport(statement);
       if (this.ts.isClassDeclaration(statement) && statement.name) this.classes.set(statement.name.text, statement);
       if (this.ts.isFunctionDeclaration(statement) && statement.name && statement.body) this.functions.set(statement.name.text, statement);
@@ -87,6 +91,7 @@ class TypeScriptAnalyzer {
       this.analyzeStep(stepName,nodeID,instance.declaration);
       this.currentFrame = {};
     }
+    this.analyzeRPCs(flow);
     this.analyzeTriggerBindings(this.method(flow,"getConnectorTriggerBindings"));
     return this.result();
   }
@@ -234,6 +239,163 @@ class TypeScriptAnalyzer {
     if (waitFor) this.error("typescript_wait_for_unsupported","TypeScript WaitFor analysis is not supported yet",waitFor);
     const options = this.method(declaration,"getStepOptions");
     if (options) this.analyzeExecuteFailure(nodeID,options);
+  }
+
+  analyzeRPCs(flow) {
+    for (const member of flow.members) {
+      if (!this.ts.isMethodDeclaration(member) || !member.name) continue;
+      const decorator = (this.ts.getDecorators?.(member) || []).find(candidate => this.isDexRPCDecorator(candidate));
+      if (!decorator) continue;
+      const call = this.unwrap(decorator.expression);
+      this.analyzeRPC(member,this.propertyName(member.name),this.ts.isCallExpression(call) ? call.arguments[0] : undefined,member);
+    }
+    const flowName = flow.name?.text;
+    this.walk(this.tree,node => {
+      if (!this.ts.isCallExpression(node) || this.dexName(node.expression) !== "declareRPCMethod") return;
+      const [flowClass,methodNameExpression,options] = node.arguments;
+      if (!flowName || this.unwrap(flowClass)?.getText(this.tree) !== flowName) return;
+      const methodName = this.staticLiteral(methodNameExpression);
+      if (typeof methodName !== "string") { this.error("dynamic_rpc_declaration","declareRPCMethod must name the RPC method with a string literal",node); return; }
+      const method = flow.members.find(member => this.ts.isMethodDeclaration(member) && member.name && this.propertyName(member.name) === methodName);
+      const statement = this.ts.isExpressionStatement(node.parent) ? node.parent : node;
+      this.analyzeRPC(method,methodName,options,statement);
+    });
+  }
+
+  analyzeRPC(method,methodName,optionsExpression,anchor) {
+    const nodeID = `rpc:${methodName}`;
+    if (this.graph.nodes.some(node => node.id === nodeID)) return;
+    this.graph.nodes.push({id:nodeID,kind:"rpc",name:methodName,span:this.span(method || anchor)});
+    const options = optionsExpression === undefined ? undefined : this.resolvedValue(optionsExpression,{}).node;
+    const optionsObject = options && this.ts.isObjectLiteralExpression(options) ? options : undefined;
+    const property = name => optionsObject?.properties.find(candidate => (this.ts.isPropertyAssignment(candidate) || this.ts.isShorthandPropertyAssignment(candidate)) && candidate.name && this.propertyName(candidate.name) === name);
+    const valueOf = candidate => this.ts.isShorthandPropertyAssignment(candidate) ? candidate.name : candidate.initializer;
+    const nameProperty = property("name");
+    const staticName = nameProperty ? this.staticLiteral(valueOf(nameProperty),{}) : undefined;
+    const rpcName = typeof staticName === "string" && staticName ? staticName : methodName;
+    const lockProblems = this.analyzeRPCLocks(nodeID,rpcName,property("lockAttributes"),valueOf);
+    const actionProperty = property("action");
+    if (!actionProperty) return;
+    for (const problem of lockProblems) this.rpcLockErrors.push({rpcNodeId:nodeID,rpcName,message:problem.message,span:problem.span});
+    this.actions.push(this.actionEntry(method,methodName,nodeID,rpcName,valueOf(actionProperty),anchor));
+  }
+
+  analyzeRPCLocks(nodeID,rpcName,lockProperty,valueOf) {
+    const problems = [];
+    if (!lockProperty) return problems;
+    const expression = valueOf(lockProperty);
+    const list = this.resolvedValue(expression,{}).node;
+    if (!list || !this.ts.isArrayLiteralExpression(list)) {
+      problems.push({message:`lockAttributes of RPC ${rpcName} is not an array literal (${this.lineText(expression)}); list Attribute lock() calls directly`,span:this.span(expression)});
+      return problems;
+    }
+    const recorded = new Set();
+    for (const element of list.elements) {
+      const lock = this.resolvedValue(element,{}).node;
+      const isLockCall = lock && this.ts.isCallExpression(lock) && this.ts.isPropertyAccessExpression(lock.expression) && lock.expression.name.text === "lock";
+      const resourceID = isLockCall ? this.resourceFor(lock.expression.expression) : undefined;
+      if (!resourceID || !resourceID.startsWith("resource:attribute:")) {
+        problems.push({message:`lock ${this.lineText(element)} of RPC ${rpcName} is not a lock() call on an Attribute declared in this file`,span:this.span(element)});
+        continue;
+      }
+      if (recorded.has(resourceID)) continue;
+      recorded.add(resourceID);
+      this.graph.edges.push({kind:"resource_lock",from:nodeID,to:resourceID,label:"lock",span:this.span(lock),metadata:{phase:"rpc",rpcName}});
+    }
+    return problems;
+  }
+
+  actionEntry(method,methodName,nodeID,rpcName,expression,anchor) {
+    const entry = {rpcNodeId:nodeID,rpcName,span:this.span(expression),error:"",label:"",requiredPermission:"",condition:null,directives:this.directives(anchor),input:this.actionInput(method,methodName)};
+    const fail = message => ({...entry,error:message});
+    const action = this.resolvedValue(expression,{}).node;
+    if (!action || !this.ts.isNewExpression(action) || this.dexName(action.expression) !== "Action" || action.arguments?.length !== 1) {
+      return fail(`RPC ${rpcName} Action (${this.lineText(expression)}) must directly construct new Action({ label, requiredPermission, condition }) from @superdurable/dex`);
+    }
+    const fields = this.resolvedValue(action.arguments[0],{}).node;
+    if (!fields || !this.ts.isObjectLiteralExpression(fields)) return fail(`RPC ${rpcName} Action (${this.lineText(action.arguments[0])}) must pass an object literal to new Action`);
+    const values = new Map();
+    for (const candidate of fields.properties) {
+      if (!(this.ts.isPropertyAssignment(candidate) || this.ts.isShorthandPropertyAssignment(candidate)) || !candidate.name) {
+        return fail(`RPC ${rpcName} Action (${this.lineText(candidate)}) must list label, requiredPermission, and condition as plain properties`);
+      }
+      values.set(this.propertyName(candidate.name),this.ts.isShorthandPropertyAssignment(candidate) ? candidate.name : candidate.initializer);
+    }
+    for (const name of values.keys()) if (!["label","requiredPermission","condition"].includes(name)) return fail(`RPC ${rpcName} Action has unknown property ${name}`);
+    const label = this.staticLiteral(values.get("label"),{});
+    if (typeof label !== "string") return fail(`RPC ${rpcName} Action label (${this.lineText(values.get("label") || action)}) must be a string literal or a module-level string constant`);
+    const permission = this.staticLiteral(values.get("requiredPermission"),{});
+    if (typeof permission !== "string") return fail(`RPC ${rpcName} Action requiredPermission (${this.lineText(values.get("requiredPermission") || action)}) must be a string literal or a module-level string constant`);
+    entry.label = label;
+    entry.requiredPermission = permission;
+    const conditionExpression = values.get("condition");
+    const condition = conditionExpression === undefined ? undefined : this.resolvedValue(conditionExpression,{}).node;
+    if (!condition || condition.kind === this.ts.SyntaxKind.UndefinedKeyword || (this.ts.isIdentifier(condition) && condition.text === "undefined")) return entry;
+    if (!this.ts.isCallExpression(condition) || this.dexName(condition.expression) !== "whenAttributeMatches" || condition.arguments.length < 2) {
+      return fail(`RPC ${rpcName} Action condition (${this.lineText(conditionExpression)}) must directly call whenAttributeMatches(attribute, AttributeMatch.equalTo(value), ...)`);
+    }
+    const resourceID = this.resourceFor(condition.arguments[0]);
+    const attribute = resourceID && this.graph.nodes.find(node => node.id === resourceID && node.kind === "attribute");
+    if (!attribute) return fail(`RPC ${rpcName} Action condition Attribute (${this.lineText(condition.arguments[0])}) must reference an Attribute declared in this file`);
+    const matches = [];
+    for (const match of condition.arguments.slice(1)) {
+      const call = this.resolvedValue(match,{}).node;
+      const isEqualTo = call && this.ts.isCallExpression(call) && this.ts.isPropertyAccessExpression(call.expression) && call.expression.name.text === "equalTo" && this.dexName(call.expression.expression) === "AttributeMatch" && call.arguments.length === 1;
+      if (!isEqualTo) return fail(`RPC ${rpcName} Action condition match (${this.lineText(match)}) must directly call AttributeMatch.equalTo with a literal`);
+      const value = this.actionScalar(call.arguments[0]);
+      if (value === undefined) return fail(`RPC ${rpcName} Action condition value (${this.lineText(call.arguments[0])}) must be a string, number, bigint, or boolean literal or a module-level constant`);
+      matches.push(value);
+    }
+    entry.condition = {attributeKey:attribute.name,values:matches,span:this.span(condition)};
+    return entry;
+  }
+
+  actionScalar(expression) {
+    let node = this.resolvedValue(expression,{}).node;
+    let sign = 1;
+    if (node && this.ts.isPrefixUnaryExpression(node) && node.operator === this.ts.SyntaxKind.MinusToken) { sign = -1; node = this.resolvedValue(node.operand,{}).node; }
+    if (node && this.ts.isBigIntLiteral(node)) {
+      const value = BigInt(node.text.slice(0,-1)) * BigInt(sign);
+      return value >= BigInt(Number.MIN_SAFE_INTEGER) && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
+    }
+    const value = this.staticLiteral(node,{});
+    if (typeof value === "number") return Number.isFinite(value) ? sign * value : undefined;
+    return sign === 1 && (typeof value === "string" || typeof value === "boolean") ? value : undefined;
+  }
+
+  actionInput(method,methodName) {
+    if (!method) return {kind:"none",typeName:"",error:`RPC method ${methodName} must be declared in the Flow class`,fields:[]};
+    const parameter = method.parameters[1];
+    if (!parameter) return {kind:"none",typeName:"",error:"",fields:[]};
+    const typeNode = parameter.type;
+    const typeName = typeNode && this.ts.isTypeReferenceNode(typeNode) && this.ts.isIdentifier(typeNode.typeName) ? typeNode.typeName.text : "";
+    const declaration = typeName ? this.inputTypes.get(typeName) : undefined;
+    const members = declaration && (this.ts.isInterfaceDeclaration(declaration) ? declaration.members : this.ts.isTypeLiteralNode(declaration.type) ? declaration.type.members : undefined);
+    if (!members) return {kind:"object",typeName:typeName || (typeNode ? typeNode.getText(this.tree) : ""),error:`Action RPC ${methodName} input must be annotated with an interface or object type alias declared in this file`,fields:[]};
+    const fields = [];
+    for (const member of members) {
+      if (!this.ts.isPropertySignature(member) || !member.name || !member.type) return {kind:"object",typeName,error:`Action RPC ${methodName} input type ${typeName} must contain only typed properties`,fields:[]};
+      let type = member.type;
+      let required = !member.questionToken;
+      if (this.ts.isUnionTypeNode(type)) {
+        const kept = type.types.filter(part => !(part.kind === this.ts.SyntaxKind.UndefinedKeyword || (this.ts.isLiteralTypeNode(part) && part.literal.kind === this.ts.SyntaxKind.NullKeyword)));
+        if (kept.length !== type.types.length) required = false;
+        if (kept.length === 1) type = kept[0];
+      }
+      fields.push({fieldName:this.propertyName(member.name),valueType:this.canonicalValueType(type.getText(this.tree)),required});
+    }
+    return {kind:"object",typeName,error:"",fields};
+  }
+
+  canonicalValueType(text) {
+    return {string:"string",number:"double",bigint:"int64",boolean:"bool",Date:"datetime"}[text] || text;
+  }
+
+  lineText(node) {
+    const span = this.span(node);
+    const text = node?.getText ? node.getText(this.tree).replace(/\s+/g," ") : "";
+    const shortText = text.length > 60 ? `${text.slice(0,57)}...` : text;
+    return span ? `${shortText} at line ${span.startLine}` : shortText;
   }
 
   analyzeTriggerBindings(bindings) {
@@ -1033,6 +1195,8 @@ class TypeScriptAnalyzer {
     if (this.ts.isBinaryExpression(parent) && parent.operatorToken.kind === this.ts.SyntaxKind.InstanceOfKeyword && parent.right === use) return;
     if (this.ts.isPropertyAccessExpression(parent) && parent.expression === use && !this.isWriteTarget(parent)) return;
     if (this.ts.isCallExpression(parent) && parent.arguments.includes(use) && this.isDexTargetArgument(parent,parent.arguments.indexOf(use))) return;
+    // declareRPCMethod only reads a method descriptor from the class prototype.
+    if (this.ts.isCallExpression(parent) && parent.arguments[0] === use && this.dexName(parent.expression) === "declareRPCMethod") return;
     if (this.ts.isVariableDeclaration(parent) && parent.initializer === use && this.ts.isIdentifier(parent.name)) {
       const scope = this.bindingScope(parent.name);
       if (scope && this.staticBinding(scope,parent.name.text) === parent && this.isDirectStatement(parent,scope)) return;
@@ -1488,7 +1652,10 @@ class TypeScriptAnalyzer {
     const key = JSON.stringify(diagnostic);
     if (!this.graph.diagnostics.some(existing => JSON.stringify(existing) === key)) this.graph.diagnostics.push(diagnostic);
   }
-  result() { return {graph:this.graph,annotations:this.annotations,factories:this.uses}; }
+  result() {
+    const attributes = this.graph.nodes.filter(node => node.kind === "attribute").map(node => ({key:node.name,valueType:this.canonicalValueType(node.resource?.valueType || "unknown"),isMap:!!node.resource?.map}));
+    return {graph:this.graph,annotations:this.annotations,factories:this.uses,attributes,actions:this.actions,rpcLockErrors:this.rpcLockErrors};
+  }
 }
 
 try {

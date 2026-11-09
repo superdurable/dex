@@ -53,6 +53,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("POST /api/flows/channels/messages", handler.publishChannelMessage)
 	mux.HandleFunc("DELETE /api/flows/channels/messages", handler.deleteChannelMessage)
 	mux.HandleFunc("PUT /api/flows/attributes", handler.setAttribute)
+	mux.HandleFunc("PUT /api/flows/config/history", handler.updateFlowHistoryConfig)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
 	mux.HandleFunc("GET /api/flows/stream", handler.readStream)
 	mux.HandleFunc("POST /api/flows/time-travel", handler.timeTravelFlow)
@@ -114,6 +115,45 @@ func (h *handler) setAttribute(response http.ResponseWriter, request *http.Reque
 	})
 	if err != nil {
 		writeGRPCError(response, err, "SetAttributes")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
+}
+
+// updateFlowHistoryConfig sends only the edited fields because UpdateFlowConfig merges set fields.
+func (h *handler) updateFlowHistoryConfig(response http.ResponseWriter, request *http.Request) {
+	var body updateFlowHistoryConfigRequest
+	if err := decodeJSON(response, request, &body); err != nil {
+		WriteError(response, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if body.FlowID == "" || body.RunID == "" {
+		WriteError(response, http.StatusBadRequest, "flowId and runId are required", nil)
+		return
+	}
+	if body.HistoryWindowEvents == nil && body.DeleteExpiredHistoryObjects == nil {
+		WriteError(
+			response,
+			http.StatusBadRequest,
+			"historyWindowEvents or deleteExpiredHistoryObjects is required",
+			nil,
+		)
+		return
+	}
+	if body.HistoryWindowEvents != nil && *body.HistoryWindowEvents <= 0 {
+		WriteError(response, http.StatusBadRequest, "historyWindowEvents must be a positive integer", nil)
+		return
+	}
+	_, err := h.client.UpdateFlowConfig(request.Context(), &dexpb.UpdateFlowConfigRequest{
+		FlowId: body.FlowID,
+		RunId:  body.RunID,
+		FlowConfig: &dexpb.FlowConfig{
+			HistoryWindowEvents:         body.HistoryWindowEvents,
+			DeleteExpiredHistoryObjects: body.DeleteExpiredHistoryObjects,
+		},
+	})
+	if err != nil {
+		writeGRPCError(response, err, "UpdateFlowConfig")
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]bool{"updated": true})
