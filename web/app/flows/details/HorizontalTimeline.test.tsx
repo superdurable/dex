@@ -79,7 +79,7 @@ describe('horizontal Timeline', () => {
     expect(strip.getAttribute('aria-activedescendant')).toBe('htl-event-99');
 
     fireEvent.keyDown(strip, { key: 'PageUp' });
-    expect(option(70)?.getAttribute('aria-selected')).toBe('true');
+    expect(option(74)?.getAttribute('aria-selected')).toBe('true');
 
     fireEvent.keyDown(strip, { key: 'Home' });
     expect(option(1)?.getAttribute('aria-selected')).toBe('true');
@@ -90,7 +90,7 @@ describe('horizontal Timeline', () => {
   it('moves the view from the overview by keyboard and by pointer', () => {
     render(<Harness pageEvents={events(1000)} />);
     const overview = screen.getByRole('slider', { name: 'Timeline overview' });
-    expect(Number(overview.getAttribute('aria-valuenow'))).toBe(971);
+    expect(Number(overview.getAttribute('aria-valuenow'))).toBe(975);
 
     fireEvent.keyDown(overview, { key: 'Home' });
     expect(overview.getAttribute('aria-valuenow')).toBe('0');
@@ -104,7 +104,7 @@ describe('horizontal Timeline', () => {
     overview.getBoundingClientRect = () => ({ left: 0, width: 1000, top: 0, height: 34, right: 1000, bottom: 34, x: 0, y: 0, toJSON: () => ({}) });
     fireEvent.pointerDown(overview, { button: 0, clientX: 500, pointerId: 1 });
     expect(option(500)).not.toBeNull();
-    expect(overview.getAttribute('aria-valuetext')).toBe('Events #487 to #515');
+    expect(overview.getAttribute('aria-valuetext')).toBe('Events #489 to #513');
   });
 
   it('marks linked events and jumps to a related event on another page', () => {
@@ -157,4 +157,26 @@ describe('horizontal Timeline', () => {
     expect(option(20)?.className).toContain('jump-highlighted');
     expect(option(20)?.getAttribute('aria-selected')).toBe('true');
   });
+
+  it('labels events briefly and numbers every tenth event on the axis', () => {
+    render(<Harness pageEvents={events(100)} initialEventId={97} />);
+    expect(option(97)?.querySelector('.htl-label')?.textContent).toBe('Execute · Charge');
+    expect(option(97)?.getAttribute('title')).toBeNull();
+    const axis = [...document.querySelectorAll('.htl-axis-label')].map((label) => label.textContent);
+    expect(axis).toContain('#90');
+    expect(axis).toContain('#100');
+    expect(axis).toContain('#97');
+    expect(axis).not.toContain('#96');
+  });
+
+  it('keeps a selected older event in view while Live adds newer events', () => {
+    const { rerender } = render(
+      <HorizontalTimeline events={events(100)} selectedEvent={events(100)[94]} onSelectEvent={() => {}} />,
+    );
+    expect(option(95)).not.toBeNull();
+    rerender(<HorizontalTimeline events={events(160)} selectedEvent={events(160)[94]} onSelectEvent={() => {}} />);
+    expect(option(95)).not.toBeNull();
+    expect(option(160)).toBeNull();
+  });
 });
+

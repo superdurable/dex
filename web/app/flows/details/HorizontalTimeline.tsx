@@ -25,16 +25,50 @@ import {
   type TimelineSelectedRelations,
 } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
+import { CircleCheck, CircleDot, CircleX, Clock, GitFork, Hourglass, type LucideIcon } from 'lucide-react';
 import { eventTitle } from './EventDetails';
 import { eventTone, executionSummary, type TimelinePaging } from './Timeline';
 
 /** Horizontal space per event; slanted labels let neighbors share it like angled parking. */
-const slotWidth = 34;
+const slotWidth = 40;
 /** Room at the right edge for the slanted labels of the newest visible events. */
-const labelRunWidth = 200;
+const labelRunWidth = 190;
 const overscanSlots = 6;
 const fallbackStripWidth = 1200;
 const arcBandHeight = 44;
+
+const toneIcons: Record<string, LucideIcon> = {
+  completed: CircleCheck,
+  failed: CircleX,
+  waiting: Hourglass,
+  pending: Clock,
+  fork: GitFork,
+};
+
+/** The axis names every tenth event, so the slanted labels need no numbers. */
+const axisEventInterval = 10;
+
+/** Names an event briefly, such as "Execute · ChargeStep"; the dot shows whether it completed or failed. */
+export function shortEventLabel(event: FlowHistoryEvent): string {
+  const stepType = executionSummary(event).split(' · ')[0];
+  if (event.type.startsWith('StepWaitFor')) return stepType ? `WaitFor · ${stepType}` : 'WaitFor';
+  if (event.type.startsWith('StepExecute')) return stepType ? `Execute · ${stepType}` : 'Execute';
+  if (event.type === 'ChannelExternalPublish' || event.type === 'ChannelExternalDelete') {
+    const messages = Array.isArray(event.payload.messages) ? event.payload.messages : [];
+    const channels = [...new Set(messages.flatMap((message) => (
+      message && typeof message === 'object' && typeof (message as { channelName?: unknown }).channelName === 'string'
+        ? [(message as { channelName: string }).channelName]
+        : []
+    )))];
+    const kind = event.type === 'ChannelExternalPublish' ? 'Channel published' : 'Channel message deleted';
+    return channels.length > 0 ? `${kind} · ${channels.join(', ')}` : kind;
+  }
+  if (event.type === 'RpcExecutionCompleted' && typeof event.payload.rpcName === 'string' && event.payload.rpcName
+    && event.payload.isSetAttributeApi !== true) {
+    return `RPC · ${event.payload.rpcName}`;
+  }
+  return eventTitle(event);
+}
 
 /** Shows a Timeline page left to right with slanted labels; only events in view render. */
 export function HorizontalTimeline({
@@ -107,6 +141,8 @@ export function HorizontalTimeline({
   const selectedIndex = selectedEvent ? indexByEventId.get(selectedEvent.eventId) ?? -1 : -1;
   useEffect(() => {
     if (selectedIndex < 0) return;
+    // Selecting an older event stops Live from sliding the view toward newer events.
+    isAtNewestEnd.current = selectedIndex === chronological.length - 1;
     if (selectedIndex < windowStart || selectedIndex >= windowStart + visibleCount) centerOn(selectedIndex);
     // Only a selection change recenters, so dragging the overview never snaps back.
   }, [selectedIndex]);
@@ -256,7 +292,7 @@ export function HorizontalTimeline({
           const index = firstRendered + offset;
           const tone = eventTone(event);
           const summary = executionSummary(event);
-          const stepType = summary.split(' · ')[0];
+          const ToneIcon = toneIcons[tone] ?? CircleDot;
           const isSelected = index === selectedIndex;
           const classes = [
             'htl-event',
@@ -276,15 +312,31 @@ export function HorizontalTimeline({
               onClick={() => onSelectEvent(event)}
               role="option"
               style={{ left: `${(index - windowStart) * slotWidth}px` }}
-              title={`#${event.eventId} ${eventTitle(event)}${summary ? ` · ${summary}` : ''}`}
             >
-              <span aria-hidden="true" className="htl-label">
-                <span className="htl-id">#{event.eventId}</span> {eventTitle(event)}{stepType ? ` · ${stepType}` : ''}
+              <span aria-hidden="true" className="htl-label">{shortEventLabel(event)}</span>
+              <span aria-hidden="true" className="htl-dot">
+                <ToneIcon size={14} strokeWidth={2.5} />
               </span>
-              <span aria-hidden="true" className="htl-dot" />
             </div>
           );
         })}
+        <div aria-hidden="true" className="htl-axis">
+          {renderedEvents.flatMap((event, offset) => {
+            const index = firstRendered + offset;
+            const isSelected = index === selectedIndex;
+            const isNextToSelection = selectedIndex >= 0 && Math.abs(index - selectedIndex) === 1;
+            if (!isSelected && (event.eventId % axisEventInterval !== 0 || isNextToSelection)) return [];
+            return [(
+              <span
+                className={`htl-axis-label${isSelected ? ' selected' : ''}`}
+                key={event.eventId}
+                style={{ left: `${(index - windowStart) * slotWidth + slotWidth / 2}px` }}
+              >
+                #{event.eventId}
+              </span>
+            )];
+          })}
+        </div>
         <svg aria-hidden="true" className="htl-arcs" height={arcBandHeight} width={stripWidth}>
           {selectedLinks.flatMap((link) => {
             const fromIndex = indexByEventId.get(link.fromEventId);

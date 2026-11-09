@@ -1973,7 +1973,7 @@ body:has(.v1-page) {
 
 .htl-strip {
   position: relative;
-  height: 232px;
+  height: 268px;
   overflow: hidden;
   border-radius: var(--ui-radius-item);
   background: var(--ui-well);
@@ -1983,7 +1983,7 @@ body:has(.v1-page) {
 .htl-strip::before {
   position: absolute;
   right: 0;
-  bottom: 54px;
+  bottom: 75px;
   left: 0;
   height: 1px;
   content: '';
@@ -1993,8 +1993,8 @@ body:has(.v1-page) {
 .htl-event {
   position: absolute;
   top: 0;
-  bottom: 44px;
-  width: 34px;
+  bottom: 62px;
+  width: 40px;
   cursor: pointer;
 }
 
@@ -2002,80 +2002,93 @@ body:has(.v1-page) {
   position: absolute;
   bottom: 5px;
   left: 50%;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--ui-well);
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
   border-radius: 50%;
-  background: var(--ui-ink-3);
+  color: var(--ui-ink-3);
+  background: var(--ui-well);
   transform: translateX(-50%);
 }
 
 .htl-event.tone-completed .htl-dot {
-  background: var(--tone-done);
+  color: var(--tone-done);
 }
 
 .htl-event.tone-waiting .htl-dot,
 .htl-event.tone-pending .htl-dot {
-  background: var(--tone-wait);
+  color: var(--tone-wait-ink);
 }
 
 .htl-event.tone-failed .htl-dot {
-  background: var(--tone-fail);
+  color: var(--tone-fail);
 }
 
 .htl-event.tone-fork .htl-dot {
-  background: var(--tone-accent);
+  color: var(--tone-accent);
 }
 
-/* Labels rise 30 degrees, so neighbors share horizontal space like angled parking. */
+/* Labels rise 45 degrees, so neighbors share horizontal space like angled parking. */
 .htl-label {
   position: absolute;
-  bottom: 22px;
-  left: 50%;
-  max-width: 230px;
+  bottom: 30px;
+  left: calc(50% - 4px);
+  max-width: 260px;
   overflow: hidden;
   color: var(--ui-ink-2);
-  font-size: var(--ui-text-xs);
-  line-height: 14px;
+  font-size: var(--ui-text-sm);
+  line-height: 17px;
   text-overflow: ellipsis;
-  transform: rotate(-30deg);
+  transform: rotate(-45deg);
   transform-origin: left bottom;
   white-space: nowrap;
 }
 
-.htl-id {
-  color: var(--ui-ink-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.htl-event:hover .htl-label {
-  color: var(--ui-ink);
-}
-
-.htl-event.selected .htl-label {
-  color: var(--tone-accent-ink);
-  font-weight: 650;
-}
-
-.htl-event.selected .htl-dot {
-  width: 14px;
-  height: 14px;
-  bottom: 3px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone-accent) 35%, transparent);
-}
-
+.htl-event:hover .htl-label,
+.htl-event.selected .htl-label,
 .htl-event.linked .htl-label {
   color: var(--ui-ink);
   font-weight: 600;
 }
 
+.htl-event.selected .htl-dot {
+  box-shadow: 0 0 0 3px var(--tone-accent);
+}
+
 .htl-event.linked .htl-dot {
-  box-shadow: 0 0 0 2px var(--tone-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tone-accent) 45%, transparent);
 }
 
 .htl-event.jump-highlighted .htl-dot {
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--tone-accent) 30%, transparent);
+}
+
+/* Event numbers every tenth event, and at the selection, below the baseline. */
+.htl-axis {
+  position: absolute;
+  right: 0;
+  bottom: 44px;
+  left: 0;
+  height: 18px;
+  pointer-events: none;
+}
+
+.htl-axis-label {
+  position: absolute;
+  top: 2px;
+  color: var(--ui-ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.htl-axis-label.selected {
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--tone-accent-on);
+  background: var(--tone-accent);
 }
 
 .htl-arcs {
