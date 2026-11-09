@@ -32,8 +32,7 @@ from dex import (
     rpc,
 )
 
-# WCP-23 Transient Trigger: Channels keep messages, so the RPC drops an event
-# unless WaitFor recorded that a Step is waiting.
+# WCP-23: Channels keep messages, so the RPC drops events while no Step waits.
 
 IS_AWAITING_MOTION_EVENT = Attribute("isAwaitingMotionEvent", bool)
 MOTION_SENSOR_ARMED = Channel("motionSensorArmed", str)

@@ -118,9 +118,7 @@ export class MultipleInstancesWithoutSynchronizationFlow implements Flow<string[
   }
 }
 
-// WCP-13 and WCP-14 Multiple Instances with a priori Design-Time or Run-Time
-// Knowledge: the instance count is known when the instances start, so ForN
-// synchronizes them.
+// WCP-13 and WCP-14: the count is known when instances start, so ForN joins them.
 
 const reviewCompleted = new Channel("reviewCompleted", stringCodec);
 const DESIGN_TIME_REVIEWERS = ["legal", "finance", "security"];
@@ -223,10 +221,9 @@ export class RunTimeMultipleInstancesFlow implements Flow<string[]> {
   }
 }
 
-// WCP-15 Multiple Instances without a priori Run-Time Knowledge: an RPC adds
-// instances while others run. The join counts them against an Attribute and
-// re-waits until intake is closed and every started sample reported. The
-// count no longer changes once intake is closed, so the join needs no lock.
+// WCP-15: an RPC adds instances. The join re-waits until intake closes and all report.
+
+// The count is final once intake closes, so the join needs no lock.
 
 const startedSampleCount = new Attribute("startedSampleCount", doubleCodec);
 const isSampleIntakeClosed = new Attribute("isSampleIntakeClosed", booleanCodec);
@@ -527,10 +524,9 @@ export class CancellingPartialJoinForMultipleInstancesFlow implements Flow<Parti
   }
 }
 
-// WCP-36 Dynamic Partial Join for Multiple Instances: an RPC adds bids while
-// the join runs. The join checks its completion condition after every bid and
-// then closes admission. A shared lock keeps a bid from slipping in as admission
-// closes; the RPC then fails with a lock conflict, and the caller retries.
+// WCP-36: the join tests its condition after each bid, then closes admission.
+
+// A shared lock stops late bids; a conflicting RPC fails fast and the caller retries.
 
 export interface BidJoin {
   readonly requiredAcceptedBids: number;

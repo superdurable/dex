@@ -86,8 +86,7 @@ export class SequenceFlow implements Flow<string[]> {
   }
 }
 
-// WCP-2 Parallel Split and WCP-3 Synchronization: GoToMany starts the branches,
-// and the join Step waits for one Channel message from each branch.
+// WCP-2 and WCP-3: GoToMany splits; the join waits for one message per branch.
 
 const fulfillmentBranchCompleted = new Channel("fulfillmentBranchCompleted", stringCodec);
 const paymentApproved = new Channel("paymentApproved", stringCodec);
@@ -175,8 +174,7 @@ export class ParallelSplitSynchronizationFlow implements Flow<void> {
   }
 }
 
-// WCP-4 Exclusive Choice and WCP-5 Simple Merge: Execute picks exactly one
-// branch, and both branches go to the same next Step.
+// WCP-4 and WCP-5: Execute picks one branch; both branches go to CloseClaim.
 
 const MANUAL_REVIEW_THRESHOLD = 1000;
 

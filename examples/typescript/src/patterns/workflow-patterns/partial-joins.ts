@@ -49,9 +49,9 @@ function requireBranchLetter(value: string): BranchLetter {
   return letter;
 }
 
-// WCP-9 Structured Discriminator (requiredQuotes 1) and WCP-30 Structured
-// Partial Join (requiredQuotes 2). Channel messages persist, so a reset Step
-// consumes the late quotes before the join could be used again.
+// WCP-9 (requiredQuotes 1) and WCP-30 (requiredQuotes 2).
+
+// Channel messages persist, so a reset Step consumes the late quotes.
 
 const supplierAReleased = new Channel("supplierAReleased", stringCodec);
 const supplierBReleased = new Channel("supplierBReleased", stringCodec);
@@ -201,9 +201,9 @@ export class StructuredPartialJoinFlow implements Flow<number> {
   }
 }
 
-// WCP-28 Blocking Discriminator (requiredSignals 1) and WCP-31 Blocking Partial
-// Join (requiredSignals 2). Each branch has its own Channel, so a signal for the
-// next round stays queued until the reset Step re-arms the join.
+// WCP-28 (requiredSignals 1) and WCP-31 (requiredSignals 2).
+
+// Per-branch Channels queue next-round signals until the reset Step re-arms the join.
 
 export interface BlockingJoinRound {
   readonly requiredSignals: number;

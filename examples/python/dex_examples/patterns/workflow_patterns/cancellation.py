@@ -239,8 +239,7 @@ class CancelMultipleInstanceTaskFlow(Flow[int]):
         ).with_canceling_steps(TranslateDocument)
 
 
-# WCP-27 Complete Multiple Instance Activity: an RPC withdraws the remaining
-# instances and the join, then passes the submitted reviews on.
+# WCP-27: an RPC withdraws the open instances and the join, then continues.
 
 PEER_REVIEW_RELEASED = Channel("peerReviewReleased", str)
 PEER_REVIEW_SUBMITTED = Channel("peerReviewSubmitted", int)

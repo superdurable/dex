@@ -36,8 +36,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-// WCP-23 Transient Trigger: Channels keep messages, so the RPC drops a motion
-// event unless WaitFor recorded that a Step is waiting for one.
+// WCP-23: Channels keep messages, so the RPC drops events while no Step waits.
 
 const isAwaitingMotionEvent = new Attribute("isAwaitingMotionEvent", booleanCodec);
 const motionSensorArmed = new Channel("motionSensorArmed", stringCodec);

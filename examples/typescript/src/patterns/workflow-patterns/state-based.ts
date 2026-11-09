@@ -245,8 +245,7 @@ export class InterleavedParallelRoutingFlow implements Flow<void> {
   }
 }
 
-// WCP-18 Milestone: an Attribute records that the change window is open. The
-// RPC starts ApplyConfigChange only while it is open.
+// WCP-18 Milestone: the RPC starts ApplyConfigChange only while the window is open.
 
 const isChangeWindowOpen = new Attribute("isChangeWindowOpen", booleanCodec);
 const releaseApproved = new Channel("releaseApproved", stringCodec);
@@ -347,8 +346,7 @@ export class MilestoneFlow implements Flow<void> {
 
 export { isChangeWindowOpen };
 
-// WCP-39 Critical Section: a single Channel message is the token. An Attribute
-// lock covers one Step method only, so a two-Step section holds the token.
+// WCP-39: a lock covers one Step method, so a two-Step section holds a Channel token.
 
 const criticalSectionToken = new Channel("criticalSectionToken", stringCodec);
 const criticalSectionFinished = new Channel("criticalSectionFinished", taskIntervalCodec);
@@ -482,8 +480,7 @@ export class CriticalSectionFlow implements Flow<void> {
   }
 }
 
-// WCP-40 Interleaved Routing: each audit runs once, in any order, never two at
-// a time, and the Flow continues after all of them.
+// WCP-40 Interleaved Routing: each audit runs once, in any order, one at a time.
 
 const auditLock = new Attribute("auditLock", booleanCodec);
 const auditFinished = new Channel("auditFinished", taskIntervalCodec);

@@ -362,8 +362,9 @@ class CancellingPartialJoinForMultipleInstancesFlow(Flow[PartialInspection]):
             QUORUM_INSPECTION_RELEASED.publish(context, "released")
 
 
-# WCP-36 Dynamic Partial Join for Multiple Instances: the join tests its condition
-# after each bid, then closes admission. The shared lock makes a racing RPC retry.
+# WCP-36: the join tests its condition after each bid, then closes admission.
+
+# A shared lock stops late bids; a conflicting RPC fails fast and the caller retries.
 
 
 @dataclass(frozen=True)

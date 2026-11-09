@@ -151,8 +151,7 @@ class StructuredPartialJoinFlow(Flow[int]):
         SUPPLIER_RELEASED[require_branch_letter(input)].publish(context, "released")
 
 
-# WCP-28 Blocking Discriminator and WCP-31 Blocking Partial Join. Per-branch
-# Channels hold next-round signals until the reset Step re-arms the join.
+# WCP-28 and WCP-31: per-branch Channels hold next-round signals until the reset.
 
 
 @dataclass(frozen=True)

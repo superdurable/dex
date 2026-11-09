@@ -37,8 +37,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-// WCP-6 Multi-Choice, WCP-7 Structured Synchronizing Merge, and WCP-37 Local
-// Synchronizing Merge: the choosing Step passes the branch count to the join.
+// WCP-6, WCP-7, and WCP-37: the choosing Step passes the branch count to the join.
 
 export interface NotificationChoice {
   readonly sendEmail: boolean;
@@ -218,8 +217,7 @@ export class MultiMergeFlow implements Flow<void> {
   }
 }
 
-// WCP-38 General Synchronizing Merge: Dex has no in-Flow construct for it. The
-// region runs as a SubFlow, which completes once none of its Steps can run.
+// WCP-38: the region runs as a SubFlow, which completes once none of its Steps can run.
 
 class DraftProposal implements Step<number> {
   public readonly inputCodec = doubleCodec;

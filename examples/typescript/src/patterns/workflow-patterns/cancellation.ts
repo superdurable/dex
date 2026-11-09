@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-// Cancellation Workflow Patterns: WCP-19 (cancel task), WCP-20 (cancel case),
-// WCP-25 (cancel region), WCP-26 (cancel multiple instance activity), and
-// WCP-27 (complete multiple instance activity).
+// Cancellation Workflow Patterns: WCP-19, WCP-20, and WCP-25 to WCP-27.
 
 import {
   Attribute,
@@ -101,8 +99,7 @@ export class CancelTaskFlow implements Flow<void> {
   }
 }
 
-// WCP-20 Cancel Case: the Client stops the Flow. StopFlow cancels every active
-// Step; a running SubFlow keeps running and must be stopped by its own ID.
+// WCP-20 Cancel Case: StopFlow cancels every active Step. A running SubFlow keeps running.
 
 const applicationReviewed = new Channel("applicationReviewed", stringCodec);
 
@@ -338,8 +335,7 @@ export class CancelMultipleInstanceTaskFlow implements Flow<number> {
 
 export { finishedTranslationCount };
 
-// WCP-27 Complete Multiple Instance Activity: an RPC withdraws the remaining
-// instances and the join, then passes the submitted reviews on.
+// WCP-27: an RPC withdraws the open instances and the join, then continues.
 
 const peerReviewReleased = new Channel("peerReviewReleased", stringCodec);
 const peerReviewSubmitted = new Channel("peerReviewSubmitted", doubleCodec);
