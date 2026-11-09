@@ -221,7 +221,7 @@ export function FlowSearchPage() {
     }
     const parsed = parseVisibilityQuery(query);
     if (!parsed) {
-      setError('This advanced query uses syntax the Basic editor cannot represent.');
+      setError('This search query uses syntax the Filters tab cannot represent.');
       return;
     }
     setFilters(parsed);
@@ -293,11 +293,23 @@ export function FlowSearchPage() {
       <section className="card query-card">
         <div className="query-toolbar">
           <div className="segmented" role="tablist" aria-label="Query mode">
-            <button className={mode === 'basic' ? 'active' : ''} onClick={() => switchMode('basic')}>
-              Basic
+            <button
+              aria-selected={mode === 'basic'}
+              className={mode === 'basic' ? 'active' : ''}
+              onClick={() => switchMode('basic')}
+              role="tab"
+              type="button"
+            >
+              Filters
             </button>
-            <button className={mode === 'advanced' ? 'active' : ''} onClick={() => switchMode('advanced')}>
-              Advanced
+            <button
+              aria-selected={mode === 'advanced'}
+              className={mode === 'advanced' ? 'active' : ''}
+              onClick={() => switchMode('advanced')}
+              role="tab"
+              type="button"
+            >
+              Query
             </button>
           </div>
           <div className="query-actions">
@@ -400,7 +412,7 @@ export function FlowSearchPage() {
           </div>
         ) : (
           <label className="advanced-query">
-            <span>Visibility query</span>
+            <span>Search query</span>
             <textarea
               value={query}
               rows={4}
@@ -434,7 +446,7 @@ export function FlowSearchPage() {
       <section className="card results-card">
         <div className="results-toolbar">
           <div>
-            <strong>{flows.length}</strong> flows on page {page + 1}
+            <strong>{flows.length}</strong> {flows.length === 1 ? 'flow' : 'flows'} on page {page + 1}
           </div>
           <div className="results-controls">
             <label>

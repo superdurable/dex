@@ -173,7 +173,7 @@ Rendering but does not appear as a **v2** Flow type.
 
 The v2 status filter sends each status's ExecutionStatus value, such as
 `TimedOut`, and shows its label, such as **Timed out**. The server rejects
-the label in a visibility query.
+the label in a search query.
 
 ### Start Flow
 
@@ -671,7 +671,7 @@ directory into the Go module and ultimately into `dexcli`.
 
 ## Pages
 
-The v2 list compiles typed filter controls into visibility queries, including
+The v2 list compiles typed filter controls into search queries, including
 the built-in `activeStepTypes` filter. `POST /api/v2/search` takes `flowTypes`
 in place of `flowType` to search several Flow types in one query; such a search
 accepts built-in filter fields only. The list loads current-run Summary RPCs
@@ -691,7 +691,8 @@ camera is missing, denied, or blocked. Camera access requires HTTPS or localhost
 an embedding host must also allow camera access through its Permissions Policy.
 Scanning does not grant an Action permission or bypass its condition check.
 
-v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page provides Basic and Advanced visibility queries, pagination,
+v1 pages live under `/v1/flows` and `/v1/rendering`. The Flows page builds a search query from **Filters** or takes a hand-written
+one in **Query**, with pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
@@ -861,8 +862,14 @@ Blob-backed RPC input and output hydrate through the existing selected-event loa
 The Streams tab accepts a Stream name, reads its retained messages from the beginning,
 and then continuously long-polls for the next message. Each message displays its creation
 time and source. Stream retention is best effort, so older messages can be trimmed.
-External attribute writes appear as Attributes updated events, with a
-SetAttributes type label and the changed values in the event details.
+External attribute writes appear as Attributes updated events, with the
+changed values in the event details. A Timeline row shows its event title; the
+event type, such as SetAttributes, shows on hover and in Raw JSON. A row names
+a Step's durability only when it differs from the run's configured durability,
+and its attempt only after a retry. The absolute time shows only when it
+changes from the row above; every row keeps its offset from the run start.
+Channel published events list each message's decoded value with a short
+message ID, grouped by Channel.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.
 SYNC step Context shows the immediately preceding retry failure when available,
 including its backend-native error, worker details, named and numeric gRPC

@@ -81,6 +81,7 @@ describe('Flow search query builder and pagination', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await screen.findByText('checkout-1');
+    expect(screen.getByText('flow on page 1', { exact: false }).textContent).toBe('1 flow on page 1');
     expect(requests.at(-1)).toEqual(expect.objectContaining({ query: generated, nextPageToken: '' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
@@ -93,5 +94,20 @@ describe('Flow search query builder and pagination', () => {
     await screen.findByText('checkout-1');
     await waitFor(() => expect(requests.at(-1)?.nextPageToken).toBe(''));
     expect(screen.getByText('Page 1')).toBeTruthy();
+  });
+
+  it('names its tabs Filters and Query and its hand-written field Search query', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ flows: [], nextPageToken: '' }))));
+    render(
+      <MemoryRouter>
+        <PreferencesProvider>
+          <FlowSearchPage />
+        </PreferencesProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('tab', { name: 'Filters' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Query' }));
+    expect(screen.getByRole('textbox', { name: 'Search query' })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/visibility|Basic|Advanced/i);
   });
 });
