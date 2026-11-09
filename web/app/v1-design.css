@@ -2379,6 +2379,20 @@ body:has(.v1-page) {
   background: transparent;
 }
 
+.v1-page .run-content:not(.run-content--overview):not(.run-content--timeline) .sidebar-stack {
+  container: graph-event-panel / inline-size;
+}
+
+@container graph-event-panel (max-width: 480px) {
+  .v1-page .run-sidebar .compact-row:not(.compact-row--message) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .v1-page .run-sidebar .semantic-fields-compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Under the horizontal Timeline the panel is full width, so its sections sit in columns. */
 @media (min-width: 761px) {
   .v1-page .run-content--horizontal-timeline .sidebar-stack {
