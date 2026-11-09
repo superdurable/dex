@@ -190,7 +190,7 @@ html[data-theme='dark'] {
   line-height: 1.65;
 }
 
-.theme-doc-markdown h2 {
+.theme-doc-markdown > h2 {
   margin-top: 3.25rem;
   color: var(--docs-heading);
   font-size: 1.65rem;
@@ -198,7 +198,7 @@ html[data-theme='dark'] {
   letter-spacing: -0.025em;
 }
 
-.theme-doc-markdown h2::before {
+.theme-doc-markdown > h2::before {
   content: '';
   display: block;
   width: 1.75rem;
@@ -208,7 +208,7 @@ html[data-theme='dark'] {
   background: var(--section-accent);
 }
 
-.theme-doc-markdown h3 {
+.theme-doc-markdown > h3 {
   margin-top: 2.25rem;
   color: var(--docs-heading);
   font-size: 1.2rem;
@@ -665,4 +665,59 @@ html[data-theme='dark'] .exec-node {
 
 .theme-doc-markdown details > div > div {
   border-top: 0 !important;
+}
+
+/* ---------- Phones ---------- */
+
+/* The graph toolbar holds a long source path; let it wrap instead of widening the page. */
+.docs-flow-definition-graph,
+.docs-flow-definition-graph .flow-definition-toolbar,
+.docs-flow-definition-graph .flow-definition-toolbar > *,
+.docs-flow-definition-graph .flow-definition-legend {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.docs-flow-definition-graph .flow-definition-toolbar p {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .docs-flow-definition-graph .flow-definition-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .docs-flow-definition-graph .flow-definition-legend {
+    justify-content: flex-start;
+  }
+
+  /* Tables scroll sideways rather than squeezing every column to a few words. */
+  .theme-doc-markdown table {
+    width: max-content;
+    max-width: 100%;
+  }
+
+  .theme-doc-markdown table th,
+  .theme-doc-markdown table td {
+    min-width: 8.5rem;
+    max-width: 17rem;
+  }
+
+  .theme-doc-markdown table td:first-child,
+  .theme-doc-markdown table th:first-child {
+    min-width: 6rem;
+  }
+
+  .docs-home-sections {
+    gap: 0.25rem;
+    margin-top: 1.5rem;
+  }
+
+  .docs-section-entry {
+    padding: 0.7rem 0.75rem;
+  }
+
+  .theme-doc-markdown > h2 {
+    margin-top: 2.5rem;
+  }
 }
