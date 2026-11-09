@@ -302,6 +302,25 @@ impl Harness {
             .expect("history of the last command exists")
     }
 
+    /// Returns how many FlowClosed events the run's history records hold.
+    fn flow_closed_event_count(&self) -> usize {
+        (1..self.run_record().next_run_seq)
+            .filter_map(|seq| {
+                self.state.row::<HistoryRecord>(
+                    ColumnFamily::History,
+                    &history_record_key(self.context.flow_hash, self.run_id(), seq),
+                )
+            })
+            .flat_map(|record| record.events)
+            .filter(|event| {
+                matches!(
+                    event.payload,
+                    Some(flow_history_event::Payload::FlowClosed(_))
+                )
+            })
+            .count()
+    }
+
     fn run_record(&self) -> RunRecord {
         self.state
             .row(
@@ -1151,4 +1170,67 @@ fn rpc_that_cancels_the_last_step_defers_graceful_completion_behind_other_rpcs()
     let checked = harness.apply(check);
     assert_not_rejected(&checked, "the pending close check applies");
     assert_completed_with_graceful_output(&harness.run_record());
+}
+
+#[test]
+fn rpc_that_cancels_the_last_step_without_graceful_completion_keeps_the_flow_running() {
+    let mut harness = Harness::new(1000, 16 << 20);
+    let outcome = harness.rpc(
+        request("rpc-1"),
+        InvokeWorkerRpcResponse {
+            step_decision: Some(StepDecision {
+                cancel_step_types: vec!["StartStep".to_owned()],
+                ..StepDecision::default()
+            }),
+            ..InvokeWorkerRpcResponse::default()
+        },
+        &[1],
+    );
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::Rpc(_))
+    ));
+    let record = harness.run_record();
+    assert_eq!(record.status, FlowStatus::Running as i32);
+    assert!(record.pending_close.is_none());
+    assert_eq!(harness.flow_closed_event_count(), 0);
+}
+
+#[test]
+fn rpc_commit_finalizes_an_existing_pending_close_exactly_once() {
+    let mut harness = Harness::new(1000, 16 << 20);
+    harness.request_graceful_completion_with_waiting_step();
+    let mut held = harness.command(Command::RpcCommitted(RpcCommittedCommand {
+        request: Some(request("rpc-1")),
+        response: Some(cancel_waiting_step_response(vec![])),
+        app_worker_id: "worker-rpc".to_owned(),
+        request_fingerprint: vec![1],
+        ..RpcCommittedCommand::default()
+    }));
+    held.is_transactional_rpc_in_flight = true;
+    harness.apply(held);
+    assert!(harness.run_record().pending_close.is_some());
+    assert_eq!(harness.flow_closed_event_count(), 0);
+
+    let mut last_rpc = request("rpc-2");
+    last_rpc.is_transactional = true;
+    let outcome = harness.rpc(last_rpc, InvokeWorkerRpcResponse::default(), &[2]);
+    assert!(matches!(
+        outcome.reply.reply,
+        Some(command_reply::Reply::Rpc(_))
+    ));
+    let record = harness.run_record();
+    assert!(record.pending_close.is_none());
+    assert_completed_with_graceful_output(&record);
+    assert_eq!(harness.flow_closed_event_count(), 1);
+    assert!(
+        harness
+            .last_history_record()
+            .events
+            .iter()
+            .any(|event| matches!(
+                event.payload,
+                Some(flow_history_event::Payload::FlowClosed(_))
+            ))
+    );
 }
