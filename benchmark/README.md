@@ -16,7 +16,7 @@ These results were measured on 2026-11-09 in AWS us-west-2. **They are partial:*
 
 **Why S2, S3, and S6 are missing.** `dexbench` now runs S2, S3, and S6 on long-lived Flows: each client keeps one Flow open for the whole point. On a long-lived Flow, Step throughput falls as the Flow executes more Steps. With eight clients, Steps per second fell by a factor of three to four after 90 seconds, with history offload on or off. A number from these scenarios would therefore depend on the length of the point. The evidence and the code path are in [`results/2026-11-09-long-lived-runs/`](results/2026-11-09-long-lived-runs/README.md). These scenarios will be measured again after a server-zd fix. Their numbers would not be directly comparable with 2026-10-31, which started a new ten-Step Flow for every operation.
 
-Each table lists the peak and a "~50% of peak" row per scenario. The ~50% row shows latency at a normal, unsaturated load. The peak row has bold throughput. Rows marked "search" are single runs from the search rounds, with profiling on. The other rows are medians of three runs.
+Each table lists the peak and a "~50% of peak" row per scenario. The ~50% row shows latency at a normal, unsaturated load. The peak row has bold throughput. Rows marked "search" are single runs from the search rounds, with profiling on. The other rows show the median throughput of three runs. Their latency percentiles come from the run with that median throughput; they are not medians of each percentile.
 
 ### c7gd.large (2 vCPU)
 
