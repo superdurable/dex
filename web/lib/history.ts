@@ -23,6 +23,30 @@ import type { FlowHistoryEvent, HistoryPage } from './types';
  */
 export const HISTORY_WINDOW_EVENT_LIMIT = 1000;
 
+/** The Events page sizes a viewer may choose; the default is the largest. */
+export const HISTORY_PAGE_SIZES = [100, 1000] as const;
+export type HistoryPageSize = (typeof HISTORY_PAGE_SIZES)[number];
+const historyPageSizeStorageKey = 'dex.run.events-page-size';
+
+/** Reads the viewer's Events page size; storage that is unavailable or holds another value gives the default. */
+export function storedHistoryPageSize(): HistoryPageSize {
+  try {
+    const stored = Number(window.localStorage.getItem(historyPageSizeStorageKey));
+    return HISTORY_PAGE_SIZES.find((size) => size === stored) ?? HISTORY_WINDOW_EVENT_LIMIT;
+  } catch (storageError) {
+    console.warn('Unable to read the Events page size preference.', storageError);
+    return HISTORY_WINDOW_EVENT_LIMIT;
+  }
+}
+
+export function persistHistoryPageSize(size: HistoryPageSize) {
+  try {
+    window.localStorage.setItem(historyPageSizeStorageKey, String(size));
+  } catch (storageError) {
+    console.warn('Unable to save the Events page size preference.', storageError);
+  }
+}
+
 const LATEST_EVENT_ID_HINT_TIMEOUT_MS = 5000;
 
 export interface HistoryPageRequest {

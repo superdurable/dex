@@ -584,6 +584,33 @@ body:has(.v1-page) {
   background: var(--ui-chip);
 }
 
+.run-events-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.run-events-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--ui-ink-3);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
+.v1-page .run-events-page-size select {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ui-ink);
+  background: var(--ui-chip);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+}
+
 .pager-button {
   display: inline-flex;
   align-items: center;
