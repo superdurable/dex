@@ -987,3 +987,31 @@ are limited to 1024 UTF-8 bytes; ingress rejects larger writes, and projection
 records previously committed oversized documents as skipped. Attributes use
 JSONB until backfill finishes. Explicit StartTime/CloseTime ordering sorts all
 matches; negative predicates may not use an index.
+
+## db9 durable storage
+
+Run `dex-server-zd serve --config config/dex-server-zd.db9.example.yaml` to use
+SQL persistence instead of S3. Set `DEX_ZD_DB9_CONNECTION_STRING` outside YAML.
+The connection string is omitted from config serialization and redacted from
+Debug output. The example does not contain credentials. Existing configurations
+continue to use S3 by default.
+
+`objectStore.provider: db9` routes command logs, lease and cluster metadata,
+snapshots, blobs and history objects through `Db9ObjectStore`. `objectStore.bucket`
+is a logical namespace, and `objectStore.prefix` scopes keys within it. By
+default hard-delete values use the same provider; an explicit `hardDeleteStore`
+continues to select a separate S3 destination. `dev` and `local` deliberately
+reject db9 because they own an embedded S3 store; use `serve`.
+
+`objectStore.db9PoolSize` defaults to 8 (1-64); `db9RequestTimeout` defaults to
+10 seconds per SQL request. Read credentials from `DEX_ZD_DB9_CONNECTION_STRING`;
+do not put the DSN in `endpoint` or set primary S3 `credentialsSource` for db9.
+The database must enforce durable transactions, row locks and strong consistency.
+See [the provider contract](crates/dexzd-object-store/README.md#db9-sql-provider).
+
+The existing RocksDB directory remains a rebuildable local cache. A replacement
+node uses the same database, logical bucket, prefix, node ID and partition count,
+but its own local directory. Existing lease fencing and hot/cold standby logic
+remain in use. Changing providers does not migrate existing S3 state: start a new
+namespace, or arrange a separately verified offline migration. Back up the SQL
+database as a consistent whole, including both provider tables.

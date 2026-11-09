@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use dexzd_metrics::NodeMetrics;
 use dexzd_object_store::{
-    InstrumentedObjectStore, ObjectStore, S3Credentials, S3ObjectStore, S3ObjectStoreConfig,
-    startup_self_check,
+    Db9ObjectStore, Db9ObjectStoreConfig, InstrumentedObjectStore, ObjectStore, S3Credentials,
+    S3ObjectStore, S3ObjectStoreConfig, startup_self_check,
 };
 
 use crate::ServerError;
 use crate::config::{
     CredentialSource, ObjectStoreConfig, ObjectStoreCredentials, ObjectStoreLocationConfig,
+    ObjectStoreProvider,
 };
 
 /// The durable stores: logs, metadata, and snapshots, plus the hard-delete value destination.
@@ -32,18 +33,23 @@ impl ObjectStores {
         multipart_threshold_bytes: u64,
         metrics: &NodeMetrics,
     ) -> Result<Self, ServerError> {
-        let primary_config = S3ObjectStoreConfig {
-            endpoint: non_empty(&config.endpoint),
-            key_prefix: config.prefix.clone(),
-            force_path_style: config.force_path_style,
-            credentials: s3_credentials(
-                "objectStore.credentialsSource",
-                config.credentials_source,
-                config.credentials.as_ref(),
-            )?,
-            ..S3ObjectStoreConfig::new(config.region.clone(), config.bucket.clone())
+        let primary = match config.provider {
+            ObjectStoreProvider::Db9 => connect_db9(config, metrics).await?,
+            ObjectStoreProvider::S3 => {
+                let primary_config = S3ObjectStoreConfig {
+                    endpoint: non_empty(&config.endpoint),
+                    key_prefix: config.prefix.clone(),
+                    force_path_style: config.force_path_style,
+                    credentials: s3_credentials(
+                        "objectStore.credentialsSource",
+                        config.credentials_source,
+                        config.credentials.as_ref(),
+                    )?,
+                    ..S3ObjectStoreConfig::new(config.region.clone(), config.bucket.clone())
+                };
+                connect_store(primary_config, multipart_threshold_bytes, metrics).await?
+            }
         };
-        let primary = connect_store(primary_config, multipart_threshold_bytes, metrics).await?;
         let hard_delete = match &config.hard_delete_store {
             Some(location) => {
                 connect_store(
@@ -124,4 +130,30 @@ fn s3_credentials(
 
 fn non_empty(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
+}
+
+async fn connect_db9(
+    config: &ObjectStoreConfig,
+    metrics: &NodeMetrics,
+) -> Result<Arc<dyn ObjectStore>, ServerError> {
+    let store = Db9ObjectStore::new(Db9ObjectStoreConfig {
+        connection_string: config.db9_connection_string.0.clone(),
+        bucket: config.bucket.clone(),
+        key_prefix: config.prefix.clone(),
+        pool_size: config.db9_pool_size,
+        request_timeout: config.db9_request_timeout,
+    })
+    .await
+    .map_err(|source| ServerError::ObjectStore {
+        bucket: config.bucket.clone(),
+        source,
+    })?;
+    let instrumented = InstrumentedObjectStore::new(Arc::new(store), metrics.clone());
+    startup_self_check(&instrumented).await.map_err(|source| {
+        ServerError::ObjectStoreSelfCheck {
+            bucket: config.bucket.clone(),
+            source,
+        }
+    })?;
+    Ok(Arc::new(instrumented))
 }

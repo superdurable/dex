@@ -13,7 +13,7 @@ use dexzd_keyspace::validate_node_identifier;
 
 use super::engine_config::MAX_APPLIER_LANES;
 use super::storage_config::{MAX_BACKGROUND_JOBS, MIN_WRITE_BUFFER_BYTES};
-use super::{Config, ConfigError, CredentialSource, SearchBackend};
+use super::{Config, ConfigError, CredentialSource, ObjectStoreProvider, SearchBackend};
 
 /// Largest encoded log record that the commit log accepts.
 const MAX_LOG_RECORD_BYTES: u64 = 32 * 1024 * 1024;
@@ -59,23 +59,54 @@ impl Config {
             "must be a power of two between 1 and 65536",
         )?;
         ensure(
-            !self.object_store.region.trim().is_empty(),
-            "objectStore.region",
-            "must be non-empty",
-        )?;
-        ensure(
             !self.object_store.bucket.trim().is_empty(),
             "objectStore.bucket",
             "must be non-empty",
         )?;
-        validate_endpoint("objectStore.endpoint", &self.object_store.endpoint)?;
         validate_prefix("objectStore.prefix", &self.object_store.prefix)?;
-        if self.object_store.credentials_source == CredentialSource::Environment {
-            ensure(
-                self.object_store.credentials.is_some(),
-                "objectStore.credentialsSource",
-                "environment credentials must be resolved before serving",
-            )?;
+        match self.object_store.provider {
+            ObjectStoreProvider::S3 => {
+                ensure(
+                    !self.object_store.region.trim().is_empty(),
+                    "objectStore.region",
+                    "must be non-empty",
+                )?;
+                validate_endpoint("objectStore.endpoint", &self.object_store.endpoint)?;
+                if self.object_store.credentials_source == CredentialSource::Environment {
+                    ensure(
+                        self.object_store.credentials.is_some(),
+                        "objectStore.credentialsSource",
+                        "environment credentials must be resolved before serving",
+                    )?;
+                }
+            }
+            ObjectStoreProvider::Db9 => {
+                ensure(
+                    !self.object_store.db9_connection_string.0.trim().is_empty(),
+                    "objectStore.provider",
+                    "db9 requires DEX_ZD_DB9_CONNECTION_STRING",
+                )?;
+                ensure(
+                    (1..=64).contains(&self.object_store.db9_pool_size),
+                    "objectStore.db9PoolSize",
+                    "must be 1-64",
+                )?;
+                ensure(
+                    !self.object_store.db9_request_timeout.is_zero(),
+                    "objectStore.db9RequestTimeout",
+                    "must be positive",
+                )?;
+                ensure(
+                    self.object_store.endpoint.is_empty(),
+                    "objectStore.endpoint",
+                    "db9 uses its connection string, not an S3 endpoint",
+                )?;
+                ensure(
+                    self.object_store.credentials_source == CredentialSource::DefaultChain,
+                    "objectStore.credentialsSource",
+                    "db9 uses DEX_ZD_DB9_CONNECTION_STRING; omit S3 credentialsSource",
+                )?;
+            }
         }
         if let Some(hard_delete) = &self.object_store.hard_delete_store {
             ensure(

@@ -41,10 +41,41 @@ impl fmt::Debug for ObjectStoreCredentials {
     }
 }
 
+/// Selects the durable provider; existing configurations keep S3.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ObjectStoreProvider {
+    /// Default; Amazon S3 or a compatible endpoint.
+    #[default]
+    S3,
+    /// Transactional SQL objects stored in db9.
+    Db9,
+}
+
+/// Credentials resolved outside YAML and omitted from diagnostics.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct Db9ConnectionString(pub String);
+
+impl fmt::Debug for Db9ConnectionString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Db9ConnectionString([redacted])")
+    }
+}
+
 /// Names the durable object destination used by command logs and snapshots.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObjectStoreConfig {
+    /// Defaults to s3; db9 selects transactional PostgreSQL-compatible storage.
+    pub provider: ObjectStoreProvider,
+    /// Defaults to empty; resolved from DEX_ZD_DB9_CONNECTION_STRING, never serialized.
+    #[serde(skip)]
+    pub db9_connection_string: Db9ConnectionString,
+    /// Defaults to eight; maximum concurrent db9 transactions, from one to 64.
+    pub db9_pool_size: usize,
+    /// Defaults to ten seconds; deadline per db9 SQL request.
+    #[serde(with = "humantime_serde")]
+    pub db9_request_timeout: std::time::Duration,
     /// Defaults to empty; use AWS endpoint resolution, or set an HTTP(S) base URL for an S3-compatible store.
     /// Dev and local modes set 127.0.0.1:0 until startup replaces it with the bound embedded S3 address.
     /// The server connects to this endpoint; it does not advertise it.
@@ -69,6 +100,10 @@ pub struct ObjectStoreConfig {
 impl Default for ObjectStoreConfig {
     fn default() -> Self {
         Self {
+            provider: ObjectStoreProvider::S3,
+            db9_connection_string: Db9ConnectionString::default(),
+            db9_pool_size: 8,
+            db9_request_timeout: std::time::Duration::from_secs(10),
             endpoint: String::new(),
             region: "us-east-1".to_owned(),
             bucket: String::new(),
