@@ -1,0 +1,262 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait** with a wait type and the conditions to wait for.
+Dex persists the waiting state and evaluates the conditions when related state
+changes. [Timer](/primitives/timer), [Channel](/primitives/channel), and
+[SubFlow](/primitives/subflow) are the condition kinds.
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** accept Conditions without condition IDs. Do
+not add IDs merely because a Condition is nested in one of these waits. Read
+Channel results from the Channel definition and inspect Timer outcomes through
+the **Context**. Add IDs only when another API requires them, such as
+**AnyCombinationOf** or a Timer selected by ID.
+
+```rust
+impl Step for WaitTypesStep {
+    type Input = WaitTypesInput;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        let timeout = Duration::from_secs(input.timeout_seconds.max(0) as u64);
+        match input.mode.as_str() {
+            "any" => Ok(Wait::any_of([
+                SIGNAL_A_CHANNEL.for_one().with_id("signal"),
+                Timer::by_duration(timeout).with_id("timeout"),
+            ])),
+            "all" => Ok(Wait::all_of([
+                SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
+                SIGNAL_B_CHANNEL.for_one().with_id("signal-b"),
+            ])),
+            "combo" => Ok(Wait::any_combination_of([
+                ConditionCombination::all_of([
+                    SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
+                    Timer::by_duration(timeout).with_id("timeout"),
+                ]),
+                ConditionCombination::all_of([SIGNAL_B_CHANNEL.for_one().with_id("signal-b")]),
+            ])),
+            _ => Err(HandlerError::new(
+                "WaitTypes",
+                format!("unknown wait mode {}", input.mode),
+            )),
+        }
+    }
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input.mode))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
+
+```rust
+impl Step for WaitTypesStep {
+    type Input = WaitTypesInput;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        let timeout = Duration::from_secs(input.timeout_seconds.max(0) as u64);
+        match input.mode.as_str() {
+            "any" => Ok(Wait::any_of([
+                SIGNAL_A_CHANNEL.for_one().with_id("signal"),
+                Timer::by_duration(timeout).with_id("timeout"),
+            ])),
+            "all" => Ok(Wait::all_of([
+                SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
+                SIGNAL_B_CHANNEL.for_one().with_id("signal-b"),
+            ])),
+            "combo" => Ok(Wait::any_combination_of([
+                ConditionCombination::all_of([
+                    SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
+                    Timer::by_duration(timeout).with_id("timeout"),
+                ]),
+                ConditionCombination::all_of([SIGNAL_B_CHANNEL.for_one().with_id("signal-b")]),
+            ])),
+            _ => Err(HandlerError::new(
+                "WaitTypes",
+                format!("unknown wait mode {}", input.mode),
+            )),
+        }
+    }
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input.mode))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/primitives/channel), use **GetConditionResults** / **results** /
+**condition_results** to read published messages. For a
+[SubFlow](/primitives/subflow), use **SubFlowResult** / **getConditionResults**
+/ **condition_result** to decode the child Flow output.
+
+Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes
+messages only from the Channel condition selected to satisfy the Wait. Other
+Channel conditions consume nothing even if they are also ready, so their
+messages remain queued.
+
+When several **AnyOf** alternatives are ready in one evaluation, Dex selects
+the first feasible candidate in canonical order: Timer conditions in
+declaration order, then Channel conditions in declaration order, then SubFlow
+conditions in declaration order. An earlier condition that is not ready does
+not block a later ready condition. Mixed condition kinds therefore do not share
+one global call argument order.
+
+Use **AnyOf** for a race among the current alternatives. For strict priority
+that must keep waiting for a higher-priority input, return only that condition
+until it is resolved.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```rust
+impl Step for ChannelWait {
+    type Input = i32;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_load_channel(&QUEUED_MESSAGES)
+    }
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            APPROVAL_MESSAGES.for_one(),
+            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let pending_queued_messages = QUEUED_MESSAGES.pending_messages(context)?;
+        if let Some(queued_message) = pending_queued_messages.first() {
+            QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
+            return Ok(StepDecision::graceful_complete(
+                queued_message.value.clone(),
+            ));
+        }
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete(
+                "approval timed out".to_owned(),
+            ));
+        }
+        let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
+        Ok(StepDecision::graceful_complete(
+            approval_message_values[0].clone(),
+        ))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/channel/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/channel/flow.rs)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let result = SubFlow::condition_result(context)?;
+    let output: i32 = result
+        .single_output()
+        .map_err(HandlerError::from_error)?;
+    let flow_id = SubFlow::flow_id_at(context, 0)?;
+    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
+}
+```
+
+Example: [examples/rust/src/primitives/subflow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/subflow/flow.rs)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** expresses an OR of AND groups. Build each inner group as
+an all-of combination.
+
+Channel consumption is not greedy across combinations. Dex consumes messages
+only from Channel conditions in the selected combination. Conditions belonging
+only to other ready combinations consume nothing, so their messages remain
+queued.
+
+Every Condition in its combinations requires a unique **condition ID**.
+
+```rust
+impl Step for WaitTypesStep {
+    type Input = WaitTypesInput;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        let timeout = Duration::from_secs(input.timeout_seconds.max(0) as u64);
+        match input.mode.as_str() {
+            "any" => Ok(Wait::any_of([
+                SIGNAL_A_CHANNEL.for_one().with_id("signal"),
+                Timer::by_duration(timeout).with_id("timeout"),
+            ])),
+            "all" => Ok(Wait::all_of([
+                SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
+                SIGNAL_B_CHANNEL.for_one().with_id("signal-b"),
+            ])),
+            "combo" => Ok(Wait::any_combination_of([
+                ConditionCombination::all_of([
+                    SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
+                    Timer::by_duration(timeout).with_id("timeout"),
+                ]),
+                ConditionCombination::all_of([SIGNAL_B_CHANNEL.for_one().with_id("signal-b")]),
+            ])),
+            _ => Err(HandlerError::new(
+                "WaitTypes",
+                format!("unknown wait mode {}", input.mode),
+            )),
+        }
+    }
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input.mode))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/wait_types/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/wait_types/flow.rs)
+
+## Step execution local {#step-execution-local}
+
+**SetStepExecutionLocal** stores a value on this **StepExecution** so
+**Execute** can read it with **GetStepExecutionLocal**. Use it when **WaitFor**
+computes something **Execute** needs but a Flow-level **Attribute** is
+overkill. Step input is already passed to both methods. Do not copy input into
+a local.
+
+```rust
+fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+    context.set_step_execution_local("note", format!("approval:{input}"))?;
+    Ok(Wait::until(APPROVAL.for_one()))
+}
+
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let note: String = context.step_execution_local("note")?;
+    Ok(StepDecision::graceful_complete(note))
+}
+```
+
+Example: [examples/rust/src/primitives/step_execution_local/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/step_execution_local/flow.rs)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it in a dynamic **WaitFor**
+method when one branch must not wait for anything.
+
+```rust
+Ok(Wait::skip_immediately())
+```
+
+Example: [examples/rust/src/primitives/flow/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/flow/flow.rs)

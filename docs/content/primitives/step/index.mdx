@@ -218,7 +218,7 @@ condition:
 Combine conditions with **AnyOf** or **AllOf**. **AnyCombinationOf** accepts
 any one of several groups of conditions. After the wait, **Execute** reads what
 satisfied it, such as the Channel messages it consumed. See
-[Waits](/reference/python/flows-and-steps#waits).
+[Waits](/reference/python/flows-and-steps/waits).
 
 ## StepDecision {#stepdecision-movements}
 
@@ -250,9 +250,9 @@ A Step returns **StepOptions** to control how its methods run. **WaitFor** and
 - <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-events-and-last-failure-info"></a>**Failure
   policy** decides what happens when retries run out. By default the Flow
   fails. **Execute** can go to a recovery Step instead. **WaitFor** can proceed
-  to **Execute**. See [WaitFor failure policy](/reference/python/flows-and-steps#waitfor-failure-policy),
-  [Execute failure policy](/reference/python/flows-and-steps#execute-failure-policy), and
-  [Last failure info](/reference/python/flows-and-steps#last-failure-info).
+  to **Execute**. See [WaitFor failure policy](/reference/python/flows-and-steps/step-options#waitfor-failure-policy),
+  [Execute failure policy](/reference/python/flows-and-steps/step-options#execute-failure-policy), and
+  [Last failure info](/reference/python/flows-and-steps/step-options#last-failure-info).
 - **Durability** chooses when Dex stores the result. **SYNC**, the default,
   stores it before the next work starts. **ASYNC** is faster, but a server
   failure can make the method run again.
@@ -278,7 +278,7 @@ A Step method can run more than once. A retry runs it again after a failure.
 Dex cannot always tell whether a failed attempt ran the work. Make each
 external effect idempotent. Key it by the Flow ID and the StepExecutionID, or
 by your own business key. See
-[Failure and redelivery](/reference/python/flows-and-steps#failure-and-redelivery) for the cases where
+[Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery) for the cases where
 Dex cannot tell.
 
 When retries run out, the recovery Step learns whether the work certainly did
@@ -289,15 +289,15 @@ check for cancellation and return.
 
 The [Flows and Steps](/reference/python/flows-and-steps) reference covers:
 
-- [waits](/reference/python/flows-and-steps#waits), condition results, and
-  [AnyCombinationOf](/reference/python/flows-and-steps#anycombinationof);
-- [Step decisions](/reference/python/flows-and-steps#step-decisions), including
-  [ForceCompleteIfChannelsEmpty](/reference/python/flows-and-steps#forcecompleteifchannelsempty);
-- [retry and failure policies](/reference/python/flows-and-steps#retry-and-failure-policies),
-  [durability](/reference/python/flows-and-steps#durability),
-  [timeouts](/reference/python/flows-and-steps#timeouts-and-total-duration),
-  [heartbeats](/reference/python/flows-and-steps#heartbeat), and
-  [cancellation](/reference/python/flows-and-steps#cancellation);
-- [state loading](/reference/python/flows-and-steps#selective-state-loading) and
+- [waits](/reference/python/flows-and-steps/waits), condition results, and
+  [AnyCombinationOf](/reference/python/flows-and-steps/waits#anycombinationof);
+- [Step decisions](/reference/python/flows-and-steps/step-decisions), including
+  [ForceCompleteIfChannelsEmpty](/reference/python/flows-and-steps/step-decisions#forcecompleteifchannelsempty);
+- [retry and failure policies](/reference/python/flows-and-steps/step-options#retry-and-failure-policies),
+  [durability](/reference/python/flows-and-steps/step-options#durability),
+  [timeouts](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration),
+  [heartbeats](/reference/python/flows-and-steps/step-options#heartbeat), and
+  [cancellation](/reference/python/flows-and-steps/step-options#cancellation);
+- [state loading](/reference/python/flows-and-steps/step-options#selective-state-loading) and
   [Attribute locks](/reference/server/runtime-data#attribute-locks);
-- [failure and redelivery](/reference/python/flows-and-steps#failure-and-redelivery).
+- [failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery).

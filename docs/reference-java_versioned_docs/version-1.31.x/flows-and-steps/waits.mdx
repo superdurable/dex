@@ -1,0 +1,222 @@
+---
+id: waits
+title: Waits
+sidebar_label: Waits
+---
+
+# Waits
+
+**WaitFor** returns a **Wait** with a wait type and the conditions to wait for.
+Dex persists the waiting state and evaluates the conditions when related state
+changes. [Timer](/primitives/timer), [Channel](/primitives/channel), and
+[SubFlow](/primitives/subflow) are the condition kinds.
+
+- **Until** waits for one condition.
+- **AnyOf** is met when any condition is met.
+- **AllOf** is met when all conditions are met.
+- **AnyCombinationOf** is met when any one group of conditions is all met.
+
+**Until**, **AnyOf**, and **AllOf** accept Conditions without condition IDs. Do
+not add IDs merely because a Condition is nested in one of these waits. Read
+Channel results from the Channel definition and inspect Timer outcomes through
+the **Context**. Add IDs only when another API requires them, such as
+**AnyCombinationOf** or a Timer selected by ID.
+
+```java
+public Wait waitFor(final Context context, final WaitTypesInput input) {
+    final Duration timeout = Duration.ofSeconds(input.getTimeoutSeconds());
+    switch (input.getMode()) {
+        case "any":
+            return Wait.anyOf(
+                    channelA.forOne("signal"),
+                    Timer.byDuration(timeout, "timeout"));
+        case "all":
+            return Wait.allOf(
+                    channelA.forOne("signal-a"),
+                    channelB.forOne("signal-b"));
+        case "combo":
+            return Wait.anyCombinationOf(
+                    ConditionCombination.of(
+                            channelA.forOne("signal-a"),
+                            Timer.byDuration(timeout, "timeout")),
+                    ConditionCombination.of(channelB.forOne("signal-b")));
+        default:
+            throw new IllegalArgumentException("unknown wait mode: " + input.getMode());
+    }
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+
+```java
+public Wait waitFor(final Context context, final WaitTypesInput input) {
+    final Duration timeout = Duration.ofSeconds(input.getTimeoutSeconds());
+    switch (input.getMode()) {
+        case "any":
+            return Wait.anyOf(
+                    channelA.forOne("signal"),
+                    Timer.byDuration(timeout, "timeout"));
+        case "all":
+            return Wait.allOf(
+                    channelA.forOne("signal-a"),
+                    channelB.forOne("signal-b"));
+        case "combo":
+            return Wait.anyCombinationOf(
+                    ConditionCombination.of(
+                            channelA.forOne("signal-a"),
+                            Timer.byDuration(timeout, "timeout")),
+                    ConditionCombination.of(channelB.forOne("signal-b")));
+        default:
+            throw new IllegalArgumentException("unknown wait mode: " + input.getMode());
+    }
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+
+## Condition results {#condition-results}
+
+After **WaitFor** completes, **Execute** can read what satisfied the Wait. For a
+[Channel](/primitives/channel), use **GetConditionResults** / **results** /
+**condition_results** to read published messages. For a
+[SubFlow](/primitives/subflow), use **SubFlowResult** / **getConditionResults**
+/ **condition_result** to decode the child Flow output.
+
+Channel consumption is not greedy across **AnyOf** alternatives. Dex consumes
+messages only from the Channel condition selected to satisfy the Wait. Other
+Channel conditions consume nothing even if they are also ready, so their
+messages remain queued.
+
+When several **AnyOf** alternatives are ready in one evaluation, Dex selects
+the first feasible candidate in canonical order: Timer conditions in
+declaration order, then Channel conditions in declaration order, then SubFlow
+conditions in declaration order. An earlier condition that is not ready does
+not block a later ready condition. Mixed condition kinds therefore do not share
+one global call argument order.
+
+Use **AnyOf** for a race among the current alternatives. For strict priority
+that must keep waiting for a higher-priority input, return only that condition
+until it is resolved.
+
+<a id="channel-结果"></a>
+
+### Channel results {#channel-results}
+
+```java
+final class ChannelWait implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .addExecuteLoadChannel(queuedMessages)
+                .build();
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.anyOf(
+                approvalMessages.forOne(),
+                Timer.byDuration(Duration.ofSeconds(input)));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        final List<ChannelMessage<String>> pendingQueuedMessages =
+                queuedMessages.pendingMessages(context);
+        if (!pendingQueuedMessages.isEmpty()) {
+            queuedMessages.delete(context, pendingQueuedMessages.get(0).getMessageId());
+            return StepDecision.gracefulComplete(pendingQueuedMessages.get(0).getValue());
+        }
+        if (context.hasTimerFired()) {
+            return StepDecision.gracefulComplete("approval timed out");
+        }
+        final List<String> approvalMessageValues =
+                approvalMessages.getConditionResults(context);
+        return StepDecision.gracefulComplete(approvalMessageValues.get(0));
+    }
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java)
+
+<a id="subflow-结果"></a>
+
+### SubFlow results {#subflow-results}
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final Integer output =
+            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
+    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java)
+
+## AnyCombinationOf {#anycombinationof}
+
+**AnyCombinationOf** expresses an OR of AND groups. Build each inner group as
+an all-of combination.
+
+Channel consumption is not greedy across combinations. Dex consumes messages
+only from Channel conditions in the selected combination. Conditions belonging
+only to other ready combinations consume nothing, so their messages remain
+queued.
+
+Every Condition in its combinations requires a unique **condition ID**.
+
+```java
+return Wait.anyCombinationOf(
+        ConditionCombination.of(
+                channelA.forOne("signal-a"),
+                Timer.byDuration(timeout, "timeout")),
+        ConditionCombination.of(channelB.forOne("signal-b")));
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java)
+
+## Step execution local {#step-execution-local}
+
+**SetStepExecutionLocal** stores a value on this **StepExecution** so
+**Execute** can read it with **GetStepExecutionLocal**. Use it when **WaitFor**
+computes something **Execute** needs but a Flow-level **Attribute** is
+overkill. Step input is already passed to both methods. Do not copy input into
+a local.
+
+```java
+final class NoteWait implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        context.setStepExecutionLocal("note", "approval:" + input, String.class);
+        return Wait.until(approval.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        final String note = context.getStepExecutionLocal("note", String.class);
+        return StepDecision.gracefulComplete(note == null ? "" : note);
+    }
+}
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/stepexecutionlocal/StepExecutionLocalFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/stepexecutionlocal/StepExecutionLocalFlow.java)
+
+## Skip immediately {#skip-immediately}
+
+**SkipWaitImmediately** waits for no condition. Use it in a dynamic **WaitFor**
+method when one branch must not wait for anything.
+
+```java
+return Wait.skipImmediately();
+```
+
+Example: [examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java)

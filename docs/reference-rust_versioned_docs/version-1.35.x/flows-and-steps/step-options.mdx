@@ -1,0 +1,410 @@
+---
+id: step-options
+title: StepOptions
+sidebar_label: StepOptions
+---
+
+# StepOptions
+
+A Step type returns **StepOptions** to customize its methods. **WaitFor** and
+**Execute** have separate retry policies, timeouts, failure policies, state
+selections, and lock sets.
+
+## Override StepOptions per Step execution {#stepoptions-override-per-stepexecution}
+
+The **StepOptions** returned by a Step implementation apply to every Step
+execution by default. To override them for one Step execution, provide the
+**StepOptions** override when a **StepDecision** goes to the next Steps.
+
+```rust
+impl Step for OverrideFirst {
+    type Input = String;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        let override_options = StepOptions::new()
+            .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+            .wait_for_failure(WaitForFailurePolicy::Proceed);
+        let payload = format!("{input}_state1");
+        Ok(StepDecision::go_to_many([StepMovement::to_with_options(
+            &OverrideSecond,
+            payload,
+            override_options,
+        )]))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/options_override/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/options_override/flow.rs)
+
+## Retry and failure policies {#retry-and-failure-policies}
+
+- **Timeout** limits a single attempt of the method invocation. See
+  [Timeouts and total duration](#timeouts-and-total-duration).
+- **Retry policy** re-invokes the **same** method on the **same** Step
+  execution until attempts are exhausted.
+- **Failure policy** decides what happens **after** retries end. The default
+  fails the Flow. **WaitFor** can run **Execute** anyway, and **Execute** can
+  go to a recovery Step.
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_retry(
+        RetryPolicy::new()
+            .initial_interval(Duration::from_secs(1))
+            .backoff_coefficient(2.0)
+            .maximum_attempts(5),
+    )
+}
+```
+
+Example: [examples/rust/src/primitives/step/retry_flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/step/retry_flow.rs)
+
+### WaitFor failure policy {#waitfor-failure-policy}
+
+When **WaitFor** retries are exhausted:
+
+- **FailFlow** fails the Flow. This is the default.
+- **PROCEED** continues to invoke **Execute**.
+
+With **PROCEED**, the same Step's **Execute** receives the durable input
+unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has
+the error type and detail from the final failed **WaitFor** attempt.
+
+```rust
+impl Step for FailingWait {
+    type Input = String;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .wait_for_failure(WaitForFailurePolicy::Proceed)
+            .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+    }
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Err(HandlerError::new(
+            "ProceedOnWaitFailure",
+            "planned WaitFor failure",
+        ))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if !context.wait_for_method_failed() {
+            return Err(HandlerError::new(
+                "ProceedOnWaitFailure",
+                "waitFor failure was not reported",
+            ));
+        }
+        Ok(StepDecision::go_to(&Finish, format!("{input}_recovered")))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/proceed_on_wait_failure/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/proceed_on_wait_failure/flow.rs)
+
+### Execute failure policy {#execute-failure-policy}
+
+When **Execute** retries are exhausted, **onExecuteFailureProceedTo** /
+**ExecuteFailure.proceedTo(...)** proceeds to a **recovery Step** with the same
+input.
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_retry(RetryPolicy::new().maximum_attempts(3))
+        .on_execute_failure_proceed_to(&Compensate)
+}
+```
+
+Example: [examples/rust/src/patterns/recovery/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/recovery/flow.rs)
+
+The recovery Step receives the failed Step's durable input unchanged.
+**getRecoveryError()** has the error type and detail from the final failed
+**Execute** attempt, and its [attempt progress](./failure-and-redelivery.mdx#unknown-outcome). See the
+[Failure Handling](/design-patterns/failure-handling) pattern and the
+[money-transfer](/use-cases/money-transfer) use case.
+
+### Last failure info {#last-failure-info}
+
+- Terminal events **StepExecuteFailed** / **StepWaitForFailed** carry failure
+  output when the Step ultimately fails.
+- **During retries**, before the failure policy runs, Step events and live Flow
+  state expose **lastFailureInfo**: the most recent attempt's error type,
+  detail, and Worker metadata.
+- In Dex Web, open event details to see **Last failure** while retries are in
+  flight. Active Steps in the Flow overview also show **lastFailureInfo**.
+
+## RetryAfter {#retry-after}
+
+Use **RetryAfter** to choose the delay before the next attempt. It overrides
+the retry schedule of the **RetryPolicy**.
+
+Retries recover from failed attempts. Do not use **RetryAfter** to wait for an
+external system; use the [Polling](/design-patterns/polling) pattern.
+
+A retry of one **Execute** call reuses the
+[state snapshot](#selective-state-loading) that Dex took when it handed the
+first attempt to a Worker, so it does not see Attribute writes made after that.
+To wait for an external write, have the writer also publish a
+[Channel](/primitives/channel) message, directly or from an RPC handler, and
+wait on that message in the **WaitFor** of the next Step. Alternatively, the
+next Step can wait on a [Timer](/primitives/timer) and read fresh state when it
+runs.
+
+```rust
+if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
+    return Err(HandlerError::retry_after(
+        7,
+        "CustomRetry",
+        format!("not ready on attempt {}", context.attempt()),
+    ));
+}
+Ok(StepDecision::graceful_complete(String::from("ready")))
+```
+
+Example: [examples/rust/src/primitives/custom_retry/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/custom_retry/flow.rs)
+
+## Durability {#durability}
+
+**SYNC** durability records the Step completion in Dex Server and persists it
+to storage synchronously. It also makes the attempt start durable in storage
+before the Worker receives the task.
+
+**ASYNC** durability does this asynchronously. Dex Server hands the task to the
+Worker and starts the next work before the start and the completion are
+persisted, and it batches these commits within about 20 milliseconds.
+Sustained server throughput is about the same for both modes. **ASYNC** has
+lower latency, and a single Flow runs faster. On object storage with low write
+latency, **ASYNC** also makes far fewer requests.
+
+If a Dex Server node fails before the commit, a recent **ASYNC** result is
+lost. The method runs again, and so does any later work that started from that
+result. If the node fails before the **ASYNC** start was persisted, Dex rolls
+the start back and runs the same attempt number again. This consumes no retry,
+and the attempt can see different input. Two executions of the same attempt
+number can overlap, and Step Stream writes can repeat in the same source. Make
+**ASYNC** methods and the work they start idempotent.
+
+Choose **SYNC** for effects that need the tightest guarantees. Choose **ASYNC**
+for short Steps where latency matters and a rare rerun is acceptable. See
+[Failure and redelivery](./failure-and-redelivery.mdx) for the full comparison.
+
+**SYNC** is the default. Dex resolves durability in this order: a method
+override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**. Dex pins
+the durability when a method call becomes pending. Changing
+**step_durability** in the Flow config affects only method calls scheduled
+afterward.
+
+Retry policy, method timeout, and heartbeat settings apply to every attempt in
+both modes.
+
+```rust
+impl Step for SyncWork {
+    type Input = String;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_durability(StepDurability::Sync)
+    }
+
+    fn execute(&self, _context: &mut Context, mode: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to(
+            &FinishDurability,
+            format!("sync:{mode}"),
+        ))
+    }
+}
+
+impl Step for AsyncWork {
+    type Input = String;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_durability(StepDurability::Async)
+    }
+
+    fn execute(&self, _context: &mut Context, mode: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to(
+            &FinishDurability,
+            format!("async:{mode}"),
+        ))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/durability/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/durability/flow.rs)
+
+## Timeouts and total duration {#timeouts-and-total-duration}
+
+Three options bound the time a Step method can take.
+
+| Limit | Option | Default | Enforcement |
+| --- | --- | --- | --- |
+| Longest single attempt | **WaitForMethodTimeout** or **ExecuteMethodTimeout** | Two hours. The server has no hard cap. | Dex times out the attempt. Another attempt starts only while **TotalDuration** has time left. |
+| Time budget for retries | **TotalDuration** in the retry policy | Four hours, for both durability modes. | After an attempt fails, Dex retries only while the budget has time left. It never stops an attempt in progress. |
+| Stalled Worker | **HeartbeatTimeout** | One minute. The default allowed minimum is 10 seconds. | Dex times out an attempt that sends no heartbeat or Stream message within this window. The retry policy then starts another attempt. See [Heartbeat](#heartbeat). |
+
+The method timeout and the heartbeat timeout start when Dex sends the task to
+the Worker. Waiting for locks or for a Worker, including time in the task
+queue, does not count. The deadline in the task is the send time plus the
+method timeout.
+
+**TotalDuration** starts when Dex first hands attempt 1 to a Worker. If attempt
+1 was returned without running, the clock resets. Dex does not check
+**TotalDuration** while a Step waits in the task queue, so a retry that waited
+past it still runs. A retry waits in the queue again. Dex dispatches queued
+tasks roughly in the order they became ready, with no strict order. That wait
+counts toward **TotalDuration**. After a long backlog, a failed retry may have
+no time left.
+
+Dex uses **TotalDuration** only after an attempt fails, to decide whether to
+retry. It never cuts a running attempt, so the last attempt can start or end
+after **TotalDuration**. Only the method timeout limits a single attempt. To
+bound one long attempt, set **ExecuteMethodTimeout** or
+**WaitForMethodTimeout**, not **TotalDuration**.
+
+To bound a long wait, set the method timeout and **TotalDuration** to the same
+maximum. Dex enforces both, so the Step does not need its own deadline. With
+Workers available, the total wait is at most about **TotalDuration** plus one
+method timeout. Give the retry policy a few attempts with backoff for transient
+errors and Worker crashes.
+
+When a timeout expires, Dex fails the attempt with a timeout error. After
+retries end, the failure policy decides what happens next. If no failure route
+is configured, the Flow fails. See
+[Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery).
+For a long wait on an external system, see
+[Polling](/design-patterns/polling).
+
+## Heartbeat {#heartbeat}
+
+During an attempt, the Worker must send a heartbeat or a
+[Stream message](/primitives/stream) before the **HeartbeatTimeout** expires.
+Sending a Stream message is an implicit heartbeat.
+
+For example, an **Execute** method timeout of 60 seconds and a
+**HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds
+instead of waiting for the full 60 seconds. To wait for an external system in
+one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
+
+A heartbeat can persist a checkpoint value. The next attempt receives the
+latest stored value and can resume from it. An explicit heartbeat without a
+value clears the previous checkpoint. An implicit heartbeat from a Stream
+message preserves the latest explicit state, including an explicitly cleared
+state. Checkpoints are lossy; see
+[Heartbeats are not acknowledged](./failure-and-redelivery.mdx#heartbeats-not-acknowledged).
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_method_timeout(Duration::from_secs(60))
+        .heartbeat_timeout(Duration::from_secs(10))
+        .execute_retry(RetryPolicy::new().maximum_attempts(3))
+}
+
+fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<StepDecision> {
+    let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();
+    for batch in completed_batches..batches {
+        if context.is_cancelled() {
+            return Ok(StepDecision::dead_end());
+        }
+        thread::sleep(Duration::from_secs(2));
+        context.record_heartbeat_value(batch + 1)?;
+    }
+    Ok(StepDecision::graceful_complete(String::from("processed")))
+}
+```
+
+Example: [examples/rust/src/primitives/heartbeat/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/heartbeat/flow.rs)
+
+## Cancellation {#cancellation}
+
+Dex cancels a running attempt directly. It sends a cancel request to the
+Worker when the Step is canceled, for example by a **StepDecision** or an RPC,
+and when the attempt times out. The SDK also cancels the handler when the
+attempt deadline in the task passes. The handler does not need to complete,
+fail, or record a heartbeat to receive cancellation.
+
+Cancellation is cooperative. The SDK cannot stop running code. A long handler
+must check for cancellation and return, as the heartbeat example above does.
+See [Make the Step stop](/reference/server/runtime-data#cancel-honour) for the
+check in each language, and
+[Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for
+how Dex ends a canceled attempt.
+
+Because cancellation is cooperative, an interrupted execution may still run
+while the next attempt or the failure route starts.
+
+## Selective state loading {#selective-state-loading}
+
+Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary
+Attributes and size metadata for every Channel and ChannelMap instance.
+AttributeMap values and pending Channel messages are not loaded unless that
+method selects them.
+
+**StepOptions** has separate selections for **WaitFor** and **Execute**. Select
+an entire AttributeMap or ChannelMap when the method must enumerate current
+instances. Select an exact map instance when its key is already known. An
+Attribute lock controls concurrency but does not load the AttributeMap value.
+
+The two methods receive independent snapshots. **Execute** reads its snapshot
+after the winning Wait conditions consume their messages, so it does not see
+those consumed messages again. Dex takes the snapshot of attempt 1 when it
+hands the attempt to a Worker. Retries of one logical method call, and attempts
+that return to pending, reuse that snapshot.
+
+This Step loads pending queued messages only for **Execute**. It deletes the
+first pending message in the same successful handler response.
+
+```rust
+impl Step for ChannelWait {
+    type Input = i32;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_load_channel(&QUEUED_MESSAGES)
+    }
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            APPROVAL_MESSAGES.for_one(),
+            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let pending_queued_messages = QUEUED_MESSAGES.pending_messages(context)?;
+        if let Some(queued_message) = pending_queued_messages.first() {
+            QUEUED_MESSAGES.delete(context, &queued_message.message_id)?;
+            return Ok(StepDecision::graceful_complete(
+                queued_message.value.clone(),
+            ));
+        }
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete(
+                "approval timed out".to_owned(),
+            ));
+        }
+        let approval_message_values = APPROVAL_MESSAGES.condition_results(context)?;
+        Ok(StepDecision::graceful_complete(
+            approval_message_values[0].clone(),
+        ))
+    }
+}
+```
+
+Example: [examples/rust/src/primitives/channel/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/channel/flow.rs)
+
+Reading an unselected AttributeMap value or pending Channel message returns the
+SDK's not-loaded error. A selected empty Channel returns an empty message list.
+Size and map-key introspection remains available without loading message
+bodies. For Go, **dexcli visualize** reports a Step method that reads
+unselected state. See
+[State loads](/reference/web/flow-visualization#state-loads).
+
+## Attribute locks {#attribute-locks}
+
+Concurrent Steps and RPC invocations can read and write the same Attribute. To
+avoid races, use Attribute locks. Dex Server ensures only one Step execution or
+RPC handling can acquire the lock at a time. **WaitFor** and **Execute** have
+separate lock sets. Set them by returning **StepOptions**.
+
+See [Attribute locks](/reference/server/runtime-data#attribute-locks) for when
+a Step attempt takes and holds its locks, with **WaitFor** and **Execute**
+examples. See [Locks](/primitives/attribute#locking) for the lock model.

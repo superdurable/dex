@@ -204,7 +204,7 @@ impl Step for StepSecond {
 - [Channel](/primitives/channel) 上有消息到达；
 - [SubFlow](/primitives/subflow) 完成。
 
-用 **AnyOf** 或 **AllOf** 组合条件。**AnyCombinationOf** 在几组条件中任意一组全部满足时成立。等待结束后，**Execute** 可以读取满足它的结果，比如它消费的 Channel 消息。见 [Waits](/reference/python/flows-and-steps#waits)。
+用 **AnyOf** 或 **AllOf** 组合条件。**AnyCombinationOf** 在几组条件中任意一组全部满足时成立。等待结束后，**Execute** 可以读取满足它的结果，比如它消费的 Channel 消息。见 [Waits](/reference/python/flows-and-steps/waits)。
 
 ## StepDecision {#stepdecision-movements}
 
@@ -227,7 +227,7 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 - **Timeout** 限制方法的一次 attempt。
 - **Retry policy** 在 attempt 失败后再次运行同一个方法。
-- <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-事件与-last-failure-info"></a>**Failure policy** 决定重试用完之后怎么办。默认让 Flow 失败。**Execute** 可以改为进入一个 recovery Step，**WaitFor** 可以继续执行 **Execute**。见 [WaitFor failure policy](/reference/python/flows-and-steps#waitfor-failure-policy)、[Execute failure policy](/reference/python/flows-and-steps#execute-failure-policy) 和 [Last failure info](/reference/python/flows-and-steps#last-failure-info)。
+- <a id="waitfor-failure-policy"></a><a id="execute-failure-policy"></a><a id="step-failed-事件与-last-failure-info"></a>**Failure policy** 决定重试用完之后怎么办。默认让 Flow 失败。**Execute** 可以改为进入一个 recovery Step，**WaitFor** 可以继续执行 **Execute**。见 [WaitFor failure policy](/reference/python/flows-and-steps/step-options#waitfor-failure-policy)、[Execute failure policy](/reference/python/flows-and-steps/step-options#execute-failure-policy) 和 [Last failure info](/reference/python/flows-and-steps/step-options#last-failure-info)。
 - **Durability** 决定 Dex 什么时候存储结果。默认的 **SYNC** 在下一步工作开始前存储。**ASYNC** 更快，但 server 故障可能让方法再运行一次。
 - **Heartbeat** 让长时间运行的方法报告进度并保存 checkpoint。
 - **State loading** 和 **Attribute locks** 决定方法加载哪些状态、锁住哪些 Attribute。
@@ -244,7 +244,7 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 <a id="unknown-outcome"></a>
 <a id="design-for-redelivery"></a>
 
-一个 Step 方法可能运行不止一次：失败后的重试会再运行它。Dex 不一定知道失败的 attempt 有没有执行工作。请让每个外部副作用都幂等，用 Flow ID 加 StepExecutionID，或你自己的业务 key 作为幂等 key。Dex 无法判断的情况见 [Failure and redelivery](/reference/python/flows-and-steps#failure-and-redelivery)。
+一个 Step 方法可能运行不止一次：失败后的重试会再运行它。Dex 不一定知道失败的 attempt 有没有执行工作。请让每个外部副作用都幂等，用 Flow ID 加 StepExecutionID，或你自己的业务 key 作为幂等 key。Dex 无法判断的情况见 [Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery)。
 
 重试用完时，recovery Step 能知道工作是肯定没有运行，还是可能运行过。取消是协作式的：被取消的方法应检查取消状态并返回。
 
@@ -252,8 +252,8 @@ Step 返回 **StepOptions**，控制它的方法如何运行。**WaitFor** 和 *
 
 英文的 [Flows and Steps](/reference/python/flows-and-steps) 参考包含：
 
-- [等待](/reference/python/flows-and-steps#waits)、条件结果和 [AnyCombinationOf](/reference/python/flows-and-steps#anycombinationof)；
-- [Step decision](/reference/python/flows-and-steps#step-decisions)，包括 [ForceCompleteIfChannelsEmpty](/reference/python/flows-and-steps#forcecompleteifchannelsempty)；
-- [重试和失败策略](/reference/python/flows-and-steps#retry-and-failure-policies)、[durability](/reference/python/flows-and-steps#durability)、[超时](/reference/python/flows-and-steps#timeouts-and-total-duration)、[heartbeat](/reference/python/flows-and-steps#heartbeat) 和[取消](/reference/python/flows-and-steps#cancellation)；
-- [状态加载](/reference/python/flows-and-steps#selective-state-loading)和 [Attribute locks](/reference/server/runtime-data#attribute-locks)；
-- [失败与重新投递](/reference/python/flows-and-steps#failure-and-redelivery)。
+- [等待](/reference/python/flows-and-steps/waits)、条件结果和 [AnyCombinationOf](/reference/python/flows-and-steps/waits#anycombinationof)；
+- [Step decision](/reference/python/flows-and-steps/step-decisions)，包括 [ForceCompleteIfChannelsEmpty](/reference/python/flows-and-steps/step-decisions#forcecompleteifchannelsempty)；
+- [重试和失败策略](/reference/python/flows-and-steps/step-options#retry-and-failure-policies)、[durability](/reference/python/flows-and-steps/step-options#durability)、[超时](/reference/python/flows-and-steps/step-options#timeouts-and-total-duration)、[heartbeat](/reference/python/flows-and-steps/step-options#heartbeat) 和[取消](/reference/python/flows-and-steps/step-options#cancellation)；
+- [状态加载](/reference/python/flows-and-steps/step-options#selective-state-loading)和 [Attribute locks](/reference/server/runtime-data#attribute-locks)；
+- [失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery)。
