@@ -50,6 +50,25 @@ test sends two competing responses and checks that exactly one branch runs.
 - 24 patterns have indirect support (**+/-**).
 - No pattern is unsupported (**-**).
 
+## Comparison with a published evaluation {#comparison-with-a-published-evaluation}
+
+A [published evaluation](https://doi.org/10.1016/j.infsof.2009.02.002) rated six workflow and BPM systems against the
+same 43 control-flow patterns. Its authors are Wohed, Russell, ter Hofstede,
+Andersson, and van der Aalst. It appeared in Information and Software
+Technology 51(8), 2009 ([PDF](https://www.vdaalst.com/publications/p536.pdf)). In its Table 20, each system directly
+supports between 11 and 20 patterns. Each system has partial support for up to
+6 patterns. Each system does not support between 19 and 32 patterns.
+
+Dex has 19 **+**, 24 **+/-**, and 0 **-**. Read these numbers with care.
+
+- The systems were evaluated in 2009. Their current versions may differ.
+- The researchers rated those systems. The Dex ratings are our own
+  assessment. We used the same scheme and back each rating with a runnable
+  test.
+- The scheme gives **+** when one dedicated modeling construct, such as a
+  gateway type, covers a pattern. Dex composes a few general constructs in
+  code instead. The scheme rates that **+/-**.
+
 ## Results {#results}
 
 The table names the Dex construct behind each rating. Each link opens the
