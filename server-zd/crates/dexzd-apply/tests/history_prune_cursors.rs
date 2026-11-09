@@ -363,6 +363,22 @@ impl Harness {
             .insert((ColumnFamily::Flow, key), record.encode_to_vec());
     }
 
+    /// Returns the History tables whose metadata rows the run holds at `seq`.
+    fn metadata_tables_at(&self, seq: u64) -> Vec<RunTable> {
+        let prefix = &self.state.history_metadata_prefix;
+        let mut start = prefix.clone();
+        start.extend_from_slice(&seq.to_be_bytes());
+        let mut end = prefix.clone();
+        end.extend_from_slice(&(seq + 1).to_be_bytes());
+        self.state
+            .rows
+            .range((ColumnFamily::Flow, start)..(ColumnFamily::Flow, end))
+            .map(|((_, key), _)| {
+                RunTable::from_byte(key[prefix.len() + 8]).expect("a valid History table byte")
+            })
+            .collect()
+    }
+
     fn has_value_row(&self, value_id: ValueId) -> bool {
         let key = dexzd_keyspace::row_keys::value_row_key(
             self.context.flow_hash,
@@ -631,6 +647,34 @@ fn a_run_without_cursors_prunes_the_same_rows_as_one_with_them() {
         record.window_start_seq
     );
     assert!(record.window_start_seq > 1500);
+}
+
+#[test]
+fn a_full_page_ending_between_the_rows_of_a_seq_keeps_that_seq_for_the_next_scan() {
+    // Checkpoints every 42 commands make row 128 after genesis the record of a checkpoint seq.
+    let mut harness = Harness::start(RunSettings {
+        checkpoint_command_threshold: 42,
+        ..settings(1000, 1000)
+    });
+    for _ in 0..400 {
+        harness.set_large_attribute(None);
+    }
+    assert_eq!(harness.run_record().history_metadata_pruned_before_seq, 0);
+    // The shrunk window moves W hundreds of seqs at once, so pruning fills whole pages.
+    harness.update_window(10);
+    harness.set_large_attribute(None);
+    let split_seq = harness.run_record().history_metadata_pruned_before_seq;
+    assert_eq!(
+        harness.metadata_tables_at(split_seq),
+        vec![RunTable::Checkpoint],
+        "the full page deleted the record at {split_seq} but not its checkpoint"
+    );
+    harness.set_large_attribute(None);
+    assert!(
+        harness.metadata_tables_at(split_seq).is_empty(),
+        "the next scan starts at {split_seq} and deletes the checkpoint"
+    );
+    assert!(harness.run_record().history_metadata_pruned_before_seq > split_seq);
 }
 
 #[test]

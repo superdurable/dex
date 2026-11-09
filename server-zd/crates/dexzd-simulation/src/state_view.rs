@@ -116,6 +116,8 @@ pub struct RunView {
     pub history: Vec<(u64, HistoryRecord)>,
     /// Metadata of the History records by seq.
     pub history_record_metadata: BTreeMap<u64, HistoryRowMetadata>,
+    /// Seqs and attempts of the checkpoints that have a metadata row.
+    pub history_checkpoint_metadata: BTreeSet<(u64, u32)>,
     /// Current hard-delete objects by Attribute key.
     pub hard_delete_current: BTreeMap<String, HardDeleteObjectRecord>,
     /// Attribute Sync outbox entries by store name and Attribute key.
@@ -448,6 +450,17 @@ impl FlowView {
                     let seq = u64_from_suffix(key, suffix.get(..8).unwrap_or_default())?;
                     run.history_record_metadata
                         .insert(seq, decode(key, value, "history metadata")?);
+                } else if suffix.get(8) == Some(&(RunTable::Checkpoint as u8)) {
+                    let seq = u64_from_suffix(key, suffix.get(..8).unwrap_or_default())?;
+                    let attempt_bytes: [u8; 4] = suffix
+                        .get(9..)
+                        .unwrap_or_default()
+                        .try_into()
+                        .map_err(|_| {
+                            view_error(key, "checkpoint metadata", "attempt is not 4 bytes")
+                        })?;
+                    run.history_checkpoint_metadata
+                        .insert((seq, u32::from_be_bytes(attempt_bytes)));
                 }
             }
             RunTable::AttributeSyncOutbox => {
