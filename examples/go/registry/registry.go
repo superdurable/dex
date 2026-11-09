@@ -38,6 +38,7 @@ import (
 	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
+	workflowpatterns "github.com/superdurable/dex/examples/go/patterns/workflow-patterns"
 	"github.com/superdurable/dex/examples/go/primitives/attribute"
 	"github.com/superdurable/dex/examples/go/primitives/channel"
 	"github.com/superdurable/dex/examples/go/primitives/client-apis"
@@ -112,6 +113,7 @@ var (
 	GracefulTimeout       *timeout.FlowGracefulTimeout
 	ChunkedSubscriber     *sequentiallychunkedattributemap.ChunkedSubscriberFlow
 	CustomerDirectory     *hashpartitionedattributemap.CustomerDirectoryFlow
+	WorkflowPatterns      *workflowpatterns.WorkflowPatternFlows
 
 	Step                 *step.StepFlow
 	ExampleFlow          *flow.ExampleFlow
@@ -183,6 +185,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 	ChunkedSubscriber = sequentiallychunkedattributemap.NewChunkedSubscriberFlow()
 	CustomerDirectory = hashpartitionedattributemap.NewCustomerDirectoryFlow()
+	WorkflowPatterns = workflowpatterns.NewWorkflowPatternFlows()
 
 	Step = step.NewStepFlow()
 	ExampleFlow = flow.NewExampleFlow()
@@ -266,5 +269,6 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		SubFlowSelection,
 		ClientApis,
 	}
+	flows = append(flows, WorkflowPatterns.AllFlows()...)
 	return append(flows, additional...)
 }
