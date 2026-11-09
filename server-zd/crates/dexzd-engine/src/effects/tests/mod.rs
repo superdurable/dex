@@ -18,6 +18,7 @@ mod history_expiry_tests;
 mod history_local_cleanup_tests;
 mod history_migration_upload_tests;
 mod history_upload_tests;
+mod history_upload_throughput_tests;
 mod keyword_index_tests;
 mod outbox_and_purge_tests;
 mod rebuild_tests;

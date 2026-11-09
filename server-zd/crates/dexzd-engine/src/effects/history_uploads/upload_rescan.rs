@@ -20,9 +20,10 @@ use tokio::sync::mpsc;
 use dexzd_apply::{ApplyEffect, FlowStateReader};
 use dexzd_keyspace::row_keys::{history_segment_key, history_segment_value_prefix};
 use dexzd_keyspace::{
-    ColumnFamily, IndexKind, PartitionId, RunTable, TenantId, partition_index_prefix,
-    run_table_prefix,
+    ColumnFamily, IndexKind, PartitionHasher, PartitionId, RunTable, TenantId,
+    partition_index_prefix, run_table_prefix,
 };
+use dexzd_metrics::HistoryUploadBacklog;
 use dexzd_protocol::dexzd::v1::{
     HistoryRowMetadata, HistorySegmentRecord, HistorySegmentState, HistorySegmentValueRecord,
 };
@@ -32,7 +33,7 @@ use crate::blocking_work::BlockingWorkFailure;
 use crate::effects::state_reads::{
     RunLocation, decode_row, parse_run_item_index_key, prefix_successor, read_run_record, scan_all,
 };
-use crate::effects::{EffectContext, EffectError, RouterMessage};
+use crate::effects::{EffectContext, EffectDependencies, EffectError, RouterMessage};
 use crate::flow_coordination::FlowAddress;
 
 /// Uncompressed bytes of each sealed segment seen by the last scan, keyed by partition, run, and
@@ -126,12 +127,44 @@ pub(crate) fn request_partition_backlog_rescan(context: &EffectContext, partitio
     }
 }
 
+/// Counts the seals of committed commands into the upload backlog gauge, between scans.
+#[derive(Clone)]
+pub(crate) struct SealedSegmentCounter {
+    backlog: HistoryUploadBacklog,
+    hasher: PartitionHasher,
+}
+
+impl SealedSegmentCounter {
+    pub(crate) fn new(dependencies: &EffectDependencies) -> Self {
+        Self {
+            backlog: dependencies.metrics.history_upload_backlog.clone(),
+            hasher: dependencies.partition_hasher.clone(),
+        }
+    }
+
+    /// Counts each sealed segment in `effects`, the committed effects of one proposed command.
+    /// Rebuilds and rescans report their effects to the router directly, so none counts twice.
+    pub(crate) fn count_committed(&self, flow: &FlowAddress, effects: &[ApplyEffect]) {
+        for effect in effects {
+            if let ApplyEffect::HistorySegmentSealed { .. } = effect {
+                let partition = self.hasher.partition_of_flow(flow.tenant_id, &flow.flow_id);
+                self.backlog.add_sealed_segment(usize::from(partition.0));
+            }
+        }
+    }
+}
+
 /// Scans the partition's upload pending runs on a blocking thread.
 async fn rescan_partition(
     context: &EffectContext,
     partition: PartitionId,
     sizes: &SealedSegmentSizes,
 ) -> Result<PartitionUploadBacklog, EffectError> {
+    // Marked before the read, so seals and acknowledgments committing during the scan still count.
+    context
+        .metrics
+        .history_upload_backlog
+        .begin_partition_scan(usize::from(partition.0));
     let reader = context.flow_effect_operations.committed_state_reader()?;
     let known_sizes: SealedSegmentSizes = sizes
         .iter()
@@ -326,7 +359,7 @@ fn sealed_segments(
 
 /// Returns the uncompressed bytes the segment uploads: its history rows, as their metadata
 /// records them, and its superseded values.
-fn sealed_segment_bytes(
+pub(super) fn sealed_segment_bytes(
     reader: &dyn FlowStateReader,
     run: RunLocation,
     segment: &HistorySegmentRecord,

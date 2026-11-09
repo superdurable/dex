@@ -154,7 +154,10 @@ Watch **dexzd_history_upload_backlog_segments**,
 **dexzd_history_upload_oldest_sealed_age_seconds**. Alert if the oldest sealed
 segment's age keeps growing or uploads fail, as counted by
 **dexzd_history_uploads_total** with **outcome="failed"**. A growing backlog
-means more history stays on local disk. Use **dexzd_history_reads_total** to
+means more history stays on local disk. Since 0.1.23, the number of uploads in
+flight adapts to the backlog; see
+[Upload concurrency](/reference/server/configuration#history-upload-concurrency).
+Use **dexzd_history_reads_total** to
 track reads from local disk, cache, and object storage, and
 **dexzd_history_value_revivals_total** to track values restored to local disk.
 Since 0.1.22, **dexzd_history_expired_objects_deleted_total** and

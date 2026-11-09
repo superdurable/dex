@@ -21,6 +21,8 @@ const MAX_LOG_RECORD_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_HISTORY_SEGMENT_TARGET_BYTES: u64 = 256 * 1024 * 1024;
 /// Bounds the memory that in-flight history segment uploads hold.
 const MAX_HISTORY_UPLOAD_CONCURRENCY: u32 = 1024;
+const MIN_HISTORY_UPLOAD_IN_FLIGHT_BYTES: u64 = 1024 * 1024;
+const MAX_HISTORY_UPLOAD_IN_FLIGHT_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_HISTORY_OBJECT_READ_CONCURRENCY: u32 = 1024;
 
 impl Config {
@@ -289,6 +291,17 @@ impl Config {
             (1..=MAX_HISTORY_UPLOAD_CONCURRENCY).contains(&self.history.upload_concurrency),
             "history.uploadConcurrency",
             "must be from 1 to 1024",
+        )?;
+        ensure(
+            (1..=MAX_HISTORY_UPLOAD_CONCURRENCY).contains(&self.history.upload_min_concurrency),
+            "history.uploadMinConcurrency",
+            "must be from 1 to 1024",
+        )?;
+        ensure(
+            (MIN_HISTORY_UPLOAD_IN_FLIGHT_BYTES..=MAX_HISTORY_UPLOAD_IN_FLIGHT_BYTES)
+                .contains(&self.history.upload_max_in_flight_bytes),
+            "history.uploadMaxInFlightBytes",
+            "must be from 1 MiB to 64 GiB",
         )?;
         ensure(
             (1..=MAX_HISTORY_OBJECT_READ_CONCURRENCY)

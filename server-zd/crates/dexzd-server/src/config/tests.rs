@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dexzd_engine::{EffectsConfig, LocalStoreConfig};
+use dexzd_engine::{EffectsConfig, HistoryUploadLimits, LocalStoreConfig};
 
 use super::{
     AttributeStoreColumnNaming, AttributeStoreType, Config, ConfigError, CredentialSource,
@@ -325,15 +325,23 @@ fn single_node_history_offload_defaults_to_enabled_unless_the_overrides_set_it()
 }
 
 #[test]
-fn history_upload_concurrency_reaches_the_effect_runner() {
-    assert_eq!(Config::default().history.upload_concurrency, 16);
+fn history_upload_limits_reach_the_effect_runner() {
+    let defaults = Config::default().history;
+    assert_eq!(defaults.upload_concurrency, 256);
+    assert_eq!(defaults.upload_min_concurrency, 16);
+    assert_eq!(defaults.upload_max_in_flight_bytes, 128 * 1024 * 1024);
     assert_eq!(
         ComponentConfigs::from_config(&valid_config(), false)
             .expect("component config")
             .effects
-            .history_upload_concurrency,
-        16
+            .history_upload_limits,
+        HistoryUploadLimits {
+            max_concurrency: 256,
+            min_concurrency: 16,
+            max_in_flight_bytes: 128 * 1024 * 1024,
+        }
     );
+    // A configuration from before the adaptive limit still validates, with a smaller cap.
     let parsed = Config::parse_yaml("history:\n  uploadConcurrency: 3\n")
         .expect("parse the history upload concurrency");
     let mut configuration = valid_config();
@@ -343,7 +351,26 @@ fn history_upload_concurrency_reaches_the_effect_runner() {
         .expect("a valid history upload concurrency");
     let components =
         ComponentConfigs::from_config(&configuration, false).expect("component config");
-    assert_eq!(components.effects.history_upload_concurrency, 3);
+    assert_eq!(components.effects.history_upload_limits.max_concurrency, 3);
+    assert_eq!(components.effects.history_upload_limits.min_concurrency, 16);
+
+    let parsed = Config::parse_yaml(
+        "history:\n  uploadMinConcurrency: 8\n  uploadMaxInFlightBytes: 33554432\n",
+    )
+    .expect("parse the history upload limits");
+    let mut configuration = valid_config();
+    configuration.history.upload_min_concurrency = parsed.history.upload_min_concurrency;
+    configuration.history.upload_max_in_flight_bytes = parsed.history.upload_max_in_flight_bytes;
+    configuration
+        .validate()
+        .expect("valid history upload limits");
+    let components =
+        ComponentConfigs::from_config(&configuration, false).expect("component config");
+    assert_eq!(components.effects.history_upload_limits.min_concurrency, 8);
+    assert_eq!(
+        components.effects.history_upload_limits.max_in_flight_bytes,
+        32 * 1024 * 1024
+    );
 }
 
 #[test]
@@ -1601,6 +1628,18 @@ fn every_field_constraint_names_the_rejected_yaml_path() {
         }),
         ("history.uploadConcurrency", |config| {
             config.history.upload_concurrency = 1025
+        }),
+        ("history.uploadMinConcurrency", |config| {
+            config.history.upload_min_concurrency = 0
+        }),
+        ("history.uploadMinConcurrency", |config| {
+            config.history.upload_min_concurrency = 1025
+        }),
+        ("history.uploadMaxInFlightBytes", |config| {
+            config.history.upload_max_in_flight_bytes = 1024 * 1024 - 1
+        }),
+        ("history.uploadMaxInFlightBytes", |config| {
+            config.history.upload_max_in_flight_bytes = 64 * 1024 * 1024 * 1024 + 1
         }),
         ("history.objectReadConcurrency", |config| {
             config.history.object_read_concurrency = 0

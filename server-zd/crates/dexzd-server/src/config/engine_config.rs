@@ -303,11 +303,26 @@ pub struct HistoryConfig {
     /// only later runs.
     #[serde(with = "humantime_serde")]
     pub superseded_value_grace_period: Duration,
-    /// Defaults to 16; from 1 to 1024. Most sealed history segments the lease holder reads,
+    /// Defaults to 256; from 1 to 1024. Most sealed history segments the lease holder reads,
     /// encodes, and uploads to object storage at once. Higher values drain an upload backlog
     /// faster and hold more segments in memory; each in-flight segment holds about its encoded
     /// size, usually up to `segmentTargetBytes` plus one command's history.
+    ///
+    /// The uploader adapts its limit between `uploadMinConcurrency` and this value: it grows
+    /// while uploads wait, shrinks once they drain, and halves after a retryable object storage
+    /// failure such as S3 503 SlowDown. `uploadMaxInFlightBytes` bounds the memory.
+    /// Changed in 0.1.23: the default was 16 and the limit was fixed.
     pub upload_concurrency: u32,
+    /// Defaults to 16; from 1 to 1024. History segment uploads the lease holder allows at once
+    /// while no upload waits. Values above `uploadConcurrency` count as `uploadConcurrency`, so
+    /// a configuration that sets only a smaller `uploadConcurrency` keeps a fixed limit.
+    /// Since 0.1.23.
+    pub upload_min_concurrency: u32,
+    /// Defaults to 128 MiB; from 1 MiB to 64 GiB. Most encoded history segment bytes that the
+    /// lease holder's uploads in flight hold at once. Each upload reserves its segment's bytes
+    /// before it reads and encodes the segment; a segment larger than this uploads alone.
+    /// Since 0.1.23.
+    pub upload_max_in_flight_bytes: u64,
     /// Defaults to 1 GiB; most bytes of uploaded history the node keeps in its disk read cache,
     /// the sibling directory `<localStorage.directory>-history-read-cache`, such as
     /// `/var/lib/dex-server-zd/store-history-read-cache`. History pages read
@@ -352,7 +367,9 @@ impl Default for HistoryConfig {
             should_delete_expired_objects: false,
             segment_target_bytes: 4 * 1024 * 1024,
             superseded_value_grace_period: Duration::from_secs(10 * 60),
-            upload_concurrency: 16,
+            upload_concurrency: 256,
+            upload_min_concurrency: 16,
+            upload_max_in_flight_bytes: 128 * 1024 * 1024,
             read_cache_max_bytes: 1 << 30,
             read_cache_directory: None,
             object_read_concurrency: 32,
@@ -411,6 +428,8 @@ struct HistoryConfigSource {
     #[serde(with = "humantime_serde")]
     superseded_value_grace_period: Duration,
     upload_concurrency: u32,
+    upload_min_concurrency: u32,
+    upload_max_in_flight_bytes: u64,
     read_cache_max_bytes: u64,
     read_cache_directory: Option<PathBuf>,
     object_read_concurrency: u32,
@@ -447,6 +466,8 @@ impl Default for HistoryConfigSource {
             segment_target_bytes: defaults.segment_target_bytes,
             superseded_value_grace_period: defaults.superseded_value_grace_period,
             upload_concurrency: defaults.upload_concurrency,
+            upload_min_concurrency: defaults.upload_min_concurrency,
+            upload_max_in_flight_bytes: defaults.upload_max_in_flight_bytes,
             read_cache_max_bytes: defaults.read_cache_max_bytes,
             read_cache_directory: defaults.read_cache_directory,
             object_read_concurrency: defaults.object_read_concurrency,
@@ -494,6 +515,8 @@ impl TryFrom<HistoryConfigSource> for HistoryConfig {
             segment_target_bytes: source.segment_target_bytes,
             superseded_value_grace_period: source.superseded_value_grace_period,
             upload_concurrency: source.upload_concurrency,
+            upload_min_concurrency: source.upload_min_concurrency,
+            upload_max_in_flight_bytes: source.upload_max_in_flight_bytes,
             read_cache_max_bytes: source.read_cache_max_bytes,
             read_cache_directory: source.read_cache_directory,
             object_read_concurrency: source.object_read_concurrency,

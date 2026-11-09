@@ -6,8 +6,8 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use prometheus_client::encoding::{EncodeMetric, MetricEncoder};
@@ -173,19 +173,25 @@ impl EncodeMetric for SearchOutboxOldestEntryAge {
     }
 }
 
-/// Sealed history segments waiting for upload in each partition, as of the uploader's last scan.
+/// Sealed history segments waiting for upload in each partition.
+///
+/// The segment count follows seals and upload acknowledgments as they commit. Bytes and the
+/// oldest seal time are as of the uploader's last scan, and clear once the count drains.
+/// Each scan of a partition replaces its values, which also corrects the count's drift.
 #[derive(Clone, Debug)]
 pub struct HistoryUploadBacklog {
-    partitions: Arc<Vec<PartitionHistoryUploadBacklog>>,
+    partitions: Arc<Vec<Mutex<PartitionHistoryUploadBacklog>>>,
 }
 
 #[derive(Debug, Default)]
 struct PartitionHistoryUploadBacklog {
-    segments: AtomicU64,
+    segments: u64,
     /// Uncompressed bytes of the waiting segments' history rows and superseded values.
-    bytes: AtomicU64,
+    bytes: u64,
     /// Seal time of the oldest waiting segment, the sealing command's proposed_at_micros; 0 when none.
-    oldest_sealed_at_micros: AtomicI64,
+    oldest_sealed_at_micros: i64,
+    /// Seals minus acknowledgments counted since the partition's running scan began.
+    segment_change_since_scan: i64,
 }
 
 impl HistoryUploadBacklog {
@@ -193,14 +199,45 @@ impl HistoryUploadBacklog {
         Self {
             partitions: Arc::new(
                 (0..partition_count)
-                    .map(|_| PartitionHistoryUploadBacklog::default())
+                    .map(|_| Mutex::new(PartitionHistoryUploadBacklog::default()))
                     .collect(),
             ),
         }
     }
 
+    /// Counts one segment whose seal committed. Ignores a partition outside the configured
+    /// count.
+    pub fn add_sealed_segment(&self, partition: usize) {
+        self.update_partition(partition, |backlog| {
+            backlog.segments = backlog.segments.saturating_add(1);
+            backlog.segment_change_since_scan = backlog.segment_change_since_scan.saturating_add(1);
+        });
+    }
+
+    /// Removes one segment whose upload acknowledgment committed; the last one also clears the
+    /// partition's bytes and oldest seal time. Ignores a partition outside the configured count.
+    pub fn remove_uploaded_segment(&self, partition: usize) {
+        self.update_partition(partition, |backlog| {
+            backlog.segments = backlog.segments.saturating_sub(1);
+            backlog.segment_change_since_scan = backlog.segment_change_since_scan.saturating_sub(1);
+            if backlog.segments == 0 {
+                backlog.bytes = 0;
+                backlog.oldest_sealed_at_micros = 0;
+            }
+        });
+    }
+
+    /// Marks the start of a scan of `partition`; call it before the scan reads committed state.
+    /// [`Self::set_partition`] then adds the seals and acknowledgments counted after the mark.
+    /// Ignores a partition outside the configured count.
+    pub fn begin_partition_scan(&self, partition: usize) {
+        self.update_partition(partition, |backlog| backlog.segment_change_since_scan = 0);
+    }
+
     /// Records what the uploader's last scan of `partition` found waiting: the segment count,
     /// their uncompressed bytes, and the seal time of the oldest one, or `None` when none waits.
+    /// The published count also includes the seals and acknowledgments counted since
+    /// [`Self::begin_partition_scan`].
     /// Ignores a partition outside the configured count.
     pub fn set_partition(
         &self,
@@ -209,46 +246,73 @@ impl HistoryUploadBacklog {
         bytes: u64,
         oldest_sealed_at_micros: Option<i64>,
     ) {
-        if let Some(backlog) = self.partitions.get(partition) {
-            backlog.segments.store(segments, Ordering::Relaxed);
-            backlog.bytes.store(bytes, Ordering::Relaxed);
-            backlog
-                .oldest_sealed_at_micros
-                .store(oldest_sealed_at_micros.unwrap_or(0), Ordering::Relaxed);
-        }
+        self.update_partition(partition, |backlog| {
+            let change = backlog.segment_change_since_scan;
+            backlog.segments = if change >= 0 {
+                segments.saturating_add(change.unsigned_abs())
+            } else {
+                segments.saturating_sub(change.unsigned_abs())
+            };
+            backlog.segment_change_since_scan = 0;
+            backlog.bytes = bytes;
+            backlog.oldest_sealed_at_micros = oldest_sealed_at_micros.unwrap_or(0);
+        });
     }
 
     /// Clears every partition, for a node that stopped uploading.
     pub fn clear(&self) {
         for partition in 0..self.partitions.len() {
-            self.set_partition(partition, 0, 0, None);
+            self.update_partition(partition, |backlog| {
+                *backlog = PartitionHistoryUploadBacklog::default();
+            });
         }
     }
 
     /// Returns the segments waiting in every partition.
     pub fn segments(&self) -> u64 {
-        self.partitions
-            .iter()
-            .map(|backlog| backlog.segments.load(Ordering::Relaxed))
+        self.read_partitions(|backlog| backlog.segments)
             .fold(0, u64::saturating_add)
     }
 
     /// Returns the uncompressed bytes waiting in every partition.
     pub fn bytes(&self) -> u64 {
-        self.partitions
-            .iter()
-            .map(|backlog| backlog.bytes.load(Ordering::Relaxed))
+        self.read_partitions(|backlog| backlog.bytes)
             .fold(0, u64::saturating_add)
     }
 
     /// Returns the seal time of the oldest segment waiting in any partition, or `None` when none
     /// waits.
     pub fn oldest_sealed_at_micros(&self) -> Option<i64> {
-        self.partitions
-            .iter()
-            .map(|backlog| backlog.oldest_sealed_at_micros.load(Ordering::Relaxed))
+        self.read_partitions(|backlog| backlog.oldest_sealed_at_micros)
             .filter(|sealed_at| *sealed_at > 0)
             .min()
+    }
+
+    fn update_partition(
+        &self,
+        partition: usize,
+        update: impl FnOnce(&mut PartitionHistoryUploadBacklog),
+    ) {
+        if let Some(backlog) = self.partitions.get(partition) {
+            update(
+                &mut backlog
+                    .lock()
+                    .expect("the history upload backlog lock is never poisoned"),
+            );
+        }
+    }
+
+    fn read_partitions<T>(
+        &self,
+        read: impl Fn(&PartitionHistoryUploadBacklog) -> T,
+    ) -> impl Iterator<Item = T> {
+        self.partitions.iter().map(move |backlog| {
+            read(
+                &backlog
+                    .lock()
+                    .expect("the history upload backlog lock is never poisoned"),
+            )
+        })
     }
 }
 
@@ -327,5 +391,32 @@ mod tests {
         backlog.clear();
         assert_eq!(backlog.segments(), 0);
         assert_eq!(backlog.oldest_sealed_at_micros(), None);
+    }
+
+    #[test]
+    fn history_upload_backlog_keeps_changes_counted_while_a_scan_runs() {
+        let backlog = HistoryUploadBacklog::new(2);
+        backlog.add_sealed_segment(0);
+        backlog.add_sealed_segment(0);
+        assert_eq!(backlog.segments(), 2);
+        backlog.begin_partition_scan(0);
+        // One seal and two acknowledgments commit after the scan read committed state.
+        backlog.add_sealed_segment(0);
+        backlog.remove_uploaded_segment(0);
+        backlog.remove_uploaded_segment(0);
+        backlog.set_partition(0, 2, 100, Some(5));
+        assert_eq!(backlog.segments(), 1);
+        assert_eq!(backlog.bytes(), 100);
+        backlog.remove_uploaded_segment(0);
+        backlog.remove_uploaded_segment(0);
+        assert_eq!(backlog.segments(), 0);
+        assert_eq!(backlog.bytes(), 0);
+        assert_eq!(backlog.oldest_sealed_at_micros(), None);
+        backlog.begin_partition_scan(1);
+        backlog.remove_uploaded_segment(1);
+        backlog.set_partition(1, 0, 0, None);
+        assert_eq!(backlog.segments(), 0);
+        backlog.add_sealed_segment(9);
+        assert_eq!(backlog.segments(), 0);
     }
 }

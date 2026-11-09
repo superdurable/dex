@@ -63,6 +63,7 @@ pub use hard_delete_objects::{
     HardDeleteUploadLedger, HardDeleteUploads, NodeMetaUploadLedger, decode_hard_delete_value,
     encode_hard_delete_value, hard_delete_placeholder_value,
 };
+pub use history_uploads::HistoryUploadLimits;
 pub use method_request::MethodRequest;
 pub(crate) use method_request::pinned_durability;
 pub(crate) use state_reads::{
@@ -75,6 +76,7 @@ use crate::engine_id_source::EngineIdSource;
 use crate::flow_coordination::{CommitUrgency, FlowAddress, FlowCoordinationEffectSink};
 use crate::recovery::{PartitionEffectRebuildError, PartitionEffectRebuilder};
 use dispatch::{AttemptEntries, DispatchScheduler, HandoutEnd, InterruptedAttempt};
+use history_uploads::{HistoryUploadLimiter, SealedSegmentCounter};
 use method_request::MethodAttemptKey;
 use timer_service::TimerServices;
 
@@ -131,9 +133,9 @@ pub struct EffectsConfig {
     /// Default 100000. Deleted entries one periodic Heads seek may skip before it gives up on
     /// a queue until the next round.
     pub heads_max_skipped_deletions: u64,
-    /// Default 16, `history.uploadConcurrency`. Most sealed history segments this node reads,
-    /// encodes, and uploads at once. Values below 1 count as 1.
-    pub history_upload_concurrency: usize,
+    /// Defaults follow the [`HistoryUploadLimits`] field documentation. How many sealed history
+    /// segments this node uploads at once, and the encoded bytes they reserve.
+    pub history_upload_limits: HistoryUploadLimits,
     /// Default 60 seconds; zero disables. How often the uploader rescans every owned partition's
     /// sealed history segments: the scan refreshes the upload backlog gauges and restarts the
     /// upload of any run whose upload work stopped.
@@ -179,7 +181,7 @@ impl Default for EffectsConfig {
             blocking_work: BlockingWorkPlacement::BlockingThreadPool,
             heads_resync_interval: Duration::from_secs(5 * 60),
             heads_max_skipped_deletions: 100_000,
-            history_upload_concurrency: 16,
+            history_upload_limits: HistoryUploadLimits::default(),
             history_upload_rescan_interval: Duration::from_secs(60),
             history_orphan_sweep_interval: Duration::from_secs(6 * 60 * 60),
         }
@@ -335,8 +337,8 @@ pub(crate) struct EffectContext {
     pub(crate) dispatcher: Arc<dyn MethodDispatcher>,
     pub(crate) hard_delete_objects: HardDeleteObjects,
     pub(crate) history_object_store: Arc<dyn ObjectStore>,
-    /// Permits for history segment uploads; see [`EffectsConfig::history_upload_concurrency`].
-    pub(crate) history_upload_slots: Arc<Semaphore>,
+    /// Permits for history segment uploads; see [`EffectsConfig::history_upload_limits`].
+    pub(crate) history_upload_limiter: Arc<HistoryUploadLimiter>,
     /// Runs whose upload failed without a retry; only the rescan clears an entry, so every
     /// trigger retries such a run at most once per rescan.
     pub(crate) history_upload_failed_runs: std::sync::Mutex<BTreeSet<RunId>>,
@@ -491,6 +493,7 @@ impl RetryBackoff {
 #[derive(Clone)]
 pub struct EffectRunner {
     router: mpsc::UnboundedSender<RouterMessage>,
+    sealed_segments: SealedSegmentCounter,
 }
 
 /// The effect runner's tasks, started once the runtime exists.
@@ -535,6 +538,7 @@ impl EffectRunner {
         let (router_sender, router_receiver) = mpsc::unbounded_channel();
         let runner = Self {
             router: router_sender.clone(),
+            sealed_segments: SealedSegmentCounter::new(&dependencies),
         };
         let tasks = EffectTasks {
             config: config.clone(),
@@ -575,6 +579,9 @@ impl FlowCoordinationEffectSink for EffectRunner {
         if effects.is_empty() {
             return;
         }
+        if is_committed {
+            self.sealed_segments.count_committed(flow, effects);
+        }
         let message = RouterMessage::Effects {
             flow: flow.clone(),
             effects: effects.to_vec(),
@@ -596,6 +603,7 @@ impl FlowCoordinationEffectSink for EffectRunner {
         if effects.is_empty() {
             return;
         }
+        self.sealed_segments.count_committed(flow, effects);
         let message = RouterMessage::Effects {
             flow: flow.clone(),
             effects: effects.to_vec(),
@@ -643,11 +651,10 @@ impl EffectTasks {
                 .max_blocking_state_reads
                 .clamp(1, Semaphore::MAX_PERMITS),
         ));
-        let history_upload_slots = Arc::new(Semaphore::new(
-            self.config
-                .history_upload_concurrency
-                .clamp(1, Semaphore::MAX_PERMITS),
-        ));
+        let history_upload_limiter = HistoryUploadLimiter::new(
+            self.config.history_upload_limits,
+            &self.dependencies.metrics,
+        );
         let task_queue_memory = task_queue::TaskQueueMemory::new(
             self.dependencies.metrics.step_task_queue_entries.clone(),
         );
@@ -660,7 +667,7 @@ impl EffectTasks {
             dispatcher: self.dependencies.dispatcher,
             hard_delete_objects: self.dependencies.hard_delete_objects,
             history_object_store: self.dependencies.history_object_store,
-            history_upload_slots,
+            history_upload_limiter,
             history_upload_backlog_rebuilds,
             history_upload_failed_runs: std::sync::Mutex::new(BTreeSet::new()),
             hasher: self.dependencies.partition_hasher,
