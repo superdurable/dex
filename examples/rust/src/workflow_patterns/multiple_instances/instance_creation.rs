@@ -122,8 +122,12 @@ static REVIEW_GATE_OPENED: LazyLock<Channel<String>> =
 static REVIEW_COMPLETED: LazyLock<Channel<String>> =
     LazyLock::new(|| Channel::new("reviewCompleted"));
 
-pub const GET_STARTED_REVIEW_COUNT: Rpc<(), usize> = Rpc::new("get_started_review_count");
-pub const OPEN_REVIEW_GATE: Rpc<usize, ()> = Rpc::new("open_review_gate");
+pub const GET_STARTED_DESIGN_TIME_REVIEW_COUNT: Rpc<(), usize> =
+    Rpc::new("get_started_design_time_review_count");
+pub const OPEN_DESIGN_TIME_REVIEW_GATE: Rpc<usize, ()> = Rpc::new("open_design_time_review_gate");
+pub const GET_STARTED_RUN_TIME_REVIEW_COUNT: Rpc<(), usize> =
+    Rpc::new("get_started_run_time_review_count");
+pub const OPEN_RUN_TIME_REVIEW_GATE: Rpc<usize, ()> = Rpc::new("open_run_time_review_gate");
 
 const DESIGN_TIME_REVIEWERS: [&str; 3] = ["legal", "finance", "security"];
 
@@ -137,11 +141,18 @@ pub struct DesignTimeMultipleInstancesFlow {
 }
 
 impl DesignTimeMultipleInstancesFlow {
-    fn get_started_review_count(&self, context: &mut Context) -> HandlerResult<RpcResult<usize>> {
+    fn get_started_design_time_review_count(
+        &self,
+        context: &mut Context,
+    ) -> HandlerResult<RpcResult<usize>> {
         count_started_reviews(context)
     }
 
-    fn open_review_gate(&self, context: &mut Context, count: usize) -> HandlerResult<()> {
+    fn open_design_time_review_gate(
+        &self,
+        context: &mut Context,
+        count: usize,
+    ) -> HandlerResult<()> {
         open_review_gate(context, count)
     }
 }
@@ -162,10 +173,13 @@ impl Flow for DesignTimeMultipleInstancesFlow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function_without_input(
-                GET_STARTED_REVIEW_COUNT.load_attribute_map(&STARTED_REVIEWERS),
-                Self::get_started_review_count,
+                GET_STARTED_DESIGN_TIME_REVIEW_COUNT.load_attribute_map(&STARTED_REVIEWERS),
+                Self::get_started_design_time_review_count,
             )
-            .procedure(OPEN_REVIEW_GATE, Self::open_review_gate)
+            .procedure(
+                OPEN_DESIGN_TIME_REVIEW_GATE,
+                Self::open_design_time_review_gate,
+            )
     }
 }
 
@@ -192,11 +206,14 @@ pub struct RunTimeMultipleInstancesFlow {
 }
 
 impl RunTimeMultipleInstancesFlow {
-    fn get_started_review_count(&self, context: &mut Context) -> HandlerResult<RpcResult<usize>> {
+    fn get_started_run_time_review_count(
+        &self,
+        context: &mut Context,
+    ) -> HandlerResult<RpcResult<usize>> {
         count_started_reviews(context)
     }
 
-    fn open_review_gate(&self, context: &mut Context, count: usize) -> HandlerResult<()> {
+    fn open_run_time_review_gate(&self, context: &mut Context, count: usize) -> HandlerResult<()> {
         open_review_gate(context, count)
     }
 }
@@ -217,10 +234,10 @@ impl Flow for RunTimeMultipleInstancesFlow {
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function_without_input(
-                GET_STARTED_REVIEW_COUNT.load_attribute_map(&STARTED_REVIEWERS),
-                Self::get_started_review_count,
+                GET_STARTED_RUN_TIME_REVIEW_COUNT.load_attribute_map(&STARTED_REVIEWERS),
+                Self::get_started_run_time_review_count,
             )
-            .procedure(OPEN_REVIEW_GATE, Self::open_review_gate)
+            .procedure(OPEN_RUN_TIME_REVIEW_GATE, Self::open_run_time_review_gate)
     }
 }
 

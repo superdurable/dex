@@ -53,12 +53,13 @@ use dex_examples_rust::workflow_patterns::multiple_instances::{
     ADD_BID, ADD_SAMPLE, AcceptQuorumInspections, ApproveBatch, BidJoinProgress, CERTIFY_QUORUM,
     CLOSE_SAMPLE_INTAKE, CancellingPartialJoinForMultipleInstancesFlow, ConfirmRegistration,
     DesignTimeMultipleInstancesFlow, DynamicPartialJoinForMultipleInstancesFlow,
-    GET_QUEUED_QUORUM_RELEASE_COUNT, GET_STARTED_ANALYSIS_COUNT, GET_STARTED_EVALUATION_COUNT,
-    GET_STARTED_REVIEW_COUNT, IS_BID_ADMISSION_CLOSED, InspectedUnits, InspectionPlan,
+    GET_QUEUED_QUORUM_RELEASE_COUNT, GET_STARTED_ANALYSIS_COUNT,
+    GET_STARTED_DESIGN_TIME_REVIEW_COUNT, GET_STARTED_EVALUATION_COUNT,
+    GET_STARTED_RUN_TIME_REVIEW_COUNT, IS_BID_ADMISSION_CLOSED, InspectedUnits, InspectionPlan,
     InspectionRound, MultipleInstancesWithoutSynchronizationFlow,
-    NoPriorKnowledgeMultipleInstancesFlow, OPEN_BID_GATE, OPEN_REVIEW_GATE, OPEN_SAMPLE_GATE,
-    RELEASE_INSPECTIONS, RELEASE_INVITATIONS, RELEASE_QUORUM_INSPECTIONS,
-    RunTimeMultipleInstancesFlow, SIGN_CONTRACT, StartInspections,
+    NoPriorKnowledgeMultipleInstancesFlow, OPEN_BID_GATE, OPEN_DESIGN_TIME_REVIEW_GATE,
+    OPEN_RUN_TIME_REVIEW_GATE, OPEN_SAMPLE_GATE, RELEASE_INSPECTIONS, RELEASE_INVITATIONS,
+    RELEASE_QUORUM_INSPECTIONS, RunTimeMultipleInstancesFlow, SIGN_CONTRACT, StartInspections,
     StaticPartialJoinForMultipleInstancesFlow,
 };
 use dex_examples_rust::workflow_patterns::partial_joins::{
@@ -79,13 +80,13 @@ use dex_examples_rust::workflow_patterns::termination::{
 };
 use dex_examples_rust::workflow_patterns::triggers::{
     ARM_MOTION_SENSOR, IS_AWAITING_MOTION_EVENT, MARK_CARRIER_READY, PersistentTriggerFlow,
-    SEND_MOTION_EVENT, SEND_SHIPMENT_LABEL, TransientTriggerFlow,
+    SEND_MOTION_EVENT, SEND_SHIPMENT_LABEL, STOP_MOTION_MONITORING, TransientTriggerFlow,
 };
 use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
     Attribute, AttributeMatch, BlobCache, BlobCacheConfig, Client, ClientOptions, Flow, FlowResult,
-    FlowStatus, Registry, Rpc, SdkError, SdkResult, Step, StepExecutionId, Value,
-    WaitForAttributeOptions, WaitForStepCompletionOptions, Worker, WorkerOptions,
+    FlowStatus, Rpc, SdkError, SdkResult, Step, StepExecutionId, Value, WaitForAttributeOptions,
+    WaitForStepCompletionOptions, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 use worker_harness::await_pull_registration;
@@ -95,7 +96,6 @@ const LOCK_CONFLICT_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 struct WorkflowPatternsEnvironment {
     client: Arc<Client>,
-    server_address: String,
     worker: Arc<Worker>,
     worker_thread: Option<JoinHandle<SdkResult<()>>>,
     cache: Arc<BlobCache>,
@@ -142,25 +142,11 @@ impl WorkflowPatternsEnvironment {
         client.health_check().expect("Dex health check");
         Self {
             client,
-            server_address,
             worker,
             worker_thread: Some(worker_thread),
             cache,
             _cache_directory: cache_directory,
         }
-    }
-
-    /// Returns a Client that knows only `flow`, for an RPC name that several
-    /// registered Flows share.
-    fn single_flow_client<SomeFlow: Flow>(&self, flow: SomeFlow) -> Client {
-        Client::try_new(
-            Registry::new()
-                .register(flow)
-                .expect("register one Workflow Patterns Flow"),
-            Arc::clone(&self.cache),
-            ClientOptions::new().server_address(self.server_address.clone()),
-        )
-        .expect("create a single-Flow Client")
     }
 
     fn start_flow<SomeFlow: Flow>(
@@ -829,13 +815,9 @@ fn wcp13_design_time_instances_run_at_once_and_join() {
         "instances-design-time",
         (),
     );
-    // Both review Flows declare these RPC names, so use a Client of one Flow.
-    let review_client = environment.single_flow_client(DesignTimeMultipleInstancesFlow::default());
-    poll_count_until(&review_client, &flow_id, GET_STARTED_REVIEW_COUNT, 3);
+    environment.poll_count_until(&flow_id, GET_STARTED_DESIGN_TIME_REVIEW_COUNT, 3);
     environment.assert_running(&flow_id);
-    review_client
-        .invoke_rpc(&flow_id, OPEN_REVIEW_GATE, 3)
-        .expect("open the review gate");
+    environment.invoke(&flow_id, OPEN_DESIGN_TIME_REVIEW_GATE, 3);
     let result = environment.wait_for_completed_flow(&flow_id);
     assert_eq!(
         single_output_of::<Vec<String>>(&result, "CollectReviews"),
@@ -852,13 +834,9 @@ fn wcp14_run_time_instances_run_at_once_and_join() {
         "instances-run-time",
         strings(&["dee", "ana", "cy", "ben"]),
     );
-    // Both review Flows declare these RPC names, so use a Client of one Flow.
-    let review_client = environment.single_flow_client(RunTimeMultipleInstancesFlow::default());
-    poll_count_until(&review_client, &flow_id, GET_STARTED_REVIEW_COUNT, 4);
+    environment.poll_count_until(&flow_id, GET_STARTED_RUN_TIME_REVIEW_COUNT, 4);
     environment.assert_running(&flow_id);
-    review_client
-        .invoke_rpc(&flow_id, OPEN_REVIEW_GATE, 4)
-        .expect("open the review gate");
+    environment.invoke(&flow_id, OPEN_RUN_TIME_REVIEW_GATE, 4);
     let result = environment.wait_for_completed_flow(&flow_id);
     assert_eq!(
         single_output_of::<Vec<String>>(&result, "CollectReviews"),
@@ -1361,8 +1339,9 @@ fn wcp23_transient_trigger_accepts_one_event_only_while_a_step_waits() {
         !send_motion_event(3),
         "the first accepted trigger is the only one"
     );
+    environment.invoke(&flow_id, STOP_MOTION_MONITORING, ());
     let result = environment.wait_for_completed_flow(&flow_id);
-    assert_eq!(single_output_of::<i64>(&result, "AwaitMotionEvent"), 2);
+    assert_eq!(single_output_of::<i64>(&result, "AwaitMonitoringStop"), 2);
 }
 
 #[test]
