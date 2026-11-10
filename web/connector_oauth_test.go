@@ -238,6 +238,53 @@ func TestConnectorOAuthUsesPKCESingleUseStateAndDoesNotPersistClientOrRefreshSec
 	}
 }
 
+func TestConnectorOAuthReauthorizationAssignsANewAuthorizationID(t *testing.T) {
+	authorization := authorizeConnectorOAuthTestRelease(t, connectorManifestOAuth2{},
+		respondWithConnectorOAuthTestToken(t, http.StatusOK, `{"access_token":"provider-access-token"}`))
+	requireConnectorOAuthTestCallback(t, authorization, http.StatusSeeOther, "")
+	first := requireConnectorTestAuthorizationID(t, authorization.setup.store, "example", "workspace")
+
+	reauthorization := reauthorizeConnectorOAuthTestConnection(t, authorization.setup)
+	requireConnectorOAuthTestCallback(t, reauthorization, http.StatusSeeOther, "")
+	if got := requireConnectorTestAuthorizationID(t, authorization.setup.store, "example", "workspace"); got == first {
+		t.Fatal("OAuth reauthorization with the same access token kept the authorizationId")
+	}
+}
+
+// reauthorizeConnectorOAuthTestConnection runs OAuth start and callback again on a setup from authorizeConnectorOAuthTestRelease.
+func reauthorizeConnectorOAuthTestConnection(t *testing.T, setup *connectorSetup) connectorOAuthTestAuthorization {
+	t.Helper()
+	startRequest := httptest.NewRequest(http.MethodPost, "/api/v2/connector-connections/example/workspace/oauth/start", strings.NewReader(
+		`{"clientId":"oauth-client-id","clientSecret":"oauth-client-secret","configuration":{},"credentialValues":{},"credentialSecrets":{}}`,
+	))
+	startRequest.SetPathValue("connectorId", "example")
+	startRequest.SetPathValue("connectionName", "workspace")
+	startRequest.Host = "127.0.0.1:8802"
+	startRequest.Header.Set("Origin", "http://127.0.0.1:8802")
+	startRequest.Header.Set(connectorCSRFHeader, setup.csrfToken)
+	startRequest.Header.Set(api.V2DefinitionRevisionHeader, "sha256:test")
+	startRecorder := httptest.NewRecorder()
+	setup.handleOAuthStart(startRecorder, startRequest)
+	if startRecorder.Code != http.StatusOK {
+		t.Fatalf("reauthorization start status = %d: %s", startRecorder.Code, startRecorder.Body.String())
+	}
+	var startResponse struct {
+		AuthorizationURL string `json:"authorizationUrl"`
+	}
+	if err := json.Unmarshal(startRecorder.Body.Bytes(), &startResponse); err != nil {
+		t.Fatal(err)
+	}
+	authorizationURL, err := url.Parse(startResponse.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback := httptest.NewRequest(http.MethodGet, "/api/v2/connector-oauth/callback?state="+
+		url.QueryEscape(authorizationURL.Query().Get("state"))+"&code=authorization-code", nil)
+	callbackRecorder := httptest.NewRecorder()
+	setup.handleOAuthCallback(callbackRecorder, callback)
+	return connectorOAuthTestAuthorization{authorizationURL: authorizationURL, callback: callbackRecorder, setup: setup}
+}
+
 func TestSlackOAuthMappingsAcceptHostAppTokenAndExtractBotAndUserTokens(t *testing.T) {
 	manifest := connectorReleaseManifest{}
 	manifest.Spec.Auth.Type = "oauth2"

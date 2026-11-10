@@ -341,7 +341,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		ConnectionName: session.identity.ConnectionName, Configuration: session.configuration,
 		Credentials: credentials, CredentialExpiresAt: expiresAt,
 	}
-	if err := setup.putConnectionIfCurrent(request.Context(), connection, nil, session.connectionWrite); err != nil {
+	if err := setup.putConnectionIfCurrent(request.Context(), connection, nil, session.connectionWrite, true); err != nil {
 		if errors.Is(err, errConnectorConnectionChanged) {
 			api.WriteCodedError(response, http.StatusConflict, "CONNECTOR_CONNECTION_CHANGED",
 				"Connector connection changed during authorization; reload Connectors and start the authorization again")

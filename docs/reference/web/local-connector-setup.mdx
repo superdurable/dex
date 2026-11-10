@@ -129,6 +129,20 @@ than 15 seconds, the write changes nothing and fails with HTTP 503
 **CONNECTOR_CONNECTIONS_FILE_BUSY**. Try the save again. The lock uses
 **flock** on macOS and Linux. Other platforms take no lock.
 
+Since 1.43, each connection record that Dex Web saves for an authorization
+carries a top-level **authorizationId** field, next to **provider** and
+**authMethodId**. It is a random UUID version 4 string and is not secret. Dex
+Web generates a new value whenever an authorization completes: when it saves a
+newly added connection, after an OAuth authorization or reauthorization, and
+when an edit changes the stored credentials. An edit that keeps every stored
+credential, such as a settings change, keeps the existing value. Trigger
+binding changes and saves of other connections leave the record unchanged. A
+credential write-back from the connectors SDK keeps the value. A tool can
+compare the value to tell that a connection with the same name now holds a
+different authorization. Records without the field stay valid, and Dex Web
+adds the field to a record only when it saves an authorization for it. The
+Connectors page and its API do not show the value.
+
 Restarting Dex Web reloads existing connections and cached UI artifacts. It
 does not clear the JSON file. An OAuth flow or Connector UI session that was in
 progress is memory-only and must be started again after a restart.

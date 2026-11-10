@@ -17,6 +17,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestConnectorConnectionStoreRoundTripsAuthMethodIDsAndCopiesKeptCredentials(t *testing.T) {
@@ -212,6 +214,184 @@ func TestConnectorConnectionStoreKeepsTriggerBindingsSeparateAndDeletesThemWithC
 	}
 }
 
+func TestConnectorConnectionStoreAuthorizationIDChangesOnlyWithAuthorizations(t *testing.T) {
+	store, err := newConnectorConnectionStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := testLocalConnectorConnection("slack", "workspace", "token-one", nil)
+	connection.AuthorizationID = "ignored-caller-value"
+	if err := store.putCurrentForTest(connection, nil); err != nil {
+		t.Fatal(err)
+	}
+	added := requireConnectorTestAuthorizationID(t, store, "slack", "workspace")
+
+	configurationEdit := testLocalConnectorConnection("slack", "workspace", "unused", nil)
+	configurationEdit.Configuration = map[string]json.RawMessage{"teamDomain": json.RawMessage(`"example"`)}
+	configurationEdit.Credentials = map[string]json.RawMessage{}
+	if err := store.putCurrentForTest(configurationEdit, []string{"access_token"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "slack", "workspace"); got != added {
+		t.Fatalf("authorizationId after a configuration edit = %q, want %q", got, added)
+	}
+
+	binding := localConnectorTriggerBinding{
+		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "channelThreadCreated",
+		BindingName: "approvals", Configuration: map[string]json.RawMessage{"channelId": json.RawMessage(`"C123"`)},
+	}
+	if err := store.putTriggerBindingCurrentForTest(binding); err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "slack", "workspace"); got != added {
+		t.Fatalf("authorizationId after a Trigger binding write = %q, want %q", got, added)
+	}
+
+	credentialEdit := testLocalConnectorConnection("slack", "workspace", "token-two", nil)
+	if err := store.putCurrentForTest(credentialEdit, nil); err != nil {
+		t.Fatal(err)
+	}
+	edited := requireConnectorTestAuthorizationID(t, store, "slack", "workspace")
+	if edited == added {
+		t.Fatal("a credential edit kept the authorizationId")
+	}
+
+	fileLock, err := store.lockConnectionsFile(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := store.revision("slack", "workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.put(fileLock, credentialEdit, nil, revision, true)
+	fileLock.release()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "slack", "workspace"); got == edited {
+		t.Fatal("a completed authorization with the same credentials kept the authorizationId")
+	}
+}
+
+func TestConnectorConnectionStoreKeepsRecordsWithoutOrWithExternalAuthorizationID(t *testing.T) {
+	directory := t.TempDir()
+	contents := `{
+  "schemaVersion": "connectors.dex.dev/local-connections/v1alpha1",
+  "connections": [
+    {
+      "connectorId": "github",
+      "modulePath": "github.com/superdurable/dex-connectors-library/connectors/github",
+      "moduleVersion": "v0.1.1",
+      "provider": "github",
+      "connectionName": "legacy",
+      "configuration": {},
+      "credentials": {
+        "app_key": {
+          "id": 7,
+          "secret": "legacy-secret"
+        }
+      }
+    },
+    {
+      "connectorId": "slack",
+      "modulePath": "github.com/superdurable/dex-connectors-library/connectors/slack",
+      "moduleVersion": "v0.1.1",
+      "provider": "slack",
+      "connectionName": "workspace",
+      "configuration": {},
+      "credentials": {
+        "access_token": "application-refreshed-token"
+      },
+      "authorizationId": "8d6f5f1e-3b52-4c3e-9a4e-2f0a7c1d9b10"
+    }
+  ]
+}
+`
+	if err := os.WriteFile(filepath.Join(directory, connectorConnectionsFileName), []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := newConnectorConnectionStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRevision, err := store.revision("github", "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.putCurrentForTest(testLocalConnectorConnection("gmail", "sender", "gmail-token", nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	binding := localConnectorTriggerBinding{
+		ConnectorID: "slack", ConnectionName: "workspace", TriggerName: "channelThreadCreated",
+		BindingName: "approvals", Configuration: map[string]json.RawMessage{},
+	}
+	if err := store.putTriggerBindingCurrentForTest(binding); err != nil {
+		t.Fatal(err)
+	}
+	legacyRevisionAfterWrites, err := store.revision("github", "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyRevisionAfterWrites != legacyRevision {
+		t.Fatal("writing other records changed the revision of a record without authorizationId")
+	}
+	assertConnectorTestStoredAuthorizationID(t, store, "github", "legacy", "")
+	assertConnectorTestStoredAuthorizationID(t, store, "slack", "workspace", "8d6f5f1e-3b52-4c3e-9a4e-2f0a7c1d9b10")
+	slack, _, err := store.get("slack", "workspace")
+	if err != nil || string(slack.Credentials["access_token"]) != `"application-refreshed-token"` {
+		t.Fatalf("slack credentials = %s, err = %v", slack.Credentials, err)
+	}
+
+	legacyEdit := localConnectorConnection{
+		ConnectorID: "github", ModulePath: "github.com/superdurable/dex-connectors-library/connectors/github",
+		ModuleVersion: "v0.1.1", Provider: "github", ConnectionName: "legacy",
+		Configuration: map[string]json.RawMessage{"owner": json.RawMessage(`"example"`)},
+		Credentials:   map[string]json.RawMessage{},
+	}
+	if err := store.putCurrentForTest(legacyEdit, []string{"app_key"}); err != nil {
+		t.Fatal(err)
+	}
+	assertConnectorTestStoredAuthorizationID(t, store, "github", "legacy", "")
+	legacyEdit.Credentials = map[string]json.RawMessage{"app_key": json.RawMessage(`{"id":7,"secret":"legacy-secret"}`)}
+	legacyEdit.Configuration = map[string]json.RawMessage{}
+	if err := store.putCurrentForTest(legacyEdit, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertConnectorTestStoredAuthorizationID(t, store, "github", "legacy", "")
+}
+
+// requireConnectorTestAuthorizationID returns the stored authorizationId after checking it is an RFC 4122 UUIDv4.
+func requireConnectorTestAuthorizationID(t *testing.T, store *connectorConnectionStore, connectorID string, connectionName string) string {
+	t.Helper()
+	stored, found, err := store.get(connectorID, connectionName)
+	if err != nil || !found {
+		t.Fatalf("found = %v, err = %v", found, err)
+	}
+	parsed, err := uuid.Parse(stored.AuthorizationID)
+	if err != nil || parsed.Version() != 4 || parsed.Variant() != uuid.RFC4122 || parsed.String() != stored.AuthorizationID {
+		t.Fatalf("authorizationId = %q is not a canonical UUIDv4: %v", stored.AuthorizationID, err)
+	}
+	return stored.AuthorizationID
+}
+
+func assertConnectorTestStoredAuthorizationID(
+	t *testing.T,
+	store *connectorConnectionStore,
+	connectorID string,
+	connectionName string,
+	expected string,
+) {
+	t.Helper()
+	stored, found, err := store.get(connectorID, connectionName)
+	if err != nil || !found {
+		t.Fatalf("found = %v, err = %v", found, err)
+	}
+	if stored.AuthorizationID != expected {
+		t.Fatalf("%s/%s authorizationId = %q, want %q", connectorID, connectionName, stored.AuthorizationID, expected)
+	}
+}
+
 func testLocalConnectorConnection(
 	connectorID string,
 	connectionName string,
@@ -238,7 +418,7 @@ func (store *connectorConnectionStore) putCurrentForTest(connection localConnect
 	if err != nil {
 		return err
 	}
-	return store.put(fileLock, connection, keepCredentialFields, revision)
+	return store.put(fileLock, connection, keepCredentialFields, revision, false)
 }
 
 // putLockedForTest takes the connections file lock under ctx and saves connection against expectedRevision.
@@ -252,7 +432,7 @@ func (store *connectorConnectionStore) putLockedForTest(
 		return err
 	}
 	defer fileLock.release()
-	return store.put(fileLock, connection, nil, expectedRevision)
+	return store.put(fileLock, connection, nil, expectedRevision, false)
 }
 
 // putTriggerBindingCurrentForTest saves binding against the connection and binding revisions stored now.
