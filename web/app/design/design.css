@@ -633,6 +633,38 @@ html .v2-shell.dg {
   color: var(--dg-ink-2);
 }
 
+/* Outside the scrolling body, so the hide button never covers the last line. */
+.dg .dg-legend-foot {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  padding: 0 6px 6px;
+}
+
+.dg .dg-legend-hide {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--dg-ink-3);
+  cursor: pointer;
+}
+
+.dg .dg-legend-hide:hover {
+  background: var(--dg-track);
+  color: var(--dg-ink-0);
+}
+
+.dg .plegend-toggle:focus-visible,
+.dg .dg-legend-hide:focus-visible {
+  outline: 2px solid var(--dg-focus);
+  outline-offset: 2px;
+}
+
 /* ---------- Step details, beside the drawing ---------- */
 .dg .dg-panel {
   display: flex;

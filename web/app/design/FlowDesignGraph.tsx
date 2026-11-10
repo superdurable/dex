@@ -6,12 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useMemo, useState, type JSX } from 'react';
+import { useCallback, useMemo, useRef, useState, type JSX } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowDown,
   ArrowRight,
   BookOpen,
+  ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
   Plug,
@@ -48,6 +49,7 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [detourFor, setDetourFor] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
+  const legendToggleRef = useRef<HTMLButtonElement>(null);
 
   const flow = useMemo(
     () => safeDecode(definition.graph, { generated: true, note: definition.file }),
@@ -116,6 +118,7 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
         {/* An overlay on the canvas, not a scene node: it stays readable and in view at any zoom or width. */}
         <div className="plegend-card dg-legend" data-open={legendOpen ? 'true' : undefined}>
           <button
+            ref={legendToggleRef}
             type="button"
             className="plegend-toggle"
             onClick={() => setLegendOpen((open) => !open)}
@@ -132,6 +135,23 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
                   {scene.notes.map((note) => <p key={note}>{note}</p>)}
                 </div>
               ) : null}
+            </div>
+          ) : null}
+          {legendOpen ? (
+            // Hide sits where the collapsed toggle was, so one spot opens and closes the key.
+            <div className="dg-legend-foot">
+              <button
+                type="button"
+                className="dg-legend-hide"
+                aria-label="Hide legend"
+                title="Hide legend"
+                onClick={() => {
+                  setLegendOpen(false);
+                  legendToggleRef.current?.focus();
+                }}
+              >
+                <ChevronDown aria-hidden="true" size={16} strokeWidth={2} />
+              </button>
             </div>
           ) : null}
         </div>
