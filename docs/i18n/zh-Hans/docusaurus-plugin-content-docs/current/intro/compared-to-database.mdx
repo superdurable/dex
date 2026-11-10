@@ -1,0 +1,157 @@
+---
+id: compared-to-database
+title: 与数据库对比
+sidebar_label: Compared to Database
+slug: /intro/compared-to-database
+---
+
+import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
+
+# 与数据库对比
+
+大多数后端把状态存在数据库里，再围绕数据库搭建业务流程。下面先用这种方式一步步搭一个订单流程，再用 Dex Flow 实现同一个流程。
+
+## 数据库做不到什么
+
+PostgreSQL、MySQL、S3 这类数据库和存储服务，负责保存数据，并在你查询时返回数据。它们是被动的：只有你的代码调用它们时，它们才会做事。
+
+可靠的后端需要的不只是存储。它要跑在多台机器上，这样一台出故障不会让服务停下，也能承接更多流量。一个 API 常常要调用好几个别的 API 和服务，一次数据库事务覆盖不了。
+
+一个典型的后端 API 还要：
+
+- 串行或并行地调用多个 API。
+- 安排之后要做的事，比如提醒和业务超时。
+- 等待其他系统，比如人工审批或外部事件。
+- 处理失败：retry、回滚，以及用于人工修复的死信队列（DLQ）。每一步的策略可能都不一样。
+- 能看到每一步的输入、错误，以及还没做完的工作。
+- 流量增长时，依然可用、够快、成本可控。
+
+这些数据库都不提供。每个服务都要把这些代码重新写一遍。
+
+## 例子：分两步处理订单
+
+订单流程只有两步，每一步是一次 API 调用：
+
+* **向买家扣款。**
+* **发货。**
+
+做原型时，会直接依次调用这两个 API：
+
+<SdkTabs>
+  <SdkSnippet lang="python">
+
+```python title="process_order.py"
+def process_order(order):
+    call_charge_api(order)
+    call_ship_api(order)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go title="process_order.go"
+func ProcessOrder(order Order) error {
+	if err := callChargeAPI(order); err != nil {
+		return err
+	}
+	return callShipAPI(order)
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java title="OrderProcessor.java"
+void processOrder(Order order) {
+    callChargeApi(order);
+    callShipApi(order);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript title="process-order.ts"
+async function processOrder(order: Order): Promise<void> {
+  await callChargeApi(order);
+  await callShipApi(order);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust title="process_order.rs"
+fn process_order(order: &Order) -> Result<(), ApiError> {
+    call_charge_api(order)?;
+    call_ship_api(order)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+只要不出错，这样就能用。但如果扣款成功后进程崩溃，或者发货调用超时，买家已经付了钱，货却永远不会发出。
+
+<ExecutionApproachDiagram approach="naive" markdownDescription="直接请求按顺序运行多个操作，但不持久化进度。进程崩溃可能导致前面的操作已完成，而后续操作没有运行。" />
+
+### 方案 1：数据库行加轮询 worker
+
+下一个想法是：插入一行 **status = pending** 的订单，立即返回给客户端，再让后台 worker 去取这一行来处理。
+
+<ExecutionApproachDiagram approach="table-poll" markdownDescription="前端 API 插入一行 status = pending 的订单，并返回 request id。Worker A 用 SELECT … FOR UPDATE 抢占行，Worker B 扫描同一张表，两个 Worker 争抢同一张订单表中的行。" />
+
+订单保存下来了，但新问题也来了：
+
+* 多个 worker 怎么取行，才不会抢到同一行？
+* worker 取到一行之后、处理完之前崩溃了，怎么办？
+
+### 方案 2：步骤之间用消息队列
+
+有经验的团队通常会改用消息队列，每一步一个队列：**charge-requests** 和 **ship-requests**。订单先作为一条消息进入 **charge-requests**。扣款消费者处理完这条消息，再往 **ship-requests** 发一条消息。
+
+<ExecutionApproachDiagram approach="message-queue" markdownDescription="消息队列在执行连续操作的消费者之间传递任务。每个消费者必须协调操作与消息确认，以处理失败。" />
+
+队列解决了方案 1 的问题，但带来了更难的问题：
+
+- 大多数队列无法把「扣款完成」和「发出发货消息」一起提交。如果发货消息已经发出，但扣款消息的确认超时了，队列会再投递一次扣款消息。于是同一笔订单在发货的同时，又在重复扣款。
+  - 团队通常再加一行数据库记录作为唯一可信来源，用来去重。
+- 带退避的 retry 和 DLQ 往往要自己补。
+  - 比如 Kafka 要额外建 retry topic，SQS 要靠 visibility timeout 绕过去。
+  - 查看和恢复 DLQ 里消息的工具，也得自己做。
+- 前端可能要在扣款成功后马上返回（「已付款，订单处理中」）。这时它只能轮询数据库，既别扭又浪费。
+
+业务还会不断变化。订单流程常常还要：
+
+- 发货 API 重试后仍然失败时给买家退款，比如连续失败一小时后退款。
+- 发货前等卖家审批，或者让卖家手动填写运单号。
+- 提醒卖家去审批或填写运单号。
+
+在队列方案里，每一项都要大改架构。
+
+## 用 Dex Flow 实现同一个流程
+
+在 Dex 里，你只写业务逻辑。retry、timer、等待、崩溃后恢复，以及每个 Step 的记录，都由 Dex 提供。
+
+扣款、审批、发货的流程写成：
+
+1. **Charge Step**：向买家扣款，有自己的 retry 策略。扣款成功后，Dex 把订单推进到 Ship Step。Dex 把结果和这次推进一起记录下来，所以崩溃不会让订单卡在两个 Step 之间。
+2. **Ship Step**：
+    1. 等待卖家审批，**或者**等一个 durable timer。
+    2. timer 先到，就发提醒并继续等；审批到了，就发货。
+    3. 发货调用会 retry。retry 用尽后，进入 Refund Step。
+3. **Refund Step**：给买家退款。
+4. 前端调用一个内置的 Client API，等 Charge Step 完成后显示「已付款」。
+
+Dex 记录每个 Step 的输入、输出和错误。运维人员可以查看每一笔订单，并在修复后从之前的某个 Step 重新执行（time travel）。
+
+| 问题 | 数据库加队列 | Dex Flow |
+| --- | --- | --- |
+| 两步之间崩溃 | 买家可能已扣款，货却没发 | Dex 把每个 Step 的结果和到下一个 Step 的推进一起记录 |
+| 多个 worker | 自己实现抢行，或依赖队列投递 | Dex 把每个任务派给你的某个 Worker |
+| Retry、退避、DLQ | 每个队列都要自己做 | 每个 Step 声明自己的 retry 策略，以及 retry 用尽后去哪个 Step |
+| 提醒和审批 | 新的队列、调度器和表 | Step 等待 durable timer 或卖家审批 |
+| 前端等某一步完成 | 轮询数据库 | 用 Client API 等这个 Step 完成 |
+| 查看和修复 | 自己做工具 | 查看每个 Step，并从之前的 Step 重新执行 |
+
+[为什么是 Dex？](/intro/what-is-dex) 给出这条 Flow 的 Dex 代码，[Quick Start](/quick-start) 会把它跑起来。

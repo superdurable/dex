@@ -1,0 +1,167 @@
+---
+id: compared-to-database
+title: Compared to Database
+sidebar_label: Compared to Database
+slug: /intro/compared-to-database
+---
+
+import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
+
+# Compared to Database
+
+Most backends keep their state in a database and build each process around it.
+Below, one order process is built that way, one design at a time, and then as a Dex Flow.
+
+## What a database does not do
+
+Databases and storage services such as PostgreSQL, MySQL, and S3 store data and return it when you ask.
+They are passive: they act only when your code calls them.
+
+A reliable backend needs more than storage.
+It runs on several machines, so that one failure does not stop it and it can handle more traffic.
+One API often calls several other APIs and services, so one database transaction cannot cover it.
+
+A typical backend API also:
+
+- Calls several APIs, in sequence or in parallel.
+- Schedules future work, such as reminders and business timeouts.
+- Waits for other systems, such as a human approval or an external event.
+- Handles failures with retries, rollback, and a dead-letter queue (DLQ) for manual repair. Each step may need a different policy.
+- Shows the inputs, errors, and in-progress work of each step.
+- Stays available, fast, and affordable as traffic grows.
+
+A database provides none of this.
+Teams write that code again for every service.
+
+## The example: process an order in two steps
+
+The order process has two steps, and each step is one API call:
+
+* **Charge the buyer.**
+* **Ship the item.**
+
+A prototype calls the two APIs in a row:
+
+<SdkTabs>
+  <SdkSnippet lang="python">
+
+```python title="process_order.py"
+def process_order(order):
+    call_charge_api(order)
+    call_ship_api(order)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go title="process_order.go"
+func ProcessOrder(order Order) error {
+	if err := callChargeAPI(order); err != nil {
+		return err
+	}
+	return callShipAPI(order)
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java title="OrderProcessor.java"
+void processOrder(Order order) {
+    callChargeApi(order);
+    callShipApi(order);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript title="process-order.ts"
+async function processOrder(order: Order): Promise<void> {
+  await callChargeApi(order);
+  await callShipApi(order);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust title="process_order.rs"
+fn process_order(order: &Order) -> Result<(), ApiError> {
+    call_charge_api(order)?;
+    call_ship_api(order)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+This works until something fails.
+If the process crashes after the charge succeeds, or the ship call times out, the buyer is charged but the item never ships.
+
+<ExecutionApproachDiagram approach="naive" markdownDescription="A direct request runs several operations in sequence without a durable progress record. A crash can leave earlier operations complete while later operations never run." />
+
+### Design 1: a database row and polling workers
+
+The next idea is to insert an order row with **status = pending**, return to the client, and let background workers pick up the row.
+
+<ExecutionApproachDiagram approach="table-poll" markdownDescription="The frontend API inserts an order row with status pending and returns a request id. Worker A claims rows with SELECT … FOR UPDATE while Worker B scans the same table, so two Workers compete for the rows of one orders table." />
+
+The order is now saved, but new problems appear:
+
+* How do several workers claim rows without taking the same one?
+* What happens when a worker crashes after it claims a row but before it finishes?
+
+### Design 2: a message queue between steps
+
+Experienced teams usually move to message queues, one for each step: **charge-requests** and **ship-requests**.
+An order starts as a message on **charge-requests**.
+The charge consumer handles it and publishes a message to **ship-requests**.
+
+<ExecutionApproachDiagram approach="message-queue" markdownDescription="A message queue passes work between consumers that perform successive operations. Each consumer must coordinate its operation with message acknowledgement to handle failures." />
+
+Queues solve the problems of Design 1, but they bring harder ones:
+
+- Most queues cannot commit "charge done" and "enqueue ship" together. If the ship message is published but the acknowledgement of the charge message times out, the queue delivers the charge message again. The charge step then runs again while the ship step runs for the same order.
+  - Teams usually add a database row as the source of truth to drop duplicates.
+- Retries with backoff and a DLQ are often missing.
+  - For example, Kafka needs separate retry topics, and SQS needs a visibility timeout as a workaround.
+  - You also have to build tools to inspect and recover messages in the DLQ.
+- The frontend may need to return as soon as the charge succeeds ("payment received, order processing"). It then has to poll the database, which is clumsy and wasteful.
+
+The business also changes over time. The order process often needs to:
+
+- Refund the buyer when the ship API still fails after retries, for example after an hour of failures.
+- Wait for seller approval before shipping, or let the seller enter the tracking number by hand.
+- Remind the seller to approve or to enter the tracking number.
+
+Each of these needs a large change to the queue design.
+
+## The same process as a Dex Flow
+
+In Dex you write only the business logic.
+Dex provides the retries, timers, waits, crash recovery, and the record of each Step.
+
+The charge, approve, and ship process becomes:
+
+1. **Charge Step**: charge the buyer, with its own retry policy. When the charge succeeds, Dex moves the order to the Ship Step. Dex records the result and the move together, so a crash cannot leave the order between the two Steps.
+2. **Ship Step**:
+    1. Wait for the seller's approval **or** a durable timer.
+    2. When the timer fires, send a reminder and keep waiting. When the approval arrives, ship the item.
+    3. Retry the ship call. When the retries run out, move to the Refund Step.
+3. **Refund Step**: refund the buyer.
+4. The frontend calls a built-in Client API that waits until the Charge Step completes, then shows "payment received".
+
+Dex records the inputs, outputs, and errors of every Step.
+Operators can inspect each order and, after a fix, rerun it from an earlier Step (time travel).
+
+| Problem | Database and queues | Dex Flow |
+| --- | --- | --- |
+| Crash between two steps | The buyer can be charged while the item never ships | Dex records each Step result and the move to the next Step together |
+| Several workers | You build row claiming or rely on queue delivery | Dex sends each task to one of your Workers |
+| Retries, backoff, DLQ | You build them for each queue | Each Step declares its retry policy and the Step to move to when retries run out |
+| Reminders and approvals | New queues, schedulers, and tables | The Step waits for a durable timer or the seller's approval |
+| Frontend waits for one step | Poll the database | A Client API waits until the Step completes |
+| Inspect and repair | Build your own tools | Inspect every Step, and rerun from an earlier Step |
+
+[Why Dex?](/intro/what-is-dex) shows this Flow as Dex code, and the [Quick Start](/quick-start) runs it.

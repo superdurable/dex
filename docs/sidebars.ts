@@ -18,7 +18,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Intro and Quick Start',
       customProps: {section: 'intro'},
-      items: ['intro/what-is-durable-execution', 'intro/what-is-dex', 'quick-start/index'],
+      items: ['intro/what-is-dex', 'quick-start/index', 'intro/compared-to-database'],
     },
     {
       type: 'category',

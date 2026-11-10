@@ -396,7 +396,7 @@ assert.match(zhConnector, /rel="canonical" href="https:\/\/docs\.superdurable\.i
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/concepts\/primitives\/subflow\/"/);
 
 await Promise.all([
-  access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
+  access(join(root, 'intro', 'compared-to-database', 'index.html')),
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
   access(join(root, 'concepts', 'index.html')),
@@ -412,7 +412,7 @@ await Promise.all([
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-app-builder', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-sdk', 'index.html')),
   access(join(root, 'build-with-ai', 'dex-developer-skill', 'dex-connector-contributor', 'index.html')),
-  access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
+  access(join(root, 'zh-Hans', 'intro', 'compared-to-database', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
   access(join(root, 'zh-Hans', 'primitives', 'connector', 'index.html')),

@@ -1610,5 +1610,13 @@
   {
     "from": "/zh-Hans/reference/cli/1.34.x/",
     "to": "/zh-Hans/reference/cli/"
+  },
+  {
+    "from": "/intro/what-is-durable-execution",
+    "to": "/intro/compared-to-database"
+  },
+  {
+    "from": "/zh-Hans/intro/what-is-durable-execution",
+    "to": "/zh-Hans/intro/compared-to-database"
   }
 ]
