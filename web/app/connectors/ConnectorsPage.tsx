@@ -314,11 +314,13 @@ export function ConnectorsPage() {
                   <span className="sq-title">{CONNECTORS_COPY.heading}</span>
                   <span className="sq-live">{CONNECTORS_COPY.localNote}</span>
                   <button
+                    aria-label={CONNECTORS_COPY.addConnection}
                     aria-pressed={isAddingConnection}
                     className="v2-ghost connector-add-button"
                     onClick={() => setIsAddingConnection(true)}
+                    title={CONNECTORS_COPY.addConnection}
                     type="button"
-                  >{CONNECTORS_COPY.addConnection}</button>
+                  >+ Add</button>
                 </div>
                 {catalog.connections.length === 0 && <p className="sq-state">{CONNECTORS_COPY.empty}</p>}
                 <div className="rsw-scroll" data-zone="list">

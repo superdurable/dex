@@ -540,8 +540,31 @@
 
 .connector-add-button {
   margin-left: auto;
+  white-space: nowrap;
 }
 
 .connector-standalone-note {
   margin: 8px 0 0;
+}
+
+/* A phone stacks the connection list above the selected connection instead of clipping it. */
+@media (max-width: 640px) {
+  .v2-shell.v2-run.v2-connectors > .v2-run-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    overflow-y: auto;
+  }
+
+  .v2-connectors .v2-run-body > .v2-split {
+    display: none;
+  }
+
+  .v2-connectors .v2-run-body > .rsw {
+    border-right: 0;
+    border-bottom: 1px solid var(--p-line-soft);
+  }
+
+  .v2-connectors .v2-run-body > .v2-work-queue-case {
+    overflow-y: visible;
+  }
 }
