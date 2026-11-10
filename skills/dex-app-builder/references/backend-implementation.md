@@ -108,7 +108,7 @@ Keep personal data in these Attributes to what the process needs.
 - An RPC that requests provider work validates and commits application state,
   then returns a movement to a Connector Step. It never calls the provider.
 
-[Dex Web v2](dex-web-v2.md#actions-permissions-and-work-queue) has the full
+[Dex Web](dex-web-v2.md#actions-permissions-and-work-queue) has the full
 permission model.
 
 ## Effects and waits
