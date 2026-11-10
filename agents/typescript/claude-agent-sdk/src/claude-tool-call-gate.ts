@@ -64,6 +64,10 @@ const orderedWriteDeferralMessage = (toolName: string): string =>
   `runs first. Read its result, then call ${toolName} again by itself if it should still run.`;
 const unlistedSourceToolMessage = (toolName: string): string =>
   `${toolName} did not run: its tool source does not offer this tool now.`;
+const mismatchedReplayMessage = (toolName: string, toolUseId: string, recordedToolName: string): string =>
+  `${toolName} did not run: tool use ID ${toolUseId} belongs to a recorded call of ${recordedToolName}.`;
+const repeatedReplayMessage = (toolName: string, toolUseId: string): string =>
+  `${toolName} did not run: the recorded call ${toolUseId} was already resumed in this turn segment.`;
 
 /** Names and classifies every tool a Claude agent can call in one turn segment. */
 export class ToolCatalog {
@@ -195,7 +199,9 @@ interface CustomToolCallPlan {
 export class ToolCallGate {
   private deferralRequest: DeferredToolCall | undefined;
   private deferredSourceTool: ListedSourceTool | undefined;
-  private readonly permittedToolUseIds = new Set<string>();
+  // Tool use ID to the policy name of the tool this gate permitted under it.
+  private readonly permittedToolNames = new Map<string, string>();
+  private readonly replayedToolUseIds = new Set<string>();
   private readonly runningToolNames = new Map<string, string>();
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
 
@@ -247,7 +253,11 @@ export class ToolCallGate {
     const policyToolName = servedToolName ?? cliToolName;
     const record = this.turn.recordedToolCall(callId);
     if (record !== undefined) {
-      return this.replayRecordedToolCall(record, servedToolName);
+      // A recorded call is decided once per segment, and only for its own tool.
+      if (this.replayedToolUseIds.has(callId)) {
+        return preToolUseDecision("deny", repeatedReplayMessage(policyToolName, callId));
+      }
+      return this.replayRecordedToolCall(record, servedToolName, policyToolName);
     }
     if (servedToolName !== undefined && this.toolCatalog.isReplayOnlyTool(servedToolName)) {
       // A new call would run under a new Call ID; only the source's listing permits that.
@@ -283,9 +293,13 @@ export class ToolCallGate {
     const policyToolName = servedToolName ?? cliToolName;
     const callId = options.toolUseID;
     const record = this.turn.recordedToolCall(callId);
+    const permittedToolName = this.permittedToolNames.get(callId);
     // A resumed call can skip the hook when the CLI starts it before the hooks are registered.
-    if (record !== undefined && !this.permittedToolUseIds.has(callId)) {
-      return toPermissionResult(this.replayRecordedToolCall(record, servedToolName), toolInput, callId);
+    if (record !== undefined && permittedToolName === undefined) {
+      if (this.replayedToolUseIds.has(callId)) {
+        return denyPermission(repeatedReplayMessage(policyToolName, callId), callId);
+      }
+      return toPermissionResult(this.replayRecordedToolCall(record, servedToolName, policyToolName), toolInput, callId);
     }
     // The CLI ignores defer for a call with siblings and asks for permission instead.
     if (this.deferralRequest?.toolCallId === callId) {
@@ -293,7 +307,8 @@ export class ToolCallGate {
       this.deferredSourceTool = undefined;
       return denyPermission(soloDeferralRequiredMessage(policyToolName), callId);
     }
-    if (this.permittedToolUseIds.has(callId)) {
+    // The CLI may ask about a call the hook already allowed; the permission covers only that tool.
+    if (permittedToolName === policyToolName) {
       return { behavior: "allow", updatedInput: toolInput, toolUseID: callId };
     }
     return denyPermission(unpermittedToolCallMessage(policyToolName), callId);
@@ -355,14 +370,27 @@ export class ToolCallGate {
     return { ...requested, arguments: toolArguments };
   }
 
-  private replayRecordedToolCall(record: AgentToolCall, servedToolName: string | undefined): HookJSONOutput {
+  private replayRecordedToolCall(
+    record: AgentToolCall,
+    servedToolName: string | undefined,
+    policyToolName: string,
+  ): HookJSONOutput {
     if (!isFinalToolCallStatus(record.status)) {
       throw new Error(`tool call ${record.toolCallId} resumed before it was final`);
+    }
+    this.replayedToolUseIds.add(record.toolCallId);
+    // A served record never replays as a CLI tool, nor the reverse, so its input stays with its tool.
+    const isServedRecord = this.toolCatalog.isServedToolName(record.toolName);
+    if (record.toolName !== policyToolName || isServedRecord !== (servedToolName !== undefined)) {
+      return preToolUseDecision(
+        "deny",
+        mismatchedReplayMessage(policyToolName, record.toolCallId, record.toolName),
+      );
     }
     // The handler returns a custom or source tool's rejection, so the model sees the text without a hook prefix.
     if (servedToolName !== undefined) {
       this.planCustomToolCall(record.toolCallId, servedToolName, record);
-      this.permittedToolUseIds.add(record.toolCallId);
+      this.permittedToolNames.set(record.toolCallId, servedToolName);
       return preToolUseDecision("allow");
     }
     if (record.status === "succeeded") {
@@ -374,7 +402,7 @@ export class ToolCallGate {
   }
 
   private permitInlineToolCall(toolUseId: string, policyToolName: string): void {
-    this.permittedToolUseIds.add(toolUseId);
+    this.permittedToolNames.set(toolUseId, policyToolName);
     if (this.toolCatalog.customTool(policyToolName) !== undefined) {
       this.planCustomToolCall(toolUseId, policyToolName, undefined);
     }

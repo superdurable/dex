@@ -419,6 +419,9 @@ session and sends the failed prompt, the note, and its own prompt as three text 
   `Bash`, receives its recorded input instead, the input that was approved.
 - The custom tool server runs a tool only under the tool use ID and tool name that the hook permitted.
   A deferred call that the hook did not defer fails the segment, which then retries.
+- A recorded call replays only as its own tool, a custom or source record never as a tool inside the
+  CLI, and at most once per segment. Another tool, or a second decision, under its tool use ID is
+  denied and never runs.
 - On the first turn of a session Claude Code also writes its usual local transcript under
   `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter never reads it; set `CLAUDE_CONFIG_DIR`
   in `env` to choose where it goes. Later segments run in a temporary directory that the SDK removes,
@@ -509,5 +512,6 @@ fails on resume: the recorded call still replays, and a new call of the vanished
 also checks that a source call asking a question records `failed`, and one starting a tool task records
 `failed` for a read and `outcome_unknown` for a write. `test/integ/tool-call-gate.integration.test.ts`
 calls the custom tool server over an in-memory MCP transport with a tool name that differs from the
-permitted one, and hands the gate deferrals that its PreToolUse hook never deferred or deferred under
-another ID or tool.
+permitted one, hands the gate deferrals that its PreToolUse hook never deferred or deferred under
+another ID or tool, and replays records under another tool, such as a custom or source record as
+`Bash`, or twice in one segment.
