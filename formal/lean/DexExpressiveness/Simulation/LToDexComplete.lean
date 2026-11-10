@@ -1,4 +1,5 @@
 import DexExpressiveness.Simulation.LToDexBasicWake
+import DexExpressiveness.Simulation.Register
 
 /-!
 # L to Dex: the registration of a wait and the completion of an action
