@@ -73,7 +73,7 @@ structure ConfigInvariant (program : Program) (config : Dex.Config signature) : 
   /-- The run, if any, satisfies the run invariant. -/
   runInvariant : ∀ run, config.run = some run →
     Dex.Run.Invariant IsTimedTimer (run.seq + 1) run
-  /-- Every task holds the response its handler computes. -/
+  /-- Every task holds the response and the last effects its handler computes. -/
   tasksComputed : ∀ task, task ∈ config.tasks → IsTaskComputed program task
 
 /-- The wait of every WaitFor of a translated Flow is supported, and it has a

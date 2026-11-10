@@ -10,13 +10,20 @@ The semantics it formalizes is
 [`formal/semantics/dex-core-semantics.md`](../semantics/dex-core-semantics.md),
 revision 7. "Spec" below means that document.
 
-## Status: Stage 2a, definitions fixed, ready for the step simulations
+## Status: Stage 2a, packages 1 and 2 proved, definitions fixed again
 
-Stage 2a proves the safety theorem. Eight of the twelve `sorry` of Stage 1
-are proved. The simulation relation `Related` and the invariant of reachable
-L configurations `L.Invariant` are fixed, and the rest of the safety proof is
-split into four work packages with fixed statements. See
+Stage 2a proves the safety theorem. The proof is split into four work
+packages with fixed statements. Work packages 1 and 2 are proved. Work
+package 4 is proved for every Dex step except six kinds while the Flow runs.
+Five `sorry` of the safety proof are left: the four lemmas of work package 3,
+and `dex_step_simulated`. See
 [Stage 2a: definitions and work packages](#stage-2a-definitions-and-work-packages).
+
+The first version of the fixed definitions was not inductive: the provers
+found configuration pairs that satisfied `IsSimulationState`, were not
+reachable, and broke a step lemma. The definitions were strengthened, and a
+fuzz now tests that they are inductive. See
+[Inductiveness](#inductiveness-gaps-found-and-fixed).
 
 Work on the step simulations found twice that a program could obtain the
 handle of a mutex that did not exist yet. The owner decided that handles are
@@ -50,8 +57,15 @@ cd formal/lean
 lake build
 ```
 
-The first build downloads the pinned toolchain. A clean build takes about half a
-minute; most of it is the lockstep and relation checks.
+The first build downloads the pinned toolchain. A clean build takes a few
+minutes; the lockstep, relation, and inductiveness checks take half a minute
+of it.
+
+```bash
+# The inductiveness fuzz, compiled, on every example program.
+# Arguments: fuel, sampling period, walk length, seeds.
+lake exe inductiveness-fuzz 120 5 6 2
+```
 
 | Tool | Version |
 | --- | --- |
@@ -61,7 +75,8 @@ minute; most of it is the lockstep and relation checks.
 | Dependencies | none: Lean core only, no Mathlib, no Batteries |
 
 Build output goes to `formal/lean/.lake/`, which `.gitignore` and
-`.dockerignore` exclude. `.lean` files are outside the license-header policy:
+`.dockerignore` exclude, with the fuzz binary
+`formal/lean/.lake/build/bin/inductiveness-fuzz`. `.lean` files are outside the license-header policy:
 `formal/` is not an included prefix in `script/licenseheaders/policy.json`,
 and `make copyright-check` passes.
 
@@ -79,25 +94,28 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Dex/RunLemmas.lean` | Proved: lookup after update, sorting, and the shape of `eval`. |
 | `DexExpressiveness/Dex/WaitLemmas.lean` | Proved: `wake` serves the earliest waiter; AnyOf and timers at registration. |
 | `DexExpressiveness/Dex/RunInvariant.lean` | Proved: the run invariant, kept by every meta-function of spec §4.2. |
-| `DexExpressiveness/Invariants.lean` | Proved: the invariant of every reachable configuration of a translated Flow, and the three invariants of spec §7 item 4 and Appendix A, items 11 and 26. |
+| `DexExpressiveness/Dex/TimerLemmas.lean` | Proved: no meta-function of spec §4.2 arms a timer ID twice. |
+| `DexExpressiveness/Invariants.lean` | Proved: the invariants of every reachable configuration of a translated Flow (`ConfigInvariant`, `TasksAreDistinct`, `TimersAreDistinct`), and the three invariants of spec §7 item 4 and Appendix A, items 11 and 26. Fixed definitions. |
 | `DexExpressiveness/L/Syntax.lean` | L syntax and its event alphabet (spec §8.1). |
 | `DexExpressiveness/L/ThreadLocal.lean` | What one statement does to its own thread, and the atomic action it asks for. |
 | `DexExpressiveness/L/Semantics.lean` | L small-step semantics, L fairness, `Program.IsWellFormed` (spec §8.1). |
 | `DexExpressiveness/L/Invariant.lean` | `L.Invariant`, the invariant of reachable L configurations. Fixed definitions. |
-| `DexExpressiveness/L/InvariantStep.lean` | Work package 1: every L transition keeps `L.Invariant`. |
+| `DexExpressiveness/L/InvariantStep.lean`, `L/InvariantStepLemmas.lean`, `L/InvariantStepLocal.lean`, `L/InvariantStepFrame.lean`, `L/InvariantStepActions.lean` | Work package 1, proved: every L transition keeps `L.Invariant`. |
 | `DexExpressiveness/Translation/Flow.lean` | The translation `⟦·⟧` (spec §8.2, §8.3). |
 | `DexExpressiveness/Translation/Projection.lean` | The projection `π`, the request encoding, `E_adm` of a translated program (spec §5.3). |
 | `DexExpressiveness/TraceSets.lean` | The four trace sets the theorem compares. |
 | `DexExpressiveness/Theorems.lean` | **The main statements**: `safety_of_isWellFormed`, `liveness_of_isWellFormed`, `expressiveness_of_isWellFormed`. |
-| `DexExpressiveness/Simulation/Relation.lean` | `Related`, and the statements `IsSimulatedByDex` and `IsSimulatedByL`. Fixed definitions. |
-| `DexExpressiveness/Simulation/LToDexBasic.lean` | Work package 2: L to Dex for ticks, requests, timer fires, late emits, and the begin of an action. |
+| `DexExpressiveness/Simulation/Relation.lean` | `Related`, `simulatingActions`, and the statements `IsSimulatedByActions`, `IsSimulatedByDex`, and `IsSimulatedByL`. Fixed definitions. |
+| `DexExpressiveness/Simulation/RelationLemmas.lean` | Proved consequences of the fixed definitions, for every package: a task holds at most one effect, a waiting Step has no invocation, and the action list of each case of `simulatingActions`. |
+| `DexExpressiveness/Simulation/LToDexBasic.lean`, `Simulation/LToDexBasicLemmas.lean`, `Simulation/LToDexBasicWake.lean`, `Simulation/LToDexBasicFire.lean` | Work package 2, proved: L to Dex for ticks, requests, timer fires, late emits, and the begin of an action. The frame lemmas of `RunningRelated` are here. |
 | `DexExpressiveness/Simulation/LToDexComplete.lean` | Work package 3: L to Dex for the registration of a wait and the completion of an action. |
-| `DexExpressiveness/Simulation/LToDex.lean` | Proved from packages 2 and 3: `l_step_simulated`. |
-| `DexExpressiveness/Simulation/DexToL.lean` | Work package 4: `dex_step_simulated`. |
+| `DexExpressiveness/Simulation/LToDex.lean` | Proved from packages 2 and 3: `l_step_simulatedByActions` and `l_step_simulated`. |
+| `DexExpressiveness/Simulation/DexToL.lean`, `Simulation/DexToLLemmas.lean` | Work package 4: `dex_step_simulated`, proved for the steps outside `IsObservedWhileRunning`. |
 | `DexExpressiveness/Simulation.lean` | The two liveness inclusions (`sorry` until Stage 2b). |
 | `DexExpressiveness/FiniteTraces.lean` | Proved from the step simulations and the two invariants: the two finite-trace inclusions that give safety. |
 | `DexExpressiveness/Properties.lean` | Proved facts. No `sorry`. |
-| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, lockstep checks, and executable checks of `Related` and `L.Invariant`. No `sorry`. |
+| `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, lockstep checks, executable checks of `IsSimulationState` (`RelatedCheck.lean`), and the inductiveness fuzz (`Inductiveness.lean`). No `sorry`. |
+| `InductivenessFuzz.lean` | The program `lake exe inductiveness-fuzz`. Test tooling. |
 
 A reviewer who checks the statements against the spec reads, in order:
 `Core/TransitionSystem.lean`, the five `Dex/` files, the three `L/` files, the
@@ -415,8 +433,8 @@ log lists each as row K3 to K15, and the spec section is given below.
 
 ## What is proved
 
-All of this is free of `sorry`. `#print axioms` shows only `propext` and
-`Quot.sound`; no `native_decide`.
+All of this is free of `sorry`. `#print axioms` shows only `propext`,
+`Quot.sound`, and `Classical.choice`; no `native_decide`.
 
 - `translate_execute_isWellFormed`: every Execute of `⟦S⟧` returns a
   well-formed decision (spec §2.5), for every input.
@@ -439,7 +457,18 @@ All of this is free of `sorry`. `#print axioms` shows only `propext` and
 - `TransitionSystem.requestsArrive_of_isRunFor`: F0 follows from "run for `w`".
 - `related_initial`, `L.Invariant.initial`: the relation and the L invariant
   hold initially.
-- `l_tick_simulated`, and `l_step_simulated` from its case lemmas.
+- `L.Invariant.step`: every L transition keeps the L invariant (work
+  package 1).
+- `ConfigInvariant.step`, `TasksAreDistinct.step`, `TimersAreDistinct.step`:
+  every Dex transition of a translated Flow keeps the Dex invariants.
+- `translate_compute_effects`: a handler of a translated Flow computes at most
+  one effect, and none in WaitFor.
+- Work package 2: `l_tick_simulated`, `l_start_simulated`, `l_input_simulated`,
+  `l_fire_simulated`, `l_lateDeliver_simulated`, `l_lateDrop_simulated`,
+  `l_thread_begin_simulated`, `l_thread_deliver_simulated`.
+- `l_step_simulatedByActions` and `l_step_simulated`, from the case lemmas.
+- `dex_step_simulated_of_observed`: the Dex to L simulation for a tick, the
+  handler steps, the stale drops, and every step after the close.
 - `finiteTrace_dex_to_l`, `finiteTrace_l_to_dex`: the two inclusions of
   safety, from the step simulations and the invariants.
 - `literal_isNotHandle`: no request carries a handle.
@@ -466,7 +495,7 @@ events equal the projected Dex events and that the L clock stamp equals the
 Dex commit timestamp.
 
 `Examples/LockstepChecks.lean` runs this on pseudo-random schedules, in both
-directions, for twelve programs that together use every L construct. A
+directions, for thirteen programs that together use every L construct. A
 mismatch fails the build. This is testing, not proof.
 
 Three changes were planted during development to see whether the build
@@ -478,32 +507,21 @@ load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 
 ## The `sorry` inventory
 
-There are 15. Thirteen are the work packages of the safety proof; two are the
-liveness inclusions of Stage 2b. The Stage 1 numbers 1 to 6, 9, and 10 are
-proved (see [Stage 2a progress](#stage-2a-progress)). Stage 1 numbers 7 and 8
-are `dex_step_simulated` and `l_step_simulated`; `l_step_simulated` is now
-proved from the case lemmas below.
+There are 7. Five are in the safety proof; two are the liveness inclusions of
+Stage 2b.
 
 | Package | File | Lemma | What it needs |
 | --- | --- | --- | --- |
-| 1 | `L/InvariantStep.lean` | `L.Invariant.step` | Case analysis on the label, the thread's phase, and the `Intent`, on the L side only. |
-| 2 | `Simulation/LToDexBasic.lean` | `l_start_simulated` | [FLOW-START] creates the start Step; `RunningRelated` for the first configuration. |
-| 2 | `Simulation/LToDexBasic.lean` | `l_input_simulated` | [PUBLISH] and `wake`: the earliest blocked receiver is the earliest waiter (`blockingOrder`, `Dex.wake_servesEarliestWaiter` generalized to AnyOf). The closed case is a rejection. |
-| 2 | `Simulation/LToDexBasic.lean` | `l_fire_simulated` | Induction on the count; the least due timer is the first of `Run.dueTimers` (`timers`, `timerNumbersInjective`). |
-| 2 | `Simulation/LToDexBasic.lean` | `l_lateDeliver_simulated` | `ClosedRelated.lateEmits`: a late emit is a pending effect of some stale task. |
-| 2 | `Simulation/LToDexBasic.lean` | `l_lateDrop_simulated` | The same, with [WORKER-ABANDON]. |
-| 2 | `Simulation/LToDexBasic.lean` | `l_thread_begin_simulated` | [STEP-START] of the thread's Step; the snapshot gives the shared read (`readShared_snapshot`) and the waiter list (`readWaiters_snapshot_of_cvOperand`). |
-| 2 | `Simulation/LToDexBasic.lean` | `l_thread_deliver_simulated` | [WORKER-EFFECT] of the emit Step's task. |
 | 3 | `Simulation/LToDexComplete.lean` | `l_thread_register_simulated` | [STEP-COMPLETE-WAITFOR]: `registerWait` against `Config.registerWait`, per wait request (`Dex.registerWait_any_firstChannelWins`, `Dex.registerWait_timer_blocks`). |
-| 3 | `Simulation/LToDexComplete.lean` | `l_thread_boot_simulated` | [STEP-COMPLETE-EXECUTE] of the start Step: the tokens of the statically known mutexes. |
+| 3 | `Simulation/LToDexComplete.lean` | `l_thread_boot_simulated` | [STEP-COMPLETE-EXECUTE] of the start Step: the tokens of the statically known mutexes (`mutexesBeforeBoot`). |
 | 3 | `Simulation/LToDexComplete.lean` | `l_thread_complete_simulated` | [STEP-COMPLETE-EXECUTE]: `encodeIntent` against `Config.applyIntent`, one case per `Intent`. The largest lemma. |
 | 3 | `Simulation/LToDexComplete.lean` | `l_thread_resume_simulated` | The same for the continuation of a wait; the `Intent` is `silent`, `endThread`, or `halt`. |
-| 4 | `Simulation/DexToL.lean` | `dex_step_simulated` | From `l_step_simulated` by determinism, plus "the L label is enabled" and the four Dex actions that L does not see. |
+| 4 | `Simulation/DexToL.lean` | `dex_step_simulated` | `dex_step_simulated_of_observed` leaves the steps of `IsObservedWhileRunning`: the start of the Flow and, while it runs, a publication, [STEP-START], [WORKER-EFFECT], a Step completion, and [TIMER-FIRE]. Each follows from `l_step_simulatedByActions` by determinism, once the L label is shown enabled. |
 | Stage 2b | `Simulation.lean` | `fairMaximalTrace_dex_to_l` | Build the L run from the Dex run by dropping handler steps; transfer F0 to F6 and the marker; equal limits of the two traces. |
 | Stage 2b | `Simulation.lean` | `fairMaximalTrace_l_to_dex` | Build the Dex run from the L run by inserting handler steps; the same transfers. |
 
-`safety_of_isWellFormed` depends on the thirteen `sorry` of packages 1 to 4
-and on nothing else unproved.
+`safety_of_isWellFormed` depends on the five `sorry` of packages 3 and 4 and
+on nothing else unproved.
 
 ## Decided in Stage 2a: handles are unforgeable
 
@@ -569,8 +587,8 @@ splits, so `Classical.choice` appears among the axioms.
 | 4 | `noWaiterOnNonEmptyChannel` | Proved, `Invariants.lean`. |
 | 5 | `registeredSeq_isInjective` | Proved, `Invariants.lean`. |
 | 6 | `armedTimers_areTimedSteps` | Proved, `Invariants.lean`. |
-| 7 | `dex_step_simulated` | Work package 4. |
-| 8 | `l_step_simulated` | Proved from the case lemmas of work packages 2 and 3, `Simulation/LToDex.lean`. |
+| 7 | `dex_step_simulated` | Work package 4, partly proved. |
+| 8 | `l_step_simulated` | Proved from the case lemmas of work packages 2 (proved) and 3, `Simulation/LToDex.lean`. |
 | 9 | `finiteTrace_dex_to_l` | Proved from item 7 and the invariants, `FiniteTraces.lean`. |
 | 10 | `finiteTrace_l_to_dex` | Proved from item 8 and the invariants, `FiniteTraces.lean`. |
 
@@ -584,18 +602,25 @@ satisfies it.
 
 ## Stage 2a: definitions and work packages
 
-### The three ingredients
+### The ingredients
 
 Every step simulation lemma takes one hypothesis, `IsSimulationState program
-lConfig dexConfig` (`Simulation/Relation.lean`, lines 309 to 318). It has four
+lConfig dexConfig` (`Simulation/Relation.lean`, lines 430 to 441). It has five
 parts:
 
 | Part | Definition | Status |
 | --- | --- | --- |
-| `Related program lConfig dexConfig` | `Simulation/Relation.lean`, lines 237 to 258; `RunningRelated` lines 150 to 220; `ClosedRelated` lines 223 to 233; helpers lines 39 to 147 | Fixed. Holds initially (`related_initial`, proved). |
-| `L.Invariant program lConfig` | `L/Invariant.lean`, lines 131 to 197; helpers lines 42 to 128 | Fixed. Holds initially (`L.Invariant.initial`, proved). Kept by every L transition: work package 1. |
-| `ConfigInvariant program dexConfig` | `Invariants.lean`, lines 62 to 67; it wraps `Dex.Run.Invariant`, `Dex/RunInvariant.lean`, lines 47 to 71 | Proved for every Dex transition (`ConfigInvariant.step`). |
-| `TasksAreDistinct dexConfig` | `Invariants.lean`, lines 151 to 153 | Proved for every Dex transition (`TasksAreDistinct.step`). |
+| `Related program lConfig dexConfig` | `Simulation/Relation.lean`, lines 267 to 288; `RunningRelated` lines 166 to 250; `ClosedRelated` lines 253 to 263; `PhaseMatchesStep` lines 108 to 161; other helpers lines 42 to 101 | Fixed. Holds initially (`related_initial`, proved). |
+| `L.Invariant program lConfig` | `L/Invariant.lean`, lines 131 to 197; helpers lines 42 to 128 | Fixed, unchanged. Holds initially and is kept by every L transition (`L.Invariant.step`, proved). |
+| `ConfigInvariant program dexConfig` | `Invariants.lean`, lines 72 to 78, with `IsTaskComputed` lines 63 to 69; it wraps `Dex.Run.Invariant`, `Dex/RunInvariant.lean`, lines 47 to 71 | Fixed. Proved for every Dex transition (`ConfigInvariant.step`). |
+| `TasksAreDistinct dexConfig` | `Invariants.lean`, lines 238 to 240 | Fixed. Proved for every Dex transition (`TasksAreDistinct.step`). |
+| `TimersAreDistinct dexConfig` | `Invariants.lean`, lines 671 to 672; `Dex.Run.HasDistinctTimers`, `Dex/TimerLemmas.lean`, line 64 | Fixed. Proved for every Dex transition (`TimersAreDistinct.step`). |
+
+The L to Dex lemmas conclude `IsSimulatedByActions` (`Simulation/Relation.lean`,
+lines 396 to 404): the Dex actions of `simulatingActions` (lines 358 to 387)
+are enabled, have the same projected events, and end in a related
+configuration. `IsSimulatedByDex` follows
+(`IsSimulatedByActions.isSimulatedByDex`).
 
 `Related` holds only the clauses that mention both sides:
 
@@ -606,10 +631,11 @@ parts:
 | `shared`, `cvQueues` | Shared variables and waiter lists with Attributes. |
 | `inputQueues` | Queued external messages with the external Channels. |
 | `mutexTokens`, `joinTokens`, `cvWakes` | Unlocked mutexes, joinable threads, and early wakes with the messages of their Channels. |
-| `cancelRequestsAreFlags`, `cancelFlagsAreRequests` | Cancel flags with pending cancel requests. |
+| `mutexesBeforeBoot` | While `main` boots: the mutexes are the static ones, unlocked, and no token is published. |
+| `cancelRequestsAreFlags`, `cancelFlagsAreRequests` | Cancel flags with pending cancel requests. A flag without a request belongs to a thread that observed the request, or to an ended thread that no live thread can still fork. |
 | `timers`, `timerCounter` | Armed timers and the timer counter with `Tm` and the `Timed` counter. |
 | `outputsEmpty` | No Flow output before the close. |
-| `threadsHaveSteps`, `stepsHaveThreads`, `activeStepsHaveDistinctThreads`, `invocationsAreActive` | Threads that have not halted with active Steps, one to one (`StepCarriesThread`), and each thread's phase with its Step and task (`PhaseMatchesStep`). |
+| `threadsHaveSteps`, `stepsHaveThreads`, `activeStepsHaveDistinctThreads`, `invocationsAreActive` | Threads that have not halted with active Steps, one to one (`StepCarriesThread`), and each thread's phase with its Step's phase, invocation, and task (`PhaseMatchesStep`). |
 | `blockingOrder` | The `since` order of blocked threads with the `sws` order of their waits. |
 | `tasksAreCurrent` | While the Flow runs every task belongs to a running invocation. |
 | `ClosedRelated` | After the close: late emits with the effects stale tasks still hold; no invocation; no timer. |
@@ -629,43 +655,135 @@ parts:
 | `phasesFitCode` | Each thread's phase fits its code and its timer. |
 | `runningHoldsRequiredMutex` | A statement that requires a mutex runs while its thread holds it. |
 
-### Tested before proving
+The Dex side has three invariants:
 
-`Examples/RelatedCheck.lean` has Boolean mirrors of `L.Invariant` and
-`Related` and checks them in every configuration pair of pseudo-random
-lockstep runs, in both directions, for thirteen programs. A failure fails the
-build. All pass. Breaking three clauses of the mirrors on purpose made the
-runs report them, so the runs do reach the states those clauses speak about.
-This does not prove that the relation is inductive; the work packages do.
+| Invariant | Fact |
+| --- | --- |
+| `ConfigInvariant.runInvariant` | `Dex.Run.Invariant`: unique Step IDs, counted Step numbers, supported and quiet waits, injective `sws`, allowed timers. |
+| `ConfigInvariant.tasksComputed` | A task holds the response its handler computes, and the effects it still holds are the last of those its handler computes. So a task holds at most one effect, and a WaitFor task none. |
+| `TasksAreDistinct` | Task IDs are unique and below the next fresh ID. |
+| `TimersAreDistinct` | Armed timers have distinct IDs. |
+
+### Inductiveness: gaps found and fixed
+
+The step lemmas quantify over every configuration pair that satisfies
+`IsSimulationState`, not only over reachable pairs. The first fixed
+definitions allowed unreachable pairs that broke a step lemma. Each gap, and
+the clause that closes it:
+
+| Gap | A pair that was allowed | Closed by |
+| --- | --- | --- |
+| WaitFor task with an effect | A `waitStarted` thread whose WaitFor task holds an effect: its [WORKER-EFFECT] has no L step. | `PhaseMatchesStep`, case `waitStarted`: the task holds no effect. Also follows from `tasksComputed`. |
+| Task effects | After the close, a stale task holds two effects: [WORKER-ABANDON] drops both, L drops one late emit per label. | `IsTaskComputed`: the effects a `Running` task holds are the last of those its handler computes; `translate_compute_effects`. |
+| Waiting Step with an invocation | A thread that is not blocked is carried by a Step in phase `WT` with a stored wait: a publication wakes the Step and not the thread. | `PhaseMatchesStep` fixes the Step phase in every case. `RunningRelated.blocked_of_waiting` and `IsSimulationState.waitingHasNoInvocation` state the consequence. |
+| Cancel flag of an unforked child | A flag is set for the next child of a live thread, with no pending request: after `fork` the child has a flag and no request. | `cancelFlagsAreRequests`: a flag without a request belongs to a thread that observed it, or to an ended thread that is not a future child of a live thread. |
+| Boot and static mutexes | While `main` boots, the mutex owners and the token Channels were unconstrained, and the start Step then publishes the tokens. | `mutexesBeforeBoot`. |
+| Duplicate timer IDs | `Tm` lists one timer ID twice: `Related.timers` reads the first binding, `Due_f` reads both. | `TimersAreDistinct`. |
+| Hidden action sequence | `IsSimulatedByDex` hides the Dex actions, so the Dex to L direction could not reuse an L to Dex lemma by determinism. | `simulatingActions`, `IsSimulatedByActions`. |
+
+The cancel-flag and boot clauses are in `Related`, not in `L.Invariant`:
+`L.Invariant` and its proof are unchanged. The cancel-flag clause needs no
+validity of thread handles: a cancel publishes a request with the flag, on
+both sides, whatever thread ID it names.
+
+### The inductiveness fuzz
+
+`Examples/Inductiveness.lean` tests that `IsSimulationState` is inductive:
+
+1. It runs an L program and its Flow in lockstep, in both directions, and
+   takes every `period`-th configuration pair.
+2. It changes each pair in about 270 ways: one field of one side (a thread's
+   phase, counter, timer, locals, or code; the cancel flags, the joinable
+   threads, the mutex owners, the waiter lists, the input queues, the shared
+   variables, the counters, the late emits; a Step's phase, invocation, wait,
+   condition results, options, or input; a task's phase, condition results,
+   or snapshot; added, dropped, or doubled Steps, tasks, Channel messages,
+   timers, Attributes), or matching fields of both sides (a cancel flag with
+   its request, a late emit with a task effect, and so on).
+3. It keeps a changed pair only when the Boolean mirror of
+   `IsSimulationState` (`checkState`, `Examples/RelatedCheck.lean`) accepts
+   it.
+4. From every kept pair it takes every enabled L label with its
+   `simulatingActions`, and every enabled admissible Dex action with its L
+   labels. The other side must be enabled, the events and stamps must agree,
+   and `checkState` must accept the result. It then walks a few pseudo-random
+   steps in each direction with the same checks.
+
+Six `#guard` lines run it on few pairs when the file is built. `lake exe
+inductiveness-fuzz` runs it compiled on every example program.
+
+With the mirror of the first definitions, `inductiveness-fuzz 120 5 6 2`
+reports 322 failures and finds every gap of the table above:
+
+| Perturbation | First failing step | Gap |
+| --- | --- | --- |
+| `Dex.task.phase`, `both.lateEffect` | The thread's step: the Dex side is not enabled. [WORKER-EFFECT]: the L side is not enabled. | WaitFor task with an effect; task effects |
+| `both.lateEffects` | `lateDrop`: `Related.lateEmits` | Task effects after the close |
+| `Dex.record.waiting` | `input`: `Related.inputQueues`. The thread's step: `Related.mutexTokens`, `Related.cancelFlagsAreRequests` | Waiting Step with an invocation |
+| `L.cancelFlags.add` | The parent's `fork`: `Related.cancelFlagsAreRequests` | Cancel flag of an unforked child |
+| `L.mutexOwners.add`, `.set`, `.drop`, `Dex.channels.add` | The end of the boot: `Related.mutexTokens` | Boot and static mutexes |
+| `Dex.timers.duplicate`, `Dex.timers.add` | [TIMER-FIRE]: the L side is not enabled. `fire`: `Related.timers` | Duplicate timer IDs |
+
+With the present definitions the same run changes 1,898 pairs into 510,426
+copies, keeps about 190,000, and reports no failure. It checks single steps
+of every kind: every L label kind and every thread phase that has a step
+(`bootPending`, `bootRunning`, `ready`, `running`, `emitting`, `emitted`,
+`waitStarted`, `woken`, `resuming`), `fire`, `input` while running and after
+the close, `lateDeliver`, `lateDrop`, and every Dex action kind.
+
+Writing the fuzz found one more fault, in the tooling: the `timers` mirror
+checked every binding of the timer list, where `Related.timers` reads only
+the first binding of a timer ID. A mirror that is stricter than its clause
+hides gaps; the duplicate timer gap was invisible until the mirror was made
+exact.
+
+The fuzz found no gap beyond those of the table. It is evidence, not proof:
+the work packages prove inductiveness.
+
+### Tested on reachable pairs
+
+`Examples/RelatedCheck.lean` checks the Boolean mirror of `IsSimulationState`
+in every configuration pair of pseudo-random lockstep runs, in both
+directions, for fourteen programs. A failure fails the build. All pass.
 
 ### Work packages
 
-The four packages are independent. Each proves the `sorry` of its own
-file(s), may add lemmas there, and may add general lemmas to
+Each package proves the `sorry` of its own file(s), may add lemmas there and
+to `Simulation/RelationLemmas.lean`, and may add general lemmas to
 `Dex/RunLemmas.lean` only by appending. None may change a model file
 (`Dex/Syntax.lean`, `Dex/Config.lean`, `Dex/MetaFunctions.lean`,
 `Dex/Rules.lean`, `L/Syntax.lean`, `L/ThreadLocal.lean`, `L/Semantics.lean`,
-`Translation/*.lean`), `Simulation/Relation.lean`, `L/Invariant.lean`,
-`TraceSets.lean`, or `Theorems.lean`. A package that finds a fixed definition
-too weak or wrong reports it with the failing case instead of changing it.
+`Translation/*.lean`), `Simulation/Relation.lean`, `L/Invariant.lean`, the
+definitions of `Invariants.lean`, `TraceSets.lean`, or `Theorems.lean`. A
+package that finds a fixed definition too weak or wrong reports it with the
+failing case instead of changing it.
 
-| Package | File | Must prove | Estimated size |
+| Package | Files | Lemmas | Status |
 | --- | --- | --- | --- |
-| 1. L invariant | `L/InvariantStep.lean` | `L.Invariant.step` | 900 to 1,300 lines |
-| 2. L to Dex, basic steps | `Simulation/LToDexBasic.lean` | `l_start_simulated`, `l_input_simulated`, `l_fire_simulated`, `l_lateDeliver_simulated`, `l_lateDrop_simulated`, `l_thread_begin_simulated`, `l_thread_deliver_simulated` | 1,200 to 1,600 lines |
-| 3. L to Dex, completion | `Simulation/LToDexComplete.lean` | `l_thread_register_simulated`, `l_thread_boot_simulated`, `l_thread_complete_simulated`, `l_thread_resume_simulated` | 2,200 to 3,000 lines |
-| 4. Dex to L | `Simulation/DexToL.lean` | `dex_step_simulated` | 700 to 1,000 lines |
+| 1. L invariant | `L/InvariantStep*.lean` | `L.Invariant.step` | Proved. |
+| 2. L to Dex, basic steps | `Simulation/LToDexBasic*.lean` | `l_tick_simulated`, `l_start_simulated`, `l_input_simulated`, `l_fire_simulated`, `l_lateDeliver_simulated`, `l_lateDrop_simulated`, `l_thread_begin_simulated`, `l_thread_deliver_simulated` | Proved. |
+| 3a. L to Dex, registration | `Simulation/LToDexComplete.lean` | `l_thread_register_simulated` | Open. |
+| 3b. L to Dex, completion | `Simulation/LToDexComplete.lean` | `l_thread_boot_simulated`, `l_thread_complete_simulated`, `l_thread_resume_simulated` | Open. |
+| 4. Dex to L | `Simulation/DexToL.lean`, `Simulation/DexToLLemmas.lean` | `dex_step_simulated` | `dex_step_simulated_of_observed` proved; the steps of `IsObservedWhileRunning` are open. |
 
-Package 3 can be split in two if a fifth prover is available:
-`l_thread_register_simulated` alone (800 to 1,100 lines), and the three
-completion lemmas.
+Every L to Dex lemma has the form
 
-Packages 2 and 3 need the same frame facts: what an update of one Step or one
-thread leaves unchanged in `RunningRelated`. The first prover to need one
-states it in its own file; a later merge moves the shared ones to
-`Simulation/Frame.lean`. `l_tick_simulated` (proved) shows the shape of a
-case: build the Dex actions, show that they run, and rebuild `Related` field
-by field.
+```lean
+theorem l_..._simulated (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
+    ... (lEvents : List Event) (lNext : L.Config)
+    (isStep : (L.system program).step lConfig label = some (lEvents, lNext)) :
+    IsSimulatedByActions program lConfig dexConfig label lEvents lNext
+```
+
+For package 3 the action list is `returnTaskActions task ++ [.stepComplete
+task.id]`, where `task` runs the invocation of the Step that carries the
+thread (`simulatingActions_complete`, `Simulation/RelationLemmas.lean`).
+Package 3 imports the frame lemmas of package 2
+(`wp2_runningRelated_changeThread`, `wp2_runningRelated_setPhase`,
+`wp2_runningRelated_stamp`, `wp2_phaseMatchesStep_transfer`,
+`wp2_timers_of_wake`, and the forms of `earliestBlocked`, `waitersOn`,
+`deliverInput`, and `leastDueTimerThread` without an inner `match`).
 
 ## Stage 2 outline
 
