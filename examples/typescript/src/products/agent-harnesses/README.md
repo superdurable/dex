@@ -83,8 +83,9 @@ and opens the connection named `support-slack` with the package's `newProjectCon
 The Connector resolves the Slack credentials before each call, so they never enter Flow state. The
 bot credential posts the reply. The user credential is used only when a Worker stopped during a
 post: the Connector reads the thread to learn whether the reply was sent, and without it such a post
-records an unknown outcome. Without a project configuration, or without a `support-slack`
-connection in it, the app logs one line and the agents run without the Slack tool.
+records an unknown outcome. Without a project configuration, with a `DEX_CONNECTOR_CONFIG_FILE`
+that does not exist, or without a `support-slack` connection, the app logs one line and the agents
+run without the Slack tool.
 
 A post can wait for approval for a long time, and any Worker may run it after approval. Keep the
 same Connector configuration, with the `support-slack` connection, on every Worker that runs these

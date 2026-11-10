@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { lstat } from "node:fs/promises";
+
 import { LocalConnectionsFileEnvironment, loadFromEnvironment } from "@superdurable/connectors-sdk/projectconfig";
 import manifest from "@superdurable/connector-slack/dex-connector.json" with { type: "json" };
 import {
@@ -32,15 +34,23 @@ export const slackConnectionName = "support-slack";
  * Opens the Slack connection `support-slack` from the Dex project configuration. Credentials never enter Flow state.
  *
  * @param environment - Selects the project configuration: `DEX_CONNECTOR_CONFIG_FILE` or the `DEX_PROJECT_*` settings.
- * @returns The connection, or `undefined` after logging one line when the project has no such connection.
+ * @returns The connection, or `undefined` after logging one line when no project configuration is set, the local
+ *   connections file does not exist, or the project has no such connection.
  * @throws When the selected project configuration is invalid, such as an incomplete `DEX_PROJECT_*` set.
  */
 export async function openSlackConnectionFromProject(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Connection | undefined> {
   const isHostedConfigurationRequested = Object.keys(environment).some((name) => name.startsWith("DEX_PROJECT_"));
-  if (!environment[LocalConnectionsFileEnvironment] && !isHostedConfigurationRequested) {
+  const localConnectionsFilePath = environment[LocalConnectionsFileEnvironment];
+  if (!localConnectionsFilePath && !isHostedConfigurationRequested) {
     console.warn("No Dex project configuration is set, so the agent examples offer no Slack connector tools");
+    return undefined;
+  }
+  if (localConnectionsFilePath && !isHostedConfigurationRequested && !(await doesFileExist(localConnectionsFilePath))) {
+    console.warn(
+      `The Dex connector configuration file ${localConnectionsFilePath} does not exist, so the agent examples offer no Slack connector tools`,
+    );
     return undefined;
   }
   const project = await loadFromEnvironment(environment);
@@ -52,6 +62,19 @@ export async function openSlackConnectionFromProject(
     return undefined;
   }
   return newProjectConnection(project, slackConnectionName);
+}
+
+// loadFromEnvironment reports a missing file like an invalid one, so check for it first.
+async function doesFileExist(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 /**
