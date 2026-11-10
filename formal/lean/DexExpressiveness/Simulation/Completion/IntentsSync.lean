@@ -110,7 +110,7 @@ theorem wp3b_shared_of_waiters_write (attributes : AssocList Key DexVal) (cv : C
 /-- The write of `waiters/cv` and the change of the queue of `cv`, for the
 thread that holds the mutex of `cv`. -/
 theorem IntentStart.writeWaiters
-    (start : IntentStart program lConfig dexConfig run thread record task result)
+    (_start : IntentStart program lConfig dexConfig run thread record task result)
     (lEff : L.Config) (dexEff : Dex.Config signature) (runEff : Dex.Run signature)
     (mid : MidState program lEff dexEff runEff thread.core.tid record.id)
     (cv : CvId) (waiters : List Tid)

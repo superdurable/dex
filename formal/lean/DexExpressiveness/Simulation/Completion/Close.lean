@@ -18,8 +18,7 @@ namespace DexExpressiveness
 open DexExpressiveness.L DexExpressiveness.Translation
 
 /-- A WaitFor task has no effect left to emit: no WaitFor of a translated
-Flow has an effect. `Related` states this from the next revision of
-`PhaseMatchesStep` on; until then it is a hypothesis. -/
+Flow has an effect (`pendingEffects_eq_nil_of_waitFor`). -/
 def WaitForTasksHaveNoEffects (program : Program) (config : Dex.Config signature) : Prop :=
   ∀ task, task ∈ config.tasks → task.method = .waitFor → pendingEffects ⟦program⟧ task = []
 

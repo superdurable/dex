@@ -7,8 +7,8 @@ From `IsSimulationState` to the relation with the committing thread and Step
 left out (`MidThreads`, `MidData`, `TokensRelated`), for the run right after
 the commit released the invocation and before `effects`.
 
-`WaitingStepsHaveNoInvocation` is the fact that the fixed definitions lack
-(see `Examples/SimulationGaps.lean`, gap 1). It is a hypothesis here.
+`WaitingStepsHaveNoInvocation` holds in every simulation state
+(`IsSimulationState.waitingHasNoInvocation`).
 -/
 
 namespace DexExpressiveness
@@ -17,8 +17,7 @@ open DexExpressiveness.L DexExpressiveness.Translation
 
 /-- A Step in phase `WT` has no invocation: [STEP-COMPLETE-WAITFOR] clears
 `S[e].inv` before `register(e, W)` (spec §4.4), and `eval(e)` sets a new one
-only when it leaves `WT` (spec §4.2). Every rule keeps this; `ConfigInvariant`
-does not state it. -/
+only when it leaves `WT` (spec §4.2). -/
 def WaitingStepsHaveNoInvocation (config : Dex.Config signature) : Prop :=
   ∀ run, config.run = some run → ∀ record, record ∈ run.steps → record.phase = .waiting →
     record.invocation = none
