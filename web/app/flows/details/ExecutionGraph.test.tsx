@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StepGraphNode } from '@/lib/types';
 import { MemoryRouter } from 'react-router-dom';
 import { PreferencesProvider } from '@/app/providers';
-import { StepNodeLabel } from './ExecutionGraph';
+import { StepNodeLabel, graphNodeDimensions } from './ExecutionGraph';
 import { FlowStatePanel } from './FlowStatePanel';
 
 afterEach(() => {
@@ -44,6 +44,75 @@ describe('Execution graph Step node', () => {
     execute.focus();
     expect(document.activeElement).toBe(execute);
     expect(execute.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('shows each waited Channel name on its own line with the full list as a tooltip', () => {
+    const node: StepGraphNode = {
+      ...completedNode,
+      waitFor: {
+        eventId: 2,
+        eventTime: null,
+        type: 'StepWaitForCompleted',
+        payload: {
+          output: {
+            waitForCondition: {
+              channelConditions: [{ channelName: 'TurnControlRequests' }, { channelName: 'QueuedUserMessages' }],
+            },
+          },
+        },
+      },
+    };
+    render(<StepNodeLabel node={node} onSelect={vi.fn()} />);
+    const names = screen.getByText('TurnControlRequests').parentElement;
+    expect(names?.className).toBe('graph-condition-names');
+    expect([...(names?.children ?? [])].map((child) => child.textContent)).toEqual(['TurnControlRequests', 'QueuedUserMessages']);
+    expect(names?.closest('i')?.getAttribute('title')).toBe('TurnControlRequests, QueuedUserMessages');
+  });
+});
+
+function waitingOnChannels(names: string[]): StepGraphNode {
+  return {
+    ...completedNode,
+    waitFor: {
+      eventId: 2,
+      eventTime: null,
+      type: 'StepWaitForCompleted',
+      payload: {
+        output: {
+          waitForCondition: {
+            timerConditions: [{}],
+            channelConditions: names.map((channelName) => ({ channelName })),
+          },
+        },
+      },
+    },
+  };
+}
+
+describe('Execution graph WaitFor Channel lines', () => {
+  const twoChannelHeight = graphNodeDimensions(waitingOnChannels(['A', 'B'])).height;
+  const channelLineHeight = 14;
+
+  it.each([
+    { count: 3, hidden: 1 },
+    { count: 6, hidden: 4 },
+  ])('shows two of $count Channel names and a "+$hidden more" line, with the full list as a tooltip', ({ count, hidden }) => {
+    const names = Array.from({ length: count }, (_, index) => `Channel${index + 1}`);
+    render(<StepNodeLabel node={waitingOnChannels(names)} onSelect={vi.fn()} />);
+    const lines = screen.getByText('Channel1').parentElement;
+    expect([...(lines?.children ?? [])].map((child) => child.textContent)).toEqual(['Channel1', 'Channel2', `+${hidden} more`]);
+    expect(lines?.closest('i')?.getAttribute('title')).toBe(names.join(', '));
+  });
+
+  it.each([3, 6])('sizes the node for the visible lines of %i Channel names', (count) => {
+    const names = Array.from({ length: count }, (_, index) => `Channel${index + 1}`);
+    // WaitFor base, one timer line, then two more Channel lines: two names and "+N more".
+    expect(graphNodeDimensions(waitingOnChannels(names)).height).toBe(148 + 18 + 2 * channelLineHeight);
+    expect(graphNodeDimensions(waitingOnChannels(names)).height).toBe(twoChannelHeight + channelLineHeight);
+  });
+
+  it('adds one Channel line per visible name up to two', () => {
+    expect(twoChannelHeight - graphNodeDimensions(waitingOnChannels(['A'])).height).toBe(channelLineHeight);
   });
 });
 

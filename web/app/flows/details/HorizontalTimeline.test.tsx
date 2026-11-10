@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TimelineSelectedRelations } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { HorizontalTimeline, horizontalTimelineLayout } from './HorizontalTimeline';
+import { HorizontalTimeline, horizontalTimelineLayout, isSameCalendarDay } from './HorizontalTimeline';
 
 /** Events in view at the 1200 px jsdom fallback width; the label angle sets the slot width. */
 const visibleCount = Math.floor((1200 - horizontalTimelineLayout.labelRunWidth) / horizontalTimelineLayout.slotWidth);
@@ -102,11 +102,29 @@ describe('horizontal Timeline', () => {
     vi.stubGlobal('PointerEvent', class extends MouseEvent {
       pointerId = 1;
     });
-    overview.getBoundingClientRect = () => ({ left: 0, width: 1000, top: 0, height: 34, right: 1000, bottom: 34, x: 0, y: 0, toJSON: () => ({}) });
-    fireEvent.pointerDown(overview, { button: 0, clientX: 500, pointerId: 1 });
+    // The plot sits 10 px in from both ends of the 1200 px chart.
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    const clientXAt = (ratio: number) => 10 + ratio * 1180;
+    fireEvent.pointerDown(overview, { button: 0, clientX: clientXAt(0.5), pointerId: 1 });
     expect(option(500)).not.toBeNull();
     const first = Math.round(500 - visibleCount / 2) + 1;
+    const moved = Math.round(600 - visibleCount / 2) + 1;
     expect(overview.getAttribute('aria-valuetext')).toBe(`Events #${first} to #${first + visibleCount - 1}`);
+    fireEvent.pointerUp(overview, { clientX: clientXAt(0.5), pointerId: 1 });
+
+    // Pressing inside the brush keeps where it was grabbed, so the view moves with the pointer without jumping.
+    fireEvent.pointerDown(overview, { button: 0, clientX: clientXAt(0.5), pointerId: 1 });
+    expect(overview.getAttribute('aria-valuetext')).toBe(`Events #${first} to #${first + visibleCount - 1}`);
+    fireEvent.pointerMove(overview, { clientX: clientXAt(0.6), pointerId: 1 });
+    expect(overview.getAttribute('aria-valuetext')).toBe(`Events #${moved} to #${moved + visibleCount - 1}`);
+    fireEvent.pointerUp(overview, { clientX: clientXAt(0.6), pointerId: 1 });
+    fireEvent.pointerMove(overview, { clientX: clientXAt(0.9), pointerId: 1 });
+    expect(overview.getAttribute('aria-valuetext')).toBe(`Events #${moved} to #${moved + visibleCount - 1}`);
+
+    fireEvent.keyDown(overview, { key: 'ArrowRight' });
+    expect(Number(overview.getAttribute('aria-valuenow'))).toBe(Math.round(601 - visibleCount / 2));
+    fireEvent.keyDown(overview, { key: 'End' });
+    expect(Number(overview.getAttribute('aria-valuenow'))).toBe(1000 - visibleCount);
   });
 
   it('marks linked events and leaves related events on other pages to the event panel', () => {
@@ -179,23 +197,109 @@ describe('horizontal Timeline', () => {
     expect(option(160)).toBeNull();
   });
 
-  it('draws one overview tick per event on the page, so it follows the page size', () => {
-    const { rerender } = render(<HorizontalTimeline events={events(100)} selectedEvent={null} onSelectEvent={() => {}} />);
-    expect(document.querySelectorAll('.htl-tick')).toHaveLength(100);
-    rerender(<HorizontalTimeline events={events(1000)} selectedEvent={null} onSelectEvent={() => {}} />);
-    expect(document.querySelectorAll('.htl-tick')).toHaveLength(1000);
+  it('draws the page as a histogram, by event time when the times spread the events', () => {
+    const bars = () => [...document.querySelectorAll('.htl-bar')];
+    const total = () => bars().reduce((sum, bar) => sum + Number(bar.getAttribute('data-count')), 0);
+    const { rerender } = render(<HorizontalTimeline events={events(1000)} selectedEvent={null} onSelectEvent={() => {}} />);
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    // The fixtures share one timestamp, so the bars follow event order and say so.
+    expect(overview.getAttribute('data-axis')).toBe('index');
+    expect(total()).toBe(1000);
+    expect(bars().length).toBe(Math.floor((1200 - 20) / 7));
+    expect(overview.textContent).toContain('#1 · ');
+    expect(overview.textContent).toContain(' · #1000');
+    expect(overview.textContent).toContain('spaced by event order');
+    expect(document.querySelector('.htl-overview-brush')).not.toBeNull();
+
+    // A burst of 900 events, a quiet minute, then 100 more: the gap shows as empty buckets.
+    const timed = events(1000).map((event, index) => ({
+      ...event,
+      eventTime: new Date(Date.parse('2026-10-24T17:00:00Z') + (index < 900 ? index * 10 : 60_000 + index * 10)).toISOString(),
+    }));
+    rerender(<HorizontalTimeline events={timed} selectedEvent={null} onSelectEvent={() => {}} />);
+    expect(overview.getAttribute('data-axis')).toBe('time');
+    expect(total()).toBe(1000);
+    expect(bars().length).toBeLessThan(Math.floor((1200 - 20) / 7) / 2);
+    expect(overview.textContent).toContain('1m 10s');
+    expect(overview.textContent).not.toContain('spaced by event order');
   });
 
-  it('keeps neutral overview ticks to a thin line and gives the selection and failures the full track', () => {
-    const pageEvents = events(50);
+  it('gives each event its own wide bar on a short page, by event order when times would crowd them', () => {
+    const at = (offsetMs: number) => new Date(Date.parse('2026-10-24T17:00:00Z') + offsetMs).toISOString();
+    const bars = () => [...document.querySelectorAll('.htl-bar')];
+    // Seven events within 300 ms and one 9 s later would crowd seven bars at the left edge.
+    const crowded = events(8).map((event, index) => ({ ...event, eventTime: at(index < 7 ? index * 50 : 9300) }));
+    const { rerender } = render(<HorizontalTimeline events={crowded} selectedEvent={null} onSelectEvent={() => {}} />);
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    expect(overview.getAttribute('data-axis')).toBe('index');
+    expect(bars()).toHaveLength(8);
+    expect(bars().every((bar) => bar.querySelector('rect')?.getAttribute('width') === '20')).toBe(true);
+    expect(overview.textContent).toContain('9.3s · spaced by event order');
+    // Every event is in view, so there is no brush to move.
+    expect(document.querySelector('.htl-overview-brush')).toBeNull();
+
+    const spread = events(8).map((event, index) => ({ ...event, eventTime: at(index * 1000) }));
+    rerender(<HorizontalTimeline events={spread} selectedEvent={null} onSelectEvent={() => {}} />);
+    expect(overview.getAttribute('data-axis')).toBe('time');
+    expect(bars()).toHaveLength(8);
+    expect(bars().every((bar) => bar.querySelector('rect')?.getAttribute('width') === '20')).toBe(true);
+  });
+
+  it('marks failed and retried Steps in red, even in a bar crowded with normal events', () => {
+    const pageEvents = events(1000);
     pageEvents[9] = { ...pageEvents[9], type: 'StepExecuteFailed' };
-    render(<HorizontalTimeline events={pageEvents} selectedEvent={pageEvents[44]} onSelectEvent={() => {}} />);
-    const ticks = [...document.querySelectorAll('.htl-tick')];
-    expect(ticks[0].getAttribute('height')).toBe('4');
-    expect(ticks[9].getAttribute('class')).toContain('htl-status-failed');
-    expect(ticks[9].getAttribute('height')).toBe('10');
-    expect(ticks[44].getAttribute('class')).toContain('is-selected');
-    expect(ticks[44].getAttribute('height')).toBe('10');
+    pageEvents[499] = {
+      ...pageEvents[499],
+      payload: { context: { stepType: 'Charge', stepExecutionId: 'Charge-500', finalAttempt: 2, lastFailureInfo: { attempt: 1 } } },
+    };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={pageEvents[899]} onSelectEvent={() => {}} />);
+    const failureBars = [...document.querySelectorAll('.htl-bar.has-failure')];
+    expect(failureBars).toHaveLength(2);
+    for (const bar of failureBars) {
+      expect(Number(bar.getAttribute('data-count'))).toBeGreaterThan(4);
+      expect(Number(bar.querySelector('.htl-bar-segment.htl-status-failed')?.getAttribute('height'))).toBeGreaterThanOrEqual(5);
+      expect(bar.querySelector('.htl-bar-marker.htl-status-failed')).not.toBeNull();
+    }
+    expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 2 failures');
+    expect(document.querySelector('.htl-overview-selection')).not.toBeNull();
+
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Timeline overview' }), { key: 'Home' });
+    expect(option(10)?.querySelector('.htl-dot-badge-retried')).toBeNull();
+    expect(screen.getByRole('list', { name: 'Status colors' }).textContent).toContain('Retried after failure');
+  });
+
+  it('shows a retried Step in the strip and says which attempt succeeded', () => {
+    const pageEvents = events(20);
+    pageEvents[14] = {
+      ...pageEvents[14],
+      payload: { context: { stepType: 'Charge', stepExecutionId: 'Charge-15', finalAttempt: 3 } },
+    };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
+    expect(option(15)?.querySelector('.htl-dot-badge-retried')).not.toBeNull();
+    expect(option(15)?.getAttribute('aria-label')).toBe('Execute completed, Charge, succeeded on attempt 3, #15');
+    expect(option(14)?.querySelector('.htl-dot-badge-retried')).toBeNull();
+  });
+
+  it('describes a bar on hover with its time range, event count, and failures', () => {
+    const start = Date.parse('2026-10-24T17:00:00Z');
+    const pageEvents = events(40).map((event, index) => ({ ...event, eventTime: new Date(start + index * 1000).toISOString() }));
+    pageEvents[0] = {
+      ...pageEvents[0],
+      payload: { context: { stepType: 'Charge', stepExecutionId: 'Charge-1', finalAttempt: 2 } },
+    };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    fireEvent.pointerMove(overview, { clientX: 2, pointerId: 1 });
+    const tooltip = document.querySelector('.htl-overview-tooltip');
+    expect(tooltip?.textContent).toContain('#1 · Charge');
+    expect(tooltip?.textContent).toContain('1 retried after a failed attempt');
+    expect(tooltip?.querySelector('strong')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}/);
+    fireEvent.pointerLeave(overview);
+    expect(document.querySelector('.htl-overview-tooltip')).toBeNull();
   });
 
   it('leaves the view where the reader moved it while the default selection follows Live', () => {
@@ -241,7 +345,7 @@ describe('horizontal Timeline', () => {
     expect(label(6)).toBe('getOrder');
     expect(dot(7)?.querySelector('.htl-dot-badge')).toBeNull();
     expect(screen.getByRole('list', { name: 'Event kinds' })).not.toBeNull();
-    expect(screen.getByRole('list', { name: 'Status colors' }).textContent).toBe('WaitingFailedCanceled');
+    expect(screen.getByRole('list', { name: 'Status colors' }).textContent).toBe('WaitingFailedCanceledRetried after failure');
   });
 
   it('marks a wait canceled when the Flow closes, and leaves it uncolored when newer pages exist', () => {
@@ -405,5 +509,125 @@ describe('horizontal Timeline', () => {
     fireEvent.keyDown(screen.getByRole('listbox', { name: 'Timeline events, oldest on the left' }), { key: 'End' });
     expect(option(1000)?.getAttribute('aria-selected')).toBe('true');
     expect(option(1)).toBeNull();
+  });
+
+  it('grabs the brush by a grip outside its edge without jumping, and shows the grab cursor there', () => {
+    render(<Harness pageEvents={events(1000)} />);
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    // Client pixels equal chart pixels at the 1200 px fallback width.
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    const brushFill = () => document.querySelector('.htl-overview-brush-fill')!;
+    const brushLeft = () => Number(brushFill().getAttribute('x'));
+    const brushRight = () => brushLeft() + Number(brushFill().getAttribute('width'));
+    // Move the brush mid-track first, so a grip press is not clamped into the brush at either end.
+    fireEvent.pointerDown(overview, { button: 0, clientX: 600, pointerId: 1 });
+    fireEvent.pointerUp(overview, { clientX: 600, pointerId: 1 });
+    const viewText = overview.getAttribute('aria-valuetext');
+    const left = brushLeft();
+    const right = brushRight();
+
+    for (const gripX of [left - 3, right + 3]) {
+      fireEvent.pointerMove(overview, { clientX: gripX, pointerId: 1 });
+      expect(overview.classList.contains('is-over-brush')).toBe(true);
+      fireEvent.pointerDown(overview, { button: 0, clientX: gripX, pointerId: 1 });
+      expect(overview.getAttribute('aria-valuetext')).toBe(viewText);
+      fireEvent.pointerMove(overview, { clientX: gripX, pointerId: 1 });
+      expect(brushLeft()).toBeCloseTo(left);
+      fireEvent.pointerMove(overview, { clientX: gripX + 40, pointerId: 1 });
+      expect(brushLeft()).toBeCloseTo(left + 40);
+      fireEvent.pointerMove(overview, { clientX: gripX, pointerId: 1 });
+      fireEvent.pointerUp(overview, { clientX: gripX, pointerId: 1 });
+    }
+    fireEvent.pointerMove(overview, { clientX: left - 20, pointerId: 1 });
+    expect(overview.classList.contains('is-over-brush')).toBe(false);
+  });
+
+  it('never moves a widened brush on press, even when pressed outside the real window', () => {
+    render(<Harness pageEvents={events(1000)} />);
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    const brushFill = () => document.querySelector('.htl-overview-brush-fill')!;
+    const brushLeft = () => Number(brushFill().getAttribute('x'));
+    fireEvent.pointerDown(overview, { button: 0, clientX: 600, pointerId: 1 });
+    fireEvent.pointerUp(overview, { clientX: 600, pointerId: 1 });
+    // The real window spans about 15 px of the 1180 px plot, so the brush is widened to 24 px.
+    expect(Number(brushFill().getAttribute('width'))).toBe(24);
+    const left = brushLeft();
+    const viewText = overview.getAttribute('aria-valuetext');
+
+    const pressX = left + 1;
+    fireEvent.pointerDown(overview, { button: 0, clientX: pressX, pointerId: 1 });
+    fireEvent.pointerMove(overview, { clientX: pressX, pointerId: 1 });
+    expect(overview.getAttribute('aria-valuetext')).toBe(viewText);
+    expect(brushLeft()).toBeCloseTo(left);
+    fireEvent.pointerMove(overview, { clientX: pressX + 10, pointerId: 1 });
+    expect(brushLeft()).toBeCloseTo(left + 10);
+    fireEvent.pointerUp(overview, { clientX: pressX + 10, pointerId: 1 });
+  });
+
+  it('marks a waiting Step that had a failed attempt as a failure without hiding its status', () => {
+    const pageEvents = events(1000);
+    pageEvents[500] = {
+      ...pageEvents[500],
+      type: 'StepWaitForCompleted',
+      payload: { context: { stepType: 'Charge', stepExecutionId: 'Charge-501', finalAttempt: 2 } },
+    };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={pageEvents[500]} onSelectEvent={() => {}} />);
+    const failureBars = [...document.querySelectorAll('.htl-bar.has-failure')];
+    expect(failureBars).toHaveLength(1);
+    const [bar] = failureBars;
+    expect(bar.querySelector('.htl-bar-marker.htl-status-failed')).not.toBeNull();
+    // The status color keeps precedence in the bar, and the normal events keep their segment.
+    expect(bar.querySelector('.htl-bar-segment.htl-status-waiting')).not.toBeNull();
+    expect(bar.querySelector('.htl-bar-segment.htl-status-failed')).toBeNull();
+    expect(bar.querySelector('.htl-bar-segment.htl-status-normal')).not.toBeNull();
+    expect(document.querySelector('.htl-overview-summary')?.textContent).toBe('spaced by event order · 1 failure');
+
+    const dot = option(501)?.querySelector('.htl-dot');
+    expect(dot?.classList.contains('htl-status-waiting')).toBe(true);
+    expect(option(501)?.querySelector('.htl-dot-badge-retried')).not.toBeNull();
+    expect(option(501)?.getAttribute('aria-label')).toBe('Waiting for conditions, Charge, still waiting, after a failed attempt, #501');
+  });
+
+  it('compares the axis ends by the day in the selected timezone', () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    try {
+      // Both instants share a UTC day, but 01:00 UTC is still the previous day in Los Angeles.
+      const morning = Date.parse('2026-11-09T01:00:00Z');
+      const evening = Date.parse('2026-11-09T20:00:00Z');
+      expect(isSameCalendarDay(morning, evening, 'UTC')).toBe(true);
+      expect(isSameCalendarDay(morning, evening, 'local')).toBe(false);
+      expect(isSameCalendarDay(Date.parse('2026-11-09T23:30:00Z'), Date.parse('2026-11-10T00:30:00Z'), 'UTC')).toBe(false);
+      expect(isSameCalendarDay(Date.parse('2026-11-09T23:30:00Z'), Date.parse('2026-11-10T00:30:00Z'), 'local')).toBe(true);
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
+  it('gives a bar a clock range from monotonic times, even when its event has no timestamp', () => {
+    const at = (offsetMs: number) => new Date(Date.parse('2026-10-24T17:00:00Z') + offsetMs).toISOString();
+    // Seven events within 300 ms and one 9 s later put the short page on the event-order axis.
+    const pageEvents = events(8).map((event, index) => ({ ...event, eventTime: at(index < 7 ? index * 50 : 9300) }));
+    pageEvents[2] = { ...pageEvents[2], eventTime: '' };
+    render(<HorizontalTimeline events={pageEvents} selectedEvent={null} onSelectEvent={() => {}} />);
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {
+      pointerId = 1;
+    });
+    const overview = screen.getByRole('slider', { name: 'Timeline overview' });
+    expect(overview.getAttribute('data-axis')).toBe('index');
+    overview.getBoundingClientRect = () => ({ left: 0, width: 1200, top: 0, height: 80, right: 1200, bottom: 80, x: 0, y: 0, toJSON: () => ({}) });
+    // Event #3 sits at the center of the third of eight equal slots.
+    fireEvent.pointerMove(overview, { clientX: 10 + (2.5 / 8) * 1180, pointerId: 1 });
+    const tooltip = document.querySelector('.htl-overview-tooltip');
+    expect(tooltip?.textContent).toContain('#3 · Charge');
+    expect(tooltip?.querySelector('strong')?.textContent).toMatch(/\d{2}:\d{2}:\d{2}/);
   });
 });

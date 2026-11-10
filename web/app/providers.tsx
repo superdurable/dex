@@ -42,3 +42,8 @@ export function usePreferences() {
   if (!value) throw new Error('usePreferences must be used inside PreferencesProvider');
   return value;
 }
+
+/** The viewer's timezone, or local time outside PreferencesProvider, such as in component tests. */
+export function useTimezonePreference(): TimezonePreference {
+  return useContext(PreferencesContext)?.timezone ?? 'local';
+}
