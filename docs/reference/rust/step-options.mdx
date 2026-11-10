@@ -15,9 +15,9 @@ selections, and lock sets.
 
 ## Override StepOptions per Step execution {#stepoptions-override-per-stepexecution}
 
-The **StepOptions** returned by a Step implementation apply to every Step
-execution by default. To override them for one Step execution, provide the
-**StepOptions** override when a **StepDecision** goes to the next Steps.
+The **StepOptions** that a Step type returns apply to all of its Step
+executions. To override them for one Step execution, pass **StepOptions** in
+the Step movement that starts it.
 
 ```rust
 let override_options = StepOptions::new()
@@ -31,36 +31,31 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 ```
 
 Example: [examples/rust/src/primitives/options_override/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/options_override/flow.rs)
+
 ## Durability {#durability}
 
-**SYNC** durability records the Step completion in Dex Server and persists it
-to storage synchronously. It also makes the attempt start durable in storage
-before the Worker receives the task.
+With **SYNC** durability, Dex Server stores each attempt start before the
+Worker receives the task. It also stores the Step completion before it goes on.
 
-**ASYNC** durability does this asynchronously. Dex Server hands the task to the
-Worker and starts the next work before the start and the completion are
-persisted, and it batches these commits within about 20 milliseconds.
-Sustained server throughput is about the same for both modes. **ASYNC** has
-lower latency, and a single Flow runs faster. On object storage with low write
-latency, **ASYNC** also makes far fewer requests.
+With **ASYNC** durability, Dex Server hands the task to the Worker, and starts
+the next work, before the start and the completion are stored. It batches these
+writes over about 20 milliseconds. Both modes reach about the same sustained
+server throughput. **ASYNC** has lower latency, so a single Flow runs faster. On
+object storage with low write latency, **ASYNC** also makes far fewer requests.
 
-If a Dex Server node fails before the commit, a recent **ASYNC** result is
+If a Dex Server node fails before an **ASYNC** result is stored, the result is
 lost. The method runs again, and so does any later work that started from that
-result. If the node fails before the **ASYNC** start was persisted, Dex rolls
-the start back and runs the same attempt number again. This consumes no retry,
-and the attempt can see different input. Two executions of the same attempt
-number can overlap, and Step Stream writes can repeat in the same source. Make
-**ASYNC** methods and the work they start idempotent.
+result. If the node fails before an **ASYNC** start is stored, Dex runs the same
+attempt number again without using a retry. See
+[An attempt starts when Dex hands it to a Worker](./failure-and-retries.mdx#same-attempt-redelivery).
+Make **ASYNC** methods, and the work they start, idempotent.
 
 Choose **SYNC** for effects that need the tightest guarantees. Choose **ASYNC**
 for short Steps where latency matters and a rare rerun is acceptable. See
 [Failure and redelivery](./failure-and-retries.mdx#failure-and-redelivery) for the full comparison.
 
-**SYNC** is the default. Dex resolves durability in this order: a method
-override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**. Dex pins
-the durability when a method call becomes pending. Changing
-**step_durability** in the Flow config affects only method calls scheduled
-afterward.
+**SYNC** is the default. To set the durability for a whole Flow, see
+**StepDurability** in [FlowConfig](./flow.mdx#flow-config).
 
 Retry policy, method timeout, and heartbeat settings apply to every attempt in
 both modes.
@@ -76,6 +71,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 ```
 
 Example: [examples/rust/src/primitives/durability/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/durability/flow.rs)
+
 ## Timeouts and total duration {#timeouts-and-total-duration}
 
 Three options bound the time a Step method can take.
@@ -92,24 +88,23 @@ queue, does not count. The deadline in the task is the send time plus the
 method timeout.
 
 **TotalDuration** starts when Dex first hands attempt 1 to a Worker. If attempt
-1 was returned without running, the clock resets. Dex does not check
-**TotalDuration** while a Step waits in the task queue, so a retry that waited
-past it still runs. A retry waits in the queue again. Dex dispatches queued
-tasks roughly in the order they became ready, with no strict order. That wait
-counts toward **TotalDuration**. After a long backlog, a failed retry may have
-no time left.
+1 returns to pending without running, the clock restarts. Each retry waits in
+the task queue again, and that wait counts toward **TotalDuration**. Dex
+dispatches queued tasks roughly in the order they became ready, with no strict
+order. Dex does not check **TotalDuration** while a retry waits in the queue,
+so a retry that waited past it still runs. After a long backlog, a failed retry
+may have no time left for another.
 
-Dex uses **TotalDuration** only after an attempt fails, to decide whether to
-retry. It never cuts a running attempt, so the last attempt can start or end
-after **TotalDuration**. Only the method timeout limits a single attempt. To
-bound one long attempt, set **ExecuteMethodTimeout** or
-**WaitForMethodTimeout**, not **TotalDuration**.
+Dex checks **TotalDuration** only after an attempt fails, to decide whether to
+retry. It never stops a running attempt, so the last attempt can start or end
+after **TotalDuration**. Only the method timeout limits a single attempt: set
+**ExecuteMethodTimeout** or **WaitForMethodTimeout**, not **TotalDuration**.
 
 To bound a long wait, set the method timeout and **TotalDuration** to the same
-maximum. Dex enforces both, so the Step does not need its own deadline. With
-Workers available, the total wait is at most about **TotalDuration** plus one
-method timeout. Give the retry policy a few attempts with backoff for transient
-errors and Worker crashes.
+maximum. Dex enforces both, so the Step needs no deadline of its own. While
+Workers are available, the total time is at most about **TotalDuration** plus
+one method timeout. Allow a few attempts with backoff in the retry policy, so
+the Step recovers from transient errors and Worker crashes.
 
 When a timeout expires, Dex fails the attempt with a timeout error. After
 retries end, the failure policy decides what happens next. If no failure route
@@ -119,20 +114,19 @@ For a long wait on an external system, see
 [Polling](/design-patterns/polling).
 ## Heartbeat {#heartbeat}
 
-During an attempt, the Worker must send a heartbeat or a
-[Stream message](/concepts/primitives/stream) before the **HeartbeatTimeout** expires.
-Sending a Stream message is an implicit heartbeat.
+During an attempt, the method must send a heartbeat or a
+[Stream message](/concepts/primitives/stream) within each **HeartbeatTimeout**.
+A Stream message counts as a heartbeat.
 
-For example, an **Execute** method timeout of 60 seconds and a
-**HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds
-instead of waiting for the full 60 seconds. To wait for an external system in
+For example, with an **Execute** method timeout of 60 seconds and a
+**HeartbeatTimeout** of 10 seconds, Dex retries a stalled attempt after about
+10 seconds instead of 60. To wait for an external system in
 one heartbeating Step, use the [Polling](/design-patterns/polling) pattern.
 
-A heartbeat can persist a checkpoint value. The next attempt receives the
-latest stored value and can resume from it. An explicit heartbeat without a
-value clears the previous checkpoint. An implicit heartbeat from a Stream
-message preserves the latest explicit state, including an explicitly cleared
-state. Checkpoints are lossy; see
+A heartbeat can carry a checkpoint value. The next attempt receives the latest
+stored checkpoint and can resume from it. A heartbeat without a value clears
+the checkpoint. A Stream message leaves the checkpoint as the last heartbeat
+set it, including a cleared one. Dex can lose checkpoints; see
 [Heartbeats are not acknowledged](./failure-and-retries.mdx#heartbeats-not-acknowledged).
 
 ```rust
@@ -157,23 +151,23 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 ```
 
 Example: [examples/rust/src/primitives/heartbeat/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/heartbeat/flow.rs)
+
 ## Cancellation {#cancellation}
 
-Dex cancels a running attempt directly. It sends a cancel request to the
-Worker when the Step is canceled, for example by a **StepDecision** or an RPC,
-and when the attempt times out. The SDK also cancels the handler when the
-attempt deadline in the task passes. The handler does not need to complete,
-fail, or record a heartbeat to receive cancellation.
+Dex sends a cancel request to the Worker when a Step is canceled, for example
+by a **StepDecision** or an RPC, and when an attempt times out. The SDK also
+cancels the method when the attempt deadline in the task passes. The method
+receives the cancellation without having to return, fail, or send a heartbeat.
 
-Cancellation is cooperative. The SDK cannot stop running code. A long handler
-must check for cancellation and return, as the heartbeat example above does.
+The SDK cannot stop running code. A long-running method must check for
+cancellation and return, as the heartbeat example above does.
 See [Make the Step stop](/reference/server/runtime-data#cancel-honour) for the
 check in each language, and
 [Cancel running Steps](/reference/server/runtime-data#cancel-running-steps) for
 how Dex ends a canceled attempt.
 
-Because cancellation is cooperative, an interrupted execution may still run
-while the next attempt or the failure route starts.
+So a canceled attempt may still be running when the next attempt or the
+failure route starts.
 ## Selective state loading {#selective-state-loading}
 
 Every **WaitFor**, **Execute**, and timeout-handler call receives all ordinary
@@ -182,18 +176,19 @@ AttributeMap values and pending Channel messages are not loaded unless that
 method selects them.
 
 **StepOptions** has separate selections for **WaitFor** and **Execute**. Select
-an entire AttributeMap or ChannelMap when the method must enumerate current
-instances. Select an exact map instance when its key is already known. An
-Attribute lock controls concurrency but does not load the AttributeMap value.
+a whole AttributeMap or ChannelMap when the method must go through its current
+instances. Select one map instance when you already know its key. Locking an
+Attribute does not load an AttributeMap value.
 
-The two methods receive independent snapshots. **Execute** reads its snapshot
-after the winning Wait conditions consume their messages, so it does not see
-those consumed messages again. Dex takes the snapshot of attempt 1 when it
-hands the attempt to a Worker. Retries of one logical method call, and attempts
-that return to pending, reuse that snapshot.
+**WaitFor** and **Execute** each get their own snapshot. Dex takes the
+**Execute** snapshot after the Wait consumed its messages, so **Execute** does
+not see those messages again. Dex takes a method's snapshot when it hands
+attempt 1 to a Worker. Retries of that method call, and attempts that return
+to pending, reuse the same snapshot.
 
-This Step loads pending **Queued** messages only for **Execute**. It deletes the
-first pending message in the same successful handler response.
+This Step loads the pending messages of the **Queued** Channel for **Execute**
+only. **Execute** deletes the first pending message, and Dex applies the
+deletion when the method succeeds.
 
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
@@ -203,18 +198,18 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 Example: [examples/rust/src/primitives/channel/flow.rs](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/channel/flow.rs)
 
-Reading an unselected AttributeMap value or pending Channel message returns the
-SDK's not-loaded error. A selected empty Channel returns an empty message list.
-Size and map-key introspection remains available without loading message
-bodies. For Go, **dexcli visualize** reports a Step method that reads
-unselected state. See
+Reading an AttributeMap value or pending Channel message that the method did
+not select returns the SDK's not-loaded error. A selected empty Channel
+returns an empty message list. Sizes and map keys are available without
+loading. For Go Flows, **dexcli visualize** reports a Step method that reads
+state it did not select. See
 [State loads](/reference/web/flow-visualization#state-loads).
 ## Attribute locks {#attribute-locks}
 
-Concurrent Steps and RPC invocations can read and write the same Attribute. To
-avoid races, use Attribute locks. Dex Server ensures only one Step execution or
-RPC handling can acquire the lock at a time. **WaitFor** and **Execute** have
-separate lock sets. Set them by returning **StepOptions**.
+Steps and RPCs that run at the same time can read and write the same
+Attribute. To prevent races, have each of them lock that Attribute. Dex Server
+then lets only one Step method or RPC hold the lock at a time. Set the locks in
+**StepOptions**. **WaitFor** and **Execute** have separate lock sets.
 
 See [Attribute locks](/reference/server/runtime-data#attribute-locks) for when
 a Step attempt takes and holds its locks, with **WaitFor** and **Execute**
