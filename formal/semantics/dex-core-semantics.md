@@ -620,7 +620,7 @@ answers on the streams `InvokeWaitForMethodOutput` and
 or after any of its effects. The cancel commit emits the effect that tells the
 Worker to stop (`server-zd/crates/dexzd-apply/src/steps/invocations.rs:376-381`).
 Cancellation is cooperative
-(`docs/reference/go/step-options.mdx:164-177`). Until it is
+(`docs/reference/go/step-options.mdx:165-178`). Until it is
 dropped, a canceled task may keep taking [WORKER-EFFECT] steps, also after its
 Flow closed.
 
