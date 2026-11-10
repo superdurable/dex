@@ -1432,9 +1432,16 @@ later writes record `FAILED` with `skipped=True` and the error
 `TOOL_CALL_NOT_RUN_ERROR_PREFIX + ": " + TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL`.
 Steering and `cancel_turn` cancel queued writes as they cancel unstarted calls.
 
-The Claude Agent SDK adapter also takes tool sources, through its own
-`tool_sources`; see its README. The other framework adapters do not offer
-connector tools yet. The Go core has function tools only.
+Every Python framework adapter also takes tool sources, through its own
+`tool_sources`; see its README. The Claude Agent SDK adapter runs each source
+call when its whole-turn segment defers it. The Step-mode adapters (OpenAI
+Agents, Pydantic AI, LangGraph, and Google ADK) share
+`dex_agents.stepwise.FrameworkToolSourceRouter`: it lists the sources in each
+`RunModel`, refuses a source tool that repeats a framework tool or another
+source's tool, builds each call through its source, and routes the call and
+its tool Step options back to that source. The adapter only offers the listed
+tools as native tools whose bodies never run. The Go core has function tools
+only.
 
 ## Browser streams
 
