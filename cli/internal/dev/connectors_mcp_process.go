@@ -46,10 +46,10 @@ type connectorsMCPAnnouncement struct {
 	PID             int    `json:"pid"`
 	StateDir        string `json:"stateDir"`
 	ConnectionsFile string `json:"connectionsFile"`
-	// ConnectionsConfigDigest identifies the connection selection; nil means the server has no selection.
-	ConnectionsConfigDigest *string           `json:"connectionsConfigDigest"`
-	Tools                   []string          `json:"tools"`
-	Warnings                []json.RawMessage `json:"warnings"`
+	// ConnectionsConfigDigest identifies the connection selection; JSON null means the server has no selection.
+	ConnectionsConfigDigest connectorsMCPDigestField `json:"connectionsConfigDigest"`
+	Tools                   []string                 `json:"tools"`
+	Warnings                []json.RawMessage        `json:"warnings"`
 }
 
 // validateEndpoint checks the untrusted URLs and launch contract of a ready announcement.

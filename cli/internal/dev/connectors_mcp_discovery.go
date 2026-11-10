@@ -88,7 +88,7 @@ func discoverConnectorsMCPServer(
 		return announcement, connectorsMCPServerAbsent, err.Error()
 	}
 	if health.InstanceID != announcement.InstanceID || health.LaunchContract != announcement.LaunchContract ||
-		(health.Version != "" && health.Version != announcement.Version) {
+		health.Version == "" || health.Version != announcement.Version {
 		return announcement, connectorsMCPServerAbsent, "/healthz does not confirm the instance, launch contract, and version in server.json"
 	}
 	if err := announcement.validateEndpoint(); err != nil {
@@ -103,7 +103,11 @@ func discoverConnectorsMCPServer(
 	if err != nil {
 		return announcement, connectorsMCPServerIncompatible, err.Error()
 	}
-	if !isSameConnectionsConfigDigest(announcement.ConnectionsConfigDigest, wantedDigest) {
+	if !announcement.ConnectionsConfigDigest.isPresent {
+		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf(
+			"server at %s does not record connectionsConfigDigest, so its connection selection is unknown", announcement.URL)
+	}
+	if !isSameConnectionsConfigDigest(announcement.ConnectionsConfigDigest.value, wantedDigest) {
 		return announcement, connectorsMCPServerIncompatible, fmt.Sprintf(
 			"server at %s offers another connection selection than --connectors-mcp-connection", announcement.URL)
 	}

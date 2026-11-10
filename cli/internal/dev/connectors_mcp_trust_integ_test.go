@@ -207,6 +207,30 @@ func TestConnectorsMCPDiscoveryRequiresConsistentServerIdentity(t *testing.T) {
 			result: connectorsMCPServerAbsent,
 			reason: "does not confirm",
 		},
+		"healthz version missing": {
+			isLockHeld: true,
+			edit: func(_ map[string]any, health map[string]any, _ string) {
+				delete(health, "version")
+			},
+			result: connectorsMCPServerAbsent,
+			reason: "does not confirm",
+		},
+		"healthz version empty": {
+			isLockHeld: true,
+			edit: func(_ map[string]any, health map[string]any, _ string) {
+				health["version"] = ""
+			},
+			result: connectorsMCPServerAbsent,
+			reason: "does not confirm",
+		},
+		"server.json without connectionsConfigDigest for the default selection": {
+			isLockHeld: true,
+			edit: func(announcement map[string]any, _ map[string]any, _ string) {
+				delete(announcement, "connectionsConfigDigest")
+			},
+			result: connectorsMCPServerIncompatible,
+			reason: "does not record connectionsConfigDigest",
+		},
 		"stale file with a live unrelated pid and no lock holder": {
 			isLockHeld: false,
 			edit:       func(map[string]any, map[string]any, string) {},

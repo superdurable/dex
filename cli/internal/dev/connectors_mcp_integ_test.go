@@ -225,7 +225,8 @@ func TestConnectorsMCPManagerReusesRunningServerWithSameSelection(t *testing.T) 
 	cfg := testConnectorsMCPConfig(t, fakeBinary)
 	cfg.Connections = []string{"slack/work=post_thread_reply,list_thread_messages", "hacker-news-daily/default"}
 	external := startExternalFakeConnectorsMCP(t, fakeBinary, cfg)
-	require.NotNil(t, external.announcement.ConnectionsConfigDigest)
+	require.True(t, external.announcement.ConnectionsConfigDigest.isPresent)
+	require.NotNil(t, external.announcement.ConnectionsConfigDigest.value)
 	// The same selection in another order and tool order has the same digest.
 	cfg.Connections = []string{"hacker-news-daily/default", "slack/work=list_thread_messages,post_thread_reply"}
 	_, proxyServer, logs := startTestConnectorsMCPManager(t, cfg)

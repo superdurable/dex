@@ -11,6 +11,7 @@ package dev
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -109,6 +110,21 @@ func writeCanonicalJSONString(builder *strings.Builder, value string) {
 		}
 	}
 	builder.WriteByte('"')
+}
+
+// connectorsMCPDigestField is the server.json connectionsConfigDigest, which tells a missing field from JSON null.
+type connectorsMCPDigestField struct {
+	// isPresent is true when the field appears, even as null.
+	isPresent bool
+	// value is nil for JSON null.
+	value *string
+}
+
+// UnmarshalJSON runs only for a field that is present.
+func (field *connectorsMCPDigestField) UnmarshalJSON(content []byte) error {
+	field.isPresent = true
+	field.value = nil
+	return json.Unmarshal(content, &field.value)
 }
 
 // isSameConnectionsConfigDigest reports whether two optional digests are equal; two nil digests are equal.
