@@ -1017,8 +1017,11 @@ html .ses-settings-json {
 
 /* ---------- New session: the Start Flow dialog's frame, with settings fields ---------- */
 .nsd .nsd-fields {
+  display: grid;
+  gap: 12px;
   min-width: 0;
   margin: 0;
+  padding: 0;
   border: 0;
 }
 

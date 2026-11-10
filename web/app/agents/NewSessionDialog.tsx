@@ -147,55 +147,57 @@ export function NewSessionDialog({
           </div>
           <button aria-label={SESSION_COPY.newSessionClose} disabled={submitting} onClick={onClose} type="button">×</button>
         </header>
-        <fieldset className="sfd-scroll nsd-fields" disabled={submitting}>
-          {flowTypes.length > 1 && (
+        <div className="sfd-scroll">
+          <fieldset className="nsd-fields" disabled={submitting}>
+            {flowTypes.length > 1 && (
+              <label className="sfd-field">
+                <span>{SESSION_COPY.agentFlowType}</span>
+                <select value={flowType} onChange={(event) => setFlowType(event.target.value)}>
+                  {flowTypes.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}
+                </select>
+              </label>
+            )}
             <label className="sfd-field">
-              <span>{SESSION_COPY.agentFlowType}</span>
-              <select value={flowType} onChange={(event) => setFlowType(event.target.value)}>
-                {flowTypes.map((candidate) => <option key={candidate} value={candidate}>{candidate}</option>)}
-              </select>
+              <span>{SESSION_COPY.sessionId}</span>
+              <input value={draft.sessionId} onChange={(event) => update('sessionId')(event.target.value)} />
+              <small className="nsd-hint">{SESSION_COPY.sessionIdHint}</small>
+              {fieldErrors.sessionId && <small className="sfd-error" role="alert">{fieldErrors.sessionId}</small>}
             </label>
-          )}
-          <label className="sfd-field">
-            <span>{SESSION_COPY.sessionId}</span>
-            <input value={draft.sessionId} onChange={(event) => update('sessionId')(event.target.value)} />
-            <small className="nsd-hint">{SESSION_COPY.sessionIdHint}</small>
-            {fieldErrors.sessionId && <small className="sfd-error" role="alert">{fieldErrors.sessionId}</small>}
-          </label>
-          <label className="sfd-field">
-            <span>{SESSION_COPY.firstMessage}</span>
-            <textarea rows={3} value={draft.firstMessage} onChange={(event) => update('firstMessage')(event.target.value)} />
-            <small className="nsd-hint">{SESSION_COPY.firstMessageHint}</small>
-          </label>
-          <p className="ses-settings-warning">
-            <ShieldAlert aria-hidden="true" size={14} />
-            <span>{SESSION_COPY.settingsNoSecrets}</span>
-          </p>
-          <label className="sfd-field">
-            <span><code>{SESSION_COPY.modelSetting}</code></span>
-            <input value={draft.model} onChange={(event) => update('model')(event.target.value)} />
-            <small className="nsd-hint">{SESSION_COPY.modelHint}</small>
-          </label>
-          <label className="sfd-field">
-            <span><code>{SESSION_COPY.systemPromptSetting}</code></span>
-            <textarea rows={3} value={draft.systemPrompt} onChange={(event) => update('systemPrompt')(event.target.value)} />
-            <small className="nsd-hint">{SESSION_COPY.systemPromptHint}</small>
-          </label>
-          <label className="sfd-field">
-            <span>{SESSION_COPY.otherSettings}</span>
-            <textarea
-              className="ses-settings-json"
-              placeholder="{}"
-              rows={4}
-              spellCheck={false}
-              value={draft.otherSettings}
-              onChange={(event) => update('otherSettings')(event.target.value)}
-            />
-            <small className="nsd-hint">{SESSION_COPY.otherSettingsHint}</small>
-            {fieldErrors.otherSettings && <small className="sfd-error" role="alert">{fieldErrors.otherSettings}</small>}
-          </label>
-          {submitError && <div className="error-banner" role="alert">{submitError}</div>}
-        </fieldset>
+            <label className="sfd-field">
+              <span>{SESSION_COPY.firstMessage}</span>
+              <textarea rows={3} value={draft.firstMessage} onChange={(event) => update('firstMessage')(event.target.value)} />
+              <small className="nsd-hint">{SESSION_COPY.firstMessageHint}</small>
+            </label>
+            <p className="ses-settings-warning">
+              <ShieldAlert aria-hidden="true" size={14} />
+              <span>{SESSION_COPY.settingsNoSecrets}</span>
+            </p>
+            <label className="sfd-field">
+              <span><code>{SESSION_COPY.modelSetting}</code></span>
+              <input value={draft.model} onChange={(event) => update('model')(event.target.value)} />
+              <small className="nsd-hint">{SESSION_COPY.modelHint}</small>
+            </label>
+            <label className="sfd-field">
+              <span><code>{SESSION_COPY.systemPromptSetting}</code></span>
+              <textarea rows={3} value={draft.systemPrompt} onChange={(event) => update('systemPrompt')(event.target.value)} />
+              <small className="nsd-hint">{SESSION_COPY.systemPromptHint}</small>
+            </label>
+            <label className="sfd-field">
+              <span>{SESSION_COPY.otherSettings}</span>
+              <textarea
+                className="ses-settings-json"
+                placeholder="{}"
+                rows={4}
+                spellCheck={false}
+                value={draft.otherSettings}
+                onChange={(event) => update('otherSettings')(event.target.value)}
+              />
+              <small className="nsd-hint">{SESSION_COPY.otherSettingsHint}</small>
+              {fieldErrors.otherSettings && <small className="sfd-error" role="alert">{fieldErrors.otherSettings}</small>}
+            </label>
+            {submitError && <div className="error-banner" role="alert">{submitError}</div>}
+          </fieldset>
+        </div>
         <footer className="sfd-actions">
           <button disabled={submitting} onClick={onClose} type="button">{SESSION_COPY.cancel}</button>
           <button className="button primary" disabled={submitting || flowType === ''} type="submit">
