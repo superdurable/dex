@@ -13,6 +13,13 @@
 
 ### Added
 
+- Add `NewStandaloneContext` and `StandaloneContextOptions` to create a
+  `Context` for running Step code outside a Worker, for example in a tool
+  server or a test. The caller supplies the metadata, including the required
+  `Attempt`, and seeds the last heartbeat value and step-execution locals.
+  `OnRecordHeartbeat`, `OnSetStepExecutionLocal`, and `OnRecordEvent` hooks
+  receive what the handler records, so the caller can persist it.
+
 - Add `FlowConfig.OffloadHistory` to choose whether a run offloads its history
   to object storage. Nil means true. Set it to false for many short runs that
   close soon, to avoid object storage requests. Set it at start through

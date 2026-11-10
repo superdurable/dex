@@ -835,6 +835,24 @@ returns false outside Execute or for an invalid index. Natural completion and
 `SkipTimer` are intentionally indistinguishable. `WaitForMethodFailed` reads
 `ConditionResults.wait_for_failed`.
 
+### Standalone Context
+
+`NewStandaloneContext(parent, StandaloneContextOptions)` returns a private
+`standaloneContextImpl` that implements only `Context`. It lets Step code run
+outside a Worker, for example in a tool server or a test, without callers
+implementing `Context` themselves. It embeds the parent context, returns the
+supplied metadata unchanged, and rejects `Attempt < 1`.
+
+Seeded heartbeat and locals are encoded at construction with `encodeValue`, so
+decoding matches the Worker. Like a Worker attempt, `RecordHeartbeat` and
+`SetStepExecutionLocal` never change what the getters return. They call the
+caller's `OnRecordHeartbeat` and `OnSetStepExecutionLocal` hooks instead.
+`RecordEvent` keeps the Worker's non-empty and unique-name checks and calls
+`OnRecordEvent`. Hooks run serialized under one mutex on the calling goroutine.
+The context does not implement `attributeInvocation`, `channelInvocation`, or
+`streamInvocation`, so those operations return `errInvalidInvocationContext`
+or panic as for any foreign `Context`.
+
 ### Attributes and buffered reads
 
 Incoming attributes are validated as unique, non-empty physical keys and stored

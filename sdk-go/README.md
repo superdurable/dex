@@ -378,6 +378,42 @@ read older messages until it is empty. The server caps page size at 1000 by
 default. A trimmed anchor returns an empty page, and newer concurrent writes do
 not enter an existing older-page chain.
 
+### Running Step code outside a Worker
+
+`NewStandaloneContext` creates a `Context` for running Step code outside a
+Worker, for example in a tool server or a test. It represents one handler
+attempt. It inherits cancellation, deadlines, and values from its parent
+context, and its metadata methods return the values in
+`StandaloneContextOptions`. `Attempt` is required and must be at least 1.
+
+```go
+ctx, err := dex.NewStandaloneContext(attemptContext, dex.StandaloneContextOptions{
+	FlowID:             "invoice-tool-server",
+	StepExecutionID:    requestKey,
+	FirstAttemptAt:     record.FirstAttemptAt,
+	Attempt:            record.Attempt,
+	LastHeartbeatValue: record.Checkpoint,
+	OnRecordHeartbeat: func(value any) error {
+		record.Checkpoint = value
+		return saveCallRecord(record)
+	},
+})
+if err != nil {
+	return nil, err
+}
+decision, err := SendInvoiceStep{}.Execute(ctx, input)
+```
+
+Dex stores nothing for a standalone Context. `GetLastHeartbeatValue` and
+`GetStepExecutionLocal` read only the seeded `LastHeartbeatValue` and
+`StepExecutionLocals`. `RecordHeartbeat`, `SetStepExecutionLocal`, and
+`RecordEvent` validate and encode their value, then call the matching `On*`
+hook before returning, so the caller can persist the value and seed the next
+attempt. Seed a value persisted as JSON by decoding it into its Go type or into
+`any`, not as `json.RawMessage`. Timer and WaitFor-failure helpers return
+false. Attribute, Channel, and Stream operations need a Worker invocation and
+fail.
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions while continuing with
