@@ -27,6 +27,7 @@ Changelog = "https://github.com/superdurable/dex/blob/main/agents/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
+    "dex-agents[connectors]",
     "mypy>=1.15,<2",
     "opentelemetry-sdk>=1.45,<2",
     "pytest>=8.3,<9",

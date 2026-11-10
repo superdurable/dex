@@ -17,6 +17,7 @@ import dataclasses
 import json
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
+from datetime import timedelta
 from typing import Any
 
 from agents import (
@@ -31,6 +32,7 @@ from agents import (
     Runner,
     RunResultStreaming,
     RunState,
+    ToolApprovalItem,
     ToolInputGuardrailData,
     Usage,
 )
@@ -45,6 +47,7 @@ from dex_agents import (
     CONTEXT_SUMMARY_INSTRUCTIONS,
     AgentFrameworkRunner,
     AgentMessage,
+    AgentToolCall,
     AgentTurnContext,
     AgentTurnOutcome,
     AgentUsage,
@@ -52,11 +55,13 @@ from dex_agents import (
     ContextSummaryResult,
     DeferredToolCall,
     DeferredToolExecution,
+    DeferredToolOutcome,
     FrameworkMessage,
     MessageRole,
     ModelCallMetadata,
     ToolCallsRequested,
     ToolCallStatus,
+    ToolCallStepOptions,
     ToolExecutionError,
     ToolExecutionResult,
     ToolPolicy,
@@ -68,6 +73,11 @@ from dex_agents import (
     estimate_stored_input_tokens,
     estimate_text_tokens,
     select_turn_boundary_cutoff,
+)
+from dex_agents.stepwise import (
+    DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
+    FrameworkToolSourceRouter,
+    ToolSource,
 )
 from dex_agents_openai_agents._agent_graph import (
     ACTIVE_TURN,
@@ -118,7 +128,7 @@ def get_current_deferred_tool_execution() -> DeferredToolExecution | None:
     return _ACTIVE_DEFERRED_TOOL_EXECUTION.get()
 
 
-class OpenAIAgentsRunner(AgentFrameworkRunner):
+class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
     """Run an OpenAI Agents SDK agent in Step mode inside the Dex agent session Flow.
 
     Pass the runner to ``AgentSessionFlow``, or let
@@ -143,6 +153,19 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
     ``WebSearchTool``, run inside the model call. Tools the SDK cannot gate,
     such as ``Agent.mcp_servers`` tools and local non-function tools, are
     refused unless ``allow_at_least_once_tools`` is ``True``.
+
+    Tool sources, such as ``ConnectorToolSource``, add a function tool to
+    every copied agent for each tool of a source's ``cached_tools()``, with
+    the source's name, description, and JSON Schema. The SDK fixes an
+    agent's tools, so these are the source tools the runner can offer; a
+    source without ``cached_tools`` offers none. Every ``RunModel`` lists the
+    sources, and a model call offers only the tools its listing has. Every
+    call of a source tool, reads included, stops the SDK like a function
+    tool call and runs once in its own tool Step through the source that
+    built it. The source picks the effect class, the approval, the write
+    ordering, and the tool Step's timeout and retry policy. The runner polls
+    no tool tasks, so a source call that starts one records ``FAILED`` for a
+    ``READ`` call and ``OUTCOME_UNKNOWN`` otherwise.
 
     The runner implements ``ContextCompactionRunner``. Set
     ``AgentSessionOptions.compaction`` to compact at turn boundaries: the summary
@@ -173,6 +196,8 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         hooks: RunHooks[Any] | None = None,
         allow_at_least_once_tools: bool = False,
         summary_model: str | Model | None = None,
+        tool_sources: Sequence[ToolSource] = (),
+        tool_source_listing_timeout: timedelta = DEFAULT_TOOL_SOURCE_LISTING_TIMEOUT,
     ) -> None:
         """Copy the agent graph and keep the run settings for every model call.
 
@@ -204,21 +229,45 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
                 uses the model of the run config, else of the starting agent.
 
                 .. versionadded:: 0.3.0
+            tool_sources: Tool sources, such as ``ConnectorToolSource``, whose
+                cached tools every copied agent offers. Each source has a
+                unique ``source_name``, which the runner stores with every call
+                it builds, so the tool Step reaches that source on any Worker.
+                A ``tool_policies`` entry for a connector tool changes only its
+                approval. Defaults to none.
+
+                .. versionadded:: 0.4.0
+            tool_source_listing_timeout: How long one ``RunModel`` waits for
+                each source's ``list_tools``. A source that fails or takes
+                longer offers no tools in that model call, except tools the
+                turn already called. Defaults to 10 seconds.
+
+                .. versionadded:: 0.4.0
 
         Raises:
             TypeError: If ``context`` is a ``RunContextWrapper``. Pass the
-                application value it would wrap instead.
+                application value it would wrap instead. Also if a tool source
+                lacks a ``ToolSource`` method or a non-blank ``source_name``.
             ValueError: If two different function tools in the agent graph have
                 the same qualified name, a handoff has no known target agent, an
                 agent tool's nested agent has a tool that needs approval, or the
                 graph has a tool the SDK cannot gate and
-                ``allow_at_least_once_tools`` is ``False``.
+                ``allow_at_least_once_tools`` is ``False``. Also if two tool
+                sources share a ``source_name``, a source's tool repeats a
+                function tool, a handoff, or another source's tool, or
+                ``tool_source_listing_timeout`` is not positive.
         """
         if isinstance(context, RunContextWrapper):
             raise TypeError("pass the application context value, not a RunContextWrapper")
         self._graph = DeferrableAgentGraph(
             agent, allow_at_least_once_tools=allow_at_least_once_tools
         )
+        self._tool_sources = FrameworkToolSourceRouter(
+            tool_sources,
+            reserved_tool_names=self._graph.framework_tool_names,
+            listing_timeout=tool_source_listing_timeout,
+        )
+        self._graph.install_source_tools(self._tool_sources.cached_source_tools())
         self._context = context
         self._run_config = run_config
         self._max_turns = max_turns
@@ -241,20 +290,22 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         return self._graph.starting_agent
 
     def validate_tool_policies(self, tool_policies: Mapping[str, ToolPolicy]) -> None:
-        """Check that every tool policy names a function tool of the agent graph.
+        """Check that every tool policy names a function tool of the agent graph or a source tool.
 
         ``openai_agents_session_flow`` calls it at construction. Call it yourself
         when you build ``AgentSessionFlow`` directly. A policy for a tool the SDK
         lists at run time, such as an MCP server tool, would never apply, so it
-        is an error.
+        is an error. A policy for a tool source's tool is accepted; for a
+        connector tool it changes only the approval.
 
         Args:
             tool_policies: The session's explicit policies by qualified tool name.
 
         Raises:
-            ValueError: If a policy names a tool that is not in the agent graph.
+            ValueError: If a policy names a tool that is neither in the agent
+                graph nor a tool of a tool source.
         """
-        self._graph.validate_tool_policies(tool_policies)
+        self._graph.validate_tool_policies(tool_policies, self._tool_sources.declared_tool_names)
 
     def build_user_message(self, text: str) -> FrameworkMessage:
         """Store user text as an SDK input item.
@@ -295,10 +346,13 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
 
         Raises:
             ValueError: If the SDK stopped for a tool outside the gated agent
-                graph, such as a nested agent tool or a local MCP server tool.
+                graph, such as a nested agent tool or a local MCP server tool,
+                or a tool source listed a name that a tool of the graph or
+                another source's tool uses.
             Exception: Any SDK or model error fails the ``RunModel`` attempt.
         """
-        active_turn = ActiveTurn(turn=turn)
+        source_tools = await self._tool_sources.list_source_tools(turn)
+        active_turn = ActiveTurn(turn=turn, source_tools=source_tools)
         token = ACTIVE_TURN.set(active_turn)
         try:
             run_input: list[Any] | RunState[Any, Agent[Any]]
@@ -422,8 +476,12 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
             ),
         )
 
-    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> ToolExecutionResult:
+    async def execute_deferred_tool_call(self, call: DeferredToolExecution) -> DeferredToolOutcome:
         """Run the application's function tool once for one tool call Step.
+
+        A call that a tool source built goes to that source instead, found by
+        the source name stored with the call, with the source's own reference
+        and the tool Step's live context.
 
         The runner first parses the arguments and validates them against a
         decorated tool's parameters; invalid arguments raise
@@ -449,15 +507,21 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
         Returns:
             The tool output as text. A tool with an output type records the
             JSON that its type adapter dumps; other structured outputs become
-            JSON text.
+            JSON text. For a source call, the source's outcome.
 
         Raises:
             ToolExecutionError: If the tool is unknown, the arguments are
                 invalid, an input guardrail rejected or tripped, a nested agent
-                tool run stopped for approval, or the tool raised it.
+                tool run stopped for approval, or the tool or source raised it.
+            ToolOutcomeUnknownError: The source cannot tell whether the call
+                took effect. The session records ``OUTCOME_UNKNOWN``.
+            LookupError: A source built the call, but no source of that name
+                is configured on this Worker, so the effect class decides.
             Exception: Any other tool exception fails the Step attempt.
         """
         record = call.tool_call
+        if self._tool_sources.is_source_tool_call(record):
+            return await self._tool_sources.execute_deferred_tool_call(call)
         tool = self._graph.tools_by_qualified_name.get(record.tool_name)
         if tool is None:
             raise ToolExecutionError(f"tool {record.tool_name} is not available to this agent")
@@ -496,6 +560,29 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
             _ACTIVE_DEFERRED_TOOL_EXECUTION.reset(token)
         _reject_nested_interruptions(tool, context)
         return ToolExecutionResult(output=_record_tool_output(tool, output))
+
+    def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        """Return a tool source's options for one call's tool Step.
+
+        A source that defines ``tool_call_step_options(tool_call)`` gives its
+        calls their own timeout and retry policy, as ``ConnectorToolSource``
+        does from each operation's manifest. Function tools keep the tool
+        Steps' defaults.
+
+        .. versionadded:: 0.4.0
+
+        Args:
+            tool_call: The record whose tool Step starts.
+
+        Returns:
+            The source's options, or ``None`` for the defaults.
+
+        Raises:
+            LookupError: If a source built the call but no source of that name
+                is configured on this Worker. The session then uses the
+                defaults.
+        """
+        return self._tool_sources.tool_call_step_options(tool_call)
 
     async def _restore_run_state(
         self,
@@ -539,8 +626,11 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
     ) -> ToolCallsRequested:
         tool_calls: list[DeferredToolCall] = []
         for interruption in result.interruptions:
-            tool = self._graph.find_interrupted_tool(active_turn, interruption)
             tool_call_id = interruption.call_id or ""
+            if self._graph.is_source_tool_interruption(interruption):
+                tool_calls.append(self._source_tool_call(active_turn, interruption))
+                continue
+            tool = self._graph.find_interrupted_tool(active_turn, interruption)
             tool_calls.append(
                 DeferredToolCall(
                     tool_call_id=tool_call_id,
@@ -556,6 +646,28 @@ class OpenAIAgentsRunner(AgentFrameworkRunner):
             usage=usage,
             model_call_metadata=model_call_metadata,
         )
+
+    def _source_tool_call(
+        self, active_turn: ActiveTurn, interruption: ToolApprovalItem
+    ) -> DeferredToolCall:
+        # The source builds the call, so its effect class, approval, and write ordering apply.
+        source_tools = active_turn.source_tools
+        deferred = (
+            None
+            if source_tools is None
+            else source_tools.deferred_tool_call(
+                active_turn.turn,
+                tool_call_id=interruption.call_id or "",
+                tool_name=interruption.tool_name or "",
+                arguments=interruption.arguments or "{}",
+            )
+        )
+        if deferred is None:
+            raise RuntimeError(
+                f"the model called tool source tool {interruption.tool_name}, which this "
+                "model call's listing does not offer"
+            )
+        return deferred
 
 
 def _turn_input_items(turn: AgentTurnContext) -> list[Any]:
