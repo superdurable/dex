@@ -1,0 +1,471 @@
+\section{The proof}
+\label{sec:proof}
+
+The proof has the classical shape of a simulation argument
+\cite{lynch1995simulations,abadi1991refinement}: a relation between the
+states of the two systems, invariants of each side, a step simulation in
+each direction, and then the lifting of those steps to finite and infinite
+runs. Figure~\ref{fig:architecture} shows the parts. This section describes
+them in order and says where each one is in the Lean development.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  >={Stealth[length=4.5pt]},
+  box/.style={draw,rounded corners=2pt,align=center,font=\scriptsize,inner sep=4pt,minimum height=0.8cm,text width=3.0cm},
+  thm/.style={box,very thick,fill=black!6,text width=3.7cm},
+  x=1cm,y=1cm]
+\node[box] (model) at (0,5.4) {Models and translation\\ \texttt{Dex/}, \texttt{L/}, \texttt{Translation/}};
+\node[box] (linv) at (-4.3,3.9) {\Lang{} invariant\\ \texttt{L.Invariant.step} (WP1)};
+\node[box] (rel) at (0,3.9) {Simulation state\\ \texttt{IsSimulationState}};
+\node[box] (dinv) at (4.3,3.9) {Dex invariants\\ \texttt{ConfigInvariant}, \ldots};
+\node[box] (ltod) at (-2.6,2.3) {\Lang{} to Dex steps\\ (WP2, WP3)};
+\node[box] (dtol) at (2.6,2.3) {Dex to \Lang{} steps\\ (WP4)};
+\node[box] (fin) at (-4.3,0.7) {Finite runs\\ \texttt{FiniteTraces.lean}};
+\node[box] (blocks) at (0,0.7) {Block runs, silent weight\\ (L1, L2)};
+\node[box] (inf) at (4.3,0.7) {Infinite runs, fairness\\ (L3 to L6)};
+\node[thm] (safety) at (-4.3,-0.9) {\texttt{safety\_of\_isWellFormed}};
+\node[thm] (live) at (4.3,-0.9) {\texttt{liveness\_of\_isWellFormed}};
+\node[box,text width=2.6cm] (disc) at (0,-0.9) {Lock discipline,\\ witnesses};
+\draw[->] (model) -- (linv);
+\draw[->] (model) -- (rel);
+\draw[->] (model) -- (dinv);
+\draw[->] (linv) -- (ltod);
+\draw[->] (rel) -- (ltod);
+\draw[->] (rel) -- (dtol);
+\draw[->] (dinv) -- (dtol);
+\draw[->] (dinv) -- (ltod);
+\draw[->] (linv) -- (dtol);
+\draw[->] (ltod) -- node[font=\scriptsize,above] {determinism} (dtol);
+\draw[->] (ltod) -- (fin);
+\draw[->] (dtol) -- (fin);
+\draw[->] (ltod) -- (blocks);
+\draw[->] (dtol) -- (blocks);
+\draw[->] (blocks) -- (inf);
+\draw[->] (dtol) -- (inf);
+\draw[->] (fin) -- (safety);
+\draw[->] (inf) -- (live);
+\draw[->,densely dashed] (disc) -- (safety);
+\draw[->,densely dashed] (disc) -- (live);
+\end{tikzpicture}
+\caption{The structure of the proof. WP1 to WP4 are the work packages of
+safety, L1 to L6 those of liveness (\S\ref{sec:engineering}). The dashed
+arrows are non-vacuity (\S\ref{sec:nonvacuity}): the hypothesis holds for
+concrete programs, and the trace sets are inhabited.}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{The simulation state}
+\label{sec:relation}
+
+Every step lemma takes one hypothesis, \lean{IsSimulationState}
+(\file{Simulation/Relation.lean}), with five parts:
+
+\begin{Verbatim}
+structure IsSimulationState (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) : Prop where
+  isRelated : Related program lConfig dexConfig
+  lInvariant : L.Invariant program lConfig
+  dexInvariant : ConfigInvariant program dexConfig
+  tasksDistinct : TasksAreDistinct dexConfig
+  timersDistinct : TimersAreDistinct dexConfig
+\end{Verbatim}
+
+\paragraph{\lean{Related}} holds only the clauses that mention both sides.
+The clocks agree, and the last stamped \Lang{} action carries the timestamp
+of the last Dex commit: this is the timing model at work. The statuses
+correspond (not started, running, closed). While the program runs
+(\lean{RunningRelated}):
+\begin{itemize}
+\item \emph{Data.} Shared variables are Attributes; each condition
+  variable's queue is its waiter-list Attribute; each external channel's
+  queue is its Channel's pending messages.
+\item \emph{Tokens.} A mutex's token Channel holds one token exactly while
+  the mutex is unlocked; $\mathit{join}/t$ holds one message exactly while
+  $t$ has ended and was not joined; $\mathit{cv}/w$ holds the wakes of a
+  waiter that has not parked yet. A pending cancel request means the flag
+  is set; a set flag means a pending request, or a thread that has observed
+  it, or an ended thread that no live thread can still fork.
+\item \emph{Timers.} The armed Dex timers are the armed \Lang{} timers,
+  with the same number and deadline, and the timer counter is the counter
+  of the \lean{timed} Step type.
+\item \emph{Threads and Steps.} Every thread that has not halted is carried
+  by exactly one active Step, and every active Step carries one thread
+  (\lean{StepCarriesThread}): the Step has the type, input, and options the
+  translation gives that thread. The thread's phase fixes the Step's phase,
+  invocation, and task (\lean{PhaseMatchesStep}), as in
+  Figure~\ref{fig:lifecycle}. In particular a Step is in phase
+  $\mathit{WT}$ exactly while its thread is blocked, so a publication wakes
+  a Step exactly when it wakes the thread.
+\item \emph{Order.} Two blocked threads are ordered by their blocking
+  stamps as their Steps' waits are ordered by $\mathit{sws}$. This carries
+  FIFO from one side to the other.
+\end{itemize}
+After the close (\lean{ClosedRelated}), the late emits of \Lang{} are, up to
+permutation, the effects that the remaining stale tasks have not emitted
+yet; no Step has an invocation, and no timer is armed.
+
+\paragraph{The invariants.}
+\lean{L.Invariant} (\file{L/Invariant.lean}) holds the facts about \Lang{}
+alone: thread IDs are unique and the next children of a thread are fresh;
+the next mutex a thread creates does not exist yet; every handle a thread
+can reach names an existing mutex (this is where unforgeable handles are
+used); blocking stamps and timer numbers are distinct; each thread's phase
+fits its code; a thread that began a statement that requires a mutex holds
+it until the statement completes. On the Dex side,
+\lean{ConfigInvariant} wraps a run invariant (\lean{Dex.Run.Invariant}:
+unique Step IDs, counted Step numbers, injective $\mathit{sws}$, only the
+wait shapes the translation uses, and no pending message on a Channel that
+a waiting Step names) and says that a task holds the response its handler
+computes; \lean{TasksAreDistinct} and \lean{TimersAreDistinct} say
+that task IDs and armed timer IDs are unique. Each invariant is proved to
+hold initially and to be kept by every transition
+(\lean{L.Invariant.step}, \lean{ConfigInvariant.step},
+\lean{TasksAreDistinct.step}, \lean{TimersAreDistinct.step}).
+
+\subsection{From \Lang{} to Dex: named action sequences}
+\label{sec:ltodex}
+
+The \Lang{}-to-Dex direction does not say ``there exist Dex actions''. It
+names them. \lean{simulatingActions} is a function of the two
+configurations and the \Lang{} label:
+
+\begin{itemize}
+\item a tick, a request, and a batch of \kw{fire} actions are one Dex action
+  each (\lean{tick}, \lean{request}, \lean{timerFire});
+\item a thread that begins an action is the \rulename{STEP-START} of its
+  Step;
+\item $\ev{out}(a)$ is the \lean{workerEffect} of the thread's task, after
+  the \lean{workerRun} that runs the handler if it has not run;
+\item a thread that completes an action is the \lean{stepComplete} of its
+  task, after the \lean{workerRun} and \lean{workerReturn} that have not
+  happened yet;
+\item after the close, the delivery or the drop of a late emit is the
+  \lean{workerEffect} or the \lean{workerAbandon} of the first task that
+  still holds the effect.
+\end{itemize}
+So one \Lang{} label is one to three Dex actions. The step lemma, proved by
+cases on the label (\lean{l_step_simulatedByActions},
+\file{Simulation/LToDex.lean}), says that these actions are enabled, have
+the same projected events, and end in a related configuration:
+
+\begin{Verbatim}
+def IsSimulatedByActions (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (label : L.Label) (lEvents : List Event)
+    (lNext : L.Config) : Prop :=
+  ∃ dexEvents dexNext,
+    (Dex.system ⟦program⟧).exec dexConfig (simulatingActions program lConfig dexConfig label) =
+      some (dexEvents, dexNext) ∧
+    dexEvents.filterMap project = lEvents ∧
+    Related program lNext dexNext
+\end{Verbatim}
+
+The bulk of the proof is here. Registering a wait
+(\file{Simulation/Register.lean}) and completing an action
+(\file{Simulation/Completion.lean} and \file{Simulation/Completion/}) must
+re-establish every clause of \lean{Related} after a commit that may write
+an Attribute, publish tokens, wake the earliest waiter, create Steps, or
+close the Flow.
+
+\subsection{From Dex to \Lang{}: at most one label, by determinism}
+\label{sec:dextol}
+
+In the other direction, every Dex step of an admissible run is simulated by
+at most one \Lang{} label (\lean{dex_step_simulated},
+\file{Simulation/DexToL.lean}):
+
+\begin{Verbatim}
+def IsSimulatedByL (program : Program) (lConfig : L.Config)
+    (dexEvents : List (Dex.Obs signature)) (dexNext : Dex.Config signature) : Prop :=
+  ∃ labels lNext,
+    labels.length ≤ 1 ∧
+    (L.system program).exec lConfig labels = some (dexEvents.filterMap project, lNext) ∧
+    Related program lNext dexNext
+\end{Verbatim}
+
+Running a handler, returning it, and dropping a task that holds no effect
+have no \Lang{} label: the list is empty and the relation is kept. For the
+actions that \Lang{} sees, the proof does not repeat the case analysis of
+the relation. It reuses the other direction:
+\begin{enumerate}
+\item Show that the corresponding \Lang{} label is enabled.
+\item Apply the \Lang{}-to-Dex lemma. It names the simulating Dex actions.
+\item Show that those actions are the given action alone. For a Worker
+  effect or a completion, the given action is enabled only when the Worker
+  steps before it have already happened, so the named list has no prefix.
+\item \lean{Dex.step} is a function. The given step is therefore the
+  simulating step, and its result is the related configuration of step 2.
+\end{enumerate}
+This is why the \Lang{}-to-Dex statement names its actions: an existential
+statement could not be matched against a given Dex step. Compiler
+verification uses determinism for a similar economy: with a deterministic
+target, preservation proved in one direction suffices
+\cite{leroy2009compcert}.
+
+Step~1 is the only place where well-formedness is used. At
+\rulename{STEP-START} of a Step whose statement requires a mutex, the
+\Lang{} thread can begin only if it holds the mutex; the hypothesis that
+\lean{BreaksMutexRequirement} does not hold says that it does. Consequently the
+two \Lang{}-to-Dex inclusions, \lean{finiteTrace_l_to_dex} and
+\lean{fairMaximalTrace_l_to_dex}, hold for every program; only the
+Dex-to-\Lang{} inclusions need the scope.
+
+\subsection{Safety}
+
+Safety follows by induction on a finite run
+(\file{FiniteTraces.lean}). The initial configurations are a simulation
+state (\lean{related_initial} and the initial cases of the invariants). Each
+step of one side is matched by the step simulation, and the invariants are
+carried along by their own step lemmas. The Dex-to-\Lang{} induction also
+carries reachability of the \Lang{} configuration, to apply
+well-formedness, and admissibility of each Dex action, which follows from
+the admissible prefix. The two inclusions are \lean{finiteTrace_dex_to_l}
+and \lean{finiteTrace_l_to_dex}.
+
+\subsection{Liveness}
+\label{sec:liveness-proof}
+
+Each inclusion of liveness builds an infinite run of one side from an
+infinite run of the other, and then carries over the input word, the trace,
+the marker, and the fairness assumptions.
+
+\paragraph{Runs in blocks.}
+The two systems do not step in lockstep. One \Lang{} label is one to three
+Dex actions, and a Dex Worker step is no \Lang{} label. A run of one side
+therefore gives the other side a \emph{run in blocks}
+(\lean{BlockRun}, \file{Core/BlockRun.lean}): one finite, possibly empty,
+list of labels per step of the first (Figure~\ref{fig:blocks}). A block run
+with infinitely many non-empty blocks \emph{flattens} into an ordinary
+infinite run (\lean{BlockRun.IsFlattenedTo}), and the flattening keeps the
+trace, the attempted requests, and whether the progress steps are finitely
+many. This part mentions neither Dex nor \Lang{}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  >={Stealth[length=4pt]},
+  cell/.style={draw,minimum height=0.55cm,minimum width=0.62cm,font=\scriptsize,inner sep=1pt},
+  sil/.style={cell,fill=black!12},
+  lab/.style={font=\scriptsize},
+  blk/.style={draw,densely dotted,rounded corners=2pt,inner sep=2.5pt},
+  x=1cm,y=1cm]
+% (a) L run -> Dex blocks
+\node[lab,anchor=west] at (-1.6,2.9) {(a) A Dex run built from an \Lang{} run: blocks of \texttt{fairActions}};
+\node[lab,anchor=east] at (-0.1,2.2) {\Lang{}};
+\node[cell] (a0) at (0.9,2.2) {begin};
+\node[cell] (a1) at (3.4,2.2) {$\mathit{out}$};
+\node[cell] (a2) at (6.2,2.2) {complete};
+\node[cell] (a3) at (8.6,2.2) {tick};
+\node[cell] (a4) at (10.4,2.2) {exit};
+\node[lab,anchor=east] at (-0.1,1.2) {Dex};
+\node[cell] (p0) at (0.9,1.2) {start};
+\node[sil] (p1) at (3.05,1.2) {run};
+\node[cell] (p2) at (3.75,1.2) {fx};
+\node[sil] (p3) at (5.85,1.2) {ret};
+\node[cell] (p4) at (6.55,1.2) {cmpl};
+\node[cell] (p5) at (8.6,1.2) {tick};
+\node[sil] (p6) at (9.7,1.2) {ret};
+\node[cell] (p7) at (10.4,1.2) {cmpl};
+\node[sil] (p8) at (11.1,1.2) {drop};
+\node[blk,fit=(p0)] (g0) {};
+\node[blk,fit=(p1)(p2)] (g1) {};
+\node[blk,fit=(p3)(p4)] (g2) {};
+\node[blk,fit=(p5)] (g3) {};
+\node[blk,fit=(p6)(p7)(p8)] (g4) {};
+\draw[->] (a0) -- (g0);
+\draw[->] (a1) -- (g1);
+\draw[->] (a2) -- (g2);
+\draw[->] (a3) -- (g3);
+\draw[->] (a4) -- (g4);
+% (b) Dex run -> L blocks
+\node[lab,anchor=west] at (-1.6,0.2) {(b) An \Lang{} run built from a Dex run: blocks of length 0 or 1};
+\node[lab,anchor=east] at (-0.1,-0.5) {Dex};
+\node[cell] (q0) at (0.9,-0.5) {start};
+\node[sil] (q1) at (2.3,-0.5) {run};
+\node[cell] (q2) at (3.7,-0.5) {fx};
+\node[cell] (q3) at (5.1,-0.5) {tick};
+\node[sil] (q4) at (6.5,-0.5) {ret};
+\node[cell] (q5) at (7.9,-0.5) {cmpl};
+\node[sil] (q6) at (9.3,-0.5) {stale};
+\node[lab,anchor=east] at (-0.1,-1.5) {\Lang{}};
+\node[cell] (r0) at (0.9,-1.5) {begin};
+\node[lab] (r1) at (2.3,-1.5) {$[\,]$};
+\node[cell] (r2) at (3.7,-1.5) {$\mathit{out}$};
+\node[cell] (r3) at (5.1,-1.5) {tick};
+\node[lab] (r4) at (6.5,-1.5) {$[\,]$};
+\node[cell] (r5) at (7.9,-1.5) {complete};
+\node[lab] (r6) at (9.3,-1.5) {$[\,]$};
+\foreach \a/\b in {q0/r0,q1/r1,q2/r2,q3/r3,q4/r4,q5/r5,q6/r6} \draw[->] (\a) -- (\b);
+\end{tikzpicture}
+\caption{Runs in blocks. Dotted outlines are blocks. Shaded Dex actions are
+of a \emph{silent kind}:
+\Lang{} has no label for them. (a) Each \Lang{} label becomes its
+simulating actions, followed, after the close, by the drops of the canceled
+tasks that hold no effect. (b) Each Dex action becomes at most one \Lang{}
+label; silent actions become empty blocks.}
+\label{fig:blocks}
+\end{figure}
+
+\paragraph{Dex to \Lang{}: the silent weight.}
+Given a fair Dex run, \lean{dex_step_simulated} gives an \Lang{} run in
+blocks of length 0 or 1 (\lean{LFollowsDex}). The danger is an infinite
+tail of empty blocks: the Dex run would have infinitely many progress steps
+(\mdiv) while the \Lang{} run has finitely many. The proof rules it out
+with a measure. The actions that can have no \Lang{} label are of four
+kinds: \lean{workerRun}, \lean{workerReturn}, \lean{workerAbandon}, and
+\lean{stepCompleteStale}. A task can take at most three such steps (run,
+return, drop), and the \emph{silent weight} of a configuration counts what
+is left:
+
+\begin{Verbatim}
+def Dex.Task.silentWeight {σ : Dex.Signature} (task : Dex.Task σ) : Nat :=
+  match task.phase with
+  | .started => 3
+  | .running _ _ => 2
+  | .returned _ => 1
+
+def Dex.Config.silentWeight {σ : Dex.Signature} (config : Dex.Config σ) : Nat :=
+  (config.tasks.map Dex.Task.silentWeight).sum
+\end{Verbatim}
+
+Every action of a silent kind strictly lowers the weight
+(\lean{silentWeight_lt_of_isSilentKind}), a tick keeps it, and only a step
+that \Lang{} sees can raise it. So infinitely many progress steps of the
+Flow include infinitely many that \Lang{} sees, and the \Lang{} labels of a
+Dex step are progress steps exactly when the action is one. The markers
+then agree. F1 gives infinitely many ticks, hence infinitely many non-empty
+blocks, so the flattening exists (\lean{exists_lRun_of_dexRun}).
+
+\paragraph{\Lang{} to Dex: cleaning up after the close.}
+Given a fair \Lang{} run, the simulating actions give a Dex run in blocks
+(\lean{DexFollowsL}). One more step is needed for fairness. When the
+program ends, the Flow close cancels every active Step, and the tasks of
+those Steps stay in $\Theta$. A stale task that still holds an effect
+corresponds to a late emit, and \Lang{}'s own fairness delivers or drops
+it. A stale task that holds no effect has no \Lang{} step at all, yet F4
+requires it to leave $\Theta$. So the Dex run does not use
+\lean{simulatingActions} alone. It uses \lean{fairActions}: the simulating
+actions, followed by the \rulename{WORKER-ABANDON} of every canceled task
+that holds no effect (\lean{cleanupActions}). Between two blocks no such
+task and no \emph{Returned} task is left.
+
+\paragraph{Fairness and markers carry over.}
+For each direction, one lemma per assumption shows that the built run is
+fair when the given run is. The correspondences are those of
+Table~\ref{tab:fairness}: a thread whose next action has not begun is a
+pending invocation (F3); a thread that issued an emit or began an action is
+a task, with an effect exactly when it issued an emit (F4, F5); a due timer
+is a due timer (F2); a late emit is an effect of a stale task (F4). The
+markers carry over because closed corresponds to closed in \lean{Related}
+and because flattening keeps whether the progress steps are finitely many.
+The two inclusions are \lean{fairMaximalTrace_dex_to_l} and
+\lean{fairMaximalTrace_l_to_dex} (\file{Liveness.lean}).
+
+\subsection{Non-vacuity}
+\label{sec:nonvacuity}
+
+A theorem with a hypothesis is only as good as the set of objects that
+satisfy the hypothesis. \lean{Program.IsWellFormed} quantifies over every
+reachable configuration, so a concrete trace does not establish it, and
+without a witness the theorems could hold for no program at all.
+
+\paragraph{A static lock discipline.}
+\file{L/LockDiscipline.lean} defines a decidable, syntactic, sufficient
+condition, \lean{Program.hasStaticLockDiscipline}: a must-hold lock-set
+analysis over the statically known mutexes.
+\kw{lock}$(\kw{staticMutex}(i))$ adds $i$ to the set. \kw{unlock},
+\kw{wait}, \kw{signal}, and \kw{broadcast} need a statically known operand
+whose mutex is in the set. The two branches of an \kw{if} or a \kw{select}
+must agree. A loop body must give back the set it started with. A called or
+forked procedure body, a \kw{try} body, and a handler are checked from the
+empty set. \file{L/LockDisciplineSound.lean} proves soundness:
+
+\begin{Verbatim}
+theorem Program.isWellFormed_of_hasStaticLockDiscipline (program : Program)
+    (isDisciplined : program.hasStaticLockDiscipline = true) : program.IsWellFormed
+\end{Verbatim}
+
+The proof rests on one fact of \Lang{}: only the owner of a mutex releases
+it, so the steps of other threads never shrink the set of mutexes a thread
+holds.
+
+\paragraph{Well-formed programs exist.}
+\file{Examples/WellFormed.lean} proves \lean{IsWellFormed} for eight
+programs, each by evaluating the discipline in the Lean kernel. Together
+they use every construct of \Lang{}: a two-thread mutex program; a program
+with \kw{sleep}, a timed \kw{select}, \kw{recv}, \kw{cancel}, \kw{fork},
+and \kw{join}; a \kw{wait}/\kw{signal} program; a
+\kw{wait}-in-a-loop/\kw{broadcast} program with shared variables; a
+recursive program; a program with \kw{try}, a \kw{throw} across a call, and
+an uncaught exception; three threads racing in \kw{select}; and a program
+that creates and locks a mutex and then fails.
+\file{Examples/WellFormedSafety.lean} states the safety theorem at three of
+them with no hypothesis left, for example:
+
+\begin{Verbatim}
+theorem mutexProgram_safety (trace : List Event) :
+    IsProjectedDexFiniteTrace Mutex.program trace ↔ IsLFiniteTrace Mutex.program trace :=
+  safety_of_isWellFormed Mutex.program mutexProgram_isWellFormed trace
+\end{Verbatim}
+
+The trace sets are not empty either. \file{Examples/Mutex.lean} shows, by
+running explicit schedules in the kernel, that both complete traces of the
+two-thread mutex program are finite traces of the program and projected
+finite traces of its Flow (\lean{bothTraces_onBothSides}).
+\file{Examples/TimedSelect.lean} and \file{Examples/TimerOrder.lean} do the
+same for timers, \kw{select}, cancellation, and two timers with equal
+deadlines.
+
+\paragraph{Fair maximal traces exist.}
+The trace sets of liveness are defined by the existence of a fair run.
+Without a fair run of some program, \lean{liveness_of_isWellFormed} would
+compare two empty sets. \file{Liveness/RestingRuns.lean} builds fair
+maximal runs of \Lang{}. A configuration is \emph{at rest}
+(\lean{L.Config.isAtRest}) when every thread is halted or blocked without a
+timer and no late emit is left; then none of F2 to F5 speaks about it. A
+run that reaches a configuration at rest by a finite schedule, and then
+takes only steps that keep it at rest while time diverges, is fair
+(\lean{IsRestingTail.isLFairMaximalTrace}). Two such tails are built: clock
+ticks alone, and clock ticks alternating with inputs that are refused after
+the close.
+
+\file{Examples/FairRuns.lean} gives the witnesses of
+Table~\ref{tab:fairruns}. Each finite schedule is checked by evaluation in
+the kernel. Each \Lang{} trace is then also a projected fair maximal trace
+of the translated Flow, by instantiating \lean{liveness_of_isWellFormed} at
+a well-formed program and an admissible word. So both sides of the liveness
+equivalence are inhabited for each marker.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}P{1.2cm}P{3.5cm}P{2.7cm}L@{}}
+\toprule
+Marker & Program & Input word & \Lang{} side; Dex side \\
+\midrule
+\mterm & the two-thread mutex program & the start &
+  \lean{mutexProgram_terminates}; \lean{mutexProgram_terminates_dex} \\
+\mdead & \kw{emit}$(1)$; \kw{recv}$(5)$ & the start &
+  \lean{waitingProgram_deadlocks}; \lean{waitingProgram_deadlocks_dex} \\
+\mdead & \kw{lock}$(m_0)$; \kw{emit}$(1)$; \kw{lock}$(m_0)$ & the start &
+  \lean{selfDeadlockProgram_deadlocks};
+  \lean{selfDeadlockProgram_deadlocks_dex} \\
+\mdiv & the two-thread mutex program & the start, then one input forever &
+  \lean{mutexProgram_diverges}; \lean{mutexProgram_diverges_dex} \\
+\bottomrule
+\end{tabularx}
+\caption{Kernel-checked fair maximal traces
+(\file{Examples/FairRuns.lean}). The Dex-side theorems follow from the
+\Lang{}-side ones by the liveness theorem.}
+\label{tab:fairruns}
+\end{table}
+
+One limit of these witnesses must be stated precisely. The \mdiv{} witness
+has an \emph{infinite input word}: the program exits, and every later input
+is refused, forever. Those refusals are the infinitely many progress steps.
+It is not a program that diverges on its own. No witness is checked for a
+program that runs forever on a finite word, such as a loop that keeps
+emitting: its configurations never come to rest, so its run is not a finite
+schedule followed by a regular tail. There is also no general lemma that
+every reachable configuration of a well-formed program has a fair maximal
+continuation.
