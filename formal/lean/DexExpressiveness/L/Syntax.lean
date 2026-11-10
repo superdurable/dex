@@ -88,7 +88,8 @@ inductive Expr
   | cvOf (mutex : Expr) (index : Nat)
   deriving DecidableEq, Repr
 
-/-- An L statement (spec §8.1). -/
+/-- An L source statement (spec §8.1). Every constructor is a construct that
+spec §8.1 lists; a `Program` is built from these only. -/
 inductive Stmt
   /-- Do nothing. -/
   | skip
@@ -143,10 +144,6 @@ inductive Stmt
   | exit (value : Expr)
   /-- `fail(s)`. -/
   | fail (message : Expr)
-  /-- Runtime only: the second half of `wait(cv, m)`, where the thread stays
-  in `cv`'s queue until a signal dequeues it. `wait` rewrites itself to
-  `park cv; lock m`. Source programs do not need it. -/
-  | park (cv : CvId)
   deriving DecidableEq, Repr
 
 /-- A procedure. -/

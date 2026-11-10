@@ -7,9 +7,9 @@ import DexExpressiveness.L.ThreadLocal
 "Compile each L thread to continuation-passing Steps." A program point is a
 Step type; the thread-local state is the Step input (spec §8.2).
 
-Each L statement is one Step: its Execute runs the thread-local semantics
-(`L.completeStatement`) and encodes the atomic action it asks for
-(`encodeIntent`). `encodeIntent` is the mapping table of spec §8.3, one case
+"Each L statement is its own Step" (spec §8.2, "One Step per statement"): its
+Execute runs the thread-local semantics (`L.completeStatement`) and encodes
+the atomic action it asks for (`encodeIntent`). `encodeIntent` is the mapping table of spec §8.3, one case
 per row.
 
 The translation uses only GoTo, GoToMany, DeadEnd, ForceComplete, and
@@ -54,9 +54,19 @@ inductive Chan
 
 /-- The Attributes of a translated program (spec §8.2, §8.3). -/
 inductive Key
-  /-- "Shared variables are Attributes." -/
+  /-- "Shared variables are Attributes": a plain Attribute, whose key has no `/`. -/
   | shared (name : Global)
-  /-- `waiters/cv`: the FIFO list of the waiter IDs of a condition variable. -/
+  /-- `waiters/cv`: the FIFO list of the waiter IDs of a condition variable.
+  It is the instance `cv` of the AttributeMap `waiters`, so a snapshot holds
+  it only when the Step selects it (spec §4.2 `snapshot`). -/
+  | cvWaiters (cv : CvId)
+  deriving DecidableEq, Repr
+
+/-- The AttributeMap load selections of a translated program (spec §2.1
+`loadMaps`). The translation selects exact instances only; it never uses a
+`map/` prefix selection. -/
+inductive MapSelection
+  /-- The exact instance `waiters/cv`. -/
   | cvWaiters (cv : CvId)
   deriving DecidableEq, Repr
 
@@ -81,15 +91,26 @@ inductive DexVal
   | timedThread (core : ThreadCore) (code : Code) (seconds : Nat)
 
 /-- The Dex signature of translated programs. An external effect is the
-emitted L value. For equal fire times, timers are ordered by Step number:
-every timer is the index-0 timer of a `Timed` Step, for which spec §8.2 derives
-that "Dex's order is timer-number order" (spec Appendix A, assumption 26). -/
+emitted L value. `waiters/cv` keys are AttributeMap instances; shared
+variables are plain Attributes. For equal fire times, timers are ordered by
+Step number: every timer is the index-0 timer of a `Timed` Step, for which
+spec §8.2 derives that "Dex's order is timer-number order" (spec Appendix A,
+assumption 26). Step numbers are unbounded naturals here; the derivation holds
+below 2³² Step executions of one type per run (spec Appendix A, assumption 27). -/
 abbrev signature : Dex.Signature :=
   { StepType := StepType
     Chan := Chan
     Key := Key
     Val := DexVal
     Fx := Val
+    MapSelection := MapSelection
+    isMapInstanceKey := fun key =>
+      match key with
+      | .shared _ => false
+      | .cvWaiters _ => true
+    isSelectedBy := fun selection key =>
+      match selection with
+      | .cvWaiters cv => decide (key = Key.cvWaiters cv)
     isTimerIdAtMost := fun _ firstNumber _ _ secondNumber _ => decide (firstNumber ≤ secondNumber) }
 
 /-- Read a shared variable from the Execute snapshot (spec §8.3 "Shared read":
@@ -112,12 +133,24 @@ def encodeSharedWrite (value : Val) : Option DexVal :=
   | .null => none
   | other => some (.value other)
 
+/-- The AttributeMap instances the Execute of a program point reads: the
+waiter list `waiters/cv` when its head statement is `wait(cv, m)`,
+`signal(cv)`, or `broadcast(cv)` (spec §8.3), and none otherwise. The mover
+knows `cv`, because the operand is evaluated in the thread state it passes on. -/
+def executeLoadMaps (core : ThreadCore) (code : Code) : List MapSelection :=
+  match cvOperand core code with
+  | some cv => [MapSelection.cvWaiters cv]
+  | none => []
+
 /-- A move to the program point of `code` with the thread state as input. A
-program point has a WaitFor exactly when its head statement blocks. -/
+program point has a WaitFor exactly when its head statement blocks. Its
+Execute options select the waiter list it reads (`executeLoadMaps`). -/
 def moveToPoint (core : ThreadCore) (code : Code) : Dex.Move signature :=
   { stepType := StepType.point code
     input := some (DexVal.thread core)
-    skipWaitFor := !isBlockingHead code }
+    options :=
+      { skipWaitFor := !isBlockingHead code
+        executeLoadMaps := executeLoadMaps core code } }
 
 /-- A decision that only moves: GoTo or GoToMany. -/
 def moveDecision (moves : List (Dex.Move signature)) : Dex.ExecuteResponse signature :=
@@ -150,7 +183,8 @@ def encodeIntent (snapshot : Dex.Snapshot signature) (result : StatementResult) 
     { effects := { publications := [(Chan.mutexToken mutex, DexVal.token)] }
       decision := { moves := [next], close := none } }
   -- "`wait(cv, m)`: One Execute, under `m`: append the waiter ID `w` to the
-  -- Attribute `waiters/cv` and publish `m`'s token."
+  -- Attribute `waiters/cv` and publish `m`'s token." The snapshot holds
+  -- `waiters/cv` because the move to this Step selected it (`moveToPoint`).
   | .cvWait cv =>
     { effects :=
         { writes := [(Key.cvWaiters cv,
@@ -185,7 +219,7 @@ def encodeIntent (snapshot : Dex.Snapshot signature) (result : StatementResult) 
     moveDecision
       [{ stepType := StepType.timed
          input := some (DexVal.timedThread result.core result.code seconds)
-         skipWaitFor := false }]
+         options := { skipWaitFor := false } }]
   -- "`join(t)`: `t`'s last Step publishes to the Channel `join/t` and decides DE."
   -- "Thread end: DE."
   | .endThread =>
@@ -193,9 +227,9 @@ def encodeIntent (snapshot : Dex.Snapshot signature) (result : StatementResult) 
       decision := { moves := [], close := some .deadEnd } }
   -- "`exit(v)` / return of `main`: FC(`{"exit": enc(v)}`)."
   | .exit value => closeDecision (.forceComplete (some (DexVal.exitTag value)))
-  -- "`fail(s)` / uncaught exception: FF(s) with `s` a string."
+  -- "`fail(s)` / uncaught exception with a string value `s`: FF(s)."
   | .fail message => closeDecision (.forceFail message)
-  -- A halted thread has no next Step and publishes nothing.
+  -- "In Dex its Step decides DeadEnd and publishes nothing" (spec §8.1, "Halting").
   | .halt => closeDecision .deadEnd
 
 /-- The wait of a blocking statement (spec §8.3):
@@ -230,12 +264,12 @@ def decodeBlockedOutcome (code : Code) (results : Option (Dex.ConditionResults s
   | none => .invalid
   | some conditionResults =>
     match code, conditionResults.channelMessages with
-    | .lock _ :: _, [some _] => .granted
+    | .source (.lock _) :: _, [some _] => .granted
     | .park _ :: _, [some _] => .granted
-    | .join _ :: _, [some _, _] => .granted
-    | .join _ :: _, [none, some _] => .canceled
-    | .recv _ _ :: _, [some message, _] => .received (decodeMessage message)
-    | .recv _ _ :: _, [none, some _] => .canceled
+    | .source (.join _) :: _, [some _, _] => .granted
+    | .source (.join _) :: _, [none, some _] => .canceled
+    | .source (.recv _ _) :: _, [some message, _] => .received (decodeMessage message)
+    | .source (.recv _ _) :: _, [none, some _] => .canceled
     | _, _ => .invalid
 
 /-- Read how a timed operation was decided from the condition results of its

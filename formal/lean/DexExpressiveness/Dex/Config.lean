@@ -60,15 +60,14 @@ structure WaitState where
   /-- `sws`: "the `seq` at which the wait was registered. It orders waiters." -/
   registeredSeq : Nat
 
-/-- A Step execution `StepRec` (spec §3.1), without the options other than
-`skipWaitFor` and without locals. -/
+/-- A Step execution `StepRec` (spec §3.1), without locals. -/
 structure StepRecord where
   /-- `e = T-n`. -/
   id : StepExecId σ
   /-- `in : Val?`. -/
   input : Option σ.Val
-  /-- `o.skipWaitFor`. -/
-  skipWaitFor : Bool
+  /-- `o : Opts`. -/
+  options : StepOptions σ
   /-- `from`. -/
   origin : Origin σ
   /-- `φ`. -/

@@ -6,8 +6,8 @@ import DexExpressiveness.Core.Assoc
 This is the part of the Dex core calculus that the translation of L and the
 admissible environment of spec §5.3 use. The README lists what is left out and
 why. In short: no RPCs, SubFlows, Attribute locks, Step execution locals,
-Channel deletions, GracefulComplete, ForceCompleteIfChannelsEmpty, CancelSteps,
-or Channel bounds other than ForOne.
+Channel deletions, Channel load selections, GracefulComplete,
+ForceCompleteIfChannelsEmpty, CancelSteps, or Channel bounds other than ForOne.
 -/
 
 namespace DexExpressiveness.Dex
@@ -27,6 +27,18 @@ structure Signature where
   Val : Type
   /-- External effects `a` of user code (spec §2.2, "Each `Fx` is one external effect"). -/
   Fx : Type
+  /-- AttributeMap load selections `Sel` (spec §2.1 `loadMaps`). On the wire a
+  selection is a string: an exact instance key `map/instance`, or a prefix
+  `map/` that selects every instance of the map. -/
+  MapSelection : Type
+  /-- Whether a key is an AttributeMap instance, `map/instance`: the keys
+  that contain `/` (spec §1.1: "AttributeMap entries are Attributes with keys
+  `map/instance`"). A snapshot holds such a key only when it is selected
+  (spec §4.2 `snapshot`). -/
+  isMapInstanceKey : Key → Bool
+  /-- Whether a key "matches a selection" (spec §4.2 `snapshot`): it equals an
+  exact selection, or starts with a prefix selection. -/
+  isSelectedBy : MapSelection → Key → Bool
   /-- Step types can be compared. -/
   [stepTypeDecidableEq : DecidableEq StepType]
   /-- Channel names can be compared. -/
@@ -46,15 +58,6 @@ attribute [instance] Signature.stepTypeDecidableEq Signature.chanDecidableEq
 
 variable (σ : Signature)
 
-/-- A Step execution ID `e = T-n` (spec §3.1: "`e = T-n`, where `n` is a
-per-type counter of the run"). -/
-structure StepExecId where
-  /-- The Step type `T`. -/
-  stepType : σ.StepType
-  /-- The per-type number `n`, starting at 1. -/
-  number : Nat
-  deriving DecidableEq
-
 /-- A Step method `m ∈ {W, E}` (spec §0). -/
 inductive Method
   /-- WaitFor. -/
@@ -62,6 +65,18 @@ inductive Method
   /-- Execute. -/
   | execute
   deriving DecidableEq, Repr
+
+/-- A Step execution ID `e = T-n` (spec §3.1: "`e = T-n`, where `n` is a
+per-type counter of the run"). -/
+structure StepExecId where
+  /-- The Step type `T`. -/
+  stepType : σ.StepType
+  /-- The per-type number `n`, starting at 1. An unbounded natural; the real
+  limit is below 2³² Step executions of one type per run (spec Appendix A,
+  assumption 27). -/
+  number : Nat
+  deriving DecidableEq
+
 
 /-- The creating Step execution of a Step, `from` in spec §3.1: the Step that
 moved to it, or `__start__` for the start Step. -/
@@ -80,10 +95,10 @@ structure Context where
   fromStepExecutionId : Origin σ
 
 /-- What an attempt reads, `Snap` in spec §2.2 and `snapshot(e, m)` in spec
-§4.2. Only `attrs` is modeled, with every Attribute loaded; `sizes` and
-`loaded` are left out because the translation never reads them. -/
+§4.2. Only `attrs` is modeled; `sizes` and `loaded` are left out because the
+translation never reads them. -/
 structure Snapshot where
-  /-- `attrs : Key ⇀ Val`. -/
+  /-- `attrs : Key ⇀ Val`: the plain Attributes and the selected AttributeMap instances. -/
   attributes : AssocList σ.Key σ.Val
 
 /-- A handler's data effects, `Effects` in spec §2.2, without `deletes`. -/
@@ -120,15 +135,32 @@ no condition"). -/
 def Wait.hasNoCondition (wait : Wait σ) : Bool :=
   wait.timerSeconds.isEmpty && wait.channels.isEmpty
 
-/-- A move `⟨T, v?, o⟩` (spec §2.4). The only Step option the model keeps is
-`skipWaitFor` (spec §2.1 `Opts`). -/
+/-- The Step options `Opts` (spec §2.1), without `lockKeys` and `loadChans`.
+"Step options travel with each Step movement." -/
+structure StepOptions where
+  /-- `skipWaitFor`. -/
+  skipWaitFor : Bool
+  /-- `loadMaps[W]`: the AttributeMap selections of WaitFor
+  (`wait_for_load_attribute_map_instances`). -/
+  waitForLoadMaps : List σ.MapSelection := []
+  /-- `loadMaps[E]`: the AttributeMap selections of Execute
+  (`execute_load_attribute_map_instances`). -/
+  executeLoadMaps : List σ.MapSelection := []
+
+variable {σ} in
+/-- `o.loadMaps[m]`: the AttributeMap selections of one method. -/
+def StepOptions.loadMaps (options : StepOptions σ) : Method → List σ.MapSelection
+  | .waitFor => options.waitForLoadMaps
+  | .execute => options.executeLoadMaps
+
+/-- A move `⟨T, v?, o⟩` (spec §2.4). -/
 structure Move where
   /-- The Step type to start. -/
   stepType : σ.StepType
   /-- The Step input. -/
   input : Option σ.Val
-  /-- `o.skipWaitFor`. -/
-  skipWaitFor : Bool
+  /-- The Step options `o`. -/
+  options : StepOptions σ
 
 /-- A close decision (spec §2.4), without GracefulComplete and
 ForceCompleteIfChannelsEmpty. -/

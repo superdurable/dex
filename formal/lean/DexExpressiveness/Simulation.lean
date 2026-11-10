@@ -10,7 +10,7 @@ each ending in `sorry`, so that the plan can be reviewed with the statements. Th
 
 The plan is a step-for-step correspondence. L was given exactly one
 clock-stamped action per Dex commit of the translated program
-(`L/Semantics.lean`, "Action granularity"), so:
+(spec §8.1 "Clock and timing model"; `L/Semantics.lean`), so:
 
 - every L label is simulated by one Dex commit or Worker effect, preceded by
   the Worker steps that run and return the handler;
@@ -168,10 +168,11 @@ def expectedWaitShape (self : Tid) : BlockedOn → Dex.WaitKind × List Chan
   | .timed _ _ none => (.any, [Chan.cancelRequest self])
   | .timed _ _ (some chan) => (.any, [Chan.external chan, Chan.cancelRequest self])
 
-/-- The Step that carries a thread has the Step type and input the
+/-- The Step that carries a thread has the Step type, input, and options the
 translation gives it (spec §8.2): the start Step while `main` boots, the
 `Timed` Step numbered by the thread's timer number after Enter, and otherwise
-the program point of the thread's code. -/
+the program point of the thread's code, with the load selection of
+`moveToPoint`. -/
 def StepCarriesThread (program : Program) (thread : L.Thread)
     (record : Dex.StepRecord signature) : Prop :=
   match thread.phase, thread.timer with
@@ -188,7 +189,8 @@ def StepCarriesThread (program : Program) (thread : L.Thread)
     record.input = some (DexVal.timedThread thread.core thread.code seconds)
   | _, none =>
     record.id.stepType = StepType.point thread.code ∧
-    record.input = some (DexVal.thread thread.core)
+    record.input = some (DexVal.thread thread.core) ∧
+    record.options.executeLoadMaps = executeLoadMaps thread.core thread.code
 
 /-- The Step's current invocation runs as a task with method `method` that
 satisfies `Holds`. -/
@@ -266,9 +268,10 @@ def PhaseMatchesStep (program : Program) (lConfig : L.Config) (config : Dex.Conf
 structure RunningRelated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (run : Dex.Run signature) : Prop where
   /-- Shared variables are Attributes (spec §8.2). -/
-  shared : ∀ name, readShared run.snapshot name = lConfig.readShared name
+  shared : ∀ name, readShared { attributes := run.attributes } name = lConfig.readShared name
   /-- `waiters/cv` is the condition variable's queue (spec §8.3). -/
-  cvQueues : ∀ cv, readWaiters run.snapshot cv = (lConfig.cvQueues.get? cv).getD []
+  cvQueues : ∀ cv,
+    readWaiters { attributes := run.attributes } cv = (lConfig.cvQueues.get? cv).getD []
   /-- An external Channel holds the queued external messages (spec §8.1, "External input"). -/
   inputQueues : ∀ chan,
     run.pendingMessages (Chan.external chan) = (lConfig.pendingInput chan).map DexVal.value
@@ -336,7 +339,7 @@ structure RunningRelated (program : Program) (lConfig : L.Config)
 configuration of the translated Flow. -/
 structure Related (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) : Prop where
-  /-- The clocks agree (spec §8.1, "Clock"). -/
+  /-- The clocks agree (spec §8.1, "Clock and timing model"). -/
   clock : lConfig.clock = dexConfig.clock
   /-- The last L clock stamp is the last Dex commit timestamp: one stamped L
   action per Dex commit. -/
@@ -385,7 +388,7 @@ def IsAdmissibleAction (config : Dex.Config signature) : Dex.Action signature �
 /-- Dex to L: every Dex action from related configurations is simulated by at
 most one L label with the same projected events, and the results are related.
 (Running and returning a handler are simulated by no L label.) -/
-theorem dex_step_simulated (program : Program) (isSafe : program.IsSafe)
+theorem dex_step_simulated (program : Program) (isWellFormed : program.IsWellFormed)
     (lConfig : L.Config) (dexConfig : Dex.Config signature)
     (isRelated : Related program lConfig dexConfig)
     (action : Dex.Action signature) (isAdmissible : IsAdmissibleAction dexConfig action)
@@ -401,7 +404,7 @@ theorem dex_step_simulated (program : Program) (isSafe : program.IsSafe)
 finite sequence of Dex actions with the same projected events, and the
 results are related. The sequence is the Worker steps that run and return the
 handler, then one commit or one Worker effect. -/
-theorem l_step_simulated (program : Program) (isSafe : program.IsSafe)
+theorem l_step_simulated (program : Program) (isWellFormed : program.IsWellFormed)
     (lConfig : L.Config) (dexConfig : Dex.Config signature)
     (isRelated : Related program lConfig dexConfig)
     (label : L.Label) (lEvents : List Event) (lNext : L.Config)
@@ -416,19 +419,19 @@ theorem l_step_simulated (program : Program) (isSafe : program.IsSafe)
 /-! ## The four inclusions -/
 
 /-- Safety, Dex to L: `π(FinTr_{E_adm}(⟦S⟧)) ⊆ FinTr(S)`. -/
-theorem finiteTrace_dex_to_l (program : Program) (isSafe : program.IsSafe) (trace : List Event)
+theorem finiteTrace_dex_to_l (program : Program) (isWellFormed : program.IsWellFormed) (trace : List Event)
     (isDexTrace : IsProjectedDexFiniteTrace program trace) : IsLFiniteTrace program trace := by
   sorry
 
 /-- Safety, L to Dex: `FinTr(S) ⊆ π(FinTr_{E_adm}(⟦S⟧))`. -/
-theorem finiteTrace_l_to_dex (program : Program) (isSafe : program.IsSafe) (trace : List Event)
+theorem finiteTrace_l_to_dex (program : Program) (isWellFormed : program.IsWellFormed) (trace : List Event)
     (isLTrace : IsLFiniteTrace program trace) : IsProjectedDexFiniteTrace program trace := by
   sorry
 
 /-- Liveness, Dex to L: every fair maximal Dex trace with its marker, for an
 admissible word, is one of L. Needs the transfer of F1 to F6 and of the marker
 along the simulation, and the removal of the handler steps L does not see. -/
-theorem fairMaximalTrace_dex_to_l (program : Program) (isSafe : program.IsSafe)
+theorem fairMaximalTrace_dex_to_l (program : Program) (isWellFormed : program.IsWellFormed)
     (word : Sequence L.Request) (isAdmissible : L.IsAdmissibleWord word)
     (trace : Sequence Event) (marker : Marker)
     (isDexTrace : IsProjectedDexFairMaximalTrace program word trace marker) :
@@ -438,7 +441,7 @@ theorem fairMaximalTrace_dex_to_l (program : Program) (isSafe : program.IsSafe)
 /-- Liveness, L to Dex: every fair maximal L trace with its marker, for an
 admissible word, is one of the translated Flow. Needs the same transfers in
 the other direction, and a fair schedule of the inserted handler steps. -/
-theorem fairMaximalTrace_l_to_dex (program : Program) (isSafe : program.IsSafe)
+theorem fairMaximalTrace_l_to_dex (program : Program) (isWellFormed : program.IsWellFormed)
     (word : Sequence L.Request) (isAdmissible : L.IsAdmissibleWord word)
     (trace : Sequence Event) (marker : Marker)
     (isLTrace : IsLFairMaximalTrace program word trace marker) :

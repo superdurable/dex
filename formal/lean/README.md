@@ -2,19 +2,25 @@
 
 This directory holds a Lean 4 development of one theorem:
 
-> Every program of a small concurrent imperative language **L** translates into
-> a Dex Flow that is trace-equivalent to it, assuming no failures.
+> Every well-formed program of a small concurrent imperative language **L**
+> translates into a Dex Flow that is trace-equivalent to it, assuming no
+> failures.
 
 The semantics it formalizes is
 [`formal/semantics/dex-core-semantics.md`](../semantics/dex-core-semantics.md),
-revision 4 (commit `71bff18ea`). "Spec" below means that document.
+revision 5. "Spec" below means that document.
 
-## Status: Stage 1
+## Status: Stage 1, revised after the first review
 
 Stage 1 is the model and the statements. The two main theorems are stated and
 reduced to four inclusion lemmas. Those lemmas, and eight more that the proof
 plan needs, end in `sorry`. Stage 2 is the proofs. It starts after the owner
 and a reviewer confirm that the statements match the spec.
+
+The first review (of commit `cc123891a`) returned "fix before Stage 2". This
+revision applies the owner decisions of 2026-11-09 (spec Review log, L1 to L4)
+and the review's two model findings (R4-1, R4-2). See
+[Points for the owner](#points-for-the-owner) for the status of each point.
 
 `lake build` succeeds. Every `sorry` is in `DexExpressiveness/Simulation.lean`
 and is listed in [The `sorry` inventory](#the-sorry-inventory).
@@ -59,11 +65,11 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Dex/Observation.lean` | The Dex system, `E_adm`, fairness F1 to F6 (spec §5.2 to §5.5). |
 | `DexExpressiveness/L/Syntax.lean` | L syntax and its event alphabet (spec §8.1). |
 | `DexExpressiveness/L/ThreadLocal.lean` | What one statement does to its own thread, and the atomic action it asks for. |
-| `DexExpressiveness/L/Semantics.lean` | L small-step semantics, L fairness, `IsSafe` (spec §8.1). |
+| `DexExpressiveness/L/Semantics.lean` | L small-step semantics, L fairness, `Program.IsWellFormed` (spec §8.1). |
 | `DexExpressiveness/Translation/Flow.lean` | The translation `⟦·⟧` (spec §8.2, §8.3). |
 | `DexExpressiveness/Translation/Projection.lean` | The projection `π`, the request encoding, `E_adm` of a translated program (spec §5.3). |
 | `DexExpressiveness/TraceSets.lean` | The four trace sets the theorem compares. |
-| `DexExpressiveness/Theorems.lean` | **The main statements**: `safety`, `liveness`, `expressiveness`. |
+| `DexExpressiveness/Theorems.lean` | **The main statements**: `safety_of_isWellFormed`, `liveness_of_isWellFormed`, `expressiveness_of_isWellFormed`. |
 | `DexExpressiveness/Simulation.lean` | The Stage 2 plan: candidate simulation relation and lemma statements. Every `sorry` is here. |
 | `DexExpressiveness/Properties.lean` | Proved facts. No `sorry`. |
 | `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, and lockstep checks. No `sorry`. |
@@ -77,15 +83,35 @@ two `Translation/` files, `TraceSets.lean`, and `Theorems.lean`.
 From `DexExpressiveness/Theorems.lean`:
 
 ```lean
-theorem safety (program : Program) (isSafe : program.IsSafe) (trace : List Event) :
+theorem safety_of_isWellFormed (program : Program) (isWellFormed : program.IsWellFormed)
+    (trace : List Event) :
     IsProjectedDexFiniteTrace program trace ↔ IsLFiniteTrace program trace
 
-theorem liveness (program : Program) (isSafe : program.IsSafe)
+theorem liveness_of_isWellFormed (program : Program) (isWellFormed : program.IsWellFormed)
     (word : Sequence L.Request) (isAdmissible : L.IsAdmissibleWord word)
     (trace : Sequence Event) (marker : Marker) :
     IsProjectedDexFairMaximalTrace program word trace marker ↔
       IsLFairMaximalTrace program word trace marker
 ```
+
+The scope, from `DexExpressiveness/L/Semantics.lean`:
+
+```lean
+def Thread.BreaksMutexRequirement (config : Config) (thread : Thread) : Prop :=
+  thread.phase = .ready ∧ thread.timer = none ∧
+  ∃ mutex, requiredMutex thread.core thread.code = some mutex ∧
+    config.mutexOwners.get? mutex ≠ some (some thread.core.tid)
+
+def BreaksMutexRequirement (config : Config) : Prop :=
+  ∃ thread, thread ∈ config.threads ∧ thread.BreaksMutexRequirement config
+
+def Program.IsWellFormed (program : Program) : Prop :=
+  ∀ config, (system program).Reachable config → ¬ BreaksMutexRequirement config
+```
+
+`requiredMutex` (`L/ThreadLocal.lean`) reads the requirement off the head
+statement: `m` for `unlock(m)`, and `cv`'s mutex for `wait(cv, m)`,
+`signal(cv)`, and `broadcast(cv)`.
 
 with, from `DexExpressiveness/TraceSets.lean`:
 
@@ -110,22 +136,28 @@ How they read against the spec:
 
 - A set equality `A = B` of the spec is written `∀ t, t ∈ A ↔ t ∈ B`. Lean
   core has no set type.
-- `safety` is spec §5.4: `π(FinTr_{E_adm}(⟦S⟧)) = FinTr(S)`.
-- `liveness` is spec §5.5: `∀ w ∈ E_adm. π(MaxTr^fair_w(⟦S⟧)) = MaxTr^fair_w(S)`.
+- `safety_of_isWellFormed` is spec §5.4: `π(FinTr_{E_adm}(⟦S⟧)) = FinTr(S)`.
+- `liveness_of_isWellFormed` is spec §5.5:
+  `∀ w ∈ E_adm. π(MaxTr^fair_w(⟦S⟧)) = MaxTr^fair_w(S)`.
   The word is quantified in L form and encoded for the Dex side.
   `isAdmissibleWord_encode` and `isAdmissibleWord_decode` (proved) show that
   the encoded admissible L words are exactly the words of `E_adm`.
 - A trace is a `Sequence Event`, finite or infinite. A marker is `terminated`
   (`✓`), `deadlocked` (`δ`), or `divergent` (`∞`).
-- Both statements assume `program.IsSafe`. See point 2 under
-  [Points for the owner](#points-for-the-owner).
+- Both statements range over well-formed programs (spec §0, §5.4, §5.5,
+  §8.1): `program.IsWellFormed`. It is a property of the L program under L's
+  semantics, quantified over every input and schedule, like data-race
+  freedom. The translation plays no part in it. The theorem names carry the
+  scope.
+- `Program` is built from source statements only. The runtime instruction
+  `park` is not a `Stmt`, so no program contains it.
 
 ## Spec section to Lean
 
 | Spec | Lean file | Definitions |
 | --- | --- | --- |
 | §0 Notation `M[k ↦ v]`, `⊥` | `Core/Assoc.lean` | `AssocList.get?`, `set`, `erase` |
-| §2.1 Programs | `Dex/Syntax.lean` | `Signature`, `FlowDef`, `StepDef`, `Move.skipWaitFor` |
+| §2.1 Programs, `Opts` | `Dex/Syntax.lean` | `Signature` (with `MapSelection`, `isMapInstanceKey`, `isSelectedBy`), `FlowDef`, `StepDef`, `StepOptions` (`skipWaitFor`, `loadMaps`) |
 | §2.2 User code | `Dex/Syntax.lean` | `WaitForFn`, `ExecuteFn`, `Context`, `Snapshot`, `Effects`, `WaitForResponse`, `ExecuteResponse` |
 | §2.3 Waits | `Dex/Syntax.lean` | `Wait`, `WaitKind`, `Wait.empty` |
 | §2.4 Decisions | `Dex/Syntax.lean` | `Decision`, `Move`, `Close` |
@@ -135,7 +167,7 @@ How they read against the spec:
 | §3.3 Engine state | `Dex/Config.lean` | `Task`, `TaskPhase` (`Θ` only) |
 | §3.4 System | `Dex/Config.lean` | `Config`, `Config.initial` |
 | §4.1 Shape of the rules | `Dex/Rules.lean` | `step`, `Action`, `Config.commit`, `Config.canCommit` |
-| §4.2 Meta-functions | `Dex/MetaFunctions.lean` | `Run.newStep`, `plan`, `planAnyChannel`, `consumeMessages`, `evalStep`, `waitersOn`, `wake`, `applyEffects`, `registerWait`, `finishStep`, `collectOutput`, `closeRun`, `applyDecision`, `snapshot`; `record`'s event is `Config.closeEvents` |
+| §4.2 Meta-functions | `Dex/MetaFunctions.lean` | `Run.newStep`, `plan`, `planAnyChannel`, `consumeMessages`, `evalStep`, `waitersOn`, `wake`, `applyEffects`, `registerWait`, `finishStep`, `collectOutput`, `closeRun`, `applyDecision`, `isLoadedKey`, `snapshot`; `record`'s event is `Config.closeEvents` |
 | §4.3 [FLOW-START] | `Dex/Rules.lean` | `step`, case `.request (.startFlow ..)` |
 | §4.4 Step methods | `Dex/Rules.lean` | `step`, cases `.stepStart`, `.workerRun`, `.workerEffect`, `.workerReturn`, `.workerAbandon`, `.stepComplete`, `.stepCompleteStale`; `Task.compute` |
 | §4.5 [TICK], [TIMER-FIRE] | `Dex/Rules.lean`, `Dex/MetaFunctions.lean` | `step`, cases `.tick`, `.timerFire`; `Run.dueTimers`, `Run.fireTimer`, `Run.isTimerEntryAtMost` |
@@ -160,18 +192,20 @@ How they read against the spec:
 
 | Spec §8.1 | Lean (`L/Semantics.lean` unless noted) |
 | --- | --- |
-| Constructs | `Stmt`, `Expr`, `Val`, `Program` (`L/Syntax.lean`) |
+| Constructs | `Stmt`, `Expr`, `Val`, `Program` (`L/Syntax.lean`); the runtime `Instr` (`L/ThreadLocal.lean`) |
 | `Obs_L` | `Event` (`L/Syntax.lean`) |
 | Atomic actions | `Intent` and `completeStatement` (`L/ThreadLocal.lean`); `Config.applyIntent` |
 | Mutex | `Config.registerWait` case `lock`; `Config.releaseMutex` |
-| Condition variable | `applyIntent` cases `cvWait`, `signal`, `broadcast`; `Config.wakeCvWaiter`; the runtime statement `park` |
+| Condition variable | `applyIntent` cases `cvWait`, `signal`, `broadcast`; `Config.wakeCvWaiter`; the runtime instruction `Instr.park` |
+| Well-formed programs | `requiredMutex` (`L/ThreadLocal.lean`); `Thread.BreaksMutexRequirement`, `BreaksMutexRequirement`, `Program.IsWellFormed` |
 | Cancellation | `applyIntent` case `cancel`; `Config.cancelBlockedThread`; the check order in `Config.registerWait` |
 | Emit | `Phase.emitting`, `Phase.emitted`; `Label.lateDeliver`, `Label.lateDrop`; `Config.closeProgram` |
 | Exit | `applyIntent` cases `exit`, `fail`, `endThread`; `returnValue` (`L/ThreadLocal.lean`) |
 | External input | `Config.deliverInput`; `step` case `.request (.input ..)` |
-| Clock | `Config.clock`, `lastStampAt`, `canStamp`, `stamp`; `Label.tick` |
+| Clock and timing model | `Config.clock`, `lastStampAt`, `canStamp`, `stamp`; `Label.tick`; the phases of `Phase` and `stepThread`, which take the stamped actions the spec tabulates |
 | Timers | `Thread.timer` (Enter); `registerWait` (Arm); `Config.leastDueTimerThread`, `Config.fireTimers`, `Label.fire` |
 | Joined at most once | `Config.joinable`; `registerWait` case `join` |
+| Halting | `Intent.halt`, `Phase.halted`; the `halted` branches of `completeStatement`, `resumeBlocked`, `resumeTimed` (`L/ThreadLocal.lean`) |
 
 ### Spec Appendix A, assumption by assumption
 
@@ -197,6 +231,10 @@ How they read against the spec:
 | 24 | `IsRunFor` counts every request label, accepted or rejected. |
 | 25 | `DexVal.exitTag`, `Close.forceFail`; `project`. |
 | 26 | `StepType.timed`; `signature.isTimerIdAtMost` orders by Step number. Lemma `armedTimers_areTimedSteps` (`sorry`). |
+| 27 | `StepExecId.number`, `Run.counters`, and `L.Config.timerCounter` are `Nat`. |
+| 28 | `Program.IsWellFormed`; the hypothesis of every theorem. |
+| 29 | The phases of `L.Phase` and `L.stepThread`; `Label.fire count`. The file comment of `L/Semantics.lean` repeats the table. |
+| 30 | `Intent.halt`, `Phase.halted`. |
 
 ## What the Dex model leaves out
 
@@ -214,7 +252,7 @@ its definition.
 | Step execution locals | The translation passes all state in the Step input. |
 | Channel bounds other than ForOne; AnyCombinationOf | Spec §8.3 uses ForOne, AllOf, and AnyOf only. |
 | Message IDs and enqueue sequence numbers | They serve deletions and ordering; `Q[c]` is kept in commit order. |
-| `Snap.sizes`, `Snap.loaded`, AttributeMap load selections | The translation reads Attributes only. Every Attribute is loaded. |
+| `Snap.sizes`, `Snap.loaded`, Channel load selections (`loadChans`) | The translation reads Attributes only. AttributeMap load selections (`loadMaps`) are modeled. |
 | Canceled and Terminated close statuses | They need StopFlow or a Flow timeout. |
 | The Flow ID in events | There is one Flow. |
 
@@ -230,9 +268,9 @@ repeated in the next section.
 3. **Names are structured, not strings.** A Step execution ID is a Step type
    and a number. The byte order of TimerIds is the parameter
    `Signature.isTimerIdAtMost`.
-4. **The translation is one Step per statement.** A program point is the code
-   left in the current procedure (`StepType.point code`). The Step input is
-   the thread ID, a counter, the locals, and the stack.
+4. **The translation is one Step per statement** (spec §8.2). A program
+   point is the code left in the current procedure (`StepType.point code`).
+   The Step input is the thread ID, a counter, the locals, and the stack.
 5. **L is defined in two layers.** `L/ThreadLocal.lean` says what a statement
    does to its own thread and which atomic action it asks for (`Intent`).
    `L/Semantics.lean` performs that action on the shared state. The
@@ -251,110 +289,85 @@ repeated in the next section.
 10. **`[WORKER-EFFECT]` is three actions**: run the handler (`workerRun`),
     emit one effect (`workerEffect`), return (`workerReturn`). The first and
     last produce no event.
+11. **Source and runtime syntax are separate types.** `Stmt` has the
+    constructs of spec §8.1 only. The code a thread has left is a list of
+    `Instr`: a source statement, or the runtime `park` that `wait(cv, m)`
+    leaves behind.
+12. **The waiter list is loaded by an exact selection.** `Key.cvWaiters cv`
+    is an AttributeMap instance. `moveToPoint` puts `waiters/cv` in the
+    Execute load selection of the Step of a `wait`, `signal`, or `broadcast`
+    (`executeLoadMaps`). `readWaiters_snapshot_of_cvOperand` proves that this
+    Step's snapshot then holds the waiter list.
 
 ## Points for the owner
 
-These are the places where the spec is ambiguous, silent, or, in point 1,
-appears not to give a true theorem as written. None was resolved silently:
-each lists the options and the one this development took.
+Every point is decided or closed. The owner decisions are dated 2026-11-09
+and are in the spec's Review log (revision 5, rows L1 to L4). "Kept as taken"
+means that the first review asked for no change; those choices are in the
+Lean model and in this list, and are not yet written into the spec text.
 
-1. **Clock and action granularity (spec §8.1 "Clock", §8.2 last bullet on
-   timers). Appears to need a spec change.**
-   - Spec: L's clock "strictly increases between any two L actions, as Dex
-     commit timestamps strictly increase within a partition". The spec does
-     not fix how many L actions a statement takes ("Local computation is
-     invisible").
-   - Problem: a deadline is the Arm timestamp plus whole seconds. Two runs
-     can carry the same deadlines only if the same number of clock-stamped
-     steps lies between any two Arms. If L took fewer stamped actions than
-     Dex takes commits for the same work, L could arm a `sleep(0)` before a
-     one-second timer's deadline where Dex cannot, once about 10⁶ commits lie
-     between the two Arms. The firing order then differs, and it is
-     observable through a `select`. The same holds in the other direction.
-     So trace equality fails for long runs unless the granularity matches.
-   - The same problem for `fire`: a Dex prefix of `k` timers is one commit
-     and one timestamp. Spec §8.2 equates it with "`k` consecutive `fire`
-     actions", which need `k` clock values under the clock rule.
-   - Options: (a) give L exactly one stamped action per Dex commit of the
-     translation; (b) let timestamps repeat on both sides, which
-     over-approximates Dex, and spec §4.5 warns that an over-approximation of
-     Dex is not safe for an equivalence theorem; (c) make time abstract.
-   - Taken: (a). Every L statement takes a begin and a complete action; a
-     blocking statement takes four; a timed operation six; the program start
-     three. `out(a)`, the delivery or drop of a late emit, and `refused` take
-     no stamp, as Worker steps and rejections do not in Dex. `Label.fire
-     count` fires `count` least due timers under one stamp. See "Action
-     granularity" in `L/Semantics.lean`.
-   - Consequence: L's micro-steps mirror the translation. The lockstep
-     checks confirm that the stamps of both sides agree after every step.
-2. **Mutex requirements (spec §8.1 "Condition variable").**
-   - Spec: "`wait(cv, m)` requires `m` held"; "`signal(cv)` and
-     `broadcast(cv)` require `m` held". No behavior is given for a program
-     that breaks them. `unlock(m)` of a mutex the thread does not hold is
-     also not specified; in Dex it adds a second token.
-   - Options: (a) restrict the theorem to programs that keep the
-     requirements; (b) make a violation an error in L, which needs the
-     translation to track held mutexes; (c) give L the non-atomic Dex
-     behavior.
-   - Taken: (a). `L.IsViolation` and `Program.IsSafe`; both theorems assume
-     `program.IsSafe`. A violating thread cannot take its action.
-3. **Which mutex `signal(cv)` requires.** The spec says "`m`" without
-   relating it to `cv`. Options: the condition variable names its mutex; or
-   `signal` takes `m`; or the first `wait` binds it. Taken: a `CvId` holds
-   its mutex. `wait(cv, m)` with another mutex is a type error.
-4. **Does a canceled thread become joinable?** Spec §8.1: the thread "ends".
-   Spec §8.3: "`t`'s last Step publishes to the Channel `join/t`". Taken:
-   yes, a canceled thread publishes `join/t`. The alternative leaves its
-   joiner blocked forever.
-5. **"Each thread is joined at most once."** No behavior is given for a
-   second join. Options: add it to `IsSafe`; or define it. Taken: defined,
-   as the token behavior of the translation. The first join takes the
-   thread's one join token; a later join blocks.
-6. **Uncaught exceptions.** Spec §8.3: "`fail(s)` / uncaught exception |
-   FF(s)". The spec does not say what `s` is for a value that is not a
-   string, nor whether an uncaught exception in a forked thread fails the
-   program. Taken: an uncaught exception in any thread fails the program
-   with `fail(s)` when its value is the string `s`; otherwise the thread
-   halts as for a type error.
-7. **Dynamic type errors.** The spec gives L no types. Taken: a statement
-   whose operands have the wrong type (also an unknown procedure, a wrong
-   arity, a negative duration) halts its thread. A halted thread takes the
-   statement's usual number of actions, never ends, and is never joinable.
-   In Dex its Step decides DeadEnd and publishes nothing.
-8. **`fail` and late emits.** Spec §8.1 states late `out(a)` for `exit`.
-   Taken: the same after `fail`, as Dex does.
-9. **Values of `E_adm` (spec §5.3).** The `π` table maps `pub(f, [(c, v)])`
-   to `in(c, v)` with the same `v`. Taken: the start input and every
-   external message are encoded L values (`DexVal.value`). Any other Dex
-   value on an external Channel has no L counterpart and is not admissible.
-10. **`waiters/cv` and the snapshot (spec §4.2 `snapshot`, §8.3).** A key
-    with `/` is an AttributeMap entry and is loaded only by a selection in
-    `loadMaps`. Spec §8.3 does not mention the selection. The model loads
-    every Attribute. The real translation must declare the selection or use
-    a key without `/`.
-11. **Options of the start Step (spec §4.3).** `o₀` is not part of
-    `start(f, T₀, v, ∅)`. Taken: `skipWaitFor` of the start Step is read from
-    its definition (assumption 20).
-12. **Is a rejected input a stamped command (spec §4.6)?** "A rejected input
-    changes nothing". Taken: no timestamp, no `seq`. Under `E_adm` a
-    rejection happens only after the close, where neither is read.
-13. **`F4` and `F5` and membership in `Θ` (spec §5.5).** F4 says every task
-    "leaves `Θ`" and F5 speaks of `Returned` tasks. Taken: a task stays in
-    `Θ` until its result commits or it is dropped. F4 is "reaches `Returned`
-    or leaves"; F5 is "a `Returned` task leaves".
-14. **L's fairness (spec §5.5, last paragraph).** The spec says L "must
-    define the same three outcomes ... the same way" and gives no list.
-    Taken: `L.Fairness`, the L forms of F1 to F6. F3 is "a thread whose next
-    action can begin eventually begins it"; F4 is "an issued emit delivers or
-    is dropped"; F5 is "a begun action completes"; F6 is trivial.
-15. **`select` without `after` (spec §8.3).** It "uses an ordinary Step".
-    The Lean syntax has `select` with `after` only; without `after` it is
-    `recv` followed by the branch. `select` has one `recv` branch, as in
-    spec §8.1.
-16. **The `park` statement.** `wait(cv, m)` rewrites itself to `park cv;
-    lock m`, so L's syntax has a runtime statement that spec §8.1 does not
-    list. A source program that uses `park` directly is still translated
-    exactly. The alternative is extra thread phases.
+1. **Clock and action granularity. Decided [owner], spec row L1.**
+   - The point: spec revision 4 said L's clock "strictly increases between
+     any two L actions" without fixing how many actions a statement takes. A
+     deadline is the Arm timestamp plus whole seconds, so two runs can carry
+     the same deadlines only if the same number of stamped steps lies between
+     any two Arms. One [TIMER-FIRE] commit of `k` timers also needed `k`
+     clock values in L.
+   - Decision: L has a fixed timing model, aligned with the Dex commits of
+     the translation, and a batched `fire` shares one stamp. Spec §8.1
+     "Clock and timing model" tabulates the counts; spec §8.2 fixes one Step
+     per statement.
+   - Rationale [owner]: real programs cannot rely on timing races, so any
+     fixed timing model leaves the meaning of correct programs unchanged.
+     Choosing the model aligned with Dex makes the equivalence exact without
+     narrowing what the theorem covers in practice. It is like counting one
+     time unit per instruction in algorithm analysis.
+   - In Lean: unchanged from the first submission. The lockstep checks
+     confirm that the stamps of both sides agree after every step.
+2. **Mutex requirements. Decided [owner], spec row L2.**
+   - Decision: the theorems cover well-formed programs only. Calling `wait`,
+     `signal`, or `broadcast` without holding the mutex, or `unlock` on a
+     mutex the thread does not hold, is outside the domain, as a data race is
+     outside a theorem about data-race-free programs.
+   - In Lean: `Program.IsSafe` is now `Program.IsWellFormed`. It is defined
+     from `requiredMutex`, which reads the requirement off the head
+     statement, and `requiredMutex_eq_of_intent` (proved) ties it to the
+     atomic action the statement asks for. The theorems are named
+     `..._of_isWellFormed`.
+3. **Which mutex `signal(cv)` requires. Kept as taken.** A `CvId` holds its
+   mutex. `wait(cv, m)` with another mutex is a type error.
+4. **A canceled thread is joinable. Kept as taken.** It publishes `join/t`.
+5. **A second join of a thread blocks. Kept as taken.** The first join takes
+   the thread's one join token.
+6. **Uncaught exceptions. Decided [owner], spec row L4.** A string value `s`
+   fails the program with `fail(s)`, in any thread. Any other value halts the
+   thread. Spec §8.1 "Halting".
+7. **Dynamic type errors. Decided [owner], spec row L4.** The thread halts.
+   It takes the statement's first 2 or 4 actions, never ends, and is never
+   joinable. Spec §8.1 "Halting".
+8. **`fail` and late emits. Kept as taken.** As after `exit`.
+9. **Values of `E_adm`. Kept as taken.** The start input and every external
+   message are encoded L values (`DexVal.value`).
+10. **`waiters/cv` and the snapshot. Fixed, spec row R4-1.** The first
+    submission loaded every Attribute, which spec §4.2 does not do. The model
+    now applies `loadMaps` as spec §4.2 states it, and the translation
+    declares the exact instance `waiters/cv` in the Execute options of the
+    Steps that read it. Spec §8.2 and §8.3 say so.
+11. **Options of the start Step. Kept as taken.** `skipWaitFor` is read from
+    the Step definition; the start Step selects no AttributeMap.
+12. **A rejected input takes no stamp. Decided with point 1.** The timing
+    table of spec §8.1 gives `refused(c, v)` zero stamped actions.
+13. **`F4`, `F5`, and membership in `Θ`. Kept as taken.** A task stays in `Θ`
+    until its result commits or it is dropped.
+14. **L's fairness. Kept as taken.** `L.Fairness`, the L forms of F1 to F6.
+15. **`select` without `after`. Kept as taken.** It is `recv` followed by the
+    branch; `select` has one `recv` branch.
+16. **The runtime `park`. Fixed, spec row R4-2.** `park` is no longer a
+    `Stmt`. Source statements and runtime instructions are separate types.
+17. **Unbounded counters. Decided [owner], spec row L3.** Step numbers and
+    timer numbers are unbounded naturals in the model. The real limit is
+    fewer than 2³² Step executions of one type per run; the numeric timer-ID
+    order is exact within it. Spec §8.2; Appendix A, item 27.
 
 ## What is proved
 
@@ -365,6 +378,13 @@ All of this is free of `sorry`. `#print axioms` shows only `propext` and
   well-formed decision (spec §2.5), for every input.
 - `encodeIntent_moves_agree`, `moveToPoint_agrees`, `entryStep_hasNoWaitFor`:
   every move's `skipWaitFor` agrees with its target Step definition.
+- `readShared_snapshot`, `readWaiters_snapshot_of_cvOperand`: the load
+  selections the translation declares are enough. Every snapshot holds every
+  shared variable, and the Execute snapshot of a `wait`, `signal`, or
+  `broadcast` Step holds `waiters/cv`.
+- `requiredMutex_eq_of_intent`: the mutex requirement is on exactly the
+  statements that ask for an `unlock`, a condition-variable wait, a signal, or
+  a broadcast.
 - `step_deterministic`, `exec_deterministic`: a label has one outcome; a
   schedule has one run.
 - `dex_tick_enabled`, `l_tick_enabled`, `tick_isNotProgress`.
@@ -374,8 +394,9 @@ All of this is free of `sorry`. `#print axioms` shows only `propext` and
   of `E_adm` are exactly the encoded admissible L words.
 - `TransitionSystem.requestsArrive_of_isRunFor`: F0 follows from "run for `w`".
 - `related_initial`: the candidate relation holds initially.
-- `safety`, `liveness`, `expressiveness`: proved from the four inclusion
-  lemmas, which are `sorry`.
+- `safety_of_isWellFormed`, `liveness_of_isWellFormed`,
+  `expressiveness_of_isWellFormed`: proved from the four inclusion lemmas,
+  which are `sorry`.
 - Examples, end to end on concrete traces, by kernel evaluation:
   - `Examples/Mutex.lean`: a two-thread mutex program. Both of its complete
     traces are finite traces of the L program and projected finite traces of
@@ -398,11 +419,12 @@ Dex commit timestamp.
 directions, for twelve programs that together use every L construct. A
 mismatch fails the build. This is testing, not proof.
 
-Two changes were planted in the L semantics during development to see whether
-the build notices. Dropping the cancel of a blocked timed operation failed the
+Three changes were planted during development to see whether the build
+notices. Dropping the cancel of a blocked timed operation failed the
 `TimedSelect` theorems. Dropping the timer-number tie-break passed the random
 checks, because equal deadlines are rare under random ticks; `TimerOrder.lean`
-was added for that case and fails under the change.
+was added for that case and fails under the change. Dropping the `waiters/cv`
+load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 
 ## The `sorry` inventory
 
@@ -427,6 +449,10 @@ There are 12, all in `DexExpressiveness/Simulation.lean`.
 preserved. Lemmas 7 and 8 are stated against it and will change if Stage 2
 strengthens it.
 
+The count is unchanged by the first review's fixes. Lemmas 7 to 12 now take
+`program.IsWellFormed`. `Related` gained one clause: the Step of a program
+point carries the load selection of `moveToPoint`.
+
 ## Stage 2 outline
 
 1. List and `AssocList` lemmas (`get?` after `set`, `find?` after `map`,
@@ -435,6 +461,9 @@ strengthens it.
 3. L-side invariants: thread IDs are unique and fresh; at most one owner per
    mutex; the `since` stamps are distinct.
 4. Lemmas 7 and 8, one case per rule and per `Intent`. This is the bulk.
+   The `cvWait`, `signal`, and `broadcast` cases use
+   `readWaiters_snapshot_of_cvOperand` to read the waiter list from the
+   filtered snapshot.
 5. Lemmas 9 and 10, which give `safety`.
 6. Infinite runs: the stuttering construction in both directions, fairness
    and marker transfer, and the limit trace. Then lemmas 11 and 12, which

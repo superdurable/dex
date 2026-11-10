@@ -18,9 +18,22 @@ namespace DexExpressiveness.L
 /-- The local variables of a thread. An unset variable reads null. -/
 abbrev Env := AssocList Var Val
 
-/-- The code left in the current procedure body, as a statement list. Its head
-is the current statement. A program point of spec §8.2 is a `Code`. -/
-abbrev Code := List Stmt
+/-- One instruction of the code a thread has left to run: a source statement,
+or the runtime instruction `park`. `park` is not source syntax (`Stmt` has no
+such constructor), so no program can contain it; only `wait(cv, m)` produces
+it, when it rewrites itself to `park cv; lock(m)`. -/
+inductive Instr
+  /-- A source statement. -/
+  | source (statement : Stmt)
+  /-- The second half of `wait(cv, m)`: the thread stays in `cv`'s queue
+  until a signal dequeues it (spec §8.3 `wait`: "Then a Step that waits
+  `Until(cv/w.ForOne())`"). -/
+  | park (cv : CvId)
+  deriving DecidableEq, Repr
+
+/-- The code left in the current procedure body, as an instruction list. Its
+head is the current instruction. A program point of spec §8.2 is a `Code`. -/
+abbrev Code := List Instr
 
 /-- Put `statement` in front of `code`, flattening `seq` and dropping `skip`.
 So `seq` and `skip` take no action of their own (spec §8.3: "Sequence: Code
@@ -28,9 +41,10 @@ inside one Execute, or GoTo between blocks"). -/
 def pushCode : Stmt → Code → Code
   | .skip, code => code
   | .seq first second, code => pushCode first (pushCode second code)
-  | statement, code => statement :: code
+  | statement, code => .source statement :: code
 
-/-- Evaluate an expression. `none` is a dynamic type error. -/
+/-- Evaluate an expression. `none` is a dynamic type error, which halts the
+thread (spec §8.1, "Halting"). -/
 def evalExpr (locals : Env) : Expr → Option Val
   | .lit value => some value
   | .var name => some ((locals.get? name).getD .null)
@@ -148,7 +162,9 @@ inductive Intent
   | exit (value : Val)
   /-- `fail(s)`, or an uncaught exception whose value is the string `s`. -/
   | fail (message : String)
-  /-- A dynamic type error: the thread halts. It never ends, so it is never joinable. -/
+  /-- The thread halts (spec §8.1, "Halting"): a dynamic type error, or an
+  uncaught exception whose value is not a string. It never ends, so it is
+  never joinable. -/
   | halt
 
 /-- What completing a statement yields: the atomic action, and the thread's
@@ -175,7 +191,7 @@ def returnValue (core : ThreadCore) (value : Val) : StatementResult :=
     else { intent := .endThread, core := core, code := [] }
 
 /-- Complete the head statement of a thread that is not at a blocking
-statement. `loaded` is the value that a `load` read when the statement began;
+instruction. `loaded` is the value that a `load` read when the statement began;
 other statements ignore it. An empty code is the end of a block: it leaves a
 `try`, or returns null from the procedure. -/
 def completeStatement (program : Program) (core : ThreadCore) (code : Code) (loaded : Val) :
@@ -187,7 +203,9 @@ def completeStatement (program : Program) (core : ThreadCore) (code : Code) (loa
     | .handler _ _ afterCode :: outerFrames =>
       { intent := .silent, core := { core with stack := outerFrames }, code := afterCode }
     | _ => returnValue core .null
-  | statement :: rest =>
+  -- Blocking instructions complete through `resumeBlocked`, never through here.
+  | .park _ :: _ => halted
+  | .source statement :: rest =>
     match statement with
     | .skip => { intent := .silent, core := core, code := rest }
     | .seq first second =>
@@ -209,7 +227,7 @@ def completeStatement (program : Program) (core : ThreadCore) (code : Code) (loa
     | .whileLoop condition body =>
       match evalExpr core.locals condition with
       | some (.bool true) =>
-        { intent := .silent, core := core, code := pushCode body (statement :: rest) }
+        { intent := .silent, core := core, code := pushCode body (.source statement :: rest) }
       | some (.bool false) => { intent := .silent, core := core, code := rest }
       | _ => halted
     | .call result procName arguments =>
@@ -257,7 +275,7 @@ def completeStatement (program : Program) (core : ThreadCore) (code : Code) (loa
         if cvId.mutex = mutexId then
           { intent := .cvWait cvId
             core := core
-            code := .park cvId :: .lock (.lit (.mutex mutexId)) :: rest }
+            code := .park cvId :: .source (.lock (.lit (.mutex mutexId))) :: rest }
         else halted
       | _, _ => halted
     | .signal cv =>
@@ -315,7 +333,6 @@ def completeStatement (program : Program) (core : ThreadCore) (code : Code) (loa
     | .join _ => halted
     | .lock _ => halted
     | .recv _ _ => halted
-    | .park _ => halted
 
 /-- What an Execute-only statement does when it begins, before it completes. -/
 inductive BeginKind
@@ -330,20 +347,20 @@ inductive BeginKind
 
 /-- Classify the beginning of the head statement. -/
 def beginKind (core : ThreadCore) : Code → BeginKind
-  | .load _ source :: _ => .load source
-  | .emit effect :: _ =>
+  | .source (.load _ source) :: _ => .load source
+  | .source (.emit effect) :: _ =>
     match evalExpr core.locals effect with
     | some value => .emit value
     | none => .plain
   | _ => .plain
 
-/-- Whether the head statement is a blocking statement: `lock`, `recv`,
-`join`, or the runtime `park`. Timed operations block too, but only after
-their Enter; `Thread.timer` tracks that. -/
+/-- Whether the head instruction blocks: `lock`, `recv`, `join`, or the
+runtime `park`. Timed operations block too, but only after their Enter;
+`Thread.timer` tracks that. -/
 def isBlockingHead : Code → Bool
-  | .lock _ :: _ => true
-  | .recv _ _ :: _ => true
-  | .join _ :: _ => true
+  | .source (.lock _) :: _ => true
+  | .source (.recv _ _) :: _ => true
+  | .source (.join _) :: _ => true
   | .park _ :: _ => true
   | _ => false
 
@@ -361,12 +378,12 @@ inductive WaitRequest
 
 /-- The wait of the head blocking statement; `none` on a dynamic type error. -/
 def waitRequest (core : ThreadCore) : Code → Option WaitRequest
-  | .lock mutex :: _ =>
+  | .source (.lock mutex) :: _ =>
     match evalExpr core.locals mutex with
     | some (.mutex mutexId) => some (.lock mutexId)
     | _ => none
-  | .recv _ chan :: _ => some (.recv chan)
-  | .join thread :: _ =>
+  | .source (.recv _ chan) :: _ => some (.recv chan)
+  | .source (.join thread) :: _ =>
     match evalExpr core.locals thread with
     | some (.thread target) => some (.join target)
     | _ => none
@@ -395,21 +412,21 @@ def resumeBlocked (core : ThreadCore) (code : Code) (outcome : WakeOutcome) : St
   let halted : StatementResult := { intent := .halt, core := core, code := code }
   let ended : StatementResult := { intent := .endThread, core := core, code := [] }
   match code, outcome with
-  | .lock _ :: rest, .granted => { intent := .silent, core := core, code := rest }
+  | .source (.lock _) :: rest, .granted => { intent := .silent, core := core, code := rest }
   | .park _ :: rest, .granted => { intent := .silent, core := core, code := rest }
-  | .join _ :: rest, .granted => { intent := .silent, core := core, code := rest }
-  | .join _ :: _, .canceled => ended
-  | .recv target _ :: rest, .received message =>
+  | .source (.join _) :: rest, .granted => { intent := .silent, core := core, code := rest }
+  | .source (.join _) :: _, .canceled => ended
+  | .source (.recv target _) :: rest, .received message =>
     { intent := .silent, core := core.setLocal target message, code := rest }
-  | .recv _ _ :: _, .canceled => ended
+  | .source (.recv _ _) :: _, .canceled => ended
   | _, _ => halted
 
 /-- The external channel a timed operation also waits on: `some none` for
 `sleep`, `some (some c)` for `select`, `none` when the head is not a timed
 operation. -/
 def timedChan : Code → Option (Option ExtChan)
-  | .sleep _ :: _ => some none
-  | .select _ chan _ _ _ :: _ => some (some chan)
+  | .source (.sleep _) :: _ => some none
+  | .source (.select _ chan _ _ _) :: _ => some (some chan)
   | _ => none
 
 /-- Continue after a timed operation was decided. -/
@@ -417,25 +434,46 @@ def resumeTimed (core : ThreadCore) (code : Code) (outcome : WakeOutcome) : Stat
   let halted : StatementResult := { intent := .halt, core := core, code := code }
   let ended : StatementResult := { intent := .endThread, core := core, code := [] }
   match code, outcome with
-  | .sleep _ :: rest, .fired => { intent := .silent, core := core, code := rest }
-  | .sleep _ :: _, .canceled => ended
-  | .select _ _ _ _ onTimeout :: rest, .fired =>
+  | .source (.sleep _) :: rest, .fired => { intent := .silent, core := core, code := rest }
+  | .source (.sleep _) :: _, .canceled => ended
+  | .source (.select _ _ _ _ onTimeout) :: rest, .fired =>
     { intent := .silent, core := core, code := pushCode onTimeout rest }
-  | .select target _ onMessage _ _ :: rest, .received message =>
+  | .source (.select target _ onMessage _ _) :: rest, .received message =>
     { intent := .silent, core := core.setLocal target message, code := pushCode onMessage rest }
-  | .select _ _ _ _ _ :: _, .canceled => ended
+  | .source (.select _ _ _ _ _) :: _, .canceled => ended
   | _, _ => halted
 
-/-- The mutex that the head statement requires the thread to hold (spec §8.1:
-"`wait(cv, m)` requires `m` held"; "`signal(cv)` and `broadcast(cv)` require
-`m` held"; `unlock(m)` releases a mutex the thread holds). `none` when the
-statement has no such requirement. -/
-def requiredMutex (program : Program) (core : ThreadCore) (code : Code) : Option MutexId :=
-  match (completeStatement program core code .null).intent with
-  | .unlock mutex => some mutex
-  | .cvWait cv => some cv.mutex
-  | .signal cv => some cv.mutex
-  | .broadcast cv => some cv.mutex
+/-- The condition variable that the head statement operates on: the `cv` of
+`wait(cv, m)`, `signal(cv)`, or `broadcast(cv)`. `none` for any other head, and
+when the operand has a dynamic type error. -/
+def cvOperand (core : ThreadCore) : Code → Option CvId
+  | .source (.wait cv mutex) :: _ =>
+    match evalExpr core.locals cv, evalExpr core.locals mutex with
+    | some (.cv cvId), some (.mutex mutexId) => if cvId.mutex = mutexId then some cvId else none
+    | _, _ => none
+  | .source (.signal cv) :: _ =>
+    match evalExpr core.locals cv with
+    | some (.cv cvId) => some cvId
+    | _ => none
+  | .source (.broadcast cv) :: _ =>
+    match evalExpr core.locals cv with
+    | some (.cv cvId) => some cvId
+    | _ => none
   | _ => none
+
+/-- The mutex that the head statement requires the thread to hold (spec §8.1):
+
+- `unlock(m)` requires `m`: a thread releases only a mutex it holds;
+- "`wait(cv, m)` requires `m` held";
+- "`signal(cv)` and `broadcast(cv)` require `m` held", `m` being `cv`'s mutex.
+
+`none` for any other head, and when the operand has a dynamic type error (the
+statement then halts the thread instead). -/
+def requiredMutex (core : ThreadCore) : Code → Option MutexId
+  | .source (.unlock mutex) :: _ =>
+    match evalExpr core.locals mutex with
+    | some (.mutex mutexId) => some mutexId
+    | _ => none
+  | code => (cvOperand core code).map (fun cvId => cvId.mutex)
 
 end DexExpressiveness.L

@@ -44,17 +44,17 @@ def setPendingMessages (run : Run σ) (chan : σ.Chan) (messages : List σ.Val) 
 /-- `new(T, v, o, from)` creates a Step execution (spec §4.2). `pend(e, m)`
 reduces to setting the pending invocation, because no lock key is queued. -/
 def newStep (run : Run σ) (stepType : σ.StepType) (input : Option σ.Val)
-    (skipWaitFor : Bool) (origin : Origin σ) : Run σ :=
+    (options : StepOptions σ) (origin : Origin σ) : Run σ :=
   let number := (run.counters.get? stepType).getD 0 + 1
-  let method := if skipWaitFor then Method.execute else Method.waitFor
+  let method := if options.skipWaitFor then Method.execute else Method.waitFor
   { run with
     counters := run.counters.set stepType number
     steps := run.steps ++
       [{ id := { stepType := stepType, number := number }
          input := input
-         skipWaitFor := skipWaitFor
+         options := options
          origin := origin
-         phase := if skipWaitFor then .execute else .waitFor
+         phase := if options.skipWaitFor then .execute else .waitFor
          invocation := some { method := method, state := .pending }
          waitState := none
          conditionResults := none }] }
@@ -242,12 +242,24 @@ def applyDecision (run : Run σ) (step : StepExecId σ) (decision : Decision σ)
   | some .deadEnd => finished
   | none =>
     decision.moves.foldl (fun current move =>
-      current.newStep move.stepType move.input move.skipWaitFor (.step step)) finished
+      current.newStep move.stepType move.input move.options (.step step)) finished
 
-/-- `snapshot(e, m)`: what the attempt reads (spec §4.2). Every Attribute is
-loaded; `sizes` and `loaded` are not modeled. -/
-def snapshot (run : Run σ) : Snapshot σ :=
-  { attributes := run.attributes }
+/-- Whether `snapshot(e, m)` holds a key (spec §4.2): "`k` has no '/', or `k`
+matches a selection in `o.loadMaps[m]`". -/
+def isLoadedKey (options : StepOptions σ) (method : Method) (key : σ.Key) : Bool :=
+  !σ.isMapInstanceKey key ||
+  (options.loadMaps method).any (fun selection => σ.isSelectedBy selection key)
+
+/-- `snapshot(e, m)`: what the attempt reads (spec §4.2), for a Step with
+options `options`:
+
+```text
+attrs := { k ↦ A[k] | k has no '/', or k matches a selection in o.loadMaps[m] }
+```
+
+`sizes` and `loaded` are not modeled. -/
+def snapshot (run : Run σ) (options : StepOptions σ) (method : Method) : Snapshot σ :=
+  { attributes := run.attributes.filter (fun entry => isLoadedKey options method entry.1) }
 
 /-- The index order of two armed timers: `(fire time, encoded TimerId bytes)`
 (spec §4.5), with the byte order supplied by the signature. -/

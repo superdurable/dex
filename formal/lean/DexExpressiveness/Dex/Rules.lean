@@ -143,14 +143,15 @@ def step (flow : FlowDef σ) (config : Config σ) : Action σ → Option (List (
     if 0 < duration then some ([], { config with clock := config.clock + duration }) else none
   -- [FLOW-START] (spec §4.3). Premise `f ∉ dom(R)`. `ρ₀` is the empty run, then
   -- `new(T₀, v₀, o₀, "__start__")`. `o₀.skipWaitFor` is read from the Step
-  -- definition (spec Appendix A, assumption 20).
+  -- definition (spec Appendix A, assumption 20); `o₀` selects no AttributeMap.
   | .request (.startFlow stepType input) =>
     match config.run with
     | some _ => none
     | none =>
       if config.canCommit then
         some (config.commit (Run.empty σ) [Obs.start stepType input] (fun run =>
-          run.newStep stepType (some input) (flow.stepDef stepType).waitFor.isNone .flowStart))
+          run.newStep stepType (some input)
+            { skipWaitFor := (flow.stepDef stepType).waitFor.isNone } .flowStart))
       else none
   -- [PUBLISH] (spec §4.6): requires `st = Running`, else rejected with NOT_FOUND.
   -- A rejected input "changes nothing and produces the single event".
@@ -183,7 +184,7 @@ def step (flow : FlowDef σ) (config : Config σ) : Action σ → Option (List (
                 method := method
                 context := { stepExecutionId := stepId, fromStepExecutionId := record.origin }
                 input := record.input
-                snapshot := run.snapshot
+                snapshot := run.snapshot record.options method
                 conditionResults := record.conditionResults
                 phase := .started }
             let committed := config.commit run [] (fun current =>

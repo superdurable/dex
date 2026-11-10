@@ -6,24 +6,33 @@ import DexExpressiveness.L.ThreadLocal
 
 Each bullet of spec §8.1 is cited at the rule that implements it.
 
-## Action granularity
+## The timing model (spec §8.1, "Clock and timing model")
 
-Spec §8.1 says L's clock "strictly increases between any two L actions, as
-Dex commit timestamps strictly increase within a partition". For the theorem
-to hold, an L run and its Dex run must be able to carry the same timestamps,
-so L must take exactly one clock-stamped action per Dex commit of the
-translated program. The spec leaves the number of invisible local actions
-open ("Local computation is invisible"). This file fixes it as follows; the
-README records the decision and its alternatives.
+L has a fixed timing model [owner, 2026-11-09]: each kind of statement takes a
+fixed number of clock-stamped actions, equal to the number of Dex commits of
+its translation, so an L run and its Dex run can carry the same timestamps.
+The counts, as spec §8.1 tabulates them:
 
-- Every statement takes a *begin* action and a *complete* action. A shared
-  read happens at begin, every other atomic action at complete.
-- A blocking statement takes four actions: begin the wait, register the wait
-  (the atomic synchronization action), begin the continuation, complete it.
-- A timed operation takes Enter (two actions) and then the four actions of a
-  blocking statement, of which the registration is Arm.
-- `out(a)` and the delivery or drop of a late emit take no clock stamp.
-- `fire count` fires `count` least due timers under one clock stamp.
+| L step | Stamped actions |
+| --- | --- |
+| `begin(v)` | 1, then 2 more before `main`'s first statement |
+| `seq`, `skip` | 0 |
+| a statement that does not block; the end of a `try` body or procedure body | 2: begin, complete |
+| `lock`, `recv`, `join` | 4: begin the wait, register, begin the continuation, complete it |
+| `wait(cv, m)` | 10: 2 to release and enqueue, 4 to wait for the signal, 4 to re-lock |
+| `sleep`, `select` | 6: 2 for Enter, then 4, of which the register is Arm |
+| `in(c, v)` while the program runs | 1 |
+| a batch of `count ≥ 1` consecutive `fire` actions | 1 |
+| `out(a)`, the delivery or drop of a late emit, `refused(c, v)` | 0 |
+
+A shared read happens at begin, an `emit` is issued at begin, and every other
+atomic action happens at complete or at register.
+
+The owner's rationale: real programs cannot rely on timing races, so any fixed
+timing model leaves the meaning of correct programs unchanged. Choosing the
+model aligned with Dex makes the equivalence exact without narrowing what the
+theorem covers in practice. It is like counting one time unit per instruction
+in algorithm analysis.
 -/
 
 namespace DexExpressiveness.L
@@ -65,7 +74,8 @@ inductive Phase
   | woken (outcome : WakeOutcome)
   /-- The continuation began. -/
   | resuming (outcome : WakeOutcome)
-  /-- Halted by a dynamic type error. -/
+  /-- Halted by a dynamic type error or by an uncaught exception that is not
+  a string (spec §8.1, "Halting"). The thread takes no further action. -/
   | halted
   deriving DecidableEq, Repr
 
@@ -96,7 +106,7 @@ inductive Status
 structure Config where
   /-- Not started, running, or closed. -/
   status : Status
-  /-- "L has an internal clock in microseconds" (spec §8.1, "Clock"). -/
+  /-- "L has an internal clock in microseconds" (spec §8.1, "Clock and timing model"). -/
   clock : Nat
   /-- The clock value of the last stamped action, or `none` before the first.
   A stamped action needs `clock` strictly above it. -/
@@ -140,7 +150,9 @@ inductive Label
   | request (request : Request)
   /-- This thread takes its next action. -/
   | thread (thread : Tid)
-  /-- The internal action `fire`, `count ≥ 1` times in a row (spec §8.1). -/
+  /-- The internal action `fire`, `count ≥ 1` times in a row under one clock
+  stamp (spec §8.1: `fire` "shares its clock stamp with the `fire` actions
+  that follow it with nothing in between"). -/
   | fire (count : Nat)
   /-- After the close: the late emit at this index delivers its `out(a)`. -/
   | lateDeliver (index : Nat)
@@ -149,8 +161,8 @@ inductive Label
 
 namespace Config
 
-/-- Whether a stamped action may happen now: the clock "strictly increases
-between any two L actions" (spec §8.1, "Clock"). -/
+/-- Whether a stamped action may happen now: "the clock strictly increases
+between any two stamped actions" (spec §8.1, "Clock and timing model"). -/
 def canStamp (config : Config) : Bool :=
   match config.lastStampAt with
   | none => true
@@ -201,9 +213,9 @@ def readShared (config : Config) (source : Global) : Val :=
 def pendingInput (config : Config) (chan : ExtChan) : List Val :=
   (config.inputQueues.get? chan).getD []
 
-/-- Whether the thread holds the mutex its head statement requires. -/
-def holdsRequiredMutex (config : Config) (program : Program) (thread : Thread) : Bool :=
-  match requiredMutex program thread.core thread.code with
+/-- Whether the thread holds the mutex its head statement requires, if any. -/
+def holdsRequiredMutex (config : Config) (thread : Thread) : Bool :=
+  match requiredMutex thread.core thread.code with
   | none => true
   | some mutex => decide (config.mutexOwners.get? mutex = some (some thread.core.tid))
 
@@ -428,7 +440,7 @@ end Config
 
 /-- The next action of one thread. `none` when the thread is blocked or
 halted, when the clock has not advanced since the last stamped action, or when
-the thread would violate a mutex requirement (`IsViolation`). -/
+the thread would break a mutex requirement (`BreaksMutexRequirement`). -/
 def stepThread (program : Program) (config : Config) (thread : Thread) :
     Option (List Event × Config) :=
   let tid := thread.core.tid
@@ -440,7 +452,7 @@ def stepThread (program : Program) (config : Config) (thread : Thread) :
   | .ready =>
     if thread.timer.isSome || isBlockingHead thread.code then
       stamped ([], config.setPhase tid .waitStarted)
-    else if config.holdsRequiredMutex program thread then
+    else if config.holdsRequiredMutex thread then
       match beginKind thread.core thread.code with
       | .plain => stamped ([], config.setPhase tid (.running .null))
       | .load source => stamped ([], config.setPhase tid (.running (config.readShared source)))
@@ -525,19 +537,37 @@ def IsAdmissibleWord (word : Sequence Request) : Prop :=
     ∃ chan value, request = .input chan value) ∧
   (∀ position, word position = none → word (position + 1) = none)
 
-/-- A thread is about to act without holding the mutex spec §8.1 requires:
-`unlock(m)` of a mutex it does not hold, or `wait(cv, m)`, `signal(cv)`, or
-`broadcast(cv)` without holding `cv`'s mutex. Spec §8.1 states these as
-requirements and gives no behavior for a program that breaks them. -/
-def IsViolation (program : Program) (config : Config) : Prop :=
-  ∃ thread, thread ∈ config.threads ∧
-    thread.phase = .ready ∧ thread.timer = none ∧ isBlockingHead thread.code = false ∧
-    config.holdsRequiredMutex program thread = false
+/-! ## Well-formed programs (spec §0, §8.1 "Well-formed programs")
 
-/-- A program that never reaches a violation, under any input and schedule.
-The theorems assume it. -/
-def Program.IsSafe (program : Program) : Prop :=
-  ∀ config, (system program).Reachable config → ¬ IsViolation program config
+The theorem covers well-formed programs only [owner, 2026-11-09]. A program is
+well formed when no run of it ever has a thread about to
+
+- call `wait(cv, m)`, `signal(cv)`, or `broadcast(cv)` without holding `cv`'s
+  mutex, or
+- call `unlock(m)` on a mutex it does not hold.
+
+This is a property of the source program under L's semantics, like data-race
+freedom: it quantifies over every input and every schedule. It is checked on
+the L side alone; the translation plays no part in it. -/
+
+/-- The thread is about to break a mutex requirement of spec §8.1: its next
+statement is `unlock(m)`, `wait(cv, m)`, `signal(cv)`, or `broadcast(cv)`
+(`requiredMutex`), it has not begun the statement, and it does not own the
+required mutex. L gives such a thread no action. -/
+def Thread.BreaksMutexRequirement (config : Config) (thread : Thread) : Prop :=
+  thread.phase = .ready ∧ thread.timer = none ∧
+  ∃ mutex, requiredMutex thread.core thread.code = some mutex ∧
+    config.mutexOwners.get? mutex ≠ some (some thread.core.tid)
+
+/-- Some thread of the configuration is about to break a mutex requirement. -/
+def BreaksMutexRequirement (config : Config) : Prop :=
+  ∃ thread, thread ∈ config.threads ∧ thread.BreaksMutexRequirement config
+
+/-- A well-formed program (spec §0, §8.1): no configuration that any finite
+run reaches, under any input and any schedule, has a thread about to break a
+mutex requirement. Both theorems assume it. -/
+def Program.IsWellFormed (program : Program) : Prop :=
+  ∀ config, (system program).Reachable config → ¬ BreaksMutexRequirement config
 
 /-! ## Fairness (spec §5.5, last paragraph)
 

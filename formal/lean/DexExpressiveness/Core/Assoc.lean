@@ -40,6 +40,22 @@ def erase : AssocList κ ν → κ → AssocList κ ν
 def contains (map : AssocList κ ν) (wanted : κ) : Bool :=
   (get? map wanted).isSome
 
+/-- Filtering a map by a predicate on keys does not change the binding of a
+key the predicate keeps. -/
+theorem get?_filter_of_kept (isKept : κ → Bool) (map : AssocList κ ν) (wanted : κ)
+    (keepsWanted : isKept wanted = true) :
+    get? (map.filter (fun entry => isKept entry.1)) wanted = get? map wanted := by
+  induction map with
+  | nil => rfl
+  | cons entry rest inductionHypothesis =>
+    obtain ⟨key, value⟩ := entry
+    by_cases isWanted : key = wanted
+    · subst isWanted
+      simp [keepsWanted, get?]
+    · by_cases keepsKey : isKept key = true
+      · simp [keepsKey, get?, isWanted, inductionHypothesis]
+      · simp [keepsKey, get?, isWanted, inductionHypothesis]
+
 end AssocList
 
 /-- Insert `newElement` into a list sorted by the total preorder `isAtMost`,

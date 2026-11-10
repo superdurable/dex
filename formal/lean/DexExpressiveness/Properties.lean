@@ -1,3 +1,4 @@
+import DexExpressiveness.Dex.MetaFunctions
 import DexExpressiveness.Translation.Projection
 
 /-!
@@ -62,7 +63,7 @@ theorem translate_execute_isWellFormed (program : Program) (stepType : StepType)
 /-- A move agrees with its target Step definition: it skips WaitFor exactly
 when the definition has none (spec Appendix A, assumption 20). -/
 def MoveAgreesWithStepDef (program : Program) (move : Dex.Move signature) : Prop :=
-  move.skipWaitFor = (⟦program⟧.stepDef move.stepType).waitFor.isNone
+  move.options.skipWaitFor = (⟦program⟧.stepDef move.stepType).waitFor.isNone
 
 /-- A move to a program point agrees with the program point's Step definition. -/
 theorem moveToPoint_agrees (program : Program) (core : ThreadCore) (code : Code) :
@@ -101,6 +102,70 @@ theorem entryStep_hasNoWaitFor (program : Program) :
     (⟦program⟧.stepDef environment.entryStep).waitFor.isNone = true := by
   simp [translate, startStepDef, environment]
 
+/-! ## Load selections (spec §4.2 `snapshot`)
+
+A snapshot holds an AttributeMap instance only when the Step selects it. The
+two lemmas below show that the selections the translation declares are
+enough: every Execute of `⟦S⟧` reads from its snapshot exactly what the run's
+Attributes hold. -/
+
+/-- A shared variable is a plain Attribute, so every snapshot holds it,
+whatever the Step options are. -/
+theorem readShared_snapshot (run : Dex.Run signature) (options : Dex.StepOptions signature)
+    (method : Dex.Method) (name : Global) :
+    readShared (run.snapshot options method) name =
+      readShared { attributes := run.attributes } name := by
+  unfold readShared Dex.Run.snapshot
+  rw [AssocList.get?_filter_of_kept (Dex.Run.isLoadedKey options method) run.attributes
+    (Key.shared name) (by simp [Dex.Run.isLoadedKey])]
+
+/-- The Execute snapshot of a program point whose head statement is
+`wait(cv, m)`, `signal(cv)`, or `broadcast(cv)` holds `waiters/cv`: the move
+that created the Step selected it (`moveToPoint`, `executeLoadMaps`). -/
+theorem readWaiters_snapshot_of_cvOperand (run : Dex.Run signature) (core : ThreadCore)
+    (code : Code) (cv : CvId) (isOperand : cvOperand core code = some cv) :
+    readWaiters (run.snapshot (moveToPoint core code).options .execute) cv =
+      readWaiters { attributes := run.attributes } cv := by
+  unfold readWaiters Dex.Run.snapshot
+  rw [AssocList.get?_filter_of_kept
+    (Dex.Run.isLoadedKey (moveToPoint core code).options .execute) run.attributes
+    (Key.cvWaiters cv)
+    (by simp [Dex.Run.isLoadedKey, moveToPoint, executeLoadMaps, isOperand,
+      Dex.StepOptions.loadMaps])]
+
+/-- The requirement of spec §8.1 is on exactly the statements that ask for a
+mutex or condition-variable action: `requiredMutex` names the mutex of the
+`unlock`, `cvWait`, `signal`, or `broadcast` that completing the head
+statement asks for, and nothing otherwise. -/
+theorem requiredMutex_eq_of_intent (program : Program) (core : ThreadCore) (code : Code)
+    (loaded : Val) :
+    requiredMutex core code =
+      match (completeStatement program core code loaded).intent with
+      | .unlock mutex => some mutex
+      | .cvWait cv => some cv.mutex
+      | .signal cv => some cv.mutex
+      | .broadcast cv => some cv.mutex
+      | _ => none := by
+  generalize isResult : completeStatement program core code loaded = result
+  cases code with
+  | nil =>
+    simp only [completeStatement, returnValue] at isResult
+    repeat' split at isResult
+    all_goals (subst isResult; simp [requiredMutex, cvOperand])
+  | cons instr rest =>
+    cases instr with
+    | park cv =>
+      simp only [completeStatement] at isResult
+      subst isResult
+      simp [requiredMutex, cvOperand]
+    | source statement =>
+      cases statement <;> simp only [completeStatement, returnValue] at isResult <;>
+        (repeat' split at isResult) <;>
+        (subst isResult
+         first
+           | (simp [requiredMutex, cvOperand]; done)
+           | (simp only [requiredMutex, cvOperand]; (repeat' split) <;> simp_all))
+
 /-! ## Determinism (spec §4.1) -/
 
 /-- A transition system's `step` is a function, so a label has at most one
@@ -133,7 +198,7 @@ theorem dex_tick_enabled (flow : Dex.FlowDef signature) (config : Dex.Config sig
       some ([], { config with clock := config.clock + (duration + 1) }) := by
   simp [Dex.system, Dex.step]
 
-/-- An idle tick is always enabled in L and produces no event (spec §8.1, "Clock"). -/
+/-- An idle tick is always enabled in L and produces no event (spec §8.1, "Clock and timing model"). -/
 theorem l_tick_enabled (program : Program) (config : L.Config) (duration : Nat) :
     (L.system program).step config (.tick (duration + 1)) =
       some ([], { config with clock := config.clock + (duration + 1) }) := by
