@@ -329,7 +329,8 @@ theorem WPF2_commitRun_stutter (program : Program σ) (config moved : Config σ)
           changedAttempt.method = attempt.method ∧
           changedAttempt.snapshot.isSome = attempt.snapshot.isSome) :
     (moved.commitRun run false none [] change).1 = [] ∧
-      abstractConfig (moved.commitRun run false none [] change).2 = abstractConfig config := by
+      abstractConfig (moved.commitRun run false none [] change).2 = abstractConfig config ∧
+      (moved.commitRun run false none [] change).2.ghost = config.ghost := by
   have runInvariant := invariant.runInvariant run isRun
   generalize isChanged : change { run with base := { run.base with seq := run.base.seq + 1 } } =
     changed at isBase sameAttempt
@@ -417,7 +418,7 @@ theorem WPF2_commitRun_stutter (program : Program σ) (config moved : Config σ)
     rw [isBase]
   unfold Config.commitRun
   simp only [isChanged, Bool.false_eq_true, ite_false]
-  constructor
+  refine ⟨?_, ?_, ?_⟩
   · unfold Config.closeEvents
     rw [sameStatus]
     cases run.base.status <;> rfl
@@ -428,5 +429,349 @@ theorem WPF2_commitRun_stutter (program : Program σ) (config moved : Config σ)
       simp only [Option.map_some]
       rw [sameRun]
     · exact movedTasks
+  · show moved.ghost.reconcile none changed.reconcileAttempts.base = config.ghost
+    rw [movedGhost]
+    exact sameGhost
+
+/-! ## The failure rules, one by one -/
+
+theorem WPF2_moveToZombies_members (config : Config σ) (taskId : Nat) (task : Task σ) :
+    task ∈ (config.moveToZombies taskId).realTasks ↔ task ∈ config.realTasks := by
+  unfold Config.moveToZombies Config.realTasks
+  simp only [List.mem_append, List.mem_filter]
+  by_cases isTask : task.base.id = taskId <;> simp [isTask, or_comm]
+
+theorem WPF2_startRetry (program : Program σ) (config : Config σ) (requestId : Nat)
+    (stepType : σ.StepType) (input : σ.Val) (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.startRetry requestId stepType input) = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · cases isStep
+  · split at isStep
+    · cases isStep
+      exact ⟨rfl, rfl⟩
+    · cases isStep
+
+theorem WPF2_internalCommit (program : Program σ) (config : Config σ) (events : List (Obs σ))
+    (next : Config σ) (isStep : step program config .internalCommit = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · cases isStep
+    exact ⟨rfl, rfl⟩
+  · cases isStep
+
+theorem WPF2_crash (program : Program σ) (config : Config σ) (events : List (Obs σ))
+    (next : Config σ) (isStep : step program config .crash = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · cases isStep
+    refine ⟨rfl, ?_⟩
+    refine WPF2_abstractConfig_eq _ _ ?_ ?_ ?_ ?_
+    · rfl
+    · rfl
+    · rfl
+    intro entry _ _
+    apply WPF2_any_congr_mem
+    intro task
+    simp only [Config.realTasks, List.mem_append, List.nil_append]
+    exact or_comm
+  · cases isStep
+
+theorem WPF2_recover (program : Program σ) (config : Config σ) (events : List (Obs σ))
+    (next : Config σ) (isStep : step program config .recover = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · cases isStep
+  · cases isStep
+    exact ⟨rfl, rfl⟩
+
+theorem WPF2_updateStep_stutter (program : Program σ) (config moved : Config σ) (run : Run σ)
+    (change : Run σ → Run σ) (stepId : Dex.StepExecId σ) (record : Dex.StepRecord σ)
+    (method : Dex.Method) (newState : Dex.InvocationState) (attempt : Attempt σ)
+    (invariant : Invariant program config) (isRun : config.run = some run)
+    (movedGhost : moved.ghost = config.ghost) (movedClock : moved.clock = config.clock)
+    (movedTasks : ∀ entry, entry ∈ config.ghost.invocations → entry.2.outcome = .canceled →
+      moved.realTasks.any (fun task => decide (task.key = entry.1)) =
+        config.realTasks.any (fun task => decide (task.key = entry.1)))
+    (isRecord : run.base.findStep? stepId = some record)
+    (hasMethod : record.invocation.map (fun invocation => invocation.method) = some method)
+    (isAttempt : run.findAttempt? stepId = some attempt)
+    (isBase : (change { run with base := { run.base with seq := run.base.seq + 1 } }).base =
+      ({ run.base with seq := run.base.seq + 1 } : Dex.Run σ).updateStep stepId (fun current =>
+        { current with invocation := some { method := method, state := newState } }))
+    (otherAttempts : ∀ other, other ≠ stepId →
+      (change { run with base := { run.base with seq := run.base.seq + 1 } }).attempts.get? other =
+        run.attempts.get? other)
+    (selfAttempt : ∃ changedAttempt,
+      (change { run with base := { run.base with seq := run.base.seq + 1 } }).attempts.get? stepId =
+        some changedAttempt ∧ changedAttempt.method = attempt.method ∧
+        changedAttempt.snapshot.isSome = attempt.snapshot.isSome) :
+    (moved.commitRun run false none [] change).1 = [] ∧
+      abstractConfig (moved.commitRun run false none [] change).2 = abstractConfig config ∧
+      (moved.commitRun run false none [] change).2.ghost = config.ghost := by
+  have runInvariant := invariant.runInvariant run isRun
+  have recordMember : record ∈ run.base.steps := List.mem_of_find?_eq_some isRecord
+  have recordId : record.id = stepId := by simpa using List.find?_some isRecord
+  have isFound : ∀ other, other ∈ run.base.steps → other.id = stepId → other = record :=
+    fun other isMember isId =>
+      eq_of_nodup_map (fun record => record.id) _ runInvariant.stepIdsNodup isMember recordMember
+        (isId.trans recordId.symm)
+  apply WPF2_commitRun_stutter program config moved run change
+    (fun current => if current.id = stepId then
+      { current with invocation := some { method := method, state := newState } } else current)
+    invariant isRun movedGhost movedClock movedTasks
+  · rw [isBase]
+    rfl
+  · intro current _
+    by_cases isStep : current.id = stepId <;> simp [isStep]
+  · intro current isMember
+    by_cases isStep : current.id = stepId
+    · simp only [isStep, ite_true, Option.map_some]
+      rw [isFound current isMember isStep, hasMethod]
+    · simp [isStep]
+  · intro current isMember invocation _ currentAttempt isCurrentAttempt _
+    by_cases isStep : current.id = stepId
+    · rw [isStep] at isCurrentAttempt ⊢
+      rw [isAttempt] at isCurrentAttempt
+      cases isCurrentAttempt
+      exact selfAttempt
+    · rw [otherAttempts current.id isStep]
+      exact ⟨currentAttempt, isCurrentAttempt, rfl, rfl⟩
+
+theorem WPF2_of_some_eq (config : Config σ) (result : List (Obs σ) × Config σ)
+    (events : List (Obs σ)) (next : Config σ) (isSome : some result = some (events, next))
+    (holds : result.1 = [] ∧ abstractConfig result.2 = abstractConfig config) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  cases isSome
+  exact holds
+
+/-- [ATTEMPT-LOST] with RetryAt, from the attempt state of the Step. -/
+theorem WPF2_failAttempt (program : Program σ) (config source moved : Config σ) (run : Run σ)
+    (invariant : Invariant program config) (isRun : config.run = some run)
+    (movedGhost : moved.ghost = config.ghost) (movedClock : moved.clock = config.clock)
+    (movedTasks : ∀ entry, entry ∈ config.ghost.invocations → entry.2.outcome = .canceled →
+      moved.realTasks.any (fun task => decide (task.key = entry.1)) =
+        config.realTasks.any (fun task => decide (task.key = entry.1)))
+    (stepId : Dex.StepExecId σ) (record : Dex.StepRecord σ) (attempt : Attempt σ)
+    (method : Dex.Method) (state : Dex.InvocationState) (cause : FailureCause)
+    (lostTaskId : Option Nat) (backoffMicros : Nat)
+    (isRecord : run.base.findStep? stepId = some record)
+    (isAttempt : run.findAttempt? stepId = some attempt)
+    (hasInvocation : record.invocation = some { method := method, state := state })
+    (isMoved : (match lostTaskId with
+      | some taskId => source.moveToZombies taskId
+      | none => source) = moved) :
+    (source.failAttempt run stepId method attempt cause lostTaskId
+        (.retryAfter backoffMicros)).1 = [] ∧
+      abstractConfig (source.failAttempt run stepId method attempt cause lostTaskId
+        (.retryAfter backoffMicros)).2 = abstractConfig config := by
+  unfold Config.failAttempt
+  cases lostTaskId <;> simp only at isMoved ⊢ <;> subst isMoved <;>
+  · refine (fun holds => ⟨holds.1, holds.2.1⟩) (WPF2_updateStep_stutter program config _ run _
+      stepId record method .pending attempt invariant isRun movedGhost movedClock movedTasks isRecord
+      (by rw [hasInvocation]; rfl) isAttempt rfl ?_ ?_)
+    · intro other isOther
+      exact AssocList.get?_set_other _ _ _ _ isOther
+    · exact ⟨_, AssocList.get?_set_self _ _ _, rfl, rfl⟩
+
+theorem WPF2_attemptFailed (program : Program σ) (config : Config σ)
+    (invariant : Invariant program config) (stepId : Dex.StepExecId σ) (backoffMicros : Nat)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.attemptFailed stepId (.retryAfter backoffMicros)) =
+      some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · split at isStep
+    · cases isStep
+    · split at isStep
+      · split at isStep
+        · rename_i _ _ run isRun _ _ record attempt isRecord isAttempt _ method taskId hasInvocation
+          split at isStep
+          · cases isStep
+          · refine WPF2_of_some_eq config _ events next isStep ?_
+            exact WPF2_failAttempt program config config (config.moveToZombies taskId) run invariant isRun
+              rfl rfl
+              (fun entry _ _ => WPF2_any_congr_mem _ _ _ (WPF2_moveToZombies_members config taskId))
+              stepId record attempt method _ _ _ _ isRecord isAttempt hasInvocation rfl
+        · rename_i _ _ run isRun _ _ record attempt isRecord isAttempt _ method hasInvocation
+          split at isStep
+          · cases isStep
+          · refine WPF2_of_some_eq config _ events next isStep ?_
+            exact WPF2_failAttempt program config config config run invariant isRun rfl rfl
+              (fun _ _ _ => rfl) stepId record attempt method _ _ _ _ isRecord isAttempt
+              hasInvocation rfl
+        · cases isStep
+      · cases isStep
+  · cases isStep
+
+theorem WPF2_attemptReturned (program : Program σ) (config : Config σ)
+    (invariant : Invariant program config) (stepId : Dex.StepExecId σ) (events : List (Obs σ))
+    (next : Config σ) (isStep : step program config (.attemptReturned stepId) = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · split at isStep
+    · cases isStep
+    · split at isStep
+      · split at isStep
+        · rename_i _ _ run isRun _ _ record attempt isRecord isAttempt _ method taskId hasInvocation
+          split at isStep
+          · cases isStep
+          · refine WPF2_of_some_eq config _ events next isStep ?_
+            refine (fun holds => ⟨holds.1, holds.2.1⟩) (WPF2_updateStep_stutter program config
+              (config.moveToZombies taskId) run _ stepId record method .pending attempt invariant
+              isRun rfl rfl
+              (fun entry _ _ => WPF2_any_congr_mem _ _ _ (WPF2_moveToZombies_members config taskId))
+              isRecord (by rw [hasInvocation]; rfl) isAttempt rfl ?_ ?_)
+            · intro _ _
+              rfl
+            · exact ⟨attempt, isAttempt, rfl, rfl⟩
+        · cases isStep
+      · cases isStep
+  · cases isStep
+
+/-- A seq-taking failure commit that leaves the Step records alone and keeps
+each attempt state's method and snapshot presence. -/
+theorem WPF2_baseKept_stutter (program : Program σ) (config : Config σ) (run : Run σ)
+    (change : Run σ → Run σ) (invariant : Invariant program config) (isRun : config.run = some run)
+    (isBase : (change { run with base := { run.base with seq := run.base.seq + 1 } }).base =
+      { run.base with seq := run.base.seq + 1 })
+    (sameAttempts : ∀ stepId attempt, run.attempts.get? stepId = some attempt →
+      ∃ changedAttempt,
+        (change { run with base := { run.base with seq := run.base.seq + 1 } }).attempts.get?
+            stepId = some changedAttempt ∧
+          changedAttempt.method = attempt.method ∧
+          changedAttempt.snapshot.isSome = attempt.snapshot.isSome) :
+    (config.commitRun run false none [] change).1 = [] ∧
+      abstractConfig (config.commitRun run false none [] change).2 = abstractConfig config := by
+  refine (fun holds => ⟨holds.1, holds.2.1⟩) (WPF2_commitRun_stutter program config config run
+    change (fun record => record) invariant isRun rfl rfl (fun _ _ _ => rfl) ?_ ?_ ?_ ?_)
+  · rw [isBase, List.map_id']
+  · intro _ _
+    rfl
+  · intro _ _
+    rfl
+  · intro record _ _ _ attempt isAttempt _
+    exact sameAttempts record.id attempt isAttempt
+
+theorem WPF2_attemptHeartbeat (program : Program σ) (config : Config σ)
+    (invariant : Invariant program config) (stepId : Dex.StepExecId σ) (value : σ.Val)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.attemptHeartbeat stepId value) = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · split at isStep
+    · cases isStep
+    · split at isStep
+      · split at isStep
+        · rename_i _ _ run isRun _ _ record attempt isRecord isAttempt _ method taskId hasInvocation
+          split at isStep
+          · cases isStep
+          · refine WPF2_of_some_eq config _ events next isStep ?_
+            apply WPF2_baseKept_stutter program config run _ invariant isRun rfl
+            intro other otherAttempt isOtherAttempt
+            by_cases isStepId : other = stepId
+            · subst isStepId
+              have sameAttempt : otherAttempt = attempt := by
+                have isAttempt' : run.attempts.get? other = some attempt := isAttempt
+                rw [isOtherAttempt] at isAttempt'
+                exact Option.some.inj isAttempt'
+              subst sameAttempt
+              exact ⟨_, AssocList.get?_set_self _ _ _, rfl, rfl⟩
+            · exact ⟨otherAttempt, (AssocList.get?_set_other _ _ _ _ isStepId).trans isOtherAttempt,
+                rfl, rfl⟩
+        · cases isStep
+      · cases isStep
+  · cases isStep
+
+/-- What a retry timer leaves alone: the Step records, and each attempt
+state's method and snapshot presence. -/
+def WPF2_KeepsAttempts (before after : Run σ) : Prop :=
+  after.base = before.base ∧
+    ∀ stepId attempt, before.attempts.get? stepId = some attempt →
+      ∃ changedAttempt, after.attempts.get? stepId = some changedAttempt ∧
+        changedAttempt.method = attempt.method ∧
+        changedAttempt.snapshot.isSome = attempt.snapshot.isSome
+
+theorem WPF2_keepsAttempts_refl (run : Run σ) : WPF2_KeepsAttempts run run :=
+  ⟨rfl, fun _ attempt isAttempt => ⟨attempt, isAttempt, rfl, rfl⟩⟩
+
+theorem WPF2_keepsAttempts_trans (first second third : Run σ)
+    (firstToSecond : WPF2_KeepsAttempts first second)
+    (secondToThird : WPF2_KeepsAttempts second third) : WPF2_KeepsAttempts first third := by
+  refine ⟨secondToThird.1.trans firstToSecond.1, ?_⟩
+  intro stepId attempt isAttempt
+  obtain ⟨secondAttempt, isSecond, secondMethod, secondSnapshot⟩ :=
+    firstToSecond.2 stepId attempt isAttempt
+  obtain ⟨thirdAttempt, isThird, thirdMethod, thirdSnapshot⟩ :=
+    secondToThird.2 stepId secondAttempt isSecond
+  exact ⟨thirdAttempt, isThird, thirdMethod.trans secondMethod, thirdSnapshot.trans secondSnapshot⟩
+
+theorem WPF2_fireRetryTimer_keepsAttempts (run : Run σ) (timer : RetryTimerId σ) :
+    WPF2_KeepsAttempts run (run.fireRetryTimer timer) := by
+  unfold Run.fireRetryTimer
+  split
+  · simp only
+    split
+    · rename_i record found _ isFound
+      split
+      · refine ⟨rfl, ?_⟩
+        intro stepId attempt isAttempt
+        by_cases isStepId : stepId = timer.step
+        · rw [isStepId] at isAttempt ⊢
+          have isFound' : run.attempts.get? timer.step = some found := isFound
+          rw [isFound'] at isAttempt
+          cases isAttempt
+          exact ⟨_, AssocList.get?_set_self _ _ _, rfl, rfl⟩
+        · exact ⟨attempt, (AssocList.get?_set_other _ _ _ _ isStepId).trans isAttempt, rfl, rfl⟩
+      · exact ⟨rfl, fun _ attempt isAttempt => ⟨attempt, isAttempt, rfl, rfl⟩⟩
+    · exact ⟨rfl, fun _ attempt isAttempt => ⟨attempt, isAttempt, rfl, rfl⟩⟩
+  · exact WPF2_keepsAttempts_refl run
+
+theorem WPF2_foldl_fireDueTimer_keepsAttempts (fired : List (DueTimer σ))
+    (allRetry : ∀ timer, timer ∈ fired → timer.isWait = false) (run : Run σ) :
+    WPF2_KeepsAttempts run (fired.foldl Run.fireDueTimer run) := by
+  induction fired generalizing run with
+  | nil => exact WPF2_keepsAttempts_refl run
+  | cons head rest inductionHypothesis =>
+    simp only [List.foldl_cons]
+    apply WPF2_keepsAttempts_trans _ (run.fireDueTimer head)
+    · cases head with
+      | wait timer => simp [DueTimer.isWait] at allRetry
+      | retry timer => exact WPF2_fireRetryTimer_keepsAttempts run timer
+    · exact inductionHypothesis (fun timer isMember => allRetry timer (List.mem_cons_of_mem _ isMember))
+        _
+
+theorem WPF2_timerFire (program : Program σ) (config : Config σ)
+    (invariant : Invariant program config) (count : Nat) (events : List (Obs σ)) (next : Config σ)
+    (isStep : step program config (.timerFire count false) = some (events, next)) :
+    events = [] ∧ abstractConfig next = abstractConfig config := by
+  simp only [step] at isStep
+  split at isStep
+  · split at isStep
+    · cases isStep
+    · rename_i _ _ run isRun
+      split at isStep
+      · rename_i isValid
+        refine WPF2_of_some_eq config _ events next isStep ?_
+        have noWait : ((run.dueTimers config.clock).take count).any DueTimer.isWait = false := by
+          revert isValid
+          cases ((run.dueTimers config.clock).take count).any DueTimer.isWait <;> simp
+        have allRetry : ∀ timer, timer ∈ (run.dueTimers config.clock).take count →
+            timer.isWait = false := by
+          intro timer isMember
+          have := List.any_eq_false.mp noWait timer isMember
+          simpa using this
+        have keeps := WPF2_foldl_fireDueTimer_keepsAttempts _ allRetry
+          { run with base := { run.base with seq := run.base.seq + 1 } }
+        exact WPF2_baseKept_stutter program config run _ invariant isRun keeps.1 keeps.2
+      · cases isStep
+  · cases isStep
 
 end DexExpressiveness.DexF
