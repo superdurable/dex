@@ -220,7 +220,7 @@ const config: Config = {
             '@dex-web-design': fileURLToPath(new URL('../web/app/design', import.meta.url)),
             '@dex-web-workspace': fileURLToPath(new URL('../web/app/workspace', import.meta.url)),
             ...Object.fromEntries(
-              ['react', 'react-dom', '@xyflow/react', 'elkjs'].map((name) => [
+              ['react', 'react-dom', '@xyflow/react', 'elkjs', 'lucide-react'].map((name) => [
                 name,
                 fileURLToPath(new URL(`./node_modules/${name}`, import.meta.url)),
               ]),
