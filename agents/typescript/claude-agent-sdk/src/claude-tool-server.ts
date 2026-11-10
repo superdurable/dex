@@ -11,8 +11,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   getParseErrorMessage,
   normalizeObjectSchema,
+  objectFromShape,
   safeParseAsync,
-  type AnySchema,
+  type AnyObjectSchema,
   type ZodRawShapeCompat,
 } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
@@ -79,7 +80,7 @@ export function createClaudeToolServer(
 function listCustomTool(customTool: ClaudeCustomTool): Tool[] {
   let inputSchema: Tool["inputSchema"];
   try {
-    const objectSchema = normalizeObjectSchema(customTool.inputSchema as ZodRawShapeCompat);
+    const objectSchema = normalizeObjectSchema(customToolObjectSchema(customTool));
     inputSchema =
       objectSchema === undefined
         ? emptyObjectJsonSchema
@@ -102,9 +103,8 @@ function listCustomTool(customTool: ClaudeCustomTool): Tool[] {
 
 // The checks and error text of McpServer, so an inline custom tool behaves as under createSdkMcpServer.
 async function parseInlineArguments(customTool: ClaudeCustomTool, toolArguments: unknown): Promise<unknown> {
-  const objectSchema = normalizeObjectSchema(customTool.inputSchema as ZodRawShapeCompat);
-  const schemaToParse = (objectSchema ?? customTool.inputSchema) as AnySchema;
-  const parsed = await safeParseAsync(schemaToParse, toolArguments ?? {});
+  const objectSchema = customToolObjectSchema(customTool);
+  const parsed = await safeParseAsync(normalizeObjectSchema(objectSchema) ?? objectSchema, toolArguments ?? {});
   if (!parsed.success) {
     throw new McpError(
       ErrorCode.InvalidParams,
@@ -112,6 +112,11 @@ async function parseInlineArguments(customTool: ClaudeCustomTool, toolArguments:
     );
   }
   return parsed.data;
+}
+
+// tool() takes a raw shape, which McpServer wraps in an object schema, an empty shape included.
+function customToolObjectSchema(customTool: ClaudeCustomTool): AnyObjectSchema {
+  return objectFromShape(customTool.inputSchema as ZodRawShapeCompat);
 }
 
 function toolErrorResult(text: string): CallToolResult {

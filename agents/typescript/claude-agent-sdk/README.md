@@ -417,6 +417,8 @@ session and sends the failed prompt, the note, and its own prompt as three text 
   hooks for a resumed call that already has a final record: the call passed them when it was deferred,
   and a later deny would hide its recorded result. A resumed tool that runs inside the CLI, such as
   `Bash`, receives its recorded input instead, the input that was approved.
+- The custom tool server runs a tool only under the tool use ID and tool name that the hook permitted.
+  A deferred call that the hook did not defer fails the segment, which then retries.
 - On the first turn of a session Claude Code also writes its usual local transcript under
   `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter never reads it; set `CLAUDE_CONFIG_DIR`
   in `env` to choose where it goes. Later segments run in a temporary directory that the SDK removes,
@@ -503,4 +505,9 @@ without a SIGKILL, `uncertain` writes recorded `outcome_unknown`, a rejected bra
 that never reach the provider, two writes of one reply in the model's order, an application hook
 that denies on resume, an `allowedTools` entry for a source tool, an unexposed operation, refused
 name collisions, the operation's tool Step options, and a dynamic source whose listing empties or
-fails on resume: the recorded call still replays, and a new call of the vanished tool is denied.
+fails on resume: the recorded call still replays, and a new call of the vanished tool is denied. It
+also checks that a source call asking a question records `failed`, and one starting a tool task records
+`failed` for a read and `outcome_unknown` for a write. `test/integ/tool-call-gate.integration.test.ts`
+calls the custom tool server over an in-memory MCP transport with a tool name that differs from the
+permitted one, and hands the gate deferrals that its PreToolUse hook never deferred or deferred under
+another ID or tool.

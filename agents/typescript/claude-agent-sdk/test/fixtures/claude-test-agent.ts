@@ -17,6 +17,7 @@ import type {
   AgentTurnContext,
   DeferredToolCall,
   DeferredToolExecution,
+  DeferredToolOutcome,
   ToolCallStepOptions,
   ToolExecutionResult,
   ToolPolicy,
@@ -123,7 +124,11 @@ export function createClaudeTestAgentFlow(
       options: buildOptions,
       customTools: createTestCustomTools(stateDirectory),
       toolPolicies: testToolPolicies,
-      toolSources: [createLedgerToolSource(stateDirectory), new HidingToolSource(stateDirectory)],
+      toolSources: [
+        createLedgerToolSource(stateDirectory),
+        new HidingToolSource(stateDirectory),
+        new UnsupportedOutcomeToolSource(),
+      ],
     },
     cli?.flowType ?? claudeTestAgentFlowType,
     sessionOptions,
@@ -216,6 +221,40 @@ export class HidingToolSource implements ToolSource {
 
   public pollToolTask(poll: ToolTaskPoll): Promise<ToolTaskPollOutcome> {
     return this.inner.pollToolTask(poll);
+  }
+}
+
+/**
+ * A source whose calls return outcomes this adapter cannot carry: `ask_question` asks the user, and
+ * `start_read_task` and `start_write_task` start a tool task.
+ */
+export class UnsupportedOutcomeToolSource implements ToolSource {
+  public readonly sourceName = "unsupported-outcomes";
+  private readonly definitions: readonly SourceToolDefinition[] = ["ask_question", "start_read_task", "start_write_task"].map(
+    (name) => ({ name, description: `Test tool ${name}`, inputSchema: { type: "object", properties: {} } }),
+  );
+
+  public async listTools(): Promise<readonly SourceToolDefinition[]> {
+    return this.definitions;
+  }
+
+  public deferredToolCall(
+    _turn: AgentTurnContext,
+    call: { readonly toolCallId: string; readonly toolName: string; readonly arguments: string },
+  ): DeferredToolCall {
+    const effect = call.toolName === "start_write_task" ? "non_idempotent_write" : "read";
+    return { ...call, policy: { effect, requiresApproval: false } };
+  }
+
+  public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
+    if (call.toolCall.toolName === "ask_question") {
+      return { kind: "tool_input_requested", question: "Which account?", continuation: null };
+    }
+    return { kind: "tool_task_started", taskId: `task-${call.toolCall.toolName}`, pollIntervalSeconds: 1 };
+  }
+
+  public async pollToolTask(): Promise<ToolTaskPollOutcome> {
+    throw new Error("the Claude agent adapter never polls a tool task");
   }
 }
 

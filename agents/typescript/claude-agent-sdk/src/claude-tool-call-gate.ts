@@ -186,6 +186,8 @@ export class ToolCatalog {
 
 interface CustomToolCallPlan {
   readonly toolUseId: string;
+  /** The bare name of the tool this gate permitted under the tool use ID. */
+  readonly toolName: string;
   readonly recordedToolCall: AgentToolCall | undefined;
 }
 
@@ -307,6 +309,10 @@ export class ToolCallGate {
     if (plan === undefined) {
       return this.refuseUnplannedToolCall(toolName);
     }
+    // A permission covers one tool: another name under the same tool use ID runs nothing.
+    if (plan.toolName !== toolName || (plan.recordedToolCall !== undefined && plan.recordedToolCall.toolName !== toolName)) {
+      return textToolResult(unpermittedToolCallMessage(toolName), true);
+    }
     if (plan.recordedToolCall !== undefined) {
       return recordedToolCallResult(plan.recordedToolCall);
     }
@@ -328,31 +334,25 @@ export class ToolCallGate {
 
   // The CLI's recorded input includes every hook's updatedInput; another call than ours is a defect.
   public deferredToolCall(deferredToolUse: SDKDeferredToolUse): DeferredToolCall {
-    const toolArguments = JSON.stringify(deferredToolUse.input);
     const requested = this.deferralRequest;
-    if (requested !== undefined) {
-      if (requested.toolCallId !== deferredToolUse.id) {
-        throw new Error(
-          `the Claude Code CLI deferred ${deferredToolUse.id}, but the adapter deferred ${requested.toolCallId}`,
-        );
-      }
-      // Rebuilt, so the source decides approval from the arguments its Step runs.
-      if (this.deferredSourceTool !== undefined) {
-        return this.deferredSourceTool.buildDeferredToolCall(this.turn, deferredToolUse.id, toolArguments);
-      }
-      return { ...requested, arguments: toolArguments };
+    const policyToolName = this.toolCatalog.policyToolName(deferredToolUse.name);
+    if (requested === undefined) {
+      throw new Error(
+        `the Claude Code CLI deferred ${policyToolName} call ${deferredToolUse.id}, which the adapter did not defer`,
+      );
     }
-    const servedToolName = this.toolCatalog.servedToolName(deferredToolUse.name);
-    const sourceTool = servedToolName === undefined ? undefined : this.toolCatalog.sourceTool(servedToolName);
-    if (sourceTool !== undefined) {
-      return sourceTool.buildDeferredToolCall(this.turn, deferredToolUse.id, toolArguments);
+    if (requested.toolCallId !== deferredToolUse.id || requested.toolName !== policyToolName) {
+      throw new Error(
+        `the Claude Code CLI deferred ${policyToolName} call ${deferredToolUse.id}, but the adapter deferred ` +
+          `${requested.toolName} call ${requested.toolCallId}`,
+      );
     }
-    const policyToolName = servedToolName ?? deferredToolUse.name;
-    const policy = this.resolvePolicy(deferredToolUse.name);
-    if (policy === undefined) {
-      throw new Error(`the Claude Code CLI deferred ${policyToolName}, which its tool source does not offer now`);
+    const toolArguments = JSON.stringify(deferredToolUse.input);
+    // Rebuilt, so the source decides approval from the arguments its Step runs.
+    if (this.deferredSourceTool !== undefined) {
+      return this.deferredSourceTool.buildDeferredToolCall(this.turn, deferredToolUse.id, toolArguments);
     }
-    return { toolCallId: deferredToolUse.id, toolName: policyToolName, arguments: toolArguments, policy };
+    return { ...requested, arguments: toolArguments };
   }
 
   private replayRecordedToolCall(record: AgentToolCall, servedToolName: string | undefined): HookJSONOutput {
@@ -361,7 +361,7 @@ export class ToolCallGate {
     }
     // The handler returns a custom or source tool's rejection, so the model sees the text without a hook prefix.
     if (servedToolName !== undefined) {
-      this.planCustomToolCall(record.toolCallId, record);
+      this.planCustomToolCall(record.toolCallId, servedToolName, record);
       this.permittedToolUseIds.add(record.toolCallId);
       return preToolUseDecision("allow");
     }
@@ -376,14 +376,18 @@ export class ToolCallGate {
   private permitInlineToolCall(toolUseId: string, policyToolName: string): void {
     this.permittedToolUseIds.add(toolUseId);
     if (this.toolCatalog.customTool(policyToolName) !== undefined) {
-      this.planCustomToolCall(toolUseId, undefined);
+      this.planCustomToolCall(toolUseId, policyToolName, undefined);
     }
     this.runningToolNames.set(toolUseId, policyToolName);
     this.turn.events.writeToolCallStarted(toolUseId, policyToolName);
   }
 
-  private planCustomToolCall(toolUseId: string, recordedToolCall: AgentToolCall | undefined): void {
-    this.customToolCallPlans.set(toolUseId, { toolUseId, recordedToolCall });
+  private planCustomToolCall(
+    toolUseId: string,
+    toolName: string,
+    recordedToolCall: AgentToolCall | undefined,
+  ): void {
+    this.customToolCallPlans.set(toolUseId, { toolUseId, toolName, recordedToolCall });
   }
 
   // Hooks may rewrite the input, so only the tool use ID from _meta identifies a call.

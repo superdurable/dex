@@ -376,6 +376,25 @@ describe("connector tools served by the Claude agent adapter", () => {
     });
   }
 
+  for (const [toolName, status, text] of [
+    ["ask_question", "failed", /^ask_question: The tool call failed: ask_question asked a question/],
+    ["start_read_task", "failed", /^start_read_task: The tool call failed: start_read_task started tool task/],
+    ["start_write_task", "outcome_unknown", new RegExp(`^start_write_task: ${escapeRegExp(outcomeUnknownToolResult)}$`)],
+  ] as const) {
+    test(`a source call of ${toolName}, whose outcome the adapter cannot carry, records ${status}`, async () => {
+      const agent = await startHarness();
+      const sessionId = agent.newSessionId("unsupported-outcome");
+      await agent.sessions.startSession(sessionId, `${call(toolName, {})} ;; pause held`);
+      const record = (await heldRecords(agent, sessionId, "held")).get(toolName);
+      assert.equal(record?.status, status);
+      assert.equal(record?.taskId ?? null, null);
+
+      const snapshot = await agent.waitForTurns(sessionId, 1);
+      assert.match(snapshot.messages.at(-1)?.text ?? "", text);
+      assert.deepEqual(snapshot.pendingInterrupts, []);
+    });
+  }
+
   test("an allowedTools entry for a source tool fails the turn", async () => {
     harness = await ClaudeAgentTestHarness.start(
       engine,
@@ -455,3 +474,7 @@ describe("connector tools served by the Claude agent adapter", () => {
     );
   });
 });
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

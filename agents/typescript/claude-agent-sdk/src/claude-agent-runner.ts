@@ -358,8 +358,9 @@ export class ClaudeAgentRunner implements AgentFrameworkRunner {
    * turn's transcript entries so far as run state; otherwise `TurnCompleted` with the turn's transcript
    * entries grouped into messages.
    * @throws {TypeError} When the options are unsupported, or a tool source listed a name another tool uses.
-   * @throws {Error} When the CLI reported an error result, ended without a result, or its transcript
-   * could not be stored. The session retries the segment.
+   * @throws {Error} When the CLI reported an error result, ended without a result, deferred a call that the
+   * adapter's PreToolUse hook did not defer, or its transcript could not be stored. The session retries the
+   * segment. Changed in 0.4.0: a deferred call the hook did not defer fails the segment instead of being recorded.
    */
   public async runModelStep(turn: AgentTurnContext): Promise<AgentTurnOutcome> {
     const committedTranscript = loadSessionTranscript(turn.messages);
