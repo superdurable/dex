@@ -79,8 +79,9 @@ again from the Flow's row.
 
 Dex Web reads the catalog from
 [connectors.superdurable.io](https://connectors.superdurable.io/catalog.json)
-and keeps it for ten minutes. When the catalog is unavailable, the form says
-so and lists only the release overrides. Adding a connection downloads the
+and keeps it for ten minutes. When the catalog is unavailable, the form lists
+only the release overrides and says why. Without any override, it shows an
+error instead. Adding a connection downloads the
 chosen release's metadata and checks its checksum first, as setting up any
 connection does.
 

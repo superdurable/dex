@@ -85,6 +85,7 @@ describe('Add connection helpers', () => {
     expect(isConnectionDeletable({ standalone: true, status: 'Missing' })).toBe(true);
     expect(connectionDeleteLabel({ standalone: true, status: 'Missing' })).toBe('Remove connection');
     expect(connectionDeleteLabel({ standalone: true, status: 'Ready' })).toBe('Delete connection');
+    expect(isConnectionDeletable({ standalone: true, status: 'Unsupported' })).toBe(false);
     expect(isConnectionDeletable({ status: 'Missing' })).toBe(false);
     expect(connectionDeleteLabel({ status: 'Ready' })).toBe('Delete local credentials');
   });

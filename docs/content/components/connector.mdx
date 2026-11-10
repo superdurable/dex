@@ -77,6 +77,10 @@ local development, Dex Web lists those names under **Connectors**. It verifies
 the exact official module release before it writes connection, operation, or
 Trigger-binding configuration.
 
+An application can also open a connection that no Flow definition names, such
+as one an agent tool uses. Add that connection by name on the same page, then
+authorize it as any other.
+
 A Connector UI runs in an opaque-origin sandboxed iframe. Dex Web runs the provider commands
 that the Connector release declares. Stored credentials never enter the iframe,
 Flow input, Attributes, results, receipts, Streams, logs, or generated

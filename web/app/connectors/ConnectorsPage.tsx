@@ -507,7 +507,7 @@ export function selectedConnectionAfterLoad<T extends Pick<ConnectionView, 'conn
 
 /** A stored connection can be deleted; an added standalone connection can also be removed before it is saved. */
 export function isConnectionDeletable(connection: Pick<ConnectionView, 'standalone' | 'status'>): boolean {
-  if (connection.standalone) return connection.status !== 'Conflict';
+  if (connection.standalone) return connection.status !== 'Conflict' && connection.status !== 'Unsupported';
   return connection.status !== 'Missing' && connection.status !== 'Unsupported' && connection.status !== 'Conflict';
 }
 

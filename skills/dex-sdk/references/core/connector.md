@@ -50,9 +50,9 @@ Flow definitions refer to a logical connection name, never to credentials.
 
 ### Local Connector credentials
 
-In local development, Dex Web inside `dexcli dev` can configure exact published official Connector modules for Go Flows.
+In local development, Dex Web inside `dexcli dev` can configure exact published official Connector modules. It lists the connections that loaded Flow definitions use, and it can add a named connection that no Flow uses, such as one an agent tool opens by name.
 
-- The Flow must use operation-specific factories, a static connection name, and static Trigger binding names. Generic factories, local replacements, unpublished versions, or version conflicts stay visible but are not configurable.
+- For a Flow's connection, the Flow must use operation-specific factories, a static connection name, and static Trigger binding names. Generic factories, local replacements, unpublished versions, or version conflicts stay visible but are not configurable.
 - Dex Web writes a plaintext development store, `connections.json`, under the user's Dex directory or the directory passed to `dexcli dev`. The file and directory permissions are restrictive and Dex rejects wider ones.
 - The application reads it through its Connector SDK's project configuration loader, pointed at the file by an environment variable. Run one application per directory.
 - Never write your own reader for `connections.json`. If the installed Connector SDK cannot read it, report that as a compatibility blocker.
