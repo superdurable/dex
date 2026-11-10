@@ -17,6 +17,7 @@ import { PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
 import { claudeTranscriptItemKind } from "../../src/index.js";
 import { ClaudeAgentTestHarness } from "../fixtures/claude-agent-test-harness.js";
+import { FakeLedgerProvider } from "../fixtures/fake-ledger.js";
 import { mockScriptMarker, MockAnthropicApi, RefusingProxy } from "../fixtures/mock-anthropic-api.js";
 
 /** Set by ci.sh so a missing native binary fails the suite instead of skipping it. */
@@ -173,6 +174,37 @@ describe("the adapter with the real bundled Claude Code CLI against a scripted M
     assert.equal(snapshot.messages.at(-1)?.text, "publish: published b; publish: published c");
     assert.equal(agent.invocations.count("publish"), 2);
     assert.equal(scriptedRequestsOf(command), 3);
+  });
+
+  test("two connector writes of one reply run one at a time in the model's order", async () => {
+    const agent = await startHarness("dontAsk");
+    const ledger = new FakeLedgerProvider(agent.stateDirectory);
+    const sessionId = agent.newSessionId("real-connector-writes");
+    const command =
+      'call post_note {"accountId":"a-1","text":"first gate-after-accept:first-write"} && ' +
+      'call create_payout {"accountId":"a-1","amount":5}';
+    await agent.sessions.startSession(sessionId, `${mockScriptMarker}${command}`);
+    const firstWrite = agent.gate("first-write");
+    await firstWrite.waitUntilReached();
+    const running = await agent.sessions.getAgentSnapshot(sessionId);
+    // The CLI runs unannotated tools in order, so the second write never left the turn.
+    assert.deepEqual(running.toolCalls.map((record) => record.toolName), ["post_note"]);
+    assert.deepEqual(ledger.sends().map((entry) => entry.operation), ["postNote"]);
+    firstWrite.release();
+    const snapshot = await agent.waitForTurns(sessionId, 1);
+
+    assert.equal(
+      snapshot.messages.at(-1)?.text,
+      'post_note: {"noteId":"postNote-1"}; create_payout: {"amount":5,"payoutId":"createPayout-2"}',
+    );
+    assert.deepEqual(ledger.writes().map((entry) => entry.operation), ["postNote", "createPayout"]);
+    const payoutOutputs = snapshot.messages
+      .filter((message) => message.role === "tool" && message.toolName === "create_payout")
+      .map((message) => message.toolOutput ?? "");
+    assert.match(
+      payoutOutputs[0] ?? "",
+      /^PreToolUse:mcp__tools__create_payout hook error: create_payout did not run\. Writes run one at a time in your order/,
+    );
   });
 
   test("an application hook's updatedInput reaches the deferred Step", async () => {

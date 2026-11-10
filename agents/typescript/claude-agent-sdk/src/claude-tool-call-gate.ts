@@ -10,6 +10,7 @@ import {
   BUILTIN_TOOL_NAMES,
   LEGACY_TOOL_NAME_ALIASES,
   type CanUseTool,
+  type HookCallback,
   type HookInput,
   type HookJSONOutput,
   type HookPermissionDecision,
@@ -28,6 +29,8 @@ import {
   type ToolEffect,
 } from "@superdurable/dex-agents";
 
+import type { ListedSourceTool } from "./claude-tool-sources.js";
+
 type CustomToolResult = Awaited<ReturnType<SdkMcpToolDefinition["handler"]>>;
 
 /**
@@ -41,8 +44,8 @@ export type ClaudeCustomTool = Omit<SdkMcpToolDefinition, "handler"> & {
   readonly handler: (toolArguments: any, extra: unknown) => Promise<CustomToolResult>;
 };
 
-const cliToolUseIdMetaKey = "claudecode/toolUseId";
-const cliToolNames: ReadonlySet<string> = new Set([
+/** Names of the tools that run inside the Claude Code CLI, which no custom or source tool may use. */
+export const cliToolNames: ReadonlySet<string> = new Set([
   ...BUILTIN_TOOL_NAMES,
   ...Object.keys(LEGACY_TOOL_NAME_ALIASES),
   ...Object.values(LEGACY_TOOL_NAME_ALIASES),
@@ -56,15 +59,28 @@ const subagentDeferralRefusedMessage = (toolName: string): string =>
   "from the main conversation instead.";
 const unpermittedToolCallMessage = (toolName: string): string =>
   `${toolName} did not run: the session's tool policies do not permit this call.`;
+const orderedWriteDeferralMessage = (toolName: string): string =>
+  `${toolName} did not run. Writes run one at a time in your order, and an earlier call of this reply ` +
+  `runs first. Read its result, then call ${toolName} again by itself if it should still run.`;
+const unlistedSourceToolMessage = (toolName: string): string =>
+  `${toolName} did not run: its tool source does not offer this tool now.`;
 
-/** Names and classifies every tool a Claude agent can call. */
+/** Names and classifies every tool a Claude agent can call in one turn segment. */
 export class ToolCatalog {
   private readonly customToolPrefix: string;
   private readonly customToolsByName: ReadonlyMap<string, ClaudeCustomTool>;
+  private readonly sourceToolsByName: ReadonlyMap<string, ListedSourceTool>;
+  private readonly replayOnlyToolNameSet: ReadonlySet<string>;
 
+  /**
+   * @param sourceTools - The tools that the sources listed for this segment; the router refuses their collisions.
+   * @param replayOnlyToolNames - Recorded source tools this listing lacks: served only to replay their records.
+   */
   public constructor(
     customTools: readonly ClaudeCustomTool[],
     public readonly customToolServerName: string,
+    sourceTools: ReadonlyMap<string, ListedSourceTool> = new Map(),
+    replayOnlyToolNames: Iterable<string> = [],
   ) {
     this.customToolPrefix = `mcp__${customToolServerName}__`;
     this.customToolsByName = new Map(customTools.map((customTool) => [customTool.name, customTool]));
@@ -79,25 +95,71 @@ export class ToolCatalog {
         );
       }
     }
+    this.sourceToolsByName = sourceTools;
+    this.replayOnlyToolNameSet = new Set(
+      [...replayOnlyToolNames].filter(
+        (toolName) => !this.customToolsByName.has(toolName) && !sourceTools.has(toolName),
+      ),
+    );
+  }
+
+  /** Returns this catalog's custom tools with the tools that the sources listed for one segment. */
+  public withSourceTools(
+    sourceTools: ReadonlyMap<string, ListedSourceTool>,
+    replayOnlyToolNames: Iterable<string>,
+  ): ToolCatalog {
+    return new ToolCatalog(this.customTools, this.customToolServerName, sourceTools, replayOnlyToolNames);
   }
 
   public get customTools(): ClaudeCustomTool[] {
     return [...this.customToolsByName.values()];
   }
 
+  public get sourceTools(): ListedSourceTool[] {
+    return [...this.sourceToolsByName.values()];
+  }
+
+  public get replayOnlyToolNames(): string[] {
+    return [...this.replayOnlyToolNameSet].sort();
+  }
+
+  public get hasServedTools(): boolean {
+    return this.customToolsByName.size > 0 || this.sourceToolsByName.size > 0 || this.replayOnlyToolNameSet.size > 0;
+  }
+
   public customTool(policyToolName: string): ClaudeCustomTool | undefined {
     return this.customToolsByName.get(policyToolName);
   }
 
+  public sourceTool(policyToolName: string): ListedSourceTool | undefined {
+    return this.sourceToolsByName.get(policyToolName);
+  }
+
+  public isReplayOnlyTool(policyToolName: string): boolean {
+    return this.replayOnlyToolNameSet.has(policyToolName);
+  }
+
+  /** Whether the in-process server serves a tool of this bare name: custom, source, or replay-only. */
+  public isServedToolName(toolName: string): boolean {
+    return (
+      this.customToolsByName.has(toolName) ||
+      this.sourceToolsByName.has(toolName) ||
+      this.replayOnlyToolNameSet.has(toolName)
+    );
+  }
+
+  /** Returns the bare name of a tool the in-process server serves, classified by its CLI name only. */
+  public servedToolName(cliToolName: string): string | undefined {
+    if (!cliToolName.startsWith(this.customToolPrefix)) {
+      return undefined;
+    }
+    const toolName = cliToolName.slice(this.customToolPrefix.length);
+    return this.isServedToolName(toolName) ? toolName : undefined;
+  }
+
   /** Returns the name that tool policies and records use for a CLI tool name. */
   public policyToolName(cliToolName: string): string {
-    if (cliToolName.startsWith(this.customToolPrefix)) {
-      const customToolName = cliToolName.slice(this.customToolPrefix.length);
-      if (this.customToolsByName.has(customToolName)) {
-        return customToolName;
-      }
-    }
-    return cliToolName;
+    return this.servedToolName(cliToolName) ?? cliToolName;
   }
 
   public frameworkEffect(policyToolName: string): ToolEffect | undefined {
@@ -113,7 +175,11 @@ export class ToolCatalog {
   }
 
   // The adapter cannot record a tool inside the CLI, so such a tool defers only for approval.
-  public requiresDeferral(policyToolName: string, policy: ResolvedToolPolicy): boolean {
+  // A source tool has no policy here and always runs in the tool Step its source needs.
+  public requiresDeferral(policyToolName: string, policy: ResolvedToolPolicy | undefined): boolean {
+    if (policy === undefined) {
+      return true;
+    }
     if (this.customToolsByName.has(policyToolName)) {
       return policy.effect !== "read" || policy.requiresApproval;
     }
@@ -126,9 +192,10 @@ interface CustomToolCallPlan {
   readonly recordedToolCall: AgentToolCall | undefined;
 }
 
-/** Decides every tool call of one `RunModel` Step and serves custom tool calls. */
+/** Decides every tool call of one `RunModel` Step and serves custom and source tool calls. */
 export class ToolCallGate {
   private deferralRequest: DeferredToolCall | undefined;
+  private deferredSourceTool: ListedSourceTool | undefined;
   private readonly permittedToolUseIds = new Set<string>();
   private readonly runningToolNames = new Map<string, string>();
   private readonly customToolCallPlans = new Map<string, CustomToolCallPlan>();
@@ -138,8 +205,29 @@ export class ToolCallGate {
     private readonly toolCatalog: ToolCatalog,
   ) {}
 
-  public resolvePolicy(policyToolName: string): ResolvedToolPolicy {
+  /** Returns the policy of a custom or CLI tool, or `undefined` for a source or replay-only tool. */
+  public resolvePolicy(cliToolName: string): ResolvedToolPolicy | undefined {
+    const servedToolName = this.toolCatalog.servedToolName(cliToolName);
+    if (
+      servedToolName !== undefined &&
+      (this.toolCatalog.sourceTool(servedToolName) !== undefined || this.toolCatalog.isReplayOnlyTool(servedToolName))
+    ) {
+      return undefined;
+    }
+    const policyToolName = servedToolName ?? cliToolName;
     return this.turn.resolveToolPolicy(policyToolName, this.toolCatalog.frameworkEffect(policyToolName));
+  }
+
+  /** Wraps an application PreToolUse callback so it never sees a call with a final record. */
+  public skipHookOnReplay(callback: HookCallback): HookCallback {
+    return async (hookInput, toolUseId, options) => {
+      const callId = hookInput.hook_event_name === "PreToolUse" ? hookInput.tool_use_id || toolUseId || "" : "";
+      const record = callId === "" ? undefined : this.turn.recordedToolCall(callId);
+      if (record !== undefined && isFinalToolCallStatus(record.status)) {
+        return {};
+      }
+      return callback(hookInput, toolUseId, options);
+    };
   }
 
   /** Answers the CLI's PreToolUse hook with allow, deny, or defer. */
@@ -156,12 +244,18 @@ export class ToolCallGate {
     if (callId === "") {
       throw new Error(`the CLI sent PreToolUse for ${cliToolName} without a tool_use_id`);
     }
-    const policyToolName = this.toolCatalog.policyToolName(cliToolName);
+    const servedToolName = this.toolCatalog.servedToolName(cliToolName);
+    const policyToolName = servedToolName ?? cliToolName;
     const record = this.turn.recordedToolCall(callId);
     if (record !== undefined) {
-      return this.replayRecordedToolCall(record, policyToolName);
+      return this.replayRecordedToolCall(record, servedToolName);
     }
-    const policy = this.resolvePolicy(policyToolName);
+    if (servedToolName !== undefined && this.toolCatalog.isReplayOnlyTool(servedToolName)) {
+      // A new call would run under a new Call ID; only the source's listing permits that.
+      return preToolUseDecision("deny", unlistedSourceToolMessage(policyToolName));
+    }
+    const sourceTool = servedToolName === undefined ? undefined : this.toolCatalog.sourceTool(servedToolName);
+    const policy = this.resolvePolicy(cliToolName);
     if (!this.toolCatalog.requiresDeferral(policyToolName, policy)) {
       this.permitInlineToolCall(callId, policyToolName);
       return preToolUseDecision("allow");
@@ -169,31 +263,35 @@ export class ToolCallGate {
     if (hookInput.agent_id !== undefined && hookInput.agent_id !== "") {
       return preToolUseDecision("deny", subagentDeferralRefusedMessage(policyToolName));
     }
+    const toolArguments = JSON.stringify(toolInput);
+    const deferral =
+      sourceTool === undefined
+        ? { toolCallId: callId, toolName: policyToolName, arguments: toolArguments, policy: requirePolicy(policy) }
+        : sourceTool.buildDeferredToolCall(this.turn, callId, toolArguments);
     // The result names one deferred call, and the CLI checks siblings per content block, not per reply.
     if (this.deferralRequest !== undefined && this.deferralRequest.toolCallId !== callId) {
-      return preToolUseDecision("deny", soloDeferralRequiredMessage(policyToolName));
+      const message = deferral.ordered === true ? orderedWriteDeferralMessage : soloDeferralRequiredMessage;
+      return preToolUseDecision("deny", message(policyToolName));
     }
-    this.deferralRequest = {
-      toolCallId: callId,
-      toolName: policyToolName,
-      arguments: JSON.stringify(toolInput),
-      policy,
-    };
+    this.deferralRequest = deferral;
+    this.deferredSourceTool = sourceTool;
     return preToolUseDecision("defer", "Dex runs this call in its own Step.");
   };
 
   /** Answers a permission request the CLI sends after the hook did not settle a call. */
   public readonly decideToolPermission: CanUseTool = async (cliToolName, toolInput, options) => {
-    const policyToolName = this.toolCatalog.policyToolName(cliToolName);
+    const servedToolName = this.toolCatalog.servedToolName(cliToolName);
+    const policyToolName = servedToolName ?? cliToolName;
     const callId = options.toolUseID;
     const record = this.turn.recordedToolCall(callId);
     // A resumed call can skip the hook when the CLI starts it before the hooks are registered.
     if (record !== undefined && !this.permittedToolUseIds.has(callId)) {
-      return toPermissionResult(this.replayRecordedToolCall(record, policyToolName), toolInput, callId);
+      return toPermissionResult(this.replayRecordedToolCall(record, servedToolName), toolInput, callId);
     }
     // The CLI ignores defer for a call with siblings and asks for permission instead.
     if (this.deferralRequest?.toolCallId === callId) {
       this.deferralRequest = undefined;
+      this.deferredSourceTool = undefined;
       return denyPermission(soloDeferralRequiredMessage(policyToolName), callId);
     }
     if (this.permittedToolUseIds.has(callId)) {
@@ -202,23 +300,30 @@ export class ToolCallGate {
     return denyPermission(unpermittedToolCallMessage(policyToolName), callId);
   };
 
-  /** Returns a copy of a custom tool whose handler serves only calls this gate permitted. */
-  public gatedCustomTool(customTool: ClaudeCustomTool): ClaudeCustomTool {
-    const policyToolName = customTool.name;
-    const handleGatedCustomToolCall = async (
-      toolArguments: Record<string, unknown>,
-      extra: unknown,
-    ): Promise<CustomToolResult> => {
-      const plan = this.takeCustomToolCallPlan(cliToolUseIdOf(extra));
-      if (plan === undefined) {
-        return this.refuseUnplannedCustomToolCall(policyToolName);
-      }
-      if (plan.recordedToolCall !== undefined) {
-        return recordedToolCallResult(plan.recordedToolCall);
-      }
-      return customTool.handler(toolArguments, extra);
-    };
-    return { ...customTool, handler: handleGatedCustomToolCall };
+  /**
+   * Serves one MCP call of a custom, source, or replay-only tool that this gate permitted.
+   * @param toolName - The tool's bare name.
+   * @param toolUseId - The CLI's tool use ID from the request's `_meta`.
+   * @param runCustomTool - Runs a custom tool inline; `undefined` for a tool that only replays records.
+   * @returns The recorded result of a resumed call, the inline result, or a refusal.
+   */
+  public async callServedTool(
+    toolName: string,
+    toolUseId: string | undefined,
+    runCustomTool: (() => Promise<CustomToolResult>) | undefined,
+  ): Promise<CustomToolResult> {
+    const plan = this.takeCustomToolCallPlan(toolUseId);
+    if (plan === undefined) {
+      return this.refuseUnplannedToolCall(toolName);
+    }
+    if (plan.recordedToolCall !== undefined) {
+      return recordedToolCallResult(plan.recordedToolCall);
+    }
+    // A source tool runs only in its tool Step; the server only replays its record.
+    if (runCustomTool === undefined) {
+      return textToolResult(unpermittedToolCallMessage(toolName), true);
+    }
+    return runCustomTool();
   }
 
   public recordToolResult(toolUseId: string, isError: boolean): void {
@@ -232,6 +337,7 @@ export class ToolCallGate {
 
   // The CLI's recorded input includes every hook's updatedInput; another call than ours is a defect.
   public deferredToolCall(deferredToolUse: SDKDeferredToolUse): DeferredToolCall {
+    const toolArguments = JSON.stringify(deferredToolUse.input);
     const requested = this.deferralRequest;
     if (requested !== undefined) {
       if (requested.toolCallId !== deferredToolUse.id) {
@@ -239,30 +345,39 @@ export class ToolCallGate {
           `the Claude Code CLI deferred ${deferredToolUse.id}, but the adapter deferred ${requested.toolCallId}`,
         );
       }
-      return { ...requested, arguments: JSON.stringify(deferredToolUse.input) };
+      // Rebuilt, so the source decides approval from the arguments its Step runs.
+      if (this.deferredSourceTool !== undefined) {
+        return this.deferredSourceTool.buildDeferredToolCall(this.turn, deferredToolUse.id, toolArguments);
+      }
+      return { ...requested, arguments: toolArguments };
     }
-    const policyToolName = this.toolCatalog.policyToolName(deferredToolUse.name);
-    return {
-      toolCallId: deferredToolUse.id,
-      toolName: policyToolName,
-      arguments: JSON.stringify(deferredToolUse.input),
-      policy: this.resolvePolicy(policyToolName),
-    };
+    const servedToolName = this.toolCatalog.servedToolName(deferredToolUse.name);
+    const sourceTool = servedToolName === undefined ? undefined : this.toolCatalog.sourceTool(servedToolName);
+    if (sourceTool !== undefined) {
+      return sourceTool.buildDeferredToolCall(this.turn, deferredToolUse.id, toolArguments);
+    }
+    const policyToolName = servedToolName ?? deferredToolUse.name;
+    const policy = this.resolvePolicy(deferredToolUse.name);
+    if (policy === undefined) {
+      throw new Error(`the Claude Code CLI deferred ${policyToolName}, which its tool source does not offer now`);
+    }
+    return { toolCallId: deferredToolUse.id, toolName: policyToolName, arguments: toolArguments, policy };
   }
 
-  private replayRecordedToolCall(record: AgentToolCall, policyToolName: string): HookJSONOutput {
+  private replayRecordedToolCall(record: AgentToolCall, servedToolName: string | undefined): HookJSONOutput {
     if (!isFinalToolCallStatus(record.status)) {
       throw new Error(`tool call ${record.toolCallId} resumed before it was final`);
     }
-    // The handler returns a custom tool's rejection, so the model sees the text without a hook prefix.
-    if (this.toolCatalog.customTool(policyToolName) !== undefined) {
+    // The handler returns a custom or source tool's rejection, so the model sees the text without a hook prefix.
+    if (servedToolName !== undefined) {
       this.planCustomToolCall(record.toolCallId, record);
       this.permittedToolUseIds.add(record.toolCallId);
       return preToolUseDecision("allow");
     }
     if (record.status === "succeeded") {
-      this.permitInlineToolCall(record.toolCallId, policyToolName);
-      return preToolUseDecision("allow");
+      this.permitInlineToolCall(record.toolCallId, record.toolName);
+      // Application hooks are skipped on replay, so the CLI must run the approved input.
+      return preToolUseDecision("allow", undefined, recordedToolInput(record));
     }
     return preToolUseDecision("deny", describeToolCallOutcome(record));
   }
@@ -290,11 +405,14 @@ export class ToolCallGate {
     return plan;
   }
 
-  private refuseUnplannedCustomToolCall(policyToolName: string): CustomToolResult {
-    const policy = this.resolvePolicy(policyToolName);
-    const message = this.toolCatalog.requiresDeferral(policyToolName, policy)
-      ? soloDeferralRequiredMessage(policyToolName)
-      : unpermittedToolCallMessage(policyToolName);
+  private refuseUnplannedToolCall(toolName: string): CustomToolResult {
+    const policy =
+      this.toolCatalog.customTool(toolName) === undefined
+        ? undefined
+        : this.turn.resolveToolPolicy(toolName, this.toolCatalog.frameworkEffect(toolName));
+    const message = this.toolCatalog.requiresDeferral(toolName, policy)
+      ? soloDeferralRequiredMessage(toolName)
+      : unpermittedToolCallMessage(toolName);
     return textToolResult(message, true);
   }
 }
@@ -308,12 +426,31 @@ function textToolResult(text: string, isError: boolean): CustomToolResult {
   return { content: [{ type: "text", text }], isError };
 }
 
-function preToolUseDecision(decision: HookPermissionDecision, reason?: string): HookJSONOutput {
+function requirePolicy(policy: ResolvedToolPolicy | undefined): ResolvedToolPolicy {
+  if (policy === undefined) {
+    throw new Error("a custom or Claude Code tool call has no policy");
+  }
+  return policy;
+}
+
+function recordedToolInput(record: AgentToolCall): Record<string, unknown> | undefined {
+  const recorded: unknown = JSON.parse(record.arguments);
+  return typeof recorded === "object" && recorded !== null && !Array.isArray(recorded)
+    ? (recorded as Record<string, unknown>)
+    : undefined;
+}
+
+function preToolUseDecision(
+  decision: HookPermissionDecision,
+  reason?: string,
+  updatedInput?: Record<string, unknown>,
+): HookJSONOutput {
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: decision,
       ...(reason === undefined ? {} : { permissionDecisionReason: reason }),
+      ...(updatedInput === undefined ? {} : { updatedInput }),
     },
   };
 }
@@ -325,7 +462,7 @@ function toPermissionResult(
 ): PermissionResult {
   const specificOutput = "hookSpecificOutput" in hookOutput ? hookOutput.hookSpecificOutput : undefined;
   if (specificOutput?.hookEventName === "PreToolUse" && specificOutput.permissionDecision === "allow") {
-    return { behavior: "allow", updatedInput: toolInput, toolUseID: toolUseId };
+    return { behavior: "allow", updatedInput: specificOutput.updatedInput ?? toolInput, toolUseID: toolUseId };
   }
   const reason =
     specificOutput?.hookEventName === "PreToolUse" ? specificOutput.permissionDecisionReason : undefined;
@@ -340,16 +477,4 @@ function toToolInputRecord(toolInput: unknown): Record<string, unknown> {
   return typeof toolInput === "object" && toolInput !== null && !Array.isArray(toolInput)
     ? { ...(toolInput as Record<string, unknown>) }
     : {};
-}
-
-function cliToolUseIdOf(extra: unknown): string | undefined {
-  if (typeof extra !== "object" || extra === null || !("_meta" in extra)) {
-    return undefined;
-  }
-  const meta = (extra as { readonly _meta?: unknown })._meta;
-  if (typeof meta !== "object" || meta === null) {
-    return undefined;
-  }
-  const toolUseId = (meta as Record<string, unknown>)[cliToolUseIdMetaKey];
-  return typeof toolUseId === "string" && toolUseId !== "" ? toolUseId : undefined;
 }

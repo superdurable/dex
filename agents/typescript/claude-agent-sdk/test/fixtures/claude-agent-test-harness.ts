@@ -18,7 +18,9 @@ import {
   FileGate,
   InvocationLog,
   KillableWorkerProcess,
+  executeCompletedEvent,
   pollUntil,
+  readStepHistory,
   type PrivateDexEngine,
 } from "@superdurable/dex-agents/testing";
 
@@ -127,6 +129,13 @@ export class ClaudeAgentTestHarness {
       async () => ((await this.listEvents(sessionId)).some((event) => event.type === eventType) ? true : undefined),
       { description: `${eventType} event in session ${sessionId}`, timeoutMs: turnTimeoutMs },
     );
+  }
+
+  /** Returns the Step type of every completed `execute` method of the session, in history order. */
+  public async executedStepTypes(sessionId: string): Promise<string[]> {
+    return (await readStepHistory(this.engine.serverAddress, sessionId))
+      .filter((entry) => entry.eventType === executeCompletedEvent)
+      .map((entry) => entry.stepType);
   }
 
   /** Returns the concatenated streamed text of each attempt, in attempt order. */
