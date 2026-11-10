@@ -1,4 +1,4 @@
-import DexExpressiveness.Simulation
+import DexExpressiveness.FiniteTraces
 
 /-!
 # The expressiveness theorem (spec §5.4, §5.5)
@@ -10,7 +10,9 @@ failures" (spec §0).
 "The theorem states safety (5.4) and liveness (5.5) together." The trace sets
 are defined in `TraceSets.lean`. Each statement is an equality of two sets,
 written as membership in both directions. Each is proved here from its two
-inclusions, which `Simulation.lean` states and leaves as `sorry` for Stage 2.
+inclusions. The inclusions of safety are proved in `FiniteTraces.lean` from
+the two step simulations of `Simulation.lean`, which are still `sorry`. The
+inclusions of liveness are `sorry` in `Simulation.lean` until Stage 2b.
 
 ## Scope: well-formed programs
 

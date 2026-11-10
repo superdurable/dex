@@ -17,6 +17,7 @@ import DexExpressiveness.Invariants
 import DexExpressiveness.TraceSets
 import DexExpressiveness.Properties
 import DexExpressiveness.Simulation
+import DexExpressiveness.FiniteTraces
 import DexExpressiveness.Theorems
 import DexExpressiveness.Examples.Schedule
 import DexExpressiveness.Examples.Lockstep

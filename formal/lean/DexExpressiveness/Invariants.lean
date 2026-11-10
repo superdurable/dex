@@ -291,7 +291,7 @@ theorem TasksAreDistinct.step (flow : Dex.FlowDef signature) (config : Dex.Confi
 
 /-- Resolve `step ... = some (events, next)`: close the goal when the step is
 `none`, and otherwise substitute the events and the next configuration. -/
-local macro "resolve_step " equation:ident : tactic =>
+macro "resolve_step " equation:ident : tactic =>
   `(tactic| first
     | (cases $equation:ident; done)
     | (injection $equation with pairEquation
@@ -300,7 +300,7 @@ local macro "resolve_step " equation:ident : tactic =>
        subst nextEquation))
 
 /-- Name the run of the next configuration after a commit. -/
-local macro "resolve_run" : tactic =>
+macro "resolve_run" : tactic =>
   `(tactic| (intro after isAfter
              injection isAfter with isAfter
              subst isAfter))

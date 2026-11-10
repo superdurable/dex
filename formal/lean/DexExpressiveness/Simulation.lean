@@ -4,8 +4,9 @@ import DexExpressiveness.TraceSets
 /-!
 # The Stage 2 proof plan: simulation relation and key lemmas
 
-`Theorems.lean` proves the two statements from the four inclusions at the
-end of this file. This file states the lemmas the proofs are expected to use,
+`Theorems.lean` proves the two statements from four inclusions. The two of
+safety are proved in `FiniteTraces.lean` from the step simulations of this
+file; the two of liveness are at the end of this file. This file states the lemmas the proofs are expected to use,
 each ending in `sorry`, so that the plan can be reviewed with the statements. The README lists every
 `sorry`.
 
@@ -271,12 +272,15 @@ def IsAdmissibleAction (config : Dex.Config signature) : Dex.Action signature �
     ∃ externalChan value, chan = Chan.external externalChan ∧ message = DexVal.value value
   | _ => True
 
-/-- Dex to L: every Dex action from related configurations is simulated by at
-most one L label with the same projected events, and the results are related.
-(Running and returning a handler are simulated by no L label.) -/
+/-- Dex to L: every Dex action from a configuration related to a reachable L
+configuration is simulated by at most one L label with the same projected
+events, and the results are related. (Running and returning a handler are
+simulated by no L label.) The L configuration is reachable, so no thread of
+it is about to break a mutex requirement (`Program.IsWellFormed`). -/
 theorem dex_step_simulated (program : Program) (isWellFormed : program.IsWellFormed)
     (lConfig : L.Config) (dexConfig : Dex.Config signature)
     (isRelated : Related program lConfig dexConfig)
+    (isReachable : (L.system program).Reachable lConfig)
     (action : Dex.Action signature) (isAdmissible : IsAdmissibleAction dexConfig action)
     (dexEvents : List (Dex.Obs signature)) (dexNext : Dex.Config signature)
     (isStep : (Dex.system ⟦program⟧).step dexConfig action = some (dexEvents, dexNext)) :
@@ -289,8 +293,10 @@ theorem dex_step_simulated (program : Program) (isWellFormed : program.IsWellFor
 /-- L to Dex: every L label from related configurations is simulated by a
 finite sequence of Dex actions with the same projected events, and the
 results are related. The sequence is the Worker steps that run and return the
-handler, then one commit or one Worker effect. -/
-theorem l_step_simulated (program : Program) (isWellFormed : program.IsWellFormed)
+handler, then one commit or one Worker effect. Its only request, if any, is
+the encoded request of the L label. Well-formedness is not needed here: L
+gives no action to a thread that would break a mutex requirement. -/
+theorem l_step_simulated (program : Program)
     (lConfig : L.Config) (dexConfig : Dex.Config signature)
     (isRelated : Related program lConfig dexConfig)
     (label : L.Label) (lEvents : List Event) (lNext : L.Config)
@@ -298,21 +304,15 @@ theorem l_step_simulated (program : Program) (isWellFormed : program.IsWellForme
     ∃ actions dexEvents dexNext,
       (Dex.system ⟦program⟧).exec dexConfig actions = some (dexEvents, dexNext) ∧
       dexEvents.filterMap project = lEvents ∧
-      (∀ action, action ∈ actions → IsAdmissibleAction dexConfig action) ∧
+      actions.filterMap (Dex.system ⟦program⟧).requestOf =
+        ((L.system program).requestOf label).toList.map encodeRequest ∧
       Related program lNext dexNext := by
   sorry
 
-/-! ## The four inclusions -/
+/-! ## The two inclusions of liveness
 
-/-- Safety, Dex to L: `π(FinTr_{E_adm}(⟦S⟧)) ⊆ FinTr(S)`. -/
-theorem finiteTrace_dex_to_l (program : Program) (isWellFormed : program.IsWellFormed) (trace : List Event)
-    (isDexTrace : IsProjectedDexFiniteTrace program trace) : IsLFiniteTrace program trace := by
-  sorry
-
-/-- Safety, L to Dex: `FinTr(S) ⊆ π(FinTr_{E_adm}(⟦S⟧))`. -/
-theorem finiteTrace_l_to_dex (program : Program) (isWellFormed : program.IsWellFormed) (trace : List Event)
-    (isLTrace : IsLFiniteTrace program trace) : IsProjectedDexFiniteTrace program trace := by
-  sorry
+The two inclusions of safety are proved in `FiniteTraces.lean` from the two
+step simulations above. -/
 
 /-- Liveness, Dex to L: every fair maximal Dex trace with its marker, for an
 admissible word, is one of L. Needs the transfer of F1 to F6 and of the marker

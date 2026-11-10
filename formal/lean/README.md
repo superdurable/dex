@@ -74,7 +74,8 @@ and `make copyright-check` passes.
 | `DexExpressiveness/Translation/Projection.lean` | The projection `π`, the request encoding, `E_adm` of a translated program (spec §5.3). |
 | `DexExpressiveness/TraceSets.lean` | The four trace sets the theorem compares. |
 | `DexExpressiveness/Theorems.lean` | **The main statements**: `safety_of_isWellFormed`, `liveness_of_isWellFormed`, `expressiveness_of_isWellFormed`. |
-| `DexExpressiveness/Simulation.lean` | The Stage 2 plan: candidate simulation relation and lemma statements. Every `sorry` is here. |
+| `DexExpressiveness/Simulation.lean` | The candidate simulation relation, the two step simulations, and the two liveness inclusions. Every `sorry` is here. |
+| `DexExpressiveness/FiniteTraces.lean` | Proved from the step simulations: the two finite-trace inclusions that give safety. |
 | `DexExpressiveness/Properties.lean` | Proved facts. No `sorry`. |
 | `DexExpressiveness/Examples/*.lean` | Concrete runs checked in the Lean kernel, and lockstep checks. No `sorry`. |
 
@@ -449,26 +450,29 @@ load selection from the translation failed `readWaiters_snapshot_of_cvOperand`.
 
 ## The `sorry` inventory
 
-There are 6, all in `DexExpressiveness/Simulation.lean`. The numbers are
-those of the Stage 1 inventory; numbers 1 to 6 are proved (see
+There are 4, all in `DexExpressiveness/Simulation.lean`. The numbers are
+those of the Stage 1 inventory; numbers 1 to 6, 9, and 10 are proved (see
 [Stage 2a progress](#stage-2a-progress)).
 
 | # | Lemma | What it needs |
 | --- | --- | --- |
-| 7 | `dex_step_simulated` | Case analysis on the Dex action, the thread's phase, and the `Intent`; uses 1 to 6. `Related` may need more invariants. |
+| 7 | `dex_step_simulated` | Case analysis on the Dex action, the thread's phase, and the `Intent`; uses `ConfigInvariant` and the lemmas of `Dex/WaitLemmas.lean`. `Related` may need more invariants. |
 | 8 | `l_step_simulated` | The converse case analysis; inserts `workerRun` and `workerReturn` before each commit. |
-| 9 | `finiteTrace_dex_to_l` | Induction on the run with `dex_step_simulated` and `related_initial`. |
-| 10 | `finiteTrace_l_to_dex` | Induction on the run with `l_step_simulated`; the Dex requests are the encoded L requests. |
-| 11 | `fairMaximalTrace_dex_to_l` | Build the L run from the Dex run by dropping handler steps; transfer F0 to F6 and the marker; equal limits of the two traces. |
-| 12 | `fairMaximalTrace_l_to_dex` | Build the Dex run from the L run by inserting handler steps; the same transfers. |
+| 11 | `fairMaximalTrace_dex_to_l` | Stage 2b. Build the L run from the Dex run by dropping handler steps; transfer F0 to F6 and the marker; equal limits of the two traces. |
+| 12 | `fairMaximalTrace_l_to_dex` | Stage 2b. Build the Dex run from the L run by inserting handler steps; the same transfers. |
+
+`safety_of_isWellFormed` now depends on exactly two `sorry`: items 7 and 8.
 
 `Related` in `Simulation.lean` is a candidate relation, not yet shown to be
 preserved. Lemmas 7 and 8 are stated against it and will change if Stage 2
 strengthens it.
 
-The count is unchanged by the first review's fixes. Lemmas 7 to 12 now take
-`program.IsWellFormed`. `Related` gained one clause: the Step of a program
-point carries the load selection of `moveToPoint`.
+Two statements changed in Stage 2a, both in the proof plan and not in the
+theorems. `dex_step_simulated` now also assumes that the L configuration is
+reachable, which is where `program.IsWellFormed` applies.
+`l_step_simulated` no longer assumes well-formedness, and concludes that the
+requests of the simulating Dex actions are the encoded request of the L
+label.
 
 ## Stage 2a progress
 
@@ -485,6 +489,8 @@ classical case splits, so `Classical.choice` may appear among the axioms.
 | 4 | `noWaiterOnNonEmptyChannel` | Proved, `Invariants.lean`. |
 | 5 | `registeredSeq_isInjective` | Proved, `Invariants.lean`. |
 | 6 | `armedTimers_areTimedSteps` | Proved, `Invariants.lean`. |
+| 9 | `finiteTrace_dex_to_l` | Proved from item 7, `FiniteTraces.lean`. |
+| 10 | `finiteTrace_l_to_dex` | Proved from item 8, `FiniteTraces.lean`. |
 
 Items 4 to 6 follow from one inductive invariant. `Dex/RunInvariant.lean`
 defines `Run.Invariant` (unique Step IDs, counted Step numbers, quiet
