@@ -71,13 +71,20 @@ func (resources *zdRunResources) closeInto(runErr *error) {
 	}
 }
 
-func startZDProcess(cfg *Config, dataDirectory string, dexAddress string, logs io.Writer) (*zdProcess, error) {
-	command := exec.Command(cfg.ZDBinary, zdDevArguments(cfg, dataDirectory, dexAddress)...)
+func startZDProcess(
+	cfg *Config,
+	dataDirectory string,
+	dexAddress string,
+	agentMediaStoreAddress string,
+	logs io.Writer,
+) (*zdProcess, error) {
+	command := exec.Command(cfg.ZDBinary, zdDevArguments(cfg, dataDirectory, dexAddress, agentMediaStoreAddress)...)
 	return startChildProcess(command, logs, "dex-server-zd", true)
 }
 
 // zdDevArguments returns the dex-server-zd command line, starting with dev, for cfg.
-func zdDevArguments(cfg *Config, dataDirectory string, dexAddress string) []string {
+// An empty agentMediaStoreAddress serves no agent media store.
+func zdDevArguments(cfg *Config, dataDirectory string, dexAddress string, agentMediaStoreAddress string) []string {
 	arguments := []string{"dev", "--data-dir", dataDirectory, "--listen", dexAddress}
 	if cfg.isExplicit("server-log-folder") {
 		arguments = append(arguments, "--log-dir", cfg.LogDirectory)
@@ -91,6 +98,10 @@ func zdDevArguments(cfg *Config, dataDirectory string, dexAddress string) []stri
 	}
 	if cfg.AttributeStoreConfigPath != "" {
 		arguments = append(arguments, "--attribute-store-config", cfg.AttributeStoreConfigPath)
+	}
+	if agentMediaStoreAddress != "" {
+		arguments = append(arguments,
+			zdApplicationS3ListenFlag, agentMediaStoreAddress, zdApplicationS3BucketFlag, agentMediaStoreBucket)
 	}
 	return arguments
 }

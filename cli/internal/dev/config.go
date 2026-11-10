@@ -37,6 +37,8 @@ const (
 var zdDurabilities = []string{"strict", "process-crash-safe", "relaxed"}
 
 var flagOrder = []string{
+	"agent-media-store",
+	"agent-media-store-port",
 	"allowed-hosts",
 	"attribute-store-config",
 	"bind-address",
@@ -93,6 +95,10 @@ type Config struct {
 	AllowedHosts string
 	// ConnectorsMCP configures the Dex Connectors MCP server that dexcli dev proxies at /mcp on the Dex Web port.
 	ConnectorsMCP ConnectorsMCPConfig
+	// IsAgentMediaStoreEnabled defaults true; dex-server-zd then serves the agent media S3 bucket on loopback.
+	IsAgentMediaStoreEnabled bool
+	// AgentMediaStorePort defaults to 8803; the agent media store always binds 127.0.0.1, whatever BindAddress is.
+	AgentMediaStorePort int
 	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// ZDStartupTimeout defaults to 60 seconds.
@@ -176,6 +182,13 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"connectors-mcp-connection",
 		"connection the Connectors MCP server offers, as connectorId/connectionName[=tool,...] (repeatable; default every authorized connection)",
 	)
+	flags.BoolVar(
+		&cfg.IsAgentMediaStoreEnabled,
+		"agent-media-store",
+		cfg.IsAgentMediaStoreEnabled,
+		"serve an S3-compatible bucket on 127.0.0.1 where agents keep image bytes",
+	)
+	flags.IntVar(&cfg.AgentMediaStorePort, "agent-media-store-port", cfg.AgentMediaStorePort, "agent media store S3 port on 127.0.0.1")
 	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
@@ -199,7 +212,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
-		case "dex-port", "web-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config", "durability":
+		case "dex-port", "web-port", "agent-media-store-port", "server-log-folder", "attribute-store-config", "zd-binary", "zd-data-dir", "zd-config", "durability":
 			cfg.explicitLocalFlags[item.Name] = true
 		}
 	})
@@ -225,6 +238,8 @@ func defaultConfig() (*Config, error) {
 		ConnectorConfigDirectory:  filepath.Join(stateDirectory, "connectors"),
 		ConnectorReleaseOverrides: make(map[string]string),
 		ConnectorsMCP:             defaultConnectorsMCPConfig(),
+		IsAgentMediaStoreEnabled:  true,
+		AgentMediaStorePort:       defaultAgentMediaStorePort,
 		OpenBrowser:               true,
 		ZDStartupTimeout:          defaultZDStartupTimeout,
 		ShutdownTimeout:           10 * time.Second,
@@ -317,8 +332,9 @@ func (c *Config) validate() error {
 		c.ConnectorReleaseOverrides[connectorID] = absoluteDirectory
 	}
 	for name, port := range map[string]int{
-		"dex-port": c.DexPort,
-		"web-port": c.WebPort,
+		"dex-port":               c.DexPort,
+		"web-port":               c.WebPort,
+		"agent-media-store-port": c.AgentMediaStorePort,
 	} {
 		if port < 1 || port > 65535 {
 			return fmt.Errorf("%s must be between 1 and 65535", name)
@@ -375,6 +391,9 @@ func (c *Config) ownedAddresses() map[string]string {
 		"Dex Server": net.JoinHostPort(c.BindAddress, strconv.Itoa(c.DexPort)),
 		"Dex Web":    net.JoinHostPort(c.BindAddress, strconv.Itoa(c.WebPort)),
 	}
+	if c.IsAgentMediaStoreEnabled {
+		addresses["Agent media store"] = c.agentMediaStoreAddress()
+	}
 	return addresses
 }
 
@@ -387,6 +406,11 @@ func validateDistinctAddresses(addresses map[string]string) error {
 		owners[address] = name
 	}
 	return nil
+}
+
+// agentMediaStoreAddress returns the loopback address of the agent media store for the selected port.
+func (c *Config) agentMediaStoreAddress() string {
+	return net.JoinHostPort(agentMediaStoreHost, strconv.Itoa(c.AgentMediaStorePort))
 }
 
 func (c *Config) isExplicit(flagName string) bool {

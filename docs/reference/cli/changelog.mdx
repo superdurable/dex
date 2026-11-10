@@ -16,6 +16,7 @@ Not released yet. The next minor release, cli-v1.43.0, ships these changes.
 
 - The Dex Web of **dexcli dev** and **dexcli web** can start a Dex Agents session, send it messages, and edit its settings from the **Agent session** tab. [Reference](/reference/web/dex-web#agent-new-session).
 - **dexcli dev** finds or starts the Dex Connectors MCP server and serves its agent tools at **/mcp** on the Dex Web port. It downloads and verifies a compatible release, and restarts the server when it stops. New flags: **--connectors-mcp**, **--connectors-mcp-version**, **--connectors-mcp-binary**, and **--connectors-mcp-connection**. [Reference](/reference/cli/#connectors-mcp).
+- **dexcli dev** serves an S3-compatible bucket on **127.0.0.1:8803** where agents keep image bytes, and prints its store URI and endpoint in the ready output. The bucket keeps its objects in the state directory, apart from the server's own storage. New flags: **--agent-media-store** and **--agent-media-store-port**. [Reference](/reference/cli/#agent-media-store).
 
 ## 1.42 {#v1-42}
 

@@ -41,6 +41,8 @@ dexcli dev --open=false --zd-data-dir ./dex-state
 | **--connectors-mcp-version** | Empty; the newest compatible release. Set **X.Y.Z** to pin a release. Since 1.43. |
 | **--connectors-mcp-binary** | **DEX_CONNECTORS_MCP_BINARY**; a local **dex-connectors-mcp** executable to run instead of a downloaded release. Since 1.43. |
 | **--connectors-mcp-connection** | Repeatable **connectorId/connectionName[=tool,...]**; the connections the server offers, optionally narrowed to tools. Empty offers every authorized connection. Since 1.43. |
+| **--agent-media-store** | **true**; serves an S3-compatible bucket on **127.0.0.1** where agents keep image bytes. Use **--agent-media-store=false** to turn it off. Since 1.43. See [Agent media store](#agent-media-store). |
+| **--agent-media-store-port** | **8803**; the agent media store port on **127.0.0.1**. Since 1.43. |
 
 If a default port is occupied, Dex selects the next available port and prints
 its addresses. An explicitly requested occupied port fails. The state directory
@@ -117,6 +119,49 @@ names get HTTP 403, which stops DNS rebinding. **--allowed-hosts** does not
 apply to **/mcp**, so a tunnel name added for Dex Web does not expose tool
 calls. A request whose **Origin** is not an **http** loopback origin, or that a
 browser marks as cross-site, also gets HTTP 403.
+
+## Agent media store {#agent-media-store}
+
+Since 1.43. **dexcli dev** serves an S3-compatible bucket where Dex Agents keep
+image bytes. Flow state then holds only a reference to each image. The ready
+output prints one line for it:
+
+```text
+Agent media store: s3://dex-dev-media/agents endpoint=http://127.0.0.1:8803
+```
+
+The line is stable for programs to read. The label **Agent media store:** is
+followed by the store URI and then **endpoint=** with the S3 endpoint, each
+after one space. The regular expression
+**^Agent media store: (s3://\S+) endpoint=(http://\S+)$** matches it. Configure
+an S3 client with these values:
+
+| Setting | Value |
+|---|---|
+| Bucket and key prefix | **dex-dev-media** and **agents**, from the store URI. |
+| Endpoint | The **endpoint=** value. The default port is **8803**. When it is taken, dexcli picks the next free port. An explicit **--agent-media-store-port** that is taken fails. |
+| Addressing | Path style, such as **http://127.0.0.1:8803/dex-dev-media/agents/sha256/&lt;hex&gt;**. |
+| Credentials | Any. The bucket does not check signatures, but AWS SDKs need some credentials to sign. Use the access key **s3local**, the secret key **s3local**, and the region **us-east-1**. |
+
+A program that reuses a running **dexcli dev** without its output can assume
+**http://127.0.0.1:8803** and **s3://dex-dev-media/agents** when it started that
+**dexcli dev** with the default ports.
+
+The bucket runs inside **dex-server-zd**. It has its own s3local store in
+**&lt;zd-data-dir&gt;/application-s3** and its own port. The server's own object
+store is not reachable through it, so an application cannot overwrite server
+data. Objects stay across restarts on the same state directory, and deleting the
+state directory deletes them too. They use the **--durability** mode of the
+server.
+
+The bucket accepts unsigned writes. It therefore listens only on **127.0.0.1**,
+whatever **--bind-address** is. A Worker on another host cannot reach it and
+needs its own S3 bucket.
+
+A **--zd-binary** from before server-zd 0.1.26 cannot serve the bucket. dexcli
+then prints **Agent media store: off, because ...** and starts without it. Pass
+**--agent-media-store=false** to turn it off; the ready output then has no
+**Agent media store** line.
 
 ## Connect to Dex
 

@@ -927,6 +927,8 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         config: Some(yaml_path),
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     };
     let configuration = Config::load_dev(&options).expect("dev configuration");
     let flag_override = Config::load_dev(&DevCommandOptions {
@@ -936,6 +938,8 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         config: options.config.clone(),
         attribute_store_config: None,
         durability: Some(DevDurabilityMode::ProcessCrashSafe),
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .expect("dev configuration with a durability flag");
     assert_eq!(
@@ -979,6 +983,8 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         config: None,
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .expect("dev defaults without YAML");
     assert_eq!(
@@ -1000,6 +1006,8 @@ fn dev_flags_override_yaml_and_create_documented_local_layout() {
         config: None,
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .expect_err("empty dev data directory");
     assert!(matches!(
@@ -1021,6 +1029,8 @@ fn dev_defaults_to_a_thirty_second_lease_unless_the_overrides_set_its_duration()
         config,
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     };
     let without_overrides =
         Config::load_dev(&dev_options(None)).expect("dev defaults without YAML");
@@ -1056,6 +1066,8 @@ fn dev_defaults_to_a_two_second_attempt_drain_unless_the_overrides_set_it() {
         config,
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     };
     let without_overrides =
         Config::load_dev(&dev_options(None)).expect("dev defaults without YAML");
@@ -1084,6 +1096,55 @@ fn dev_defaults_to_a_two_second_attempt_drain_unless_the_overrides_set_it() {
     );
 }
 
+#[test]
+fn application_s3_flags_serve_a_loopback_bucket_in_its_own_data_directory() {
+    let temporary = tempfile::tempdir().expect("test directory");
+    let data_directory = temporary.path().join("data");
+    let without_flags = Config::load_dev(&single_node_options(data_directory.clone(), None))
+        .expect("dev configuration without an application bucket");
+    assert_eq!(without_flags.dev.application_s3, None);
+
+    let listen = SocketAddr::from((Ipv4Addr::LOCALHOST, 8803));
+    let with_flags = Config::load_dev(&DevCommandOptions {
+        application_s3_listen: Some(listen),
+        application_s3_bucket: Some("dex-dev-media".to_owned()),
+        ..single_node_options(data_directory.clone(), None)
+    })
+    .expect("dev configuration with an application bucket");
+    let application = with_flags
+        .dev
+        .application_s3
+        .expect("the flags configure the application bucket");
+    assert_eq!(application.listen, listen);
+    assert_eq!(application.bucket, "dex-dev-media");
+    assert_eq!(
+        application.data_directory,
+        data_directory.join("application-s3")
+    );
+    assert_ne!(application.data_directory, with_flags.dev.s3_data_directory);
+
+    let non_loopback = Config::load_dev(&DevCommandOptions {
+        application_s3_listen: Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 8803))),
+        application_s3_bucket: Some("dex-dev-media".to_owned()),
+        ..single_node_options(data_directory.clone(), None)
+    })
+    .expect_err("a non-loopback application bucket address");
+    assert!(
+        non_loopback.to_string().contains("not a loopback address"),
+        "{non_loopback}"
+    );
+
+    let bucket_without_listen = Config::load_dev(&DevCommandOptions {
+        application_s3_bucket: Some("dex-dev-media".to_owned()),
+        ..single_node_options(data_directory, None)
+    })
+    .expect_err("an application bucket without an address");
+    assert!(
+        bucket_without_listen.to_string().contains("set together"),
+        "{bucket_without_listen}"
+    );
+}
+
 fn single_node_options(data_dir: PathBuf, config: Option<PathBuf>) -> DevCommandOptions {
     DevCommandOptions {
         data_dir,
@@ -1092,6 +1153,8 @@ fn single_node_options(data_dir: PathBuf, config: Option<PathBuf>) -> DevCommand
         config,
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     }
 }
 
@@ -1399,6 +1462,8 @@ fn dev_rejects_a_separate_hard_delete_store_before_resolving_credentials() {
         config: Some(yaml_path),
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .expect_err("dev must reject a separate hard-delete destination");
     assert!(matches!(
@@ -1449,6 +1514,8 @@ fn dev_rejects_hot_standby_mode() {
         config: Some(yaml_path),
         attribute_store_config: None,
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .expect_err("dev must reject hot standby mode");
     assert!(matches!(
@@ -2126,6 +2193,8 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
         config: None,
         attribute_store_config: Some(go_config.clone()),
         durability: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     };
     let configuration = Config::load_dev(&options).expect("dev configuration");
     assert_eq!(
@@ -2142,6 +2211,8 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
         data_dir: temporary.path().join("data"),
         listen: options.listen,
         log_dir: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .expect_err("the section may come from only one file");
     assert!(matches!(
@@ -2161,6 +2232,8 @@ fn dev_reads_the_attribute_store_section_of_a_go_configuration_file() {
         listen: options.listen,
         log_dir: None,
         config: None,
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .expect_err("a file without stores is rejected");
     assert!(matches!(

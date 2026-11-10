@@ -95,6 +95,14 @@ zd creates a new state directory with 32 partitions. A state directory that
 dexcli before 1.37.0 created has 1024 partitions, and zd refuses to start on it
 with the default. To keep it, pass a `--zd-config` file that sets
 `cluster.partitionCount: 1024`. Otherwise delete the state directory.
+The CLI also asks zd to serve an S3-compatible bucket for applications, such as
+the image bytes that Dex Agents keep out of Flow state. The ready output prints
+`Agent media store: s3://dex-dev-media/agents endpoint=http://127.0.0.1:8803`.
+The bucket lives in `<zd-data-dir>/application-s3`, apart from zd's own object
+store, and listens only on 127.0.0.1. It accepts any credentials; clients use
+path-style addressing. Pass `--agent-media-store=false` to turn it off. A
+`--zd-binary` from before server-zd v0.1.26 cannot serve it, so the CLI prints
+`Agent media store: off, because ...` and starts without it.
 With `--attribute-store-config`, the CLI passes the
 file to `dex-server-zd dev --attribute-store-config`, which reads only its
 `attributeStore` section. zd supports only `type: postgres`, and each database
@@ -181,6 +189,8 @@ must exist and be reachable before startup.
 ## Application-facing flags
 
 ```text
+--agent-media-store                serve the agent media S3 bucket on 127.0.0.1 (default true)
+--agent-media-store-port int       agent media store S3 port on 127.0.0.1 (default 8803)
 --allowed-hosts string             comma-separated extra host names that Dex Web /api requests may use
 --attribute-store-config string    Dex YAML file supplying Attribute Store settings
 --bind-address string              local bind IP (default 127.0.0.1)

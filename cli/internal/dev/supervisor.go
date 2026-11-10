@@ -39,6 +39,8 @@ type supervisor struct {
 type ownedListeners struct {
 	dex net.Listener
 	web net.Listener
+	// agentMediaStore is nil when the agent media store is off.
+	agentMediaStore net.Listener
 }
 
 type componentExit struct {
@@ -57,6 +59,7 @@ func newSupervisor(cfg *Config, stdout io.Writer, stderr io.Writer) *supervisor 
 }
 
 func (s *supervisor) Run(ctx context.Context) (runErr error) {
+	agentMediaStoreOffReason := s.disableAgentMediaStoreUnlessZDServesIt(ctx)
 	listeners, err := reserveOwnedListeners(s.cfg)
 	if err != nil {
 		return err
@@ -85,7 +88,15 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 	listeners.dex = nil
-	process, err := startZDProcess(s.cfg, dataDirectory, dexAddress, s.stderr)
+	agentMediaStoreAddress := ""
+	if listeners.agentMediaStore != nil {
+		agentMediaStoreAddress = listeners.agentMediaStore.Addr().String()
+		if err := closeListener(listeners.agentMediaStore); err != nil {
+			return err
+		}
+		listeners.agentMediaStore = nil
+	}
+	process, err := startZDProcess(s.cfg, dataDirectory, dexAddress, agentMediaStoreAddress, s.stderr)
 	if err != nil {
 		return err
 	}
@@ -145,7 +156,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return formatComponentExit(exited, "stopped before readiness")
 	default:
 	}
-	s.printReady(webURL, dexAddress, dataDirectory)
+	s.printReady(webURL, dexAddress, dataDirectory, agentMediaStoreAddress, agentMediaStoreOffReason)
 	if connectorsMCP != nil {
 		connectorsMCP.Start(ctx)
 		resources.connectorsMCP = connectorsMCP
@@ -171,7 +182,31 @@ func formatComponentExit(exited componentExit, phase string) error {
 	return fmt.Errorf("%s %s: %w", exited.name, phase, exited.err)
 }
 
-func (s *supervisor) printReady(webURL string, dexAddress string, serverDataDirectory string) {
+// disableAgentMediaStoreUnlessZDServesIt turns the agent media store off when dex-server-zd predates it, so an older
+// --zd-binary still starts. It returns why the store is off, or an empty string when it is served or not requested.
+func (s *supervisor) disableAgentMediaStoreUnlessZDServesIt(ctx context.Context) string {
+	if !s.cfg.IsAgentMediaStoreEnabled {
+		return ""
+	}
+	isServed, err := zdServesApplicationS3(ctx, s.cfg.ZDBinary)
+	if err != nil {
+		s.cfg.IsAgentMediaStoreEnabled = false
+		return err.Error()
+	}
+	if !isServed {
+		s.cfg.IsAgentMediaStoreEnabled = false
+		return s.cfg.ZDBinary + " does not serve it; use the dex-server-zd bundled with this dexcli"
+	}
+	return ""
+}
+
+func (s *supervisor) printReady(
+	webURL string,
+	dexAddress string,
+	serverDataDirectory string,
+	agentMediaStoreAddress string,
+	agentMediaStoreOffReason string,
+) {
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Dex development environment is ready")
 	fmt.Fprintln(s.stdout)
@@ -181,6 +216,12 @@ func (s *supervisor) printReady(webURL string, dexAddress string, serverDataDire
 		fmt.Fprintf(s.stdout, "Connectors MCP: %s\n", webURL+connectorsMCPMountPath)
 	case s.cfg.ConnectorsMCP.IsEnabled:
 		fmt.Fprintln(s.stdout, "Connectors MCP: off, because --bind-address is not a loopback address")
+	}
+	switch {
+	case agentMediaStoreAddress != "":
+		fmt.Fprintln(s.stdout, agentMediaStoreReadyLine("http://"+agentMediaStoreAddress))
+	case agentMediaStoreOffReason != "":
+		fmt.Fprintf(s.stdout, "Agent media store: off, because %s\n", agentMediaStoreOffReason)
 	}
 	fmt.Fprintf(s.stdout, "Dex Server:    %s\n", dexAddress)
 	fmt.Fprintf(s.stdout, "State dir:     %s\n", serverDataDirectory)
@@ -235,28 +276,36 @@ func (s *supervisor) printUpdateNotice(ctx context.Context) {
 
 func reserveOwnedListeners(cfg *Config) (*ownedListeners, error) {
 	allocated := make(map[string]string)
-	dexListener, err := bindServicePort("Dex Server", cfg.isExplicit("dex-port"), cfg, &cfg.DexPort, allocated)
+	dexListener, err := bindServicePort("Dex Server", cfg.isExplicit("dex-port"), cfg.BindAddress, &cfg.DexPort, allocated)
 	if err != nil {
 		return nil, err
 	}
 	listeners := &ownedListeners{dex: dexListener}
-	webListener, err := bindServicePort("Dex Web", cfg.isExplicit("web-port"), cfg, &cfg.WebPort, allocated)
+	webListener, err := bindServicePort("Dex Web", cfg.isExplicit("web-port"), cfg.BindAddress, &cfg.WebPort, allocated)
 	if err != nil {
 		return nil, errors.Join(err, listeners.Close())
 	}
 	listeners.web = webListener
+	if cfg.IsAgentMediaStoreEnabled {
+		mediaListener, err := bindServicePort(
+			"Agent media store", cfg.isExplicit("agent-media-store-port"), agentMediaStoreHost, &cfg.AgentMediaStorePort, allocated)
+		if err != nil {
+			return nil, errors.Join(err, listeners.Close())
+		}
+		listeners.agentMediaStore = mediaListener
+	}
 	return listeners, nil
 }
 
 func bindServicePort(
 	name string,
 	explicit bool,
-	cfg *Config,
+	host string,
 	port *int,
 	allocated map[string]string,
 ) (net.Listener, error) {
 	for candidate := *port; candidate <= 65535; candidate++ {
-		address := net.JoinHostPort(cfg.BindAddress, strconv.Itoa(candidate))
+		address := net.JoinHostPort(host, strconv.Itoa(candidate))
 		if owner, exists := allocated[address]; exists {
 			if explicit {
 				return nil, fmt.Errorf("%s and %s cannot both use %s", owner, name, address)
@@ -304,7 +353,7 @@ func closeListener(listener net.Listener) error {
 }
 
 func (l *ownedListeners) Close() error {
-	return errors.Join(closeListener(l.web), closeListener(l.dex))
+	return errors.Join(closeListener(l.agentMediaStore), closeListener(l.web), closeListener(l.dex))
 }
 
 func waitForComponentHTTP(ctx context.Context, url string, exits <-chan componentExit) error {

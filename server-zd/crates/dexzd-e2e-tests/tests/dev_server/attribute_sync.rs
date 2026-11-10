@@ -567,6 +567,8 @@ async fn failed_dev_server_start(yaml: &str) -> String {
         config: Some(config_path),
         attribute_store_config: None,
         durability: Some(dexzd_server::config::DevDurabilityMode::ProcessCrashSafe),
+        application_s3_listen: None,
+        application_s3_bucket: None,
     })
     .await
     {

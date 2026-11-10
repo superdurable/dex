@@ -134,7 +134,7 @@ func TestZDDurabilityIsPassedOnlyWhenSet(t *testing.T) {
 		t.Fatalf("default durability = %q, want strict", config.Durability)
 	}
 	expected := []string{"dev", "--data-dir", "/data", "--listen", "127.0.0.1:8801", "--config", zdConfig}
-	if actual := zdDevArguments(config, "/data", "127.0.0.1:8801"); !reflect.DeepEqual(actual, expected) {
+	if actual := zdDevArguments(config, "/data", "127.0.0.1:8801", ""); !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("arguments without -durability = %q, want %q so the -zd-config durability applies", actual, expected)
 	}
 	for _, durability := range []string{"strict", "process-crash-safe", "relaxed"} {
@@ -143,7 +143,7 @@ func TestZDDurabilityIsPassedOnlyWhenSet(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := []string{"dev", "--data-dir", "/data", "--listen", "127.0.0.1:8801", "--config", zdConfig, "--durability", durability}
-		if actual := zdDevArguments(config, "/data", "127.0.0.1:8801"); !reflect.DeepEqual(actual, expected) {
+		if actual := zdDevArguments(config, "/data", "127.0.0.1:8801", ""); !reflect.DeepEqual(actual, expected) {
 			t.Fatalf("arguments with -durability %s = %q, want %q", durability, actual, expected)
 		}
 	}
@@ -372,7 +372,7 @@ func TestZDProcessKillsUnresponsiveChild(t *testing.T) {
 	binary := buildFakeZDBinary(t)
 	t.Setenv("DEX_ZD_TEST_IGNORE_SIGTERM", "1")
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(freeZDTestPort(t)))
-	process, err := startZDProcess(&Config{ZDBinary: binary}, t.TempDir(), address, io.Discard)
+	process, err := startZDProcess(&Config{ZDBinary: binary}, t.TempDir(), address, "", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestZDProcessReportsDirtyShutdown(t *testing.T) {
 	binary := buildFakeZDBinary(t)
 	t.Setenv("DEX_ZD_TEST_EXIT_ON_TERM", "1")
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(freeZDTestPort(t)))
-	process, err := startZDProcess(&Config{ZDBinary: binary}, t.TempDir(), address, io.Discard)
+	process, err := startZDProcess(&Config{ZDBinary: binary}, t.TempDir(), address, "", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

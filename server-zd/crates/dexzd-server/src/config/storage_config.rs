@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 use std::fmt;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -270,6 +271,10 @@ pub struct DevConfig {
     pub durability_mode: DevDurabilityMode,
     /// Defaults to none; optional directory that also receives dex-server-zd.log.
     pub log_directory: Option<PathBuf>,
+    /// Defaults to none, which serves no application bucket. Only `--application-s3-listen` and
+    /// `--application-s3-bucket` set it; YAML cannot.
+    #[serde(skip)]
+    pub application_s3: Option<ApplicationS3Config>,
 }
 
 impl Default for DevConfig {
@@ -279,6 +284,23 @@ impl Default for DevConfig {
             s3_data_directory: PathBuf::new(),
             durability_mode: DevDurabilityMode::default(),
             log_directory: None,
+            application_s3: None,
         }
     }
+}
+
+/// An S3 bucket that `dev` or `local` serves for applications, apart from the server's own object store.
+///
+/// Applications keep their own objects there, such as agent images. The bucket has its own
+/// emulator, data directory, and loopback address, so its clients cannot reach the server's bucket.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicationS3Config {
+    /// Loopback address of the bucket's plaintext S3 endpoint, from `--application-s3-listen`.
+    /// Clients use path-style URLs, such as `http://127.0.0.1:8803/<bucket>/<key>`, and any
+    /// credentials. No default; it is set only together with the bucket.
+    pub listen: SocketAddr,
+    /// Bucket name, from `--application-s3-bucket`; created at startup when missing. No default.
+    pub bucket: String,
+    /// Always `<data-dir>/application-s3`, so the bucket keeps its objects across restarts.
+    pub data_directory: PathBuf,
 }

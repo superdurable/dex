@@ -8,6 +8,14 @@ sidebar_label: Change log
 
 This page lists user-visible changes to server-zd, newest first; each section covers the changes since the previous release of this component.
 
+## 0.1.26 {#v0-1-26}
+
+Not released yet. The next release, server-zd/v0.1.26, ships these changes.
+
+### Added
+
+- **dev** and **local** accept **--application-s3-listen** and **--application-s3-bucket**. They serve one more S3-compatible bucket for applications on a loopback address, with its own store in **application-s3** in the data directory. Applications cannot reach the server's own bucket through it. [Reference](/reference/server/configuration#single-node-application-bucket).
+
 ## 0.1.25 {#v0-1-25}
 
 Released 2026-11-09 as [server-zd/v0.1.25](https://github.com/superdurable/dex/releases/tag/server-zd%2Fv0.1.25).
