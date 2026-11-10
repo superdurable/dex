@@ -153,7 +153,7 @@ WaitForFn : Ctx × Val × Snap               → Fx* × WaitResp
 ExecuteFn : Ctx × Val × Snap × Locals × CR → Fx* × ExecResp
 RpcFn     : Ctx × Val × Snap               → Fx* × RpcResp
 
-Ctx      ::= ⟨ flowId, stepExecutionId, fromStepExecutionId, ... ⟩
+Ctx      ::= ⟨ flowId, stepExecutionId, fromStepExecutionId, ... ⟩   -- also ctxA (Section 11.1, H3)
 Snap     ::= ⟨ attrs : Key ⇀ Val,  sizes : Chan ⇀ ℕ⁺,  loaded : Chan ⇀ [Msg] ⟩
 Effects  ::= ⟨ writes : [(Key, Val | null)],
                deletes : [(Chan, MsgId)],
@@ -1583,6 +1583,12 @@ the task named; the rest were found on the way or in review.
       timers
       (`server-zd/crates/dexzd-engine/src/effects/dispatch/attempt_deadlines.rs:34-54`,
       `server-zd/crates/dexzd-engine/src/effects/dispatch/method_attempt.rs:638-711`).
+    - Drift unrelated to failures, noted while checking: at `55721e878`, a
+      PublishToChannel during a pending close is rejected
+      (`server-zd/crates/dexzd-apply/src/command_handlers/client_writes.rs:216-219`).
+      Section 4.6 and item 21 describe `9b37482ed`, where it is accepted.
+      Both are outside `E_adm`, where `pc` is never set, so the rule is left
+      as it is.
     - The simulation crate `dexzd-simulation` checks that a recovered store
       equals a twin that never crashed. It is not evidence that retries
       repeat only external effects, and it does not exercise client retries
@@ -2033,15 +2039,19 @@ the code behind unchanged rules. Every new citation is at `55721e878`.
 | F3 | The premise of [STEP-COMPLETE-WAITFOR] said "the same task". | **Clarified.** The code's fence is Step execution, method, attempt number, phase Running, and task ID. It selects the same results without failures. Section 4.4; [RESULT-STALE] in Section 11.3. |
 | F4 | Section 4.5 read as if apply checked that a timer is due. | **Clarified.** Apply fires whatever the command names; the timer service and the command stamp make it due, under the clock assumption D6. Section 4.5. |
 | F5 | Facts of Section 7 that failures change: locks held through Backoff, retry timers left armed after a cancel, the bounded request table, StopFlow's run resolution, the interrupt commit, and timeouts kept only in memory. | **Recorded** as Open question 25. |
-| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 57. Section 9 lists the failures left for later. |
+| F6 | The failure model itself. | **Added** as Section 11: decisions, state, rules, events, theorem statements, and the abstraction map. Appendix A, items 42 to 58. Section 9 lists the failures left for later. |
+| F7 | The plan stated safety as "`t` is a failure trace if and only if `t` is a repetition of a failure-free trace". Not every repetition is reachable: an attempt emits its effects in order from the first. | **Stated as two inclusions.** Forward: erasing repeated `fx` from a DexF trace gives a Dex trace. Backward: every Dex trace is a DexF trace. The end-to-end corollary follows the same shape. Section 11.5; Appendix A, item 58. |
+| F8 | The clarification of Section 4.5 makes explicit that the failure-free [TIMER-FIRE] is faithful to the code only under the clock assumption D6. | **Recorded.** The rule is unchanged, so the Lean proof is unaffected. Appendix A, item 47. |
 
 ## 11. Failures
 
 Sections 1 to 10 describe runs without failures. This section adds failures
 for the fragment of decision D1, and states the theorem that failures are
 transparent: they change no observable event except that external effects
-may repeat. Every citation in this section is at commit `55721e878`. Paths
-without a directory are under `server-zd/crates/`. The decisions D1 to D8
+may repeat. Every citation in this section is at commit `55721e878`. A path
+that starts with a crate name, such as `dexzd-apply/`, is under
+`server-zd/crates/`. A bare file name repeats the last full path given for
+that file. The decisions D1 to D8
 are the owner's, of 2026-11-10, for issue
 [#1514](https://github.com/superdurable/dex/issues/1514).
 
@@ -2333,10 +2343,14 @@ Code: `step_results.rs:258-360`, `invocations.rs:314-390`.
   theorem: the theorem's content is the inclusion of DexF traces in Dex
   traces plus repetitions, and more DexF runs only make that inclusion
   harder to prove. Liveness needs only that failures are finitely many (D5).
-- **Heartbeats.** No SDK heartbeats automatically. The Go SDK sends one only
-  when user code calls `RecordHeartbeat` (`sdk-go/dex/invocation.go:176-188`),
-  and the Java SDK documents that "Dex sends no automatic heartbeat"
-  (`sdk-java/src/main/java/io/superdurable/dex/StepOptions.java:203`). Any
+- **Heartbeats.** No SDK heartbeats automatically. The Go, Python, and Rust
+  SDKs send one only from an explicit call (`sdk-go/dex/invocation.go:176-188`,
+  `sdk-python/dex/_invocation_context.py:176-191`,
+  `sdk-python/dex/step.py:60-76`, `sdk-rust/crates/dex-sdk/src/context.rs:308-340`).
+  The Java SDK documents that "Dex sends no automatic heartbeat"
+  (`sdk-java/src/main/java/io/superdurable/dex/StepOptions.java:203`), and the
+  TypeScript SDK asks for explicit heartbeats
+  (`sdk-typescript/src/step.ts:147`). Any
   output frame, heartbeat or Stream write, resets the heartbeat deadline
   (`method_attempt.rs:692-693`). So a handler that runs longer than the
   heartbeat timeout without either loses its attempt, with no crash at all.
@@ -2512,8 +2526,11 @@ lets the caller fix the request ID (`sdk-go/dex/client.go:510-512`,
   the first request of the word. Any number of [START-RETRY] requests may
   follow anywhere in the word. Each one is a request of the word that
   produces no event. The start uses the default reuse policy and sets
-  `ignore_already_started_error`. Section 5.3's "no other StartFlow follows"
-  is relaxed only for these retries.
+  `ignore_already_started_error`. Two rules of the failure-free sections are
+  relaxed, only for these retries: Section 5.3's "no other StartFlow
+  follows", and the requirement that every request ID is fresh (Sections
+  1.3, 4.6, and 5.3). A [START-RETRY] reuses the start's request ID. Every
+  other request ID stays fresh.
 - A client's re-sent PublishToChannel is a new request of the word (D7). The
   rule [PUBLISH] is unchanged.
 
@@ -2572,9 +2589,27 @@ carries more state: attempt numbers, task IDs, `Z`, `I`, and `h`. The lemma
 must show that the extended rules agree with Dex on states that no failure
 reached.
 
-**Safety.** For every program `P` of the fragment: `t` is a finite trace of
-DexF if and only if `t` is a repetition of some finite trace `u` of Dex for
-the same committed input word.
+**Word mapping.** A committed DexF word may contain [START-RETRY] requests,
+and a Dex word of `E_adm` does not. For a committed DexF word `w`, write
+`w↓` for the Dex word obtained by deleting its [START-RETRY] requests. Each
+deleted request produced no event.
+
+**Erasure.** For a DexF trace `t`, `erase(t)` removes every repeated `fx`
+(the ghost form of Section 11.4). Then `t` is a repetition of `erase(t)`.
+
+**Safety, forward.** For every program `P` of the fragment and every finite
+DexF trace `t` for a committed word `w`, `erase(t)` is a finite Dex trace for
+`w↓`. Hence `t` is a repetition of a finite Dex trace.
+
+**Safety, backward.** Only the Lemma: every Dex trace is a DexF trace. The
+converse of the forward statement is false. Not every repetition is
+reachable. An attempt runs `U` from the start and emits its effects in
+order, so index `j` can never have more copies than index `j − 1`. For an
+effect list `[a, b, c]`, one extra `c` without extra `a` and `b` before it is
+a repetition that no DexF run produces. [decision] The theorem states the two
+inclusions, not an equality. (The translation of Section 8.2 gives each
+Execute at most one effect, so equality may hold for translated programs.
+That would need its own construction and is not claimed.)
 
 **Liveness.** Fairness for DexF replaces F2 to F5 of Section 5.5 and adds FF,
 FR, and FI:
@@ -2608,17 +2643,24 @@ Every DexF transition other than [TICK] is a progress step. Markers:
   up.
 
 Statement: under FF, FR, FI, F0 to F6 as above, and H1 to H4, for every
-committed admissible word `w`, the fair maximal traces of DexF for `w`, with
-repeated `fx` removed, equal the fair maximal traces of Dex for `w`, markers
-included. By FF there are finitely many attempts and each emits finitely
-many effects, so a fair DexF trace has finitely many repeated events.
+committed admissible word `w`, the set of `erase(t)` over the fair maximal
+traces `t` of DexF for `w` equals the set of fair maximal traces of Dex for
+`w↓`, markers included. The inclusion from Dex to DexF again comes from the
+Lemma, because a fair Dex run is a fair DexF run with no failure. By FF
+there are finitely many attempts and each emits finitely many effects, so a
+fair DexF trace has finitely many repeated events.
 
 **End-to-end corollary.** Compose with the expressiveness theorem (Sections
-5.4 and 5.5): for every well-formed L program `S`, `π(Tr_fail(⟦S⟧))` is the
-set of L traces of `S` with repetitions, under the fairness and hypotheses
-above. On the L side the statement is weaker. `π` drops the source of an
-`fx`. So an inserted `out(x)` is only known to equal some earlier `out(x)`
-with the same value, not to repeat a particular `emit`.
+5.4 and 5.5). For every well-formed L program `S`, under the fairness and
+hypotheses above:
+
+- every L trace of `S` is in `π(Tr_fail(⟦S⟧))`;
+- every trace in `π(Tr_fail(⟦S⟧))` is an L trace of `S` with inserted
+  `out(x)` events, each equal in value to an earlier `out(x)`.
+
+On the L side the second statement is weaker than on the Dex side. `π` drops
+the source of an `fx`. So an inserted `out(x)` is only known to equal some
+earlier `out(x)` with the same value, not to repeat a particular `emit`.
 
 **What the theorem does not say.**
 
@@ -2633,7 +2675,10 @@ with the same value, not to repeat a particular `emit`.
   response. That is a second request (D7).
 - Anything about ASYNC Step methods (D2).
 - Anything about runs that exhaust retries, use failure policies, read
-  attempt-varying context, or meet non-retryable failures (H1 to H4).
+  attempt-varying context, or meet non-retryable failures (H1 to H4). A
+  long outage can break H1: under the default total retry duration of 4
+  hours, an interrupt after a longer outage exhausts the method
+  (`retry_backoff.rs:15`, `retry_backoff.rs:115-119`).
 - Anything about RPCs, SubFlows, or StopFlow under failures (D1).
 
 ### 11.6 The abstraction map α
@@ -2651,14 +2696,18 @@ maps to a Dex [WORKER-EFFECT].
 - `Z`, `I`, the timer service memory, and `h`, after it has used them to
   build the virtual tasks below.
 
-**Invocations.** For each invocation `(e, m)`:
+**Invocations.** α decides by whether the invocation holds a snapshot, not
+by its phase. For each invocation `(e, m)`:
 
-- `ip = R`, `ip = B`, or `ip = P` with a retained snapshot maps to `ip = R`
-  with that snapshot, and to one **virtual task** in `Θ`. The virtual task has
-  emitted `fx⃗(e, m)[1..h(e, m)]`. It is `Returned` when `h(e, m)` is the length
-  of the list and some attempt has returned.
-- `ip = P` without a snapshot maps to `ip = P`. Such an invocation never
-  started, or failed before its first start, so `h(e, m) = 0`.
+- An invocation **with** a snapshot (`ip = R`, or `ip = B` or `ip = P` with a
+  retained snapshot) maps to `ip = R` with that snapshot, and to one
+  **virtual task** in `Θ`. The virtual task has emitted
+  `fx⃗(e, m)[1..h(e, m)]`. It is `Returned` when `h(e, m)` is the length of the
+  list and some attempt has returned.
+- An invocation **without** a snapshot (`ip = P` or `ip = B`) maps to
+  `ip = P`, and `h(e, m) = 0`. It never started: either it is waiting for its
+  first start, or attempt 1 failed before any start and is in Backoff or
+  pending again with `a ≥ 2`. No attempt of it emitted an effect.
 
 This is sound because a retrying invocation looks to apply exactly like a
 running one. It keeps its snapshot from the first start
@@ -2705,7 +2754,11 @@ built from `seq` are:
 [assumption, to check in Stage 1] Apply reads these values only to compare
 them: queue order, waiter order, lock order, the cancel order at a close
 (`flow_close.rs:315-318`), and eviction order. Value IDs are compared only
-for equality. If so, `ζ` preserves every apply result.
+for equality. Value IDs also reach the Worker as value references
+(`method_request.rs:551-593`); the assumption then also needs that the SDK
+resolves a reference to its value before user code sees it, so `U` never
+sees an ID. If so, `ζ` preserves every apply result and every argument of
+`U`.
 
 Other values:
 
@@ -2730,9 +2783,10 @@ proof (plan Section 4.2), and the inductiveness fuzz must test them.
 - **I3, prefixes.** Every task of `(e, m)` has emitted a prefix of
   `fx⃗(e, m)` of length at most `h(e, m)`, and some task has emitted exactly
   `h(e, m)` of them. A task that returns has emitted the whole list.
-- **I4, retained state.** A Running, Backoff, or retained-snapshot Pending
-  invocation holds its lock keys, and its snapshot is the snapshot of its
-  first start.
+- **I4, retained state.** An invocation that holds a snapshot holds its lock
+  keys, and its snapshot is the snapshot of its first start. An invocation
+  without a snapshot has never started, holds no lock key, and has
+  `h(e, m) = 0`.
 - **I5, same apply state.** `α(R)` equals the Dex apply state up to `ζ`.
 - **I6, retry timers.** Each armed retry timer belongs to a Backoff
   invocation with that attempt number, or it is stale and its firing is a
@@ -2744,12 +2798,14 @@ proof (plan Section 4.2), and the inductiveness fuzz must test them.
 
 | DexF transition | Dex transitions |
 | --- | --- |
-| First [STEP-START] of an invocation | [STEP-START] |
-| A later [STEP-START] (retained snapshot) | stutter |
+| [STEP-START] of an invocation without a snapshot (it computes one) | [STEP-START] |
+| [STEP-START] that reuses a retained snapshot | stutter |
 | [WORKER-EFFECT] or [ZOMBIE-EFFECT] with `j > h(e, m)` (so `j = h + 1`) | [WORKER-EFFECT] of the virtual task |
 | The same with `j ≤ h(e, m)` | stutter; the event is repeated |
 | Complete rule of a task in `Θ` or `Z` | the Complete rule of the virtual task |
 | [TIMER-FIRE] / [RETRY-FIRE] | [TIMER-FIRE] of the wait-timer sub-prefix, or stutter |
+| The retry part of [RETRY-FIRE]: `B` to `P`, with or without a snapshot | stutter (`R` to `R`, or `P` to `P`) |
+| [ATTEMPT-LOST] before the first start (`P` to `B`, no snapshot) | stutter (`P` to `P`) |
 | Cancel or close of a Step whose attempts are all gone | the same commit, then [WORKER-ABANDON] of the virtual task |
 | [CRASH], [RECOVER], [RECOVER-INTERRUPT], [ATTEMPT-LOST], [ATTEMPT-RETURNED], [ATTEMPT-HEARTBEAT], [RESULT-STALE], [START-RETRY] | stutter |
 
@@ -2862,11 +2918,13 @@ hypothesis.
     (FR), and that every interrupt commits (FI) (D5, 11.5).
 47. On one node, the wall clock does not step backward between the timer
     service's due check and the stamping of its TimersFired command [owner,
-    D6, 2026-11-10] (11.1).
+    D6, 2026-11-10] (4.5, 11.1). The failure-free [TIMER-FIRE] rests on it
+    too.
 48. The input word under failures is the sequence of committed requests. A
     re-sent PublishToChannel is a second request. A StartFlow retry carries
     the start's request ID and `ignore_already_started_error`, under the
-    default reuse policy [owner, D7, 2026-11-10] (11.1, 11.3).
+    default reuse policy; it is the only exception to item 18 [owner, D7,
+    2026-11-10] (11.1, 11.3).
 49. A standby takeover is [CRASH], [RECOVER], and an overlap of the old
     owner; one owner writes the log at a time; there is no multi-node
     partition ownership [owner, D8, 2026-11-10] (11.1, 11.3).
@@ -2887,3 +2945,6 @@ hypothesis.
 57. `dexzd-simulation` does not check that retries repeat only external
     effects [assumption, from the plan's survey, not re-verified] (7,
     item 25).
+58. Safety is stated as two inclusions, not an equality: erasing repeated
+    `fx` from a DexF trace gives a Dex trace, and every Dex trace is a DexF
+    trace [decision] (11.5).
