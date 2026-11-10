@@ -39,17 +39,28 @@ ApplyTurnControl -> RunModel with the steered messages, else AwaitUserMessage
 
 ## 安装 {#install}
 
-Python：
+在 TypeScript 中，Dex SDK 是 peer package，因此也要一起安装。
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/core/README.md',
+    typescript: 'agents/typescript/core/README.md',
+  }}>
+<SdkSnippet lang="python">
 
 ```bash
 pip install "dex-agents[litellm,mcp]"
 ```
 
-TypeScript，Dex SDK 作为 peer package 一起安装：
+</SdkSnippet>
+<SdkSnippet lang="typescript">
 
 ```bash
 npm i @superdurable/dex-agents @superdurable/dex ai @modelcontextprotocol/sdk
 ```
+
+</SdkSnippet>
+</SdkTabs>
 
 **litellm** extra 和 **ai** package 提供 model client。**mcp** extra 和 **@modelcontextprotocol/sdk** 提供 MCP tool。不用的可以不装。
 

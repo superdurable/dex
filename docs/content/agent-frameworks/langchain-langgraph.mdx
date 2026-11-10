@@ -13,7 +13,7 @@ Use it when your agent already uses LangChain **create_agent** or a LangGraph gr
 
 ## How a session runs
 
-**DurableToolCallMiddleware** stops each tool call with a LangGraph interrupt, so no tool runs inside **RunModel**. The **RunModel** Step runs the graph until its tool calls, usually one model call, and stores the graph checkpoint.
+**DurableToolCallMiddleware** stops each tool call with a LangGraph interrupt, so no tool runs inside **RunModel**. The **RunModel** Step runs the graph to its next tool calls, usually with one model call, and stores the graph checkpoint.
 
 Each tool call runs in its own Step, in parallel: **CallTool** for a read or an idempotent write, **CallSingleAttemptTool** for any other write. A call that needs approval waits in **AwaitToolApproval** first. The tool Step validates the arguments and calls the tool once. The next **RunModel** restores the checkpoint and resumes the graph with the recorded results.
 

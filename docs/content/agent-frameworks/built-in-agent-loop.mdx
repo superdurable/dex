@@ -39,17 +39,28 @@ A failed **RunModel** retries. After its third attempt, the turn fails and the s
 
 ## Install
 
-Python:
+In TypeScript, the Dex SDK is a peer package, so install it too.
+
+<SdkTabs
+  examples={{
+    python: 'agents/python/core/README.md',
+    typescript: 'agents/typescript/core/README.md',
+  }}>
+<SdkSnippet lang="python">
 
 ```bash
 pip install "dex-agents[litellm,mcp]"
 ```
 
-TypeScript, with the Dex SDK as a peer package:
+</SdkSnippet>
+<SdkSnippet lang="typescript">
 
 ```bash
 npm i @superdurable/dex-agents @superdurable/dex ai @modelcontextprotocol/sdk
 ```
+
+</SdkSnippet>
+</SdkTabs>
 
 The **litellm** extra and the **ai** package add model clients. The **mcp** extra and **@modelcontextprotocol/sdk** add MCP tools. Leave out what you do not use.
 

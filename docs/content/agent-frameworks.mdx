@@ -34,7 +34,7 @@ A harness is the code that runs the agent loop: the built-in loop or a framework
 | [Claude Agent SDK](/agent-frameworks/claude-agent-sdk) | Python, TypeScript | The Claude Code CLI runs a turn segment in one **RunModel** Step. Reads run inside it. A write ends the segment and runs in its own Step. | You want the Claude Code agent loop and its tools. |
 | [OpenAI Agents SDK](/agent-frameworks/openai-agents-sdk) | Python, TypeScript | One model call per **RunModel** Step. Each function tool call is its own Step. | You have an OpenAI Agents SDK agent, with or without handoffs. |
 | [Pydantic AI](/agent-frameworks/pydantic-ai) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Pydantic AI agent. |
-| [LangChain and LangGraph](/agent-frameworks/langchain-langgraph) | Python | The graph runs until its tool calls in one **RunModel** Step. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. |
+| [LangChain and LangGraph](/agent-frameworks/langchain-langgraph) | Python | One **RunModel** Step runs the graph to its next tool calls. Each tool call is its own Step. | You have a LangChain **create_agent** agent or a LangGraph graph. |
 | [Google ADK](/agent-frameworks/google-adk) | Python | One model call per **RunModel** Step. Each tool call is its own Step. | You have a Google ADK agent. |
 | [Vercel AI SDK](/agent-frameworks/vercel-ai-sdk) | TypeScript | One model call per **RunModel** Step. Each tool call is its own Step. | You have AI SDK tools and models in a TypeScript application. |
 | [Mastra](/agent-frameworks/mastra) | TypeScript | One model call per **RunModel** Step. Each agent tool call is its own Step. | You have a Mastra agent. |

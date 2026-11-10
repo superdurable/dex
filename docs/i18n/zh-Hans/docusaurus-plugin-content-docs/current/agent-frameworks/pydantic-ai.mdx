@@ -40,7 +40,7 @@ pip install dex-agents-pydantic-ai "pydantic-ai-slim[openai]"
 
 这个 example 是一个订单客服 Agent。它在一个内存中的订单系统上有两个 tool。**look_up_order** 读取订单。它的 policy 是 read，因此无需审批就会运行，失败时会重试。**cancel_order** 取消一个仍在处理中的订单。它的 policy 是 non-idempotent write，因此会先等待审批，然后最多运行一次。
 
-Flow type 是 **PydanticAIOrderSupport**（Python）。 完整 example 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。
+Flow type 是 **PydanticAIOrderSupport**（Python）。完整 example 位于 [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses)。
 
 ### Agent 与 tool {#agent-and-tools}
 
