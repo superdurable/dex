@@ -52,6 +52,7 @@ const largeAnswer = "pad 20000";
 const resourceExhaustedCode = 8;
 const noRoomSessions = 24;
 const noRoomSmallTurns = 40;
+const smallToolTurn = "call bulk 40";
 const stateLimitReason = new RegExp(`^(active )?run state of \\d+ bytes exceeds the maximum of ${stateLimitBytes} bytes$`);
 
 interface Harness {
@@ -242,11 +243,12 @@ describe("a session at limits.maxFlowStateBytes", () => {
   test("a session with no room to store its failure still reports it", async () => {
     await withHarness(async (harness) => {
       // Sessions differ in how much room the last commit left, so some cannot store the failure.
-      const runToFailure = async (firstAnswerCharacters: number): Promise<string | undefined> => {
+      // Small tool turns fail some sessions mid-turn.
+      const runToFailure = async (firstAnswerCharacters: number): Promise<boolean> => {
         const sessionId = `session-${randomUUID()}`;
         await harness.sessions.startSession(sessionId);
         // All sent while there is room: a later send could be refused instead of failing a Step.
-        const texts = ["pad 25000", `pad ${firstAnswerCharacters}`, ...Array<string>(noRoomSmallTurns).fill("pad 40")];
+        const texts = ["pad 25000", `pad ${firstAnswerCharacters}`, ...Array<string>(noRoomSmallTurns).fill(smallToolTurn)];
         for (const text of texts) {
           assert.equal(await send(harness, sessionId, text), true);
         }
@@ -271,15 +273,15 @@ describe("a session at limits.maxFlowStateBytes", () => {
         if (stored.state?.activeTurnId != null) {
           await assertUIStreamReportsFailure(harness, sessionId, stored.state.activeTurnId, reason);
         }
-        return stored.state?.status;
+        return stored.state?.activeTurnId != null;
       };
 
-      const storedStatuses = await Promise.all(
+      const storedActiveTurns = await Promise.all(
         Array.from({ length: noRoomSessions }, (_unused, offset) => runToFailure(25_000 + 37 * offset)),
       );
 
-      // A failed RunModel had a route, and its route's commit did not fit.
-      assert.ok(storedStatuses.includes("running_model"));
+      // A Step without a failure route, or a route whose commit did not fit, left its turn active.
+      assert.ok(storedActiveTurns.includes(true));
     });
   });
 
@@ -311,7 +313,7 @@ describe("a session at limits.maxFlowStateBytes", () => {
   test("the state limit failure is told from other failures", () => {
     const failure = (errorType: string, detail: string): boolean => isStateLimitFailure({ detail, errorType });
     assert.equal(failure("ValueTooLarge", "run state of 9 bytes exceeds the maximum of 8 bytes"), true);
-    // The text of a server that counts only active state, which no released dexcli runs yet.
+    // The text of a server that counts only active state, server-zd 0.1.21 and later.
     assert.equal(failure("ValueTooLarge", "active run state of 9 bytes exceeds the maximum of 8 bytes"), true);
     assert.equal(failure("ValueTooLarge", "value of 9 bytes exceeds the maximum of 8 bytes"), false);
     assert.equal(failure("WorkerError", "run state of 9 bytes exceeds the maximum of 8 bytes"), false);

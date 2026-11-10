@@ -61,6 +61,7 @@ LARGE_ANSWER = "pad 20000"
 EVENT_POLL_TIMEOUT = timedelta(seconds=1)
 NO_ROOM_SESSIONS = 24
 NO_ROOM_SMALL_TURNS = 40
+SMALL_TOOL_TURN = 'call bulk {"characters": 40}'
 STATE_LIMIT_REASON = re.compile(
     rf"^(active )?run state of \d+ bytes exceeds the maximum of {STATE_LIMIT_BYTES} bytes$"
 )
@@ -237,18 +238,18 @@ async def test_a_session_with_no_room_to_store_its_failure_still_reports_it(
     """A small commit can leave less room than the failure's own commit needs.
 
     Sessions differ in how much room the last commit left, so some cannot store the failure.
-    Each still reports it, from the Flow's close.
+    Each still reports it, from the Flow's close. Small tool turns fail some sessions mid-turn.
     """
     async with _state_limit_harness(tmp_path) as harness:
 
-        async def run_to_failure(first_answer_characters: int) -> AgentSessionStatus:
+        async def run_to_failure(first_answer_characters: int) -> bool:
             session_id = harness.new_session_id()
             await harness.sessions.start_session(session_id)
             # All sent while there is room: a later send could be refused instead of failing a Step.
             for text in [
                 "pad 25000",
                 f"pad {first_answer_characters}",
-                *["pad 40"] * NO_ROOM_SMALL_TURNS,
+                *[SMALL_TOOL_TURN] * NO_ROOM_SMALL_TURNS,
             ]:
                 assert await harness.sessions.send_user_message(session_id, text)
 
@@ -265,14 +266,14 @@ async def test_a_session_with_no_room_to_store_its_failure_still_reports_it(
             await harness.read_all_event_frames(session_id)
             stored = await harness.stored_snapshot(session_id)
             assert stored.state is not None
-            return stored.state.status
+            return stored.state.active_turn_id is not None
 
-        stored_statuses = await asyncio.gather(
+        stored_active_turns = await asyncio.gather(
             *[run_to_failure(25_000 + 37 * offset) for offset in range(NO_ROOM_SESSIONS)]
         )
 
-        # A failed RunModel had a route, and its route's commit did not fit.
-        assert AgentSessionStatus.RUNNING_MODEL in stored_statuses
+        # A Step without a failure route, or a route whose commit did not fit, left its turn active.
+        assert any(stored_active_turns)
 
 
 async def test_the_event_stream_of_a_failed_session_ends(tmp_path: Path) -> None:
@@ -323,7 +324,7 @@ async def test_a_message_to_a_session_that_does_not_exist_keeps_the_dex_error(
     ("error_type", "detail", "is_state_limit"),
     [
         ("ValueTooLarge", "run state of 9 bytes exceeds the maximum of 8 bytes", True),
-        # The text of a server that counts only active state, which no released dexcli runs yet.
+        # The text of a server that counts only active state, server-zd 0.1.21 and later.
         ("ValueTooLarge", "active run state of 9 bytes exceeds the maximum of 8 bytes", True),
         ("ValueTooLarge", "value of 9 bytes exceeds the maximum of 8 bytes", False),
         ("WorkerError", "run state of 9 bytes exceeds the maximum of 8 bytes", False),
