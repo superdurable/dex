@@ -101,6 +101,9 @@ class ToolSource(Protocol):
         ...     model=LiteLLMModelClient("openai/gpt-5-mini"),
         ...     tool_sources=[tools],
         ... )
+
+    .. versionchanged:: 0.4.0
+        A source may define ``tool_call_step_options``.
     """
 
     @property

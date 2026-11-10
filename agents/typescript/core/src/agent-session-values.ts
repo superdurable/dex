@@ -418,7 +418,7 @@ export interface AgentToolCall {
    * Whether the call is a write that runs in the model's order after the turn's earlier ordered writes,
    * from {@link DeferredToolCall.ordered}; `false` for every other call. Wire field: `ordered_write`. A
    * missing value means `false`.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   readonly orderedWrite?: boolean;
   /**
@@ -426,7 +426,7 @@ export interface AgentToolCall {
    * is not raised yet. `RunModel` starts it once every earlier call is final and every earlier ordered
    * write succeeded; otherwise `RunModel` records it `failed` with {@link skipped} set. `ResumeTurn` does
    * not wait for it. Wire field: `write_queued`. A missing value means `false`.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   readonly writeQueued?: boolean;
   /**
@@ -434,14 +434,14 @@ export interface AgentToolCall {
    * rejected, or ended `outcome_unknown`. The record is `failed`, and its `error` starts with
    * {@link toolCallNotRunErrorPrefix}, so a reader that does not know this field still sees that the tool
    * did not run. Wire field: `skipped`. A missing value means `false`.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   readonly skipped?: boolean;
   /**
    * Size in bytes of the full output when {@link output} holds a truncated copy, from
    * {@link ToolExecutionResult.truncatedOutputBytes}; otherwise `null`. Wire field:
    * `truncated_output_bytes`. A missing value means `null`.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   readonly truncatedOutputBytes?: number | null;
 }
@@ -1138,7 +1138,7 @@ export const toolCallNotRunErrorPrefix = "the tool did not run, so it is safe to
 /**
  * Detail after {@link toolCallNotRunErrorPrefix} and `": "` on a record that write ordering skipped; the same
  * text as the Python core.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export const toolCallSkippedAfterWriteDetail = "an earlier write of this turn did not succeed";
 

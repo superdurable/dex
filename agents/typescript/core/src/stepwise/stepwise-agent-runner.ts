@@ -334,7 +334,7 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
    * @returns The source's options, or `undefined` for the defaults.
    * @throws {RangeError} When a source built the call but the definition no longer has it; the session then uses
    * the defaults.
-   * @since 0.3.0
+   * @since 0.4.0
    */
   public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
     if (this.functionToolsByName.has(toolCall.toolName)) {

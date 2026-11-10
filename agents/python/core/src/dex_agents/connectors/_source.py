@@ -53,18 +53,28 @@ from dex_agents.runner import (
 from dex_agents.values import AgentToolCall, ToolEffect
 
 #: Default ``source_name`` of a ``ConnectorToolSource``.
+#:
+#: .. versionadded:: 0.4.0
 DEFAULT_CONNECTOR_SOURCE_NAME = "connectors"
 
 #: Default bound, in bytes of UTF-8 text, on the result one connector tool call gives the model.
+#:
+#: .. versionadded:: 0.4.0
 DEFAULT_CONNECTOR_RESULT_MAX_BYTES = 64 * 1024
 
 #: Note appended to a truncated result; ``{total_bytes}`` is the size of the full result.
+#:
+#: .. versionadded:: 0.4.0
 CONNECTOR_RESULT_TRUNCATED_NOTE = "[Dex] truncated, {total_bytes} bytes"
 
 #: Error text of a single-attempt write whose fence proved no send before the connector's Retry.
+#:
+#: .. versionadded:: 0.4.0
 CONNECTOR_NOT_SENT_RETRY_LATER = "not sent; the provider asked to retry later"
 
 #: Name of the manifest file every Connector language package ships.
+#:
+#: .. versionadded:: 0.4.0
 CONNECTOR_MANIFEST_FILE_NAME = "dex-connector.json"
 
 # The most CallTool attempts of any tool; a connector's own policy can only narrow it.
@@ -74,6 +84,8 @@ _UNCERTAIN_BRANCH = "uncertain"
 _CODECS = CodecRegistry()
 
 #: Decides from a call's decoded JSON arguments whether that call waits for approval.
+#:
+#: .. versionadded:: 0.4.0
 ApprovalPredicate = Callable[[Mapping[str, Any]], bool]
 
 
@@ -92,6 +104,8 @@ class ConnectorBranchOutcome(StrEnum):
         OUTCOME_UNKNOWN: ``uncertain``, a branch listed as ``unknown``, or an
             optional branch of a Mutation that ``agent.branches`` does not list.
             The write may have taken effect. The record is ``OUTCOME_UNKNOWN``.
+
+    .. versionadded:: 0.4.0
     """
 
     SUCCEEDED = "succeeded"
@@ -122,6 +136,8 @@ def classify_connector_branch(
 
     Returns:
         The outcome to record.
+
+    .. versionadded:: 0.4.0
     """
     if branch == _DEFECT_BRANCH:
         return ConnectorBranchOutcome.FAILED
@@ -169,6 +185,8 @@ class ConnectorTool:
         execute_method_timeout: The operation's Execute timeout, or ``None``.
         retry_policy: The operation's Execute retry policy, which bounds a
             ``CallTool`` call's retries.
+
+    .. versionadded:: 0.4.0
     """
 
     name: str
@@ -259,6 +277,8 @@ def connector_tool(
             ``inputSchema`` uses a keyword the agent core cannot check.
         LookupError: If no manifest is found, or its ``inputType`` is not
             exported by the package.
+
+    .. versionadded:: 0.4.0
     """
     definition = operation.definition()
     kind: Literal["query", "mutation"] = (
@@ -405,6 +425,8 @@ class ConnectorToolSource:
     Raises:
         ValueError: If two tools share a name, ``source_name`` is blank, or
             ``max_result_bytes`` is not positive.
+
+    .. versionadded:: 0.4.0
     """
 
     def __init__(
@@ -588,6 +610,8 @@ def bound_connector_result(output: str, max_result_bytes: int) -> ToolExecutionR
 
     Returns:
         The result, with ``truncated_output_bytes`` set when it was cut.
+
+    .. versionadded:: 0.4.0
     """
     encoded = output.encode("utf-8")
     if len(encoded) <= max_result_bytes:
@@ -675,6 +699,8 @@ def format_connector_result(json_text: str) -> str:
 
     Returns:
         The canonical text.
+
+    .. versionadded:: 0.4.0
     """
     return json.dumps(
         _integral_floats_as_ints(json.loads(json_text)),

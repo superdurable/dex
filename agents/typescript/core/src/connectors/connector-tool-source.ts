@@ -42,27 +42,27 @@ import { ConnectorStepContext, readSavedHeartbeatValue } from "./connector-step-
 
 /**
  * Default {@link ConnectorToolSource.sourceName}.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export const defaultConnectorSourceName = "connectors";
 
 /**
  * Default bound, in bytes of UTF-8 text, on the result one connector tool call gives the model: 64 KiB.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export const defaultConnectorResultMaxBytes = 64 * 1024;
 
 /**
  * Note appended to a truncated result; `{total_bytes}` is the size of the full result. The same text as the
  * Python core.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export const connectorResultTruncatedNote = "[Dex] truncated, {total_bytes} bytes";
 
 /**
  * Error text of a single-attempt write whose fence proved no send before the connector's Retry; the same text as
  * the Python core.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export const connectorNotSentRetryLater = "not sent; the provider asked to retry later";
 
@@ -73,7 +73,7 @@ const uncertainBranch = "uncertain";
 
 /**
  * Decides from a call's decoded JSON arguments whether that call waits for approval.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export type ApprovalPredicate = (toolArguments: Readonly<Record<string, unknown>>) => boolean;
 
@@ -86,14 +86,14 @@ export type ApprovalPredicate = (toolArguments: Readonly<Record<string, unknown>
  * - `failed`: `defect`, or an optional branch of a Query that `agent.branches` does not list.
  * - `outcome_unknown`: `uncertain`, a branch listed as `unknown`, or an optional branch of a Mutation that
  *   `agent.branches` does not list. The write may have taken effect.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export type ConnectorBranchOutcome = "succeeded" | "rejected" | "failed" | "outcome_unknown";
 
 /**
  * The validator a Connector package exports for an operation's input, such as `CreateRefundInputSchema`. A zod
  * schema satisfies it.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export interface ConnectorInputValidator<Input> {
   /**
@@ -106,7 +106,7 @@ export interface ConnectorInputValidator<Input> {
 
 /**
  * The parts of a Connector package's `dex-connector.json` that `connectorTool` reads.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export interface ConnectorPackageManifest {
   /** The Connector ID, such as `stripe`. */
@@ -117,7 +117,7 @@ export interface ConnectorPackageManifest {
 
 /**
  * One operation's entry in `dex-connector.json`.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export interface ConnectorManifestFactory {
   /** `query` or `mutation`. */
@@ -142,7 +142,7 @@ export interface ConnectorManifestFactory {
 /**
  * Options of {@link connectorTool}.
  * @typeParam Input - The operation's input type.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export interface ConnectorToolOptions<Input> {
   /**
@@ -167,7 +167,7 @@ export interface ConnectorToolOptions<Input> {
 
 /**
  * One Connector operation offered to a Stepwise agent as a tool. Create it with {@link connectorTool}.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export interface ConnectorTool {
   /** Tool name the model calls. */
@@ -220,7 +220,7 @@ export interface ConnectorTool {
  * ```
  * @param options - The operation kind, the selected branch, the required branches, and `agent.branches`.
  * @returns The outcome to record.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export function classifyConnectorBranch(options: {
   readonly kind: "query" | "mutation";
@@ -289,7 +289,7 @@ export function classifyConnectorBranch(options: {
  * its kind differs from the operation's, its `agent` block holds an unknown value or lists a branch it may not,
  * or its `inputSchema` uses a keyword the agent core cannot check.
  * @throws {RangeError} When `maxResultBytes` is not positive.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export function connectorTool<Input, Output>(
   operation: Query<Input, Output> | Mutation<Input, Output>,
@@ -417,7 +417,7 @@ export function connectorTool<Input, Output>(
  *   "SupportAgent",
  * );
  * ```
- * @since 0.3.0
+ * @since 0.4.0
  */
 export class ConnectorToolSource implements ToolSource {
   /** The source's stable name, stored with each call; keep it across deploys. */
@@ -619,7 +619,7 @@ export class ConnectorToolSource implements ToolSource {
  * @param output - The full result text.
  * @param maxResultBytes - The bound, in bytes of UTF-8 text, on the kept part.
  * @returns The result, with `truncatedOutputBytes` set when it was cut.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export function boundConnectorResult(output: string, maxResultBytes: number): ToolExecutionResult {
   const encoded = Buffer.from(output, "utf8");
@@ -641,7 +641,7 @@ export function boundConnectorResult(output: string, maxResultBytes: number): To
  * spaces, unescaped UTF-8, and a number with no fractional part written as an integer.
  * @param jsonText - The result value as JSON text.
  * @returns The canonical text.
- * @since 0.3.0
+ * @since 0.4.0
  */
 export function formatConnectorResult(jsonText: string): string {
   return JSON.stringify(sortObjectKeys(JSON.parse(jsonText)));

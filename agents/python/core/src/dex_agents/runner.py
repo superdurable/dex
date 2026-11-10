@@ -93,6 +93,8 @@ TOOL_TASK_ABANDONED_ERROR = (
 TOOL_CALL_NOT_RUN_ERROR_PREFIX = "the tool did not run, so it is safe to call again"
 
 #: Detail after ``TOOL_CALL_NOT_RUN_ERROR_PREFIX`` on a record that write ordering skipped.
+#:
+#: .. versionadded:: 0.4.0
 TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL = "an earlier write of this turn did not succeed"
 
 
@@ -303,6 +305,8 @@ class DeferredToolCall:
             succeed. ``READ`` calls ignore it. Defaults to ``False``, which runs
             the call in parallel with the turn's other calls.
             ``ConnectorToolSource`` sets it for connector writes.
+
+            .. versionadded:: 0.4.0
     """
 
     tool_call_id: str
@@ -565,6 +569,8 @@ class DeferredToolExecution:
             ``context.heartbeat`` would drop the checkpoint. It is never part of
             stored state. ``ConnectorToolSource`` derives the connector Call ID
             from its Step execution ID. Defaults to ``None``.
+
+            .. versionadded:: 0.4.0
     """
 
     flow_id: str
@@ -589,6 +595,8 @@ class ToolExecutionResult:
         truncated_output_bytes: Size in bytes of the full output when ``output``
             is a truncated copy, or ``None``, the default, when it is whole. The
             session stores it as ``AgentToolCall.truncated_output_bytes``.
+
+            .. versionadded:: 0.4.0
     """
 
     output: str
@@ -615,6 +623,8 @@ class ToolCallStepOptions:
             tool Step's default.
         execute_retry: Retry policy of a ``CallTool`` call, or ``None`` for the
             default of three attempts.
+
+    .. versionadded:: 0.4.0
     """
 
     execute_method_timeout: timedelta | None = None
@@ -832,6 +842,8 @@ class ToolOutcomeUnknownError(Exception):
 
     Example:
         >>> raise ToolOutcomeUnknownError("the provider timed out after receiving the refund")
+
+    .. versionadded:: 0.4.0
     """
 
 
@@ -1033,6 +1045,8 @@ class ToolCallStepOptionsProvider(Protocol):
     that defines ``tool_call_step_options``. The session calls it whenever it
     starts a call's tool Step, including after an approval, so it must
     answer from the record alone. A method that raises leaves the defaults.
+
+    .. versionadded:: 0.4.0
     """
 
     def tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:

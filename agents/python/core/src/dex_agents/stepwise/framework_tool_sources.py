@@ -30,9 +30,13 @@ from dex_agents.stepwise.tool_sources import SourceToolDefinition, ToolSource
 from dex_agents.values import AgentToolCall
 
 #: Key of the source name in the envelope that a ``FrameworkToolSourceRouter`` stores.
+#:
+#: .. versionadded:: 0.4.0
 FRAMEWORK_TOOL_SOURCE_ENVELOPE_KEY = "dex_tool_source"
 
 #: What the model reads for a new call of a tool that its source no longer lists; ``format`` it.
+#:
+#: .. versionadded:: 0.4.0
 SOURCE_TOOL_NOT_OFFERED_RESULT = (
     "{tool_name} did not run: its tool source does not offer this tool now."
 )
