@@ -54,17 +54,6 @@ Steps in its own test suite.
 A running Worker survives both server failures. It reconnects by itself, and
 Dex fails the attempt that it held, so the row for that Step applies. Workers
 and clients must reach the new active node through an address that follows
-of the failed node are gone. See [Stream backend](#stream-backend).
-
-The takeover tests use a hot standby and SIGKILL. A cold standby and a planned
-step down are covered at the server level: see the
-
-Each adapter package repeats the Worker kill cases for **RunModel** and its tool
-Steps in its own test suite.
-
-A running Worker survives both server failures. It reconnects by itself, and
-Dex fails the attempt that it held, so the row for that Step applies. Workers
-and clients must reach the new active node through an address that follows
 [readiness](/reference/server/high-availability#hot-standby-health). The Streams
 of the failed node are gone. See
 [Stream backend](/reference/agents/event-stream#stream-backend).
@@ -105,8 +94,6 @@ unknown. To check it, see
 A tool Step that waits in the queue does not fail and uses no attempt. See
 [Keep tool Steps dispatchable](/reference/agents/workers#dispatchable).
 
-[readiness](/reference/server/high-availability#hot-standby-health). The Streams
-[failover tests][zd-failover] and the [drain tests][zd-drain].
 [py-kills]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_worker_kills.py
 [py-tools]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_deferred_tool_calls.py
 [py-stepwise]: https://github.com/superdurable/dex/blob/main/agents/python/core/tests/test_stepwise.py
