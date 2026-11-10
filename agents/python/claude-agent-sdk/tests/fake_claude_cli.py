@@ -21,6 +21,9 @@ result keys ``modelUsage`` by the requested model with its provider. A hook deni
 reaches the model as ``PreToolUse:<tool> hook error: <reason>``. With
 ``RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE`` set, a resumed call skips the hooks
 and asks ``can_use_tool``, as the real CLI can when it starts the call early.
+Like the real CLI, a resumed call starts from the model's input, not the input
+the hooks rewrote before the deferral, and ``can_use_tool`` may answer with
+``updatedInput``.
 
 A scripted model reads commands from the last text block of the turn's prompt:
 
@@ -507,9 +510,17 @@ class FakeClaudeCli:
     async def _resume_deferred_tool_use(self, pending: ToolUse) -> None:
         transcript = self._require_transcript()
         assistant_entry = transcript.assistant_entry_with_tool_use(pending.tool_use_id)
+        # Like the real CLI, the resumed call starts from the model's input, not the hooks'.
+        model_input = next(
+            block["input"]
+            for block in _content_blocks(assistant_entry)
+            if block.get("type") == "tool_use" and block.get("id") == pending.tool_use_id
+        )
+        pending = ToolUse(pending.tool_use_id, pending.cli_tool_name, model_input)
         if os.environ.get(RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE):
             # The real CLI sometimes starts the resumed call before its hooks exist.
-            is_permitted, message = await self._ask_permission(pending)
+            is_permitted, message, permitted_input = await self._ask_permission(pending)
+            pending = ToolUse(pending.tool_use_id, pending.cli_tool_name, permitted_input)
             if is_permitted:
                 output, is_error = await self._execute_tool(pending)
                 self._append_tool_result(assistant_entry, pending, output, is_error=is_error)
@@ -600,10 +611,11 @@ class FakeClaudeCli:
             self._append_tool_result(assistant_entry, tool_use, denial, is_error=True)
             return None
         if decision != "allow":
-            is_permitted, message = await self._ask_permission(tool_use)
+            is_permitted, message, permitted_input = await self._ask_permission(tool_use)
             if not is_permitted:
                 self._append_tool_result(assistant_entry, tool_use, message, is_error=True)
                 return None
+            tool_use = ToolUse(tool_use.tool_use_id, tool_use.cli_tool_name, permitted_input)
         output, is_error = await self._execute_tool(tool_use)
         self._append_tool_result(assistant_entry, tool_use, output, is_error=is_error)
         return None
@@ -659,11 +671,13 @@ class FakeClaudeCli:
                 reason = specific.get("permissionDecisionReason")
         return decision, reason, tool_input
 
-    async def _ask_permission(self, tool_use: ToolUse) -> tuple[bool, str]:
+    async def _ask_permission(self, tool_use: ToolUse) -> tuple[bool, str, dict[str, Any]]:
+        """Return whether the call may run, its denial message, and the input to run."""
         if self._arguments.permission_mode == "bypassPermissions":
-            return True, ""
+            return True, "", tool_use.tool_input
         if self._arguments.permission_prompt_tool != "stdio":
-            return False, f"Claude requested permissions to use {tool_use.cli_tool_name}."
+            message = f"Claude requested permissions to use {tool_use.cli_tool_name}."
+            return False, message, tool_use.tool_input
         answer = await self._channel.request(
             {
                 "subtype": "can_use_tool",
@@ -675,8 +689,11 @@ class FakeClaudeCli:
             }
         )
         if answer.get("behavior") == "allow":
-            return True, ""
-        return False, str(answer.get("message", ""))
+            updated_input = answer.get("updatedInput")
+            if not isinstance(updated_input, dict):
+                updated_input = tool_use.tool_input
+            return True, "", updated_input
+        return False, str(answer.get("message", "")), tool_use.tool_input
 
     async def _execute_tool(self, tool_use: ToolUse) -> tuple[str, bool]:
         if tool_use.cli_tool_name.startswith("mcp__"):

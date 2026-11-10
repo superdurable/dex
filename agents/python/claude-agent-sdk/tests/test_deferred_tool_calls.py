@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from dex_agents import (
     FRAMEWORK_RUN_STATE,
     OUTCOME_UNKNOWN_TOOL_RESULT,
@@ -25,7 +27,11 @@ from dex_agents import (
 )
 from dex_agents.testing import wait_for_agent_snapshot
 from dex_agents_claude_agent_sdk import APPROVED_CLI_TOOL_OUTPUT, CLAUDE_TRANSCRIPT_ITEM_KIND
-from tests.claude_test_agent import DENY_FLAG_FILE_NAME
+from tests.claude_test_agent import (
+    DENY_FLAG_FILE_NAME,
+    ORIGINAL_BASH_COMMAND,
+    REWRITTEN_BASH_COMMAND,
+)
 from tests.conftest import ClaudeAgentHarness
 from tests.fake_claude_cli import RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE
 
@@ -122,6 +128,28 @@ async def test_resumed_call_that_skips_the_hook_is_answered_from_the_record(
     second = await harness.wait_for_turns(session_id, 2)
     assert second.messages[-1].text == "publish: not now"
     assert harness.invocations.count("publish") == 1
+
+
+@pytest.mark.parametrize("does_resume_skip_hooks", [False, True])
+async def test_resumed_cli_tool_runs_the_hook_rewritten_input_it_was_approved_with(
+    harness: ClaudeAgentHarness, does_resume_skip_hooks: bool
+) -> None:
+    await harness.stack.start_worker(
+        {RESUME_SKIPS_HOOKS_ENVIRONMENT_VARIABLE: "1"} if does_resume_skip_hooks else {}
+    )
+    session_id = harness.new_session_id()
+    await harness.sessions.start_session(
+        session_id, f"call Bash {json.dumps({'command': ORIGINAL_BASH_COMMAND})}"
+    )
+    interrupt = await harness.wait_for_pending_interrupt(session_id)
+    assert json.loads(interrupt.arguments) == {"command": REWRITTEN_BASH_COMMAND}
+
+    assert await harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.messages[-1].text == f"Bash: ran {REWRITTEN_BASH_COMMAND}"
+    assert harness.invocations.count("Bash") == 1
 
 
 async def test_resolve_interrupt_returns_false_the_second_time(

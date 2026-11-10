@@ -440,7 +440,8 @@ class ToolCallGate:
             return _pre_tool_use_decision("allow")
         if record.status is ToolCallStatus.SUCCEEDED:
             self._permit_inline_tool_call(record.tool_call_id, record.tool_name, None)
-            return _pre_tool_use_decision("allow")
+            # Application hooks are skipped on replay, so the CLI must run the approved input.
+            return _pre_tool_use_decision("allow", updated_input=_recorded_tool_input(record))
         return _pre_tool_use_decision("deny", describe_tool_call_outcome(record))
 
     def _permit_inline_tool_call(
@@ -470,20 +471,31 @@ def _text_tool_result(text: str, *, is_error: bool) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}], "is_error": is_error}
 
 
+def _recorded_tool_input(record: AgentToolCall) -> dict[str, Any]:
+    recorded_input = json.loads(record.arguments)
+    if not isinstance(recorded_input, dict):
+        raise RuntimeError(f"tool call {record.tool_call_id} recorded non-object arguments")
+    return recorded_input
+
+
 def _permission_result(hook_output: HookJSONOutput) -> PermissionResult:
     hook_specific_output = cast(dict[str, Any], hook_output).get("hookSpecificOutput") or {}
     if hook_specific_output.get("permissionDecision") == "allow":
-        return PermissionResultAllow()
+        return PermissionResultAllow(updated_input=hook_specific_output.get("updatedInput"))
     return PermissionResultDeny(
         message=str(hook_specific_output.get("permissionDecisionReason", ""))
     )
 
 
-def _pre_tool_use_decision(decision: str, reason: str | None = None) -> HookJSONOutput:
+def _pre_tool_use_decision(
+    decision: str, reason: str | None = None, updated_input: dict[str, Any] | None = None
+) -> HookJSONOutput:
     hook_specific_output: dict[str, Any] = {
         "hookEventName": "PreToolUse",
         "permissionDecision": decision,
     }
     if reason is not None:
         hook_specific_output["permissionDecisionReason"] = reason
+    if updated_input is not None:
+        hook_specific_output["updatedInput"] = updated_input
     return cast(HookJSONOutput, {"hookSpecificOutput": hook_specific_output})

@@ -24,8 +24,9 @@ single-attempt Mutation, until a test hides it.
 
 An application PreToolUse hook rewrites ``publish`` input ``"rewrite me"`` to
 ``"rewritten"``, raises a ``payout_checked`` amount to 500 when its memo is
-``raise``, and appends ``+`` to any ``publish`` message or ``lookup``
-query that starts with ``stamp`` on every call it sees; the adapter skips
+``raise``, rewrites the ``Bash`` command ``ORIGINAL_BASH_COMMAND`` to
+``REWRITTEN_BASH_COMMAND``, and appends ``+`` to any ``publish`` message or
+``lookup`` query that starts with ``stamp`` on every call it sees; the adapter skips
 application hooks for a resumed call that has a final record. Another denies
 ``publish`` and ``post_note`` while ``DENY_FLAG_FILE_NAME`` exists. With
 ``REAL_CLI_ENVIRONMENT_VARIABLE`` set, the agent runs the bundled Claude Code
@@ -102,6 +103,9 @@ SPEND_CHECKS_LOG_NAME = "spend-checks.jsonl"
 SPEND_REPORTS_LOG_NAME = "spend-reports.jsonl"
 REWRITTEN_PUBLISH_INPUT = {"message": "rewritten"}
 RAISED_PAYOUT_AMOUNT = 500
+BASH_OUTPUT_FILE_NAME = "bash-ran.txt"
+ORIGINAL_BASH_COMMAND = f"echo original-input | tee {BASH_OUTPUT_FILE_NAME}"
+REWRITTEN_BASH_COMMAND = f"echo rewritten-input | tee {BASH_OUTPUT_FILE_NAME}"
 HIDE_SOURCE_TOOLS_FILE_NAME = "hide-source-tools"
 DENY_FLAG_FILE_NAME = "deny-publish-and-post-note"
 APPLICATION_HOOK_DENIAL = "the application hook denies this call"
@@ -137,6 +141,7 @@ def build_claude_test_agent_flow(state_dir: Path) -> AgentSessionFlow:
                     HookMatcher(matcher="mcp__tools__publish", hooks=[rewrite_publish_input]),
                     HookMatcher(matcher="mcp__tools__(publish|lookup)", hooks=[stamp_tool_input]),
                     HookMatcher(matcher="mcp__tools__payout_checked", hooks=[raise_checked_payout]),
+                    HookMatcher(matcher="Bash", hooks=[rewrite_bash_command]),
                     HookMatcher(
                         matcher="mcp__tools__(publish|post_note)",
                         hooks=[_deny_while_flagged(state_dir)],
@@ -329,6 +334,19 @@ async def raise_checked_payout(
     if tool_input.get("memo") != "raise":
         return {}
     tool_input["amount"] = RAISED_PAYOUT_AMOUNT
+    return cast(
+        HookJSONOutput,
+        {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": tool_input}},
+    )
+
+
+async def rewrite_bash_command(
+    hook_input: HookInput, tool_use_id: str | None, context: HookContext
+) -> HookJSONOutput:
+    tool_input = dict(cast(dict[str, Any], hook_input).get("tool_input") or {})
+    if tool_input.get("command") != ORIGINAL_BASH_COMMAND:
+        return {}
+    tool_input["command"] = REWRITTEN_BASH_COMMAND
     return cast(
         HookJSONOutput,
         {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": tool_input}},

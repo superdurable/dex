@@ -295,8 +295,9 @@ flow = claude_agent_session_flow(
    PreToolUse for that call again, and the hook answers from the final record:
    a custom tool is `allow`, and the adapter's MCP server returns the recorded
    output, failure, unknown outcome, or rejection text without running the
-   tool; an approved CLI tool is `allow`, and the CLI runs it; a rejected CLI
-   tool is `deny` with the rejection text. If the CLI skips the hook and asks
+   tool; an approved CLI tool is `allow` with the recorded arguments as
+   `updatedInput`, and the CLI runs that input; a rejected CLI tool is `deny`
+   with the rejection text. If the CLI skips the hook and asks
    `can_use_tool` instead, the adapter answers from the record the same way;
    under `dontAsk` the CLI does not ask, so `--await-initialize` must prevent
    the skip. The CLI then adds a hidden "Continue from where you left off."
@@ -465,7 +466,9 @@ Not recorded, and repeated when `RunModel` reruns a segment after a crash:
   decisions for tools the adapter defers. The adapter does not call your
   PreToolUse hooks for a resumed call that already has a final record: the
   call passed them when it was deferred, and a later deny would hide its
-  recorded result.
+  recorded result. An approved Claude Code tool, such as `Bash`, therefore
+  runs with its recorded arguments, the input your hooks produced and the
+  approval saw, not the model's original input.
 - `CLAUDE_CODE_BUILT_IN_TOOL_NAMES` lists the CLI 2.1 tool names. If a newer
   CLI adds a tool whose name a custom tool uses, the hook denies that call and
   the segment fails with an error naming the collision.
@@ -511,10 +514,10 @@ speaks this subset of the SDK's stream-json protocol:
 | SDK to CLI | One `user` prompt for a new segment. None for a resumed deferred call: the CLI resumes it on startup. Stdin closes after the result. |
 | CLI to SDK | `control_request` `mcp_message` with JSON-RPC `initialize`, `notifications/initialized`, `tools/list`, and `tools/call` carrying `_meta["claudecode/toolUseId"]`; the SDK answers `{"mcp_response": ...}`. |
 | CLI to SDK | `control_request` `hook_callback` for every matching PreToolUse callback at once (`tool_name`, `tool_input`, `tool_use_id`); `updatedInput` applies before the decision, and `deny` beats `defer`, `ask`, and `allow`. |
-| CLI to SDK | `control_request` `can_use_tool` when no hook allowed, denied, or deferred the call, or for a resumed call when `FAKE_CLAUDE_RESUME_SKIPS_HOOKS` is set; the SDK answers `behavior` `allow` or `deny`. A hook denial becomes the tool result `PreToolUse:<tool> hook error: <reason>`. |
+| CLI to SDK | `control_request` `can_use_tool` when no hook allowed, denied, or deferred the call, or for a resumed call when `FAKE_CLAUDE_RESUME_SKIPS_HOOKS` is set; the SDK answers `behavior` `allow`, with an optional `updatedInput` that the call runs, or `deny`. A hook denial becomes the tool result `PreToolUse:<tool> hook error: <reason>`. |
 | CLI to SDK | `system` `init` naming the requested model, `stream_event` `content_block_delta` text deltas, one `assistant` message per content block naming a dated response model, a `stream_event` `message_delta` with the stop reason after each model call, `user` tool results, and `result` with `usage` and `modelUsage` keyed by the requested model with provider `firstParty`, or with `stop_reason: "tool_deferred"` and `deferred_tool_use` naming the last deferred call. |
 | CLI to SDK | `transcript_mirror` frames `{filePath, entries}` for every transcript line. |
-| Transcript | `user`, `assistant`, and `attachment` `hook_deferred_tool` entries with `uuid` and `parentUuid`, and an `isMeta` "Continue from where you left off." entry after a resumed call. A resumed CLI reruns PreToolUse for the last deferral that has no tool result. |
+| Transcript | `user`, `assistant`, and `attachment` `hook_deferred_tool` entries with `uuid` and `parentUuid`, and an `isMeta` "Continue from where you left off." entry after a resumed call. A resumed CLI reruns PreToolUse for the last deferral that has no tool result, with the model's input rather than the hook-rewritten input. |
 
 The scripted models read commands from the prompt (`say`, `recall`, `call`,
 `stall`, `fail`); see the module docstrings. The suite covers the plan's
@@ -526,8 +529,9 @@ sequence of a deferred write, idempotent retries with one key, an idempotent
 write whose attempts run out, tool error results, input validation in the
 Step, approved and rejected `Bash`, a READ and a write in one reply, two writes
 in one reply, an input-rewriting application hook, a hook that rewrites every
-call including the resumed one, custom tools named like
-Claude Code tools, a resumed call that skips the hook, SIGKILL during a resumed
+call including the resumed one, an approved `Bash` call that runs its
+hook-rewritten input on resume, with and without the hook, custom tools named
+like Claude Code tools, a resumed call that skips the hook, SIGKILL during a resumed
 segment, a CLI error result, and a resumed turn that fails after a write and
 leaves a note for the next prompt. `tests/test_tracing.py` runs an in-process
 Worker with an in-memory span exporter and checks the `chat` span metadata of
@@ -537,7 +541,9 @@ the `tracing` option of `claude_agent_session_flow`. A scripted `Agent` call
 runs a subagent whose assistant message carries `parent_tool_use_id`. The
 real-CLI tests cover a resume across a
 Worker restart, four resumes in one session including a plain-text rejection,
-and two writes in one reply under `dontAsk`, custom and connector.
+two writes in one reply under `dontAsk`, custom and connector, and an approved
+`Bash` call whose command an application hook rewrote: the resumed CLI runs
+the rewritten command.
 
 `tests/test_connector_tools.py` runs connector tools from a copy of the core
 tests' fake ledger Connector (`tests/fake_ledger`): a Query in its tool Step, a
