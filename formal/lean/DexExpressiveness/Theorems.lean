@@ -1,4 +1,4 @@
-import DexExpressiveness.FiniteTraces
+import DexExpressiveness.Liveness
 
 /-!
 # The expressiveness theorem (spec §5.4, §5.5)
