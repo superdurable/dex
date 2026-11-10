@@ -265,6 +265,8 @@ type StageProps = {
   onCloseStage?: (groupId: string) => void
   cue?: StageCue | null
   interactive: boolean
+  /** False when the host draws its own zoom and fit buttons through handleRef. */
+  showsZoomControls?: boolean
   insetRightPx?: number | null
   /** Changing this re-opens the view; opening a stage keeps the reader's place, so it is not part of it. */
   fitKey: string
@@ -293,6 +295,7 @@ function Inner({
   onHover,
   onInspect,
   interactive,
+  showsZoomControls = true,
   fitKey,
   isSettled = true,
   targetNeighbours,
@@ -367,6 +370,7 @@ function Inner({
       position: { x: b.x, y: b.y },
       width: b.w,
       height: b.h,
+      measured: { width: b.w, height: b.h },
       data: { ...b, selected: b.groupId === selectedGroupId, onPick: pickBand, onClose: closeStage },
       draggable: false,
       selectable: false,
@@ -379,6 +383,8 @@ function Inner({
       position: { x: b.x, y: b.y },
       width: b.w,
       height: b.h,
+      // React Flow skips measuring a node with sizes and handles; fitView waits forever without this.
+      measured: { width: b.w, height: b.h },
       handles: anchorHandles(b.w, b.h),
       data: {
         box: b,
@@ -412,6 +418,7 @@ function Inner({
         position: anchor,
         width: LEGEND_W,
         height: LEGEND_BOX_H,
+        measured: { width: LEGEND_W, height: LEGEND_BOX_H },
         data: { render: legend },
         draggable: false,
         selectable: false,
@@ -623,7 +630,7 @@ function Inner({
             Drawing the Flow…
           </p>
         )}
-        {interactive ? (
+        {interactive && showsZoomControls ? (
           <Controls
             showInteractive={false}
             fitViewOptions={{

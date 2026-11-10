@@ -6,16 +6,19 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-import { useCallback, useMemo, useRef, useState, type JSX } from 'react';
+import { useCallback, useMemo, useRef, useState, type JSX, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowDown,
   ArrowRight,
   BookOpen,
-  ChevronDown,
+  ChevronUp,
   ChevronsDownUp,
   ChevronsUpDown,
+  Minus,
   Plug,
+  Plus,
+  Scan,
   X,
 } from 'lucide-react';
 import type { FlowDefinitionEntry } from '@/lib/types';
@@ -25,6 +28,7 @@ import type { Branch, PocFlow, StepModel } from './canvas/model/pocFlow';
 import { ArrowDefs } from './canvas/render/ArrowDefs';
 import { TileView } from './canvas/render/CardParts';
 import { Stage } from './canvas/render/Stage';
+import type { CanvasViewportHandle } from './canvas/render/viewport';
 import { useStageScene } from './canvas/useStageScene';
 import { detourMessage, hasDetour, isFailureHandling, withDetours } from './canvas/views/failureDetours';
 import { stageId } from './canvas/views/stageCard';
@@ -50,6 +54,7 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
   const [detourFor, setDetourFor] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
   const legendToggleRef = useRef<HTMLButtonElement>(null);
+  const viewportRef = useRef<CanvasViewportHandle>(null);
 
   const flow = useMemo(
     () => safeDecode(definition.graph, { generated: true, note: definition.file }),
@@ -85,13 +90,58 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
     <div className="v2-shell dg" data-panel={selectedStep ? 'true' : undefined}>
       <div className="pcanvas dg-canvas">
         <ArrowDefs />
-        <DesignToolbar
-          stages={stages.hasStages ? stages.state : null}
-          direction={direction}
-          onCollapseAll={stages.collapseAll}
-          onExpandAll={stages.expandAll}
-          onDirection={setDirection}
-        />
+        {/* Overlays on the canvas, not scene nodes: they stay readable at any zoom. Placed first so tab order reaches them before Step cards. */}
+        <div className="dg-overlay">
+          <DesignToolbar
+            stages={stages.hasStages ? stages.state : null}
+            direction={direction}
+            onCollapseAll={stages.collapseAll}
+            onExpandAll={stages.expandAll}
+            onDirection={setDirection}
+          />
+          <div className="dg-corner">
+            <DesignZoomControls viewportRef={viewportRef} />
+            <div className="plegend-card dg-legend" data-open={legendOpen ? 'true' : undefined}>
+              <div className="dg-legend-head">
+                <button
+                  ref={legendToggleRef}
+                  type="button"
+                  className="plegend-toggle"
+                  onClick={() => setLegendOpen((open) => !open)}
+                  aria-expanded={legendOpen}
+                >
+                  <BookOpen aria-hidden="true" size={14} strokeWidth={2} />
+                  Legend
+                </button>
+                {legendOpen ? (
+                  // Hide sits where the collapsed toggle was, so one spot opens and closes the key.
+                  <button
+                    type="button"
+                    className="dg-legend-hide"
+                    aria-label="Hide legend"
+                    title="Hide legend"
+                    onClick={() => {
+                      setLegendOpen(false);
+                      legendToggleRef.current?.focus();
+                    }}
+                  >
+                    <ChevronUp aria-hidden="true" size={16} strokeWidth={2} />
+                  </button>
+                ) : null}
+              </div>
+              {legendOpen ? (
+                <div className="dg-legend-body">
+                  <Legend scene={scene} flow={flow} />
+                  {scene.notes.length > 0 ? (
+                    <div className="plegend-notes">
+                      {scene.notes.map((note) => <p key={note}>{note}</p>)}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
         <Stage
           key={definition.file}
           isSettled={stages.isSettled}
@@ -114,47 +164,9 @@ export function FlowDesignGraph({ definition }: { definition: FlowDefinitionEntr
             setSelectedGroupId(null);
           }}
           fitKey={`${definition.file}|${stages.view}`}
+          handleRef={viewportRef}
+          showsZoomControls={false}
         />
-        {/* An overlay on the canvas, not a scene node: it stays readable and in view at any zoom or width. */}
-        <div className="plegend-card dg-legend" data-open={legendOpen ? 'true' : undefined}>
-          <button
-            ref={legendToggleRef}
-            type="button"
-            className="plegend-toggle"
-            onClick={() => setLegendOpen((open) => !open)}
-            aria-expanded={legendOpen}
-          >
-            <BookOpen aria-hidden="true" size={14} strokeWidth={2} />
-            Legend
-          </button>
-          {legendOpen ? (
-            <div className="dg-legend-body">
-              <Legend scene={scene} flow={flow} />
-              {scene.notes.length > 0 ? (
-                <div className="plegend-notes">
-                  {scene.notes.map((note) => <p key={note}>{note}</p>)}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {legendOpen ? (
-            // Hide sits where the collapsed toggle was, so one spot opens and closes the key.
-            <div className="dg-legend-foot">
-              <button
-                type="button"
-                className="dg-legend-hide"
-                aria-label="Hide legend"
-                title="Hide legend"
-                onClick={() => {
-                  setLegendOpen(false);
-                  legendToggleRef.current?.focus();
-                }}
-              >
-                <ChevronDown aria-hidden="true" size={16} strokeWidth={2} />
-              </button>
-            </div>
-          ) : null}
-        </div>
         <p className="sr-only" aria-live="polite">{stages.cue?.message}</p>
         <p className="sr-only" aria-live="polite">{detourFor ? detourMessage(flow, detourFor) : ''}</p>
       </div>
@@ -234,6 +246,29 @@ function DesignToolbar({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Zoom and Fit buttons in the toolbar's pill style, driving the canvas through its viewport handle. */
+function DesignZoomControls({ viewportRef }: { viewportRef: RefObject<CanvasViewportHandle | null> }): JSX.Element {
+  return (
+    <div className="dg-segment dg-zoom" role="group" aria-label="Zoom">
+      <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => viewportRef.current?.zoomIn()}>
+        <Plus aria-hidden="true" size={14} strokeWidth={2} />
+      </button>
+      <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => viewportRef.current?.zoomOut()}>
+        <Minus aria-hidden="true" size={14} strokeWidth={2} />
+      </button>
+      <button
+        type="button"
+        aria-label="Fit the whole Flow"
+        title="Fit the whole Flow"
+        onClick={() => viewportRef.current?.fit()}
+      >
+        <Scan aria-hidden="true" size={14} strokeWidth={2} />
+        Fit
+      </button>
     </div>
   );
 }

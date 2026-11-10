@@ -30,11 +30,13 @@ Released 2026-11-09 as [web/v1.41.0](https://github.com/superdurable/dex/release
 - The agent inbox URL is **/v1/work-queue?view=agents**. [Reference](/reference/web/dex-web#agent-inbox).
 - Step cards no longer show outcome chips. The Step panel lists outcomes under **Paths out**. [Reference](/reference/web/dex-web#flow-canvas).
 - The Timeline overview is a histogram: bars count events over time, red marks failed events and Steps retried after a failed attempt, and a shaded brush shows the events in the strip. A Step event that succeeded only after failed attempts carries a retry badge. [Reference](/reference/web/dex-web#v1-pages).
+- In the Flow design graph, the zoom controls and the **Legend** sit at the top right of the canvas. The legend opens downward, scrolls inside the canvas, and closes from the same corner. The fit button is labeled **Fit the whole Flow**. [Reference](/reference/web/dex-web#flow-canvas).
 - The **Streams** tab offers the Stream names of a matching Flow Definition Graph in a menu, with **Other name…** for any other name. Its output shows a live status, text as a flowing transcript, structured values as collapsible JSON, and progress values as bars. Entries show the newest message at the top, keep your place when you scroll down, and offer **Back to latest**. **Keep last** keeps the newest 100, 500, or 1,000 messages, and the browser remembers the choice. [Reference](/reference/web/dex-web#v1-pages).
 
 ### Fixed
 
 - The Flow design graph legend no longer overlaps or clips its text, and the stage swatch shows. On the **Design** tab the legend is a panel over the canvas that keeps its size when you zoom. [Reference](/reference/web/dex-web#flow-canvas).
+- The Flow design graph fit button returns to a view of the whole Flow. Before, it did nothing. [Reference](/reference/web/dex-web#flow-canvas).
 - A selected or focused WaitFor segment in the **Execution graph** keeps its whole outline, including the chevron tip, and each Channel name of its condition shows on its own line. [Reference](/reference/web/dex-web#v1-pages).
 
 ## 1.40 {#v1-40}
