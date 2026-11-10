@@ -17,7 +17,7 @@ Claude Agent SDK 把 Claude Code 作为 Agent 运行。它的 agent loop 运行�
 
 Claude Code 一次运行整个 turn，因此 adapter 把一个 turn 拆成多个 segment。一个 **RunModel** Step 为一个 segment 运行 CLI。模型调用在 segment 内运行。Read tool 也在 segment 内运行：把 read 移出 segment 会让 CLI 重新启动。
 
-写操作的 tool call 会结束当前 segment。需要审批时，它在 **AwaitToolApproval** 中等待。然后它在自己的 Step 中运行：idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。然后 **ResumeTurn** 回到 **RunModel**，由它恢复同一个 Claude session。CLI 拿到记录下来的结果，不会再次运行这个 tool。
+写操作的 tool call 会结束当前 segment。需要审批时，它在 **AwaitToolApproval** 中等待。然后它在自己的 Step 中运行：idempotent write 用 **CallTool**，其他写操作用 **CallSingleAttemptTool**。之后 **ResumeTurn** 回到 **RunModel**，由它恢复同一个 Claude session。CLI 拿到记录下来的结果，不会再次运行这个 tool。
 
 失败的 segment 会重试，最多三次，并且整体重跑。其中的模型调用和 read 会再次运行。已经在自己的 Step 中运行过的写操作不会再次运行。
 
