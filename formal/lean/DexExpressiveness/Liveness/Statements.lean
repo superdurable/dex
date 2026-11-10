@@ -20,10 +20,10 @@ of the other, step by step, with the step simulations of Stage 2a.
   [WORKER-ABANDON] of those tasks (`cleanupActions`), and an L run gives a
   Dex run in blocks of `fairActions` (`DexFollowsL`).
 
-The definitions of this file are fixed. The work packages L1 to L6 prove the
-statements of `Core/BlockRun.lean` and `Liveness/*.lean`; they may add lemmas
-but may not change these definitions. `Examples/LivenessChecks.lean` tests
-the definitions on pseudo-random runs.
+The definitions of this file are fixed. The work packages L1 to L6 proved the
+statements of `Core/BlockRun.lean` and `Liveness/*.lean` with these
+definitions. `Examples/LivenessChecks.lean` tests the definitions on
+pseudo-random runs.
 -/
 
 namespace DexExpressiveness

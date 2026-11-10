@@ -216,14 +216,9 @@ theorem LFollowsDex.silentWeight_step {program : Program}
   | nil =>
     have tasksDistinct := (follows.isState index).tasksDistinct
     refine Or.inr ?_
-    -- L2 adds the hypothesis `TasksAreDistinct config` after `config`; accept both forms.
-    first
-      | exact silentWeight_lt_of_isSilentKind ⟦program⟧ (dexRun.states index) tasksDistinct
-          (dexRun.labels index) dexEvents (dexRun.states (index + 1)) isStep
-          (isSilentOfEmpty isBlock)
-      | exact silentWeight_lt_of_isSilentKind ⟦program⟧ (dexRun.states index)
-          (dexRun.labels index) dexEvents (dexRun.states (index + 1)) isStep
-          (isSilentOfEmpty isBlock)
+    exact silentWeight_lt_of_isSilentKind ⟦program⟧ (dexRun.states index) tasksDistinct
+      (dexRun.labels index) dexEvents (dexRun.states (index + 1)) isStep
+      (isSilentOfEmpty isBlock)
   | cons label laterLabels =>
     have isMember : label ∈ lBlocks.blocks index := by
       rw [isBlock]

@@ -10,8 +10,8 @@ run attempts the same word, has the same trace, and has the same marker
 (spec §5.5). Fairness is work package L4.
 
 `exists_lRun_of_dexRun` is proved here from the other lemmas of this file and
-from `exists_flattening`. This file has no `sorry` of its own: the proofs use
-the statements of L1 (`Core/BlockRun.lean`) and L2 (`Liveness/Silent.lean`).
+from `exists_flattening`. Everything here is proved: the proofs use the
+lemmas of L1 (`Core/BlockRun.lean`) and L2 (`Liveness/Silent.lean`).
 Their helpers are in `Liveness/DexToLRunLemmas.lean`.
 -/
 

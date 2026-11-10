@@ -17,8 +17,8 @@ from `exists_flattening`. The other lemmas are proved from the statements of
 work package L1 (`Core/BlockRun.lean`) and from two files of helpers:
 `Liveness/LToDexRunDex.lean` (a closed run stays closed; which tasks are
 `Returned` after a step) and `Liveness/LToDexRunStep.lean` (one block, the
-blocks of an L run, the shape of a block). This file has no `sorry` of its
-own. Well-formedness of the program is not needed in this direction.
+blocks of an L run, the shape of a block). Everything here is proved.
+Well-formedness of the program is not needed in this direction.
 -/
 
 namespace DexExpressiveness

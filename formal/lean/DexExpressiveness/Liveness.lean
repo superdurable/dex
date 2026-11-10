@@ -17,8 +17,8 @@ The two inclusions are proved here from the work packages of Stage 2b:
 | L5 | `Liveness/LToDexRun.lean` | The Dex run of an L run: word, trace, marker. |
 | L6 | `Liveness/LToDexFair.lean` | The Dex run of a fair L run is fair. |
 
-`Liveness/Statements.lean` holds the fixed definitions. This file has no
-`sorry` of its own.
+`Liveness/Statements.lean` holds the fixed definitions. Every package is
+proved, so both inclusions are proved with no `sorry`.
 -/
 
 namespace DexExpressiveness

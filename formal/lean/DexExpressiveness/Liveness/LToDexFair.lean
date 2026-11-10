@@ -25,9 +25,8 @@ without an effect is removed by the cleanup of the block that left it
 of L settles.
 
 `DexRunOfLRun.isFair` is proved here from the five lemmas. The five lemmas
-are `sorry`; the README lists them. The proofs may add lemmas to this file.
-They may not change `Liveness/Statements.lean`, `Core/BlockRun.lean`, or any
-file of Stage 2a.
+are proved. Their helper lemmas are in `Liveness/LToDexFairTime.lean` (F1, F2,
+F3) and `Liveness/LToDexFairWorkers.lean` (F4, F5).
 -/
 
 namespace DexExpressiveness

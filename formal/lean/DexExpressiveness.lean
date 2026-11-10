@@ -1,5 +1,6 @@
 import DexExpressiveness.Core.Assoc
 import DexExpressiveness.Core.TransitionSystem
+import DexExpressiveness.Core.BlockRunFlattening
 import DexExpressiveness.Core.BlockRun
 import DexExpressiveness.Dex.Syntax
 import DexExpressiveness.Dex.Config
@@ -35,10 +36,19 @@ import DexExpressiveness.Simulation.DexToL
 import DexExpressiveness.Simulation
 import DexExpressiveness.FiniteTraces
 import DexExpressiveness.Liveness.Statements
+import DexExpressiveness.Liveness.SilentLemmas
 import DexExpressiveness.Liveness.Silent
+import DexExpressiveness.Liveness.DexToLRunLemmas
 import DexExpressiveness.Liveness.DexToLRun
+import DexExpressiveness.Liveness.DexToLFairSteps
+import DexExpressiveness.Liveness.DexToLFairLate
+import DexExpressiveness.Liveness.DexToLFairLemmas
 import DexExpressiveness.Liveness.DexToLFair
+import DexExpressiveness.Liveness.LToDexRunDex
+import DexExpressiveness.Liveness.LToDexRunStep
 import DexExpressiveness.Liveness.LToDexRun
+import DexExpressiveness.Liveness.LToDexFairTime
+import DexExpressiveness.Liveness.LToDexFairWorkers
 import DexExpressiveness.Liveness.LToDexFair
 import DexExpressiveness.Liveness
 import DexExpressiveness.Theorems
