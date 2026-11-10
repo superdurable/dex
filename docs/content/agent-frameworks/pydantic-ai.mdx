@@ -54,7 +54,7 @@ The tools are plain Pydantic AI tools on the agent. The tool policies name each 
 
 ```python
 def build_pydantic_ai_order_support_flow(
-    order_desk: OrderDesk, model: str | Model
+    order_desk: OrderDesk, model: str | Model, slack_connection: slack.Connection | None
 ) -> AgentSessionFlow:
     """Builds the session Flow; ``model`` is a Pydantic AI model name, such as "openai:gpt-5.2"."""
     # The model is resolved at the first run, so a Client process needs no provider key.
@@ -74,6 +74,7 @@ def build_pydantic_ai_order_support_flow(
     return pydantic_ai_session_flow(
         agent,
         flow_type=PYDANTIC_AI_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
         tool_policies={
             "look_up_order": ToolPolicy(ToolEffect.READ),
             "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
@@ -115,10 +116,12 @@ One Worker serves the session Flows of every harness in the example. Agent sessi
 
 # ...
 
-def _new_pydantic_ai_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+def _new_pydantic_ai_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
     order_desk = OrderDesk()
     model = _pydantic_ai_model(config.pydantic_ai_model)
-    flow = build_pydantic_ai_order_support_flow(order_desk, model)
+    flow = build_pydantic_ai_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("pydantic-ai", flow, order_desk)
 
 # ...
@@ -271,6 +274,129 @@ The loop reads the snapshot until the agent asks to run **cancel_order**. The ca
 ### Approve in Dex Web
 
 Instead of the last command, approve the call in Dex Web. Open the session's run: its Flow ID is the session ID. Select the **Agent session** tab. Choose **Working as** **order-support.operate**, the permission you rendered. Then select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
+
+## Connect Connectors {#connect-connectors}
+
+A Connector tool is a [Connector](/components/connector) operation that the agent calls as a tool. **ConnectorToolSource** offers the operations you name. The agent takes it as a tool source, through **tool_sources**. [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules for effect classes, approval, outcomes, and write order.
+
+The example offers the Slack Connector operation **postThreadReply** as the tool **slack_post_thread_reply**. With it, the agent replies in a Slack thread.
+
+### Offer the tool {#offer-connector-tools}
+
+Install the **connectors** extra of **dex-agents** and the Connector package, such as **dex-connector-slack**. The install commands are in [Connector tools](/agent-frameworks/deploy-agents#connector-tools).
+
+The Worker opens the Slack connection **support-slack** from the project configuration. **connector_tool** turns the operation into a tool, and **ConnectorToolSource** holds it. Without the connection, the agent gets no Slack tool.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
+    """Returns the Slack tool source, or no source when Slack is not configured."""
+    if connection is None:
+        return []
+    return [
+        ConnectorToolSource([
+            # The manifest does not ask for approval; this agent asks before every post.
+            connector_tool(
+                connection.post_thread_reply(), connection.reference, requires_approval=True
+            ),
+        ]),
+    ]
+
+# ...
+
+async def open_slack_project_connection(
+    environment: Mapping[str, str] = os.environ,
+) -> SlackProjectConnection | None:
+    # ...
+    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
+    try:
+        project = await load_from_environment(environment)
+    except FileNotFoundError:
+        _log_slack_not_set_up("the connector configuration file does not exist")
+        return None
+    # ...
+    try:
+        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
+    except BaseException:
+        await project.close()
+        raise
+    return SlackProjectConnection(project, connection)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Worker opens the connection once, at startup, and every agent uses it:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+async def main() -> None:
+    config = AgentHarnessExamplesConfig.from_env()
+    slack_setup = await open_slack_project_connection()
+    try:
+        app_state = AgentHarnessExamplesApp(config, slack_setup.connection if slack_setup else None)
+        # ...
+    finally:
+        if slack_setup is not None:
+            await slack_setup.aclose()
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The agent passes the tool source next to its own tools:
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/pydantic_ai_order_support.py',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    return pydantic_ai_session_flow(
+        agent,
+        flow_type=PYDANTIC_AI_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
+        # ...
+    )
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### How a call runs {#connector-tool-calls}
+
+Each call of **slack_post_thread_reply** runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/deploy-agents#connector-tools-offered) covers how the operation becomes a tool and how its arguments are checked.
+
+The Connector's manifest decides the effect class. **postThreadReply** is a Mutation that its manifest does not mark retry-safe, so the call runs once, in **CallSingleAttemptTool**. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/deploy-agents#connector-tools-crashes).
+
+Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requires_approval=True**. Every post waits in **AwaitToolApproval** until a person approves it. [Approval](/agent-frameworks/deploy-agents#connector-tools-approval) covers how the manifest and the application decide approval.
+
+The adapter passes the Connector tools to each run as an **ExternalToolset**. Pydantic AI never runs an external tool, so a Connector tool call ends the run, and the call runs in its tool Step.
+
+Connector writes of one response run in order; see [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
+
+### Configure the connection {#configure-connector-connection}
+
+The Worker opens the Slack connection **support-slack** from the project configuration: **DEX_CONNECTOR_CONFIG_FILE** in local development, the **DEX_PROJECT_\*** settings when deployed. [Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains both, what happens without the connection, and what the Slack app needs.
+
+To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
+
+```text
+Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday.
+```
+
+The post waits for approval, like **cancel_order**.
 
 ## Limits
 

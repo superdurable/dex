@@ -29,6 +29,10 @@ Each tool gets a **ToolPolicy**. The policy marks the tool as a read, an idempot
 
 A tool call that needs approval waits in its own **AwaitToolApproval** Step. It waits until someone answers, for as long as it takes. A person approves it from your application or from [Dex Web](/reference/web/dex-web#agent-session-view).
 
+## Connectors as tools {#connectors-as-tools}
+
+Every harness can call [Connector](/components/connector) operations as tools. **ConnectorToolSource** offers the operations you name, and each call runs in its own tool Step. Each harness page shows the wiring in its Connect Connectors section, such as [Built-in agent loop](/agent-frameworks/built-in-agent-loop#connect-connectors) and [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors). [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules.
+
 ## Choose a harness
 
 A harness is the code that runs the agent loop: the built-in loop or a framework. Each page below has an install command, a runnable example, and the steps to run it locally.
@@ -54,6 +58,8 @@ Every framework page uses the same order support agent. It has two tools on an i
 | **cancel_order** | non-idempotent write | Waits in **AwaitToolApproval**, then runs at most once. |
 
 The Python agents are under [examples/python/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/python/agent-harnesses). The TypeScript agents are under [examples/typescript/src/products/agent-harnesses](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/agent-harnesses). Each harness serves the same HTTP routes, so you can try them side by side.
+
+With a Slack connection in the project configuration, each agent also has **slack_post_thread_reply**, a Connector tool that waits for approval and then runs once.
 
 The built-in agent loop page uses the [AI Agent](/use-cases/ai-agent) example instead. It shows every session feature.
 

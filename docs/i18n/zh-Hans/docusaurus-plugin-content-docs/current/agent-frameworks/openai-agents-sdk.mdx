@@ -65,7 +65,7 @@ Tool 是 SDK 的 function tool。Agent 是普通的 SDK Agent。Tool policy 指�
 
 ```python
 def build_openai_agents_order_support_flow(
-    order_desk: OrderDesk, model: str | Model
+    order_desk: OrderDesk, model: str | Model, slack_connection: slack.Connection | None
 ) -> AgentSessionFlow:
     """Builds the session Flow; ``model`` is an OpenAI model name, such as "gpt-5.2"."""
 
@@ -89,6 +89,7 @@ def build_openai_agents_order_support_flow(
     return openai_agents_session_flow(
         agent,
         flow_type=OPENAI_AGENTS_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
         tool_policies={
             "look_up_order": ToolPolicy(ToolEffect.READ),
             "cancel_order": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
@@ -100,7 +101,11 @@ def build_openai_agents_order_support_flow(
 <SdkSnippet lang="typescript">
 
 ```typescript
-export function createOpenAIAgentsOrderSupportFlow(orderDesk: OrderDesk, model: string | Model): AgentSessionFlow {
+export function createOpenAIAgentsOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: string | Model,
+  slack: Connection | undefined,
+): AgentSessionFlow {
   const lookUpOrder = tool({
     name: "look_up_order",
     description: "Look up one order by its order ID and return its items and status.",
@@ -127,6 +132,7 @@ export function createOpenAIAgentsOrderSupportFlow(orderDesk: OrderDesk, model: 
       look_up_order: { effect: "read" },
       cancel_order: { effect: "non_idempotent_write" },
     },
+    toolSources: createSlackConnectorToolSources(slack),
   });
 }
 ```
@@ -166,10 +172,12 @@ export function createOpenAIAgentsOrderSupportFlow(orderDesk: OrderDesk, model: 
 
 # ...
 
-def _new_openai_agents_example(config: AgentHarnessExamplesConfig) -> AgentHarnessExample:
+def _new_openai_agents_example(
+    config: AgentHarnessExamplesConfig, slack_connection: slack.Connection | None
+) -> AgentHarnessExample:
     order_desk = OrderDesk()
     model = _openai_agents_model(config.openai_agents_model)
-    flow = build_openai_agents_order_support_flow(order_desk, model)
+    flow = build_openai_agents_order_support_flow(order_desk, model, slack_connection)
     return AgentHarnessExample("openai-agents", flow, order_desk)
 
 # ...
@@ -182,10 +190,13 @@ def _openai_agents_model(model: str) -> str | Model:
 <SdkSnippet lang="typescript">
 
 ```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
 // ...
-const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel());
+const openAIAgentsOrderSupportFlow = createOpenAIAgentsOrderSupportFlow(orderDesk, loadOpenAIAgentsOrderSupportModel(), slack);
 ```
 
 </SdkSnippet>
@@ -396,6 +407,182 @@ curl -s -X POST "$base/sessions/$id/interrupts/$interrupt/approve" -H "X-Agent-S
 ### 在 Dex Web 中审批 {#approve-in-dex-web}
 
 也可以不执行最后一条命令，而是在 Dex Web 中审批。打开这个 session 的 run：它的 Flow ID 就是 session ID。选择 **Agent session** tab。把 **Working as** 设为渲染时指定的 permission **order-support.operate**。然后在 **cancel_order** 卡片上选择 **Approve** 或 **Reject**。Dex Web 会替你调用 **resolve_interrupt**。生产环境的做法参见 [在 Dex Web 中显示 session](/agent-frameworks/deploy-agents#dex-web)。
+
+## 连接 Connector {#connect-connectors}
+
+Connector tool 是 agent 当作 tool 调用的 [Connector](/components/connector) operation。**ConnectorToolSource** 提供你指定的 operation。Agent 通过 Python 的 **tool_sources** 或 TypeScript 的 **toolSources** 把它作为 tool source 接收。Effect class、审批、结果和写操作顺序的规则见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+
+Example 把 Slack Connector 的 operation **postThreadReply** 作为 tool **slack_post_thread_reply** 提供。Agent 用它在 Slack thread 中回复。
+
+### 提供 tool {#offer-connector-tools}
+
+在 Python 中，安装 **dex-agents** 的 **connectors** extra，以及 Connector 包，例如 **dex-connector-slack**。在 TypeScript 中，安装 **@superdurable/connectors-sdk** 以及 Connector 包，例如 **@superdurable/connector-slack**。安装命令见 [Connector tool](/agent-frameworks/deploy-agents#connector-tools)。
+
+Worker 从项目配置中打开 Slack connection **support-slack**。Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 把 operation 变成 tool，由 **ConnectorToolSource** 持有。没有这个 connection 时，agent 不会得到 Slack tool。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/slack_connector_tools.py',
+    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def build_slack_tool_sources(connection: slack.Connection | None) -> list[ToolSource]:
+    """Returns the Slack tool source, or no source when Slack is not configured."""
+    if connection is None:
+        return []
+    return [
+        ConnectorToolSource([
+            # The manifest does not ask for approval; this agent asks before every post.
+            connector_tool(
+                connection.post_thread_reply(), connection.reference, requires_approval=True
+            ),
+        ]),
+    ]
+
+# ...
+
+async def open_slack_project_connection(
+    environment: Mapping[str, str] = os.environ,
+) -> SlackProjectConnection | None:
+    # ...
+    # An incomplete or invalid configuration raises here, so the Worker fails at startup.
+    try:
+        project = await load_from_environment(environment)
+    except FileNotFoundError:
+        _log_slack_not_set_up("the connector configuration file does not exist")
+        return None
+    # ...
+    try:
+        connection = slack.new_project_connection(project, SLACK_CONNECTION_NAME)
+    except BaseException:
+        await project.close()
+        raise
+    return SlackProjectConnection(project, connection)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function openSlackConnectionFromProject(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Connection | undefined> {
+  // ...
+  const project = await loadFromEnvironment(environment);
+  // ...
+  return newProjectConnection(project, slackConnectionName);
+}
+
+// ...
+
+export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
+  if (slack === undefined) {
+    return [];
+  }
+  return [
+    new ConnectorToolSource([
+      connectorTool(slack.operations.postThreadReply(), slack.reference, {
+        manifest,
+        inputValidator: PostThreadReplyInputSchema,
+        // The manifest does not ask for approval; this agent asks before every post.
+        requiresApproval: true,
+      }),
+    ]),
+  ];
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Worker 在启动时打开一次 connection，每个 agent 都使用它：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/__main__.py',
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+async def main() -> None:
+    config = AgentHarnessExamplesConfig.from_env()
+    slack_setup = await open_slack_project_connection()
+    try:
+        app_state = AgentHarnessExamplesApp(config, slack_setup.connection if slack_setup else None)
+        # ...
+    finally:
+        if slack_setup is not None:
+            await slack_setup.aclose()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Agent 把 tool source 和自己的 tool 一起传入：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/agent-harnesses/agent_harness_examples/openai_agents_order_support.py',
+    typescript: 'examples/typescript/src/products/agent-harnesses/openai-agents/openai-agents-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    return openai_agents_session_flow(
+        agent,
+        flow_type=OPENAI_AGENTS_ORDER_SUPPORT_FLOW_TYPE,
+        tool_sources=build_slack_tool_sources(slack_connection),
+        # ...
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+  return createOpenAIAgentsSessionFlow(agent, openAIAgentsOrderSupportFlowType, {
+    // ...
+    toolSources: createSlackConnectorToolSources(slack),
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### 调用如何运行 {#connector-tool-calls}
+
+每次调用 **slack_post_thread_reply** 都在自己的 tool Step 中通过 Connector SDK 运行一个 Slack operation。调用保留 Connector 的 Call ID 和幂等键。Operation 如何变成 tool、参数如何检查，见 [提供哪些 operation](/agent-frameworks/deploy-agents#connector-tools-offered)。
+
+Connector 的 manifest 决定 effect class。**postThreadReply** 是 Mutation，它的 manifest 没有把它标为可安全重试，所以调用只在 **CallSingleAttemptTool** 中运行一次。Worker 崩溃永远不会让同一条消息发两次。参见 [崩溃](/agent-frameworks/deploy-agents#connector-tools-crashes)。
+
+Slack 的 manifest 没有建议 **postThreadReply** 需要审批，所以 example 传入 Python 的 **requires_approval=True** 或 TypeScript 的 **requiresApproval: true**。每次发帖都在 **AwaitToolApproval** 中等待，直到有人批准。Manifest 和应用如何决定审批，见 [审批](/agent-frameworks/deploy-agents#connector-tools-approval)。
+
+Graph 中的每个 agent 都在自己的 tool 之后提供 Connector tool。在 Python 中，adapter 为 source 缓存的 listing（它的 **cached_tools()**）中的每个 tool 构建一个 function tool；**ConnectorToolSource** 会缓存它的整个 listing。在 TypeScript 中，它们是 non-strict function tool，tool 的 **needsApproval** 和 input guardrail 对它们不起作用。调用从不在 SDK 内运行；审批由 source 决定。
+
+同一个回复中的 Connector 写操作按顺序运行，见 [写操作顺序](/agent-frameworks/deploy-agents#connector-tools-write-order)。
+
+### 配置 connection {#configure-connector-connection}
+
+Worker 从项目配置中打开 Slack connection **support-slack**：本地开发时用 **DEX_CONNECTOR_CONFIG_FILE**，部署后用 **DEX_PROJECT_\*** 设置。两种方式、没有 connection 时会怎样以及 Slack app 需要什么，见 [Connection](/agent-frameworks/deploy-agents#connector-tools-connection)。
+
+试用时，先设置 **DEX_CONNECTOR_CONFIG_FILE** 再启动 example。然后让 agent 在 Slack thread 中回复，并给出 channel ID 和 thread timestamp：
+
+```text
+Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday.
+```
+
+这次发帖和 **cancel_order** 一样，会先等待审批。
 
 ## 限制 {#limits}
 

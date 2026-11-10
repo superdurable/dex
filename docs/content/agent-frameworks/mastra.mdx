@@ -53,7 +53,11 @@ The tools are Mastra tools on a Mastra **Agent**. The tool policies name each to
 <SdkSnippet lang="typescript">
 
 ```typescript
-export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: MastraModelConfig): AgentSessionFlow {
+export function createMastraOrderSupportFlow(
+  orderDesk: OrderDesk,
+  model: MastraModelConfig,
+  slack: Connection | undefined,
+): AgentSessionFlow {
   const lookUpOrder = createTool({
     id: "look_up_order",
     description: "Look up one order by its order ID and return its items and status.",
@@ -78,6 +82,7 @@ export function createMastraOrderSupportFlow(orderDesk: OrderDesk, model: Mastra
       look_up_order: { effect: "read" },
       cancel_order: { effect: "non_idempotent_write" },
     },
+    toolSources: createSlackConnectorToolSources(slack),
   });
 }
 ```
@@ -96,10 +101,13 @@ One Worker serves the session Flows of every harness in the example. Build the s
 <SdkSnippet lang="typescript">
 
 ```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+// ...
 // One order desk for the four agent harness examples; each harness registers its own session Flow type.
 const orderDesk = new OrderDesk();
 // ...
-const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel());
+const mastraOrderSupportFlow = createMastraOrderSupportFlow(orderDesk, loadMastraOrderSupportModel(), slack);
 ```
 
 </SdkSnippet>
@@ -223,6 +231,114 @@ The loop reads the snapshot until the agent asks to run **cancel_order**. The ca
 ### Approve in Dex Web
 
 Instead of the last command, approve the call in Dex Web. Open the session's run: its Flow ID is the session ID. Select the **Agent session** tab. Choose **Working as** **order-support.operate**, the permission you rendered. Then select **Approve** or **Reject** on the **cancel_order** card. Dex Web calls **resolve_interrupt** for you. See [Show sessions in Dex Web](/agent-frameworks/deploy-agents#dex-web) for production.
+
+## Connect Connectors {#connect-connectors}
+
+A Connector tool is a [Connector](/components/connector) operation that the agent calls as a tool. **ConnectorToolSource** offers the operations you name. The agent takes it as a tool source, through **toolSources**. [Connector tools](/agent-frameworks/deploy-agents#connector-tools) holds the rules for effect classes, approval, outcomes, and write order.
+
+The example offers the Slack Connector operation **postThreadReply** as the tool **slack_post_thread_reply**. With it, the agent replies in a Slack thread.
+
+### Offer the tool {#offer-connector-tools}
+
+Install **@superdurable/connectors-sdk** and the Connector package, such as **@superdurable/connector-slack**. The install commands are in [Connector tools](/agent-frameworks/deploy-agents#connector-tools).
+
+The Worker opens the Slack connection **support-slack** from the project configuration. **connectorTool** turns the operation into a tool, and **ConnectorToolSource** holds it. Without the connection, the agent gets no Slack tool.
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/shared/slack-connector-tools.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+export async function openSlackConnectionFromProject(
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<Connection | undefined> {
+  // ...
+  const project = await loadFromEnvironment(environment);
+  // ...
+  return newProjectConnection(project, slackConnectionName);
+}
+
+// ...
+
+export function createSlackConnectorToolSources(slack: Connection | undefined): ToolSource[] {
+  if (slack === undefined) {
+    return [];
+  }
+  return [
+    new ConnectorToolSource([
+      connectorTool(slack.operations.postThreadReply(), slack.reference, {
+        manifest,
+        inputValidator: PostThreadReplyInputSchema,
+        // The manifest does not ask for approval; this agent asks before every post.
+        requiresApproval: true,
+      }),
+    ]),
+  ];
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The Worker opens the connection once, at startup, and every agent uses it:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/registry.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+// One Slack connection for the agent examples; without it they offer no Slack tools.
+const slack = await openSlackConnectionFromProject();
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The agent passes the tool source next to its own tools:
+
+<SdkTabs
+  examples={{
+    typescript: 'examples/typescript/src/products/agent-harnesses/mastra/mastra-order-support-flow.ts',
+  }}>
+<SdkSnippet lang="typescript">
+
+```typescript
+  return createMastraAgentSessionFlow(agent, mastraOrderSupportFlowType, {
+    // ...
+    toolSources: createSlackConnectorToolSources(slack),
+  });
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### How a call runs {#connector-tool-calls}
+
+Each call of **slack_post_thread_reply** runs one Slack operation in its own tool Step, through the Connector SDK. The call keeps the Connector's Call ID and idempotency key. [Which operations are offered](/agent-frameworks/deploy-agents#connector-tools-offered) covers how the operation becomes a tool and how its arguments are checked.
+
+The Connector's manifest decides the effect class. **postThreadReply** is a Mutation that its manifest does not mark retry-safe, so the call runs once, in **CallSingleAttemptTool**. A Worker crash never sends the post twice. See [Crashes](/agent-frameworks/deploy-agents#connector-tools-crashes).
+
+Slack's manifest does not recommend approval for **postThreadReply**, so the example passes **requiresApproval: true**. Every post waits in **AwaitToolApproval** until a person approves it. [Approval](/agent-frameworks/deploy-agents#connector-tools-approval) covers how the manifest and the application decide approval.
+
+The adapter passes the Connector tools to Mastra as client tools without **execute**. A call never runs inside the model call. Mastra approval settings do not apply to it; the source decides approval. With tool sources, a **toolPolicies** entry never makes a tool one that Mastra runs itself; only **mastraRunToolNames** does.
+
+Connector writes of one response run in order; see [Write order](/agent-frameworks/deploy-agents#connector-tools-write-order).
+
+### Configure the connection {#configure-connector-connection}
+
+The Worker opens the Slack connection **support-slack** from the project configuration: **DEX_CONNECTOR_CONFIG_FILE** in local development, the **DEX_PROJECT_\*** settings when deployed. [Connections](/agent-frameworks/deploy-agents#connector-tools-connection) explains both, what happens without the connection, and what the Slack app needs.
+
+To try it, start the example with **DEX_CONNECTOR_CONFIG_FILE** set. Then ask the agent to reply in a Slack thread, with the channel ID and the thread timestamp:
+
+```text
+Reply in Slack thread C0123456789 1710000000.000100: Order 1002 ships on Thursday.
+```
+
+The post waits for approval, like **cancel_order**.
 
 ## Limits
 

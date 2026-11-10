@@ -310,7 +310,7 @@ RPC 的锁由调用方发送。SDK Client 和 Dex Web 会带上 RPC 声明的锁
 
 ## Connector tool {#connector-tools}
 
-Stepwise agent 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。Python 的 Claude Agent SDK adapter 也通过 **tool_sources** 接受它。Go core 只支持 function tool，其他 framework adapter 暂时也不提供 connector tool。
+Agent session 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。内置 agent loop 以及每个 Python 和 TypeScript framework adapter 都接受它，Python 中通过 **tool_sources**，TypeScript 中通过 **toolSources**。Go core 只支持 function tool。每个 harness 页面的“连接 Connector”一节展示了接入方式和该 harness 自己的行为，例如 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。
 
 安装带 Connector SDK 的 core，以及 agent 用到的每个 Connector 包：
 
@@ -390,6 +390,19 @@ connector 写入期间 Worker 崩溃，绝不会把一次写入发送两次：
 只运行一次的写入请求重试时，通常以 **outcome_unknown** 结束，因为重试请求本身不能证明什么都没发送。single-dispatch fence 可以证明这一点：它记录请求从未离开进程，或者 provider 没有处理就拒绝了请求。有了这个证明，调用记录为 **failed**，模型可以再次调用，也不需要有人去核对 provider。这次回复中后面的写入仍然会被跳过。
 
 凭证留在 Worker。和 Connector Step 一样，connector tool 只随调用保存逻辑 connection 名称，见 [凭证](#credentials)。
+
+### Connection {#connector-tools-connection}
+
+和 Connector Step 一样，connector tool 使用一个 Connector connection。应用在 Worker 启动时，按 connection 名称从项目配置中打开它一次：
+
+- **本地开发**：把 **DEX_CONNECTOR_CONFIG_FILE** 设为本地 Connector 配置的 **connections.json** 文件，默认是 **$HOME/.dex/connectors/connections.json**。其中必须有一个已授权、名称与应用打开的名称相同的 connection。[Local Connector setup](/reference/web/local-connector-setup) 介绍了这个文件。
+- **部署后**：**DEX_PROJECT_\*** 设置选择托管平台或运维人员写入的项目配置。
+
+设置 **DEX_CONNECTOR_CONFIG_FILE** 或任何一个 **DEX_PROJECT_\*** 设置，就表示要求使用项目配置。配置不完整或无效时，启动会失败。Worker 在启动时读取配置，所以修改配置后要重启 Worker。
+
+有 connector 调用在等待审批时，让每个 Worker 保持相同的配置。任何 Worker 都可能运行已批准的调用，它需要相同的 tool 和 connection。
+
+Agent example 打开 Slack connection **support-slack**。没有项目配置，或项目配置中没有这个 connection 时，它们记录一行日志，在没有 Slack tool 的情况下运行。Slack app 需要 bot scope **chat:write**，并且它的 bot 必须是该 channel 的成员。Worker 在发帖途中停止后，Connector 用 user scope **channels:history** 和 **groups:history** 读回 thread，以确认回复是否已经发出。没有这些 scope 时，这样的发帖会记录为 **outcome_unknown**。
 
 ## 查找需要人处理的 session {#find-sessions}
 

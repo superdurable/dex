@@ -37,7 +37,7 @@ AI Agent 与用户对话、调用 tool，并操作其他系统。真实的 agent
 
 ## AI Agent example {#the-ai-agent-example}
 
-AI Agent example 是一个长期运行的通用 Agent，有 Python 与 TypeScript 两个版本。它使用内置 agent loop。它与用户聊天并调用受信任的 MCP tool。它在修改外部系统前等待审批。它会向用户提问、通过 durable Timer 暂停，并在执行前先制定计划供用户审阅。本地 demo model 让你无需 provider key 就能体验所有功能。
+AI Agent example 是一个长期运行的通用 Agent，有 Python 与 TypeScript 两个版本。它使用内置 agent loop。它与用户聊天并调用受信任的 MCP tool。有 Slack connection 时，它还可以通过 [Connector tool](/agent-frameworks/built-in-agent-loop#connect-connectors) 在 Slack thread 中回复。它在修改外部系统前等待审批。它会向用户提问、通过 durable Timer 暂停，并在执行前先制定计划供用户审阅。本地 demo model 让你无需 provider key 就能体验所有功能。
 
 [内置 Agent Loop](/agent-frameworks/built-in-agent-loop) 讲解了它的代码以及如何运行。代码位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent) 和 [examples/typescript/src/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/typescript/src/products/ai-agent)。
 

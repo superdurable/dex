@@ -418,15 +418,17 @@ and two answers to one approval can both succeed.
 
 ## Connector tools {#connector-tools}
 
-A Stepwise agent can call [Connector](/components/connector)
+An agent session can call [Connector](/components/connector)
 operations as tools. **ConnectorToolSource** offers them, the way
 **McpToolSource** offers an MCP server's tools. Each call runs one operation
 in its own tool Step through the Connector SDK, so the Call ID, the idempotency
 key, credential handling, and the single-dispatch fence work as they do in a
-Connector Step. The Python and TypeScript cores ship it. The Python Claude
-Agent SDK adapter also takes it, through **tool_sources**. The Go core has
-function tools only, and the other framework adapters do not offer connector
-tools yet.
+Connector Step. The Python and TypeScript cores ship it. The built-in agent
+loop and every Python and TypeScript framework adapter take it, through
+**tool_sources** in Python and **toolSources** in TypeScript. The Go core has
+function tools only. Each harness page shows the wiring and its own behavior in
+a Connect Connectors section, such as
+[Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors).
 
 Install the core with the Connector SDK, and each Connector package an agent
 uses:
@@ -553,6 +555,38 @@ A write that runs once and asks to retry usually ends **outcome_unknown**, becau
 Credentials stay with the Worker. A connector tool stores only the logical
 connection name with the call, as a Connector Step does; see
 [Credentials](#credentials).
+
+### Connections {#connector-tools-connection}
+
+A connector tool uses a Connector connection, as a Connector Step does. The
+application opens it by its connection name from the project configuration,
+once at Worker startup:
+
+- **Local development.** Set **DEX_CONNECTOR_CONFIG_FILE** to the
+  **connections.json** file of your local Connector configuration, by default
+  **$HOME/.dex/connectors/connections.json**. It must hold an authorized
+  connection with the name the application opens.
+  [Local Connector setup](/reference/web/local-connector-setup) describes the
+  file.
+- **Deployed.** The **DEX_PROJECT_\*** settings select the project
+  configuration that the hosting platform or operator writes.
+
+Setting **DEX_CONNECTOR_CONFIG_FILE** or any **DEX_PROJECT_\*** setting
+requests a project configuration. An incomplete or invalid one fails at
+startup. The Worker reads the configuration at startup, so restart it after a
+change.
+
+Keep the same configuration on every Worker while connector calls wait for
+approval. Any Worker may run an approved call, and it needs the same tool and
+connection.
+
+The agent examples open the Slack connection **support-slack**. Without a
+project configuration, or without that connection in it, they log one line and
+run without the Slack tool. The Slack app needs the bot scope **chat:write**,
+and its bot must be a member of the channel. After a Worker stops during a
+post, the Connector reads the thread back with the user scopes
+**channels:history** and **groups:history**, to learn whether the reply was
+sent. Without them, such a post records **outcome_unknown**.
 
 ## Find sessions that need a person {#find-sessions}
 
