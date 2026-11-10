@@ -35,10 +35,9 @@ for the Dex SDK and framework versions each release supports.
 - Connector writes of one model response run one at a time in the model's
   order. Once one is not `succeeded`, the later ones record `failed` with the
   new `AgentToolCall.skipped` marker.
-- Needs the Connector SDK and package releases from
-  superdurable/dex-connectors-library#628. Until they ship, the Python core pins
-  the SDK to a commit of that branch, and the TypeScript peer is pinned to a
-  version that lacks `throwDexRetry`.
+- Needs Connector SDK 0.9.0 (`dex-connectors-sdk==0.9.0`,
+  `@superdurable/connectors-sdk` `0.9.0`), which exports `raise_dex_retry` and
+  `throwDexRetry`.
 - Go core: no connector tools. Its **AgentToolCall** carries the four new fields, so a
   record written by another core round-trips.
 - See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).

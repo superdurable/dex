@@ -1414,13 +1414,8 @@ agent uses:
 npm i @superdurable/connectors-sdk @superdurable/connector-stripe
 ```
 
-The subpath needs a Connector SDK release that exports `throwDexRetry`
-(superdurable/dex-connectors-library#628), and Connector packages that export
-`./dex-connector.json`. Until they ship, `package.json` pins
-`@superdurable/connectors-sdk` to `0.8.0`, which lacks the export, so this
-package does not typecheck against the registry; replace the pin with the
-released version before release. Local tests install a tarball packed from
-that branch with `npm install --no-save`.
+The subpath needs Connector SDK 0.9.0, the first release that exports
+`throwDexRetry`, and Connector packages that export `./dex-connector.json`.
 
 ```ts
 import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };

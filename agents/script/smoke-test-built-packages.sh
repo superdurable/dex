@@ -114,6 +114,7 @@ PY
     if [[ "$package" == "core" ]]; then
       smoke_test_python_core_modules "$project_dir" "$release_version"
       smoke_test_python_mcp_extra "$project_dir" "$release_version"
+      smoke_test_python_connectors_extra "$project_dir" "$release_version"
     fi
   done
 
@@ -173,6 +174,15 @@ PY
     --constraint "$project_dir/constraints.txt" "dex-agents[mcp]==$release_version"
   (cd "$project_dir" && .venv/bin/python -c \
     'import dex_agents.mcp; print("dex_agents.mcp exports", ", ".join(dex_agents.mcp.__all__))')
+}
+
+# dex_agents.connectors imports with dex-agents[connectors], which installs the Connector SDK.
+smoke_test_python_connectors_extra() {
+  local project_dir="$1" release_version="$2"
+  uv pip install --quiet --python "$project_dir/.venv" --find-links "$dist_dir/python" \
+    --constraint "$project_dir/constraints.txt" "dex-agents[connectors]==$release_version"
+  (cd "$project_dir" && .venv/bin/python -c \
+    'import dex_agents.connectors; print("dex_agents.connectors exports", ", ".join(dex_agents.connectors.__all__))')
 }
 
 typescript_package_name() {
@@ -242,12 +252,13 @@ smoke_test_typescript_core_subpaths() {
       'import * as core from "@superdurable/dex-agents";' \
       'import * as stepwise from "@superdurable/dex-agents/stepwise";' \
       'import * as testing from "@superdurable/dex-agents/testing";' \
-      'export const exportedNames: string[] = [...Object.keys(core), ...Object.keys(stepwise), ...Object.keys(testing)];' \
+      'import * as connectors from "@superdurable/dex-agents/connectors";' \
+      'export const exportedNames: string[] = [...Object.keys(core), ...Object.keys(stepwise), ...Object.keys(testing), ...Object.keys(connectors)];' \
       >consumer.ts
     npx tsc --strict --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck \
       --types node consumer.ts
     node --input-type=module -e "
-      for (const subpath of ['', '/stepwise', '/testing']) {
+      for (const subpath of ['', '/stepwise', '/testing', '/connectors']) {
         const module = await import('@superdurable/dex-agents' + subpath);
         if (Object.keys(module).length === 0) throw new Error('@superdurable/dex-agents' + subpath + ' exports nothing');
         console.log('@superdurable/dex-agents' + subpath, 'exports', Object.keys(module).join(', '));

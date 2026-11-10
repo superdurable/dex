@@ -624,7 +624,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", git = "https://github.com/superdurable/dex-connectors-library?subdirectory=sdkpython&rev=08a08b68834d5e8ff2e9e614264e1673214aa1a1" },
+    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", specifier = "==0.9.0" },
     { name = "dex-python-sdk", specifier = "==1.38.0" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.104,<1.106" },
@@ -644,8 +644,8 @@ dev = [
 
 [[package]]
 name = "dex-connectors-sdk"
-version = "0.8.0"
-source = { git = "https://github.com/superdurable/dex-connectors-library?subdirectory=sdkpython&rev=08a08b68834d5e8ff2e9e614264e1673214aa1a1#08a08b68834d5e8ff2e9e614264e1673214aa1a1" }
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "boto3" },
@@ -653,6 +653,10 @@ dependencies = [
     { name = "dex-python-sdk" },
     { name = "httpcore" },
     { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/1c/6a5cf67124d1ebb9fa4068c63d23f37e09945cf4fb084bab09718cd86472/dex_connectors_sdk-0.9.0.tar.gz", hash = "sha256:bb5f5f3408e304504aeb086ca49fad405932f7e7e55df0cbe931d05ef2183b66", size = 230639, upload-time = "2026-11-10T06:50:26.104Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/d1/6b294e6f7a3724c8d43da429bca143010db21024344d6712444efcc986dd/dex_connectors_sdk-0.9.0-py3-none-any.whl", hash = "sha256:b75ff95a1aaa247d198b04b4fc417a6e00b776c6a87b4ada0a47b42fe42d005c", size = 121111, upload-time = "2026-11-10T06:50:25.105Z" },
 ]
 
 [[package]]

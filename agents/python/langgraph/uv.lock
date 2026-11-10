@@ -204,7 +204,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", git = "https://github.com/superdurable/dex-connectors-library?subdirectory=sdkpython&rev=08a08b68834d5e8ff2e9e614264e1673214aa1a1" },
+    { name = "dex-connectors-sdk", marker = "extra == 'connectors'", specifier = "==0.9.0" },
     { name = "dex-python-sdk", specifier = "==1.38.0" },
     { name = "httpx2", marker = "extra == 'mcp'", specifier = ">=2.10,<3" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.104,<1.106" },

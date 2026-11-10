@@ -1333,10 +1333,8 @@ package the agent uses:
 pip install "dex-agents[connectors]" dex-connector-stripe
 ```
 
-The extra needs a Connector SDK release that exports `raise_dex_retry`
-(superdurable/dex-connectors-library#628). Until it ships, this repository's
-`[tool.uv.sources]` pins the SDK to a commit of that branch; replace the pin
-with the released version before release.
+The extra installs Connector SDK 0.9.0, the first release that exports
+`raise_dex_retry`.
 
 ```python
 from dex_agents.connectors import ConnectorToolSource, connector_tool
