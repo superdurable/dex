@@ -325,7 +325,7 @@ function Inner({
   const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null)
   // Hold the last settled drawing, so a run still loading never draws half-way states.
   const { scene, nowNodeId } = useSettledDrawing(isSettled, latestScene, latestNowNodeId)
-  const openFloor = opensWholeDrawing ? 0 : OPEN_FLOOR
+  const openFloor = opensWholeDrawing ? WHOLE_DRAWING_MIN_ZOOM : OPEN_FLOOR
   const minZoom = opensWholeDrawing ? WHOLE_DRAWING_MIN_ZOOM : MIN_ZOOM
 
   useEffect(() => {
@@ -359,6 +359,13 @@ function Inner({
     keepSelectionInView: () => keepSelectionInView.current(),
   })
   const { delays, isEntered, panToShow, setOwner } = camera
+
+  // React Flow keeps a zoom below a raised minZoom; refit so the view respects the new limit.
+  useEffect(() => {
+    if (rf.getZoom() >= minZoom) return
+    setOwner('fit')
+    fitWhole()
+  }, [fitWhole, minZoom, rf, setOwner])
 
   /** A jump chip selects where it leads at a readable size; a jump into a closed stage opens it. */
   const jump = useCallback(

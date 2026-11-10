@@ -28,7 +28,7 @@ import { paneHeightForWholeDrawing } from './canvas/render/camera';
 import { TileView } from './canvas/render/CardParts';
 import { Stage } from './canvas/render/Stage';
 import type { CanvasViewportHandle } from './canvas/render/viewport';
-import { FIT_MAX_ZOOM, OPEN_FLOOR } from './canvas/render/zoom';
+import { FIT_MAX_ZOOM, OPEN_FLOOR, WHOLE_DRAWING_MIN_ZOOM } from './canvas/render/zoom';
 import { useStageScene } from './canvas/useStageScene';
 import { detourMessage, hasDetour, isFailureHandling, withDetours } from './canvas/views/failureDetours';
 import { stageId } from './canvas/views/stageCard';
@@ -64,7 +64,7 @@ export function FlowDesignCanvas({
   wholeMaxZoom?: number;
   /** Receives the height, in pixels, that opens on the whole Flow below the toolbar, per view and width. */
   onPreferredHeight?: (heightPx: number) => void;
-  /** Opens on, fits, and zooms out to the whole Flow however small, instead of opening a large one on its start. */
+  /** Opens on, fits, and zooms out to the whole Flow, however small. */
   opensWholeFlow?: boolean;
 }) {
   const [direction, setDirection] = useState<Direction>('lr');
@@ -268,7 +268,7 @@ function useReportPreferredCanvasHeight({
         pane.clientWidth,
         wholeMaxZoom,
         insetTop,
-        opensWholeFlow ? 0 : OPEN_FLOOR,
+        opensWholeFlow ? WHOLE_DRAWING_MIN_ZOOM : OPEN_FLOOR,
       );
       onPreferredHeight(Math.ceil(paneBox.top - shellBox.top + paneHeight + shellBox.bottom - paneBox.bottom));
     };
