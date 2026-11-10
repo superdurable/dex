@@ -51,6 +51,7 @@ import DexExpressiveness.Liveness.LToDexFairTime
 import DexExpressiveness.Liveness.LToDexFairWorkers
 import DexExpressiveness.Liveness.LToDexFair
 import DexExpressiveness.Liveness
+import DexExpressiveness.Liveness.RestingRuns
 import DexExpressiveness.Theorems
 import DexExpressiveness.Examples.Schedule
 import DexExpressiveness.Examples.Lockstep
@@ -66,3 +67,4 @@ import DexExpressiveness.L.LockDiscipline
 import DexExpressiveness.L.LockDisciplineSound
 import DexExpressiveness.Examples.WellFormed
 import DexExpressiveness.Examples.WellFormedSafety
+import DexExpressiveness.Examples.FairRuns
