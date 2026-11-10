@@ -302,12 +302,20 @@ struct OlderRunBytes {
 
 /// Returns the run record with `fields` in its FlowConfig, and its history bytes, open history
 /// segment bytes, and state row bytes moved by `deltas` and by its own new size.
+///
+/// Panics when the run record does not encode back to the same bytes, apart from the removed
+/// FlowConfig fields, so that unknown or noncanonical fields cannot hide behind the rewrite.
 fn run_record_with_fields(
     value: &[u8],
     fields: RemovedFlowConfigFields,
     deltas: &OlderRunBytes,
 ) -> Vec<u8> {
     let mut record = RunRecord::decode(value).expect("run records decode");
+    assert_eq!(
+        with_kept_removed_fields(RunTable::RunRecord, value, &record.encode_to_vec()),
+        value,
+        "a replayed run record holds bytes that decoding drops or rewrites"
+    );
     let mut usage = record.storage.expect("run records count storage");
     usage.history_bytes = u64::try_from(i128::from(usage.history_bytes) + deltas.history)
         .expect("older history bytes are not negative");
@@ -553,6 +561,54 @@ fn the_removed_fields_go_between_fields_1_and_4() {
     );
     let flow_config = removed_flow_config_bytes(&restored);
     assert_eq!(flow_config, older);
+}
+
+#[test]
+#[should_panic(expected = "decoding drops or rewrites")]
+fn the_run_record_restore_rejects_an_unknown_field() {
+    let fields = RemovedFlowConfigFields {
+        continue_as_new_threshold: Some(100),
+        continue_as_new_page_size_in_bytes: None,
+    };
+    let mut value = RunRecord {
+        flow_id: "unknown-field-run".to_owned(),
+        flow_config: Some(FlowConfig::default()),
+        storage: Some(dexzd_protocol::dexzd::v1::RunStorageUsage::default()),
+        ..RunRecord::default()
+    }
+    .encode_to_vec();
+    // Field 78 as a varint: RunRecord has no such field, so decoding drops it.
+    value.extend_from_slice(&[0xf0, 0x04, 0x01]);
+    run_record_with_fields(&value, fields, &OlderRunBytes::default());
+}
+
+#[test]
+fn the_run_record_restore_keeps_a_canonical_record() {
+    let fields = RemovedFlowConfigFields {
+        continue_as_new_threshold: Some(100),
+        continue_as_new_page_size_in_bytes: None,
+    };
+    let value = RunRecord {
+        flow_id: "canonical-run".to_owned(),
+        flow_config: Some(FlowConfig::default()),
+        storage: Some(dexzd_protocol::dexzd::v1::RunStorageUsage {
+            state_row_bytes: 1_000,
+            ..dexzd_protocol::dexzd::v1::RunStorageUsage::default()
+        }),
+        ..RunRecord::default()
+    }
+    .encode_to_vec();
+    let older = run_record_with_fields(&value, fields, &OlderRunBytes::default());
+    assert_eq!(removed_fields_in(RunTable::RunRecord, &older), vec![fields]);
+    let usage = RunRecord::decode(older.as_slice())
+        .expect("decodes")
+        .storage
+        .expect("storage");
+    assert_eq!(
+        usage.state_row_bytes,
+        1_000 - value.len() as u64 + older.len() as u64,
+        "the state row bytes count the record's own older size"
+    );
 }
 
 fn removed_flow_config_bytes(run: &[u8]) -> Vec<u8> {
