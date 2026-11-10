@@ -46,7 +46,8 @@ theorem normalStep_simulated (program : Program σ)
     (isNormal : action.simulationKind = .normal) (events : List (Obs σ)) (next : Config σ)
     (isStep : step program config action = some (events, next)) :
     IsStepSimulated program config action events next := by
-  sorry
+  exact normalStep_simulated_proof program ignoresAttemptContext config invariant action isNormal
+    events next isStep
 
 end NormalStepSimulated
 
