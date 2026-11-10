@@ -2090,6 +2090,16 @@ takeover found nothing.
 | F13 | One order-preserving relabeling cannot cover `seq` values that erased commands wrote. | **Fixed.** Section 11.6 lists each `seq`-derived field and says whether α maps it by `ζ`, restores it from a ghost, or ignores it. |
 | F14 | α used the unstored fact "some attempt has returned"; I3 and I7 were not invariants. | **Fixed.** The virtual task's state is the ghost pair `h`, `v` (Section 11.2). I3 and I7 are weakened. Section 11.6. |
 
+The re-review of these fixes found four more points, all accepted and
+checked against the code at `55721e878`.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| F15 | α was not a function of the configuration: `ζ` needs to know which past commands were normal. Two runs, one with a normal [STEP-START] and one with an [ATTEMPT-HEARTBEAT] at the same `seq`, reach equal states but need different `ζ`. | **Fixed.** `ζ` and a counter `n` of applied normal commands are ghost variables of `Σ_F`, updated only by normal commands. α is defined from them. Sections 11.2 and 11.6. |
+| F16 | The run `seq` and `next_run_seq` were both restored as `ζ` of the last normal command, which is off by one. | **Fixed.** They are `n` and `n + 1` (`run_cursor.rs:153-156`). Section 11.6. |
+| F17 | The `seq` table missed `AttributeRecord.written_seq`, `SearchDocumentRecord.version`, `HistoryRecord.seq`, and the checkpoint `seq` fields. | **Fixed.** Added with evidence, together with hard-delete, outbox, inbox, and attempt-record `seq` fields. The table now says which modules were searched and which were not audited. Section 11.6. |
+| F18 | "Attempt 1 has no snapshot yet" confused the attempt number with whether the invocation ever started: a returned attempt is Pending with attempt 1 and keeps its snapshot. | **Fixed.** The text now speaks of an invocation that has never started (`step_results.rs:138-145`, `step_results.rs:509-530`). Section 11.3. |
+
 ## 11. Failures
 
 Sections 1 to 10 describe runs without failures. This section adds failures
@@ -2250,13 +2260,15 @@ Inv   ::= ⟨ m, ip : P | R | B, a : ℕ⁺, ps, keys, snap : Snap?, tid : TaskI
 Task  ::= ⟨ f, e, m, a, tid, input, snap, locals, cr, ctxA,
             phase : Started | Running(Fx*, Resp) | Returned(Resp),
             j : ℕ ⟩                    -- j: effects emitted so far (ghost)
-Σ_F   ::= ⟨ τc, P, R, η, N, Z, I, h, v, ps₀ ⟩
+Σ_F   ::= ⟨ τc, P, R, η, N, Z, I, h, v, ps₀, n, ζ ⟩
 Z : TaskId ⇀ Task                      -- zombie tasks: Workers the server gave up
 I : set of (e, m, a, tid)              -- interrupted attempts, engine memory
 h : (e, m) ⇀ ℕ                         -- ghost: largest effect index any attempt emitted
 v : (e, m) ⇀ NotRun | Ran(Fx*, Resp) | Returned(Resp)
                                        -- ghost: furthest phase any attempt reached
 ps₀ : (e, m) ⇀ ℕ                       -- ghost: ps of the invocation's first pend
+n : ℕ                                  -- ghost: number of applied normal commands of the run
+ζ : ℕ ⇀ ℕ                              -- ghost: real seq of each applied normal command ↦ its index
 ```
 
 - `Inv` extends Section 3.1. `a` is the method's attempt number. In Backoff
@@ -2268,9 +2280,20 @@ ps₀ : (e, m) ⇀ ℕ                       -- ghost: ps of the invocation's fi
   `ip = R`.
 - `Tm` (Section 3.2) also holds **retry timers** `retry(e, m, a)`, armed when
   attempt `a − 1` fails (`step_results.rs:741-756`).
-- `h`, `v`, and `ps₀` are history variables. No rule reads them; only α
-  does. Under H2 each pair `(e, m)` has at most one invocation in its life,
-  so they need no reset.
+- `h`, `v`, `ps₀`, `n`, and `ζ` are history variables. No rule reads them;
+  only α does. Under H2 each pair `(e, m)` has at most one invocation in its
+  life, so they need no reset.
+- A **normal command** is an applied command that α maps to a Dex commit
+  (the transition map of Section 11.6). Every applied normal command with
+  run `seq` `s` sets `n := n + 1` and `ζ[s] := n`. Every other command, a
+  failure command or an ignored or rejected one, leaves `n` and `ζ`
+  unchanged. So `ζ` is strictly increasing on its domain. It is part of the
+  configuration, because the configuration alone cannot tell which past
+  commands were normal: two runs can reach the same `R`, `Θ`, `Z`, `I`, `h`,
+  `v`, `ps₀`, and clocks, one through a normal [STEP-START] and one through
+  an [ATTEMPT-HEARTBEAT] at the same `seq`, and need different relabelings
+  afterwards (`step_results.rs:211-255`, `invocations.rs:274-280`,
+  `step_decisions.rs:373-401`).
 - `v(e, m)` is monotone. It starts at `NotRun` when the invocation is first
   pended. It becomes `Ran(fx⃗, resp)` when some attempt first runs the
   handler, and `Returned(resp)` when some attempt first returns. It never
@@ -2390,8 +2413,12 @@ leaves `Θ` or `Z`. This rule subsumes [STEP-COMPLETE-STALE].
   reservation comes before the task ID is minted and before the start is
   proposed (`attempt_handout.rs:222-235`, `attempt_handout.rs:257`). So no
   task frame was sent, no Worker ran the attempt, and no effect was emitted.
-  Attempt 1 has no snapshot yet. A later attempt keeps the snapshot it
-  retained, unchanged. The failure moves the invocation to Backoff
+  What decides the snapshot is whether the invocation has ever started, not
+  the attempt number. The fence checks only the phase Pending, the method,
+  and the attempt number (`step_results.rs:138-145`). An invocation that has
+  never started has no snapshot yet. One that started before keeps its
+  retained snapshot, unchanged, also when it is Pending with attempt 1
+  after a [ATTEMPT-RETURNED] (`step_results.rs:509-530`). The failure moves the invocation to Backoff
   ([ATTEMPT-LOST]); under α it is a stutter (Section 11.6).
 - Duplicate proposals are stale by this rule. The engine proposes a Step
   command again only after an `Unavailable` error
@@ -2441,8 +2468,8 @@ Code: `step_results.rs:258-360`, `invocations.rs:314-390`.
   output frame, heartbeat or Stream write, resets the heartbeat deadline
   (`method_attempt.rs:692-693`). So a handler that runs longer than the
   heartbeat timeout without either loses its attempt, with no crash at all.
-- **Before the first start.** A failure of attempt 1 before its start leaves
-  no snapshot and no task: no effect was emitted. It removes the invocation
+- **Before the first start.** A before-start failure of an invocation that
+  has never started leaves no snapshot and no task: no effect was emitted. It removes the invocation
   from its lock queues, and [RETRY-FIRE] queues it again at the tail
   (`invocations.rs:339-340`, `invocations.rs:70-77`). No failure-free run
   reorders a lock queue. The fragment has no Attribute locks, so the proof
@@ -2834,7 +2861,7 @@ maps to a Dex [WORKER-EFFECT].
   bookkeeping of every invocation.
 - Every retry timer in `Tm`.
 - `Z`, `I`, and the timer service memory.
-- The ghosts `h`, `v`, and `ps₀`, after it has used them to build the
+- The ghosts `h`, `v`, `ps₀`, `n`, and `ζ`, after it has used them to build the
   virtual tasks and to restore `ps` below.
 
 **Invocations.** α decides by whether the invocation holds a snapshot, not
@@ -2858,8 +2885,8 @@ by its phase. For each invocation `(e, m)`:
   different state in the two cases.
 - An invocation **without** a snapshot (`ip = P` or `ip = B`) maps to
   `ip = P`, and `h(e, m) = 0`. It never started: either it is waiting for its
-  first start, or attempt 1 failed before any start and is in Backoff or
-  pending again with `a ≥ 2`. No attempt of it emitted an effect.
+  first start, or it failed before any start and is in Backoff or pending
+  again with `a ≥ 2`. No attempt of it emitted an effect.
 
 This is sound because a retrying invocation looks to apply exactly like a
 running one. It keeps its snapshot from the first start
@@ -2896,23 +2923,42 @@ reuses the snapshot, 6 the completion. After 4 the invocation's
 `invocations.rs:109-125`). The Dex run has commits 1, 2, and 3 for DexF's 1,
 2, and 6, and its invocation keeps the `ps` of its first pend.
 
-So α uses `ζ` only on values that applied **normal** commands wrote. `ζ`
-maps the `seq` of the `k`-th applied normal command to `k`; it is strictly
+So α uses `ζ` only on values that applied **normal** commands wrote. `ζ` is
+the ghost map of Section 11.2, part of the configuration: it maps the `seq`
+of the `k`-th applied normal command to `k`, and it is strictly
 order-preserving. Each other value is either ignored or restored from a
-ghost copy. Field by field:
+ghost. Field by field:
 
 | Field | Written by | α |
 | --- | --- | --- |
-| Run `seq` and `next_run_seq` | every applied command | restored: `ζ` of the last applied normal command |
-| `sws` (Section 3.1) | wait registration in a WaitFor completion only | `ζ` |
+| Run `seq` of the last applied command, and `next_run_seq` | every applied command; a cursor takes `seq = max(next_run_seq, 1)` and sets `next_run_seq := seq + 1` (`dexzd-apply/src/command_handlers/run_cursor.rs:153-156`) | restored from the ghost counter: `n` and `n + 1`. With only the start applied, `n = 1`, so `seq = 1` and `next_run_seq = 2` |
+| `AttributeRecord.written_seq` (`flow_data.rs:216-225`, `flow_data.rs:253-264`) | Attribute writes of normal commands only; failure commands write no Attribute | `ζ`; also ignorable: only the search projection and Attribute Sync read it (`dexzd-apply/src/projections/search_document.rs:73`, `dexzd-apply/src/projections/attribute_sync.rs:151`), both excluded (Section 1.3) |
+| `HardDeleteObjectRecord.written_seq` (`flow_data.rs:245-251`, `flow_data.rs:319-326`) | hard-delete Attribute writes | ignored: hard-delete Attributes are excluded (Section 1.3) |
+| `SearchDocumentRecord.version` (`search_document.rs:125-126`) | the search projection | ignored: the search projection is excluded (Section 1.3) |
+| `HistoryRecord.seq` (`run_cursor.rs:270-278`) | every applied command that records history | ignored: history is excluded (Section 1.3) |
+| `CheckpointRecord.seq`, `AttemptRecord.checkpoint_seqs`, `RunRecord.last_checkpoint_seq` (`dexzd-apply/src/history/checkpoints.rs:122-146`), `AttemptRecord.start_seq` (`flow_start.rs:179-189`) | history checkpoints for time travel | ignored: time travel and history are excluded (Section 1.3) |
+| Outbox and inbox `seq` values (`dexzd-apply/src/cross_flow/outbox.rs:93`, `outbox.rs:368`, `outbox.rs:471`, `outbox.rs:576`, `dexzd-apply/src/cross_flow/inbox.rs:229`, `inbox.rs:362`, `inbox.rs:366`) | SubFlow messages | ignored: SubFlows are outside the fragment (D1) |
+| `sws`, stored as `started_waiting_seq` (Section 3.1; `dexzd-apply/src/steps/wait_conditions/mod.rs:119`, `wait_conditions/mod.rs:130`) | wait registration in a WaitFor completion only | `ζ` |
 | Enqueue `q = seq · 10⁶ + i` (`dexzd-apply/src/command_handlers/flow_data.rs:79`, `flow_data.rs:540`) | publications of completions and client publications only; failure commands publish nothing | `ζ(seq) · 10⁶ + i` |
 | `pending_since_seq` of an invocation (`invocations.rs:114`) | `pend` in normal commands, and the retry part of [RETRY-FIRE] | restored from a ghost copy `ps₀(e, m)`, the `ζ`-image of the value its first `pend` wrote; retries never change `ps₀` |
 | `pending_since_seq` of a lock waiter (`invocations.rs:73-76`) | `pend`, including a re-queue after a before-start failure | ignored in the fragment, which has no Attribute locks; outside it, the open point at the end of this section |
 | `created_seq` of a Step (`dexzd-apply/src/steps/step_creation.rs:91`) | Step creation, only in normal commands; the failure path that creates a Step is excluded by H2 (`step_results.rs:407-416`) | `ζ` |
-| `completed_seq` of a Step (`dexzd-apply/src/steps/step_decisions.rs:401`) | `finish_step` in decisions, cancels, and closes; the exhaustion path is excluded by H1 (`step_results.rs:456-458`) | `ζ` |
+| `completed_seq` of a Step (`dexzd-apply/src/steps/step_decisions.rs:401`) | `finish_step` in decisions, cancels, and closes; the exhaustion path is excluded by H1 (`step_results.rs:456-458`) | `ζ`; a close compares it with its own `seq` for equality (`flow_close.rs:441-445`), which `ζ` keeps |
 | Value IDs (`dexzd-apply/src/values/mod.rs:96-98`) | values stored by a command | `ζ` for normal commands; failure commands store only heartbeat checkpoints (`step_results.rs:240-252`), which α forgets; snapshot retention moves pins and allocates no ID (`invocations.rs:350-370`) |
 | `recorded_seq` of a request-table entry (`client_writes.rs:92`) | SetAttributes, DeleteChannelMessage, RPCs | ignored: the fragment never writes the table |
-| Storage accounting and value garbage stamped with a `seq` | releases of stored values | ignored: not part of the semantics |
+| Storage accounting and value garbage stamped with a `seq` (`dexzd-apply/src/values/garbage.rs:210`, the `release_stored_value` calls) | releases of stored values | ignored: not part of the semantics |
+
+**How complete this table is.** At `55721e878`, revision 9 searched
+`server-zd/crates/dexzd-apply/src/` for writes of `cursor.seq` and reads of
+`.seq` in `command_handlers/`, `steps/`, `projections/`, `values/`,
+`state_access/`, `cross_flow/`, and in `history/checkpoints.rs`,
+`history/window.rs`, and `history/lineage.rs`. Every write found is in the
+table. It did not audit `history_offload/`, `history/time_travel/`,
+`history/state_rebuild.rs`, `history/reset_target.rs`,
+`history/diagnostics.rs`, or `read_model/` field by field. The first four
+serve history offload and time travel, which Section 1.3 excludes, so α
+ignores every record they write. The last two only read. The table is
+exhaustive only for the modules named here.
 
 In the fragment, `pending_since_seq` of an invocation is read only to order
 lock queues, which the fragment lacks; dispatch order is nondeterministic
