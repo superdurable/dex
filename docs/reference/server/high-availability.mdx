@@ -24,8 +24,8 @@ warning and waits for the lease to expire, up to 31 seconds.
 The default **dev.durabilityMode**, **strict**, flushes every write with fsync
 before the reply. Every acknowledged write survives a process crash or kill,
 and also a host crash or power loss. **processCrashSafe** skips fsync, so it is
-faster, but a host crash or power loss can lose recent writes. The
-**--durability** flag of **dex-server-zd dev** overrides the setting. After an
+faster, but a host crash or power loss can lose recent writes. **relaxed**
+keeps writes in memory until a graceful stop. The **--durability** flag of **dex-server-zd dev** overrides the setting. After an
 abrupt exit in **relaxed** mode, the dev node refuses to start until you delete
 its data directory. See
 [local development](/reference/web/dex-web#run-against-server-zd).
@@ -271,7 +271,8 @@ if the switchover you wanted has not happened.
 After the release, the step down call watches the lease. It returns as soon as
 another process takes over. Otherwise it returns after the hold-off and one
 attempt to take the lease back. So the call lasts at most the sum of the attempt
-drain timeout, the commit drain bound, the release, the hold-off, and one lease
+drain timeout, the wait for writes already in flight to commit, the release,
+the hold-off, and one lease
 acquisition attempt.
 
 There is one exception. The process competes for the lease again only after the
