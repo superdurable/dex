@@ -71,9 +71,11 @@ With `--base-path /dex`, Dex Web serves everything under `/dex/` and returns 404
 outside it; `/healthz` and `/readyz` stay at the root. `index.html` is built with
 relative asset URLs, and the server rewrites them and adds a
 `dex-web-base-path` meta tag for each response. Frontend code builds every
-same-origin URL with `webURL` from `lib/basePath.ts`. `--frame-ancestors`
-replaces `frame-ancestors 'none'` and `X-Frame-Options: DENY` with the listed CSP
-sources.
+same-origin URL with `webURL` from `lib/basePath.ts`, and names every
+browser-storage key that holds Dex Server data, such as recent searches, with
+`scopedStorageKey`. `--frame-ancestors` replaces `frame-ancestors 'none'` and
+`X-Frame-Options: DENY` with the listed CSP sources; the handler entry sets these
+headers on every response.
 
 The `embedded` package serves Dex Web for many Dex Servers from a host Go HTTP
 server; see the Developer reference page "Embed Dex Web in a Go server". Each

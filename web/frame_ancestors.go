@@ -72,7 +72,10 @@ func newFramePolicy(sources []string) (framePolicy, error) {
 
 func (policy framePolicy) apply(header http.Header) {
 	header.Set("Content-Security-Policy", policy.contentSecurityPolicy)
-	if policy.frameOptions != "" {
-		header.Set("X-Frame-Options", policy.frameOptions)
+	if policy.frameOptions == "" {
+		// A host's earlier DENY would still block the allowlisted frames.
+		header.Del("X-Frame-Options")
+		return
 	}
+	header.Set("X-Frame-Options", policy.frameOptions)
 }

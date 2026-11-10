@@ -58,9 +58,18 @@ func NewEmbeddedSite(cfg *EmbeddedSiteConfig, assets fs.FS) (*EmbeddedSite, erro
 	return &EmbeddedSite{pages: pages, protection: newAPIRequestProtection(newAllowedHostsPolicy(cfg.AllowedHosts))}, nil
 }
 
+// SetFramingHeaders sets the Content-Security-Policy frame-ancestors and X-Frame-Options headers that
+// FrameAncestors chooses, and removes an X-Frame-Options that the list does not allow. Call it before writing a
+// response that ServeTarget does not write, such as a resolver error.
+func (site *EmbeddedSite) SetFramingHeaders(header http.Header) {
+	site.pages.framePolicy.apply(header)
+}
+
 // ServeTarget serves one request against target. Routes, caches, and readiness state live only for this request.
-// The probes /healthz and /readyz are served under target.BasePath and report only this target.
+// The probes /healthz and /readyz are served under target.BasePath and report only this target. Every response
+// carries the framing headers.
 func (site *EmbeddedSite) ServeTarget(response http.ResponseWriter, request *http.Request, target EmbeddedSiteTarget) {
+	site.SetFramingHeaders(response.Header())
 	if target.FlowServiceClient == nil {
 		slog.Error("Dex Web target has no FlowService client")
 		api.WriteCodedError(response, http.StatusInternalServerError, "TARGET_INVALID", "Dex Web target is invalid")

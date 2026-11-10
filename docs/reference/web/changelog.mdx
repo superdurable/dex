@@ -15,7 +15,8 @@ Released 2026-11-10 as [web/v1.43.0](https://github.com/superdurable/dex/release
 ### Added
 
 - **--base-path** (**DEX_WEB_BASE_PATH**) serves the pages, assets, and **/api** routes under a URL path prefix, such as **/dex**. Requests outside the prefix get HTTP 404, and **/healthz** and **/readyz** stay at the root. [Reference](/reference/web/dex-web#base-path).
-- **--frame-ancestors** (**DEX_WEB_FRAME_ANCESTORS**) lists the sites that may show Dex Web in a frame. By default no site may. [Reference](/reference/web/dex-web#frame-ancestors).
+- **--frame-ancestors** (**DEX_WEB_FRAME_ANCESTORS**) lists the sites that may show Dex Web in a frame. By default no site may. Every response carries the framing headers. [Reference](/reference/web/dex-web#frame-ancestors).
+- Under a base path, recent and saved Flow searches are stored per base path, so Dex Webs on one origin keep them apart. [Reference](/reference/web/embed-dex-web#browser-storage).
 - The Go module **github.com/superdurable/dex/web/embedded** serves Dex Web for many Dex Servers from a host application's own Go HTTP server, under a path prefix chosen per request. Each **web/vX.Y.Z** release publishes it as **web/embedded/vX.Y.Z**. [Reference](/reference/web/embed-dex-web).
 
 ### Changed

@@ -16,6 +16,7 @@ import {
   canonicalBasePath,
   joinWebPath,
   routerBasename,
+  scopedStorageKey,
   webBasePath,
   webURL,
 } from './basePath';
@@ -49,6 +50,15 @@ describe('canonicalBasePath', () => {
     ['/dex?a=1', '/'],
   ])('reads %j as %j', (value, expected) => {
     expect(canonicalBasePath(value)).toBe(expected);
+  });
+});
+
+describe('scopedStorageKey', () => {
+  it('keeps the plain key at the root and adds the base path elsewhere', () => {
+    expect(scopedStorageKey('dex-web-recent-queries')).toBe('dex-web-recent-queries');
+    setBasePathMeta('/dex-web/server-a/');
+    expect(scopedStorageKey('dex-web-recent-queries')).toBe('dex-web-recent-queries@/dex-web/server-a');
+    expect(scopedStorageKey('dex-web-recent-queries', '/dex-web/server-b')).toBe('dex-web-recent-queries@/dex-web/server-b');
   });
 });
 

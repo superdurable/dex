@@ -56,6 +56,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
@@ -125,9 +126,11 @@ type Config struct {
 	// generic JSON body. Set it to write your own response, such as your application's error page.
 	WriteResolveError ResolveErrorWriter
 	// FrameAncestors defaults empty, which sends "Content-Security-Policy: frame-ancestors 'none'" and
-	// "X-Frame-Options: DENY" with every page, so no page may frame Dex Web. Each entry is a CSP source that may
-	// frame it: 'self' or an explicit host source such as https://host.example. A non-empty list replaces the CSP
-	// sources and drops X-Frame-Options, except that the list 'self' alone sends "X-Frame-Options: SAMEORIGIN".
+	// "X-Frame-Options: DENY" with every response, including redirects and resolver errors, so no page may frame
+	// Dex Web. Each entry is a CSP source that may frame it: 'self' or an explicit host source such as
+	// https://host.example. A non-empty list replaces the CSP sources and removes X-Frame-Options, even one that host
+	// middleware set before the handler ran, except that the list 'self' alone sends "X-Frame-Options: SAMEORIGIN".
+	// The handler sets these headers before it calls ResolveTarget, so WriteResolveError may still replace them.
 	FrameAncestors []string
 	// AllowedHosts defaults empty, which accepts every Host header because the host server owns Host checks.
 	// When it has an entry, /api requests must name a loopback name, an IP address, or one of these hosts in their
@@ -135,9 +138,11 @@ type Config struct {
 	AllowedHosts []string
 }
 
+// dexWebHandler copies every Config field at construction, so later changes to the Config never reach it.
 type dexWebHandler struct {
-	cfg  *Config
-	site *web.EmbeddedSite
+	resolveTarget          TargetResolver
+	hostResolveErrorWriter ResolveErrorWriter
+	site                   *web.EmbeddedSite
 }
 
 // NewDexWebHandler returns an http.Handler that serves Dex Web for the Dex Server each request resolves to.
@@ -156,17 +161,19 @@ func NewDexWebHandler(cfg *Config) (http.Handler, error) {
 		return nil, errors.New("embedded Dex Web config requires ResolveTarget")
 	}
 	site, err := web.NewEmbeddedSite(&web.EmbeddedSiteConfig{
-		FrameAncestors: cfg.FrameAncestors,
-		AllowedHosts:   cfg.AllowedHosts,
+		FrameAncestors: slices.Clone(cfg.FrameAncestors),
+		AllowedHosts:   slices.Clone(cfg.AllowedHosts),
 	}, assets.Files)
 	if err != nil {
 		return nil, err
 	}
-	return &dexWebHandler{cfg: cfg, site: site}, nil
+	return &dexWebHandler{resolveTarget: cfg.ResolveTarget, hostResolveErrorWriter: cfg.WriteResolveError, site: site}, nil
 }
 
 func (handler *dexWebHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	target, err := handler.cfg.ResolveTarget(request)
+	// Before resolving, so redirects and resolver errors carry the framing headers too.
+	handler.site.SetFramingHeaders(response.Header())
+	target, err := handler.resolveTarget(request)
 	if err != nil {
 		handler.writeResolveError(response, request, err)
 		return
@@ -179,8 +186,8 @@ func (handler *dexWebHandler) ServeHTTP(response http.ResponseWriter, request *h
 }
 
 func (handler *dexWebHandler) writeResolveError(response http.ResponseWriter, request *http.Request, err error) {
-	if handler.cfg.WriteResolveError != nil {
-		handler.cfg.WriteResolveError(response, request, err)
+	if handler.hostResolveErrorWriter != nil {
+		handler.hostResolveErrorWriter(response, request, err)
 		return
 	}
 	switch {

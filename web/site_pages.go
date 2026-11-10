@@ -30,7 +30,8 @@ type sitePages struct {
 	files  http.Handler
 	// indexTemplate is the built index.html, whose asset URLs are relative ("./assets/...").
 	indexTemplate string
-	framePolicy   framePolicy
+	// framePolicy is applied at the handler entry, so every response carries it, not only pages.
+	framePolicy framePolicy
 }
 
 // newSitePages opens the "dist" directory of a Web asset file system.
@@ -94,7 +95,6 @@ func (pages *sitePages) spaHandler(basePath string, hasConnectorSetup bool) http
 
 func (pages *sitePages) serveIndex(response http.ResponseWriter, request *http.Request, basePath string) {
 	response.Header().Set("Cache-Control", "no-store")
-	pages.framePolicy.apply(response.Header())
 	index := renderIndexForBasePath(pages.indexTemplate, basePath)
 	http.ServeContent(response, request, "index.html", time.Time{}, bytes.NewReader(index))
 }

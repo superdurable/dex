@@ -287,9 +287,18 @@ func TestServeConnectorUIAssetUsesSandboxHeadersAndRequest(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodGet, "http://localhost/connector-ui/index.html", nil)
 	response := httptest.NewRecorder()
+	// The standalone handler entry denies framing before routing; the Connectors page must still frame this asset.
+	response.Header().Set("X-Frame-Options", "DENY")
+	response.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 
 	serveConnectorUIAsset(response, request, "index.html", root, false)
 
+	if frameOptions := response.Header().Get("X-Frame-Options"); frameOptions != "" {
+		t.Fatalf("X-Frame-Options = %q", frameOptions)
+	}
+	if strings.Contains(response.Header().Get("Content-Security-Policy"), "frame-ancestors") {
+		t.Fatalf("CSP = %q", response.Header().Get("Content-Security-Policy"))
+	}
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d", response.Code)
 	}

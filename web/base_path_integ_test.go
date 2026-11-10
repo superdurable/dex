@@ -176,6 +176,47 @@ func TestFrameAncestorsControlFramingHeaders(t *testing.T) {
 	}
 }
 
+func TestFramingHeadersCoverRedirectsAndErrors(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		frameAncestors []string
+		wantPolicy     string
+		wantOptions    string
+	}{
+		{name: "default", wantPolicy: "frame-ancestors 'none'", wantOptions: "DENY"},
+		{name: "self", frameAncestors: []string{"'self'"}, wantPolicy: "frame-ancestors 'self'", wantOptions: "SAMEORIGIN"},
+		{name: "allowlist", frameAncestors: []string{"https://host.example"}, wantPolicy: "frame-ancestors https://host.example"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server, err := dexweb.NewServer(&dexweb.Config{BasePath: "/dex", FrameAncestors: testCase.frameAncestors}, dexpb.NewFlowServiceClient(nil), assets.Files)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A reverse proxy or wrapper in front of Dex Web may already deny framing.
+			hostDeniesFraming := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				response.Header().Set("X-Frame-Options", "DENY")
+				server.Handler().ServeHTTP(response, request)
+			})
+			for requestPath, wantStatus := range map[string]int{
+				"/dex":                         http.StatusMovedPermanently,
+				"/dex/v1/flows":                http.StatusOK,
+				"/elsewhere":                   http.StatusNotFound,
+				"/dex/api/no-such-route":       http.StatusNotFound,
+				"/dex/api/flow-definitions":    http.StatusOK,
+				"/dex/../api/flow-definitions": http.StatusNotFound,
+			} {
+				response := httptest.NewRecorder()
+				hostDeniesFraming.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1"+requestPath, nil))
+				if response.Code != wantStatus ||
+					response.Header().Get("Content-Security-Policy") != testCase.wantPolicy ||
+					response.Header().Get("X-Frame-Options") != testCase.wantOptions {
+					t.Fatalf("GET %s = %d %v", requestPath, response.Code, response.Header())
+				}
+			}
+		})
+	}
+}
+
 func TestConnectorRoutesReportUnavailableWithoutSetup(t *testing.T) {
 	harness := newHarnessWithConfig(t, &flowService{}, &dexweb.Config{BindAddress: "127.0.0.1", BasePath: "/dex"})
 	response := getAndClose(t, harness.http.URL+"/dex/api/v2/connector-connections")

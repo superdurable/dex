@@ -758,5 +758,7 @@ func serveConnectorUIAsset(response http.ResponseWriter, request *http.Request, 
 		response.Header().Set("Content-Type", contentType)
 	}
 	response.Header().Set("Content-Security-Policy", connectorUIContentSecurityPolicy(canWriteConnection))
+	// Dex Web's own Connectors page frames this asset, so the entry's frame denial must not reach it.
+	response.Header().Del("X-Frame-Options")
 	http.ServeContent(response, request, cleanPath, info.ModTime(), asset)
 }

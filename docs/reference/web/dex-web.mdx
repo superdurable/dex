@@ -123,11 +123,12 @@ The page tells the browser its prefix in a **dex-web-base-path** meta tag, and
 every page link, API call, redirect, and **?view=** deep link stays under it.
 With local Connector setup, the OAuth redirect URI is
 **http(s)://HOST/PREFIX/api/v2/connector-oauth/callback**, so register that URI
-with the provider.
+with the provider. Recent and saved Flow searches are stored separately for each
+prefix; see [Browser storage](/reference/web/embed-dex-web#browser-storage).
 
 ### Framing {#frame-ancestors}
 
-Since 1.43. By default every page carries
+Since 1.43. By default every response, including redirects and errors, carries
 **Content-Security-Policy: frame-ancestors 'none'** and **X-Frame-Options: DENY**,
 so no site can show Dex Web in a frame. **--frame-ancestors** lists the sites
 that may:
@@ -141,8 +142,9 @@ Each entry is **'self'** or an explicit host source, such as
 **https://console.example.com:8443**. A bare asterisk, scheme-only sources such as
 **https:**, **'none'**, and entries with quotes, commas, or semicolons are
 rejected, and startup fails. With a list, Dex Web sends the list as the
-**frame-ancestors** directive and drops **X-Frame-Options**. The list **'self'**
-alone also sends **X-Frame-Options: SAMEORIGIN**. Framing does not change the
+**frame-ancestors** directive and removes **X-Frame-Options**, even one that a
+wrapper in front of Dex Web already set. The list **'self'** alone sends
+**X-Frame-Options: SAMEORIGIN** instead. Framing does not change the
 [/api checks](#api-requests): the framed page calls its own origin.
 
 ### The /api requests {#api-requests}

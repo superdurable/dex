@@ -47,3 +47,8 @@ export function webURL(rootedPath: string): string {
 export function routerBasename(basePath: string = webBasePath()): string | undefined {
   return basePath === '/' ? undefined : basePath;
 }
+
+/** Returns `<key>@<basePath>` for Dex Server data; the root keeps `key` so standalone data survives. */
+export function scopedStorageKey(key: string, basePath: string = webBasePath()): string {
+  return basePath === '/' ? key : `${key}@${basePath}`;
+}

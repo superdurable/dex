@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
-import { webURL } from '@/lib/basePath';
+import { scopedStorageKey, webURL } from '@/lib/basePath';
 
 type QueryMode = 'basic' | 'advanced';
 type ColumnId = 'status' | 'flowId' | 'runId' | 'flowType' | 'start' | 'close' | 'duration';
@@ -76,6 +76,10 @@ const hiddenIndexedAttributeKeys = new Set([
   'FlowType',
   'TemporalChangeVersion',
 ]);
+
+// Recent and saved searches name one Dex Server's Flows, so scopedStorageKey scopes them by base path.
+const recentQueriesStorageKey = 'dex-web-recent-queries';
+const savedQueriesStorageKey = 'dex-web-saved-queries';
 
 interface SavedQuery {
   name: string;
@@ -174,7 +178,7 @@ export function FlowSearchPage() {
       if (requestedQuery.trim()) {
         setRecent((current) => {
           const next = [requestedQuery, ...current.filter((item) => item !== requestedQuery)].slice(0, 10);
-          window.localStorage.setItem('dex-web-recent-queries', JSON.stringify(next));
+          window.localStorage.setItem(scopedStorageKey(recentQueriesStorageKey), JSON.stringify(next));
           return next;
         });
       }
@@ -200,8 +204,8 @@ export function FlowSearchPage() {
     } else {
       setMode('advanced');
     }
-    setRecent(readJSON('dex-web-recent-queries', []));
-    setSaved(readJSON('dex-web-saved-queries', []));
+    setRecent(readJSON(scopedStorageKey(recentQueriesStorageKey), []));
+    setSaved(readJSON(scopedStorageKey(savedQueriesStorageKey), []));
     const storedColumns = normalizeColumnOrder(readJSON('dex-web-columns', defaultColumns));
     setColumns(storedColumns);
     window.localStorage.setItem('dex-web-columns', JSON.stringify(storedColumns));
@@ -267,7 +271,7 @@ export function FlowSearchPage() {
       ...saved.filter((item) => item.name !== name.trim()),
     ];
     setSaved(next);
-    window.localStorage.setItem('dex-web-saved-queries', JSON.stringify(next));
+    window.localStorage.setItem(scopedStorageKey(savedQueriesStorageKey), JSON.stringify(next));
   }
 
   function toggleColumn(column: ColumnId) {

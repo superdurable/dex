@@ -50,10 +50,12 @@ type Config struct {
 	// "/dex". An empty value means "/". ValidateBasePath lists the accepted form. Requests outside the prefix get
 	// HTTP 404, except /healthz and /readyz, which also stay at the root for probes.
 	BasePath string
-	// FrameAncestors defaults empty, which sends "frame-ancestors 'none'" and "X-Frame-Options: DENY" so no page
-	// may frame Dex Web. Each entry is a CSP source that may frame it, such as 'self' or https://host.example;
-	// ValidateFrameAncestors lists the accepted form. A non-empty list replaces the CSP sources and drops
-	// X-Frame-Options, except that the list 'self' alone sends "X-Frame-Options: SAMEORIGIN".
+	// FrameAncestors defaults empty, which sends "frame-ancestors 'none'" and "X-Frame-Options: DENY" with every
+	// response, including redirects and errors, so no page may frame Dex Web. Each entry is a CSP source that may
+	// frame it, such as 'self' or https://host.example; ValidateFrameAncestors lists the accepted form. A non-empty
+	// list replaces the CSP sources and drops X-Frame-Options, except that the list 'self' alone sends
+	// "X-Frame-Options: SAMEORIGIN". Connector configuration UI assets, which Dex Web frames, send no
+	// X-Frame-Options.
 	FrameAncestors []string
 }
 
@@ -117,7 +119,7 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 	return &Server{
 		cfg: cfg,
 		httpServer: &http.Server{
-			Handler:           newStandaloneBasePathHandler(basePath, protectedRoutes),
+			Handler:           newStandaloneBasePathHandler(basePath, pages.framePolicy, protectedRoutes),
 			ReadTimeout:       30 * time.Second,
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
@@ -128,8 +130,10 @@ func newServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS, flowDe
 }
 
 // newStandaloneBasePathHandler serves next under basePath and keeps the probes at the root for orchestrators.
-func newStandaloneBasePathHandler(basePath string, next http.Handler) http.Handler {
+// Every response, including redirects and 404s outside basePath, carries the framing headers.
+func newStandaloneBasePathHandler(basePath string, framing framePolicy, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		framing.apply(response.Header())
 		if basePath != "/" && (request.URL.Path == "/healthz" || request.URL.Path == "/readyz") {
 			next.ServeHTTP(response, request)
 			return

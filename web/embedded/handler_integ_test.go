@@ -405,3 +405,155 @@ func TestIsMutatingRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestHandlerKeepsItsOwnCopyOfConfig(t *testing.T) {
+	_, clientA := startDexServer(t, "server-a", dexpb.ServerEngine_SERVER_ENGINE_ZD)
+	_, clientB := startDexServer(t, "server-b", dexpb.ServerEngine_SERVER_ENGINE_ZD)
+	resolverFor := func(client dexpb.FlowServiceClient) embedded.TargetResolver {
+		return func(request *http.Request) (embedded.Target, error) {
+			if request.PathValue("serverID") == "missing" {
+				return embedded.Target{}, embedded.ErrTargetNotFound
+			}
+			return embedded.Target{FlowServiceClient: client, BasePath: "/dex-web/" + request.PathValue("serverID")}, nil
+		}
+	}
+	errorWriterFor := func(page string) embedded.ResolveErrorWriter {
+		return func(response http.ResponseWriter, _ *http.Request, _ error) {
+			http.Error(response, page, http.StatusNotFound)
+		}
+	}
+	cfg := &embedded.Config{
+		ResolveTarget:     resolverFor(clientA),
+		WriteResolveError: errorWriterFor("first error page"),
+		FrameAncestors:    []string{"https://first.example"},
+		AllowedHosts:      []string{"first.example"},
+	}
+	first, err := embedded.NewDexWebHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ResolveTarget = resolverFor(clientB)
+	cfg.WriteResolveError = errorWriterFor("second error page")
+	cfg.FrameAncestors[0] = "https://second.example"
+	cfg.AllowedHosts[0] = "second.example"
+	second, err := embedded.NewDexWebHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ResolveTarget = nil
+	cfg.WriteResolveError = nil
+	cfg.FrameAncestors[0] = "https://third.example"
+	cfg.AllowedHosts[0] = "third.example"
+
+	for _, testCase := range []struct {
+		handler     http.Handler
+		host        string
+		wantFlow    string
+		wantError   string
+		wantFraming string
+	}{
+		{handler: first, host: "first.example", wantFlow: "server-a-flow", wantError: "first error page", wantFraming: "frame-ancestors https://first.example"},
+		{handler: second, host: "second.example", wantFlow: "server-b-flow", wantError: "second error page", wantFraming: "frame-ancestors https://second.example"},
+	} {
+		mux := http.NewServeMux()
+		mux.Handle("/dex-web/{serverID}/", testCase.handler)
+		search := httptest.NewRequest(http.MethodPost, "http://"+testCase.host+"/dex-web/x/api/flows/search", strings.NewReader(`{}`))
+		search.Header.Set("Content-Type", "application/json")
+		searchResponse := httptest.NewRecorder()
+		mux.ServeHTTP(searchResponse, search)
+		if searchResponse.Code != http.StatusOK || !strings.Contains(searchResponse.Body.String(), testCase.wantFlow) ||
+			searchResponse.Header().Get("Content-Security-Policy") != testCase.wantFraming {
+			t.Fatalf("search on %s = %d %v %s", testCase.host, searchResponse.Code, searchResponse.Header(), searchResponse.Body)
+		}
+		missingResponse := httptest.NewRecorder()
+		mux.ServeHTTP(missingResponse, httptest.NewRequest(http.MethodGet, "http://"+testCase.host+"/dex-web/missing/", nil))
+		if !strings.Contains(missingResponse.Body.String(), testCase.wantError) {
+			t.Fatalf("resolver error on %s = %d %s", testCase.host, missingResponse.Code, missingResponse.Body)
+		}
+		otherHostResponse := httptest.NewRecorder()
+		mux.ServeHTTP(otherHostResponse, httptest.NewRequest(http.MethodGet, "http://third.example/dex-web/x/api/flow-definitions", nil))
+		if otherHostResponse.Code != http.StatusForbidden {
+			t.Fatalf("Host added to the Config after construction = %d", otherHostResponse.Code)
+		}
+	}
+}
+
+func TestHandlerSetsFramingHeadersOnEveryResponse(t *testing.T) {
+	for _, framing := range []struct {
+		name           string
+		frameAncestors []string
+		wantPolicy     string
+		wantOptions    string
+	}{
+		{name: "default", wantPolicy: "frame-ancestors 'none'", wantOptions: "DENY"},
+		{name: "self", frameAncestors: []string{"'self'"}, wantPolicy: "frame-ancestors 'self'", wantOptions: "SAMEORIGIN"},
+		{name: "allowlist", frameAncestors: []string{"'self'", "https://host.example"}, wantPolicy: "frame-ancestors 'self' https://host.example"},
+	} {
+		for _, hasHostErrorPage := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/hostErrorPage=%t", framing.name, hasHostErrorPage), func(t *testing.T) {
+				handler := newFramingTestHandler(t, framing.frameAncestors, hasHostErrorPage)
+				// Host middleware that denies framing for its own pages runs before Dex Web.
+				mux := http.NewServeMux()
+				mux.Handle("/dex-web/{serverID}", handler)
+				mux.Handle("/dex-web/{serverID}/", handler)
+				hostDeniesFraming := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+					response.Header().Set("X-Frame-Options", "DENY")
+					mux.ServeHTTP(response, request)
+				})
+				for requestPath, wantStatus := range map[string]int{
+					"/dex-web/server-a":                    http.StatusMovedPermanently,
+					"/dex-web/server-a/":                   http.StatusOK,
+					"/dex-web/forbidden/":                  http.StatusForbidden,
+					"/dex-web/broken/api/flow-definitions": http.StatusInternalServerError,
+					"/dex-web/bad-base-path/":              http.StatusInternalServerError,
+				} {
+					if hasHostErrorPage && (requestPath == "/dex-web/forbidden/" || requestPath == "/dex-web/broken/api/flow-definitions") {
+						wantStatus = http.StatusTeapot
+					}
+					response := httptest.NewRecorder()
+					hostDeniesFraming.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1"+requestPath, nil))
+					if response.Code != wantStatus ||
+						response.Header().Get("Content-Security-Policy") != framing.wantPolicy ||
+						response.Header().Get("X-Frame-Options") != framing.wantOptions {
+						t.Fatalf("GET %s = %d %v %s", requestPath, response.Code, response.Header(), response.Body)
+					}
+				}
+			})
+		}
+	}
+}
+
+// newFramingTestHandler resolves "forbidden", "broken", and "bad-base-path" to errors and every other ID to a target.
+func newFramingTestHandler(t *testing.T, frameAncestors []string, hasHostErrorPage bool) http.Handler {
+	t.Helper()
+	cfg := &embedded.Config{
+		FrameAncestors: frameAncestors,
+		ResolveTarget: func(request *http.Request) (embedded.Target, error) {
+			client := dexpb.NewFlowServiceClient(nil)
+			switch serverID := request.PathValue("serverID"); serverID {
+			case "forbidden":
+				return embedded.Target{}, embedded.ErrTargetForbidden
+			case "broken":
+				return embedded.Target{}, errors.New("database unavailable")
+			case "bad-base-path":
+				return embedded.Target{FlowServiceClient: client, BasePath: "dex-web"}, nil
+			default:
+				return embedded.Target{FlowServiceClient: client, BasePath: "/dex-web/" + serverID}, nil
+			}
+		},
+	}
+	if hasHostErrorPage {
+		cfg.WriteResolveError = func(response http.ResponseWriter, _ *http.Request, _ error) {
+			response.Header().Set("Content-Type", "text/html; charset=utf-8")
+			response.WriteHeader(http.StatusTeapot)
+			if _, err := io.WriteString(response, "<p>host error page</p>"); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	handler, err := embedded.NewDexWebHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler
+}
