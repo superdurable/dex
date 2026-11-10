@@ -79,7 +79,59 @@ theorem filter_set_of_rejected (isKept : κ → Bool) (map : AssocList κ ν) (k
       simp [set, isRejected]
     · simp [set, isKey, List.filter_cons, inductionHypothesis]
 
+/-- An entry of `M[k ↦ v]` is an entry of `M` or the new binding. -/
+theorem mem_set (map : AssocList κ ν) (key : κ) (value : ν) (entry : κ × ν)
+    (isMember : entry ∈ set map key value) : entry ∈ map ∨ entry = (key, value) := by
+  induction map with
+  | nil => simpa [set] using isMember
+  | cons head rest inductionHypothesis =>
+    obtain ⟨headKey, headValue⟩ := head
+    by_cases isKey : headKey = key
+    · simp only [set, isKey, ↓reduceIte, List.mem_cons] at isMember
+      rcases isMember with isNew | isInRest
+      · exact Or.inr isNew
+      · exact Or.inl (List.mem_cons_of_mem _ isInRest)
+    · simp only [set, isKey, ↓reduceIte, List.mem_cons] at isMember
+      rcases isMember with isHead | isInRest
+      · exact Or.inl (by simp [isHead])
+      · rcases inductionHypothesis isInRest with isOld | isNew
+        · exact Or.inl (List.mem_cons_of_mem _ isOld)
+        · exact Or.inr isNew
+
+/-- An entry of a map after removing a key was an entry before. -/
+theorem mem_of_mem_erase (map : AssocList κ ν) (key : κ) (entry : κ × ν)
+    (isMember : entry ∈ erase map key) : entry ∈ map := by
+  induction map with
+  | nil => simp [erase] at isMember
+  | cons head rest inductionHypothesis =>
+    obtain ⟨headKey, headValue⟩ := head
+    by_cases isKey : headKey = key
+    · simp only [erase, isKey, ↓reduceIte] at isMember
+      exact List.mem_cons_of_mem _ (inductionHypothesis isMember)
+    · simp only [erase, isKey, ↓reduceIte, List.mem_cons] at isMember
+      rcases isMember with isHead | isInRest
+      · simp [isHead]
+      · exact List.mem_cons_of_mem _ (inductionHypothesis isInRest)
+
 end AssocList
+
+/-- Two members with the same image are equal, when the images have no duplicates. -/
+theorem eq_of_nodup_map {α β : Type} (image : α → β) (elements : List α)
+    (imagesNodup : (elements.map image).Nodup) {first second : α}
+    (isFirstMember : first ∈ elements) (isSecondMember : second ∈ elements)
+    (sameImage : image first = image second) : first = second := by
+  induction elements with
+  | nil => cases isFirstMember
+  | cons head rest inductionHypothesis =>
+    simp only [List.map_cons, List.nodup_cons, List.mem_map, not_exists, not_and] at imagesNodup
+    rcases List.mem_cons.mp isFirstMember with isHead | isInRest <;>
+      rcases List.mem_cons.mp isSecondMember with isHead' | isInRest'
+    · rw [isHead, isHead']
+    · subst isHead
+      exact absurd sameImage.symm (imagesNodup.1 second isInRest')
+    · subst isHead'
+      exact absurd sameImage (imagesNodup.1 first isInRest)
+    · exact inductionHypothesis imagesNodup.2 isInRest isInRest'
 
 /-- The elements of `insertSorted` are the new element and the old ones. -/
 theorem mem_insertSorted {α : Type} (isAtMost : α → α → Bool) (newElement element : α)
