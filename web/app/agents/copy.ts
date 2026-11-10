@@ -106,6 +106,7 @@ export const SESSION_COPY = {
     awaiting_answer: 'waiting for an answer',
     deciding: 'decision recorded',
     queued: 'queued for a Worker',
+    write_queued: 'waiting for an earlier write',
     recording: 'recording the result',
     running: 'running',
     retrying: 'retrying',
@@ -144,6 +145,8 @@ export const SESSION_COPY = {
     'It may have run. Check the system it writes to, then tell the agent what happened.',
   tellAgent: 'Tell the agent',
   skippedDetail: 'It did not run.',
+  skippedAfterWriteDetail: 'It did not run, because an earlier write of this turn did not succeed.',
+  writeQueuedDetail: 'It runs after the earlier writes of this turn succeed.',
   cancelledDetail(reason: string | null | undefined): string {
     if (reason === 'steered') return 'It did not run: a steered message replaced the turn.';
     if (reason === 'turn_cancelled') return 'It did not run: the turn was stopped.';

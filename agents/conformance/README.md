@@ -12,7 +12,9 @@ with the M2 additions in
 [agents-m2-stepwise.md](../../docs/design/plan/agents-m2-stepwise.md).
 
 The files are generated from the Python core and checked against the
-TypeScript core. A core passes when it passes all four parts below.
+TypeScript core, except `connector_tools.json`, which is hand-written and read
+by both cores' connector tool tests. A core passes when it passes all four
+parts below.
 
 | Path | What it fixes |
 | --- | --- |
@@ -22,6 +24,7 @@ TypeScript core. A core passes when it passes all four parts below.
 | [`transcripts/`](transcripts) | Scripted-turn scenarios and the transcript each core must reproduce |
 | [`session_graph.json`](session_graph.json) | The session Flow Definition Graph that Dex Web loads, with placeholders for the Flow type and the Action permission |
 | [`session_graph_renderings.json`](session_graph_renderings.json) | The hash of the graph text each core must render |
+| [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping, result text, and truncation. Hand-written, not generated |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
 | [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |
 

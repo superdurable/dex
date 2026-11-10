@@ -136,6 +136,7 @@ from dex_agents.runner import (
     TOOL_CALL_CANCELLED_BY_STEERING_RESULT,
     TOOL_CALL_CANCELLED_BY_TURN_CANCELLATION_RESULT,
     TOOL_CALL_NOT_RUN_ERROR_PREFIX,
+    TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL,
     TOOL_TASK_ABANDONED_ERROR,
     TURN_CANCELLED_NOTE_HEADER,
     TURN_STEERED_NOTE_HEADER,
@@ -146,9 +147,12 @@ from dex_agents.runner import (
     FrameworkMessage,
     PlanModeRunner,
     ToolCallsRequested,
+    ToolCallStepOptions,
+    ToolCallStepOptionsProvider,
     ToolExecutionError,
     ToolExecutionResult,
     ToolInputRequested,
+    ToolOutcomeUnknownError,
     ToolPolicy,
     ToolTaskCancellation,
     ToolTaskCanceller,
@@ -1315,6 +1319,11 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
         state = _require_agent_state(context)
         turn_id = _require_active_turn_id(state)
         tool_calls = _turn_tool_calls(context, turn_id)
+        if any(tool_call.write_queued for tool_call in tool_calls):
+            decision = self._continue_ordered_writes(context, state, tool_calls)
+            if decision is not None:
+                return decision
+            tool_calls = _turn_tool_calls(context, turn_id)
         if any(not tool_call.status.is_final for tool_call in tool_calls):
             raise RuntimeError(f"turn {turn_id} resumed before every tool call finished")
         decision = self._decide_before_model_call(context, turn_id)
@@ -1656,10 +1665,18 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             for requested in outcome.tool_calls
             if self._enabled_built_in_tool(requested.tool_name) is BuiltInTool.WRITE_TODOS
         )
+        queued_count = 0
+        has_started_ordered_write = False
         for index, requested in enumerate(outcome.tool_calls):
             built_in_tool = self._enabled_built_in_tool(requested.tool_name)
             policy = BUILT_IN_TOOL_POLICY if built_in_tool is not None else requested.policy
             requires_approval = policy.is_approval_required
+            is_ordered_write = (
+                requested.ordered
+                and built_in_tool is None
+                and policy.effect is not ToolEffect.READ
+                and state.interaction_mode is not InteractionMode.PLANNING
+            )
             tool_call = AgentToolCall(
                 tool_call_id=requested.tool_call_id,
                 turn_id=turn_id,
@@ -1675,6 +1692,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 deferral_order=len(tool_calls) + index,
                 tool_source_reference=requested.tool_source_reference,
                 trace_context=trace_context,
+                ordered_write=is_ordered_write,
             )
             events.write_event(
                 AgentEventType.TOOL_CALL_DEFERRED,
@@ -1709,29 +1727,102 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 if movement is not None:
                     movements.append(movement)
                 continue
-            AGENT_TOOL_CALLS.set(context, tool_call.tool_call_id, tool_call)
-            if not requires_approval:
-                movements.append(self._tool_call_movement(tool_call))
+            if is_ordered_write and has_started_ordered_write:
+                # Started by RunModel once every earlier ordered write of the turn succeeded.
+                queued = replace(tool_call, status=ToolCallStatus.APPROVED, write_queued=True)
+                AGENT_TOOL_CALLS.set(context, queued.tool_call_id, queued)
+                queued_count += 1
                 continue
-            interrupt = AgentInterrupt(
-                interrupt_id=tool_call.tool_call_id,
-                kind=InterruptKind.TOOL_APPROVAL,
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-                arguments=tool_call.arguments,
-                created_at=_rfc3339(now),
-                deadline=self._interrupt_deadline(now),
+            has_started_ordered_write = has_started_ordered_write or is_ordered_write
+            movements.append(
+                self._start_deferred_tool_call(context, tool_call, interrupts, now, events)
             )
-            interrupts.append(interrupt)
-            _write_interrupt_raised(events, interrupt)
-            movements.append(self._tool_approval_movement(tool_call.tool_call_id))
         PENDING_INTERRUPTS.set(context, interrupts)
         _record_usage(context, events, outcome.usage)
         AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_TOOLS))
         return go_to_many(
             *movements,
-            StepMovement.of(self._resume_turn, len(outcome.tool_calls)),
+            StepMovement.of(self._resume_turn, len(outcome.tool_calls) - queued_count),
         )
+
+    def _start_deferred_tool_call(
+        self,
+        context: AsyncContext,
+        tool_call: AgentToolCall,
+        interrupts: list[AgentInterrupt],
+        now: datetime,
+        events: AgentEventWriter,
+    ) -> StepMovement[str]:
+        """Store a call and return its tool Step, or raise its approval and return the wait."""
+        AGENT_TOOL_CALLS.set(context, tool_call.tool_call_id, tool_call)
+        if not tool_call.requires_approval:
+            return self._tool_call_movement(tool_call)
+        interrupt = AgentInterrupt(
+            interrupt_id=tool_call.tool_call_id,
+            kind=InterruptKind.TOOL_APPROVAL,
+            tool_call_id=tool_call.tool_call_id,
+            tool_name=tool_call.tool_name,
+            arguments=tool_call.arguments,
+            created_at=_rfc3339(now),
+            deadline=self._interrupt_deadline(now),
+        )
+        interrupts.append(interrupt)
+        _write_interrupt_raised(events, interrupt)
+        return self._tool_approval_movement(tool_call.tool_call_id)
+
+    def _continue_ordered_writes(
+        self,
+        context: AsyncContext,
+        state: AgentState,
+        tool_calls: Sequence[AgentToolCall],
+    ) -> StepDecision | None:
+        """Start the next queued write or skip the rest; None lets a cancelled turn end here."""
+        turn_id = _require_active_turn_id(state)
+        events = self._event_writer(context, turn_id)
+        queued = [tool_call for tool_call in tool_calls if tool_call.write_queued]
+        reason = _turn_control_reason(context, turn_id)
+        if reason is not None:
+            for tool_call in queued:
+                _record_unscheduled_tool_call(
+                    context,
+                    replace(_cancelled_tool_call(tool_call, reason), write_queued=False),
+                    events,
+                )
+            return None
+        if any(
+            not tool_call.status.is_final for tool_call in tool_calls if not tool_call.write_queued
+        ):
+            raise RuntimeError(f"turn {turn_id} resumed before every tool call finished")
+        next_write = queued[0]
+        previous_writes = [
+            tool_call
+            for tool_call in tool_calls
+            if tool_call.ordered_write
+            and not tool_call.write_queued
+            and tool_call.deferral_order < next_write.deferral_order
+        ]
+        if previous_writes and previous_writes[-1].status is not ToolCallStatus.SUCCEEDED:
+            for tool_call in queued:
+                _record_unscheduled_tool_call(context, _skipped_tool_call(tool_call), events)
+            # The skips commit before the model call, so readers see them while the model runs.
+            return self._go_to_message_step(context, self._run_model)
+        interrupts = _pending_interrupts(context)
+        started = replace(
+            next_write,
+            write_queued=False,
+            status=(
+                ToolCallStatus.AWAITING_APPROVAL
+                if next_write.requires_approval
+                else ToolCallStatus.APPROVED
+            ),
+            trace_context=self._session_tracer.read_activation_traceparent(context),
+        )
+        movement = self._start_deferred_tool_call(
+            context, started, interrupts, datetime.now(UTC), events
+        )
+        PENDING_INTERRUPTS.set(context, interrupts)
+        AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_TOOLS))
+        return go_to_many(movement, StepMovement.of(self._resume_turn, 1))
 
     def _enabled_built_in_tool(self, tool_name: str) -> BuiltInTool | None:
         if tool_name not in self._options.built_in_tools:
@@ -2186,6 +2277,7 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 save_heartbeat_checkpoint=heartbeats.save_checkpoint,
                 input_answers=tuple(tool_call.input_answers),
                 supports_tool_tasks=isinstance(self._runner, ToolTaskPoller),
+                context=context,
             )
             async with _background_heartbeats(heartbeats.record):
                 try:
@@ -2194,6 +2286,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     failed = replace(tool_call, status=ToolCallStatus.FAILED, error=str(error))
                     tool_call_span.record_finished(failed)
                     return _finish_tool_call(context, failed, events)
+                except ToolOutcomeUnknownError as error:
+                    unknown = replace(
+                        tool_call, status=ToolCallStatus.OUTCOME_UNKNOWN, error=str(error)
+                    )
+                    tool_call_span.record_finished(unknown)
+                    return _finish_tool_call(context, unknown, events)
             if isinstance(result, ToolInputRequested):
                 asked = _record_tool_input_request(tool_call, result)
                 tool_call_span.record_finished(asked)
@@ -2219,7 +2317,12 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                     },
                 )
                 return go_to_many(self._tool_task_poll_movement(started))
-            succeeded = replace(tool_call, status=ToolCallStatus.SUCCEEDED, output=result.output)
+            succeeded = replace(
+                tool_call,
+                status=ToolCallStatus.SUCCEEDED,
+                output=result.output,
+                truncated_output_bytes=result.truncated_output_bytes,
+            )
             tool_call_span.record_finished(succeeded)
             return _finish_tool_call(context, succeeded, events)
 
@@ -2338,11 +2441,20 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
                 )
             # The results did not all arrive, so wait again for the same count.
             return go_to(self._resume_turn, expected_result_count)
-        unfinished_count = sum(1 for tool_call in tool_calls if not tool_call.status.is_final)
+        unfinished_count = sum(
+            1
+            for tool_call in tool_calls
+            if not tool_call.status.is_final and not tool_call.write_queued
+        )
         if unfinished_count:
             # A consumed result from an earlier turn must not resume this one early.
             return go_to(self._resume_turn, unfinished_count)
         if reason is not None:
+            events = self._event_writer(context, turn_id)
+            for tool_call in tool_calls:
+                if tool_call.write_queued:
+                    cancelled = replace(_cancelled_tool_call(tool_call, reason), write_queued=False)
+                    _record_unscheduled_tool_call(context, cancelled, events)
             return self._go_to_message_step(context, self._apply_turn_control)
         AGENT_STATE.set(context, replace(state, status=AgentSessionStatus.RUNNING_MODEL))
         return self._go_to_message_step(context, self._run_model)
@@ -2662,8 +2774,32 @@ class AgentSessionFlow(Flow[AgentSessionStartInput]):
             step.get_step_options(),
             execute_load_attribute_maps=(),
             execute_load_attribute_map_instances=(record_load,),
-        ).on_execute_failure_proceed_to(recovery_step, recovery_options)
+        )
+        overrides = self._tool_call_step_options(tool_call)
+        if overrides is not None and overrides.execute_method_timeout is not None:
+            options = replace(options, execute_method_timeout=overrides.execute_method_timeout)
+        if (
+            overrides is not None
+            and overrides.execute_retry is not None
+            and step is self._call_tool
+        ):
+            options = replace(options, execute_retry=overrides.execute_retry)
+        options = options.on_execute_failure_proceed_to(recovery_step, recovery_options)
         return StepMovement.of(step, tool_call.tool_call_id, options=options)
+
+    def _tool_call_step_options(self, tool_call: AgentToolCall) -> ToolCallStepOptions | None:
+        if not isinstance(self._runner, ToolCallStepOptionsProvider):
+            return None
+        try:
+            return self._runner.tool_call_step_options(tool_call)
+        except Exception:
+            # The call then runs with the defaults; a missing tool fails by its effect class.
+            _LOGGER.warning(
+                "dex-agents: tool_call_step_options failed for %s",
+                tool_call.tool_name,
+                exc_info=True,
+            )
+            return None
 
     def _tool_task_poll_movement(self, tool_call: AgentToolCall) -> StepMovement[str]:
         # A failed poll leaves the task running, so its outcome is recorded by effect.
@@ -3404,6 +3540,24 @@ def _waiting_interrupt(tool_call: AgentToolCall) -> tuple[str, InterruptKind] | 
     if tool_call.status is ToolCallStatus.AWAITING_ANSWER:
         return _question_interrupt_id(tool_call), InterruptKind.QUESTION
     return None
+
+
+def _skipped_tool_call(tool_call: AgentToolCall) -> AgentToolCall:
+    return replace(
+        tool_call,
+        status=ToolCallStatus.FAILED,
+        write_queued=False,
+        skipped=True,
+        error=f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL}",
+    )
+
+
+def _record_unscheduled_tool_call(
+    context: AsyncContext, finished: AgentToolCall, events: AgentEventWriter
+) -> None:
+    """Record a queued call final; ResumeTurn never waited for it, so no result is published."""
+    AGENT_TOOL_CALLS.set(context, finished.tool_call_id, finished)
+    events.write_tool_call_finished(finished.tool_call_id, finished.tool_name, finished.status)
 
 
 def _cancelled_tool_call(

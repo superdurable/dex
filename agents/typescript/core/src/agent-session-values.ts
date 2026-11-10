@@ -414,6 +414,36 @@ export interface AgentToolCall {
    * the same reason as {@link waitUntil}.
    */
   readonly taskAnswerPending?: boolean;
+  /**
+   * Whether the call is a write that runs in the model's order after the turn's earlier ordered writes,
+   * from {@link DeferredToolCall.ordered}; `false` for every other call. Wire field: `ordered_write`. A
+   * missing value means `false`.
+   * @since 0.3.0
+   */
+  readonly orderedWrite?: boolean;
+  /**
+   * Whether the call waits for an earlier ordered write of its turn. No Step runs it yet, and its approval
+   * is not raised yet. `RunModel` starts it once every earlier call is final and every earlier ordered
+   * write succeeded; otherwise `RunModel` records it `failed` with {@link skipped} set. `ResumeTurn` does
+   * not wait for it. Wire field: `write_queued`. A missing value means `false`.
+   * @since 0.3.0
+   */
+  readonly writeQueued?: boolean;
+  /**
+   * Whether write ordering skipped the call because an earlier ordered write of the turn failed, was
+   * rejected, or ended `outcome_unknown`. The record is `failed`, and its `error` starts with
+   * {@link toolCallNotRunErrorPrefix}, so a reader that does not know this field still sees that the tool
+   * did not run. Wire field: `skipped`. A missing value means `false`.
+   * @since 0.3.0
+   */
+  readonly skipped?: boolean;
+  /**
+   * Size in bytes of the full output when {@link output} holds a truncated copy, from
+   * {@link ToolExecutionResult.truncatedOutputBytes}; otherwise `null`. Wire field:
+   * `truncated_output_bytes`. A missing value means `null`.
+   * @since 0.3.0
+   */
+  readonly truncatedOutputBytes?: number | null;
 }
 
 /**
@@ -1104,6 +1134,13 @@ export const toolTaskAbandonedError =
  * Python core.
  */
 export const toolCallNotRunErrorPrefix = "the tool did not run, so it is safe to call again";
+
+/**
+ * Detail after {@link toolCallNotRunErrorPrefix} and `": "` on a record that write ordering skipped; the same
+ * text as the Python core.
+ * @since 0.3.0
+ */
+export const toolCallSkippedAfterWriteDetail = "an earlier write of this turn did not succeed";
 
 /**
  * Returns the note text that tells the model what a failed turn already did.

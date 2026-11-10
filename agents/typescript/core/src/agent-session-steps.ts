@@ -50,10 +50,12 @@ import {
 import type { StreamAgentEventWriter } from "./agent-event-writer.js";
 import {
   ToolExecutionError,
+  ToolOutcomeUnknownError,
   type AgentTurnContext,
   type DeferredToolCall,
   type DeferredToolExecution,
   type DeferredToolOutcome,
+  type ToolCallStepOptions,
   type ToolCallsRequested,
   type ToolInputRequested,
   type ToolTaskStarted,
@@ -99,6 +101,7 @@ import {
   isFinalToolCallStatus,
   missingToolTaskPoller,
   toolCallNotRunErrorPrefix,
+  toolCallSkippedAfterWriteDetail,
   toolTaskAbandonedError,
   type AgentInterrupt,
   type AgentPlan,
@@ -306,7 +309,14 @@ export class RunModelStep implements Step<void> {
     if (turnId === null) {
       throw new Error(`the agent session ${context.flowId} has no active turn`);
     }
-    const toolCalls = transitions.readTurnToolCalls(context, turnId);
+    let toolCalls = transitions.readTurnToolCalls(context, turnId);
+    if (toolCalls.some((toolCall) => toolCall.writeQueued === true)) {
+      const writeDecision = this.continueOrderedWrites(context, state, turnId, toolCalls);
+      if (writeDecision !== null) {
+        return writeDecision;
+      }
+      toolCalls = transitions.readTurnToolCalls(context, turnId);
+    }
     const openToolCall = toolCalls.find((toolCall) => !isFinalToolCallStatus(toolCall.status));
     if (openToolCall !== undefined) {
       throw new Error(`RunModel for ${turnId} started before tool call ${openToolCall.toolCallId} finished`);
@@ -364,6 +374,75 @@ export class RunModelStep implements Step<void> {
     } finally {
       events.close();
     }
+  }
+
+  /** Starts the next queued write or skips the rest; `null` lets a cancelled turn end here. */
+  private continueOrderedWrites(
+    context: Context,
+    state: AgentState,
+    turnId: string,
+    toolCalls: readonly AgentToolCallRecord[],
+  ): StepDecision | null {
+    const transitions = this.transitions;
+    const queued = toolCalls.filter((toolCall) => toolCall.writeQueued === true);
+    const reason = transitions.readTurnControlReason(context, turnId);
+    if (reason !== null) {
+      transitions.writeEvents(context, turnId, (events) => {
+        for (const toolCall of queued) {
+          transitions.finishUnscheduledToolCall(context, { ...cancelledToolCall(toolCall, reason), writeQueued: false }, events);
+        }
+      });
+      return null;
+    }
+    const openToolCall = toolCalls.find(
+      (toolCall) => toolCall.writeQueued !== true && !isFinalToolCallStatus(toolCall.status),
+    );
+    if (openToolCall !== undefined) {
+      throw new Error(`RunModel for ${turnId} started before tool call ${openToolCall.toolCallId} finished`);
+    }
+    const nextWrite = queued[0]!;
+    const previousWrite = toolCalls
+      .filter(
+        (toolCall) =>
+          toolCall.orderedWrite === true &&
+          toolCall.writeQueued !== true &&
+          toolCall.deferralOrder < nextWrite.deferralOrder,
+      )
+      .at(-1);
+    if (previousWrite !== undefined && previousWrite.status !== "succeeded") {
+      transitions.writeEvents(context, turnId, (events) => {
+        for (const toolCall of queued) {
+          transitions.finishUnscheduledToolCall(context, skippedToolCall(toolCall), events);
+        }
+      });
+      // The skips commit before the model call, so readers see them while the model runs.
+      return transitions.goToRunModel(context);
+    }
+    const createdAt = new Date();
+    const traceContext = transitions.tracer.readActivationTraceparent(context);
+    const { traceContext: _queuedTraceContext, ...queuedWrite } = nextWrite;
+    const started: AgentToolCallRecord = {
+      ...queuedWrite,
+      writeQueued: false,
+      status: nextWrite.requiresApproval ? "awaiting_approval" : "approved",
+      ...(traceContext === null ? {} : { traceContext }),
+    };
+    transitions.writeToolCall(context, started);
+    let movement: StepMovement<string>;
+    if (started.requiresApproval) {
+      const interrupt = toolApprovalInterrupt(
+        started,
+        createdAt.toISOString(),
+        interruptDeadline(transitions, createdAt),
+      );
+      transitions.persistence.pendingInterrupts.set(context, [...transitions.readPendingInterrupts(context), interrupt]);
+      transitions.writeEvents(context, turnId, (events) => transitions.writeInterruptRaised(events, interrupt));
+      movement = toolStepMovement(transitions.persistence, agentSessionStepTypes.awaitToolApproval, started.toolCallId);
+    } else {
+      movement = toolCallMovement(transitions, started);
+    }
+    transitions.writeAgentState(context, { ...state, status: "running_tools" });
+    return goToMany(movement, StepMovement.of(new StepRef(agentSessionStepTypes.resumeTurn), 1));
   }
 
   /** Returns RunModel's move instead of a model call, or `null` to call the model. */
@@ -477,10 +556,7 @@ export class RunModelStep implements Step<void> {
       context,
       turnId,
       createdAt: createdAt.toISOString(),
-      interruptDeadline:
-        transitions.config.interruptDeadlineMs === undefined
-          ? null
-          : new Date(createdAt.getTime() + transitions.config.interruptDeadlineMs).toISOString(),
+      interruptDeadline: interruptDeadline(transitions, createdAt),
       interrupts: [],
       traceContext: transitions.tracer.readActivationTraceparent(context),
       movements: [],
@@ -489,6 +565,8 @@ export class RunModelStep implements Step<void> {
       writeTodosCallCount: outcome.toolCalls.filter(
         (toolCall) => toolCall.toolName === "write_todos" && transitions.isEnabledBuiltInTool(toolCall.toolName),
       ).length,
+      hasStartedOrderedWrite: false,
+      queuedCount: 0,
     };
     for (const [index, requestedToolCall] of outcome.toolCalls.entries()) {
       const deferralOrder = toolCalls.length + index;
@@ -505,7 +583,7 @@ export class RunModelStep implements Step<void> {
     transitions.recordUsage(context, outcome.usage, events);
     transitions.writeAgentState(context, { ...stateWithMessages, status: "running_tools" });
     batch.movements.push(
-      StepMovement.of(new StepRef(agentSessionStepTypes.resumeTurn), outcome.toolCalls.length),
+      StepMovement.of(new StepRef(agentSessionStepTypes.resumeTurn), outcome.toolCalls.length - batch.queuedCount),
     );
     return goToMany(...batch.movements);
   }
@@ -540,31 +618,29 @@ export class RunModelStep implements Step<void> {
     const transitions = this.transitions;
     const requiresApproval = requestedToolCall.policy.requiresApproval;
     const effect = requestedToolCall.policy.effect;
-    const record = createToolCallRecord(batch, requestedToolCall, effect, requiresApproval, deferralOrder);
-    transitions.writeToolCall(batch.context, {
-      ...record,
-      status: requiresApproval ? "awaiting_approval" : "approved",
-    });
+    const isOrderedWrite = requestedToolCall.ordered === true && effect !== "read";
+    const record: AgentToolCallRecord = {
+      ...createToolCallRecord(batch, requestedToolCall, effect, requiresApproval, deferralOrder),
+      orderedWrite: isOrderedWrite,
+    };
     writeToolCallDeferred(batch.events, record);
-    const nextStepType = requiresApproval
-      ? agentSessionStepTypes.awaitToolApproval
-      : toolStepTypeForEffect(effect);
-    batch.movements.push(toolStepMovement(transitions.persistence, nextStepType, requestedToolCall.toolCallId));
-    if (!requiresApproval) {
+    if (isOrderedWrite && batch.hasStartedOrderedWrite) {
+      // Started by RunModel once every earlier ordered write of the turn succeeded.
+      transitions.writeToolCall(batch.context, { ...record, status: "approved", writeQueued: true });
+      batch.queuedCount += 1;
       return;
     }
-    const interrupt: AgentInterrupt = {
-      interruptId: requestedToolCall.toolCallId,
-      kind: "tool_approval",
-      toolCallId: requestedToolCall.toolCallId,
-      toolName: requestedToolCall.toolName,
-      arguments: requestedToolCall.arguments,
-      createdAt: batch.createdAt,
-      deadline: batch.interruptDeadline,
-      question: null,
-      choices: [],
-      allowsFreeText: true,
-    };
+    batch.hasStartedOrderedWrite ||= isOrderedWrite;
+    const deferred: AgentToolCallRecord = { ...record, status: requiresApproval ? "awaiting_approval" : "approved" };
+    transitions.writeToolCall(batch.context, deferred);
+    if (!requiresApproval) {
+      batch.movements.push(toolCallMovement(transitions, deferred));
+      return;
+    }
+    batch.movements.push(
+      toolStepMovement(transitions.persistence, agentSessionStepTypes.awaitToolApproval, requestedToolCall.toolCallId),
+    );
+    const interrupt = toolApprovalInterrupt(record, batch.createdAt, batch.interruptDeadline);
     batch.interrupts.push(interrupt);
     transitions.writeInterruptRaised(batch.events, interrupt);
   }
@@ -798,6 +874,10 @@ interface ToolCallBatchCommit {
   readonly interactionMode: InteractionMode;
   /** How many calls of the response name the enabled `write_todos`; more than one fails each of them. */
   readonly writeTodosCallCount: number;
+  /** Whether an earlier call of the response started as an ordered write; later ones queue. */
+  hasStartedOrderedWrite: boolean;
+  /** Ordered writes recorded as queued; `ResumeTurn` does not wait for them. */
+  queuedCount: number;
 }
 
 /** Waits for one tool call's approval or its deadline, then runs or rejects the call. */
@@ -903,13 +983,7 @@ export class AwaitToolApprovalStep implements Step<string> {
           isAnswered: false,
           rejectionMessage: null,
         });
-        return goToMany(
-          toolStepMovement(
-            this.transitions.persistence,
-            toolStepTypeForEffect(toolCall.effect),
-            toolCall.toolCallId,
-          ),
-        );
+        return goToMany(toolCallMovement(this.transitions, { ...toolCall, status: "approved" }));
       },
     );
   }
@@ -988,6 +1062,7 @@ export class ToolCallStep implements Step<string> {
           heartbeat: () => heartbeats.record(),
           ...(heartbeats.previousCheckpoint === undefined ? {} : { heartbeatCheckpoint: heartbeats.previousCheckpoint }),
           saveHeartbeatCheckpoint: (checkpoint: string) => heartbeats.saveCheckpoint(checkpoint),
+          context,
         };
         let outcome: DeferredToolOutcome;
         try {
@@ -997,6 +1072,12 @@ export class ToolCallStep implements Step<string> {
             () => heartbeats.record(),
           );
         } catch (error: unknown) {
+          if (error instanceof ToolOutcomeUnknownError) {
+            const unknown: AgentToolCallRecord = { ...toolCall, status: "outcome_unknown", error: error.message };
+            toolCallSpan.recordFinished(unknown);
+            transitions.finishToolCall(context, unknown, events);
+            return deadEnd();
+          }
           if (!(error instanceof ToolExecutionError)) {
             throw error;
           }
@@ -1014,7 +1095,12 @@ export class ToolCallStep implements Step<string> {
         if (typeof outcome?.output !== "string") {
           throw new TypeError(`executeDeferredToolCall returned no output for ${toolCallId}`);
         }
-        const succeeded: AgentToolCallRecord = { ...toolCall, status: "succeeded", output: outcome.output };
+        const succeeded: AgentToolCallRecord = {
+          ...toolCall,
+          status: "succeeded",
+          output: outcome.output,
+          truncatedOutputBytes: outcome.truncatedOutputBytes ?? null,
+        };
         toolCallSpan.recordFinished(succeeded);
         transitions.finishToolCall(context, succeeded, events);
         return deadEnd();
@@ -1201,12 +1287,19 @@ export class ResumeTurnStep implements Step<number> {
       // The results did not all arrive, so wait again for the same count.
       return goTo(new StepRef(agentSessionStepTypes.resumeTurn), expectedResultCount);
     }
-    const unfinishedCount = toolCalls.filter((toolCall) => !isFinalToolCallStatus(toolCall.status)).length;
+    const unfinishedCount = toolCalls.filter(
+      (toolCall) => !isFinalToolCallStatus(toolCall.status) && toolCall.writeQueued !== true,
+    ).length;
     if (unfinishedCount > 0) {
       // A consumed result from an earlier turn must not resume this one early.
       return goTo(new StepRef(agentSessionStepTypes.resumeTurn), unfinishedCount);
     }
     if (reason !== null) {
+      transitions.writeEvents(context, turnId, (events) => {
+        for (const toolCall of toolCalls.filter((queued) => queued.writeQueued === true)) {
+          transitions.finishUnscheduledToolCall(context, { ...cancelledToolCall(toolCall, reason), writeQueued: false }, events);
+        }
+      });
       return transitions.goToApplyTurnControl(context);
     }
     transitions.writeAgentState(context, { ...state, status: "running_model" });
@@ -1571,6 +1664,74 @@ export function toolStepMovement(
 }
 
 /**
+ * Returns the movement that starts an approved call's tool Step, with the runner's timeout and retry policy.
+ * Only `CallTool` takes the retry policy; `CallSingleAttemptTool` keeps one attempt.
+ */
+export function toolCallMovement(transitions: AgentSessionTransitions, toolCall: AgentToolCallRecord): StepMovement<string> {
+  const stepType = toolStepTypeForEffect(toolCall.effect);
+  const options = toolStepOptions(transitions.persistence, stepType, toolCall.toolCallId);
+  const overrides = readToolCallStepOptions(transitions, toolCall);
+  return StepMovement.of(new StepRef(stepType), toolCall.toolCallId, {
+    ...options,
+    ...(overrides?.executeMethodTimeout === undefined ? {} : { executeMethodTimeoutMs: overrides.executeMethodTimeout }),
+    ...(overrides?.executeRetry === undefined || stepType !== agentSessionStepTypes.callTool
+      ? {}
+      : { executeRetry: overrides.executeRetry }),
+  });
+}
+
+function readToolCallStepOptions(
+  transitions: AgentSessionTransitions,
+  toolCall: AgentToolCallRecord,
+): ToolCallStepOptions | undefined {
+  const provide = transitions.runner.toolCallStepOptions;
+  if (provide === undefined) {
+    return undefined;
+  }
+  try {
+    return provide.call(transitions.runner, toRunnerToolCall(toolCall));
+  } catch (error: unknown) {
+    // The call then runs with the defaults; a missing tool fails by its effect class.
+    console.warn(`dex-agents: toolCallStepOptions failed for ${toolCall.toolName}:`, error);
+    return undefined;
+  }
+}
+
+function toolApprovalInterrupt(
+  toolCall: AgentToolCallRecord,
+  createdAt: string,
+  deadline: string | null,
+): AgentInterrupt {
+  return {
+    interruptId: toolCall.toolCallId,
+    kind: "tool_approval",
+    toolCallId: toolCall.toolCallId,
+    toolName: toolCall.toolName,
+    arguments: toolCall.arguments,
+    createdAt,
+    deadline,
+    question: null,
+    choices: [],
+    allowsFreeText: true,
+  };
+}
+
+function interruptDeadline(transitions: AgentSessionTransitions, createdAt: Date): string | null {
+  const deadlineMs = transitions.config.interruptDeadlineMs;
+  return deadlineMs === undefined ? null : new Date(createdAt.getTime() + deadlineMs).toISOString();
+}
+
+function skippedToolCall(toolCall: AgentToolCallRecord): AgentToolCallRecord {
+  return {
+    ...toolCall,
+    status: "failed",
+    writeQueued: false,
+    skipped: true,
+    error: `${toolCallNotRunErrorPrefix}: ${toolCallSkippedAfterWriteDetail}`,
+  };
+}
+
+/**
  * Returns the options of `PollToolTask`. It takes no lock and never waits on a cancellation: it owns the
  * record, and a started task runs on.
  */
@@ -1689,6 +1850,10 @@ function createToolCallRecord(
     taskId: null,
     taskPollIntervalSeconds: null,
     taskAnswerPending: false,
+    orderedWrite: false,
+    writeQueued: false,
+    skipped: false,
+    truncatedOutputBytes: null,
   };
 }
 

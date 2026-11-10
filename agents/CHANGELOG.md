@@ -4,6 +4,58 @@ All eleven Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
+## Unreleased
+
+### Connector tools
+
+- Python and TypeScript cores: **ConnectorToolSource** offers reviewed Connector
+  operations to a Stepwise agent as tools (`dex_agents.connectors`, extra
+  `dex-agents[connectors]`; `@superdurable/dex-agents/connectors`, optional peer
+  `@superdurable/connectors-sdk`). The application names each operation with
+  `connector_tool` (`connectorTool`). Nothing is exposed by default, and an
+  operation whose `dex-connector.json` entry lacks `agent.exposed: true` is
+  refused when the agent is defined. Tool name, description, and argument schema
+  come from the manifest.
+- Effect classes: a Query is `READ` in `CallTool`; a Mutation with
+  `agent.retry: safe` is `IDEMPOTENT_WRITE` in `CallTool`; any other Mutation is
+  `NON_IDEMPOTENT_WRITE` in `CallSingleAttemptTool`. A call's tool Step gets the
+  operation's Execute timeout and retry policy, at most three attempts. A
+  session `tool_policies` entry changes only approval.
+- Approval: `agent.approval: recommended` asks by default; other Mutations run
+  without approval. `requires_approval` (`requiresApproval`) overrides it with a
+  bool or a per-call predicate over the arguments.
+- Arguments are checked against `inputSchema` before decoding. Branches map
+  through `agent.branches`: success is `succeeded`, `rejected` and `defect` are
+  `failed`, `uncertain`, `unknown`, and unlisted Mutation branches are
+  `outcome_unknown`, and unlisted Query branches are `failed`. Results are
+  canonical JSON, cut at 64 KiB by default with a note.
+- A single-attempt write that asks to retry records `outcome_unknown`, unless its
+  single-dispatch fence saved `notSent` or `canResend` in that attempt; then it
+  records `failed` with "not sent; the provider asked to retry later".
+- Connector writes of one model response run one at a time in the model's
+  order. Once one is not `succeeded`, the later ones record `failed` with the
+  new `AgentToolCall.skipped` marker.
+- Needs Connector SDK 0.9.0 (`dex-connectors-sdk==0.9.0`,
+  `@superdurable/connectors-sdk` `0.9.0`), which exports `raise_dex_retry` and
+  `throwDexRetry`.
+- Go core: no connector tools. Its **AgentToolCall** carries the four new fields, so a
+  record written by another core round-trips.
+- See [Connector tools](../docs/content/agent-frameworks/deploy-agents.mdx#connector-tools).
+
+### Tool call contract additions
+
+- `DeferredToolExecution.context`: the tool Step's live context, never stored.
+- `ToolOutcomeUnknownError`: a tool records `outcome_unknown` and does not retry.
+- `DeferredToolCall.ordered`, and `AgentToolCall` fields `ordered_write`,
+  `write_queued`, `skipped`, and `truncated_output_bytes`, all defaulting to off.
+  Records written by 0.2.0 decode unchanged. Dex Web reads `skipped`, and the
+  "the tool did not run" error prefix of older records.
+- `ToolExecutionResult.truncated_output_bytes`, `ToolCallStepOptions`, and the
+  optional runner method `tool_call_step_options` (`toolCallStepOptions`), which
+  `StepwiseAgentRunner` routes to a tool source.
+- `RunModel` may move to itself once, to commit skipped writes before the model
+  call, so the session graph gains that transition.
+
 ## 0.3.0 (2026-11-09)
 
 ### Dex SDK 1.38.0

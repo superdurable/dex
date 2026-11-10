@@ -51,7 +51,10 @@ export const TOOL_CALL_RECOVERY_STEP_TYPES: readonly string[] = ['RecordToolFail
 export const APPROVAL_STEP_TYPE = 'AwaitToolApproval';
 export const QUESTION_STEP_TYPE = 'AwaitQuestionAnswer';
 
-/** Temporary: marks a skipped call until write ordering records a dedicated skipped marker. */
+/**
+ * Start of the error of a failed call whose tool never ran. Records from before the skipped marker,
+ * and calls whose tool Step failed before the tool ran, are read as skipped by this prefix.
+ */
 export const TOOL_CALL_NOT_RUN_PREFIX = 'the tool did not run, so it is safe to call again';
 
 export interface AgentSessionSchema {
@@ -128,6 +131,10 @@ export interface AgentToolCallRecord {
   inputQuestion: string | null;
   waitUntil: string | null;
   taskId: string | null;
+  /** Write ordering skipped the call because an earlier write of its turn did not succeed. */
+  skipped: boolean;
+  /** The call waits for an earlier write of its turn; no Step runs it yet. */
+  writeQueued: boolean;
 }
 
 export interface AgentInterruptRecord {
@@ -229,6 +236,8 @@ export function decodeAgentToolCall(value: unknown): AgentToolCallRecord | null 
     inputQuestion: text(value.input_question),
     waitUntil: text(value.wait_until),
     taskId: text(value.task_id),
+    skipped: value.skipped === true,
+    writeQueued: value.write_queued === true,
   };
 }
 

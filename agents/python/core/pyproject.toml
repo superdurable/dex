@@ -36,6 +36,10 @@ otel = [
 litellm = [
     "litellm>=1.104,<1.106",
 ]
+# dex_agents.connectors: Connector operations as agent tools.
+connectors = [
+    "dex-connectors-sdk==0.9.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/superdurable/dex/tree/main/agents/python/core"

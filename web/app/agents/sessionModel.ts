@@ -35,6 +35,7 @@ export type ToolCallState =
   | 'awaiting_answer'
   | 'deciding'
   | 'queued'
+  | 'write_queued'
   | 'recording'
   | 'running'
   | 'retrying'
@@ -74,6 +75,8 @@ export interface ToolCallView {
   error?: string | null;
   rejectionMessage?: string | null;
   cancellationReason?: string | null;
+  /** Write ordering skipped the call, by the record's skipped marker. */
+  skippedAfterWrite?: boolean;
 }
 
 export type ConversationItem =
@@ -331,21 +334,25 @@ function recordView(record: AgentToolCallRecord, source: ToolCallSource): ToolCa
     error: record.error,
     rejectionMessage: record.rejectionMessage,
     cancellationReason: record.cancellationReason,
+    skippedAfterWrite: record.skipped,
   };
 }
 
 /** The state a record's status alone gives; a live call refines it from its Step. */
-export function stateOfRecord(record: Pick<AgentToolCallRecord, 'status' | 'error' | 'cancellationReason'>): ToolCallState {
+export function stateOfRecord(
+  record: Pick<AgentToolCallRecord, 'status' | 'error' | 'cancellationReason'> & Partial<Pick<AgentToolCallRecord, 'skipped' | 'writeQueued'>>,
+): ToolCallState {
   switch (record.status) {
     case 'awaiting_approval': return 'awaiting_approval';
     case 'awaiting_answer': return 'awaiting_answer';
-    case 'approved': return 'queued';
+    case 'approved': return record.writeQueued ? 'write_queued' : 'queued';
     case 'waiting_for_timer':
     case 'waiting_for_task': return 'waiting';
     case 'succeeded': return 'done';
     case 'outcome_unknown': return 'outcome_unknown';
     case 'failed':
-      return record.error?.startsWith(TOOL_CALL_NOT_RUN_PREFIX) ? 'skipped' : 'failed';
+      // The prefix reads records written before the skipped marker existed.
+      return record.skipped || record.error?.startsWith(TOOL_CALL_NOT_RUN_PREFIX) ? 'skipped' : 'failed';
     case 'rejected': return record.cancellationReason ? 'cancelled' : 'rejected';
     default: return 'waiting';
   }

@@ -32,6 +32,7 @@ import {
   type DeferredToolExecution,
   type DeferredToolOutcome,
   type ResolvedToolPolicy,
+  type ToolCallStepOptions,
   type ToolTaskCancellation,
   type ToolTaskPoll,
   type ToolTaskPollOutcome,
@@ -39,6 +40,7 @@ import {
 import { buildPlanNote } from "../agent-plans.js";
 import {
   describeToolCallOutcome,
+  type AgentToolCall,
   type FrameworkMessage,
   type SessionSettings,
 } from "../agent-session-values.js";
@@ -351,6 +353,23 @@ export class StepwiseAgentRunner implements AgentFrameworkRunner<DeferredToolOut
       throw new RangeError(`no tool source built the call of tool ${poll.toolCall.toolName}`);
     }
     return routed.source.pollToolTask({ ...poll, toolCall: withToolSourceReference(poll.toolCall, routed.reference) });
+  }
+
+  /**
+   * Returns a tool source's options for one call's tool Step. Function tools and sources without
+   * `toolCallStepOptions` keep the tool Steps' defaults.
+   * @param toolCall - The record whose tool Step starts.
+   * @returns The source's options, or `undefined` for the defaults.
+   * @throws {RangeError} When a source built the call but the definition no longer has it; the session then uses
+   * the defaults.
+   * @since 0.3.0
+   */
+  public toolCallStepOptions(toolCall: AgentToolCall): ToolCallStepOptions | undefined {
+    if (this.functionToolsByName.has(toolCall.toolName)) {
+      return undefined;
+    }
+    const routed = this.routeToToolSource(toolCall);
+    return routed?.source.toolCallStepOptions?.(withToolSourceReference(toolCall, routed.reference));
   }
 
   /**

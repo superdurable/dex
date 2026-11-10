@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 import pytest_asyncio
 
 from dex_agents import AgentEvent, AgentSessionClient, AgentSessionFlow, AgentSnapshot
@@ -25,6 +26,11 @@ from dex_agents.testing import (
     InvocationLog,
     wait_for_agent_snapshot,
 )
+from tests.connector_agent import build_connector_agent_flow
+from tests.fake_ledger import (
+    STATE_DIR_ENVIRONMENT_VARIABLE as LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE,
+)
+from tests.fake_ledger import FakeLedgerProvider
 from tests.plan_agent import STATE_DIR_ENVIRONMENT_VARIABLE as PLAN_STATE_DIR_ENVIRONMENT_VARIABLE
 from tests.plan_agent import build_plan_agent_flow
 from tests.scripted_agent import (
@@ -51,6 +57,7 @@ WORKER_MODULE = "tests.scripted_worker"
 STEPWISE_WORKER_MODULE = "tests.stepwise_worker"
 PLAN_WORKER_MODULE = "tests.plan_worker"
 TASK_WORKER_MODULE = "tests.task_worker"
+CONNECTOR_WORKER_MODULE = "tests.connector_worker"
 
 
 @dataclass
@@ -117,6 +124,28 @@ async def harness(tmp_path: Path) -> AsyncIterator[ScriptedAgentHarness]:
         worker_env={STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
     ) as stack:
         yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)
+
+
+@pytest_asyncio.fixture
+async def connector_harness(tmp_path: Path) -> AsyncIterator[ScriptedAgentHarness]:
+    """Starts a private engine for the agent whose tools are fake ledger operations."""
+    state_dir = tmp_path / "agent-state"
+    state_dir.mkdir()
+    flow = build_connector_agent_flow(state_dir)
+    async with AgentTestStack(
+        tmp_path,
+        [flow],
+        CONNECTOR_WORKER_MODULE,
+        worker_cwd=CORE_DIR,
+        worker_env={LEDGER_STATE_DIR_ENVIRONMENT_VARIABLE: str(state_dir)},
+    ) as stack:
+        yield ScriptedAgentHarness(stack, flow, stack.sessions(flow), state_dir)
+
+
+@pytest.fixture
+def ledger(connector_harness: ScriptedAgentHarness) -> FakeLedgerProvider:
+    """The fake ledger provider of the connector harness."""
+    return FakeLedgerProvider(connector_harness.state_dir)
 
 
 @pytest_asyncio.fixture

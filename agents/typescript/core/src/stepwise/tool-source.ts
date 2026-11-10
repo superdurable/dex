@@ -11,10 +11,12 @@ import type {
   DeferredToolCall,
   DeferredToolExecution,
   DeferredToolOutcome,
+  ToolCallStepOptions,
   ToolTaskCancellation,
   ToolTaskPoll,
   ToolTaskPollOutcome,
 } from "../agent-framework-runner.js";
+import type { AgentToolCall } from "../agent-session-values.js";
 
 /**
  * One tool that a {@link ToolSource} lists, as the model sees it. `McpTool` satisfies it; the runner reads only
@@ -121,4 +123,13 @@ export interface ToolSource {
    * @returns A Promise that resolves once the remote system took the cancellation.
    */
   cancelToolTask?(cancellation: ToolTaskCancellation): Promise<void>;
+  /**
+   * Optional: the timeout and retry policy of one call's tool Step, or `undefined` for the defaults, as
+   * {@link AgentFrameworkRunner.toolCallStepOptions} describes. `ConnectorToolSource` uses it for each
+   * operation's timeout and retry policy.
+   * @param toolCall - The record whose tool Step starts, with this source's own reference.
+   * @returns The options, or `undefined`.
+   * @since 0.3.0
+   */
+  toolCallStepOptions?(toolCall: AgentToolCall): ToolCallStepOptions | undefined;
 }

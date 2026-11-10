@@ -40,6 +40,7 @@ export {
 } from "./agent-context-compaction.js";
 export {
   ToolExecutionError,
+  ToolOutcomeUnknownError,
   resolveToolPolicy,
   toolEffectFromMcpToolAnnotations,
   type AgentEventWriter,
@@ -53,6 +54,7 @@ export {
   type ModelCallMetadata,
   type ResolvedToolPolicy,
   type ToolExecutionResult,
+  type ToolCallStepOptions,
   type ToolInputRequested,
   type ToolPolicy,
   type ToolTaskPending,
@@ -86,6 +88,7 @@ export {
   emptyAgentUsage,
   invalidToolTaskPollInterval,
   toolCallNotRunErrorPrefix,
+  toolCallSkippedAfterWriteDetail,
   toolTaskAbandonedError,
   isFinalToolCallStatus,
   missingToolTaskPoller,

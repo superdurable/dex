@@ -43,6 +43,7 @@ module needs a new package name:
 | `dex_agents.stepwise` | `dex-agents` | Stepwise mode: `AgentDefinition`, function tools, tool sources, the `ModelClient` protocol, `ScriptedModelClient`, and the runner |
 | `dex_agents.litellm` | `dex-agents[litellm]` | `LiteLLMModelClient`, a `ModelClient` on LiteLLM |
 | `dex_agents.mcp` | `dex-agents[mcp]` | `McpToolSource`, MCP servers' tools as agent tools |
+| `dex_agents.connectors` | `dex-agents[connectors]` | `ConnectorToolSource`, reviewed Connector operations as agent tools |
 | `dex_agents.ui_stream` | `dex-agents` | Server-Sent Event frames and snapshot JSON for UIs |
 | `dex_agents.testing` | `dex-agents` | Private engines, Worker processes, gates, Step history, and `ScriptedModelClient` (the same class as `dex_agents.stepwise`'s) |
 
@@ -758,7 +759,8 @@ Do not repeat these tool calls unless the user asks again.
 `DeferredToolExecution` carries `flow_id`, the approved `tool_call` record,
 `idempotency_key` (`"<flow_id>/<turn_id>/<tool_call_id>"`, the same on every
 attempt), `attempt`, `events`, `heartbeat`, `heartbeat_checkpoint`,
-`save_heartbeat_checkpoint`, and `input_answers`. Run the real tool once and
+`save_heartbeat_checkpoint`, `input_answers`, and `context`, the tool Step's
+live `AsyncContext` for the duration of the call. Run the real tool once and
 return `ToolExecutionResult(output)`, `ToolInputRequested` when the tool
 needs an answer before it takes any effect, or `ToolTaskStarted` when the tool
 started remote work that the session polls (see [Tool tasks](#tool-tasks)).
@@ -775,7 +777,11 @@ record (wire field `tool_source_reference`), so the tool's source can resolve
 the tool in the tool Step without listing it again.
 
 Raise `ToolExecutionError(message)` for a failure the model should see; the
-session records `failed` with that message and does not retry. Any other
+session records `failed` with that message and does not retry. Raise
+`ToolOutcomeUnknownError(message)` when the tool sent a write and cannot tell
+whether it took effect; the session records `outcome_unknown` and does not
+retry. A runner that implements `ToolCallStepOptionsProvider` gives a call's
+tool Step its own timeout and, for `CallTool`, retry policy. Any other
 exception is a Step failure. `read` and `idempotent_write` calls retry up to
 three attempts, and then `RecordToolFailure` records `failed` for a read and
 `outcome_unknown` for a write, because the write may have taken effect.
@@ -1312,6 +1318,122 @@ Pydantic AI, LangGraph, and Google ADK also defer their own MCP client tools
 into tool Steps; use the source there for the shared idempotency key and
 annotation handling. The OpenAI Agents SDK runs its own MCP servers inline in
 `RunModel`, so a wrapper is its only path to tool Steps.
+
+## Connector tools (`dex_agents.connectors`)
+
+`dex_agents.connectors` offers reviewed Connector operations to a Stepwise
+agent as tools. `ConnectorToolSource` implements `ToolSource`, like
+`McpToolSource`. Each call runs one operation in its own tool Step through
+the Connector SDK's `run_query` or `run_mutation`, so the connector's Call
+ID, idempotency key, credential handling, and single-dispatch fence apply.
+Install the Connector SDK with the `connectors` extra, plus each Connector
+package the agent uses:
+
+```bash
+pip install "dex-agents[connectors]" dex-connector-stripe
+```
+
+The extra installs Connector SDK 0.9.0, the first release that exports
+`raise_dex_retry`.
+
+```python
+from dex_agents.connectors import ConnectorToolSource, connector_tool
+from dex_agents.stepwise import AgentDefinition
+from dex_connectors.slack import new_project_connection as slack_connection
+from dex_connectors.stripe import new_project_connection as stripe_connection
+
+slack = slack_connection(project, "support-slack")
+stripe = stripe_connection(project, "billing-stripe")
+
+agent = AgentDefinition(
+    name="support",
+    instructions="You help customers with their orders.",
+    model=model,
+    tool_sources=[
+        ConnectorToolSource([
+            connector_tool(slack.post_thread_reply(), slack.reference),
+            connector_tool(
+                stripe.operations.create_refund(),
+                stripe.reference,
+                requires_approval=lambda arguments: arguments["amount"] > 5000,
+            ),
+        ]),
+    ],
+)
+```
+
+Nothing is exposed by default. `connector_tool` reads the operation's entry
+in its package's `dex-connector.json`, read as package data, and refuses an
+operation whose entry lacks `agent.exposed: true`, an `agent` value it does
+not know, or an `inputSchema` keyword it cannot check. The tool name defaults
+to `<connectorId>_<operation in snake case>`, such as `stripe_create_refund`;
+the description and argument schema come from the manifest.
+
+| Operation | Effect | Tool Step | Retries |
+| --- | --- | --- | --- |
+| Query | `READ` | `CallTool` | The operation's Execute retry policy, at most three attempts |
+| Mutation with `agent.retry: safe` | `IDEMPOTENT_WRITE` | `CallTool` | The same |
+| Any other Mutation | `NON_IDEMPOTENT_WRITE` | `CallSingleAttemptTool` | None |
+
+The source gives each call's tool Step the operation's `executeMethodTimeout`
+and retry policy through `tool_call_step_options`, a movement-scoped option.
+Tool Steps stay `SYNC`. A session `tool_policies` entry for a connector tool
+changes only its approval; the effect always comes from the manifest.
+
+Approval: a call waits for `resolve_interrupt` when the manifest says
+`agent.approval: recommended`. Other Mutations run without approval, though
+`NON_IDEMPOTENT_WRITE` asks by default elsewhere. `requires_approval=True` or
+`False` overrides the manifest; a predicate decides per call from the decoded
+JSON arguments, and one that raises asks for approval. Arguments that break the
+schema never run, so they never wait.
+
+What a call does:
+
+1. Check the arguments against `inputSchema` (a closed subset of JSON Schema
+   2020-12: `type`, `properties`, `required`, `additionalProperties`, `items`,
+   `enum`, `anyOf`, `$ref` into `$defs`, `minimum`, `maximum`, and
+   annotations), then decode them into the manifest's `inputType` with the Dex
+   codec. Either failure is `ToolExecutionError`, which the model reads; the
+   operation never runs.
+2. Build the `Call` with `derive_call_id(flow_id, step_execution_id, operation)`
+   from `DeferredToolExecution.context`. The Step execution ID is the same on
+   every attempt, so a retry keeps the Call ID and the idempotency key.
+3. Hand the operation a `ConnectorStepContext`. It stores each heartbeat value,
+   such as the fence's marker, as the tool Step's text checkpoint, so the
+   session's background heartbeats repeat the marker and the next attempt
+   reads it back. It exposes only what the fence uses, which
+   `tests/test_connector_tool_source.py` pins.
+4. Run the operation. A connector `RetryError` goes through `raise_dex_retry`,
+   so the tool Step's retry policy applies. A single-attempt write that asks to
+   retry would then record `OUTCOME_UNKNOWN`. When its fence saved `notSent` or
+   `canResend` in this attempt, which proves the provider did not process it, it
+   records `FAILED` with `CONNECTOR_NOT_SENT_RETRY_LATER` instead.
+5. Map the selected branch with `classify_connector_branch`:
+
+| Branch | Record | The model reads |
+| --- | --- | --- |
+| A required (success) branch | `SUCCEEDED` | The value as compact JSON, keys sorted |
+| Listed `rejected` under `agent.branches` | `FAILED` (`ToolExecutionError`) | `"<connector> <operation> returned <branch>: <kind>: <message>"` |
+| `defect` | `FAILED` | The same text |
+| A Query branch not listed | `FAILED` | The same text |
+| `uncertain`, listed `unknown`, or a Mutation branch not listed | `OUTCOME_UNKNOWN` (`ToolOutcomeUnknownError`) | `OUTCOME_UNKNOWN_TOOL_RESULT` |
+
+A result over `max_result_bytes` (default `DEFAULT_CONNECTOR_RESULT_MAX_BYTES`,
+64 KiB of UTF-8 text, set per source or per tool) is cut, followed by
+`CONNECTOR_RESULT_TRUNCATED_NOTE`, and `AgentToolCall.truncated_output_bytes`
+holds the full size.
+
+Writes are ordered: the source marks every connector write
+`DeferredToolCall.ordered`, so the writes of one model response run one at a
+time in the model's order while reads run in parallel. `RunModel` starts the
+next queued write (`AgentToolCall.write_queued`) before any model call, and
+raises its approval only then. Once a write is not `SUCCEEDED`, the response's
+later writes record `FAILED` with `skipped=True` and the error
+`TOOL_CALL_NOT_RUN_ERROR_PREFIX + ": " + TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL`.
+Steering and `cancel_turn` cancel queued writes as they cancel unstarted calls.
+
+Framework adapters do not offer connector tools yet; `ToolSource` is Stepwise
+only. The Go core has function tools only.
 
 ## Browser streams
 

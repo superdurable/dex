@@ -35,6 +35,7 @@ import {
   questionInterruptId,
   recordToolInputRequest,
   recordToolTaskDefect,
+  toolCallMovement,
   toolStepMovement,
   toolStepOptions,
   toolTaskPollIntervalSeconds,
@@ -45,7 +46,6 @@ import {
   cancelledToolCall,
   finishTurnCancellationMovement,
   isCancellableByTurnControl,
-  toolStepTypeForEffect,
   type AgentSessionTransitions,
 } from "./agent-session-transitions.js";
 import {
@@ -274,9 +274,7 @@ export class AwaitQuestionAnswerStep implements Step<string> {
       cancellationReason: null,
       ...noPendingToolQuestion,
     });
-    return goToMany(
-      toolStepMovement(transitions.persistence, toolStepTypeForEffect(toolCall.effect), toolCall.toolCallId),
-    );
+    return goToMany(toolCallMovement(transitions, { ...toolCall, status: "approved" }));
   }
 
   /** Hands a started task's question back to it; its result, not `rejected`, ends the call. */

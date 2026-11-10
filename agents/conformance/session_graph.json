@@ -427,6 +427,16 @@
       }
     },
     {
+      "id": "decision:step:RunModel:goTo:RunModel",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:RunModel",
+      "phase": "execute",
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
       "id": "step:CompactContext",
       "kind": "step",
       "name": "CompactContext",
@@ -1347,6 +1357,13 @@
     },
     {
       "id": "edge:0020",
+      "kind": "transition",
+      "from": "decision:step:RunModel:goTo:RunModel",
+      "to": "step:RunModel",
+      "label": "GoTo"
+    },
+    {
+      "id": "edge:0021",
       "kind": "resource_publish",
       "from": "step:RunModel",
       "to": "resource:channel:ToolCallResults",
@@ -1356,21 +1373,21 @@
       }
     },
     {
-      "id": "edge:0021",
+      "id": "edge:0022",
       "kind": "transition",
       "from": "decision:step:CompactContext:goTo:RecordTurnFailure",
       "to": "step:RecordTurnFailure",
       "label": "GoTo"
     },
     {
-      "id": "edge:0022",
+      "id": "edge:0023",
       "kind": "transition",
       "from": "decision:step:CompactContext:goTo:RunModel",
       "to": "step:RunModel",
       "label": "GoTo"
     },
     {
-      "id": "edge:0023",
+      "id": "edge:0024",
       "kind": "wait_condition",
       "from": "resource:channel:ToolCallCancellations",
       "to": "wait:AwaitToolApproval",
@@ -1380,7 +1397,7 @@
       }
     },
     {
-      "id": "edge:0024",
+      "id": "edge:0025",
       "kind": "wait_condition",
       "from": "resource:channel:InterruptResolutions",
       "to": "wait:AwaitToolApproval",
@@ -1390,28 +1407,28 @@
       }
     },
     {
-      "id": "edge:0025",
+      "id": "edge:0026",
       "kind": "transition",
       "from": "decision:step:AwaitToolApproval:goTo:AwaitToolApproval",
       "to": "step:AwaitToolApproval",
       "label": "GoTo"
     },
     {
-      "id": "edge:0026",
+      "id": "edge:0027",
       "kind": "transition",
       "from": "decision:step:AwaitToolApproval:goTo:CallSingleAttemptTool",
       "to": "step:CallSingleAttemptTool",
       "label": "GoTo"
     },
     {
-      "id": "edge:0027",
+      "id": "edge:0028",
       "kind": "transition",
       "from": "decision:step:AwaitToolApproval:goTo:CallTool",
       "to": "step:CallTool",
       "label": "GoTo"
     },
     {
-      "id": "edge:0028",
+      "id": "edge:0029",
       "kind": "resource_lock",
       "from": "step:AwaitToolApproval",
       "to": "resource:attribute:PendingInterrupts",
@@ -1421,7 +1438,7 @@
       }
     },
     {
-      "id": "edge:0029",
+      "id": "edge:0030",
       "kind": "resource_publish",
       "from": "step:AwaitToolApproval",
       "to": "resource:channel:ToolCallResults",
@@ -1431,7 +1448,7 @@
       }
     },
     {
-      "id": "edge:0030",
+      "id": "edge:0031",
       "kind": "wait_condition",
       "from": "resource:channel:ToolCallCancellations",
       "to": "wait:AwaitQuestionAnswer",
@@ -1441,7 +1458,7 @@
       }
     },
     {
-      "id": "edge:0031",
+      "id": "edge:0032",
       "kind": "wait_condition",
       "from": "resource:channel:InterruptResolutions",
       "to": "wait:AwaitQuestionAnswer",
@@ -1451,42 +1468,42 @@
       }
     },
     {
-      "id": "edge:0032",
+      "id": "edge:0033",
       "kind": "transition",
       "from": "decision:step:AwaitQuestionAnswer:goTo:AwaitQuestionAnswer",
       "to": "step:AwaitQuestionAnswer",
       "label": "GoTo"
     },
     {
-      "id": "edge:0033",
+      "id": "edge:0034",
       "kind": "transition",
       "from": "decision:step:AwaitQuestionAnswer:goTo:CallSingleAttemptTool",
       "to": "step:CallSingleAttemptTool",
       "label": "GoTo"
     },
     {
-      "id": "edge:0034",
+      "id": "edge:0035",
       "kind": "transition",
       "from": "decision:step:AwaitQuestionAnswer:goTo:CallTool",
       "to": "step:CallTool",
       "label": "GoTo"
     },
     {
-      "id": "edge:0035",
+      "id": "edge:0036",
       "kind": "transition",
       "from": "decision:step:AwaitQuestionAnswer:goTo:FinishTurnCancellation",
       "to": "step:FinishTurnCancellation",
       "label": "GoTo"
     },
     {
-      "id": "edge:0036",
+      "id": "edge:0037",
       "kind": "transition",
       "from": "decision:step:AwaitQuestionAnswer:goTo:PollToolTask",
       "to": "step:PollToolTask",
       "label": "GoTo"
     },
     {
-      "id": "edge:0037",
+      "id": "edge:0038",
       "kind": "resource_lock",
       "from": "step:AwaitQuestionAnswer",
       "to": "resource:attribute:PendingInterrupts",
@@ -1496,7 +1513,7 @@
       }
     },
     {
-      "id": "edge:0038",
+      "id": "edge:0039",
       "kind": "resource_publish",
       "from": "step:AwaitQuestionAnswer",
       "to": "resource:channel:ToolCallResults",
@@ -1506,7 +1523,7 @@
       }
     },
     {
-      "id": "edge:0039",
+      "id": "edge:0040",
       "kind": "wait_condition",
       "from": "resource:channel:ToolCallCancellations",
       "to": "wait:AwaitTimer",
@@ -1516,14 +1533,14 @@
       }
     },
     {
-      "id": "edge:0040",
+      "id": "edge:0041",
       "kind": "transition",
       "from": "decision:step:AwaitTimer:goTo:AwaitTimer",
       "to": "step:AwaitTimer",
       "label": "GoTo"
     },
     {
-      "id": "edge:0041",
+      "id": "edge:0042",
       "kind": "resource_publish",
       "from": "step:AwaitTimer",
       "to": "resource:channel:ToolCallResults",
@@ -1533,21 +1550,21 @@
       }
     },
     {
-      "id": "edge:0042",
+      "id": "edge:0043",
       "kind": "transition",
       "from": "decision:step:CallTool:goTo:AwaitQuestionAnswer",
       "to": "step:AwaitQuestionAnswer",
       "label": "GoTo"
     },
     {
-      "id": "edge:0043",
+      "id": "edge:0044",
       "kind": "transition",
       "from": "decision:step:CallTool:goTo:PollToolTask",
       "to": "step:PollToolTask",
       "label": "GoTo"
     },
     {
-      "id": "edge:0044",
+      "id": "edge:0045",
       "kind": "resource_publish",
       "from": "step:CallTool",
       "to": "resource:channel:ToolCallResults",
@@ -1557,21 +1574,21 @@
       }
     },
     {
-      "id": "edge:0045",
+      "id": "edge:0046",
       "kind": "transition",
       "from": "decision:step:CallSingleAttemptTool:goTo:AwaitQuestionAnswer",
       "to": "step:AwaitQuestionAnswer",
       "label": "GoTo"
     },
     {
-      "id": "edge:0046",
+      "id": "edge:0047",
       "kind": "transition",
       "from": "decision:step:CallSingleAttemptTool:goTo:PollToolTask",
       "to": "step:PollToolTask",
       "label": "GoTo"
     },
     {
-      "id": "edge:0047",
+      "id": "edge:0048",
       "kind": "resource_publish",
       "from": "step:CallSingleAttemptTool",
       "to": "resource:channel:ToolCallResults",
@@ -1581,40 +1598,30 @@
       }
     },
     {
-      "id": "edge:0048",
+      "id": "edge:0049",
       "kind": "transition",
       "from": "decision:step:PollToolTask:goTo:AwaitQuestionAnswer",
       "to": "step:AwaitQuestionAnswer",
       "label": "GoTo"
     },
     {
-      "id": "edge:0049",
+      "id": "edge:0050",
       "kind": "transition",
       "from": "decision:step:PollToolTask:goTo:FinishTurnCancellation",
       "to": "step:FinishTurnCancellation",
       "label": "GoTo"
     },
     {
-      "id": "edge:0050",
+      "id": "edge:0051",
       "kind": "transition",
       "from": "decision:step:PollToolTask:goTo:PollToolTask",
       "to": "step:PollToolTask",
       "label": "GoTo"
     },
     {
-      "id": "edge:0051",
-      "kind": "resource_publish",
-      "from": "step:PollToolTask",
-      "to": "resource:channel:ToolCallResults",
-      "label": "Publish",
-      "metadata": {
-        "phase": "execute"
-      }
-    },
-    {
       "id": "edge:0052",
       "kind": "resource_publish",
-      "from": "step:RecordToolFailure",
+      "from": "step:PollToolTask",
       "to": "resource:channel:ToolCallResults",
       "label": "Publish",
       "metadata": {
@@ -1624,7 +1631,7 @@
     {
       "id": "edge:0053",
       "kind": "resource_publish",
-      "from": "step:RecordToolOutcomeUnknown",
+      "from": "step:RecordToolFailure",
       "to": "resource:channel:ToolCallResults",
       "label": "Publish",
       "metadata": {
@@ -1633,6 +1640,16 @@
     },
     {
       "id": "edge:0054",
+      "kind": "resource_publish",
+      "from": "step:RecordToolOutcomeUnknown",
+      "to": "resource:channel:ToolCallResults",
+      "label": "Publish",
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0055",
       "kind": "wait_condition",
       "from": "resource:channel:ToolCallResults",
       "to": "wait:ResumeTurn",
@@ -1642,7 +1659,7 @@
       }
     },
     {
-      "id": "edge:0055",
+      "id": "edge:0056",
       "kind": "wait_condition",
       "from": "resource:channel:TurnControlRequests",
       "to": "wait:ResumeTurn",
@@ -1652,28 +1669,28 @@
       }
     },
     {
-      "id": "edge:0056",
+      "id": "edge:0057",
       "kind": "transition",
       "from": "decision:step:ResumeTurn:goTo:ApplyTurnControl",
       "to": "step:ApplyTurnControl",
       "label": "GoTo"
     },
     {
-      "id": "edge:0057",
+      "id": "edge:0058",
       "kind": "transition",
       "from": "decision:step:ResumeTurn:goTo:ResumeTurn",
       "to": "step:ResumeTurn",
       "label": "GoTo"
     },
     {
-      "id": "edge:0058",
+      "id": "edge:0059",
       "kind": "transition",
       "from": "decision:step:ResumeTurn:goTo:RunModel",
       "to": "step:RunModel",
       "label": "GoTo"
     },
     {
-      "id": "edge:0059",
+      "id": "edge:0060",
       "kind": "resource_lock",
       "from": "step:ResumeTurn",
       "to": "resource:attribute:PendingInterrupts",
@@ -1683,7 +1700,7 @@
       }
     },
     {
-      "id": "edge:0060",
+      "id": "edge:0061",
       "kind": "resource_publish",
       "from": "step:ResumeTurn",
       "to": "resource:channel:ToolCallCancellations",
@@ -1693,7 +1710,7 @@
       }
     },
     {
-      "id": "edge:0061",
+      "id": "edge:0062",
       "kind": "wait_condition",
       "from": "resource:channel:SteeredUserMessages",
       "to": "wait:ApplyTurnControl",
@@ -1703,7 +1720,7 @@
       }
     },
     {
-      "id": "edge:0062",
+      "id": "edge:0063",
       "kind": "wait_condition",
       "from": "resource:channel:TurnControlRequests",
       "to": "wait:ApplyTurnControl",
@@ -1713,21 +1730,21 @@
       }
     },
     {
-      "id": "edge:0063",
+      "id": "edge:0064",
       "kind": "transition",
       "from": "decision:step:ApplyTurnControl:goTo:AwaitUserMessage",
       "to": "step:AwaitUserMessage",
       "label": "GoTo"
     },
     {
-      "id": "edge:0064",
+      "id": "edge:0065",
       "kind": "transition",
       "from": "decision:step:ApplyTurnControl:goTo:RunModel",
       "to": "step:RunModel",
       "label": "GoTo"
     },
     {
-      "id": "edge:0065",
+      "id": "edge:0066",
       "kind": "resource_lock",
       "from": "step:ApplyTurnControl",
       "to": "resource:attribute:TurnCancellationRequest",
@@ -1737,42 +1754,42 @@
       }
     },
     {
-      "id": "edge:0066",
+      "id": "edge:0067",
       "kind": "transition",
       "from": "decision:step:RecordTurnFailure:goTo:AwaitUserMessage",
       "to": "step:AwaitUserMessage",
       "label": "GoTo"
     },
     {
-      "id": "edge:0067",
+      "id": "edge:0068",
       "kind": "transition",
       "from": "decision:step:FinishTurnCancellation:goTo:ApplyTurnControl",
       "to": "step:ApplyTurnControl",
       "label": "GoTo"
     },
     {
-      "id": "edge:0068",
+      "id": "edge:0069",
       "kind": "transition",
       "from": "decision:step:FinishTurnCancellation:goTo:AwaitQuestionAnswer",
       "to": "step:AwaitQuestionAnswer",
       "label": "GoTo"
     },
     {
-      "id": "edge:0069",
+      "id": "edge:0070",
       "kind": "transition",
       "from": "decision:step:FinishTurnCancellation:goTo:AwaitToolApproval",
       "to": "step:AwaitToolApproval",
       "label": "GoTo"
     },
     {
-      "id": "edge:0070",
+      "id": "edge:0071",
       "kind": "transition",
       "from": "decision:step:FinishTurnCancellation:goTo:CancelToolTask",
       "to": "step:CancelToolTask",
       "label": "GoTo"
     },
     {
-      "id": "edge:0071",
+      "id": "edge:0072",
       "kind": "resource_lock",
       "from": "step:FinishTurnCancellation",
       "to": "resource:attribute:TurnCancellationRequest",
@@ -1782,7 +1799,7 @@
       }
     },
     {
-      "id": "edge:0072",
+      "id": "edge:0073",
       "kind": "resource_lock",
       "from": "step:FinishTurnCancellation",
       "to": "resource:attribute:PendingInterrupts",
@@ -1792,7 +1809,7 @@
       }
     },
     {
-      "id": "edge:0073",
+      "id": "edge:0074",
       "kind": "resource_publish",
       "from": "step:FinishTurnCancellation",
       "to": "resource:channel:ToolCallResults",
@@ -1802,7 +1819,7 @@
       }
     },
     {
-      "id": "edge:0074",
+      "id": "edge:0075",
       "kind": "resource_publish",
       "from": "step:CancelToolTask",
       "to": "resource:channel:ToolCallResults",
@@ -1812,7 +1829,7 @@
       }
     },
     {
-      "id": "edge:0075",
+      "id": "edge:0076",
       "kind": "failure_transition",
       "from": "step:CallSingleAttemptTool",
       "to": "step:RecordToolOutcomeUnknown",
@@ -1822,7 +1839,7 @@
       }
     },
     {
-      "id": "edge:0076",
+      "id": "edge:0077",
       "kind": "failure_transition",
       "from": "step:CallTool",
       "to": "step:RecordToolFailure",
@@ -1832,7 +1849,7 @@
       }
     },
     {
-      "id": "edge:0077",
+      "id": "edge:0078",
       "kind": "failure_transition",
       "from": "step:CancelToolTask",
       "to": "step:RecordToolOutcomeUnknown",
@@ -1842,7 +1859,7 @@
       }
     },
     {
-      "id": "edge:0078",
+      "id": "edge:0079",
       "kind": "failure_transition",
       "from": "step:CompactContext",
       "to": "step:RecordTurnFailure",
@@ -1852,7 +1869,7 @@
       }
     },
     {
-      "id": "edge:0079",
+      "id": "edge:0080",
       "kind": "failure_transition",
       "from": "step:PollToolTask",
       "to": "step:RecordToolFailure",
@@ -1862,7 +1879,7 @@
       }
     },
     {
-      "id": "edge:0080",
+      "id": "edge:0081",
       "kind": "failure_transition",
       "from": "step:PollToolTask",
       "to": "step:RecordToolOutcomeUnknown",
@@ -1872,7 +1889,7 @@
       }
     },
     {
-      "id": "edge:0081",
+      "id": "edge:0082",
       "kind": "failure_transition",
       "from": "step:RunModel",
       "to": "step:RecordTurnFailure",
@@ -1882,128 +1899,121 @@
       }
     },
     {
-      "id": "edge:0082",
+      "id": "edge:0083",
       "kind": "resource_lock",
       "from": "rpc:answer_question",
       "to": "resource:attribute:PendingInterrupts",
       "label": "Lock"
     },
     {
-      "id": "edge:0083",
+      "id": "edge:0084",
       "kind": "resource_publish",
       "from": "rpc:answer_question",
       "to": "resource:channel:InterruptResolutions",
       "label": "Publish"
     },
     {
-      "id": "edge:0084",
+      "id": "edge:0085",
       "kind": "resource_lock",
       "from": "rpc:cancel_turn",
       "to": "resource:attribute:PendingInterrupts",
       "label": "Lock"
     },
     {
-      "id": "edge:0085",
+      "id": "edge:0086",
       "kind": "resource_lock",
       "from": "rpc:cancel_turn",
       "to": "resource:attribute:TurnCancellationRequest",
       "label": "Lock"
     },
     {
-      "id": "edge:0086",
+      "id": "edge:0087",
       "kind": "transition",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:FinishTurnCancellation",
       "label": "GoTo"
     },
     {
-      "id": "edge:0087",
+      "id": "edge:0088",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:RunModel",
       "label": "Cancel"
     },
     {
-      "id": "edge:0088",
+      "id": "edge:0089",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:CompactContext",
       "label": "Cancel"
     },
     {
-      "id": "edge:0089",
+      "id": "edge:0090",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:RecordTurnFailure",
       "label": "Cancel"
     },
     {
-      "id": "edge:0090",
+      "id": "edge:0091",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:AwaitToolApproval",
       "label": "Cancel"
     },
     {
-      "id": "edge:0091",
+      "id": "edge:0092",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:AwaitQuestionAnswer",
       "label": "Cancel"
     },
     {
-      "id": "edge:0092",
+      "id": "edge:0093",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:AwaitTimer",
       "label": "Cancel"
     },
     {
-      "id": "edge:0093",
+      "id": "edge:0094",
       "kind": "cancel",
       "from": "decision:rpc:cancel_turn:rpcResult",
       "to": "step:PollToolTask",
       "label": "Cancel"
     },
     {
-      "id": "edge:0094",
+      "id": "edge:0095",
       "kind": "resource_lock",
       "from": "rpc:execute_plan",
       "to": "resource:attribute:PendingPlanExecution",
       "label": "Lock"
     },
     {
-      "id": "edge:0095",
+      "id": "edge:0096",
       "kind": "resource_publish",
       "from": "rpc:execute_plan",
       "to": "resource:channel:PlanExecutions",
       "label": "Publish"
     },
     {
-      "id": "edge:0096",
+      "id": "edge:0097",
       "kind": "resource_lock",
       "from": "rpc:resolve_interrupt",
       "to": "resource:attribute:PendingInterrupts",
       "label": "Lock"
     },
     {
-      "id": "edge:0097",
+      "id": "edge:0098",
       "kind": "resource_publish",
       "from": "rpc:resolve_interrupt",
       "to": "resource:channel:InterruptResolutions",
       "label": "Publish"
     },
     {
-      "id": "edge:0098",
-      "kind": "resource_publish",
-      "from": "rpc:send_user_message",
-      "to": "resource:channel:QueuedUserMessages",
-      "label": "Publish"
-    },
-    {
       "id": "edge:0099",
       "kind": "resource_publish",
-      "from": "rpc:steer_user_message",
+      "from": "rpc:send_user_message",
       "to": "resource:channel:QueuedUserMessages",
       "label": "Publish"
     },
@@ -2011,11 +2021,18 @@
       "id": "edge:0100",
       "kind": "resource_publish",
       "from": "rpc:steer_user_message",
-      "to": "resource:channel:SteeredUserMessages",
+      "to": "resource:channel:QueuedUserMessages",
       "label": "Publish"
     },
     {
       "id": "edge:0101",
+      "kind": "resource_publish",
+      "from": "rpc:steer_user_message",
+      "to": "resource:channel:SteeredUserMessages",
+      "label": "Publish"
+    },
+    {
+      "id": "edge:0102",
       "kind": "resource_publish",
       "from": "rpc:steer_user_message",
       "to": "resource:channel:TurnControlRequests",
