@@ -12,8 +12,9 @@ with the M2 additions in
 [agents-m2-stepwise.md](../../docs/design/plan/agents-m2-stepwise.md).
 
 The files are generated from the Python core and checked against the
-TypeScript core, except `connector_tools.json`, which is hand-written and read
-by both cores' connector tool tests. A core passes when it passes all four
+TypeScript core, except `connector_tools.json` and `mcp_dex_conventions.json`,
+which are hand-written and read by both cores' connector tool and MCP tool
+tests. A core passes when it passes all four
 parts below.
 
 | Path | What it fixes |
@@ -25,6 +26,7 @@ parts below.
 | [`session_graph.json`](session_graph.json) | The session Flow Definition Graph that Dex Web loads, with placeholders for the Flow type and the Action permission |
 | [`session_graph_renderings.json`](session_graph_renderings.json) | The hash of the graph text each core must render |
 | [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping, result text, and truncation. Hand-written, not generated |
+| [`mcp_dex_conventions.json`](mcp_dex_conventions.json) | Dex MCP conventions: the `_meta` keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or a JSON-RPC error's outcome key is recorded, with the exact text. Hand-written, not generated |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
 | [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |
 

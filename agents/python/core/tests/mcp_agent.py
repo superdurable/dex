@@ -56,8 +56,12 @@ MCP_AGENT_FLOW_TYPE = "McpScriptedAgent"
 HTTP_URL_ENVIRONMENT_VARIABLE = "MCP_AGENT_HTTP_URL"
 GATEWAY_URL_ENVIRONMENT_VARIABLE = "MCP_AGENT_GATEWAY_URL"
 CORE_DIR = Path(__file__).resolve().parents[1]
-# A policy wins over the tool's readOnlyHint annotation.
-TOOL_POLICIES = {"local__audit_lookup": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE)}
+# A policy wins over the tool's readOnlyHint annotation, and changes only the approval of a tool
+# that declares its effect in the Dex _meta keys.
+TOOL_POLICIES = {
+    "local__audit_lookup": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE),
+    "remote__get_balance": ToolPolicy(ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=True),
+}
 _MODEL_CALL_USAGE = AgentUsage(model_calls=1, input_tokens=10, output_tokens=5)
 
 

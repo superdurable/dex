@@ -42,6 +42,12 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import BaseModel
 
 from dex_agents.events import AgentEventWriter
+from dex_agents.mcp._dex_conventions import (
+    REJECTED_OUTCOME_FALLBACK_MESSAGE,
+    UNKNOWN_OUTCOME_FALLBACK_MESSAGE,
+    read_dex_error_outcome,
+    read_dex_tool_outcome,
+)
 from dex_agents.mcp._resource_and_prompt_tools import (
     RESOURCE_AND_PROMPT_TOOL_NAMES,
     build_resource_and_prompt_tools,
@@ -73,6 +79,7 @@ from dex_agents.runner import (
     ToolExecutionError,
     ToolExecutionResult,
     ToolInputRequested,
+    ToolOutcomeUnknownError,
     ToolPolicy,
     ToolTaskCancellation,
     ToolTaskPending,
@@ -81,9 +88,14 @@ from dex_agents.runner import (
     ToolTaskStarted,
 )
 from dex_agents.stepwise.tool_sources import SourceToolDefinition
-from dex_agents.values import AgentToolCall, QuestionAnswer, QuestionResolution
+from dex_agents.values import AgentToolCall, QuestionAnswer, QuestionResolution, ToolEffect
 
 #: ``_meta`` key that carries the session's idempotency key on every ``tools/call``.
+#:
+#: The key is ``"<flow_id>/<turn_id>/<tool_call_id>"``: the same on every
+#: attempt of one tool call, and unique per call. A server that follows the Dex
+#: MCP conventions derives its own call ID from it, so a retried attempt is
+#: recognized as the same call.
 IDEMPOTENCY_KEY_META_KEY = "io.superdurable.dex/idempotencyKey"
 
 #: ``AgentEvents`` type for an MCP ``notifications/progress`` of a running tool call.
@@ -213,6 +225,13 @@ class _ToolCallFailed:
 
 
 @dataclass(frozen=True)
+class _ToolCallOutcomeUnknown:
+    """The server reported that the call may or may not have taken effect."""
+
+    message: str
+
+
+@dataclass(frozen=True)
 class _ToolCallInterrupted:
     detail: str
 
@@ -251,6 +270,7 @@ class _TaskAsked:
 _ToolCallOutcome: TypeAlias = (
     _ToolCallSucceeded
     | _ToolCallFailed
+    | _ToolCallOutcomeUnknown
     | _ToolCallInterrupted
     | _ServerUnreachable
     | _TaskLost
@@ -300,6 +320,16 @@ class McpToolSource:
     ``AgentSessionOptions.tool_policies`` keyed by ``McpTool.name`` wins over
     the annotations.
 
+    A server that follows the Dex MCP conventions declares each tool's effect
+    and approval in its definition's ``_meta`` instead, under
+    ``TOOL_EFFECT_META_KEY`` and ``TOOL_APPROVAL_META_KEY``, as a connector
+    manifest does for ``ConnectorToolSource``. Such a tool keeps its declared
+    effect, a session ``ToolPolicy`` changes only whether its calls wait for
+    approval, and its writes run in the model's order. A result or JSON-RPC
+    error whose ``_meta`` reports ``TOOL_OUTCOME_UNKNOWN`` records
+    ``outcome_unknown`` without a retry, and ``TOOL_OUTCOME_REJECTED``
+    records ``failed``. See the package README, "Dex MCP conventions".
+
     Every request opens a new connection: a new process for a stdio server, a
     new HTTP connection for a Streamable HTTP server. The source speaks MCP
     2026-07-28, which has no protocol session, and falls back to the
@@ -316,6 +346,11 @@ class McpToolSource:
       error, a failed or cancelled task, and an ``input_required`` answer
       raise ``ToolExecutionError``, so the session records ``failed`` and the
       model sees the text.
+    * A result or JSON-RPC error whose ``_meta`` reports the Dex outcome
+      ``unknown`` raises ``ToolOutcomeUnknownError``, so the session records
+      ``outcome_unknown`` and never sends the call again. The outcome
+      ``rejected`` raises ``ToolExecutionError``. Either wins over
+      ``isError`` and the error code.
     * No result after the request was sent raises
       ``McpToolCallInterruptedError``; the tool Step's effect decides whether
       it is re-issued.
@@ -591,11 +626,13 @@ class McpToolSource:
         return tool
 
     def tool_policies(self) -> dict[str, ToolPolicy]:
-        """Return a ``ToolPolicy`` for every listed tool whose annotations declare an effect.
+        """Return a ``ToolPolicy`` for every listed tool whose server declares an effect.
 
         Use it with a framework adapter that offers the MCP tools as its own
         tools: pass it in the adapter's ``tool_policies`` and put your own
-        policies after it, so yours win.
+        policies after it, so yours win. A tool with a ``dex_effect`` gets that
+        effect and requires approval exactly when ``is_approval_recommended``;
+        a policy you put after it replaces both.
 
         Example:
             >>> await tools.list_tools()
@@ -603,18 +640,21 @@ class McpToolSource:
             ...     ToolEffect.NON_IDEMPOTENT_WRITE)}
 
         Returns:
-            Policies by ``McpTool.name``, with the effect's default approval.
+            Policies by ``McpTool.name``: the declared approval for a tool
+            with a ``dex_effect``, else the effect's default approval.
 
         Raises:
             LookupError: If ``list_tools`` has not run.
         """
         if self._tools is None:
             raise LookupError("call list_tools before reading MCP tool policies")
-        return {
-            tool.name: ToolPolicy(tool.framework_effect)
-            for tool in self._tools.values()
-            if tool.framework_effect is not None
-        }
+        policies: dict[str, ToolPolicy] = {}
+        for tool in self._tools.values():
+            if tool.dex_effect is not None:
+                policies[tool.name] = ToolPolicy(tool.dex_effect, tool.is_approval_recommended)
+            elif tool.framework_effect is not None:
+                policies[tool.name] = ToolPolicy(tool.framework_effect)
+        return policies
 
     def deferred_tool_call(
         self,
@@ -630,6 +670,17 @@ class McpToolSource:
         The policy comes from ``turn.resolve_tool_policy`` with the tool's
         annotation effect, so an explicit ``ToolPolicy`` wins. The call's
         ``tool_source_reference`` names the server and the tool's MCP name.
+
+        A tool with a ``dex_effect`` keeps that effect, as a connector tool
+        does. Its call waits for approval when the session's ``ToolPolicy``
+        for the tool sets ``requires_approval`` to ``True``, or, when that
+        policy leaves it ``None`` or there is none, when
+        ``is_approval_recommended`` is ``True``. A write runs in the model's
+        order after the turn's earlier writes (``DeferredToolCall.ordered``).
+
+        .. versionchanged:: 0.5.0
+            A tool with a ``dex_effect`` keeps it; a ``ToolPolicy`` changes
+            only its approval.
 
         Args:
             turn: The ``RunModel`` context.
@@ -653,14 +704,32 @@ class McpToolSource:
             if isinstance(listed_tool, McpTool) and listed_tool.name == tool_name
             else self.tool(tool_name)
         )
+        tool_source_reference = (
+            None
+            if self._is_resource_and_prompt_tool(tool_name)
+            else json.dumps({"mcp_server": tool.server_name, "mcp_tool": tool.mcp_tool_name})
+        )
+        if tool.dex_effect is None:
+            return DeferredToolCall(
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                policy=turn.resolve_tool_policy(tool_name, tool.framework_effect),
+                tool_source_reference=tool_source_reference,
+            )
+        session_policy = turn.tool_policies.get(tool_name)
+        requires_approval = (
+            session_policy.requires_approval
+            if session_policy is not None and session_policy.requires_approval is not None
+            else tool.is_approval_recommended
+        )
         return DeferredToolCall(
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             arguments=arguments,
-            policy=turn.resolve_tool_policy(tool_name, tool.framework_effect),
-            tool_source_reference=None
-            if self._is_resource_and_prompt_tool(tool_name)
-            else json.dumps({"mcp_server": tool.server_name, "mcp_tool": tool.mcp_tool_name}),
+            policy=ToolPolicy(tool.dex_effect, requires_approval),
+            tool_source_reference=tool_source_reference,
+            ordered=tool.dex_effect is not ToolEffect.READ,
         )
 
     async def deferred_tool_handlers(self) -> dict[str, DeferredToolHandler]:
@@ -711,6 +780,8 @@ class McpToolSource:
             ToolExecutionError: The arguments are not a JSON object, the tool
                 failed, the server answered with an error or asked for input,
                 or the call was never sent.
+            ToolOutcomeUnknownError: The server reported the Dex outcome
+                ``unknown``. The session records ``outcome_unknown``.
             McpToolCallInterruptedError: The call was sent and no result came back.
         """
         record = call.tool_call
@@ -769,6 +840,8 @@ class McpToolSource:
         Raises:
             ToolExecutionError: The task failed, was cancelled, returned an
                 ``isError`` result, or asked for input the session cannot give.
+            ToolOutcomeUnknownError: The task's result reported the Dex
+                outcome ``unknown``. The session records ``outcome_unknown``.
             McpToolCallInterruptedError: The server could not be reached, no
                 longer knows the task, or answered a poll with an error. The
                 task may still run, so ``PollToolTask`` retries and then
@@ -795,6 +868,8 @@ class McpToolSource:
             return ToolExecutionResult(output=outcome.output)
         if isinstance(outcome, _ToolCallFailed):
             raise ToolExecutionError(outcome.message)
+        if isinstance(outcome, _ToolCallOutcomeUnknown):
+            raise ToolOutcomeUnknownError(outcome.message)
         if isinstance(outcome, _TaskPending):
             return ToolTaskPending(
                 poll_interval_seconds=outcome.poll_interval_seconds,
@@ -886,6 +961,8 @@ class McpToolSource:
         Raises:
             ToolExecutionError: The tool failed, the server answered with an
                 error or asked for input, or the call was never sent.
+            ToolOutcomeUnknownError: The server reported the Dex outcome
+                ``unknown``.
             McpToolCallInterruptedError: The call was sent and no result came back.
         """
         if self._is_resource_and_prompt_tool(tool_name):
@@ -938,6 +1015,8 @@ class McpToolSource:
             )
         if isinstance(outcome, _ToolCallFailed):
             raise ToolExecutionError(outcome.message)
+        if isinstance(outcome, _ToolCallOutcomeUnknown):
+            raise ToolOutcomeUnknownError(outcome.message)
         if isinstance(outcome, _ToolCallInterrupted | _TaskLost):
             raise McpToolCallInterruptedError(
                 target.server.name, target.mcp_tool_name, outcome.detail
@@ -1499,13 +1578,26 @@ def _task_id_from_checkpoint(checkpoint: str | None, target: _McpToolTarget) -> 
 
 
 def _outcome_from_mcp_error(error: MCPError) -> _ToolCallOutcome:
+    message = f"MCP error {error.code}: {error.message}"
+    # A Dex-aware server's outcome is known, even for an error code that usually leaves it open.
+    dex_outcome = read_dex_error_outcome(error.data)
+    if dex_outcome == "unknown":
+        return _ToolCallOutcomeUnknown(message)
+    if dex_outcome == "rejected":
+        return _ToolCallFailed(message)
     if error.code in _NO_RESULT_ERROR_CODES:
-        return _ToolCallInterrupted(f"MCP error {error.code}: {error.message}")
-    return _ToolCallFailed(f"MCP error {error.code}: {error.message}")
+        return _ToolCallInterrupted(message)
+    return _ToolCallFailed(message)
 
 
 def _outcome_from_tool_result(result: CallToolResult) -> _ToolCallOutcome:
     text = render_tool_result_text(result)
+    # The Dex outcome wins over isError in both directions.
+    dex_outcome = read_dex_tool_outcome(result.meta)
+    if dex_outcome == "unknown":
+        return _ToolCallOutcomeUnknown(text or UNKNOWN_OUTCOME_FALLBACK_MESSAGE)
+    if dex_outcome == "rejected":
+        return _ToolCallFailed(text or REJECTED_OUTCOME_FALLBACK_MESSAGE)
     if result.is_error:
         return _ToolCallFailed(text or "the MCP tool reported an error")
     return _ToolCallSucceeded(text)

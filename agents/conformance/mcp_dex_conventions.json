@@ -1,0 +1,629 @@
+{
+  "description": "Dex MCP conventions every core's McpToolSource must match: the _meta keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or an error's outcome key is recorded. Hand-written; see README.md.",
+  "metaKeys": {
+    "idempotencyKey": "io.superdurable.dex/idempotencyKey",
+    "toolEffect": "io.superdurable.dex/effect",
+    "toolApproval": "io.superdurable.dex/approval",
+    "toolOutcome": "io.superdurable.dex/outcome"
+  },
+  "values": {
+    "toolEffects": [
+      "read",
+      "idempotent_write",
+      "non_idempotent_write"
+    ],
+    "toolApprovalRecommended": "recommended",
+    "toolOutcomeUnknown": "unknown",
+    "toolOutcomeRejected": "rejected"
+  },
+  "definitionCases": [
+    {
+      "name": "a declared read",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "read",
+          "requiresApproval": false
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "a declared idempotent write with recommended approval",
+      "tool": {
+        "name": "send_payment",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "idempotent_write",
+          "io.superdurable.dex/approval": "recommended"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": "idempotent_write",
+        "dexEffect": "idempotent_write",
+        "isApprovalRecommended": true,
+        "policy": {
+          "effect": "idempotent_write",
+          "requiresApproval": true
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a declared non-idempotent write without approval runs without approval, whatever the annotations say",
+      "tool": {
+        "name": "post_note",
+        "inputSchema": {
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "non_idempotent_write"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": "non_idempotent_write",
+        "dexEffect": "non_idempotent_write",
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "non_idempotent_write",
+          "requiresApproval": false
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a session policy changes only the approval of a declared tool",
+      "tool": {
+        "name": "send_payment",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "non_idempotent_write",
+          "io.superdurable.dex/approval": "recommended"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "read",
+        "requiresApproval": false
+      },
+      "expected": {
+        "frameworkEffect": "non_idempotent_write",
+        "dexEffect": "non_idempotent_write",
+        "isApprovalRecommended": true,
+        "policy": {
+          "effect": "non_idempotent_write",
+          "requiresApproval": false
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "a session policy without requiresApproval keeps the declared approval",
+      "tool": {
+        "name": "send_payment",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "idempotent_write",
+          "io.superdurable.dex/approval": "recommended"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "read"
+      },
+      "expected": {
+        "frameworkEffect": "idempotent_write",
+        "dexEffect": "idempotent_write",
+        "isApprovalRecommended": true,
+        "policy": {
+          "effect": "idempotent_write",
+          "requiresApproval": true
+        },
+        "ordered": true
+      }
+    },
+    {
+      "name": "an approval value outside the convention asks for approval",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read",
+          "io.superdurable.dex/approval": "always"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": "read",
+        "isApprovalRecommended": true,
+        "policy": {
+          "effect": "read",
+          "requiresApproval": true
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "without the Dex keys the annotations decide, as before",
+      "tool": {
+        "name": "lookup",
+        "inputSchema": {
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": null,
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "read",
+          "requiresApproval": false
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "without the Dex keys a session policy replaces the effect, as before",
+      "tool": {
+        "name": "lookup",
+        "inputSchema": {
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": {
+        "effect": "non_idempotent_write"
+      },
+      "expected": {
+        "frameworkEffect": "read",
+        "dexEffect": null,
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "non_idempotent_write",
+          "requiresApproval": true
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "an approval key without an effect key is ignored",
+      "tool": {
+        "name": "record_note",
+        "inputSchema": {
+          "type": "object"
+        },
+        "annotations": {
+          "idempotentHint": true
+        },
+        "_meta": {
+          "io.superdurable.dex/approval": "recommended"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": "idempotent_write",
+        "dexEffect": null,
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "idempotent_write",
+          "requiresApproval": false
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "an effect outside the convention gives the session default and ignores the annotations",
+      "tool": {
+        "name": "lookup",
+        "inputSchema": {
+          "type": "object"
+        },
+        "annotations": {
+          "readOnlyHint": true
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "unclassified"
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": null,
+        "dexEffect": null,
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "unclassified",
+          "requiresApproval": true
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "an effect that is not a string gives the session default",
+      "tool": {
+        "name": "lookup",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": true
+        }
+      },
+      "trustsToolAnnotations": true,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": null,
+        "dexEffect": null,
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "unclassified",
+          "requiresApproval": true
+        },
+        "ordered": false
+      }
+    },
+    {
+      "name": "a server whose annotations are not trusted gets no Dex declaration either",
+      "tool": {
+        "name": "get_balance",
+        "inputSchema": {
+          "type": "object"
+        },
+        "_meta": {
+          "io.superdurable.dex/effect": "read"
+        }
+      },
+      "trustsToolAnnotations": false,
+      "sessionPolicy": null,
+      "expected": {
+        "frameworkEffect": null,
+        "dexEffect": null,
+        "isApprovalRecommended": false,
+        "policy": {
+          "effect": "unclassified",
+          "requiresApproval": true
+        },
+        "ordered": false
+      }
+    }
+  ],
+  "resultCases": [
+    {
+      "name": "a result without the outcome key succeeds, as before",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "paid 5"
+          }
+        ]
+      },
+      "expected": {
+        "status": "succeeded",
+        "text": "paid 5"
+      }
+    },
+    {
+      "name": "an isError result without the outcome key fails, as before",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "order 7 is already shipped"
+          }
+        ],
+        "isError": true
+      },
+      "expected": {
+        "status": "failed",
+        "text": "order 7 is already shipped"
+      }
+    },
+    {
+      "name": "an empty isError result fails with a fixed text",
+      "result": {
+        "content": [],
+        "isError": true
+      },
+      "expected": {
+        "status": "failed",
+        "text": "the MCP tool reported an error"
+      }
+    },
+    {
+      "name": "the outcome unknown records outcome_unknown",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "the payment provider timed out"
+          }
+        ],
+        "isError": true,
+        "_meta": {
+          "io.superdurable.dex/outcome": "unknown"
+        }
+      },
+      "expected": {
+        "status": "outcome_unknown",
+        "text": "the payment provider timed out"
+      }
+    },
+    {
+      "name": "the outcome unknown wins over a missing isError",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "the payment provider timed out"
+          }
+        ],
+        "_meta": {
+          "io.superdurable.dex/outcome": "unknown"
+        }
+      },
+      "expected": {
+        "status": "outcome_unknown",
+        "text": "the payment provider timed out"
+      }
+    },
+    {
+      "name": "the outcome unknown without text has a fixed text",
+      "result": {
+        "content": [],
+        "isError": true,
+        "_meta": {
+          "io.superdurable.dex/outcome": "unknown"
+        }
+      },
+      "expected": {
+        "status": "outcome_unknown",
+        "text": "the MCP server could not tell whether the tool took effect"
+      }
+    },
+    {
+      "name": "the outcome rejected records failed",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "the card was declined"
+          }
+        ],
+        "isError": true,
+        "_meta": {
+          "io.superdurable.dex/outcome": "rejected"
+        }
+      },
+      "expected": {
+        "status": "failed",
+        "text": "the card was declined"
+      }
+    },
+    {
+      "name": "the outcome rejected wins over isError false",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "the card was declined"
+          }
+        ],
+        "isError": false,
+        "_meta": {
+          "io.superdurable.dex/outcome": "rejected"
+        }
+      },
+      "expected": {
+        "status": "failed",
+        "text": "the card was declined"
+      }
+    },
+    {
+      "name": "the outcome rejected without text has a fixed text",
+      "result": {
+        "content": [],
+        "isError": true,
+        "_meta": {
+          "io.superdurable.dex/outcome": "rejected"
+        }
+      },
+      "expected": {
+        "status": "failed",
+        "text": "the MCP server rejected the call, so it did not take effect"
+      }
+    },
+    {
+      "name": "an outcome value outside the convention is ignored on a result",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "paid 5"
+          }
+        ],
+        "_meta": {
+          "io.superdurable.dex/outcome": "applied"
+        }
+      },
+      "expected": {
+        "status": "succeeded",
+        "text": "paid 5"
+      }
+    },
+    {
+      "name": "an outcome value outside the convention is ignored on an isError result",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "no such account"
+          }
+        ],
+        "isError": true,
+        "_meta": {
+          "io.superdurable.dex/outcome": "applied"
+        }
+      },
+      "expected": {
+        "status": "failed",
+        "text": "no such account"
+      }
+    },
+    {
+      "name": "the outcome unknown keeps structured content as the text",
+      "result": {
+        "content": [],
+        "structuredContent": {
+          "status": "pending",
+          "attempts": 2.0
+        },
+        "isError": true,
+        "_meta": {
+          "io.superdurable.dex/outcome": "unknown"
+        }
+      },
+      "expected": {
+        "status": "outcome_unknown",
+        "text": "{\"attempts\": 2, \"status\": \"pending\"}"
+      }
+    }
+  ],
+  "errorCases": [
+    {
+      "name": "an internal error without the outcome key leaves the outcome to the effect class, as before",
+      "error": {
+        "code": -32603,
+        "message": "upstream failed"
+      },
+      "expected": {
+        "status": "interrupted",
+        "text": null
+      }
+    },
+    {
+      "name": "an invalid-params error without the outcome key fails, as before",
+      "error": {
+        "code": -32602,
+        "message": "amount must be positive"
+      },
+      "expected": {
+        "status": "failed",
+        "text": "MCP error -32602: amount must be positive"
+      }
+    },
+    {
+      "name": "an internal error with the outcome unknown records outcome_unknown",
+      "error": {
+        "code": -32603,
+        "message": "the payment provider timed out",
+        "data": {
+          "_meta": {
+            "io.superdurable.dex/outcome": "unknown"
+          }
+        }
+      },
+      "expected": {
+        "status": "outcome_unknown",
+        "text": "MCP error -32603: the payment provider timed out"
+      }
+    },
+    {
+      "name": "an internal error with the outcome rejected records failed",
+      "error": {
+        "code": -32603,
+        "message": "the card was declined",
+        "data": {
+          "_meta": {
+            "io.superdurable.dex/outcome": "rejected"
+          }
+        }
+      },
+      "expected": {
+        "status": "failed",
+        "text": "MCP error -32603: the card was declined"
+      }
+    },
+    {
+      "name": "an invalid-params error with the outcome unknown records outcome_unknown",
+      "error": {
+        "code": -32602,
+        "message": "the payment provider timed out",
+        "data": {
+          "_meta": {
+            "io.superdurable.dex/outcome": "unknown"
+          }
+        }
+      },
+      "expected": {
+        "status": "outcome_unknown",
+        "text": "MCP error -32602: the payment provider timed out"
+      }
+    },
+    {
+      "name": "an outcome key outside data._meta is ignored",
+      "error": {
+        "code": -32603,
+        "message": "upstream failed",
+        "data": {
+          "io.superdurable.dex/outcome": "rejected"
+        }
+      },
+      "expected": {
+        "status": "interrupted",
+        "text": null
+      }
+    },
+    {
+      "name": "error data that is not an object is ignored",
+      "error": {
+        "code": -32602,
+        "message": "bad",
+        "data": "unknown"
+      },
+      "expected": {
+        "status": "failed",
+        "text": "MCP error -32602: bad"
+      }
+    }
+  ]
+}

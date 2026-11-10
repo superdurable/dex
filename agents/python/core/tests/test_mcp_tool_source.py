@@ -37,7 +37,7 @@ from dex import (
     open_blob_cache,
 )
 from mcp import MCPError
-from mcp_types import CONNECTION_CLOSED, INVALID_PARAMS, REQUEST_TIMEOUT
+from mcp_types import CONNECTION_CLOSED, INVALID_PARAMS, REQUEST_TIMEOUT, CallToolResult, Tool
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -55,6 +55,7 @@ from dex_agents import (
     AgentSnapshot,
     AgentToolCall,
     AgentTracingOptions,
+    AgentTurnContext,
     DeferredToolExecution,
     MessageRole,
     QuestionAnswer,
@@ -67,11 +68,18 @@ from dex_agents import (
     resolve_tool_policy,
 )
 from dex_agents.mcp import (
+    IDEMPOTENCY_KEY_META_KEY,
     MCP_GET_PROMPT_TOOL_NAME,
     MCP_LIST_RESOURCES_AND_PROMPTS_TOOL_NAME,
     MCP_READ_RESOURCE_TOOL_NAME,
     MCP_TASK_STATUS_EVENT_TYPE,
     MCP_TOOL_PROGRESS_EVENT_TYPE,
+    TOOL_APPROVAL_META_KEY,
+    TOOL_APPROVAL_RECOMMENDED,
+    TOOL_EFFECT_META_KEY,
+    TOOL_OUTCOME_META_KEY,
+    TOOL_OUTCOME_REJECTED,
+    TOOL_OUTCOME_UNKNOWN,
     McpStdioServerConfig,
     McpStreamableHttpServerConfig,
     McpToolAnnotations,
@@ -84,12 +92,18 @@ from dex_agents.mcp._tool_source import (
     _McpToolCall,
     _McpToolCallReporter,
     _McpToolTarget,
+    _outcome_from_mcp_error,
+    _outcome_from_tool_result,
     _task_question,
     _TaskAsked,
     _TaskPending,
+    _ToolCallFailed,
     _ToolCallInterrupted,
+    _ToolCallOutcome,
+    _ToolCallOutcomeUnknown,
     _ToolCallSucceeded,
 )
+from dex_agents.mcp._tools import mcp_tool_from_listing
 from dex_agents.stepwise import (
     ScriptedModelClient,
 )
@@ -1372,3 +1386,269 @@ async def _wait_for_stepwise_turns(
         else None,
         description=f"{turn_count} finished turn(s)",
     )
+
+
+# Dex MCP conventions
+
+DEX_CONVENTIONS = json.loads(
+    (Path(__file__).resolve().parents[3] / "conformance" / "mcp_dex_conventions.json").read_text()
+)
+
+
+def test_the_dex_meta_keys_are_the_conformance_suite_keys() -> None:
+    assert DEX_CONVENTIONS["metaKeys"] == {
+        "idempotencyKey": IDEMPOTENCY_KEY_META_KEY,
+        "toolEffect": TOOL_EFFECT_META_KEY,
+        "toolApproval": TOOL_APPROVAL_META_KEY,
+        "toolOutcome": TOOL_OUTCOME_META_KEY,
+    }
+    assert DEX_CONVENTIONS["values"] == {
+        "toolEffects": ["read", "idempotent_write", "non_idempotent_write"],
+        "toolApprovalRecommended": TOOL_APPROVAL_RECOMMENDED,
+        "toolOutcomeUnknown": TOOL_OUTCOME_UNKNOWN,
+        "toolOutcomeRejected": TOOL_OUTCOME_REJECTED,
+    }
+
+
+@pytest.mark.parametrize(
+    "case", DEX_CONVENTIONS["definitionCases"], ids=lambda case: str(case["name"])
+)
+def test_dex_tool_definitions_map_as_the_conformance_suite_says(case: dict[str, Any]) -> None:
+    tool = mcp_tool_from_listing(
+        "srv", Tool.model_validate(case["tool"]), case["trustsToolAnnotations"]
+    )
+    session_policy = case["sessionPolicy"]
+    tool_policies = (
+        {}
+        if session_policy is None
+        else {
+            tool.name: ToolPolicy(
+                ToolEffect(session_policy["effect"]), session_policy.get("requiresApproval")
+            )
+        }
+    )
+    call = McpToolSource([]).deferred_tool_call(
+        _dex_turn(tool_policies),
+        tool_call_id="call-1",
+        tool_name=tool.name,
+        arguments="{}",
+        listed_tool=tool,
+    )
+
+    expected = case["expected"]
+    assert tool.framework_effect == expected["frameworkEffect"]
+    assert tool.dex_effect == expected["dexEffect"]
+    assert tool.is_approval_recommended is expected["isApprovalRecommended"]
+    assert call.policy.effect == expected["policy"]["effect"]
+    assert call.policy.is_approval_required is expected["policy"]["requiresApproval"]
+    assert call.ordered is expected["ordered"]
+
+
+@pytest.mark.parametrize("case", DEX_CONVENTIONS["resultCases"], ids=lambda case: str(case["name"]))
+def test_dex_tool_results_map_as_the_conformance_suite_says(case: dict[str, Any]) -> None:
+    outcome = _outcome_from_tool_result(CallToolResult.model_validate(case["result"]))
+
+    assert _describe_dex_outcome(outcome) == case["expected"]
+
+
+@pytest.mark.parametrize("case", DEX_CONVENTIONS["errorCases"], ids=lambda case: str(case["name"]))
+def test_dex_error_responses_map_as_the_conformance_suite_says(case: dict[str, Any]) -> None:
+    error = case["error"]
+    outcome = _outcome_from_mcp_error(MCPError(error["code"], error["message"], error.get("data")))
+
+    assert _describe_dex_outcome(outcome) == case["expected"]
+
+
+async def test_dex_meta_declares_effect_and_approval_and_a_policy_changes_only_approval(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    tools = build_mcp_tool_source(mcp_harness.state_dir, mcp_harness.http_url)
+    listed = {tool.name: tool for tool in await tools.list_tools()}
+    assert listed["remote__post_note"].dex_effect is ToolEffect.NON_IDEMPOTENT_WRITE
+    assert listed["remote__post_note"].annotations == McpToolAnnotations(read_only_hint=True)
+    assert listed["remote__send_payment"].is_approval_recommended
+    assert tools.tool_policies()["remote__send_payment"] == ToolPolicy(
+        ToolEffect.IDEMPOTENT_WRITE, requires_approval=True
+    )
+    assert tools.tool_policies()["remote__post_note"] == ToolPolicy(
+        ToolEffect.NON_IDEMPOTENT_WRITE, requires_approval=False
+    )
+
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id,
+        'call remote__get_balance {"account": "a"} && call remote__post_note {"text": "hi"} '
+        '&& call remote__send_payment {"amount": 5}',
+    )
+    first = await _wait_for_interrupt_of(mcp_harness, session_id, "remote__get_balance")
+    waiting = await mcp_harness.sessions.get_agent_snapshot(session_id)
+    # The session policy asks for approval of get_balance but cannot make it a write.
+    assert {
+        call.tool_name: (call.effect, call.requires_approval) for call in waiting.tool_calls
+    } == {
+        "remote__get_balance": (ToolEffect.READ, True),
+        "remote__post_note": (ToolEffect.NON_IDEMPOTENT_WRITE, False),
+        "remote__send_payment": (ToolEffect.IDEMPOTENT_WRITE, True),
+    }
+    assert await mcp_harness.sessions.resolve_interrupt(
+        session_id, first.interrupt_id, approved=True
+    )
+    # post_note runs without approval; send_payment's approval is raised once its turn comes.
+    second = await _wait_for_interrupt_of(mcp_harness, session_id, "remote__send_payment")
+    assert mcp_harness.tool_runs("post_note") == [f"{session_id}/turn-1/turn-1-call-1"]
+    assert await mcp_harness.sessions.resolve_interrupt(
+        session_id, second.interrupt_id, approved=True
+    )
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == (
+        "remote__get_balance: balance of a is 5; remote__post_note: posted hi; "
+        "remote__send_payment: paid 5"
+    )
+    steps = await mcp_harness.executed_step_types(session_id)
+    assert steps.count("CallTool") == 2
+    assert steps.count("CallSingleAttemptTool") == 1
+
+
+@pytest.mark.parametrize("outcome", ["unknown", "unknown_error"])
+async def test_a_dex_outcome_unknown_is_recorded_once_and_never_retried(
+    mcp_harness: McpAgentHarness, outcome: str
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, f'call remote__send_payment {{"amount": 5, "outcome": "{outcome}"}}'
+    )
+    interrupt = await mcp_harness.wait_for_interrupt(session_id)
+    assert await mcp_harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    # An idempotent write runs in CallTool, which would retry a Step failure.
+    assert snapshot.messages[-1].text == f"remote__send_payment: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert mcp_harness.tool_runs("send_payment") == [f"{session_id}/turn-1/turn-1-call-0"]
+    history = await mcp_harness.stack.read_step_history(session_id)
+    assert [entry.final_attempt for entry in history if entry.step_type == "CallTool"] == [1]
+    assert "RecordToolOutcomeUnknown" not in await mcp_harness.executed_step_types(session_id)
+    finished = [
+        json.loads(event.payload)["status"]
+        for event in await _agent_events(mcp_harness, session_id)
+        if event.type == AgentEventType.TOOL_CALL_FINISHED
+    ]
+    assert finished == ["outcome_unknown"]
+
+
+@pytest.mark.parametrize("outcome", ["rejected", "rejected_error"])
+async def test_a_dex_outcome_rejected_is_recorded_failed_and_never_retried(
+    mcp_harness: McpAgentHarness, outcome: str
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, f'call remote__send_payment {{"amount": 5, "outcome": "{outcome}"}}'
+    )
+    interrupt = await mcp_harness.wait_for_interrupt(session_id)
+    assert await mcp_harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    message = (
+        "the card was declined"
+        if outcome == "rejected"
+        else "MCP error -32603: the card was declined"
+    )
+    assert snapshot.messages[-1].text == f"remote__send_payment: The tool call failed: {message}"
+    assert mcp_harness.tool_runs("send_payment") == [f"{session_id}/turn-1/turn-1-call-0"]
+    history = await mcp_harness.stack.read_step_history(session_id)
+    assert [entry.final_attempt for entry in history if entry.step_type == "CallTool"] == [1]
+
+
+async def test_retries_of_a_dex_write_carry_one_idempotency_key_so_the_server_applies_it_once(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, 'call local__send_payment {"amount": 5, "crash_after_apply": true}'
+    )
+    interrupt = await mcp_harness.wait_for_interrupt(session_id)
+    assert await mcp_harness.sessions.resolve_interrupt(
+        session_id, interrupt.interrupt_id, approved=True
+    )
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == "local__send_payment: payment of 5 already applied"
+    key = f"{session_id}/turn-1/turn-1-call-0"
+    assert mcp_harness.tool_runs("send_payment") == [key, key]
+    assert mcp_harness.tool_runs("payment-applied") == [key]
+    history = await mcp_harness.stack.read_step_history(session_id)
+    assert [entry.final_attempt for entry in history if entry.step_type == "CallTool"] == [2]
+
+
+async def test_a_task_result_with_the_dex_outcome_unknown_is_recorded_by_poll_tool_task(
+    mcp_harness: McpAgentHarness,
+) -> None:
+    await mcp_harness.stack.start_worker()
+    session_id = mcp_harness.new_session_id()
+    await mcp_harness.sessions.start_session(
+        session_id, 'call remote__long_report {"topic": "q3", "outcome": "unknown"}'
+    )
+    snapshot = await mcp_harness.wait_for_turns(session_id, 1)
+
+    assert snapshot.messages[-1].text == f"remote__long_report: {OUTCOME_UNKNOWN_TOOL_RESULT}"
+    assert mcp_harness.tool_runs("long_report") == [f"{session_id}/turn-1/turn-1-call-0"]
+    history = await mcp_harness.stack.read_step_history(session_id)
+    polls = [entry.final_attempt for entry in history if entry.step_type == "PollToolTask"]
+    assert polls and all(attempt == 1 for attempt in polls)
+    assert "RecordToolOutcomeUnknown" not in await mcp_harness.executed_step_types(session_id)
+
+
+async def _wait_for_interrupt_of(
+    harness: McpAgentHarness, session_id: str, tool_name: str
+) -> AgentInterrupt:
+    return await wait_for_agent_snapshot(
+        harness.sessions,
+        session_id,
+        lambda snapshot: next(
+            (
+                interrupt
+                for interrupt in snapshot.pending_interrupts
+                if interrupt.tool_name == tool_name
+            ),
+            None,
+        ),
+        description=f"the approval of {tool_name}",
+    )
+
+
+def _dex_turn(tool_policies: dict[str, ToolPolicy]) -> AgentTurnContext:
+    async def heartbeat() -> None:
+        return None
+
+    return AgentTurnContext(
+        flow_id="session-1",
+        turn_id="turn-1",
+        attempt=1,
+        messages=(),
+        framework_run_state=None,
+        tool_calls={},
+        tool_policies=tool_policies,
+        default_tool_effect=ToolEffect.UNCLASSIFIED,
+        events=AgentEventWriter(lambda event: None, "turn-1", 1),
+        heartbeat=heartbeat,
+    )
+
+
+def _describe_dex_outcome(outcome: _ToolCallOutcome) -> dict[str, str | None]:
+    if isinstance(outcome, _ToolCallSucceeded):
+        return {"status": "succeeded", "text": outcome.output}
+    if isinstance(outcome, _ToolCallFailed):
+        return {"status": "failed", "text": outcome.message}
+    if isinstance(outcome, _ToolCallOutcomeUnknown):
+        return {"status": "outcome_unknown", "text": outcome.message}
+    if isinstance(outcome, _ToolCallInterrupted):
+        return {"status": "interrupted", "text": None}
+    raise AssertionError(f"unexpected {outcome}")
