@@ -860,9 +860,8 @@ the page's time zone preference and sent as RFC 3339 UTC. A Time Travel-created 
 event whose source run links back to the preserved history.
 AttributeMap and ChannelMap instances with decimal-only names appear before
 other instances and sort by numeric value in live state and event details.
-Continued runs link to their previous run from Timeline and Execution graph.
 Timeline connects each Step execution's first method event to the Flow start,
-Flow continued, RPC, Step decision, or recovery event that scheduled it.
+RPC, Step decision, or recovery event that scheduled it.
 Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Execution graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
