@@ -33,8 +33,9 @@ from dex_agents import (
 from dex_agents.connectors import ConnectorToolSource, connector_tool
 from dex_agents.stepwise import FrameworkToolSourceRouter
 from dex_agents_openai_agents import OpenAIAgentsRunner, openai_agents_session_flow
+from dex_agents_openai_agents._agent_graph import ActiveTurn
 from tests.conftest import SupportAgentHarness as ScriptedAgentHarness
-from tests.connector_agent import build_connector_agent, build_connector_source
+from tests.connector_agent import WITHDRAWN_FILE_NAME, build_connector_agent, build_connector_source
 from tests.fake_ledger import (
     LEDGER_CONNECTION,
     CloseAccountOperation,
@@ -44,6 +45,7 @@ from tests.fake_ledger import (
 
 BALANCE = '{"accountId":"a-1","amount":100}'
 SKIPPED_ERROR = f"{TOOL_CALL_NOT_RUN_ERROR_PREFIX}: {TOOL_CALL_SKIPPED_AFTER_WRITE_DETAIL}"
+NOT_OFFERED = "hiding_note did not run: its tool source does not offer this tool now."
 FIRST_PAYOUT = '{"amount":5,"payoutId":"createPayout-1"}'
 
 
@@ -277,6 +279,59 @@ async def test_a_rejected_write_skips_the_later_writes_of_the_response(
     assert ledger.sends() == []
 
 
+@pytest.mark.parametrize("withdrawn", ["empty", "raise"])
+async def test_a_new_call_of_a_tool_its_source_withdrew_is_refused_before_any_step(
+    connector_harness: ScriptedAgentHarness, withdrawn: str
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    first = {"accountId": "a-1", "text": "first gate-after-accept:withdraw"}
+    second = {"accountId": "a-1", "text": "second"}
+    await harness.sessions.start_session(
+        session_id,
+        _calls(("hiding_note", first)) + " then " + json.dumps([["hiding_note", second]]),
+    )
+    await harness.gate("withdraw").wait_until_reached()
+    # The next RunModel's listing lacks the tool whose recorded call it must replay.
+    (harness.state_dir / WITHDRAWN_FILE_NAME).write_text(withdrawn)
+    harness.gate("withdraw").release()
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    assert snapshot.state is not None and snapshot.state.last_turn_error is None
+    lines = _answer_lines(snapshot)
+    assert lines[0] == 'hiding_note: {"noteId":"postNote-1"}'
+    assert lines[1].startswith("hiding_note: ")
+    assert NOT_OFFERED in lines[1]
+    assert len(ledger.sends("postNote")) == 1
+    assert (await harness.executed_step_types(session_id)).count("CallSingleAttemptTool") == 1
+
+
+@pytest.mark.parametrize("second_tool", ["get_balance", "post_note"])
+async def test_a_reused_call_id_never_replays_a_recorded_result(
+    connector_harness: ScriptedAgentHarness, second_tool: str
+) -> None:
+    harness = connector_harness
+    await harness.stack.start_worker()
+    ledger = _ledger(harness)
+    session_id = harness.new_session_id()
+    later = [[second_tool, {"accountId": "a-1", "text": "reused"}, "reused-id"]]
+    if second_tool == "get_balance":
+        later = [["get_balance", {"accountId": "a-1"}, "reused-id"]]
+    await harness.sessions.start_session(
+        session_id,
+        "calls "
+        + json.dumps([["get_balance", {"accountId": "a-1"}, "reused-id"]])
+        + " then "
+        + json.dumps(later),
+    )
+    snapshot = await harness.wait_for_turns(session_id, 1)
+    # The turn fails instead of answering the new call with the recorded result.
+    assert snapshot.state is not None and snapshot.state.last_turn_error
+    assert ledger.sends("postNote") == []
+    assert len(ledger.sends("getBalance")) <= 1
+
+
 async def test_a_source_call_gets_its_operation_timeout_and_bounded_retries(
     tmp_path: Path,
 ) -> None:
@@ -305,6 +360,31 @@ async def test_a_source_call_gets_its_operation_timeout_and_bounded_retries(
     assert options.execute_retry is not None and options.execute_retry.maximum_attempts == 3
     # Function tools keep the tool Steps' defaults.
     assert runner.tool_call_step_options(replace(record, tool_source_reference=None)) is None
+
+
+def test_a_paused_record_replays_once_and_only_for_its_own_tool() -> None:
+    record = AgentToolCall(
+        tool_call_id="paused-id",
+        turn_id="turn-1",
+        tool_name="get_balance",
+        arguments="{}",
+        effect=ToolEffect.READ,
+        requires_approval=False,
+        status=ToolCallStatus.SUCCEEDED,
+        output=BALANCE,
+    )
+    active_turn = ActiveTurn(
+        turn=replace(_turn(), tool_calls={record.tool_call_id: record}),
+        paused_call_ids={"paused-id"},
+    )
+    with pytest.raises(RuntimeError, match="recorded for get_balance, not post_note"):
+        active_turn.take_paused_record("paused-id", "post_note")
+    assert active_turn.take_paused_record("paused-id", "get_balance") is record
+    # The SDK filters most repeats itself; a second replay of the same call ID is refused here.
+    with pytest.raises(RuntimeError, match="not a paused call"):
+        active_turn.take_paused_record("paused-id", "get_balance")
+    with pytest.raises(RuntimeError, match="not a paused call"):
+        active_turn.take_paused_record("unknown-id", "get_balance")
 
 
 def test_an_unexposed_operation_is_refused_when_the_agent_is_defined(tmp_path: Path) -> None:

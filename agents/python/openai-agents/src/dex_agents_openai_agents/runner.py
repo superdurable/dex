@@ -359,7 +359,7 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
             if turn.framework_run_state is None:
                 run_input = _turn_input_items(turn)
             else:
-                run_input = await self._restore_run_state(turn, turn.framework_run_state)
+                run_input = await self._restore_run_state(active_turn, turn.framework_run_state)
             result = Runner.run_streamed(
                 self._graph.starting_agent,
                 run_input,
@@ -586,9 +586,10 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
 
     async def _restore_run_state(
         self,
-        turn: AgentTurnContext,
+        active_turn: ActiveTurn,
         framework_run_state: str,
     ) -> RunState[Any, Agent[Any]]:
+        turn = active_turn.turn
         state = await RunState.from_json(
             self._graph.starting_agent,
             json.loads(framework_run_state),
@@ -596,6 +597,8 @@ class OpenAIAgentsRunner(AgentFrameworkRunner[DeferredToolOutcome]):
         )
         for interruption in state.get_interruptions():
             call_id = interruption.call_id
+            if call_id:
+                active_turn.paused_call_ids.add(call_id)
             record = turn.recorded_tool_call(call_id) if call_id else None
             if record is None or not record.status.is_final:
                 raise RuntimeError(f"interrupted tool call {call_id} has no final record")

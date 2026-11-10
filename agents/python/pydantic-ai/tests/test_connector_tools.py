@@ -325,8 +325,9 @@ async def test_a_reused_call_id_never_replays_a_recorded_result(
         + json.dumps(later),
     )
     snapshot = await harness.wait_for_turns(session_id, 1)
-    assert snapshot.state is not None
-    assert "reused-id" in (snapshot.state.last_turn_error or "")
+    # The turn fails instead of answering the new call with the recorded result.
+    assert snapshot.state is not None and snapshot.state.last_turn_error
+    assert "reused-id" in snapshot.state.last_turn_error
     assert ledger.sends("postNote") == []
     assert len(ledger.sends("getBalance")) <= 1
 
