@@ -31,13 +31,13 @@ export type OrderSupportScriptedReply =
 /**
  * The script every harness test model follows, the same as the Python demo model. "cancel order <id>" calls
  * cancel_order, other text with "order <id>" calls look_up_order, and tool results become the answer.
- * "reply in slack thread <channel> <timestamp>: <text>" calls slack_post_thread_reply.
+ * "reply in Slack thread <channel ID> <thread timestamp>: <text>" calls slack_post_thread_reply.
  */
 export function decideOrderSupportReply(userText: string, toolOutputs: readonly string[]): OrderSupportScriptedReply {
   if (toolOutputs.length > 0) {
     return { kind: "answer", text: scriptedReplyPrefix + toolOutputs.join(" ") };
   }
-  const slackReplyMatch = /\breply in slack thread (\S+) (\S+): (.+)$/i.exec(userText);
+  const slackReplyMatch = /\breply in slack thread (\S+) (\S+?): (.+)/is.exec(userText);
   if (slackReplyMatch !== null) {
     return {
       kind: "call_tool",

@@ -48,7 +48,8 @@ command, URL, or credential. The names match the Python example.
 | `DEX_AGENT_CONTEXT_TOKENS` | `32000` | Context window for compaction |
 | `DEX_AGENT_MCP_CONFIG` | the demo `notes` server | Path to a YAML file of MCP servers, in the Python example's format |
 | `DEX_AGENT_SESSION_KEY` | random per process | Signs session tokens; a random key ends every token when the process restarts |
-| `SLACK_BOT_TOKEN`, `SLACK_USER_TOKEN` | none | Slack credentials for `slack_post_thread_reply`. Without either, the process logs one line and the agent offers no Slack tool |
+| `SLACK_BOT_TOKEN` | none | Slack bot token that posts for `slack_post_thread_reply`. Without it, the process logs one line and the agent offers no Slack tool |
+| `SLACK_USER_TOKEN` | none | Optional Slack user token that confirms a post after an interrupted attempt; without it, that post ends `outcome_unknown` |
 
 The MCP file is the Python example's format, so one file serves both examples:
 

@@ -105,6 +105,12 @@ test("aiAgentPostsAnApprovedSlackThreadReplyOnce", async () => {
   await sessions.sendUserMessage(sessionId, `/tool slack_post_thread_reply ${JSON.stringify(replyInput)}`);
   const approval = await sessions.waitForPendingInterrupt(sessionId, "slack_post_thread_reply", waitOptions);
   assert.deepEqual(await readSlackCalls(), []);
+  // The active turn's record: a non-idempotent write runs once, in its own single-attempt tool Step.
+  const pendingCall = (await sessions.getAgentSnapshot(sessionId)).toolCalls.find(
+    (record) => record.toolName === "slack_post_thread_reply",
+  );
+  assert.equal(pendingCall?.effect, "non_idempotent_write");
+  assert.equal(pendingCall?.requiresApproval, true);
 
   assert.equal(await sessions.resolveInterrupt(sessionId, approval.interruptId, true), true);
   await sessions.waitForCompletedTurns(sessionId, 1, waitOptions);
@@ -119,12 +125,8 @@ test("aiAgentPostsAnApprovedSlackThreadReplyOnce", async () => {
   // Slack deduplicates on a key derived from the Call ID, which the tool Step keeps across attempts.
   assert.equal(providerCall?.idempotencyKey, providerCall?.callId);
 
-  const snapshot = await sessions.getAgentSnapshot(sessionId);
-  const toolCall = snapshot.toolCalls.find((record) => record.toolName === "slack_post_thread_reply");
-  assert.equal(toolCall?.status, "succeeded");
-  // A non-idempotent write runs once, in its own single-attempt tool Step.
-  assert.equal(toolCall?.effect, "non_idempotent_write");
-  assert.equal(toolCall?.requiresApproval, true);
+  // The demo model repeats the tool result: the message Slack sent.
+  assert.match(lastText(await sessions.getAgentSnapshot(sessionId)), /"timestamp":"1710000011\.000600"/);
   assert.equal(await sessions.resolveInterrupt(sessionId, approval.interruptId, true), false);
   assert.equal((await readSlackCalls()).length, 1);
 });

@@ -74,11 +74,16 @@ Every harness can post a reply to a Slack thread through the Slack Connector,
 - The manifest does not ask for approval of `postThreadReply`. The example sets
   `requiresApproval: true`, so a person approves every post before it reaches Slack.
 - `openSlackConnectionFromEnvironment` reads `SLACK_BOT_TOKEN` and `SLACK_USER_TOKEN` into the
-  Connector's credential provider. The bot token posts. The user token reads a reply back when a
-  retry must confirm an earlier post. The tokens stay in the Worker's memory and never enter Flow
+  Connector's credential provider. The tokens stay in the Worker's memory and never enter Flow
   state.
-- Without either variable, the process logs one line and the agents offer no Slack tool. Everything
-  else runs as before.
+
+  | Variable | Required | Use |
+  | --- | --- | --- |
+  | `SLACK_BOT_TOKEN` | Yes, for the Slack tool | Posts the reply |
+  | `SLACK_USER_TOKEN` | No | Reads the thread back to confirm a post after an interrupted attempt; without it, that post ends `outcome_unknown` |
+
+- Without `SLACK_BOT_TOKEN`, the process logs one line and the agents offer no Slack tool.
+  Everything else runs as before.
 
 ## Configuration
 
@@ -164,7 +169,7 @@ with no retry or replay and an idempotency key derived from its Call ID. A secon
 
 - The scripted models follow the Python demo model's script: "cancel order <id>" calls
   `cancel_order`, other text with "order <id>" calls `look_up_order`, and the answer repeats the
-  tool results. "reply in slack thread <channel> <timestamp>: <text>" calls
+  tool results. "reply in Slack thread <channel ID> <thread timestamp>: <text>" calls
   `slack_post_thread_reply`.
 - The OpenAI Agents SDK test uses a scripted `Model`. The Vercel AI SDK and Mastra tests use a
   scripted AI SDK language model.

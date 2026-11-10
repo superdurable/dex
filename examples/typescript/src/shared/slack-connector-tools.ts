@@ -28,31 +28,30 @@ import type { ToolSource } from "@superdurable/dex-agents";
 import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
 
 /** The logical Slack connection the agent examples post with. Flow state stores only this reference. */
-export const slackConnectionReference: ConnectionRef = { provider: ProviderID, name: "agent-slack" };
+export const slackConnectionReference: ConnectionRef = { provider: ProviderID, name: "support-slack" };
 
 /**
- * Opens the Slack connection from `SLACK_BOT_TOKEN` and `SLACK_USER_TOKEN`. The bot token posts; the user token
- * reads a reply back when a retry must confirm an earlier post. The tokens stay in the Worker's memory and never
- * enter Flow state.
+ * Opens the Slack connection with tokens from the environment; they never enter Flow state.
  *
- * @returns The connection, or `undefined` after logging one line when either variable is unset.
+ * @returns The connection, or `undefined` after logging one line when `SLACK_BOT_TOKEN` is unset.
  */
 export function openSlackConnectionFromEnvironment(): Connection | undefined {
   const botToken = process.env.SLACK_BOT_TOKEN ?? "";
-  const userToken = process.env.SLACK_USER_TOKEN ?? "";
-  if (botToken === "" || userToken === "") {
-    console.warn("SLACK_BOT_TOKEN or SLACK_USER_TOKEN is not set, so the agent examples offer no Slack connector tools");
+  if (botToken === "") {
+    console.warn("SLACK_BOT_TOKEN is not set, so the agent examples offer no Slack connector tools");
     return undefined;
   }
-  const credentials: Credentials = { botToken: new SecretString(botToken), userToken: new SecretString(userToken) };
+  const credentials: Credentials = {
+    botToken: new SecretString(botToken),
+    // Optional: confirms a post after an interrupted attempt; without it that post is outcome_unknown.
+    userToken: new SecretString(process.env.SLACK_USER_TOKEN ?? ""),
+  };
   const credentialProvider = new StaticCredentialProvider([[slackConnectionReference, credentials]]);
   return newConnection(new SlackClient({}, credentialProvider), slackConnectionReference);
 }
 
 /**
- * Offers the reviewed Slack operation `postThreadReply` as the tool `slack_post_thread_reply`. Its manifest makes it
- * a `non_idempotent_write` that runs once in its own tool Step. The manifest does not ask for approval, so this
- * example requires it: a person approves every post before it reaches Slack.
+ * Offers the Slack operation `postThreadReply` as the tool `slack_post_thread_reply`.
  *
  * @param slack - The Slack connection, or `undefined` to offer no Slack tools.
  * @returns The tool sources to pass as `toolSources`; empty without a connection.
@@ -66,6 +65,7 @@ export function createSlackConnectorToolSources(slack: Connection | undefined): 
       connectorTool(slack.operations.postThreadReply(), slack.reference, {
         manifest,
         inputValidator: PostThreadReplyInputSchema,
+        // The manifest does not ask for approval; this agent asks before every post.
         requiresApproval: true,
       }),
     ]),
