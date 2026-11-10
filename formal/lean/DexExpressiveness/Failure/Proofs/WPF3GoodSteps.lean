@@ -201,8 +201,7 @@ theorem wpf3_runGood_start (ghost ghostAfter : Ghost σ) (run changed : Run σ)
     (good : WPF3RunGood ghost run) (stepId : Dex.StepExecId σ) (record : Dex.StepRecord σ)
     (isRecord : run.base.findStep? stepId = some record) (method : Dex.Method)
     (isInvocation : record.invocation = some { method := method, state := .pending })
-    (taskId : Nat) (attempt startedAttempt : Attempt σ)
-    (isAttempt : run.findAttempt? stepId = some attempt) (isMethod : attempt.method = method)
+    (taskId : Nat) (attempt startedAttempt : Attempt σ) (isMethod : attempt.method = method)
     (arguments : Arguments σ)
     (isBase : changed.base = (wpf3Bumped run).base.updateStep stepId (fun current =>
       { current with invocation := some { method := method, state := .running taskId } }))
@@ -239,7 +238,7 @@ theorem wpf3_runGood_start (ghost ghostAfter : Ghost σ) (run changed : Run σ)
       isBase ▸ isNextMember
     obtain ⟨original, isOriginalMember, isNext⟩ := (Dex.Run.mem_updateStep _ _ _ _).mp isNextBase
     by_cases isStep : original.id = stepId
-    · rw [if_pos isStep] at isNext
+    · rw [ite_eq_left isStep] at isNext
       have isOriginal : original = record := eq_of_nodup_map (fun record => record.id)
         run.base.steps good.shape.idsNodup isOriginalMember isMember (isStep.trans isId.symm)
       subst isOriginal
@@ -250,12 +249,12 @@ theorem wpf3_runGood_start (ghost ghostAfter : Ghost σ) (run changed : Run σ)
       simp only
       rw [isStep, AssocList.get?_set_self]
       dsimp only
-      rw [if_pos (startedMethod.trans isMethod)]
+      rw [ite_eq_left (startedMethod.trans isMethod)]
       refine ⟨startedMethod.trans isMethod, ?_⟩
       show WPF3SnapshotMatches ghostAfter _ method startedAttempt.snapshot
       rw [startedSnapshot]
       exact ⟨arguments, ghostAt, rfl, sameInput, sameResults, sameContext⟩
-    · rw [if_neg isStep] at isNext
+    · rw [ite_eq_right isStep] at isNext
       subst isNext
       rw [isAttempts]
       rw [AssocList.get?_set_other _ _ _ _ isStep]
@@ -264,7 +263,7 @@ theorem wpf3_runGood_start (ghost ghostAfter : Ghost σ) (run changed : Run σ)
       unfold Run.findAttempt? at isPrevious
       rw [isPrevious]
       dsimp only
-      rw [if_pos samePreviousMethod]
+      rw [ite_eq_left samePreviousMethod]
       refine ⟨samePreviousMethod, ?_⟩
       have isOtherKey : (next.id, invocation.method) ≠ (stepId, method) := by
         intro isSame
@@ -571,7 +570,7 @@ theorem wpf3_good_start (program : Program σ) (config next : Config σ)
     (stepId : Dex.StepExecId σ) (record : Dex.StepRecord σ)
     (isRecord : run.base.findStep? stepId = some record) (method : Dex.Method)
     (isInvocation : record.invocation = some { method := method, state := .pending })
-    (attempt : Attempt σ) (isAttempt : run.findAttempt? stepId = some attempt)
+    (attempt : Attempt σ)
     (isMethod : attempt.method = method) (arguments : Arguments σ) (newTask : Task σ)
     (newTaskFacts : newTask.base.id = config.nextTaskId ∧ newTask.base.step = stepId ∧
       newTask.base.method = method ∧ newTask.base.context = arguments.context ∧
@@ -651,7 +650,7 @@ theorem wpf3_good_start (program : Program σ) (config next : Config σ)
     rw [isNextRun] at isAfter
     cases isAfter
     exact wpf3_runGood_start config.ghost next.ghost run changed (good.runGood run isRun) stepId
-      record isRecord method isInvocation config.nextTaskId attempt startedAttempt isAttempt
+      record isRecord method isInvocation config.nextTaskId attempt startedAttempt
       isMethod arguments isBase isAttempts startedMethod startedSnapshot ghostAt ghostElse
       sameInput sameResults sameContext
 
@@ -752,7 +751,7 @@ theorem wpf3_good_stepStart (program : Program σ) (config : Config σ)
                     arguments.snapshot := by
                   rw [isSnapshot, isArgumentsSnapshot]; rfl
                 refine wpf3_good_start program config next good run isRun stepId record isRecord
-                  method isInvocation attempt isAttempt isMethod arguments newTask ?_ isRealTasks
+                  method isInvocation attempt isMethod arguments newTask ?_ isRealTasks
                   isNextTaskId _ isNextRun rfl _ rfl rfl
                   (by show some _ = _; rw [isNewSnapshot])
                   (by rw [isGhost, (ghostKeeps _).1]; exact hasArguments)
@@ -774,7 +773,7 @@ theorem wpf3_good_stepStart (program : Program σ) (config : Config σ)
                     { record with
                       invocation := some { method := method, state := .running config.nextTaskId } }
                     { method := method, state := .running config.nextTaskId }
-                    ((Dex.Run.mem_updateStep _ _ _ _).mpr ⟨record, isMember, by rw [if_pos isId]⟩)
+                    ((Dex.Run.mem_updateStep _ _ _ _).mpr ⟨record, isMember, by rw [ite_eq_left isId]⟩)
                     rfl
                   have hasHistoryById : (committedGhost.findInvocation? (record.id, method)).isSome =
                       true := hasHistoryRecord
@@ -794,7 +793,7 @@ theorem wpf3_good_stepStart (program : Program σ) (config : Config σ)
                       nextVirtualTaskId := committedGhost.nextVirtualTaskId + 1 } := by
                   subst isNext; rfl
                 refine wpf3_good_start program config next good run isRun stepId record isRecord
-                  method isInvocation attempt isAttempt isMethod newArguments newTask
+                  method isInvocation attempt isMethod newArguments newTask
                   ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩ isRealTasks isNextTaskId _
                   isNextRun rfl _ rfl rfl rfl ?_ ?_ ?_ ?_ rfl rfl rfl
                 · rw [isGhost]

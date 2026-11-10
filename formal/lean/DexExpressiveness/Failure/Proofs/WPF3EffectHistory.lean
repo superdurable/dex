@@ -473,7 +473,7 @@ theorem wpf3_ghostKeeps_updateInvocation (ghost : Ghost σ) (key : InvocationKey
   · rfl
 
 /-- Finishes a branch of a step that keeps `par` and `h` and emits no effect. -/
-macro "wpf3_keeps_leaf" isStep:ident : tactic => `(tactic| first
+local macro "wpf3_keeps_leaf" isStep:ident : tactic => `(tactic| first
   | (cases $isStep:ident; done)
   | (obtain ⟨isEvents, isNext⟩ := wpf3_of_some_eq $isStep:ident;
      subst isEvents; subst isNext;

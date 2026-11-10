@@ -99,7 +99,7 @@ theorem wpf3_registerWait_beyond (run : Dex.Run σ) (step : Dex.StepExecId σ) (
   · obtain ⟨original, _, isRecord⟩ := (Dex.Run.mem_updateStep _ _ _ _).mp isMember
     have isOriginalStep : original.id = step := by
       rw [← isStep, isRecord]; split <;> rfl
-    rw [isRecord, if_pos isOriginalStep]
+    rw [isRecord, ite_eq_left isOriginalStep]
     simp [wpf3IsBeyond, wpf3PhaseOf, wpf3PhaseRank]
   · dsimp only at isMember
     have registered := wpf3_evolution_updateStep
@@ -134,7 +134,7 @@ theorem wpf3_registerWait_beyond (run : Dex.Run σ) (step : Dex.StepExecId σ) (
       have isMiddleStep : middle.id = step := middleEvolves.sameId.symm.trans isStep
       have isOriginalStep : original.id = step := by
         rw [← isMiddleStep, isMiddle]; split <;> rfl
-      rw [isMiddle, if_pos isOriginalStep] at middleEvolves
+      rw [isMiddle, ite_eq_left isOriginalStep] at middleEvolves
       have grows := middleEvolves.rankGrows
       simp only [wpf3PhaseRank] at grows
       unfold wpf3IsBeyond
@@ -168,13 +168,13 @@ theorem wpf3_applyDecision_beyond (run : Dex.Run σ) (step : Dex.StepExecId σ)
     have isMiddleStep : middle.id = step := middleEvolves.sameId.symm.trans isStep
     have isOriginalStep : original.id = step := by
       rw [← isMiddleStep, isMiddle]; split <;> rfl
-    rw [isMiddle, if_pos isOriginalStep] at middleEvolves
+    rw [isMiddle, ite_eq_left isOriginalStep] at middleEvolves
     have grows := middleEvolves.rankGrows
     simp only [wpf3PhaseRank] at grows
     unfold wpf3IsBeyond
     simp only [wpf3PhaseOf, wpf3PhaseRank]
     revert grows
-    cases record.phase <;> simp [wpf3PhaseRank]
+    cases record.phase <;> simp
   · exfalso
     obtain ⟨original, isOriginalMember, isOriginalStep⟩ := hasStep
     obtain ⟨middle, isMiddleMember, isMiddleId⟩ := finished.1.keepsIds original isOriginalMember
@@ -210,7 +210,7 @@ theorem wpf3_evolution_complete (run : Dex.Run σ) (shape : WPF3RunShape run)
       (Dex.Run.mem_updateStep _ _ _ _).mp isCandidate
     have isOriginalStep : original.id = step := by
       rw [← isCandidateStep, isCandidateEq]; split <;> rfl
-    rw [isCandidateEq, if_pos isOriginalStep, isOnly original isOriginalMember isOriginalStep]
+    rw [isCandidateEq, ite_eq_left isOriginalStep, isOnly original isOriginalMember isOriginalStep]
   have isNotWaiting : ∀ candidate, candidate ∈ (run.updateStep step (fun current =>
       { current with invocation := none })).steps → candidate.id = step →
       candidate.phase ≠ .waiting := by
@@ -230,7 +230,7 @@ theorem wpf3_evolution_complete (run : Dex.Run σ) (shape : WPF3RunShape run)
       { current with invocation := none })).applyEffects effects).steps ∧ candidate.id = step := by
     obtain ⟨candidate, isCandidate, isCandidateId⟩ := applied.1.keepsIds
       { record with invocation := none }
-      ((Dex.Run.mem_updateStep _ _ _ _).mpr ⟨record, isMember, by rw [if_pos isId]⟩)
+      ((Dex.Run.mem_updateStep _ _ _ _).mpr ⟨record, isMember, by rw [ite_eq_left isId]⟩)
     exact ⟨candidate, isCandidate, isCandidateId.trans isId⟩
   obtain ⟨finalized, beyond⟩ := finalizeEvolution _ applied.2 appliedRecords hasStep
   refine ⟨⟨?_, ?_⟩, finalized.2⟩
@@ -259,7 +259,7 @@ theorem wpf3_evolution_complete (run : Dex.Run σ) (shape : WPF3RunShape run)
       · obtain ⟨original, isOriginalMember, isCleared⟩ :=
           (Dex.Run.mem_updateStep _ _ _ _).mp isClearedMember
         by_cases isOriginalStep : original.id = step
-        · rw [if_pos isOriginalStep] at isCleared
+        · rw [ite_eq_left isOriginalStep] at isCleared
           have isOriginal := isOnly original isOriginalMember isOriginalStep
           subst isOriginal
           subst isCleared
@@ -275,7 +275,7 @@ theorem wpf3_evolution_complete (run : Dex.Run σ) (shape : WPF3RunShape run)
             cases isPrevious
             exact Or.inr (beyond next isNextMember
               (chain.sameId.trans isOriginalStep))
-        · rw [if_neg isOriginalStep] at isCleared
+        · rw [ite_eq_right isOriginalStep] at isCleared
           rw [isCleared] at clearedEvolves
           exact Or.inl ⟨original, isOriginalMember, clearedEvolves.trans middleEvolves⟩
       · refine Or.inr ?_
