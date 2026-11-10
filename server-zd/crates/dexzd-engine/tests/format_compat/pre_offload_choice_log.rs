@@ -273,8 +273,7 @@ async fn the_offload_choice_comparison_rejects_stale_derived_values() {
     }
 }
 
-/// The comparison must reject a replay whose removed FlowConfig fields differ from the logged
-/// ones: another value in a run record, or none in the history row of a Flow start.
+/// The comparison must reject removed FlowConfig fields that differ from the logged ones.
 #[tokio::test]
 async fn the_offload_choice_comparison_rejects_other_removed_flow_config_fields() {
     let directory = testdata_root().join(OFFLOAD_CHOICE_LOG_DIRECTORY);

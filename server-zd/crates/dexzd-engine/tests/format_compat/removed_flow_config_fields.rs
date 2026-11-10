@@ -6,19 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
-//! Restores the FlowConfig fields 2 and 3 that frozen logs recorded and the current protobuf
-//! types no longer have (#1072).
-//!
-//! Older binaries copied the server default `continue_as_new_threshold` into every effective
-//! FlowConfig. Their logs and snapshots hold it in FlowStart and child start commands, run
-//! records, history rows, and child start outbox rows. Current apply decodes those commands
-//! without the fields, so the rows it writes lack them. The replay is turned back into the
-//! older binary's bytes by putting each run's logged values back, with the byte counters that
-//! count them; the comparisons then stay byte for byte.
-//!
-//! The removed history fields `continued_start` (11) and `continued_to_run_id` (5) need no
-//! restore: apply never set the first, and wrote the second as an empty string, which proto3
-//! does not encode.
+//! Restores FlowConfig fields 2 and 3, which frozen logs hold and current types drop (#1072).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -124,23 +112,18 @@ struct LoggedChildStart {
 const RUN_RECORD_PATHS: &[&[u32]] = &[&[14]];
 /// `ChildFlowStartMessage.flow_config` of `OutboxRecord.child_start`.
 const OUTBOX_PATHS: &[&[u32]] = &[&[3, 3]];
-/// The logged FlowStart's effective FlowConfig, a logged child start's FlowConfig, and the
-/// FlowStartedOrContinued event's FlowConfig.
+/// FlowConfigs of the logged FlowStart, the logged child start, and the Flow start event.
 const HISTORY_PATHS: &[&[u32]] = &[&[6, 20, 8], &[6, 70, 3, 3], &[7, 20, 3]];
 
-/// The removed fields that a frozen log's commands carry, by the run or the outbox message
-/// whose rows hold them.
+/// Removed field values from the log, by run and by child start outbox message.
 pub(crate) struct LoggedRemovedFields {
     by_run: BTreeMap<Vec<u8>, RemovedFlowConfigFields>,
     by_outbox_message: BTreeMap<Vec<u8>, RemovedFlowConfigFields>,
 }
 
 impl LoggedRemovedFields {
-    /// Reads the removed fields of every logged FlowStart and child start.
-    ///
-    /// Panics when a request override or a FlowConfig update carries them, which apply would
-    /// have merged into a run's FlowConfig, when two commands give one run different values,
-    /// or when no command carries them.
+    /// Reads every logged FlowStart and child start; panics when an override or update sets
+    /// the fields.
     pub(crate) fn read(directory: &Path) -> Self {
         let mut logged = Self {
             by_run: BTreeMap::new(),
