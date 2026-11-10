@@ -4,15 +4,15 @@ title: Wait for Attribute Match
 
 # Wait for Attribute Match
 
-Use **WaitForAttributeMatch** when a caller needs to refresh after durable business state changes. The application owns the Attribute and its meaning. The wait observes only that Attribute's value, not run IDs or Flow history.
+Use **WaitForAttributeMatch** when a caller needs to refresh after durable business state changes. The application owns the Attribute and decides what it means. The wait checks only that Attribute's value.
 
-A common pattern is an integer revision Attribute initialized to zero. Every Step and RPC that advances the represented state declares the same Attribute lock. Inside that lock, it reads the revision, adds one, writes the business state, and then writes the new revision.
+A common choice is an integer revision Attribute that starts at zero. Every Step and RPC that changes the business state declares a lock on that same Attribute. While it holds the lock, it reads the revision, adds one, writes the business state, and then writes the new revision.
 
-The caller waits for revision greater than its last observed value. The wait returns the current matched revision. The caller then fetches the new state with its Describe or read RPC, or reads the Attributes directly with [GetAttributes](/reference/server/runtime-client#read-attributes).
+The caller waits until the revision is greater than the last value it saw. The wait returns the current revision. The caller then fetches the new state with its Describe or read RPC, or reads the Attributes directly with [GetAttributes](/reference/server/runtime-client#read-attributes).
 
 Revision is a watermark, not an event stream. If state advances quickly from 0 to 1 to 2 to 3, one wait for a value greater than 0 may return 3. Callers must not expect to observe every intermediate value.
 
-Set **RequestTimeout** at an HTTP or admission boundary. See [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
+When the wait runs behind an HTTP endpoint or another entry point with its own deadline, set **RequestTimeout**. See [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
 
 ## Advance revision under a lock
 

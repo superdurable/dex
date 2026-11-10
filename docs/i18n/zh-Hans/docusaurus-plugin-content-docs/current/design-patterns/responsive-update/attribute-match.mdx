@@ -4,15 +4,15 @@ title: 等待 Attribute 匹配
 
 # 等待 Attribute 匹配
 
-当调用方需要在 durable 业务状态变化后刷新时，使用 **WaitForAttributeMatch**。Attribute 及其语义由应用拥有。该等待只观察这个 Attribute 的值，不依赖 run ID 或 Flow history。
+当调用方需要在 durable 业务状态变化后刷新时，使用 **WaitForAttributeMatch**。这个 Attribute 由应用定义，含义也由应用决定。等待只检查这个 Attribute 的值。
 
-常见做法是定义一个初始值为 0 的整数 revision Attribute。所有推进相关状态的 Step 和 RPC 都声明同一个 Attribute lock。在锁内读取 revision、加一、写入业务状态，再写入新的 revision。
+常见做法是定义一个初始值为 0 的整数 revision Attribute。所有修改业务状态的 Step 和 RPC 都声明这个 Attribute 的 lock。持有 lock 时，它读取 revision、加一、写入业务状态，再写入新的 revision。
 
-调用方等待 revision 大于上次观察到的值。等待会返回当前命中的 revision。随后，调用方通过自己的 Describe 或 read RPC 读取新状态，也可以用 [GetAttributes](/reference/server/runtime-client#read-attributes) 直接读取 Attribute。
+调用方等到 revision 大于自己上次看到的值。等待返回当前的 revision。随后，调用方通过自己的 Describe 或 read RPC 读取新状态，也可以用 [GetAttributes](/reference/server/runtime-client#read-attributes) 直接读取 Attribute。
 
 Revision 是 watermark，不是事件流。如果状态快速地从 0 变成 1、2、3，一次等待大于 0 的调用可能直接返回 3。调用方不能假设会观察到每个中间值。
 
-在 HTTP 或 admission 边界应设置 **RequestTimeout**。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
+当等待运行在 HTTP endpoint 或其他有自身截止时间的入口之后时，设置 **RequestTimeout**。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 在锁内推进 revision
 

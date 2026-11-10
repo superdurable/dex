@@ -4,11 +4,11 @@ title: 等待 Step 完成
 
 # 等待 Step 完成
 
-当一个 Flow 会在后台工作结束前产生 durable、可供客户端使用的里程碑时，使用 **WaitForStepCompletion**。调用方启动 Flow、等待该 Step，然后读取需要的结果。后续 Step 可以继续执行，而无需一直占用调用方。
+当 Flow 在后台工作结束前，会先到达一个客户端已经可以使用的 durable 节点时，使用 **WaitForStepCompletion**。调用方启动 Flow、等待该 Step，然后读取需要的结果。调用方拿到响应后，后续 Step 继续运行。
 
-**WaitForStepCompletionFlow** 示例会在 **PersistData** 中持久化记录，再启动 **BackgroundWork**。它的 controller 在查询已持久化记录前等待 **PersistData**。只有当一个 Step 已提交了使响应有效的状态后，才应把它选作这个边界。
+**WaitForStepCompletionFlow** 示例会在 **PersistData** 中持久化记录，再启动 **BackgroundWork**。它的 controller 在查询已持久化记录前等待 **PersistData**。要等待的 Step 必须在保存好响应所需的状态之后才完成。
 
-在 HTTP 或 admission 边界应设置 **RequestTimeout**。下面的 runnable controller 没有设置它。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
+当等待运行在 HTTP endpoint 或其他有自身截止时间的入口之后时，设置 **RequestTimeout**。下面的 runnable controller 没有设置它。见[等待超时与上限](/reference/server/runtime-client#wait-timeouts-and-limits)。
 
 ## 核心实现
 

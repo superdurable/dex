@@ -4,15 +4,15 @@ title: Responsive Update
 
 # Responsive Update
 
-An interactive caller should not have to choose between waiting for an entire Flow and polling its state. A responsive update returns at the boundary that the caller needs, while the Flow continues to own durable work. When the Flow itself waits for an external system, use [Polling](/design-patterns/polling).
+An interactive caller should not have to wait for the whole Flow or poll its state. With a responsive update, the caller waits only until the point it needs. The Flow keeps running the rest of the work. When the Flow itself waits for an external system, use [Polling](/design-patterns/polling).
 
-Choose the boundary deliberately:
+Choose the point to wait for:
 
 - [Wait for Step Completion](/design-patterns/responsive-update/step-completion) returns after one named Step has completed. Use it when that Step makes the result safe for a client to read or use.
 - [Wait for Attribute Match](/design-patterns/responsive-update/attribute-match) returns the current matching Attribute value. Use a revision watermark when callers need to refresh after business state changes.
 - [Wait and Stream](/design-patterns/responsive-update/stream) long-polls for the next incremental update and resumes from its token. Use it for progress or a changing feed.
 
-The first two waits observe durable state. They are not a substitute for an application timeout or a final Flow result. For timeouts and limits, see [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
+The first two waits read durable state. They do not replace an application timeout or the final Flow result. For timeouts and limits, see [Wait timeouts and limits](/reference/server/runtime-client#wait-timeouts-and-limits).
 
 ## Related
 
