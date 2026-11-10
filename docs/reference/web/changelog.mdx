@@ -23,7 +23,7 @@ Not released yet. The next minor release, web/v1.42.0, ships these changes.
 - The **Experimental** menu offers **Connectors** wherever local Connector setup runs, even with no Flow Definition Graph files or connections. [Reference](/reference/web/dex-web#v1-pages).
 - After an OAuth authorization, **Connectors** selects the connection that was authorized. [Reference](/reference/web/local-connector-setup#configure-an-account).
 - With local Connector setup on, as in **dexcli dev**, the **Host** check is always on. [Reference](/reference/web/dex-web#allowed-hosts).
-- A Connector connection save or OAuth authorization fails with **CONNECTOR_CONNECTION_CHANGED** instead of saving when, while it ran, the connection was deleted or added again, a Flow moved it to another release, or another save changed it. A Trigger binding save for a deleted connection fails the same way. [Reference](/reference/web/local-connector-setup#add-a-connection).
+- A Connector connection save, OAuth authorization, delete, or Trigger binding save fails with **CONNECTOR_CONNECTION_CHANGED** and changes nothing when, while it ran, the connection was deleted or added again, a Flow moved it to another release, or another save changed it. [Reference](/reference/web/local-connector-setup#add-a-connection).
 - On a phone, **Connectors** stacks the connection list above the selected connection. [Reference](/reference/web/local-connector-setup#start-dex-web).
 
 ## 1.41 {#v1-41}
