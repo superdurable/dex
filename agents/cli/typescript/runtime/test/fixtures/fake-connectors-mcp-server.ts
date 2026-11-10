@@ -8,6 +8,7 @@
 
 import { createServer, type IncomingMessage, type Server } from "node:http";
 
+import { InMemoryTaskStore } from "@modelcontextprotocol/sdk/experimental/tasks/stores/in-memory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -30,6 +31,7 @@ export interface FakeConnectorRun {
  * - `gmail_get_message` (gmail/personal, read-only)
  * - `gmail_send_message` (gmail/personal, without operation keys in `_meta`)
  * - `slack_post_thread_reply` (slack/support-slack, a write without hints)
+ * - `reports_long_report` (reports/default, a read-only task tool whose task stays working)
  */
 export class FakeConnectorsMcpServer {
   /** Every tool run, in order. */
@@ -38,6 +40,10 @@ export class FakeConnectorsMcpServer {
   public unavailableReason: string | undefined;
   /** The connection that `slack_post_thread_reply` names; tests rebind it. */
   public slackConnection = "support-slack";
+  /** The connection that the `reports_long_report` task tool names; tests rebind it. */
+  public reportsConnection = "default";
+  /** Tasks of `reports_long_report`, shared by the stateless per-request servers. */
+  private readonly taskStore = new InMemoryTaskStore();
   private server: Server | undefined;
 
   /**
@@ -89,6 +95,8 @@ export class FakeConnectorsMcpServer {
    * @returns A Promise that resolves after it closed.
    */
   public async stop(): Promise<void> {
+    // Task TTL timers would keep the test process alive.
+    this.taskStore.cleanup();
     const server = this.server;
     this.server = undefined;
     if (server !== undefined) {
@@ -98,7 +106,10 @@ export class FakeConnectorsMcpServer {
   }
 
   private createMcpServer(): McpServer {
-    const server = new McpServer({ name: "fake-connectors", version: "1.0.0" });
+    const server = new McpServer(
+      { name: "fake-connectors", version: "1.0.0" },
+      { capabilities: { tasks: { requests: { tools: { call: {} } }, cancel: {} } }, taskStore: this.taskStore },
+    );
     const record = (toolName: string, toolArguments: Record<string, unknown>, meta: Record<string, unknown> | undefined) => {
       const key = meta?.["io.superdurable.dex/idempotencyKey"];
       this.runs.push({
@@ -132,6 +143,30 @@ export class FakeConnectorsMcpServer {
       (toolArguments, extra) => {
         record("gmail_get_message", toolArguments, extra._meta);
         return { content: [{ type: "text", text: `message ${toolArguments.id}` }] };
+      },
+    );
+    server.experimental.tasks.registerToolTask(
+      "reports_long_report",
+      {
+        description: "Write a long report as a task that stays working until the test completes it.",
+        inputSchema: { topic: z.string() },
+        annotations: { readOnlyHint: true },
+        execution: { taskSupport: "required" },
+        _meta: identityMeta("reports", this.reportsConnection, "longReport"),
+      },
+      {
+        createTask: async (toolArguments, extra) => {
+          record("reports_long_report", toolArguments, extra._meta);
+          return { task: await extra.taskStore.createTask({ ttl: extra.taskRequestedTtl ?? 60_000, pollInterval: 50 }) };
+        },
+        getTask: async (_arguments, extra) => {
+          const task = await extra.taskStore.getTask(extra.taskId);
+          if (task === null) {
+            throw new Error(`unknown task ${extra.taskId}`);
+          }
+          return task;
+        },
+        getTaskResult: async (_arguments, extra) => extra.taskStore.getTaskResult(extra.taskId) as never,
       },
     );
     server.registerTool(

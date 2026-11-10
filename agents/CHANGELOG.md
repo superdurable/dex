@@ -41,6 +41,9 @@ for the Dex SDK and framework versions each release supports.
   **McpToolCallOptions** has `requestMeta`: more entries for the `tools/call`
   request's `_meta`, such as the identity the caller expects the tool to have.
   The idempotency key entry wins on a name clash.
+- TypeScript core: new **McpToolSource.hasStartedToolTask(call)** says whether
+  `executeDeferredToolCall` resumes a task an earlier attempt started, from the
+  call's heartbeat checkpoint, instead of sending a new `tools/call`.
 
 ### Changed
 

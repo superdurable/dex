@@ -13,6 +13,8 @@ import { after, afterEach, before, describe, test } from "node:test";
 
 import { pollUntil, PrivateDexEngine } from "@superdurable/dex-agents/testing";
 
+import type { AgentTurnContext, DeferredToolExecution, ToolEffect } from "@superdurable/dex-agents";
+
 import { ConnectorsMcpToolSource, TurnConfigResolver, resolveConfig } from "../../src/index.js";
 import { CliProcess, SessionClients, TestHome, enginePorts } from "../fixtures/cli-test-support.js";
 import { FakeConnectorsMcpServer } from "../fixtures/fake-connectors-mcp-server.js";
@@ -122,6 +124,90 @@ describe("terminal chat with connectors and session settings", () => {
     assert.equal(connectors.runsOf("slack_post_thread_reply").filter((run) => run.arguments.text === "rebound reply").length, 0);
     cli.writeLine("/exit");
     assert.equal(await cli.waitForExit(), 0);
+  });
+
+  test("a retried attempt resumes its started connector task without a binding check or a new call", async () => {
+    const effective = resolveConfig({ connectors: { mcp: connectorsUrl, enabled: ["reports"] } }, "builtin", "scripted/default");
+    const turns = new TurnConfigResolver(effective, null, () => undefined, () => Promise.resolve(undefined));
+    const source = new ConnectorsMcpToolSource(connectorsUrl, turns, () => undefined);
+    const listed = (await source.listTools()).find((tool) => tool.name === "reports_long_report");
+    assert.ok(listed !== undefined);
+    const turn = {
+      sessionSettings: {},
+      toolPolicies: {},
+      resolveToolPolicy: (_toolName: string, effect?: ToolEffect) => ({ effect: effect ?? "unclassified", requiresApproval: false }),
+    } as unknown as AgentTurnContext;
+    const deferred = source.deferredToolCall(turn, {
+      toolCallId: "call-1",
+      toolName: "reports_long_report",
+      arguments: '{"topic": "q1"}',
+      listedTool: listed,
+    });
+    const checkpoints: string[] = [];
+    const execution = (heartbeatCheckpoint?: string): DeferredToolExecution =>
+      ({
+        flowId: "resume-session",
+        toolCall: {
+          toolCallId: "call-1",
+          turnId: "turn-1",
+          toolName: "reports_long_report",
+          arguments: deferred.arguments,
+          effect: deferred.policy.effect,
+          requiresApproval: deferred.policy.requiresApproval,
+          status: "approved",
+          output: null,
+          error: null,
+          rejectionMessage: null,
+          deferralOrder: 0,
+          toolSourceReference: deferred.toolSourceReference,
+        },
+        idempotencyKey: "resume-session/turn-1/call-1",
+        attempt: heartbeatCheckpoint === undefined ? 1 : 2,
+        events: {
+          turnId: "turn-1",
+          attempt: 1,
+          writeEvent: () => undefined,
+          writeTextDelta: () => undefined,
+          writeReasoningDelta: () => undefined,
+          writeToolCallStarted: () => undefined,
+          writeToolCallFinished: () => undefined,
+        },
+        cancellationSignal: new AbortController().signal,
+        deadline: undefined,
+        heartbeat: () => Promise.resolve(),
+        supportsToolTasks: true,
+        ...(heartbeatCheckpoint === undefined
+          ? {
+              saveHeartbeatCheckpoint: async (checkpoint: string) => {
+                checkpoints.push(checkpoint);
+              },
+            }
+          : { heartbeatCheckpoint }),
+      }) as unknown as DeferredToolExecution;
+
+    const started = await source.executeDeferredToolCall(execution());
+    assert.equal("kind" in started ? started.kind : undefined, "tool_task_started");
+    assert.equal(checkpoints.length, 1);
+    assert.equal(connectors.runsOf("reports_long_report").length, 1);
+
+    // The Worker died before the tool Step committed; the name is rebound, then the server is unavailable.
+    connectors.reportsConnection = "other-reports";
+    try {
+      const afterRebind = await source.executeDeferredToolCall(execution(checkpoints[0]));
+      assert.deepEqual(afterRebind, { kind: "tool_task_started", taskId: "taskId" in started ? started.taskId : undefined, pollIntervalSeconds: 1 });
+      connectors.unavailableReason = "the connectors MCP server is restarting";
+      const whileUnavailable = await source.executeDeferredToolCall(execution(checkpoints[0]));
+      assert.equal("kind" in whileUnavailable ? whileUnavailable.kind : undefined, "tool_task_started");
+      connectors.unavailableReason = undefined;
+      assert.equal(connectors.runsOf("reports_long_report").length, 1);
+
+      // A new send after the rebind is still refused.
+      await assert.rejects(source.executeDeferredToolCall(execution()), /now names reports\/other-reports longReport; it did not run/);
+      assert.equal(connectors.runsOf("reports_long_report").length, 1);
+    } finally {
+      connectors.reportsConnection = "default";
+      connectors.unavailableReason = undefined;
+    }
   });
 
   test("approval.always makes a read tool wait for approval", async () => {

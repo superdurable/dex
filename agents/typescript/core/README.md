@@ -1262,7 +1262,10 @@ policies by that name.
 `executeDeferredToolCall(call, { requestMeta })` adds entries to the
 `tools/call` request's `_meta`, such as the identity the caller expects the
 tool to have; `callTool` takes the same `requestMeta` option. The idempotency
-key entry wins on a name clash. Since 0.5.0.
+key entry wins on a name clash. `hasStartedToolTask(call)` says whether
+`executeDeferredToolCall` resumes a task an earlier attempt started, from the
+call's heartbeat checkpoint, so a check that only guards a new send can be
+skipped. Since 0.5.0.
 
 ### Resources and prompts
 

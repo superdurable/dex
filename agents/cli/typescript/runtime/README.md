@@ -279,7 +279,12 @@ server again and refuses the call, which records `failed` without sending
 anything, when the name now has another identity, such as another connection.
 The `tools/call` request also carries the recorded identity in `_meta` as
 `io.superdurable.connectors/expectedConnector`, `expectedConnection`, and
-`expectedOperation`, so the server can refuse it too.
+`expectedOperation`. The client-side check only narrows the window between
+the listing and the send; the connectors MCP server enforces the expected
+identity atomically from the release that supports these keys. A retried
+attempt that resumes an MCP task an earlier attempt started sends no new
+`tools/call`, so it skips the listing checks and recovers even while the
+server's catalog changed or is unavailable.
 
 A configured connection that the server
 does not list is reported as not authorized, and at a terminal the command

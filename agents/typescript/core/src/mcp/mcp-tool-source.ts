@@ -844,6 +844,37 @@ export class McpToolSource {
   }
 
   /**
+   * Returns whether {@link executeDeferredToolCall} resumes a task that an earlier attempt of the same call started,
+   * instead of sending a new `tools/call`.
+   *
+   * An attempt that started an MCP task saves the task ID as the call's heartbeat checkpoint. A retried attempt
+   * with that checkpoint polls or returns the same task and sends nothing new. Use it to skip checks that only
+   * guard a new send, such as checking a tool's current listing, so a server or catalog that is down or changed
+   * does not stop the recovery of a task already running.
+   *
+   * @example
+   * ```ts
+   * if (!tools.hasStartedToolTask(call)) {
+   *   await checkCurrentListing(call.toolCall.toolName);
+   * }
+   * return tools.executeDeferredToolCall(call);
+   * ```
+   * @param call - The tool Step's call, with this source's own `toolSourceReference`.
+   * @returns `true` when the call's heartbeat checkpoint names a task of the same server and tool.
+   * @since 0.5.0
+   */
+  public hasStartedToolTask(call: DeferredToolExecution): boolean {
+    const reference = parseToolSourceReference(call.toolCall.toolSourceReference);
+    const saved = parseJsonObject(call.heartbeatCheckpoint);
+    return (
+      reference !== undefined &&
+      saved?.["mcp_server"] === reference.serverName &&
+      saved["mcp_tool"] === reference.mcpToolName &&
+      typeof saved["mcp_task_id"] === "string"
+    );
+  }
+
+  /**
    * Polls one MCP task that {@link executeDeferredToolCall} started, once.
    *
    * Call it from `AgentFrameworkRunner.pollToolTask`. It reads the task with `tasks/get` and writes an

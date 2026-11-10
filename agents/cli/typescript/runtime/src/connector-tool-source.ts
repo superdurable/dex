@@ -244,12 +244,15 @@ export class ConnectorsMcpToolSource implements ToolSource {
   public async executeDeferredToolCall(call: DeferredToolExecution): Promise<DeferredToolOutcome> {
     throwWhenDisabled(call.toolCall);
     const reference = readConnectorCallReference(call.toolCall);
-    await this.authorizeOnThisWorker(call);
+    const mcpCall = withMcpReference(call, reference);
+    // Resuming a task an earlier attempt started sends nothing new, so a changed or unavailable listing must not stop it.
+    const isResumingTask = this.mcp.hasStartedToolTask(mcpCall);
+    await this.authorizeOnThisWorker(call, isResumingTask);
     const expected = reference[expectedIdentityReferenceKey];
-    if (expected !== null) {
+    if (expected !== null && !isResumingTask) {
       await this.requireSameBinding(call.toolCall.toolName, expected);
     }
-    return this.mcp.executeDeferredToolCall(withMcpReference(call, reference), {
+    return this.mcp.executeDeferredToolCall(mcpCall, {
       ...(expected === null
         ? {}
         : {
@@ -292,7 +295,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
    * Checks the call again on the Worker that runs it: its connection and operation must be enabled by this
    * Worker's file and the turn's settings, and a call without approval must not be in `approval.always`.
    */
-  private async authorizeOnThisWorker(call: DeferredToolExecution): Promise<void> {
+  private async authorizeOnThisWorker(call: DeferredToolExecution, isResumingTask: boolean): Promise<void> {
     const { toolName } = call.toolCall;
     let permissions: TurnConfig;
     try {
@@ -303,7 +306,7 @@ export class ConnectorsMcpToolSource implements ToolSource {
         { cause: error },
       );
     }
-    if (permissions.connectors.enabled !== null) {
+    if (permissions.connectors.enabled !== null && !isResumingTask) {
       let identities: ReadonlyMap<string, ConnectorToolIdentity>;
       try {
         identities = await this.readIdentities();
