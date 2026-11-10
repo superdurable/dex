@@ -537,3 +537,11 @@
   min-width: 0;
   margin: 0;
 }
+
+.connector-add-button {
+  margin-left: auto;
+}
+
+.connector-standalone-note {
+  margin: 8px 0 0;
+}

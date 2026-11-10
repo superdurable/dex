@@ -54,9 +54,9 @@ interface ConnectorSetupListing {
   connections: unknown[];
 }
 
-/** Connector setup is applicable to a local environment whose loaded Flows use at least one Connector. */
+/** Connector setup applies wherever local Connector setup runs, even before any connection exists. */
 export function isConnectorSetupApplicable(listing: ConnectorSetupListing | null): boolean {
-  return listing?.enabled === true && listing.connections.length > 0;
+  return listing?.enabled === true;
 }
 
 /**
@@ -85,11 +85,11 @@ function useHasConnectorSetup(canUseOperatorAPI: boolean): boolean {
 
 export function AppHeader() {
   const { timezone, setTimezone } = usePreferences();
-  const { canUseV2, catalog } = useWebCatalog();
+  const { canUseOperatorAPI, canUseV2, catalog } = useWebCatalog();
   const location = useLocation();
   const hasFlowDefinitions = useHasLoadedFlowDefinitions(location.pathname);
   const hasWorkQueue = isWorkQueueApplicable(catalog, canUseV2);
-  const hasConnectors = useHasConnectorSetup(canUseV2);
+  const hasConnectors = useHasConnectorSetup(canUseOperatorAPI);
   const experimentalPages: ExperimentalPage[] = [
     ...(hasFlowDefinitions ? [{
       path: DESIGNS_PATH, label: 'Designs', Icon: PencilRuler,
@@ -101,7 +101,7 @@ export function AppHeader() {
     }] : []),
     ...(hasConnectors ? [{
       path: CONNECTORS_PATH, label: 'Connectors', Icon: Plug,
-      description: 'Connections the loaded Flows use',
+      description: 'Connections for Flows and agent tools',
     }] : []),
   ];
   return (

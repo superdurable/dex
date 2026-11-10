@@ -192,13 +192,29 @@ describe('Dex Web header experimental pages', () => {
   it.each([
     ['no valid Flow types and no Connector setup', 0, 'missing' as const],
     ['Connector setup turned off', 0, 'disabled' as const],
-    ['no Connector in the loaded Flows', 0, 0],
   ])('leaves out what does not apply: %s', async (_name, flows, connectors) => {
     stubOperatorDexWeb({ flows, connectors });
     renderHeader('/v1/flows');
     await waitFor(() => expect(designsLink()).not.toBeNull());
     expect(screen.queryByRole('menuitem', { name: /Work Queue/ })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: /Connectors/ })).toBeNull();
+  });
+
+  it('offers Connectors where Connector setup runs, before any connection and without Flow definitions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string) => {
+      if (input === '/api/v2/catalog') {
+        return new Response(JSON.stringify({ enabled: true, definitionRevision: 'r0', flows: [] }));
+      }
+      if (input === '/api/v2/connector-connections') {
+        return new Response(JSON.stringify({ enabled: true, definitionRevision: 'r0', csrfToken: 't', connections: [] }));
+      }
+      return new Response(JSON.stringify({
+        configured: false, definitionRevision: 'r0', definitionCount: 0, definitions: [],
+      }));
+    }));
+    renderHeader('/v1/flows');
+    await waitFor(() => expect(experimentalItem('Connectors')).not.toBeNull());
+    expect(screen.getAllByRole('menuitem').map((item) => item.getAttribute('href'))).toEqual(['/v1/connectors']);
   });
 
   it('hides the Experimental entry when nothing applies', async () => {

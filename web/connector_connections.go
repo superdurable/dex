@@ -45,6 +45,10 @@ type connectorSetup struct {
 	// endpointPolicy and settingHTTPClient serve the endpoints that connection settings supply.
 	endpointPolicy    connectorAddressPolicy
 	settingHTTPClient *http.Client
+	publicCatalog     *connectorPublicCatalog
+	// pendingConnections holds added connections without a stored record; they last until the process exits.
+	pendingConnections   map[string]connectorDefinitionIdentity
+	pendingConnectionsMu sync.Mutex
 }
 
 type connectorUISession struct {
@@ -130,6 +134,8 @@ type connectorConnectionView struct {
 	CredentialExpiresAt    *time.Time                      `json:"credentialExpiresAt,omitempty"`
 	Uses                   []connectorConnectionStepUse    `json:"uses"`
 	TriggerUses            []connectorConnectionTriggerUse `json:"triggerUses,omitempty"`
+	// IsStandalone marks a connection that no loaded Flow uses, such as one an agent tool opens by name.
+	IsStandalone bool `json:"standalone,omitempty"`
 }
 
 type connectorConnectionStepUse struct {
@@ -175,6 +181,13 @@ type connectorConnectionWriteRequest struct {
 	Credentials          map[string]json.RawMessage `json:"credentials"`
 	KeepCredentialFields []string                   `json:"keepCredentialFields"`
 	CredentialExpiresAt  *time.Time                 `json:"credentialExpiresAt"`
+}
+
+type connectorConnectionAddRequest struct {
+	ConnectorID    string `json:"connectorId"`
+	ConnectionName string `json:"connectionName"`
+	ModulePath     string `json:"modulePath"`
+	ModuleVersion  string `json:"moduleVersion"`
 }
 
 type connectorUISessionRequest struct {
@@ -227,11 +240,15 @@ func newConnectorSetup(cfg *Config, flowDefinitions FlowDefinitionProvider) (*co
 		providerHTTPClient: newConnectorProviderHTTPClient(),
 		endpointPolicy:     endpointPolicy,
 		settingHTTPClient:  newConnectorAddressPolicyClient(nil, endpointPolicy),
+		publicCatalog:      newConnectorPublicCatalog(),
+		pendingConnections: make(map[string]connectorDefinitionIdentity),
 	}, nil
 }
 
 func (setup *connectorSetup) registerHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v2/connector-connections", setup.handleListConnections)
+	mux.HandleFunc("POST /api/v2/connector-connections", setup.handleAddConnection)
+	mux.HandleFunc("GET /api/v2/connector-catalog", setup.handleListConnectorCatalog)
 	mux.HandleFunc("PUT /api/v2/connector-connections/{connectorId}/{connectionName}", setup.handlePutConnection)
 	mux.HandleFunc("DELETE /api/v2/connector-connections/{connectorId}/{connectionName}", setup.handleDeleteConnection)
 	mux.HandleFunc("POST /api/v2/connector-ui-sessions", setup.handleCreateUISession)
@@ -338,6 +355,7 @@ func (setup *connectorSetup) handlePutConnection(response http.ResponseWriter, r
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_WRITE_FAILED", "Connector connection could not be saved")
 		return
 	}
+	setup.forgetPendingConnection(connection.ConnectorID, connection.ConnectionName)
 	result := map[string]any{
 		"connectorId": connection.ConnectorID, "connectionName": connection.ConnectionName,
 		"status": "Ready", "definitionRevision": snapshot.DefinitionRevision,
@@ -357,6 +375,9 @@ func (setup *connectorSetup) handleDeleteConnection(response http.ResponseWriter
 	if err != nil {
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_CONNECTION_DELETE_FAILED", "Connector connection could not be deleted")
 		return
+	}
+	if setup.forgetPendingConnection(request.PathValue("connectorId"), request.PathValue("connectionName")) {
+		deleted = true
 	}
 	writeWebJSON(response, http.StatusOK, map[string]any{"deleted": deleted, "remoteGrantRevoked": false})
 }
@@ -558,9 +579,7 @@ func (setup *connectorSetup) authorizeConnectionKey(
 	connectorID string,
 	connectionName string,
 ) (*connectorAuthorizationSnapshot, connectorDefinitionIdentity, bool) {
-	hasUnsafeMethod := request.Method != http.MethodGet && request.Method != http.MethodHead
-	if request.Header.Get(connectorCSRFHeader) != setup.csrfToken ||
-		(hasUnsafeMethod && !hasStrictConnectorOrigin(request)) {
+	if !setup.hasConnectorWriteAuthority(request) {
 		api.WriteCodedError(response, http.StatusForbidden, "CONNECTOR_WRITE_FORBIDDEN", "Connector write origin or CSRF token is invalid")
 		return nil, connectorDefinitionIdentity{}, false
 	}
@@ -573,12 +592,11 @@ func (setup *connectorSetup) authorizeConnectionKey(
 		api.WriteCodedError(response, http.StatusConflict, "FLOW_DEFINITION_REVISION_CONFLICT", "Flow Definition revision is stale")
 		return nil, connectorDefinitionIdentity{}, false
 	}
-	requested, found, conflict, err := connectorDefinitionForKey(
-		snapshot.Response,
-		connectorID,
-		connectionName,
-		setup.releases.overrideIdentities(),
-	)
+	requested, found, conflict, err := setup.resolveConnectionIdentity(snapshot.Response, connectorID, connectionName)
+	if errors.Is(err, errConnectorConnectionStoreUnavailable) {
+		api.WriteCodedError(response, http.StatusInternalServerError, "CONNECTOR_CONNECTIONS_UNAVAILABLE", "Connector connections are unavailable")
+		return nil, connectorDefinitionIdentity{}, false
+	}
 	if err != nil {
 		api.WriteCodedError(response, http.StatusServiceUnavailable, "FLOW_DEFINITION_SOURCE_UNAVAILABLE", "Flow Definition source is unavailable")
 		return nil, connectorDefinitionIdentity{}, false
@@ -607,12 +625,14 @@ func (setup *connectorSetup) connectionViews(ctx context.Context) ([]connectorCo
 	for _, connection := range connections {
 		stored[connection.ConnectorID+"\x00"+connection.ConnectionName] = connection
 	}
-	views, err := connectorViewsFromCatalog(
-		snapshot.Response, stored, time.Now(), setup.releases.overrideIdentities(),
-	)
+	overrides := setup.releases.overrideIdentities()
+	now := time.Now()
+	views, err := connectorViewsFromCatalog(snapshot.Response, stored, now, overrides)
 	if err != nil {
 		return nil, "", err
 	}
+	views = append(views, standaloneConnectorViews(views, stored, setup.pendingConnectionSnapshot(), now, overrides)...)
+	sortConnectorConnectionViews(views)
 	setup.applyConnectorDisplayNames(ctx, views)
 	for viewIndex := range views {
 		useConfigurations, loadErr := setup.store.listUseConfigurations(views[viewIndex].ConnectorID, views[viewIndex].ConnectionName)
@@ -790,13 +810,17 @@ func connectorViewsFromCatalog(
 		})
 		views = append(views, current.view)
 	}
+	sortConnectorConnectionViews(views)
+	return views, nil
+}
+
+func sortConnectorConnectionViews(views []connectorConnectionView) {
 	sort.Slice(views, func(left int, right int) bool {
 		if views[left].ConnectorID == views[right].ConnectorID {
 			return views[left].ConnectionName < views[right].ConnectionName
 		}
 		return views[left].ConnectorID < views[right].ConnectorID
 	})
-	return views, nil
 }
 
 func connectorTriggerDefinitionForKey(
@@ -1018,6 +1042,13 @@ func connectorCredentialFieldsForMethods(selectedMethods []connectorManifestAuth
 
 func isConnectorAuthMethodCredentialName(name string) bool {
 	return name == "auth_method" || name == "auth_methods"
+}
+
+// hasConnectorWriteAuthority reports whether a request carries the page's CSRF token and, for a write, its origin.
+func (setup *connectorSetup) hasConnectorWriteAuthority(request *http.Request) bool {
+	hasUnsafeMethod := request.Method != http.MethodGet && request.Method != http.MethodHead
+	return request.Header.Get(connectorCSRFHeader) == setup.csrfToken &&
+		(!hasUnsafeMethod || hasStrictConnectorOrigin(request))
 }
 
 func hasStrictConnectorOrigin(request *http.Request) bool {

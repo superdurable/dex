@@ -234,11 +234,10 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		api.WriteCodedError(response, http.StatusConflict, "FLOW_DEFINITION_REVISION_CONFLICT", "Flow Definition changed during Connector OAuth")
 		return
 	}
-	currentIdentity, found, conflict, err := connectorDefinitionForKey(
+	currentIdentity, found, conflict, err := setup.resolveConnectionIdentity(
 		snapshot.Response,
 		session.identity.ConnectorID,
 		session.identity.ConnectionName,
-		setup.releases.overrideIdentities(),
 	)
 	if err != nil || !found || conflict || currentIdentity.ModulePath != session.identity.ModulePath ||
 		currentIdentity.ModuleVersion != session.identity.ModuleVersion {
@@ -343,6 +342,7 @@ func (setup *connectorSetup) handleOAuthCallback(response http.ResponseWriter, r
 		writeConnectorConfigurationStoreError(response, err, "CONNECTOR_OAUTH_WRITE_FAILED", "Connector OAuth credentials could not be saved")
 		return
 	}
+	setup.forgetPendingConnection(connection.ConnectorID, connection.ConnectionName)
 	location := "/v1/connectors" +
 		"?oauth=success&connectorId=" + url.QueryEscape(connection.ConnectorID) +
 		"&connectionName=" + url.QueryEscape(connection.ConnectionName)
