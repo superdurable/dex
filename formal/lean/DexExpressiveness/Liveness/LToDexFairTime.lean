@@ -328,6 +328,269 @@ theorem keepsStepInputs_of_isRun {flow : FlowDef σ}
       step_keepsStepInputs flow _ _ events _ isStep middle hasMiddle
     exact ⟨after, hasAfter, middleKeeps.trans afterKeeps⟩
 
+/-! ## Worker steps -/
+
+/-- A Worker step: it acts on one task of `Θ` and commits nothing (spec §4.4
+[WORKER-EFFECT], [WORKER-ABANDON], [STEP-COMPLETE-STALE]). -/
+def Action.isWorkerStep : Action σ → Bool
+  | .workerRun _ => true
+  | .workerEffect _ => true
+  | .workerReturn _ => true
+  | .workerAbandon _ => true
+  | .stepCompleteStale _ => true
+  | _ => false
+
+/-- A Worker step keeps the run, the clock, the timestamp of the last commit,
+and the next task ID: it changes the phase of one task or removes one task. -/
+theorem step_workerStep_frame (flow : FlowDef σ) (config : Config σ) (action : Action σ)
+    (events : List (Obs σ)) (next : Config σ)
+    (isStep : step flow config action = some (events, next))
+    (isWorker : action.isWorkerStep = true) :
+    next.run = config.run ∧ next.clock = config.clock ∧
+    next.lastCommitAt = config.lastCommitAt ∧ next.nextTaskId = config.nextTaskId := by
+  cases action with
+  | workerRun taskId =>
+    simp only [step] at isStep
+    split at isStep
+    · cases isStep
+    · split at isStep
+      · cases isStep
+        exact ⟨rfl, rfl, rfl, rfl⟩
+      · cases isStep
+  | workerEffect taskId =>
+    simp only [step] at isStep
+    split at isStep
+    · cases isStep
+    · split at isStep
+      · cases isStep
+        exact ⟨rfl, rfl, rfl, rfl⟩
+      · cases isStep
+  | workerReturn taskId =>
+    simp only [step] at isStep
+    split at isStep
+    · cases isStep
+    · split at isStep
+      · cases isStep
+        exact ⟨rfl, rfl, rfl, rfl⟩
+      · cases isStep
+  | workerAbandon taskId =>
+    simp only [step] at isStep
+    split at isStep
+    · cases isStep
+    · split at isStep
+      · cases isStep
+      · cases isStep
+        exact ⟨rfl, rfl, rfl, rfl⟩
+  | stepCompleteStale taskId =>
+    simp only [step] at isStep
+    split at isStep
+    · cases isStep
+    · split at isStep
+      · split at isStep
+        · cases isStep
+        · cases isStep
+          exact ⟨rfl, rfl, rfl, rfl⟩
+      · cases isStep
+  | _ => simp [Action.isWorkerStep] at isWorker
+
 end Dex
+
+open DexExpressiveness.L DexExpressiveness.Translation
+
+/-! ## Inside a block: all actions but one are Worker steps -/
+
+/-- The Worker step that runs a handler is a Worker step. -/
+theorem runTaskActions_isWorkerStep (task : Dex.Task signature) :
+    ∀ action, action ∈ runTaskActions task → action.isWorkerStep = true := by
+  unfold runTaskActions
+  split <;> simp [Dex.Action.isWorkerStep]
+
+/-- The Worker steps that return a handler are Worker steps. -/
+theorem returnTaskActions_isWorkerStep (task : Dex.Task signature) :
+    ∀ action, action ∈ returnTaskActions task → action.isWorkerStep = true := by
+  unfold returnTaskActions
+  split <;> simp [Dex.Action.isWorkerStep]
+
+/-- The cleanup of a block is [WORKER-ABANDON] steps. -/
+theorem cleanupActions_isWorkerStep (program : Program) (config : Dex.Config signature) :
+    ∀ action, action ∈ cleanupActions program config → action.isWorkerStep = true := by
+  intro action isMember
+  obtain ⟨task, _, isAction⟩ := List.mem_map.mp isMember
+  rw [← isAction]
+  rfl
+
+/-- The simulating actions of a label are Worker steps followed by one more
+action, or there are none. -/
+theorem simulatingActions_shape (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (label : L.Label) :
+    ∃ workerActions, (∀ action, action ∈ workerActions → action.isWorkerStep = true) ∧
+      (simulatingActions program lConfig dexConfig label = [] ∨
+        ∃ main, simulatingActions program lConfig dexConfig label = workerActions ++ [main]) := by
+  have noAction : ∀ action : Dex.Action signature,
+      action ∈ ([] : List (Dex.Action signature)) → action.isWorkerStep = true :=
+    fun _ isMember => nomatch isMember
+  cases label with
+  | tick duration => exact ⟨[], noAction, Or.inr ⟨_, rfl⟩⟩
+  | request request => exact ⟨[], noAction, Or.inr ⟨_, rfl⟩⟩
+  | fire count => exact ⟨[], noAction, Or.inr ⟨_, rfl⟩⟩
+  | thread thread =>
+    simp only [simulatingActions]
+    split
+    · split
+      · exact ⟨[], noAction, Or.inr ⟨_, rfl⟩⟩
+      · exact ⟨[], noAction, Or.inr ⟨_, rfl⟩⟩
+      · exact ⟨[], noAction, Or.inr ⟨_, rfl⟩⟩
+      · exact ⟨_, runTaskActions_isWorkerStep _, Or.inr ⟨_, rfl⟩⟩
+      · exact ⟨_, returnTaskActions_isWorkerStep _, Or.inr ⟨_, rfl⟩⟩
+      · exact ⟨[], noAction, Or.inl rfl⟩
+    · exact ⟨[], noAction, Or.inl rfl⟩
+  | lateDeliver index =>
+    simp only [simulatingActions]
+    split
+    · exact ⟨[], noAction, Or.inl rfl⟩
+    · split
+      · exact ⟨_, runTaskActions_isWorkerStep _, Or.inr ⟨_, rfl⟩⟩
+      · exact ⟨[], noAction, Or.inl rfl⟩
+  | lateDrop index =>
+    simp only [simulatingActions]
+    split
+    · exact ⟨[], noAction, Or.inl rfl⟩
+    · split
+      · exact ⟨[], noAction, Or.inr ⟨_, rfl⟩⟩
+      · exact ⟨[], noAction, Or.inl rfl⟩
+
+/-- In Worker steps, one more action, and Worker steps again, every action
+but the one in the middle is a Worker step. -/
+theorem isWorkerStep_of_getElem?_append
+    {workerActions laterActions : List (Dex.Action signature)} {main : Dex.Action signature}
+    (areWorkers : ∀ action, action ∈ workerActions → action.isWorkerStep = true)
+    (laterAreWorkers : ∀ action, action ∈ laterActions → action.isWorkerStep = true)
+    {offset : Nat} {action : Dex.Action signature}
+    (isAction : (workerActions ++ main :: laterActions)[offset]? = some action)
+    (isOther : offset ≠ workerActions.length) : action.isWorkerStep = true := by
+  by_cases isBefore : offset < workerActions.length
+  · rw [List.getElem?_append_left isBefore] at isAction
+    exact areWorkers action (List.mem_of_getElem? isAction)
+  · rw [List.getElem?_append_right (by omega)] at isAction
+    obtain ⟨distance, isDistance⟩ : ∃ distance, offset - workerActions.length = distance + 1 :=
+      ⟨offset - workerActions.length - 1, by omega⟩
+    rw [isDistance, List.getElem?_cons_succ] at isAction
+    exact laterAreWorkers action (List.mem_of_getElem? isAction)
+
+/-- Every action of a block but at most one is a Worker step: the block is
+the Worker steps that run and return a handler, then the action that
+simulates the label, then the [WORKER-ABANDON] steps of the cleanup. -/
+theorem fairActions_workerSteps (program : Program) (lConfig : L.Config)
+    (dexConfig : Dex.Config signature) (label : L.Label) :
+    ∃ mainOffset, ∀ (offset : Nat) (action : Dex.Action signature),
+      (fairActions program lConfig dexConfig label)[offset]? = some action →
+      offset ≠ mainOffset → action.isWorkerStep = true := by
+  obtain ⟨workerActions, areWorkers, isEmpty | ⟨main, isShape⟩⟩ :=
+    simulatingActions_shape program lConfig dexConfig label
+  · refine ⟨0, fun offset action isAction _ => ?_⟩
+    have isMember := List.mem_of_getElem? isAction
+    simp only [fairActions, isEmpty] at isMember
+    split at isMember
+    · exact cleanupActions_isWorkerStep program _ action (by simpa using isMember)
+    · cases isMember
+  · refine ⟨workerActions.length, fun offset action isAction isOther => ?_⟩
+    simp only [fairActions, isShape] at isAction
+    split at isAction
+    · rw [List.append_assoc] at isAction
+      exact isWorkerStep_of_getElem?_append areWorkers (cleanupActions_isWorkerStep program _)
+        isAction isOther
+    · exact isWorkerStep_of_getElem?_append (laterActions := []) areWorkers
+        (fun _ isMember => nomatch isMember) isAction isOther
+
+/-! ## Inside a block: the run and the clock are those at its start or its end -/
+
+variable {program : Program} {lRun : InfiniteRun L.Config L.Label}
+  {dexBlocks : BlockRun (Dex.Config signature) (Dex.Action signature) (Dex.Obs signature)}
+  {dexRun : InfiniteRun (Dex.Config signature) (Dex.Action signature)} {boundary : Nat → Nat}
+
+/-- Each block has a main offset: every action of the block at another offset
+is a Worker step. Up to the main offset the run and the clock are those at
+the block's start, and after it they are those at the block's end. -/
+theorem DexRunOfLRun.exists_mainOffset
+    (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) (index : Nat) :
+    ∃ mainOffset,
+      (∀ offset, offset < (dexBlocks.blocks index).length → offset ≠ mainOffset →
+        (dexRun.labels (boundary index + offset)).isWorkerStep = true) ∧
+      (∀ offset, offset ≤ (dexBlocks.blocks index).length → offset ≤ mainOffset →
+        (dexRun.states (boundary index + offset)).run = (dexBlocks.states index).run ∧
+        (dexRun.states (boundary index + offset)).clock = (dexBlocks.states index).clock) ∧
+      (∀ offset, offset ≤ (dexBlocks.blocks index).length → mainOffset < offset →
+        (dexRun.states (boundary index + offset)).run = (dexBlocks.states (index + 1)).run ∧
+        (dexRun.states (boundary index + offset)).clock =
+          (dexBlocks.states (index + 1)).clock) := by
+  obtain ⟨mainOffset, areWorkers⟩ := fairActions_workerSteps program (lRun.states index)
+    (dexBlocks.states index) (lRun.labels index)
+  rw [← built.follows.isFair index] at areWorkers
+  have labelsAreWorkers : ∀ offset, offset < (dexBlocks.blocks index).length →
+      offset ≠ mainOffset → (dexRun.labels (boundary index + offset)).isWorkerStep = true := by
+    intro offset isInside isOther
+    have isLabel : (dexBlocks.blocks index)[offset]? = some (dexBlocks.blocks index)[offset] :=
+      List.getElem?_eq_getElem isInside
+    rw [built.isFlattened.labelInBlock index offset _ isLabel]
+    exact areWorkers offset _ isLabel isOther
+  have stepKeeps : ∀ offset, offset < (dexBlocks.blocks index).length → offset ≠ mainOffset →
+      (dexRun.states (boundary index + offset + 1)).run =
+        (dexRun.states (boundary index + offset)).run ∧
+      (dexRun.states (boundary index + offset + 1)).clock =
+        (dexRun.states (boundary index + offset)).clock := by
+    intro offset isInside isOther
+    obtain ⟨events, isStep⟩ := built.isDexRun.2 (boundary index + offset)
+    obtain ⟨sameRun, sameClock, _⟩ := Dex.step_workerStep_frame _ _ _ events _ isStep
+      (labelsAreWorkers offset isInside isOther)
+    exact ⟨sameRun, sameClock⟩
+  refine ⟨mainOffset, labelsAreWorkers, ?_, ?_⟩
+  · intro offset
+    induction offset with
+    | zero =>
+      intro _ _
+      rw [Nat.add_zero, built.isFlattened.stateAtBoundary index]
+      exact ⟨rfl, rfl⟩
+    | succ offset inductionHypothesis =>
+      intro isInside isBefore
+      obtain ⟨sameRun, sameClock⟩ := stepKeeps offset (by omega) (by omega)
+      obtain ⟨startRun, startClock⟩ := inductionHypothesis (by omega) (by omega)
+      exact ⟨sameRun.trans startRun, sameClock.trans startClock⟩
+  · have atEnd : dexRun.states (boundary index + (dexBlocks.blocks index).length) =
+        dexBlocks.states (index + 1) := by
+      rw [← built.isFlattened.nextBoundary index, built.isFlattened.stateAtBoundary (index + 1)]
+    have fromEnd : ∀ distance offset, offset + distance = (dexBlocks.blocks index).length →
+        mainOffset < offset →
+        (dexRun.states (boundary index + offset)).run = (dexBlocks.states (index + 1)).run ∧
+        (dexRun.states (boundary index + offset)).clock =
+          (dexBlocks.states (index + 1)).clock := by
+      intro distance
+      induction distance with
+      | zero =>
+        intro offset isOffset _
+        rw [Nat.add_zero] at isOffset
+        rw [isOffset, atEnd]
+        exact ⟨rfl, rfl⟩
+      | succ distance inductionHypothesis =>
+        intro offset isOffset isAfter
+        obtain ⟨sameRun, sameClock⟩ := stepKeeps offset (by omega) (by omega)
+        obtain ⟨endRun, endClock⟩ := inductionHypothesis (offset + 1) (by omega) (by omega)
+        exact ⟨sameRun.symm.trans endRun, sameClock.symm.trans endClock⟩
+    intro offset isInside isAfter
+    exact fromEnd ((dexBlocks.blocks index).length - offset) offset (by omega) isAfter
+
+/-- Inside a block, the run and the clock are those at the block's start or
+those at the block's end. -/
+theorem DexRunOfLRun.run_clock_inside_block
+    (built : DexRunOfLRun program lRun dexBlocks dexRun boundary) (index offset : Nat)
+    (isInside : offset ≤ (dexBlocks.blocks index).length) :
+    ((dexRun.states (boundary index + offset)).run = (dexBlocks.states index).run ∧
+      (dexRun.states (boundary index + offset)).clock = (dexBlocks.states index).clock) ∨
+    ((dexRun.states (boundary index + offset)).run = (dexBlocks.states (index + 1)).run ∧
+      (dexRun.states (boundary index + offset)).clock =
+        (dexBlocks.states (index + 1)).clock) := by
+  obtain ⟨mainOffset, _, beforeMain, afterMain⟩ := built.exists_mainOffset index
+  by_cases isBefore : offset ≤ mainOffset
+  · exact Or.inl (beforeMain offset isInside isBefore)
+  · exact Or.inr (afterMain offset isInside (by omega))
 
 end DexExpressiveness
