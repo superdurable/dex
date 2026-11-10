@@ -8,7 +8,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/crit
 
 Use a Critical Section when parallel branches of one Flow must take turns on a sequence of Steps. Only one branch may be inside the sequence at a time.
 
-An example is several reviewers who edit the same contract. Each edit takes two Steps. The first opens the contract and makes the change. The second saves it. Two edits must never interleave.
+An example is several reviewers who edit the same contract. Each edit takes three Steps. The first takes the turn. The second makes the change. The third saves it and hands the turn on. Two edits must never interleave.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 

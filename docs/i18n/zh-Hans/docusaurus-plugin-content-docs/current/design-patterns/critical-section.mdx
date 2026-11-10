@@ -9,7 +9,7 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/crit
 
 当同一个 Flow 的多个并行分支必须轮流执行一段由多个 Step 组成的流程时，使用 Critical Section。同一时刻只能有一个分支处在这段流程中。
 
-例如多位审核人编辑同一份合同。每次编辑需要两个 Step：第一个打开合同并修改，第二个保存。两次编辑绝不能交错。
+例如多位审核人编辑同一份合同。每次编辑需要三个 Step：第一个拿到编辑权，第二个修改合同，第三个保存并把编辑权交给下一位。两次编辑绝不能交错。
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
