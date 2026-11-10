@@ -41,7 +41,20 @@ theorem freeFiniteTrace_isFailureFiniteTrace (program : Program σ)
     ∃ failureRequests failureTrace,
       IsFailureFiniteTrace program environment failureRequests failureTrace ∧
       eraseRetries failureRequests = requests ∧ failureTrace.map Obs.toDex = trace := by
-  sorry
+  obtain ⟨dexLabels, dexFinal, isDexExec, isRequests, isAdmissible⟩ := isFree
+  obtain ⟨labels, events, final, isExec, isMapped, isLiftedRequests, hasNoExhaustion,
+    hasNoNonRetryable⟩ :=
+    wpf5_free_exec program ignoresAttemptContext dexLabels (Config.initial σ) trace dexFinal
+      (invariant_initial program) wpf5_shape_initial
+      (by rw [wpf5_abstractConfig_initial program]; exact isDexExec)
+  rw [← isRequests] at isLiftedRequests
+  obtain ⟨isErased, isAdmissibleOutcome⟩ := wpf5_eraseRetries_lift environment requests isAdmissible
+  refine ⟨labels.filterMap Action.requestOf, events,
+    ⟨labels, final, isExec, hasNoExhaustion, hasNoNonRetryable, rfl, ?_⟩, ?_, isMapped⟩
+  · rw [isLiftedRequests]
+    exact isAdmissibleOutcome
+  · rw [isLiftedRequests]
+    exact isErased
 
 /-- **WP-F5, safety, forward** (spec §11.5): "For every program `P` of the
 fragment and every finite DexF trace `t` for an outcome word `w`, `erase(t)`
@@ -53,7 +66,17 @@ theorem safety_failure_forward (program : Program σ)
     (isTrace : IsFailureFiniteTrace program environment requests trace) :
     IsFreeFiniteTrace program.failureFreeFlow environment (eraseRetries requests)
       (eraseRepeats trace) := by
-  sorry
+  obtain ⟨labels, final, isExec, hasNoExhaustion, _, isRequests, isAdmissible⟩ := isTrace
+  obtain ⟨dexLabels, isDexExec, isDexRequests⟩ :=
+    wpf5_exec_forward program ignoresAttemptContext labels (Config.initial σ) [] trace final
+      (invariant_initial program) ⟨[], rfl⟩ hasNoExhaustion isExec
+  refine ⟨dexLabels, abstractConfig final, ?_, ?_, ?_⟩
+  · rw [← wpf5_abstractConfig_initial program]
+    exact isDexExec
+  · rw [isDexRequests, isRequests]
+    exact wpf5_requests_beforeStart program environment labels (Config.initial σ) trace final rfl
+      isExec (isRequests ▸ isAdmissible)
+  · exact wpf5_isAdmissiblePrefix_eraseRetries environment requests isAdmissible
 
 /-- **WP-F5, safety, the repetition form** (spec §11.5): "Hence `t` is a
 repetition of a finite Dex trace." Stated over DexF runs and under H3: the
@@ -67,7 +90,13 @@ theorem safety_failure_repetition (program : Program σ)
     ∃ freeTrace,
       IsFreeFiniteTrace program.failureFreeFlow environment (eraseRetries requests) freeTrace ∧
       IsRepetition (trace.map Obs.toDex) freeTrace := by
-  sorry
+  refine ⟨eraseRepeats trace,
+    safety_failure_forward program hasNoFailurePolicy isSyncOnly ignoresAttemptContext environment
+      requests trace isTrace, ?_⟩
+  obtain ⟨labels, final, isExec, _⟩ := isTrace
+  have history := effectHistory_of_exec program ignoresAttemptContext labels trace final isExec
+  exact wpf5_isRepetition_eraseRepeats trace
+    (wpf5_effectLabels_consistent program final trace history) [] trace rfl
 
 /-! ## WP-F6: liveness -/
 
@@ -104,7 +133,14 @@ theorem liveness_failure (program : Program σ)
         marker →
       ∃ failureTrace, IsFailureFairMaximalTrace program word failureTrace marker ∧
         IsRepeatErasure failureTrace trace) := by
-  sorry
+  refine ⟨?_, ?_⟩
+  · intro hasFailureTrace
+    obtain ⟨failureTrace, isFailureTrace, isErased⟩ := hasFailureTrace
+    exact wpf6_liveness_forward program ignoresAttemptContext environment word isAdmissible
+      erasedWord isErasure trace marker failureTrace isFailureTrace isErased
+  · intro hasNoRetry isDexTrace
+    exact wpf6_liveness_backward program ignoresAttemptContext environment word isAdmissible
+      erasedWord isErasure trace marker hasNoRetry isDexTrace
 
 /-! ## WP-F7: the end-to-end corollary -/
 
@@ -124,8 +160,15 @@ theorem endToEnd_safety (program : L.Program) (isWellFormed : program.IsWellForm
     (∀ requests failureTrace,
       IsFailureFiniteTrace (Program.ofFlow ⟦program⟧) environment requests failureTrace →
       ∃ lTrace, IsLFiniteTrace program lTrace ∧
-        IsOutRepetition (failureTrace.filterMap (fun event => project event.toDex)) lTrace) := by
-  sorry
+        IsOutRepetition (failureTrace.filterMap (fun event => project event.toDex)) lTrace) :=
+  wpf7_endToEnd_safety_of program isWellFormed
+    (fun requests trace isFree =>
+      freeFiniteTrace_isFailureFiniteTrace (Program.ofFlow ⟦program⟧)
+        (wpf7_ignoresAttemptContext_ofFlow ⟦program⟧) environment requests trace isFree)
+    (fun requests trace isTrace =>
+      safety_failure_repetition (Program.ofFlow ⟦program⟧)
+        (wpf7_hasNoFailurePolicy_ofFlow ⟦program⟧) (wpf7_isSyncOnly_ofFlow ⟦program⟧)
+        (wpf7_ignoresAttemptContext_ofFlow ⟦program⟧) environment requests trace isTrace)
 
 /-- **WP-F7, end to end, liveness**: for every well-formed L program `S`,
 every admissible L word, and every admissible outcome word `w` whose `w↓` is
@@ -147,7 +190,11 @@ theorem endToEnd_liveness (program : L.Program) (isWellFormed : program.IsWellFo
     (HasNoRetry word → IsLFairMaximalTrace program lWord trace marker →
       ∃ failureTrace,
         IsFailureFairMaximalTrace (Program.ofFlow ⟦program⟧) word failureTrace marker ∧
-        IsErasedProjection project failureTrace trace) := by
-  sorry
+        IsErasedProjection project failureTrace trace) :=
+  wpf7_endToEnd_liveness_of program isWellFormed lWord isAdmissible word trace marker
+    (fun dexTrace =>
+      liveness_failure (Program.ofFlow ⟦program⟧) (wpf7_hasNoFailurePolicy_ofFlow ⟦program⟧)
+        (wpf7_isSyncOnly_ofFlow ⟦program⟧) (wpf7_ignoresAttemptContext_ofFlow ⟦program⟧)
+        environment word isAdmissibleOutcome (lWord.map encodeRequest) isErasure dexTrace marker)
 
 end DexExpressiveness.DexF

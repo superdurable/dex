@@ -46,7 +46,8 @@ theorem normalStep_simulated (program : Program σ)
     (isNormal : action.simulationKind = .normal) (events : List (Obs σ)) (next : Config σ)
     (isStep : step program config action = some (events, next)) :
     IsStepSimulated program config action events next := by
-  sorry
+  exact normalStep_simulated_proof program ignoresAttemptContext config invariant action isNormal
+    events next isStep
 
 end NormalStepSimulated
 
@@ -66,7 +67,8 @@ theorem failureStep_isStutter (program : Program σ)
     (isStep : step program config action = some (events, next)) :
     dexActionsOf program config action = [] ∧ eraseStepEvents config events = [] ∧
       abstractConfig next = abstractConfig config := by
-  sorry
+  exact failureStep_isStutter_proof program ignoresAttemptContext config invariant action isFailure
+    isNotExhausting events next isStep
 
 end FailureStepIsStutter
 
@@ -154,7 +156,8 @@ theorem isProgress_eq_dexProgress (program : Program σ) (config : Config σ)
     (isStep : step program config action = some (events, next)) :
     action.isProgress =
       (dexActionsOf program config action).any (Dex.system program.failureFreeFlow).isProgress := by
-  sorry
+  exact isProgress_eq_dexProgress_proof program config invariant action isNotExhausting events
+    next isStep
 
 end IsProgressEqDexProgress
 
