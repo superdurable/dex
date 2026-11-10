@@ -4,7 +4,7 @@ All eleven Dex agents packages share this changelog and one version line. A
 release is tagged `agents/v<version>`. See [README.md](README.md#versions-and-compatibility)
 for the Dex SDK and framework versions each release supports.
 
-## 0.3.0 (2026-11-09)
+## Unreleased
 
 ### Connector tools
 
@@ -56,6 +56,8 @@ for the Dex SDK and framework versions each release supports.
   `StepwiseAgentRunner` routes to a tool source.
 - `RunModel` may move to itself once, to commit skipped writes before the model
   call, so the session graph gains that transition.
+
+## 0.3.0 (2026-11-09)
 
 ### Dex SDK 1.38.0
 

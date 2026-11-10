@@ -601,7 +601,6 @@ html[data-theme='dark'] .atc-icon[data-kind='web'] {
   color: var(--as-ink-2);
 }
 
-<<<<<<< ours
 .atc-status[data-tone='attention'],
 .atc-status[data-tone='danger'] {
   padding: 3px 10px 3px 8px;
@@ -611,19 +610,6 @@ html[data-theme='dark'] .atc-icon[data-kind='web'] {
 
 .atc-status[data-tone='attention'] {
   color: var(--as-attention-ink);
-=======
-.atc[data-state='queued'],
-.atc[data-state='write_queued'] {
-  border-left-color: var(--p-clock);
-}
-
-.atc-state[data-state='queued'],
-.atc-state[data-state='write_queued'],
-.atc-state[data-state='waiting'],
-.atc-state[data-state='deciding'] {
-  background: var(--p-clock-dim);
-  color: var(--p-clock);
->>>>>>> theirs
 }
 
 .atc-status[data-tone='danger'] {

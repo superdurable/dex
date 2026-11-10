@@ -45,6 +45,7 @@ const STATE_LOOK: Record<ToolCallState, { tone: ToolCallTone; icon: LucideIcon; 
   running: { tone: 'active', icon: LoaderCircle, isLabelShown: true },
   retrying: { tone: 'active', icon: LoaderCircle, isLabelShown: true },
   queued: { tone: 'waiting', icon: Clock, isLabelShown: true },
+  write_queued: { tone: 'waiting', icon: Clock, isLabelShown: true },
   waiting: { tone: 'waiting', icon: Hourglass, isLabelShown: true },
   deciding: { tone: 'waiting', icon: Clock, isLabelShown: true },
   done: { tone: 'success', icon: CircleCheck, isLabelShown: false },
