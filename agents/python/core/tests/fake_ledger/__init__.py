@@ -30,7 +30,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from dex_connectors.sdk import (
     BranchDefinition,
@@ -113,6 +113,13 @@ class Note:
 
 
 @dataclass(frozen=True)
+class NoteProgress:
+    """The operation's own heartbeat checkpoint, which is not a fence marker."""
+
+    stage: str
+
+
+@dataclass(frozen=True)
 class CloseAccountInput:
     """One account to close."""
 
@@ -143,6 +150,10 @@ POST_NOTE_DEFINITION = _definition(
     MutationDefinition, "postNote", "posted", "providerRejected", "uncertain", "defect"
 )
 CLOSE_ACCOUNT_DEFINITION = _definition(MutationDefinition, "closeAccount", "closed", "defect")
+# An operation ID whose default tool name changed in dex-agents 0.5.0.
+GET_BALANCE_BY_ID_DEFINITION = _definition(
+    QueryDefinition, "getBalanceByID", "found", "notFound", "invalidResponse", "defect"
+)
 
 
 class FakeLedgerProvider:
@@ -236,10 +247,20 @@ class GetBalanceOperation:
                 Receipt(),
                 _failure("getBalance", "bad body"),
             )
+        if input.account_id == "defect":
+            # The Connector SDK turns an undeclared branch into defect.
+            return QueryAttempt.branch_result("undeclared", Balance(input.account_id, 0), Receipt())
         payouts = sum(1 for _ in self._provider.writes("createPayout"))
         return QueryAttempt.branch_result(
             "found", Balance(input.account_id, 100 - payouts, "x" * input.padding), Receipt()
         )
+
+
+class GetBalanceByIDOperation(GetBalanceOperation):
+    """``getBalance`` under an operation ID with an acronym."""
+
+    def definition(self) -> QueryDefinition:
+        return GET_BALANCE_BY_ID_DEFINITION
 
 
 class CreatePayoutOperation:
@@ -284,6 +305,9 @@ class CreatePayoutOperation:
             return MutationAttempt.branch_result(
                 "invalidResponse", Payout(), Receipt(), _failure("createPayout", "bad body")
             )
+        if "defect" in words:
+            # After the provider accepted it, the SDK turns an undeclared branch into defect.
+            return MutationAttempt.branch_result("undeclared", Payout(), Receipt())
         if "uncertain" in words:
             return MutationAttempt.uncertain(
                 Payout(), _failure("createPayout", "server error after send"), Receipt()
@@ -316,9 +340,26 @@ class PostNoteOperation:
             return MutationAttempt.branch_result(
                 "providerRejected", Note(), Receipt(), _failure("postNote", "channel archived")
             )
+        if (
+            "own-checkpoint-once" in words
+            and call.context is not None
+            and call.context.attempt == 1
+        ):
+            await _save_note_progress(call, "before the fence")
+            return MutationAttempt.retry(
+                Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
+            )
         fence = Fence(call, timedelta(seconds=30))
         decision = await fence.decide()
         attempt = call.context.attempt if call.context is not None else 1
+        if decision.kind is DecisionKind.FAIL_CLOSED and "reject-when-fail-closed" in words:
+            # A wrong listing: the fence cannot tell whether an earlier attempt sent.
+            return MutationAttempt.branch_result(
+                "providerRejected",
+                Note(),
+                Receipt(),
+                _failure("postNote", "refused after a lost marker"),
+            )
         if decision.kind is DecisionKind.FAIL_CLOSED:
             return MutationAttempt.uncertain(
                 Note(), _failure("postNote", decision.error), Receipt()
@@ -359,6 +400,17 @@ class PostNoteOperation:
             return MutationAttempt.retry(
                 Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
             )
+        if "overwrite-after-send" in words:
+            await _save_note_progress(call, "after send")
+        if "retry-after-send" in words:
+            return MutationAttempt.retry(
+                Failure(FailureKind.RATE_LIMIT, CONNECTOR_ID, "postNote", "rate limited")
+            )
+        if "reject-after-send" in words:
+            # A wrong listing: the claim proves the provider may have acted.
+            return MutationAttempt.branch_result(
+                "providerRejected", Note(), Receipt(), _failure("postNote", "refused after send")
+            )
         await fence.record_provider_id(note_id)
         if "uncertain" in words:
             return MutationAttempt.uncertain(Note(), _failure("postNote", "no response"), Receipt())
@@ -378,6 +430,11 @@ class CloseAccountOperation:
 
     async def invoke(self, call: Call, input: CloseAccountInput) -> MutationAttempt[Note]:
         raise AssertionError("closeAccount must never run")
+
+
+async def _save_note_progress(call: Call, stage: str) -> None:
+    context = cast(Any, call.context)
+    await context.heartbeat(NoteProgress(stage))
 
 
 def _refused(operation: str) -> Failure:

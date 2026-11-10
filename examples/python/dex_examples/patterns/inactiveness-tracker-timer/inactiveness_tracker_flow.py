@@ -36,12 +36,16 @@ from dex import (
 TRACKER_DURATION = timedelta(minutes=5)
 
 
+# dex:group group-id:inactivity group-label:"Inactivity"
+# dex:explanation text:"Handle a period without activity and complete."
 class ProcessInactiveness(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         print("No activity arrived before the timer fired")
         return graceful_complete()
 
 
+# dex:group group-id:activity-tracking group-label:"Activity tracking"
+# dex:explanation text:"Restart the timer on each activity and continue when the timer fires first."
 class Tracker(Step[None]):
     def __init__(
         self,

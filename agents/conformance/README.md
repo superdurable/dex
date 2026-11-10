@@ -12,10 +12,10 @@ with the M2 additions in
 [agents-m2-stepwise.md](../../docs/design/plan/agents-m2-stepwise.md).
 
 The files are generated from the Python core and checked against the
-TypeScript core, except `connector_tools.json`, which is hand-written and read
-by both cores' connector tool tests, and `cli_config.json`, which is
-hand-written for the CLI runtimes in [`../cli`](../cli). A core passes when it
-passes all four parts below.
+TypeScript core, except `connector_tools.json` and `mcp_dex_conventions.json`,
+which are hand-written and read by both cores' connector tool and MCP tool
+tests, and `cli_config.json`, which is hand-written for the CLI runtimes in
+[`../cli`](../cli). A core passes when it passes all four parts below.
 
 | Path | What it fixes |
 | --- | --- |
@@ -25,7 +25,8 @@ passes all four parts below.
 | [`transcripts/`](transcripts) | Scripted-turn scenarios and the transcript each core must reproduce |
 | [`session_graph.json`](session_graph.json) | The session Flow Definition Graph that Dex Web loads, with placeholders for the Flow type and the Action permission |
 | [`session_graph_renderings.json`](session_graph_renderings.json) | The hash of the graph text each core must render |
-| [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping, result text, and truncation. Hand-written, not generated |
+| [`connector_tools.json`](connector_tools.json) | Connector tools: argument checks against `inputSchema`, refused schemas, branch mapping (with `mayHaveDispatched`, the fence check, when a case sets it), fence observation (the saved markers and earlier checkpoint that decide `mayHaveDispatched` and proof of no send; `<callId>` and `<otherCallId>` stand for the call's Call ID and another call's), default tool names (operation ID to snake case, as connectorctl `lowerCamelToSnake` names Python Step factories), result text, and truncation. Hand-written, not generated |
+| [`mcp_dex_conventions.json`](mcp_dex_conventions.json) | Dex MCP conventions: the `_meta` keys, how a tool definition's keys pick its effect, approval, and order, and how a result's or a JSON-RPC error's outcome key is recorded, with the exact text. Hand-written, not generated |
 | [`cli_config.json`](cli_config.json) | CLI configuration: YAML parsing, schema errors, URL checks, file defaults, session settings narrowing, operation names, and the shell allow list. Hand-written for the CLI runtimes; see [`../cli/README.md`](../cli/README.md) |
 | [`generate.py`](generate.py) | Writes all of the above from the Python core |
 | [`session_graph.py`](session_graph.py) | Derives the session graph from the Python core's registered Flow and source |

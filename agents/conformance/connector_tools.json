@@ -1,5 +1,5 @@
 {
-  "description": "Connector tool behavior every core must match: argument checks, branch mapping, result text, and truncation. Hand-written; see README.md.",
+  "description": "Connector tool behavior every core must match: argument checks, branch mapping, result text, truncation, and default tool names. Hand-written; see README.md.",
   "inputSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -322,7 +322,7 @@
       "agentBranches": {
         "defect": "rejected"
       },
-      "outcome": "failed"
+      "outcome": "rejected"
     },
     {
       "kind": "mutation",
@@ -393,7 +393,256 @@
         "done"
       ],
       "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "query",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
       "outcome": "failed"
+    },
+    {
+      "kind": "mutation",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "defect": "rejected"
+      },
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "defect",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "defect": "unknown"
+      },
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "uncertain",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "uncertain",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "uncertain": "unknown"
+      },
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "providerRejected",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "providerRejected": "rejected"
+      },
+      "mayHaveDispatched": true,
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "done",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {},
+      "mayHaveDispatched": true,
+      "outcome": "succeeded"
+    },
+    {
+      "kind": "query",
+      "branch": "notFound",
+      "requiredBranches": [
+        "done"
+      ],
+      "agentBranches": {
+        "notFound": "rejected"
+      },
+      "mayHaveDispatched": true,
+      "outcome": "rejected"
+    },
+    {
+      "kind": "mutation",
+      "branch": "defect",
+      "requiredBranches": [
+        "done",
+        "defect"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "mutation",
+      "branch": "uncertain",
+      "requiredBranches": [
+        "done",
+        "uncertain"
+      ],
+      "agentBranches": {},
+      "outcome": "outcome_unknown"
+    },
+    {
+      "kind": "query",
+      "branch": "defect",
+      "requiredBranches": [
+        "done",
+        "defect"
+      ],
+      "agentBranches": {},
+      "outcome": "failed"
+    }
+  ],
+  "toolNameCases": [
+    {
+      "operationId": "createRefund",
+      "snakeName": "create_refund"
+    },
+    {
+      "operationId": "postThreadReply",
+      "snakeName": "post_thread_reply"
+    },
+    {
+      "operationId": "notFound",
+      "snakeName": "not_found"
+    },
+    {
+      "operationId": "listStoryIDs",
+      "snakeName": "list_story_ids"
+    },
+    {
+      "operationId": "getHTTPResponse",
+      "snakeName": "get_http_response"
+    },
+    {
+      "operationId": "readIDToken",
+      "snakeName": "read_id_token"
+    },
+    {
+      "operationId": "readIDsFromCache",
+      "snakeName": "read_ids_from_cache"
+    },
+    {
+      "operationId": "getAPISettings",
+      "snakeName": "get_api_settings"
+    },
+    {
+      "operationId": "getUserByID",
+      "snakeName": "get_user_by_id"
+    },
+    {
+      "operationId": "getURLs",
+      "snakeName": "get_urls"
+    },
+    {
+      "operationId": "sendSMS",
+      "snakeName": "send_sms"
+    },
+    {
+      "operationId": "getHTTPSURL",
+      "snakeName": "get_httpsurl"
+    },
+    {
+      "operationId": "getV2Items",
+      "snakeName": "get_v2_items"
+    },
+    {
+      "operationId": "uploadFileV2",
+      "snakeName": "upload_file_v2"
+    },
+    {
+      "operationId": "listS3Buckets",
+      "snakeName": "list_s3_buckets"
+    },
+    {
+      "operationId": "oauth2Token",
+      "snakeName": "oauth2_token"
+    },
+    {
+      "operationId": "getOAuth2Token",
+      "snakeName": "get_o_auth2_token"
+    },
+    {
+      "operationId": "get2FACode",
+      "snakeName": "get2_fa_code"
+    },
+    {
+      "operationId": "getIDs3",
+      "snakeName": "get_ids3"
+    },
+    {
+      "operationId": "listIDsV2",
+      "snakeName": "list_ids_v2"
+    },
+    {
+      "operationId": "getItem2",
+      "snakeName": "get_item2"
+    },
+    {
+      "operationId": "ListUsers",
+      "snakeName": "list_users"
+    },
+    {
+      "operationId": "getX",
+      "snakeName": "get_x"
+    },
+    {
+      "operationId": "get_value",
+      "snakeName": "get_value"
+    },
+    {
+      "operationId": "fetchÜberData",
+      "snakeName": "fetchÜber_data"
+    },
+    {
+      "operationId": "postReply",
+      "snakeName": "post_reply"
+    },
+    {
+      "operationId": "send",
+      "snakeName": "send"
+    },
+    {
+      "operationId": "createV2Item",
+      "snakeName": "create_v2_item"
+    },
+    {
+      "operationId": "listOAuthApps",
+      "snakeName": "list_o_auth_apps"
+    },
+    {
+      "operationId": "listURLs",
+      "snakeName": "list_urls"
+    },
+    {
+      "operationId": "uploadURLsBatch",
+      "snakeName": "upload_urls_batch"
+    },
+    {
+      "operationId": "sendSMSMessage",
+      "snakeName": "send_sms_message"
+    },
+    {
+      "operationId": "listIDs",
+      "snakeName": "list_ids"
     }
   ],
   "resultCases": [
@@ -428,6 +677,310 @@
       "maxResultBytes": 2,
       "expectedOutput": "a\n[Dex] truncated, 4 bytes",
       "truncatedOutputBytes": 4
+    }
+  ],
+  "fenceObservationCases": [
+    {
+      "name": "an operation without the fence",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "notSent before sending",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a claim",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a claim, then a provider ID",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed",
+          "providerId": "note-1"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a claim, then canResend",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "canResend"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a claim, then the operation's own checkpoint",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "stage": "after send"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a claim, then a notSent marker",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "canResend after a provider ID",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed",
+          "providerId": "note-1"
+        },
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "canResend"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "canResend of another call",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "claimed"
+        },
+        {
+          "callId": "<otherCallId>",
+          "attempt": 1,
+          "state": "canResend"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "notSent, then the operation's own checkpoint",
+      "attempt": 1,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 1,
+          "state": "notSent"
+        },
+        {
+          "stage": "after send"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a retry after notSent",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after canResend",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"canResend\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after notSent, sent not again",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 2,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": true
+    },
+    {
+      "name": "a retry after a claim",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a claim, then notSent",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"claimed\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [
+        {
+          "callId": "<callId>",
+          "attempt": 2,
+          "state": "notSent"
+        }
+      ],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after the operation's own checkpoint",
+      "attempt": 2,
+      "previousCheckpoint": "{\"stage\":\"after send\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a checkpoint that is not an object",
+      "attempt": 2,
+      "previousCheckpoint": "\"a task handle\"",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a malformed marker",
+      "attempt": 2,
+      "previousCheckpoint": "{\"callId\":7,\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after another call's marker",
+      "attempt": 2,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<otherCallId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry after a lost checkpoint",
+      "attempt": 2,
+      "previousCheckpoint": null,
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a retry without the fence and without a checkpoint",
+      "attempt": 2,
+      "previousCheckpoint": null,
+      "readsCheckpoint": false,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": false,
+      "isProvenNotSent": false
+    },
+    {
+      "name": "a stale marker two attempts back",
+      "attempt": 3,
+      "previousCheckpoint": "{\"attempt\":1,\"callId\":\"<callId>\",\"state\":\"notSent\"}",
+      "readsCheckpoint": true,
+      "savedHeartbeats": [],
+      "mayHaveDispatched": true,
+      "isProvenNotSent": false
     }
   ]
 }

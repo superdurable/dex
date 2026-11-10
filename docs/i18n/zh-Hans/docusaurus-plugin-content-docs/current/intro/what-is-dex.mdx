@@ -9,29 +9,27 @@ import orderProcessingFlow from '@site/src/data/flow-definitions/intro/order-pro
 
 # 为什么是 Dex？
 
-Dex 是 Durable Execution(D-Ex) 平台。
+Dex 是一个 Durable Execution（D-Ex）平台。Dex 会在流程运行时记录它的每个 Step。进程崩溃或重启后，流程从最后记录的 Step 继续，不会从头再来，也不会停在半路。
 
-Dex 是结构化编程，只有少数几个概念作为 [primitives](/concepts)。你用 Dex 写 Flow，里面填普通代码：durable 的 Step、Attribute、RPC，以及用 Channel 和 Timer 表达的 durable condition。然后跑托管 Flow 的 Worker。Client 调 Dex Server 去 start 并和 Flow 实例交互。Dex Server 把 Step / RPC 调用任务派发给你的 Worker。
+Dex 只有少数几个 [primitives](/concepts)。你用普通代码写 Flow：Step、Attribute、RPC，以及基于 Channel 和 Timer 的 durable 等待条件。Flow 由你的 Worker 托管。你的 Client 调用 Dex Server 来启动 Flow 实例并与之交互。Dex Server 把 Step 和 RPC 任务派发给你的 Worker。
 
 <DexSystemDiagram markdownDescription="Application 包含 Client 和 Worker：Client 启动 Flow 实例并与之交互，Worker 托管 Flow，两者都使用 Dex SDK。Application 通过 startFlow 和 invokeRPC 调用 Dex Server，Dex Server 在 Worker 上 invoke Step 和 RPC。Dex Server 持久化 Flow instance 和 execution。" />
 
-一个 **Step** 可以可选地 **WaitFor** 某个 condition（**Channel**、**Timer**，或两者），并且是 durable 的。condition 满足后调用 **Execute**。没有 WaitFor 时，直接调用 Execute。
+**Step** 可以在 **WaitFor** 里等待一个条件：一条 **Channel** 消息、一个 **Timer**，或两者。重启后这个等待依然有效。条件满足后，Dex 调用这个 Step 的 **Execute**。没有 WaitFor 的 Step 会直接运行 Execute。
 
-**Execute** 返回 decision，用来决定下一步或完成这条 Flow。在 Step 和 RPC 里，用户代码可以读写 **Attribute**，也可以 publish durable 的 **Channel** 消息，用来接外部事件，或在同一条 Flow 的线程之间通信。
+**Execute** 返回一个 decision：接下来运行哪些 Step，或者结束这条 Flow。Step 和 RPC 里的代码可以读写 **Attribute**，也可以 publish durable 的 **Channel** 消息，用来传递外部事件，或者在同一条 Flow 中并行运行的 Step 之间传消息。
 
-## 订单处理作为一个例子
+## 例子：订单处理
 
-还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，下面用那一页的 order-processing 例子。
-
-这条 Flow 会先给买家扣款，再等卖家批准（带提醒），然后发货；发货 API 的 retry 用尽就退款。
+这条 Flow 先向买家扣款，再等卖家审批，等待期间会发提醒。审批通过后发货。如果发货调用 retry 之后仍然失败，Flow 就给买家退款。[与数据库对比](/intro/compared-to-database) 先用数据库和消息队列搭同一个流程，并说明那种设计会在哪里出问题。
 
 <DocsFlowDefinitionGraph graph={orderProcessingFlow} />
 
-- **ChargeStep** 调支付 API，Step 级 retry。成功后原子进入 ShipStep。
-- **ShipStep** 等待卖家 **Channel** 或 **Timer**。Timer 先到：发提醒，继续等。批准到了：发货。发货 retry 用尽：进 **RefundStep**。
-- **RPC approve** 往卖家 Channel 发消息。
-- 店面 **start** handler 用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成——不是自己轮询状态。
-- **Attribute order-status** 可检索，客服能搜卡住的订单。
+- **ChargeStep** 调用支付 API，带 Step 的 retry 策略。成功后进入 ShipStep。
+- **ShipStep** 等待卖家 **Channel** 上的消息，或者一个 **Timer**。Timer 先到，就发提醒并继续等。审批到了，就发货。发货 retry 用尽，就进入 **RefundStep**。
+- **RPC approve** 把审批消息发到卖家 Channel。
+- 店面的 **start** handler 用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成，不用自己轮询状态。
+- **Attribute order-status** 建了索引，客服可以搜索卡住的订单。
 
 <SdkTabs
   examples={{
@@ -755,7 +753,7 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 </SdkSnippet>
 </SdkTabs>
 
-前端要等「已付款」。**GET /products/order-processing/start** 先启动 Flow，等 ChargeStep 完成后再返回：
+前端要等到「已付款」。**GET /products/order-processing/start** handler 先启动 Flow，等 ChargeStep 完成后再返回：
 
 <SdkTabs
   examples={{
@@ -850,18 +848,19 @@ static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("sel
 </SdkSnippet>
 </SdkTabs>
 
-Step 切换是原子的。Timer 和 Channel 等待能熬过 Worker 重启。Retry 和补偿写在 Step 上。
+Dex 把 Step 的结果和它到下一个 Step 的推进一起记录，所以崩溃不会让 Flow 卡在两个 Step 之间。Worker 重启后，Timer 和 Channel 等待依然有效。Retry 和补偿在 Step 上声明。
 
-## 和传统 Durable Execution 差在哪
+## 和传统 Durable Execution 的区别
 
-传统 Durable Execution 靠 **replay** 事件历史来跑 workflow 函数。副作用放在 **activity** 里。你必须把业务逻辑拆成 **workflow code** 和 **activity code**。两边是完全不同的 paradigm。workflow 代码必须 **deterministic**：replay 的函数里不能多走时钟、随机数或 IO。Event history 有 **size** 上限。业务数据塞进这段 history，又贵又慢。
+传统 Durable Execution 引擎靠 **replay** 事件历史来恢复 workflow 函数的状态。副作用必须放在 **activity** 里。你要把业务逻辑拆成 **workflow code** 和 **activity code**，两者遵循不同的编程模型。workflow 代码必须是 **deterministic** 的：不能直接读时钟、用随机数或做 IO。Event history 有 **大小上限**。它也不适合存放业务数据：payload 一大，就又贵又慢。
 
-Replay 这套 Durable Execution 必须提供大量 API，才能模拟出一套 programming model。这些 API 引入了大量 implicit contracts 和 interfaces。理解和维护都非常复杂。
+基于 replay 的引擎需要一大套专用 API，才能模拟出普通的编程模型。每个 API 都带着隐含的规则，代码因此难以理解和维护。
 
-Dex 不要求你写一段可 replay 的 workflow 函数。你声明 Step 和切换。Worker handler 就是普通代码。等待、RPC、locking 写在 Flow 模型里，不是从 history primitive 自己拼回来。**Attribute** 数据放在 **blob store** 里，不进 event history。也可以 sync 到你已有的数据库。
+Dex 没有需要 replay 的 workflow 函数。你声明 Step 以及它们之间的 movement。Worker handler 就是普通代码。等待、RPC 和 locking 属于 Flow 模型，不用你从 history primitive 自己拼出来。**Attribute** 数据放在 **blob store** 里，不在 event history 里。你可以把它 sync 到已有的数据库。
 
 ## 接下来
 
+- [Quick Start](/quick-start) — 在本机运行这条 Flow
 - [概念](/concepts) — Step、Attribute、Channel、Timer、RPC、Client API
 - [Design Patterns](/design-patterns) — 可复用的 Flow 形状
 - [产品示例](/use-cases) — 更完整的产品例子

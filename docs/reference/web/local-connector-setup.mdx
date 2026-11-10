@@ -77,8 +77,12 @@ when it writes, that nothing changed the connection since it started. If the
 connection was deleted or added again, a Flow moved it to another release, or
 another save changed it, Dex Web changes
 nothing and returns **CONNECTOR_CONNECTION_CHANGED**. Reload the page and set
-the connection up again. Dex Web makes these checks within its own process
-only, so run one **dexcli dev** at a time for each connector directory.
+the connection up again. Dex Web checks the saved connection against the file
+as it is when it writes, so a credential that an application refreshed and
+wrote back in the meantime also counts as a change. Added
+connections and the check for a connection deleted or added again live in one
+Dex Web process only, so run one **dexcli dev** at a time for each connector
+directory.
 
 When a Flow later uses the same Connector ID and connection name, the
 connection becomes that Flow's connection. If the Flow uses another module
@@ -114,6 +118,16 @@ The directory is created with mode **0700** and the file with mode **0600**.
 Dex rejects symlink files, non-regular files, and existing credential files
 with wider permissions. Updates use a same-directory temporary file, sync, and
 atomic rename so an application never reads a partial document.
+
+Since 1.43, every write to **connections.json** holds an exclusive lock on
+**connections.json.lock** in the same directory. An application that uses the
+connectors Go SDK takes the same lock when it writes back a refreshed
+credential, so neither write overwrites the other. Dex Web reads the file again
+inside the lock and creates the lock file with mode **0600** if it is missing.
+It never deletes the lock file. When another process holds the lock for more
+than 15 seconds, the write changes nothing and fails with HTTP 503
+**CONNECTOR_CONNECTIONS_FILE_BUSY**. Try the save again. The lock uses
+**flock** on macOS and Linux. Other platforms take no lock.
 
 Restarting Dex Web reloads existing connections and cached UI artifacts. It
 does not clear the JSON file. An OAuth flow or Connector UI session that was in

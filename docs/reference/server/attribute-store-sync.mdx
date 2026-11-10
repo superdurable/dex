@@ -5,18 +5,27 @@ sidebar_label: Attribute Store sync
 
 # Attribute Store sync
 
-server-zd can sync Attributes to PostgreSQL. See
-[External Attribute Sync](/components/external-attribute-sync) for
-what it is and how to enable it, and
-[Startup contracts](#startup-contracts) for the table contract. A
-Flow marks an Attribute with **syncToAttributeStore** and lists a configured
-store name in its **FlowConfig**. server-zd then writes the Attribute to that
-store's tables.
+server-zd can sync Attributes to PostgreSQL tables that you own. See
+[Keep data after the Flow](/concepts/primitives/attribute#attribute-store-projection)
+for what it is, and [Startup contracts](#startup-contracts) for the table
+contract. A Flow marks an Attribute with **syncToAttributeStore** and lists a
+configured store name in its **FlowConfig**. server-zd then writes the
+Attribute to that store's tables.
 
 ## Behavior {#attribute-store-behavior}
 
 - Only **type: postgres** is supported. Any other store type fails validation,
-  so startup fails.
+  so startup fails. Redis support is tracked in
+  [issue 616](https://github.com/superdurable/dex/issues/616).
+- Dex never creates, migrates, or backfills a destination. Create the tables
+  before the server starts.
+- Dex writes in the background, in batches. Writes for the same Flow ID keep
+  their order.
+- A table row holds the latest Attribute values, not an event history. A write
+  can repeat after a failure whose outcome is unknown, so Dex upserts rows keyed
+  by the Flow ID.
+- Dex does not replay old Attributes or backfill a newly configured store.
+- Filtered writes, missing targets, and exhausted retries emit error logs.
 - Step, RPC, and SetAttributes commits never wait for the table write.
 - Rows normally appear within a second of the commit. Treat the table as
   eventually consistent.
@@ -89,6 +98,10 @@ attributeStore:
     totalDuration: 1h
 ~~~
 
+**tableName** accepts **table** or **schema.table**. Dex parses and quotes
+table and column names, and always passes Attribute values as driver
+parameters.
+
 An explicit zero for a duration, **syncBatchSize**, or a retry policy field
 means its default.
 The
@@ -118,6 +131,21 @@ in upper case. Every character other than an ASCII letter or digit becomes an
 underscore. For the store **orders**, the variable is
 **DEX_ZD_ATTRIBUTE_STORE_DSN_ORDERS**. A store without a DSN in either place
 fails validation.
+
+## Local development {#attribute-store-local-development}
+
+**dex-server-zd dev** runs one local node with embedded object storage. Its
+**--attribute-store-config** flag reads only the **attributeStore** section of a
+YAML file. That section must define at least one store. The
+**--config** overrides file must not also set **attributeStore**.
+
+~~~bash
+dex-server-zd dev --data-dir ./zd-data --attribute-store-config ./attribute-store.yaml
+~~~
+
+The database still needs its tables and the
+[fencing table](#attribute-store-fencing-table).
+**dexcli dev --attribute-store-config** passes the file to this flag.
 
 ## Fencing table {#attribute-store-fencing-table}
 

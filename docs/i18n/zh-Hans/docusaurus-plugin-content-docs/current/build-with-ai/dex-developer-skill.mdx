@@ -7,58 +7,62 @@ slug: /build-with-ai/dex-developer-skill
 
 # 使用 AI 构建 Dex 应用
 
-Dex Skills 是 Dex 官方的 coding-agent 指导，以 Plugin 或三个 standalone Skills 的
-bundle 形式发布。它帮助 Codex、Claude Code 和 Cursor 设计并构建 Dex 应用、直接使用
-公开 Dex SDK，以及贡献官方 [Connector](/components/connector)。
+Dex Skills 是 Dex 官方提供的指导，教 Codex、Claude Code、Cursor 等 coding agent
+使用 Dex。有了它，agent 可以设计和构建 Dex 应用、直接使用公开的 Dex SDK，以及贡献官方
+[Connector](/concepts/connector)。它可以作为 Plugin 安装，也可以作为三个独立 Skill
+的组合安装。
 
-该 plugin 提供开发指导，不包含 runtime code。Dex Server、Worker 和应用不会加载它。
+这些 Skill 只是给 agent 看的指导，不包含任何运行时代码。Dex Server、Worker 和应用都不会
+加载它们。
 
 :::tip 从 Dex App Builder 开始
 
-产品、应用或业务流程类请求应从 **dex-app-builder** 开始。它负责端到端工作流，并在
-需要 SDK 或 Connector 工作时加载对应的专用 skill。
+产品、应用或业务流程类的需求，请从 **dex-app-builder** 开始。它从头到尾负责整个任务，
+需要 SDK 或 Connector 方面的工作时会加载另外两个 skill。
 
 :::
 
 ## 需要代码工作区
 
-Dex Skills 是 developer plugin，不是托管式 application builder。要创建或修改应用，
-需要在 Codex 或其他 coding-agent host 中使用，并提供可写 repository 或 project
-workspace、文件编辑工具和命令执行能力。现有 repository 和新建的空 repository 都可以。
+Dex Skills 不是托管式的应用构建平台。要创建或修改应用，需要在 Codex 或其他 coding-agent
+host 中使用，并让 agent 能写入 repository 或项目目录、编辑文件、执行命令。现有
+repository 和新建的空 repository 都可以。
 
-如果普通聊天没有 repository 和命令执行能力，这些 skill 仍可用于业务 discovery、
-架构设计和实现交接，但不能创建项目文件、运行测试、构建 artifact 或部署应用。
-开始实现前，需要把确认后的方案转到由 repository 支持的代码工作区。
+在没有 repository 和命令执行能力的普通聊天中，这些 skill 仍然可以帮你梳理业务流程、设计
+架构、写出实现方案。但它们不能创建项目文件、运行测试、构建产物或部署应用。开始实现之前，
+请把确认好的方案转到有 repository 的代码工作区。
 
 ## 选择 Skill
 
 | Skill | 定位 | 使用场景 |
 | --- | --- | --- |
-| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | **主要 skill** | 发现、原型设计、实现并在本地验证使用 Go backend 的端到端 process product。 |
-| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | 专用 sub-skill | 使用 Python、Go、Java、TypeScript 或 Rust 实现、调试、测试和运维 Dex 应用。 |
-| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | 专用 sub-skill | 创建、验证并提交官方 Connector operation、Trigger 和 configuration UI unit。 |
+| [**Dex App Builder**](./dex-developer-skill/dex-app-builder.mdx) | **主要 skill** | 梳理流程、做出原型，再在本地构建并测试一个使用 Go 后端的完整应用。 |
+| [**Dex SDK**](./dex-developer-skill/dex-sdk.mdx) | 专用 sub-skill | 用 Python、Go、Java、TypeScript 或 Rust 构建、调试、测试和运行 Dex 应用。 |
+| [**Dex Connector Contributor**](./dex-developer-skill/dex-connector-contributor.mdx) | 专用 sub-skill | 创建、测试并贡献官方 Connector 的 operation、Trigger 和 configuration UI unit。 |
 
-只有独立 SDK 任务才直接使用 **dex-sdk**。只有独立修改官方 Dex Connectors Library
+只有独立的 SDK 任务才直接使用 **dex-sdk**。只有独立修改官方 Dex Connectors Library
 时才直接使用 **dex-connector-contributor**。
 
 ## 三个 Skill 如何协作
 
-Dex App Builder 是主要协调入口。进入 backend 设计与实现时，它加载 Dex SDK；它会
-直接使用已发布 Connector，并把确认的官方 Connector gap 路由给 Dex Connector
-Contributor。Connector Contributor 需要共享的 Flow 和 Step 语义时也会加载 Dex SDK。
+Dex App Builder 是主要的 skill。开始设计和构建后端时，它会加载 Dex SDK。它直接使用
+已发布的 Connector。当它确认某个官方 Connector 缺少应用需要的能力时，就把这部分工作交给
+Dex Connector Contributor。Connector Contributor 需要 Flow 和 Step 的规则时，也会加载
+Dex SDK。
 
-三个 Skills 必须一起安装，agent 才能在它们之间正确路由。源码和 release 位于
+三个 Skill 要一起安装，agent 才能在它们之间切换。源码和 release 在
 [superdurable/dex-skills](https://github.com/superdurable/dex-skills)。
 
 ## 二选一安装
 
-只能选择一种安装方式，不要同时安装：
+只选一种安装方式，不要同时安装：
 
-1. **Plugin（推荐）**：一次安装三个 Skills，并使用 host 的 marketplace 生命周期。
-2. **Standalone Skills**：通过 Agent Skills CLI 直接安装全部三个 Skills。
+1. **Plugin（推荐）**：一次安装全部三个 Skill，之后通过 host 的 plugin marketplace
+   更新和卸载。
+2. **Standalone Skills**：用 Agent Skills CLI 直接安装全部三个 Skill。
 
-同时安装会留下重复副本，使实际加载的版本不明确。同一个 host 中，Plugin 和
-standalone 安装的调用方式也可能不同。
+两种都装的话，agent 可能加载到重复的副本，你也无法确定它用的是哪个版本。在同一个 host
+中，两种安装方式的调用语法也可能不同。
 
 ## 安装与使用 Dex Skills
 
@@ -66,9 +70,9 @@ standalone 安装的调用方式也可能不同。
 
 ## 信任与权限
 
-只从可信来源安装 agent extension。Dex 不声明 MCP server、credential 或应用 runtime
-code。可选 lifecycle hook 只读取已安装版本和 GitHub 公开 release metadata，并报告
-较新版本，不会执行安装。创建 GitHub fork、发布 branch、打开 pull request，以及修改
-运行中 Flow，仍然是需要授权的操作。
+只从可信来源安装 agent 扩展。Dex Skills 不添加 MCP server，不需要任何凭据，也不包含
+应用运行时代码。可选的 hook 会读取已安装的版本和 GitHub 上公开的 release 信息。如果有
+新版本，它会告诉你，但不会自动安装。agent 创建 GitHub fork、推送 branch、打开 pull
+request 或修改运行中的 Flow 之前，仍然需要你的授权。
 
-接下来阅读主要工作流 [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx)。
+接下来请阅读主要 skill [Dex App Builder](./dex-developer-skill/dex-app-builder.mdx)。

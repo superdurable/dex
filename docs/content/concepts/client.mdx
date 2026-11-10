@@ -30,10 +30,10 @@ Use a Client at the boundary between your application and its Flows:
 
 ## How it relates to the other Primitives {#related-primitives}
 
-- [Flow](/concepts/flow): **StartFlow** creates a Flow execution under a **Flow ID** that you
+- [Flow](/concepts/flow): **StartFlow** creates a Flow run under a **Flow ID** that you
   choose. The Flow ID is the business identity, such as an order number. Dex
   creates the Run ID. Later calls address the Flow by its Flow ID.
-- [RPC](/concepts/primitives/rpc): an RPC is the write boundary. To change Attribute,
+- [RPC](/concepts/primitives/rpc): change a running Flow through RPCs. To change Attribute,
   AttributeMap, Channel, or ChannelMap state, define a typed RPC for each
   command and call it with **InvokeRPC**. Validation, authorization, locks, and
   transactions then stay inside the Flow.
@@ -56,15 +56,15 @@ Use a Client at the boundary between your application and its Flows:
 
 - When **StartFlow** returns, Dex has stored the Flow. It runs even if your
   process exits.
-- **GetAttributes** returns every value from the same commit. It sees only
-  committed state.
-- A wait observes durable state. It returns when the condition holds, when the
+- **GetAttributes** returns values that Dex saved together, at one point in
+  time. It never returns changes that Dex has not saved yet.
+- A wait checks the Flow's saved state. It returns when the condition holds, when the
   Flow closes, or when its request timeout expires. A later call waits again
   from the current state.
 - A wait is not a final result. Read the Flow result or the business state to
   decide what happened.
-- An error about a closing Flow does not prove that an earlier request
-  succeeded. Read the retained state before you act again.
+- An error that says the Flow is closing does not prove that an earlier request
+  succeeded. Read the Flow's stored state before you act again.
 
 ## Example
 
@@ -138,7 +138,7 @@ For a Client that waits for a change and then calls a read RPC, see
 - [Client requests](/reference/server/runtime-client) describes how the server
   handles each call: Attribute reads, waits, timeouts and limits, search, and
   operator calls.
-- [StartFlowOptions](/reference/python/flows-and-steps/start-flow-options) covers the start options, such
+- [StartFlowOptions](/reference/python/start-flow-options) covers the start options, such
   as ID reuse and request idempotency.
-- The SDK doc comments give each language's names, parameters, and errors. Start
-  from the language references, such as the [Go reference](/reference/go/).
+- [Client](/reference/python/client) in each SDK reference lists the Client
+  calls in that language. The SDK doc comments give their parameters and errors.

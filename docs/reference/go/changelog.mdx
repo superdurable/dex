@@ -61,7 +61,7 @@ Released 2026-11-06 as [sdk-go/v1.35.0](https://github.com/superdurable/dex/rele
 - Worker startup fails when **MaxConcurrentTasks** exceeds **matching.maxConcurrentTasksCap** (256 by default). Lower the Worker setting or raise the server cap and **matching.maxStreams** first. [Reference](/reference/go/workers#capacity-and-shutdown).
 - **RetryPolicy.TotalDuration** now starts at the first hand-out and only gates scheduling another retry. Set method timeouts to bound running attempts. [API reference](pathname:///api/go/1.35/dex/#type-retrypolicy).
 - A Step with no available or supporting Worker waits durably without consuming a retry. Set a Flow timeout to bound that wait. [Reference](/reference/server/workers#step-task-queue).
-- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/go/flows-and-steps/failure-and-redelivery#same-attempt-redelivery).
+- A Step attempt interrupted after its hand-out was committed fails with **NOT_COMPLETED** and consumes a retry. Review retry policies and side effects before upgrading. [Reference](/reference/go/failure-and-retries#same-attempt-redelivery).
 
 ### Added
 

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,23 +9,23 @@
     "name": "FailureRecoveryFlow",
     "startStepId": "step:UpdateItemQuantity",
     "span": {
-      "startLine": 146,
+      "startLine": 154,
       "startColumn": 1,
-      "endLine": 183,
+      "endLine": 191,
       "endColumn": 57
     }
   },
   "nodes": [
     {
-      "id": "decision:step:ChargeForItems:115:16",
+      "id": "decision:step:ChargeForItems:121:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ChargeForItems",
       "phase": "execute",
       "span": {
-        "startLine": 115,
+        "startLine": 121,
         "startColumn": 16,
-        "endLine": 115,
+        "endLine": 121,
         "endColumn": 35
       },
       "decision": {
@@ -33,15 +33,15 @@
       }
     },
     {
-      "id": "decision:step:UpdateItemQuantity:143:16",
+      "id": "decision:step:UpdateItemQuantity:151:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:UpdateItemQuantity",
       "phase": "execute",
       "span": {
-        "startLine": 143,
+        "startLine": 151,
         "startColumn": 16,
-        "endLine": 143,
+        "endLine": 151,
         "endColumn": 63
       },
       "decision": {
@@ -49,15 +49,15 @@
       }
     },
     {
-      "id": "decision:step:UpdateQuantityRecovery:70:16",
+      "id": "decision:step:UpdateQuantityRecovery:72:16",
       "kind": "decision",
       "name": "forceFail",
       "parentId": "step:UpdateQuantityRecovery",
       "phase": "execute",
       "span": {
-        "startLine": 70,
+        "startLine": 72,
         "startColumn": 16,
-        "endLine": 70,
+        "endLine": 72,
         "endColumn": 59
       },
       "decision": {
@@ -65,15 +65,15 @@
       }
     },
     {
-      "id": "decision:step:VoidPaymentRecovery:90:16",
+      "id": "decision:step:VoidPaymentRecovery:94:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:VoidPaymentRecovery",
       "phase": "execute",
       "span": {
-        "startLine": 90,
+        "startLine": 94,
         "startColumn": 16,
-        "endLine": 90,
+        "endLine": 94,
         "endColumn": 55
       },
       "decision": {
@@ -85,9 +85,9 @@
       "kind": "attribute",
       "name": "workflow-input-data-attribute-key",
       "span": {
-        "startLine": 149,
+        "startLine": 157,
         "startColumn": 5,
-        "endLine": 149,
+        "endLine": 157,
         "endColumn": 81
       },
       "resource": {
@@ -100,10 +100,13 @@
       "name": "ChargeForItems",
       "phase": "execute",
       "span": {
-        "startLine": 177,
+        "startLine": 185,
         "startColumn": 13,
-        "endLine": 177,
+        "endLine": 185,
         "endColumn": 34
+      },
+      "metadata": {
+        "explanation": "Charge for the reserved items."
       }
     },
     {
@@ -113,10 +116,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 176,
+        "startLine": 184,
         "startColumn": 36,
-        "endLine": 176,
+        "endLine": 184,
         "endColumn": 61
+      },
+      "metadata": {
+        "explanation": "Reserve the items by reducing the stock quantity."
       }
     },
     {
@@ -125,10 +131,13 @@
       "name": "UpdateQuantityRecovery",
       "phase": "execute",
       "span": {
-        "startLine": 178,
+        "startLine": 186,
         "startColumn": 13,
-        "endLine": 178,
+        "endLine": 186,
         "endColumn": 42
+      },
+      "metadata": {
+        "explanation": "Restore the stock quantity, then fail the Flow."
       }
     },
     {
@@ -137,10 +146,13 @@
       "name": "VoidPaymentRecovery",
       "phase": "execute",
       "span": {
-        "startLine": 179,
+        "startLine": 187,
         "startColumn": 13,
-        "endLine": 179,
+        "endLine": 187,
         "endColumn": 39
+      },
+      "metadata": {
+        "explanation": "Void the payment after charging fails."
       }
     }
   ],
@@ -148,26 +160,26 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:UpdateItemQuantity:143:16",
+      "from": "decision:step:UpdateItemQuantity:151:16",
       "to": "step:ChargeForItems",
       "label": "go_to",
       "span": {
-        "startLine": 143,
+        "startLine": 151,
         "startColumn": 16,
-        "endLine": 143,
+        "endLine": 151,
         "endColumn": 63
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:VoidPaymentRecovery:90:16",
+      "from": "decision:step:VoidPaymentRecovery:94:16",
       "to": "step:UpdateQuantityRecovery",
       "label": "go_to",
       "span": {
-        "startLine": 90,
+        "startLine": 94,
         "startColumn": 16,
-        "endLine": 90,
+        "endLine": 94,
         "endColumn": 55
       }
     },
@@ -178,9 +190,9 @@
       "to": "step:ChargeForItems",
       "label": "get",
       "span": {
-        "startLine": 112,
+        "startLine": 118,
         "startColumn": 20,
-        "endLine": 112,
+        "endLine": 118,
         "endColumn": 52
       },
       "metadata": {
@@ -194,9 +206,9 @@
       "to": "step:VoidPaymentRecovery",
       "label": "get",
       "span": {
-        "startLine": 87,
+        "startLine": 91,
         "startColumn": 20,
-        "endLine": 87,
+        "endLine": 91,
         "endColumn": 52
       },
       "metadata": {
@@ -210,9 +222,9 @@
       "to": "step:VoidPaymentRecovery",
       "label": "Execute failure",
       "span": {
-        "startLine": 107,
+        "startLine": 113,
         "startColumn": 16,
-        "endLine": 109,
+        "endLine": 115,
         "endColumn": 61
       },
       "metadata": {
@@ -226,9 +238,9 @@
       "to": "resource:attribute:FailureRecoveryFlow.workflow_input",
       "label": "set",
       "span": {
-        "startLine": 141,
+        "startLine": 149,
         "startColumn": 9,
-        "endLine": 141,
+        "endLine": 149,
         "endColumn": 48
       },
       "metadata": {
@@ -242,9 +254,9 @@
       "to": "step:UpdateQuantityRecovery",
       "label": "Execute failure",
       "span": {
-        "startLine": 132,
+        "startLine": 140,
         "startColumn": 16,
-        "endLine": 134,
+        "endLine": 142,
         "endColumn": 64
       },
       "metadata": {
@@ -252,5 +264,47 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "payment",
+      "label": "Payment",
+      "stepIds": [
+        "step:ChargeForItems"
+      ]
+    },
+    {
+      "id": "inventory-recovery",
+      "label": "Inventory recovery",
+      "stepIds": [
+        "step:UpdateQuantityRecovery"
+      ]
+    },
+    {
+      "id": "payment-recovery",
+      "label": "Payment recovery",
+      "stepIds": [
+        "step:VoidPaymentRecovery"
+      ]
+    },
+    {
+      "id": "inventory",
+      "label": "Inventory",
+      "stepIds": [
+        "step:UpdateItemQuantity"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "DrainInternalChannelFlow",
     "startStepId": "step:Init",
     "span": {
-      "startLine": 133,
+      "startLine": 141,
       "startColumn": 1,
-      "endLine": 169,
+      "endLine": 177,
       "endColumn": 10
     }
   },
@@ -23,9 +23,9 @@
       "parentId": "step:Main",
       "phase": "execute",
       "span": {
-        "startLine": 64,
+        "startLine": 68,
         "startColumn": 5,
-        "endLine": 83,
+        "endLine": 87,
         "endColumn": 37
       }
     },
@@ -36,22 +36,22 @@
       "parentId": "step:Side",
       "phase": "execute",
       "span": {
-        "startLine": 98,
+        "startLine": 104,
         "startColumn": 5,
-        "endLine": 111,
+        "endLine": 117,
         "endColumn": 33
       }
     },
     {
-      "id": "decision:step:Finalize:48:16",
+      "id": "decision:step:Finalize:50:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:Finalize",
       "phase": "execute",
       "span": {
-        "startLine": 48,
+        "startLine": 50,
         "startColumn": 16,
-        "endLine": 48,
+        "endLine": 50,
         "endColumn": 35
       },
       "decision": {
@@ -59,15 +59,15 @@
       }
     },
     {
-      "id": "decision:step:Init:127:16",
+      "id": "decision:step:Init:135:16",
       "kind": "decision",
       "name": "goToMany",
       "parentId": "step:Init",
       "phase": "execute",
       "span": {
-        "startLine": 127,
+        "startLine": 135,
         "startColumn": 16,
-        "endLine": 130,
+        "endLine": 138,
         "endColumn": 10
       },
       "decision": {
@@ -75,16 +75,16 @@
       }
     },
     {
-      "id": "decision:step:Main:82:20",
+      "id": "decision:step:Main:86:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Main",
       "condition": "execution_count \u003c= 3",
       "phase": "execute",
       "span": {
-        "startLine": 82,
+        "startLine": 86,
         "startColumn": 20,
-        "endLine": 82,
+        "endLine": 86,
         "endColumn": 38
       },
       "decision": {
@@ -92,16 +92,16 @@
       }
     },
     {
-      "id": "decision:step:Main:83:16",
+      "id": "decision:step:Main:87:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Main",
       "condition": "not (execution_count \u003c= 3)",
       "phase": "execute",
       "span": {
-        "startLine": 83,
+        "startLine": 87,
         "startColumn": 16,
-        "endLine": 83,
+        "endLine": 87,
         "endColumn": 37
       },
       "decision": {
@@ -109,16 +109,16 @@
       }
     },
     {
-      "id": "decision:step:Side:110:20",
+      "id": "decision:step:Side:116:20",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:Side",
       "condition": "document.final_command",
       "phase": "execute",
       "span": {
-        "startLine": 110,
+        "startLine": 116,
         "startColumn": 20,
-        "endLine": 110,
+        "endLine": 116,
         "endColumn": 39
       },
       "decision": {
@@ -126,16 +126,16 @@
       }
     },
     {
-      "id": "decision:step:Side:111:16",
+      "id": "decision:step:Side:117:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Side",
       "condition": "not (document.final_command)",
       "phase": "execute",
       "span": {
-        "startLine": 111,
+        "startLine": 117,
         "startColumn": 16,
-        "endLine": 111,
+        "endLine": 117,
         "endColumn": 33
       },
       "decision": {
@@ -147,9 +147,9 @@
       "kind": "attribute",
       "name": "main_step_execution_counter",
       "span": {
-        "startLine": 137,
+        "startLine": 145,
         "startColumn": 5,
-        "endLine": 140,
+        "endLine": 148,
         "endColumn": 6
       },
       "resource": {
@@ -161,9 +161,9 @@
       "kind": "channel",
       "name": "SideStepData",
       "span": {
-        "startLine": 141,
+        "startLine": 149,
         "startColumn": 5,
-        "endLine": 141,
+        "endLine": 149,
         "endColumn": 68
       },
       "resource": {
@@ -176,10 +176,13 @@
       "name": "Finalize",
       "phase": "execute",
       "span": {
-        "startLine": 162,
+        "startLine": 170,
         "startColumn": 13,
-        "endLine": 162,
+        "endLine": 170,
         "endColumn": 26
+      },
+      "metadata": {
+        "explanation": "Publish the final document so the side Step can complete."
       }
     },
     {
@@ -189,10 +192,13 @@
       "phase": "execute",
       "start": true,
       "span": {
-        "startLine": 159,
+        "startLine": 167,
         "startColumn": 36,
-        "endLine": 159,
+        "endLine": 167,
         "endColumn": 45
+      },
+      "metadata": {
+        "explanation": "Reset the counter and start the main and side Steps in parallel."
       }
     },
     {
@@ -201,10 +207,13 @@
       "name": "Main",
       "phase": "execute",
       "span": {
-        "startLine": 161,
+        "startLine": 169,
         "startColumn": 13,
-        "endLine": 161,
+        "endLine": 169,
         "endColumn": 27
+      },
+      "metadata": {
+        "explanation": "Process the input, publish its status, and finish after three runs."
       }
     },
     {
@@ -213,22 +222,25 @@
       "name": "Side",
       "phase": "wait_for+execute",
       "span": {
-        "startLine": 160,
+        "startLine": 168,
         "startColumn": 13,
-        "endLine": 160,
+        "endLine": 168,
         "endColumn": 27
+      },
+      "metadata": {
+        "explanation": "Write each published document and complete after the final one."
       }
     },
     {
-      "id": "wait:Side:96:16:0",
+      "id": "wait:Side:102:16:0",
       "kind": "wait",
       "name": "until",
       "parentId": "step:Side",
       "phase": "wait_for",
       "span": {
-        "startLine": 96,
+        "startLine": 102,
         "startColumn": 16,
-        "endLine": 96,
+        "endLine": 102,
         "endColumn": 57
       },
       "wait": {
@@ -239,9 +251,9 @@
             "label": "SideStepData.for 1",
             "resourceId": "resource:channel:DrainInternalChannelFlow.side_step_data",
             "span": {
-              "startLine": 96,
+              "startLine": 102,
               "startColumn": 27,
-              "endLine": 96,
+              "endLine": 102,
               "endColumn": 56
             }
           }
@@ -253,65 +265,65 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:Init:127:16",
+      "from": "decision:step:Init:135:16",
       "to": "step:Main",
       "label": "fan-out",
       "span": {
-        "startLine": 129,
+        "startLine": 137,
         "startColumn": 13,
-        "endLine": 129,
+        "endLine": 137,
         "endColumn": 41
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:Init:127:16",
+      "from": "decision:step:Init:135:16",
       "to": "step:Side",
       "label": "fan-out",
       "span": {
-        "startLine": 128,
+        "startLine": 136,
         "startColumn": 13,
-        "endLine": 128,
+        "endLine": 136,
         "endColumn": 40
       }
     },
     {
       "id": "edge:0003",
       "kind": "transition",
-      "from": "decision:step:Main:82:20",
+      "from": "decision:step:Main:86:20",
       "to": "step:Main",
       "label": "go_to",
       "span": {
-        "startLine": 82,
+        "startLine": 86,
         "startColumn": 20,
-        "endLine": 82,
+        "endLine": 86,
         "endColumn": 38
       }
     },
     {
       "id": "edge:0004",
       "kind": "transition",
-      "from": "decision:step:Main:83:16",
+      "from": "decision:step:Main:87:16",
       "to": "step:Finalize",
       "label": "go_to",
       "span": {
-        "startLine": 83,
+        "startLine": 87,
         "startColumn": 16,
-        "endLine": 83,
+        "endLine": 87,
         "endColumn": 37
       }
     },
     {
       "id": "edge:0005",
       "kind": "transition",
-      "from": "decision:step:Side:111:16",
+      "from": "decision:step:Side:117:16",
       "to": "step:Side",
       "label": "go_to",
       "span": {
-        "startLine": 111,
+        "startLine": 117,
         "startColumn": 16,
-        "endLine": 111,
+        "endLine": 117,
         "endColumn": 33
       }
     },
@@ -322,9 +334,9 @@
       "to": "step:Main",
       "label": "get",
       "span": {
-        "startLine": 65,
+        "startLine": 69,
         "startColumn": 27,
-        "endLine": 65,
+        "endLine": 69,
         "endColumn": 62
       },
       "metadata": {
@@ -338,9 +350,9 @@
       "to": "step:Side",
       "label": "results",
       "span": {
-        "startLine": 99,
+        "startLine": 105,
         "startColumn": 21,
-        "endLine": 99,
+        "endLine": 105,
         "endColumn": 57
       },
       "metadata": {
@@ -351,12 +363,12 @@
       "id": "edge:0008",
       "kind": "wait_condition",
       "from": "resource:channel:DrainInternalChannelFlow.side_step_data",
-      "to": "wait:Side:96:16:0",
+      "to": "wait:Side:102:16:0",
       "label": "SideStepData.for 1",
       "span": {
-        "startLine": 96,
+        "startLine": 102,
         "startColumn": 27,
-        "endLine": 96,
+        "endLine": 102,
         "endColumn": 56
       }
     },
@@ -367,9 +379,9 @@
       "to": "resource:channel:DrainInternalChannelFlow.side_step_data",
       "label": "publish",
       "span": {
-        "startLine": 44,
+        "startLine": 46,
         "startColumn": 9,
-        "endLine": 47,
+        "endLine": 49,
         "endColumn": 10
       },
       "metadata": {
@@ -383,9 +395,9 @@
       "to": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
       "label": "set",
       "span": {
-        "startLine": 126,
+        "startLine": 134,
         "startColumn": 9,
-        "endLine": 126,
+        "endLine": 134,
         "endColumn": 47
       },
       "metadata": {
@@ -399,9 +411,9 @@
       "to": "resource:attribute:DrainInternalChannelFlow.main_step_execution_counter",
       "label": "set",
       "span": {
-        "startLine": 66,
+        "startLine": 70,
         "startColumn": 9,
-        "endLine": 66,
+        "endLine": 70,
         "endColumn": 61
       },
       "metadata": {
@@ -415,9 +427,9 @@
       "to": "resource:channel:DrainInternalChannelFlow.side_step_data",
       "label": "publish",
       "span": {
-        "startLine": 69,
+        "startLine": 73,
         "startColumn": 9,
-        "endLine": 72,
+        "endLine": 76,
         "endColumn": 10
       },
       "metadata": {
@@ -425,5 +437,47 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "side-writes",
+      "label": "Side writes",
+      "stepIds": [
+        "step:Side"
+      ]
+    },
+    {
+      "id": "main-work",
+      "label": "Main work",
+      "stepIds": [
+        "step:Main"
+      ]
+    },
+    {
+      "id": "finalize",
+      "label": "Finalize",
+      "stepIds": [
+        "step:Finalize"
+      ]
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "stepIds": [
+        "step:Init"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

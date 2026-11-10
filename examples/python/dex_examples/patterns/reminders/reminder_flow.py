@@ -36,6 +36,8 @@ from dex_examples.patterns.shared.service_dependency import ServiceDependency
 REMINDER_INTERVAL = timedelta(seconds=5)
 
 
+# dex:group group-id:reminders group-label:"Reminders"
+# dex:explanation text:"Send a reminder each interval until the user opts out."
 class ReminderStep(Step[None]):
     def __init__(
         self,

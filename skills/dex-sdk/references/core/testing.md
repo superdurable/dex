@@ -100,5 +100,5 @@ For every entity whose contract allows reads after closure:
 - Large Attributes: replace the serving Worker and verify a cold-cache load.
 - AttributeMap concurrency: race writers on one instance and verify the lock-protected invariant.
 - Attribute Store sync: verify the Flow stays authoritative and the projection reconciles after a transient failure. With a row key template, verify matching Flow IDs land in the key columns and a non-matching ID writes no row; verify instance rewrite and delete in an AttributeMap table.
-- Versions: start a Flow on the old Worker, deploy the new registry, and finish that same execution. A test that starts after deployment does not prove open-Flow compatibility.
+- Versions: start a Flow on the old Worker, deploy the new registry, and finish that same Flow run. A test that starts after deployment does not prove open-Flow compatibility.
 - Recovery: time travel a failed Flow after a fix and verify the new run attempt.

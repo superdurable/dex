@@ -6,13 +6,13 @@ import flowDefinition from '@site/src/data/flow-definitions/design-patterns/para
 
 # Advanced: Short-lived Parent
 
-Drain the current workload, then complete the parent without racing new requests.
+Drain the queued requests, then complete the parent without losing a request that arrives at the end.
 
 <DocsFlowDefinitionGraph graph={flowDefinition} />
 
-**Init** fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **HandleRequest.Execute** holds the Attribute lock while incrementing the active SubFlow count. **HandleSubFlow.Execute** holds the same lock while decrementing it.
+**Init** fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **CurrSubFlowNum** counts the running SubFlows. **HandleRequest.Execute** locks it and adds one. **HandleSubFlow.Execute** takes the same lock and subtracts one.
 
-The last active worker uses **ForceCompleteIfChannelsEmpty**. Dex atomically checks **RequestChannel** and completes only when it is empty. If an RPC published a request first, Dex schedules another **HandleRequest** instead. This atomic decision is the key difference from checking Channel size in application code.
+The last active worker returns **ForceCompleteIfChannelsEmpty**. Dex then checks **RequestChannel** and completes the Flow only if the Channel is empty. If an RPC has published a request first, Dex schedules another **HandleRequest** instead. The check and the completion happen together, so no request can arrive between them. Checking the Channel size in application code cannot give this guarantee.
 
 ## Core implementation
 
@@ -559,4 +559,4 @@ impl Step for ShortLiveHandleSubFlow {
 ## Related
 
 - [Multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning)
-- [Step decision](/reference/python/flows-and-steps/step-decisions#forcecompleteifchannelsempty)
+- [Step decision](/reference/python/step-decisions#forcecompleteifchannelsempty)

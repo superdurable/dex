@@ -6,15 +6,15 @@ slug: /concepts/primitives/timer
 
 # Timer
 
-**Timer** 是由 Dex Server 保存的 durable timer。Step 在 **WaitFor** 中返回它，Timer 触发后运行 **Execute**。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
+**Timer** 是一个等到某个时间点的 durable 等待，由 Dex Server 保存。Step 在 **WaitFor** 中返回它，Timer 触发后运行 **Execute**。Step 等待期间，没有 Worker 为它占用内存、线程或连接。
 
 ## 什么时候用 Timer
 
-Timer 适合延迟、提醒或截止时间。把它和另一个 condition 组合，就能实现超时：一个 Step 同时等待 [Channel](/concepts/primitives/channel) 消息和 Timer，哪个先到就继续。
+Timer 适合延迟、提醒或截止时间。把它和另一个 condition 组合，就能实现超时。例如，一个 Step 同时等待 [Channel](/concepts/primitives/channel) 消息和 Timer，哪个先到就继续。在 **Execute** 中，Step 检查它的 Timer 是否已触发。
 
 ## 保证
 
-server 把 Timer 和 Flow 一起保存。Worker 重启和 server failover 都不会丢失它。在 **Execute** 中，Step 检查它的 Timer 是否已触发。
+server 把 Timer 和 Flow 一起保存。Worker 重启和 server failover 都不会丢失它。
 
 ## 等待 Timer
 
@@ -209,7 +209,9 @@ Step 如何在 **WaitFor** 中组合 condition，见 [Step](/concepts/step)。
 
 ## 参考
 
-- [Waits](/reference/python/flows-and-steps/waits) 和
-  [Condition results](/reference/python/flows-and-steps/waits#condition-results) 说明 Timer
+每个 SDK 参考的 [Timer](/reference/python/timer) 页列出该语言的 API 名称。
+
+- [Waits](/reference/python/waits) 和
+  [Condition results](/reference/python/waits#condition-results) 说明 Timer
   如何与其他 condition 组合，以及 Step 如何读取哪个 condition 已经触发。
 - [Skip a Timer](/reference/server/runtime-client#skip-a-timer) 说明这个 Client 调用。

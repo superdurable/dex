@@ -5,7 +5,7 @@ slug: /concepts/primitives/subflow
 
 # SubFlow
 
-A **SubFlow** is a Flow execution that a parent Flow starts from one of its
+A **SubFlow** is a Flow run that a parent Flow starts from one of its
 Steps. The child is a normal Flow with its own Steps, Attributes, and Channels.
 The parent waits for it like any other condition in **WaitFor**.
 
@@ -14,21 +14,20 @@ The parent waits for it like any other condition in **WaitFor**.
 SubFlow has two main uses:
 
 1. Move complicated logic into a smaller Flow. This makes business logic easier
-   to maintain and keeps its hierarchy clear.
-2. Fan out work. One Flow execution cannot run too many operations at once, but
+   to maintain.
+2. Fan out work. One Flow run cannot do too many operations at once, but
    it can hand work to many SubFlows. The SubFlows run at the same time, so the
    parent reaches much higher concurrency.
 
 ## Guarantees
 
-Dex Server derives the SubFlow ID from the parent Flow ID, the Step execution,
-and the condition index. A retried or repeated start therefore finds the same
-child instead of starting a second one. By default, the parent keeps waiting
+Dex Server computes the SubFlow ID from the parent Flow ID, the Step execution,
+and the condition index. So a retried or repeated start finds the same child
+instead of starting a second one. By default, the parent keeps waiting
 for a running child, uses the result of a completed child, and restarts a child
 that ended abnormally.
 
-Dex computes a SubFlow ID from the parent Flow ID and the Step that starts the
-SubFlow. When you start the parent Flow ID again, the new run usually computes
+When you start the parent Flow ID again, the new run usually computes
 the same SubFlow IDs as the earlier run. Dex then applies the reuse policy. With
 the default policy, the new run gets the earlier run's child, running or
 completed, until Dex deletes that child. To start a fresh child in every run,
@@ -213,12 +212,15 @@ Use **allOf** to make the parent wait for all SubFlows to complete.
 Use **anyOf** when the parent does not need to wait for all of them. A SubFlow
 keeps running after **WaitFor** stops waiting. **Execute** can still get the
 SubFlow ID to stop it, or pass the ID to another Step to decide how to handle
-it. See [SubFlow results](/reference/python/flows-and-steps/waits#subflow-results) for combining SubFlows with
+it. See [SubFlow results](/reference/python/waits#subflow-results) for combining SubFlows with
 other conditions.
 
 <a id="subflowoptions-and-subflowreusepolicy"></a>
 
 ## Reference
+
+The [SubFlow](/reference/python/subflow) page of each SDK reference lists the
+API names in that language.
 
 **SubFlowOptions** accept the same options as starting a Flow from a Client,
 plus a reuse policy. See

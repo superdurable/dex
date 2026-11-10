@@ -186,6 +186,10 @@ must exist and be reachable before startup.
 --bind-address string              local bind IP (default 127.0.0.1)
 --connector-config-dir string      local Connector config directory (default $HOME/.dex/connectors)
 --connector-release-override value local Connector release as connector-id=artifact-directory (repeatable)
+--connectors-mcp                   find or start the Dex Connectors MCP server and proxy it at /mcp (default true)
+--connectors-mcp-binary string     local dex-connectors-mcp executable (default DEX_CONNECTORS_MCP_BINARY)
+--connectors-mcp-connection value  connectorId/connectionName[=tool,...] the server offers (repeatable)
+--connectors-mcp-version string    Connectors MCP server release X.Y.Z (default newest compatible)
 --dex-port int                     Dex gRPC port (default 8801)
 --engine string                    compatibility option; server-zd is the only engine (default zd)
 --flow-rendering-dir string        directory containing Flow Definition Graph JSON files

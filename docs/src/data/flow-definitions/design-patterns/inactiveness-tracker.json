@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "2.0",
   "valid": true,
   "source": {
     "language": "python",
@@ -9,9 +9,9 @@
     "name": "InactivenessTrackerFlow",
     "startStepId": "step:Tracker",
     "span": {
-      "startLine": 66,
+      "startLine": 70,
       "startColumn": 1,
-      "endLine": 88,
+      "endLine": 92,
       "endColumn": 51
     }
   },
@@ -23,22 +23,22 @@
       "parentId": "step:Tracker",
       "phase": "execute",
       "span": {
-        "startLine": 60,
+        "startLine": 64,
         "startColumn": 5,
-        "endLine": 63,
+        "endLine": 67,
         "endColumn": 36
       }
     },
     {
-      "id": "decision:step:ProcessInactiveness:42:16",
+      "id": "decision:step:ProcessInactiveness:44:16",
       "kind": "decision",
       "name": "gracefulComplete",
       "parentId": "step:ProcessInactiveness",
       "phase": "execute",
       "span": {
-        "startLine": 42,
+        "startLine": 44,
         "startColumn": 16,
-        "endLine": 42,
+        "endLine": 44,
         "endColumn": 35
       },
       "decision": {
@@ -46,16 +46,16 @@
       }
     },
     {
-      "id": "decision:step:Tracker:62:20",
+      "id": "decision:step:Tracker:66:20",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Tracker",
       "condition": "context.has_timer_fired()",
       "phase": "execute",
       "span": {
-        "startLine": 62,
+        "startLine": 66,
         "startColumn": 20,
-        "endLine": 62,
+        "endLine": 66,
         "endColumn": 52
       },
       "decision": {
@@ -63,16 +63,16 @@
       }
     },
     {
-      "id": "decision:step:Tracker:63:16",
+      "id": "decision:step:Tracker:67:16",
       "kind": "decision",
       "name": "goTo",
       "parentId": "step:Tracker",
       "condition": "not (context.has_timer_fired())",
       "phase": "execute",
       "span": {
-        "startLine": 63,
+        "startLine": 67,
         "startColumn": 16,
-        "endLine": 63,
+        "endLine": 67,
         "endColumn": 36
       },
       "decision": {
@@ -84,9 +84,9 @@
       "kind": "channel",
       "name": "Active",
       "span": {
-        "startLine": 69,
+        "startLine": 73,
         "startColumn": 5,
-        "endLine": 69,
+        "endLine": 73,
         "endColumn": 57
       },
       "resource": {
@@ -98,9 +98,9 @@
       "kind": "rpc",
       "name": "record_activity",
       "span": {
-        "startLine": 87,
+        "startLine": 91,
         "startColumn": 5,
-        "endLine": 88,
+        "endLine": 92,
         "endColumn": 51
       }
     },
@@ -110,10 +110,13 @@
       "name": "ProcessInactiveness",
       "phase": "execute",
       "span": {
-        "startLine": 80,
+        "startLine": 84,
         "startColumn": 13,
-        "endLine": 80,
+        "endLine": 84,
         "endColumn": 38
+      },
+      "metadata": {
+        "explanation": "Handle a period without activity and complete."
       }
     },
     {
@@ -123,22 +126,25 @@
       "phase": "wait_for+execute",
       "start": true,
       "span": {
-        "startLine": 79,
+        "startLine": 83,
         "startColumn": 36,
-        "endLine": 79,
+        "endLine": 83,
         "endColumn": 53
+      },
+      "metadata": {
+        "explanation": "Restart the timer on each activity and continue when the timer fires first."
       }
     },
     {
-      "id": "wait:Tracker:55:16:0",
+      "id": "wait:Tracker:59:16:0",
       "kind": "wait",
       "name": "anyOf",
       "parentId": "step:Tracker",
       "phase": "wait_for",
       "span": {
-        "startLine": 55,
+        "startLine": 59,
         "startColumn": 16,
-        "endLine": 58,
+        "endLine": 62,
         "endColumn": 10
       },
       "wait": {
@@ -149,9 +155,9 @@
             "label": "TRACKER_DURATION timer",
             "expression": "TRACKER_DURATION",
             "span": {
-              "startLine": 56,
+              "startLine": 60,
               "startColumn": 13,
-              "endLine": 56,
+              "endLine": 60,
               "endColumn": 48
             }
           },
@@ -160,9 +166,9 @@
             "label": "Active.for 1",
             "resourceId": "resource:channel:InactivenessTrackerFlow.active_channel",
             "span": {
-              "startLine": 57,
+              "startLine": 61,
               "startColumn": 13,
-              "endLine": 57,
+              "endLine": 61,
               "endColumn": 42
             }
           }
@@ -174,26 +180,26 @@
     {
       "id": "edge:0001",
       "kind": "transition",
-      "from": "decision:step:Tracker:62:20",
+      "from": "decision:step:Tracker:66:20",
       "to": "step:ProcessInactiveness",
       "label": "go_to",
       "span": {
-        "startLine": 62,
+        "startLine": 66,
         "startColumn": 20,
-        "endLine": 62,
+        "endLine": 66,
         "endColumn": 52
       }
     },
     {
       "id": "edge:0002",
       "kind": "transition",
-      "from": "decision:step:Tracker:63:16",
+      "from": "decision:step:Tracker:67:16",
       "to": "step:Tracker",
       "label": "go_to",
       "span": {
-        "startLine": 63,
+        "startLine": 67,
         "startColumn": 16,
-        "endLine": 63,
+        "endLine": 67,
         "endColumn": 36
       }
     },
@@ -201,12 +207,12 @@
       "id": "edge:0003",
       "kind": "wait_condition",
       "from": "resource:channel:InactivenessTrackerFlow.active_channel",
-      "to": "wait:Tracker:55:16:0",
+      "to": "wait:Tracker:59:16:0",
       "label": "Active.for 1",
       "span": {
-        "startLine": 57,
+        "startLine": 61,
         "startColumn": 13,
-        "endLine": 57,
+        "endLine": 61,
         "endColumn": 42
       }
     },
@@ -217,9 +223,9 @@
       "to": "resource:channel:InactivenessTrackerFlow.active_channel",
       "label": "publish",
       "span": {
-        "startLine": 88,
+        "startLine": 92,
         "startColumn": 9,
-        "endLine": 88,
+        "endLine": 92,
         "endColumn": 51
       },
       "metadata": {
@@ -227,5 +233,33 @@
       }
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "groups": [
+    {
+      "id": "inactivity",
+      "label": "Inactivity",
+      "stepIds": [
+        "step:ProcessInactiveness"
+      ]
+    },
+    {
+      "id": "activity-tracking",
+      "label": "Activity tracking",
+      "stepIds": [
+        "step:Tracker"
+      ]
+    }
+  ],
+  "v2": {
+    "indexedAttributes": [],
+    "summary": {
+      "rpcName": "GetDexSummary",
+      "fields": []
+    },
+    "display": {
+      "rpcName": "GetDexDisplay",
+      "fields": []
+    },
+    "actions": []
+  }
 }

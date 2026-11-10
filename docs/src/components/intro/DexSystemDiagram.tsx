@@ -7,51 +7,22 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import React, {type ReactNode} from 'react';
+import clsx from 'clsx';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import type {LucideIcon} from 'lucide-react';
+import {AppWindow, Cpu, Database, Laptop, Package, Server} from 'lucide-react';
 
-type NodeProps = {
-  kicker?: string;
-  title: string;
-  detail?: string;
-  tone?: 'neutral' | 'accent' | 'warn' | 'success';
-  compact?: boolean;
-};
-
-function DiagramNode({kicker, title, detail, tone = 'neutral', compact}: NodeProps): ReactNode {
-  return (
-    <div className={`exec-node exec-node-${tone}${compact ? ' exec-node-compact' : ''}`}>
-      {kicker ? <span className="exec-kicker">{kicker}</span> : null}
-      <strong>{title}</strong>
-      {detail ? <p>{detail}</p> : null}
-    </div>
-  );
-}
-
-function DatabaseIcon(): ReactNode {
-  return (
-    <svg className="exec-db-icon" viewBox="0 0 32 32" aria-hidden="true">
-      <ellipse cx="16" cy="7" rx="11" ry="4.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M5 7v18c0 2.5 4.9 4.5 11 4.5s11-2 11-4.5V7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M5 13c0 2.5 4.9 4.5 11 4.5s11-2 11-4.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M5 19c0 2.5 4.9 4.5 11 4.5s11-2 11-4.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-    </svg>
-  );
-}
+import {
+  Arrow,
+  ConceptDiagramFrame,
+  DiagramIcon,
+  Detail,
+  Eyebrow,
+  IconBadge,
+  Tile,
+  TileTitle,
+} from '../conceptDiagram/ConceptDiagram';
+import styles from './DexSystemDiagram.module.css';
 
 type Copy = {
   app: string;
@@ -73,47 +44,83 @@ const EN: Copy = {
 
 const ZH: Copy = {
   app: '应用',
-  client: 'Start Flow 实例，并与之交互。',
-  worker: '托管 Flow。跑 Step 和 RPC implementation。',
+  client: '启动 Flow 实例，并与之交互。',
+  worker: '托管 Flow，运行 Step 和 RPC 的实现。',
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
-  persist: '持久化 Flow instance 和 execution。',
+  persist: '持久化 Flow 实例及其执行。',
 };
+
+function RoleNode({
+  icon,
+  title,
+  detail,
+  className,
+}: {
+  icon: LucideIcon;
+  title: string;
+  detail: string;
+  className: string;
+}): ReactNode {
+  return (
+    <Tile className={clsx(styles.role, className)}>
+      <span className={styles.roleHeading}>
+        <IconBadge icon={icon} isSmall />
+        <TileTitle>{title}</TileTitle>
+      </span>
+      <Detail>{detail}</Detail>
+    </Tile>
+  );
+}
+
+/** Renders a vertical arrow for the stacked layout and a horizontal one for the wide layout. */
+function SystemArrow({
+  label,
+  isToServer,
+  className,
+}: {
+  label: string;
+  isToServer: boolean;
+  className: string;
+}): ReactNode {
+  return (
+    <div className={clsx(styles.call, className)}>
+      <Arrow direction={isToServer ? 'down' : 'up'} tone="accent" isFlowing label={label} className={styles.callNarrow} />
+      <Arrow direction={isToServer ? 'right' : 'left'} tone="accent" isFlowing label={label} className={styles.callWide} />
+    </div>
+  );
+}
 
 export default function DexSystemDiagram({markdownDescription}: {markdownDescription: string}): ReactNode {
   const {i18n} = useDocusaurusContext();
   const copy = i18n.currentLocale === 'zh-Hans' ? ZH : EN;
   return (
-    <div className="exec-diagram" role="img" aria-label={markdownDescription}>
-      <div className="exec-system">
-        <div className="exec-app">
-          <span className="exec-kicker">{copy.app}</span>
-          <div className="exec-app-body">
-            <div className="exec-app-roles">
-              <DiagramNode kicker="CLIENT" title="Client" detail={copy.client} compact />
-              <DiagramNode kicker="WORKER" title="Worker" detail={copy.worker} compact />
-            </div>
-            <DiagramNode kicker="SDK" title="Dex SDK" compact tone="accent" />
-          </div>
-        </div>
-        <div className="exec-system-arrows">
-          <div className="exec-system-arrow exec-system-arrow-to">
-            <span>{copy.toServer}</span>
-            <i aria-hidden="true" />
-          </div>
-          <div className="exec-system-arrow exec-system-arrow-from">
-            <i aria-hidden="true" />
-            <span>{copy.fromServer}</span>
-          </div>
-        </div>
-        <div className="exec-node exec-server">
-          <strong>Dex Server</strong>
-          <div className="exec-server-store">
-            <DatabaseIcon />
-            <p>{copy.persist}</p>
-          </div>
-        </div>
+    <ConceptDiagramFrame label={markdownDescription}>
+      <div className={styles.layout}>
+        <span className={styles.appBackground} />
+        <span className={styles.appLabel}>
+          <Eyebrow icon={AppWindow}>{copy.app}</Eyebrow>
+        </span>
+        <RoleNode icon={Laptop} title="Client" detail={copy.client} className={styles.client} />
+        <RoleNode icon={Cpu} title="Worker" detail={copy.worker} className={styles.worker} />
+        <Tile tone="accent" className={styles.sdk}>
+          <IconBadge icon={Package} tone="accent" isSmall />
+          <span className={styles.sdkText}>
+            <Eyebrow>SDK</Eyebrow>
+            <TileTitle tone="accent">Dex SDK</TileTitle>
+          </span>
+        </Tile>
+        <SystemArrow label={copy.toServer} isToServer className={styles.toServer} />
+        <SystemArrow label={copy.fromServer} isToServer={false} className={styles.fromServer} />
+        <Tile tone="accent" className={styles.server}>
+          <IconBadge icon={Server} tone="accent" isSolid />
+          <TileTitle>Dex Server</TileTitle>
+          <span className={styles.serverStore}>
+            <DiagramIcon icon={Database} size={18} />
+            <Detail>{copy.persist}</Detail>
+          </span>
+        </Tile>
       </div>
-    </div>
+    </ConceptDiagramFrame>
   );
 }

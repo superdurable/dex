@@ -18,7 +18,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Intro and Quick Start',
       customProps: {section: 'intro'},
-      items: ['intro/what-is-durable-execution', 'intro/what-is-dex', 'quick-start/index'],
+      items: ['intro/what-is-dex', 'quick-start/index', 'intro/compared-to-database'],
     },
     {
       type: 'category',
@@ -41,15 +41,17 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'concepts/client',
-        {
-          type: 'category',
-          label: 'Correctness and Expressiveness',
-          link: {type: 'doc', id: 'concepts/correctness-and-expressiveness/index'},
-          items: [
-            'concepts/correctness-and-expressiveness/workflow-patterns',
-            'concepts/correctness-and-expressiveness/expressiveness-proof',
-          ],
-        },
+        'concepts/connector',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Correctness and Expressiveness',
+      customProps: {section: 'correctness'},
+      link: {type: 'doc', id: 'correctness-and-expressiveness/index'},
+      items: [
+        'correctness-and-expressiveness/expressiveness-proof',
+        'correctness-and-expressiveness/workflow-patterns',
       ],
     },
     {
@@ -62,8 +64,6 @@ const sidebars: SidebarsConfig = {
         'components/server',
         'components/cli',
         'components/web',
-        'components/connector',
-        'components/external-attribute-sync',
       ],
     },
     {

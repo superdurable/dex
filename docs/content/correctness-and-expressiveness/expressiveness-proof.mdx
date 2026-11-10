@@ -1,0 +1,99 @@
+---
+title: Expressiveness proof
+sidebar_label: Expressiveness proof
+slug: /correctness-and-expressiveness/expressiveness-proof
+---
+
+# Expressiveness proof
+
+Dex has a computer-checked proof of what it can express. The full argument is
+in the paper.
+
+- [Download the paper (PDF)](/papers/dex-expressiveness.pdf)
+- [Formal sources on GitHub](https://github.com/superdurable/dex/tree/main/formal)
+
+## The claim {#the-claim}
+
+The paper defines a small concurrent language. It has the usual tools of
+concurrent programming:
+
+- threads, with **fork** and **join**;
+- shared variables, local variables, and procedures with recursion;
+- mutexes and condition variables;
+- timers: **sleep**, and a **select** that waits for a message or a timeout;
+- cancellation of a thread;
+- exceptions;
+- external effects, such as sending an email;
+- program exit.
+
+The claim: every program in that language translates into a Dex Flow that
+behaves the same, seen from outside. The paper states the exact conditions.
+
+"Behaves the same" has two parts.
+
+- **The same events.** Any sequence of events the program can produce, the
+  Flow can produce, and the other way around.
+- **The same ending.** The program and the Flow complete, get stuck, or keep
+  running in the same situations.
+
+"Seen from outside" means the inputs, the external effects, and the result.
+The Flow's internal Channels and Attributes do not count.
+
+## Why it matters to you {#why-it-matters}
+
+Dex has no threads that block, and no locks held across a wait. A Flow is a
+set of Steps that read and write Attributes, publish and consume Channel
+messages, and wait on Timers. So you may wonder whether some concurrent logic
+cannot be written as a Flow.
+
+The proof answers that. Any concurrent logic you can write with the
+constructs above can also be written as a Flow. The table below shows how
+each construct is built.
+
+The translation is a construction for the proof, not a compiler that Dex
+ships. It uses about one Step for each statement, which is not how to model
+an application. Model your own Flow with the
+[design patterns](/design-patterns).
+
+## How each construct is built {#how-each-construct-is-built}
+
+This table summarizes the translation in the paper.
+
+| Construct | Dex building blocks | Related design pattern |
+| --- | --- | --- |
+| Thread | A chain of Steps, usually one for each statement. **wait** takes three Steps, and **sleep** and timed **select** add an entry Step. The thread's position and local state travel in the Step input. A running thread is one active Step execution at a time. | |
+| **fork** | **GoToMany** to the parent's next Step and the child's first Step. | |
+| **join** | The ending thread publishes one message to its join Channel, then returns **DeadEnd**. The joining Step waits with **AnyOf** on that Channel and on its own cancel Channel. | [Await Parallel Steps](/design-patterns/parallel/await) |
+| Mutex | A Channel that holds one token while the mutex is free. **lock** waits for the token with **ForOne**. Waiters are served in the order they started waiting. **unlock** publishes the token back. | [Critical Section](/design-patterns/critical-section) |
+| Condition variable | An Attribute holds the list of waiting threads. Each waiter has its own Channel. **wait** adds the thread to the list, releases the mutex, waits on its Channel, then takes the mutex again. **signal** removes the first waiter and publishes to its Channel. **broadcast** does this for every waiter. | |
+| **sleep** | One timed Step. Its **WaitFor** returns **AnyOf** with a Timer and the thread's cancel Channel. | |
+| Timed **select** | The same timed Step. It waits with **AnyOf** on a Timer, the input Channel, and the cancel Channel. Only the winning Condition consumes a message. | [Deferred Choice](/design-patterns/deferred-choice) |
+| Cancellation | A message on the canceled thread's cancel Channel. The thread sees it only at a point where it would block. | |
+| Exception | The handler stack travels in the Step input. **throw** is a **GoTo** to the handler's Step. | |
+| Exit or failure | **ForceComplete** with the result, or **ForceFail** with the error. | |
+| External effect | An **Execute** whose only effect is that external call. | |
+
+The mutex shows why the details matter. An Attribute lock would not work,
+because it covers one Step method and not a wait. A Channel token can be held
+across many Steps and waits.
+
+## How it was checked {#how-it-was-checked}
+
+The proof is written in the Lean 4 proof assistant, which checks every step.
+No step is skipped or taken on trust.
+
+## Failures {#what-it-does-not-cover}
+
+This proof assumes no crashes, retries, or redelivery. A second proof will
+show that these failures do not change what a Flow does. Together, the two
+proofs say that a program runs on Dex as if no failure had happened. The
+second proof is tracked in
+[issue 1514](https://github.com/superdurable/dex/issues/1514).
+
+## Related evidence {#related-evidence}
+
+The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns)
+is complementary evidence. It rates Dex against 43 workflow patterns, each
+with a runnable example and a test against a real server. The patterns test
+the real server on common cases. The proof covers every program of the
+language.

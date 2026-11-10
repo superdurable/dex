@@ -5,9 +5,8 @@ sidebar_label: Durable Agents
 
 # Durable Agents
 
-本页介绍如何在生产环境中运行 [agent framework](/agent-frameworks) 的 session。
-一次 Flow 执行就是一个 agent session。每次模型调用是一个 **RunModel** Step，每个
-tool call 是独立的 Step。本页中的服务器限制都是 server-zd 的默认值。其余配置见
+在生产环境中运行 [agent session](/agent-frameworks) 时，按本页的设置和限制来规划。
+本页中的服务器限制都是 server-zd 的默认值。其余配置见
 [Server 参考](/reference/server/) 和
 [Application](/components/application)。
 
@@ -147,7 +146,7 @@ runner 工作时，**RunModel**、**CompactContext** 和两种 tool Step 每 20 
 
 一次模型调用必须在 15 分钟内完成。把 provider 或 framework 的请求超时设得比它短，这样慢
 调用会带着 provider 的错误失败，后续 attempt 也还能落在 30 分钟的重试窗口内。Dex 如何发现
-丢失的 attempt，见 [Heartbeat](/reference/python/flows-and-steps/step-options#heartbeat)。
+丢失的 attempt，见 [Heartbeat](/reference/python/step-options#heartbeat)。
 
 Claude Agent SDK session 在一个 **RunModel** 中运行整段轮次：多次模型调用和内联 tool call，
 直到 CLI 给出回答或推迟一个 tool call。默认情况下这一段必须在 15 分钟内完成。更长的段需要
@@ -194,7 +193,7 @@ tool call 共用一个 Worker 池。某类工作挤占另一类工作时，可�
 - **AgentMessages** 保存最新的消息，每条消息一个 AttributeMap 实例。保存一条消息只写这一条。
   其中超过 64 条消息时，最早的消息移入不再重写的 **AgentMessageChunks** 实例。一个 chunk 最多
   32 条消息、1 MiB，因此远低于 **values.maxValueBytes**。更大的消息不进入窗口，保存时直接放进
-  自己的 chunk，所以超过 **values.maxValueBytes** 的消息会让它所在的轮次立即失败，和以前一样。
+  自己的 chunk，所以超过 **values.maxValueBytes** 的消息会让它所在的轮次立即失败。
   **AgentMessageIndex** 记录消息所在的位置，只在写入或删除 chunk 时改变。每条消息写两次：一次在窗口中，一次在
   它的 chunk 中。窗口副本移除后，就不再计入 run 预算。启用[压缩](#compaction)时，**RunModel** 只加载
   摘要之后的消息。不启用压缩时，每次模型调用都加载并发送完整历史，也不会删除任何消息。
@@ -311,7 +310,7 @@ RPC 的锁由调用方发送。SDK Client 和 Dex Web 会带上 RPC 声明的锁
 
 ## Connector tool {#connector-tools}
 
-Agent session 可以把 [Connector](/components/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。内置 agent loop 以及每个 Python 和 TypeScript framework adapter 都接受它，Python 中通过 **tool_sources**，TypeScript 中通过 **toolSources**。Go core 只支持 function tool。每个 harness 页面的“连接 Connector”一节展示了接入方式和该 harness 自己的行为，例如 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。
+Agent session 可以把 [Connector](/concepts/connector) 的 operation 当作 tool 调用。**ConnectorToolSource** 提供这些 tool，方式和 **McpToolSource** 提供 MCP server 的 tool 一样。每次调用在自己的 tool Step 中通过 Connector SDK 运行一个 operation，所以 Call ID、幂等键、凭证处理和 single-dispatch fence 的行为和 Connector Step 中相同。Python 和 TypeScript core 提供这项功能。内置 agent loop 以及每个 Python 和 TypeScript framework adapter 都接受它，Python 中通过 **tool_sources**，TypeScript 中通过 **toolSources**。Go core 只支持 function tool。每个 harness 页面的“连接 Connector”一节展示了接入方式和该 harness 自己的行为，例如 [Claude Agent SDK](/agent-frameworks/claude-agent-sdk#connect-connectors)。
 
 安装带 Connector SDK 的 core，以及 agent 用到的每个 Connector 包：
 
@@ -331,7 +330,7 @@ pip install "dex-connector-<name> @ git+https://github.com/superdurable/dex-conn
 
 ### 提供哪些 operation {#connector-tools-offered}
 
-默认不暴露任何 operation。应用用 Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 列出 agent 可以使用的每个 operation。只有 Connector 作者审查过、在 **dex-connector.json** 中标记了 **agent.exposed** 的 operation 才能成为 tool。其他 operation 在构建 agent 定义时就会被拒绝。tool 名称默认是 Connector ID 加上 snake case 形式的 operation，例如 **stripe_create_refund**。描述和参数 schema 来自 manifest。
+默认不暴露任何 operation。应用用 Python 的 **connector_tool** 或 TypeScript 的 **connectorTool** 列出 agent 可以使用的每个 operation。只有 Connector 作者审查过、在 **dex-connector.json** 中标记了 **agent.exposed** 的 operation 才能成为 tool。其他 operation 在构建 agent 定义时就会被拒绝。tool 名称默认是 Connector ID 加上 snake case 形式的 operation，例如 **stripe_create_refund**。snake case 和 Connector library 自己的 Python 名称一致：缩写词保持为一个词，所以 **listStoryIDs** 变成 **list_story_ids**。描述和参数 schema 来自 manifest。
 
 模型给出的参数先按 operation 的 **inputSchema** 检查，再解码成 operation 的输入类型。拼错的字段、错误的类型或缺少的字段会让这次调用失败，并给出模型可以据此修正的消息。operation 不会运行。
 
@@ -357,15 +356,19 @@ session 的 **tool_policies**（**toolPolicies**）中针对 connector tool 的�
 
 ### 结果 {#connector-tools-outcomes}
 
-operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。规则在不确定时按最保守的方式处理：
+operation 选中的 branch 决定 tool call 的记录。Connector 作者在 **agent.branches** 中列出需要说明的 branch：**rejected**（什么都没有生效）或 **unknown**（写入可能已经生效）。按顺序取第一个匹配的行。在列表规则之前的各行中，除了成功 branch 那一行，其余都记为 **outcome_unknown**，所以规则在不确定时按最保守的方式处理：
 
 | Branch | 记录 | 模型看到 |
 | --- | --- | --- |
+| **uncertain** | **outcome_unknown** | 结果未知 |
+| Mutation 的 **defect** | **outcome_unknown** | 结果未知 |
 | 成功 branch，例如 **sent** 或 **refunded** | **succeeded** | 结果值 |
+| single-dispatch fence 无法证明请求没有发出时，Mutation 的其他任何 branch | **outcome_unknown** | 结果未知 |
 | 列为 **rejected** 的 branch，例如 **providerRejected** | **failed** | branch 和 provider 的消息 |
-| **defect** | **failed** | branch 和消息 |
-| 未列出的 Query branch | **failed** | branch 和消息 |
-| **uncertain**、列为 **unknown** 的 branch，或未列出的 Mutation branch | **outcome_unknown** | 结果未知 |
+| 列为 **unknown** 的 branch，或未列出的 Mutation branch | **outcome_unknown** | 结果未知 |
+| 未列出的 Query branch，包括 **defect** | **failed** | branch 和消息 |
+
+Mutation 的 **defect** 可能发生在调用 provider 之后，所以写入可能已经生效。使用 single-dispatch fence 的 Mutation 会记录请求是否可能已经发出。如果可能已经发出，任何列表都不能把失败变成拒绝。
 
 被拒绝或失败的调用不会让 session 失败。模型读到结果后可以做出反应。和其他 tool 一样处理 **outcome_unknown**，见[核对 outcome_unknown](#reconcile-outcome-unknown)。
 
@@ -389,7 +392,7 @@ connector 写入期间 Worker 崩溃，绝不会把一次写入发送两次：
 | provider 接受后 Worker 退出 | provider 丢弃重复的键，或者 fenced 写入回读并确认已发送。一次写入 | **outcome_unknown**，一次写入 |
 | provider 限流 | 重试并只发送一次 | 写入的 fence 记录了未发送时为 **failed**，错误为 "not sent; the provider asked to retry later"；否则为 **outcome_unknown** |
 
-只运行一次的写入请求重试时，通常以 **outcome_unknown** 结束，因为重试请求本身不能证明什么都没发送。single-dispatch fence 可以证明这一点：它记录请求从未离开进程，或者 provider 没有处理就拒绝了请求。有了这个证明，调用记录为 **failed**，模型可以再次调用，也不需要有人去核对 provider。这次回复中后面的写入仍然会被跳过。
+provider 要求只运行一次的写入稍后重试时，调用通常以 **outcome_unknown** 结束。重试请求本身不能证明什么都没发送。Connector 的 single-dispatch fence 可以证明这一点：它记录请求从未离开进程，或者 provider 没有处理就拒绝了请求。有了这个证明，调用记录为 **failed**，模型可以再次调用，不需要有人去核对 provider。这次回复中后面的写入仍然会被跳过。
 
 凭证留在 Worker。和 Connector Step 一样，connector tool 只随调用保存逻辑 connection 名称，见 [凭证](#credentials)。
 
@@ -436,7 +439,7 @@ FlowType = "SupportAgent" AND ExecutionStatus = "Running"
 ```
 
 **RunModel** 这类直接运行的 Step 不会被索引。所以 session 的搜索记录只在进入或离开等待时变化，
-没有 tool call 的一轮变化两次。每次变化都和 Step 在同一次提交中写入搜索记录。
+没有 tool call 的一轮变化两次。Dex 把每次变化和 Step 的变化一起写入搜索记录。
 
 有两种需要人处理的情况不会出现，因为没有 Step 在等待它们：记录了 **outcome_unknown** 的
 tool call，以及等待 **execute_plan** 的草稿计划。
@@ -605,8 +608,8 @@ attempt。报告还带有包含这次调用的 session 用量，按 session 计�
 单次尝试的 tool 在 **CallSingleAttemptTool** Step 中运行。这个 Step 负责
 **non_idempotent_write** 和 **unclassified** tool。它应当最多运行一次 tool，并在 tool 可能
 已经运行过时记录 **outcome_unknown**。tool 确定没有运行时，这次调用改为记录 **failed**，模型
-可以再次调用这个 tool。有一种情况会打破“最多运行一次”这一承诺，要提前准备。它源于 Dex 停止任何
-Step attempt 的方式。见[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery)。
+可以再次调用这个 tool。由于 Dex 停止 Step attempt 的方式，有一种情况会打破“最多运行一次”
+这一承诺，要提前准备。见[失败与重新投递](/reference/python/failure-and-retries#failure-and-redelivery)。
 
 ### 单次尝试的 tool 可能运行两次 {#tool-runs-twice}
 
@@ -615,8 +618,8 @@ Worker。如果 Worker 在 tool 运行期间停掉，或者断开了与 Dex 的�
 尝试的 tool 没有剩余的 retry，所以这次调用记录 **outcome_unknown**。之前的那次运行可能已经
 完成了副作用，因此 session 不会再次运行这个 tool。
 
-只有一种很窄的情况仍可能让单次尝试的 tool 运行两次。取消是协作式的。Dex 取消一个 attempt 时，
-被中断的运行可能仍在继续，而 failure route 已经开始。
+只有一种很窄的情况仍可能让单次尝试的 tool 运行两次。Dex 无法强行停止正在运行的 attempt。
+Dex 取消一个 attempt 时，被中断的运行可能仍在继续，而 failure route 已经开始。
 
 要让第二次运行无害，把这次调用的幂等键传给 tool 写入的服务。每个 tool call 都会收到一个幂等键：
 session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **session-42/turn-3/call-7**。
@@ -626,7 +629,7 @@ session 的 Flow ID、轮次 ID 和 tool call ID，用斜杠连接，例如 **se
 ### 从未运行的调用也可能记录 outcome_unknown {#never-run-outcome-unknown}
 
 tool Step 失败时，它的 failure route 会从 recovery error 中读取 **attempt_progress**。见
-[失败与重新投递](/reference/python/flows-and-steps/failure-and-redelivery#unknown-outcome)。**CallTool** 和
+[失败与重新投递](/reference/python/failure-and-retries#unknown-outcome)。**CallTool** 和
 **CallSingleAttemptTool** 的处理方式相同：
 
 | **attempt_progress** | 这次调用记录的结果 |

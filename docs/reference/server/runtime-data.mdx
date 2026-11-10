@@ -19,7 +19,7 @@ comments describe each API in its own language.
 
 **StartFlowOptions** can set initial Attributes when the Flow is created.
 Initial values and Flow creation are one operation, so the first Step sees them
-immediately. See [Attributes](/reference/python/flows-and-steps/start-flow-options#attributes) in
+immediately. See [Attributes](/reference/python/start-flow-options#attributes) in
 StartFlowOptions.
 
 Applications use Flow RPCs to write Attributes after a Flow starts. A Client can
@@ -61,7 +61,7 @@ for the example, the unset value in each SDK, and the errors.
 ### Indexes {#attribute-indexes}
 
 An indexed Attribute can be used in **SearchFlows** queries to find the Flow
-executions that match the query.
+runs that match the query.
 
 | Index type | Value |
 | --- | --- |
@@ -93,7 +93,7 @@ reserved names.
 | **DOUBLE** | **double1**, **double2**, … |
 | **DATETIME** | **datetime1**, **datetime2**, … |
 
-Renaming an index does not backfill existing Flow executions. Validate changed
+Renaming an index does not backfill existing Flow runs. Validate changed
 example schemas in a fresh local **dexcli dev** instance. Plan any existing
 deployment migration separately.
 
@@ -157,7 +157,7 @@ let status = Attribute::new("primitive-attribute-status")
 </SdkTabs>
 
 For example, the status Attribute above uses **keyword1** as its index key. To
-find completed **AttributeFlow** executions, use this query:
+find completed **AttributeFlow** runs, use this query:
 
 ```text
 FlowType = 'AttributeFlow' AND keyword1 = 'completed'
@@ -618,7 +618,7 @@ otherwise changes the protected map must request the same singleton Attribute
 lock in its method-specific lock options. RPCs declare this fixed lock at
 registration time. A writer that requests only a map-instance lock does not
 conflict with the singleton lock. All participating writers serialize within
-that Flow execution; other Flow executions have their own locks.
+that Flow run; other Flow runs have their own locks.
 
 The bool value is not the lock state. Do not acquire or release the lock by
 reading or toggling the value. Dex acquires and releases it around the
@@ -647,8 +647,8 @@ the same locks, so concurrent requests do not lose or duplicate updates.
 ## RPCs {#rpcs}
 
 Language-specific RPC rules are in the SDK references: Java Flow classes and
-[Kotlin](/reference/java/#rpc-stubs-and-kotlin), and
-[TypeScript codecs](/reference/typescript/#rpc-codecs).
+[Kotlin](/reference/java/rpc#rpc-stubs-and-kotlin), and
+[TypeScript codecs](/reference/typescript/rpc#rpc-codecs).
 
 ### Cancel running Steps {#cancel-running-steps}
 
@@ -658,7 +658,7 @@ type: **with_canceling_steps** in Python, **CancelSteps** in Go,
 **cancel_step** in Rust. The selection covers the whole Flow. An RPC has no
 parent Step execution, so it cannot cancel sibling Steps. A Step can cancel
 other Steps the same way from its
-[StepDecision](/reference/python/flows-and-steps/step-decisions#cancellation-on-stepdecision).
+[StepDecision](/reference/python/step-decisions#cancellation-on-stepdecision).
 
 In the example, **GenerateReport** writes a report section by section. The
 **stop_report** RPC cancels it and starts **FinishReportStop**.
@@ -975,7 +975,7 @@ still running, Dex closes the Worker stream that carried it. The handler keeps
 running inside the Worker process until it returns, and its external calls
 still take effect. A canceled attempt may also have done part of its work before
 it stopped. Keep its external effects idempotent. See
-[Failure and redelivery](/reference/python/flows-and-steps/failure-and-redelivery).
+[Failure and redelivery](/reference/python/failure-and-retries#failure-and-redelivery).
 
 ### Read-only RPCs and terminal Flows {#read-only-rpcs-and-terminal-flows}
 
@@ -989,28 +989,28 @@ authorization, Channel messages, or a derived view.
 An RPC without Attribute locks and without transactional execution starts with a
 read of the Flow. If its handler returns only an output and no durable effects,
 Dex returns that output without changing the Flow. That read can reach a
-retained terminal execution. A successful read-only RPC therefore does not prove
+retained terminal run. A successful read-only RPC therefore does not prove
 that the Flow is active.
 
-Attribute locks and explicit transactional execution use an active execution. A
+Attribute locks and explicit transactional execution use an active run. A
 non-transactional handler that returns Attribute writes, Channel operations,
-events, or Step movements also needs an active execution because Dex commits
+events, or Step movements also needs an active run because Dex commits
 those effects to the Flow after the handler returns. A terminal Flow rejects
 that commit even though the Worker handler may already have run. A Server can
 also be configured to run every RPC transactionally, which requires an active
-execution.
+run.
 
-Use a Flow lifecycle API when the response needs current execution status. An
+Use a Flow lifecycle API when the response needs current run status. An
 application snapshot RPC reads the durable application state captured by the
 Flow; it does not infer terminal status from RPC success.
 **FlowNotActiveOrNotFoundError** means the target was not found, or the selected
-operation cannot use its closed execution. Java uses
+operation cannot use its closed run. Java uses
 **FlowNotActiveOrNotFoundException**; Rust uses
 **SdkError::FlowNotActiveOrNotFound**. The error alone does not distinguish
 missing from closed Flows.
 
 For a confirmed read-only RPC with no locks, transactionality, durable effects,
-or Server-forced transactional execution, a retained terminal execution remains
+or Server-forced transactional execution, a retained terminal run remains
 readable. At that read boundary, handle this error directly as no readable
 target found. Preserve the application's missing or retention-unavailable
 outcome. Do not add a lifecycle lookup, **WaitForFlow** with a short timeout, a
@@ -1023,8 +1023,8 @@ the requested action succeeded.
 
 Callers do not need to search for a Run ID before a normal read-only RPC. When
 the SDK exposes an optional Run ID, omit it to let the Server resolve and pin the
-current execution for that invocation. Supply one only when the application must
-address an exact execution across Flow ID reuse.
+current run for that invocation. Supply one only when the application must
+address an exact run across Flow ID reuse.
 
 ### Selective state loading {#load-collection-state}
 
@@ -1605,7 +1605,7 @@ pagination over currently retained messages.
 
 ### Capacity and trimming {#stream-capacity}
 
-**streamCapacityBytes** is an approximate capacity shared by all Flow executions
+**streamCapacityBytes** is an approximate capacity shared by all Flow runs
 with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
 The Dex server calculates the estimated size from each message's serialized

@@ -1,0 +1,34 @@
+---
+id: index
+title: Correctness and expressiveness
+sidebar_label: Overview
+slug: /correctness-and-expressiveness
+---
+
+# Correctness and expressiveness
+
+This section answers two questions about Dex.
+
+- **Expressiveness**: can Dex express the programs you need?
+- **Correctness**: does Dex stay correct when processes, machines, or networks
+  fail?
+
+## Expressiveness
+
+The [Expressiveness proof](/correctness-and-expressiveness/expressiveness-proof)
+shows that any program in a small concurrent language, with threads, locks,
+timers, and cancellation, can be written as a Dex Flow that behaves the same.
+A computer checks every step of the proof. The
+[paper](/papers/dex-expressiveness.pdf) has the full argument.
+
+The [Workflow Patterns evaluation](/correctness-and-expressiveness/workflow-patterns)
+rates Dex against the 43 control-flow Workflow Patterns. Researchers use these
+patterns to compare workflow languages and engines. Each rating comes with a
+runnable example and an integration test.
+
+## Correctness
+
+The [Step guarantees](/concepts/step#guarantees) state what Dex promises when
+a Step method fails or runs again. A second proof will show that crashes,
+retries, and redelivery do not change what a Flow does.
+[Issue 1514](https://github.com/superdurable/dex/issues/1514) tracks it.
