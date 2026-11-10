@@ -17,9 +17,25 @@ is simulated by the translated Flow (`IsSimulatedByDex`):
 | `thread t` from `bootPending`, `ready`, or `woken` | `stepStart` of the Step that carries `t` |
 | `thread t` from `emitting` | `workerRun` if needed, then `workerEffect` of that Step's task |
 
-`l_tick_simulated` is proved. The others are `sorry`; the README lists them.
-The proofs may add lemmas to this file. They may not change
-`Simulation/Relation.lean`, `L/Invariant.lean`, or any model file.
+Proved: `l_tick_simulated`, `l_start_simulated`, `l_thread_begin_simulated`,
+and `l_thread_deliver_simulated`.
+
+Four lemmas keep their `sorry`, because each is false for a configuration
+pair that `IsSimulationState` allows at the base commit of this package.
+Each is proved here under the one missing fact, as an explicit hypothesis:
+
+| Lemma | Missing fact | Proved form |
+| --- | --- | --- |
+| `l_input_simulated` | A Step in phase `WT` has no invocation. | `wp2_input_simulated_of_waitingHasNoInvocation` |
+| `l_fire_simulated` | The keys of `run.timers` are distinct. | See the lemma. |
+| `l_lateDeliver_simulated` | A task holds at most one effect. | `wp2_lateDeliver_simulated_of_singleEffects` |
+| `l_lateDrop_simulated` | A task holds at most one effect. | `wp2_lateDrop_simulated_of_singleEffects` |
+
+The lemmas named `wp2_*_exec` state the Dex action sequence of a case
+explicitly: `wp2_exec_stepStart`, `wp2_thread_deliver_exec`,
+`wp2_input_exec_running`, `wp2_input_exec_closed`, `wp2_lateDeliver_exec`, and
+`wp2_lateDrop_exec`. The helper lemmas are in
+`Simulation/LToDexBasicLemmas.lean` and `Simulation/LToDexBasicWake.lean`.
 -/
 
 namespace DexExpressiveness
@@ -523,7 +539,13 @@ theorem wp2_input_simulated_of_waitingHasNoInvocation (program : Program) (lConf
       exact ⟨_, _, dexNext, isExec, rfl, rfl, isRelated⟩
     · simp [canStamp] at isStep
 
-/-- `in(c, v)` and `refused(c, v)` are simulated by [PUBLISH] and its rejection. -/
+/-- `in(c, v)` and `refused(c, v)` are simulated by [PUBLISH] and its rejection.
+
+Blocked. False as stated: a `ready` thread may be carried by a Step in phase
+`WT` that names the external Channel, because no clause links the phase of a
+Step to its invocation. [PUBLISH] then lets that Step consume the message
+that L queues. `wp2_input_simulated_of_waitingHasNoInvocation` proves the
+statement given that a waiting Step has no invocation. -/
 theorem l_input_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (chan : ExtChan) (value : Literal) (lEvents : List Event) (lNext : L.Config)
@@ -534,7 +556,13 @@ theorem l_input_simulated (program : Program) (lConfig : L.Config)
 
 /-- A batch of `fire` actions is simulated by one [TIMER-FIRE] of the same
 number of due timers: both sides order the due timers by `(deadline, timer
-number)` (spec §8.1, §8.2). -/
+number)` (spec §8.1, §8.2).
+
+Blocked. False as stated: `run.timers` may hold a second, shadowed binding of
+a timer key. `Related.timers` reads the first binding (`get?`), and
+`Run.dueTimers` filters every binding, so [TIMER-FIRE] may fire a timer that
+is not due in L. The missing fact is that the keys of `run.timers` are
+distinct. -/
 theorem l_fire_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (count : Nat) (lEvents : List Event) (lNext : L.Config)
@@ -695,7 +723,12 @@ theorem wp2_lateDrop_simulated_of_singleEffects (program : Program) (lConfig : L
   · cases isStep
 
 /-- The delivery of a late emit is simulated by the [WORKER-EFFECT] of a
-task of a canceled Step. -/
+task of a canceled Step.
+
+Blocked. False as stated: after the close, a task in phase
+`Running([a, b], _)` is allowed, and L may deliver `b` first.
+`wp2_lateDeliver_simulated_of_singleEffects` proves the statement given that
+every task holds at most one effect. -/
 theorem l_lateDeliver_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (index : Nat) (lEvents : List Event) (lNext : L.Config)
@@ -703,7 +736,12 @@ theorem l_lateDeliver_simulated (program : Program) (lConfig : L.Config)
     IsSimulatedByDex program dexConfig (.lateDeliver index) lEvents lNext := by
   sorry
 
-/-- The drop of a late emit is simulated by [WORKER-ABANDON]. -/
+/-- The drop of a late emit is simulated by [WORKER-ABANDON].
+
+Blocked. False as stated: after the close, a task in phase
+`Running([a, b], _)` is allowed, and [WORKER-ABANDON] drops both effects.
+`wp2_lateDrop_simulated_of_singleEffects` proves the statement given that
+every task holds at most one effect. -/
 theorem l_lateDrop_simulated (program : Program) (lConfig : L.Config)
     (dexConfig : Dex.Config signature) (state : IsSimulationState program lConfig dexConfig)
     (index : Nat) (lEvents : List Event) (lNext : L.Config)
