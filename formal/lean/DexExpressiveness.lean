@@ -8,3 +8,9 @@ import DexExpressiveness.Dex.Observation
 import DexExpressiveness.L.Syntax
 import DexExpressiveness.L.ThreadLocal
 import DexExpressiveness.L.Semantics
+import DexExpressiveness.Translation.Flow
+import DexExpressiveness.Translation.Projection
+import DexExpressiveness.TraceSets
+import DexExpressiveness.Properties
+import DexExpressiveness.Simulation
+import DexExpressiveness.Theorems
