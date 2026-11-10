@@ -56,15 +56,12 @@ A [published evaluation](https://doi.org/10.1016/j.infsof.2009.02.002) rated six
 same 43 control-flow patterns. Its authors are Wohed, Russell, ter Hofstede,
 Andersson, and van der Aalst. It appeared in Information and Software
 Technology 51(8), 2009 ([PDF](https://www.vdaalst.com/publications/p536.pdf)). In its Table 20, each system directly
-supports between 11 and 20 patterns. Each system has partial support for up to
-6 patterns. Each system does not support between 19 and 32 patterns.
-
-Dex has 19 **+**, 24 **+/-**, and 0 **-**.
+supports 11 to 20 patterns and partly supports up to 6. Each system leaves 19
+to 32 patterns unsupported. Dex leaves none unsupported.
 
 ## Results {#results}
 
-The table names the Dex construct behind each rating. Each link opens the
-example in one SDK language.
+The table names the Dex construct behind each rating.
 
 | Pattern | Rating | Dex construct | Examples |
 | --- | --- | --- | --- |
@@ -121,7 +118,9 @@ The ratings depend on these Dex behaviors.
 - **ForceComplete** closes the Flow at once and cancels the other Steps.
 - **AnyOf** consumes messages only from the condition it selects.
 - A Channel message stays queued until a Step consumes it.
-- A decision or an RPC cancels Steps by Step type. Cancellation is cooperative.
+- A decision or an RPC cancels Steps by Step type. Dex does not stop a canceled
+  method's code. The method keeps running until it checks for cancellation and
+  returns.
 - Only one Step method or RPC holds an Attribute lock at a time.
 - A SubFlow keeps running when its parent closes.
 
@@ -129,8 +128,6 @@ See [Step](/concepts/step), [Channel](/concepts/primitives/channel), and
 [SubFlow](/concepts/primitives/subflow) for these concepts.
 
 ## Pattern details {#pattern-details}
-
-Each section explains one pattern, how Dex implements it, and why it has its rating.
 
 ### WCP-1 Sequence {#wcp-1}
 
@@ -244,7 +241,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 ### WCP-12 Multiple Instances without Synchronization {#wcp-12}
 
-**What it is.** A task runs as several independent instances in the same case. Nothing waits for them to finish. See the [official definition](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp12.php).
+**What it is.** A task runs as several independent instances in one process instance. Nothing waits for them to finish. See the [official definition](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp12.php).
 
 **How Dex implements it.** A Step returns **GoToMany** with one execution of the same Step type per instance. The Flow continues on another branch without a join.
 
@@ -258,7 +255,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **How Dex implements it.** A Step returns **GoToMany** with a fixed number of instances and a join Step. Each instance publishes a **Channel** signal. The join waits for **ForN** of that number.
 
-**Rating:** **+/-**. The join composes Channel signals with a **ForN** wait. The test holds every instance at a gate to show they run at once.
+**Rating:** **+/-**. The join composes Channel signals with a **ForN** wait.
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DesignTimeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs)
 
@@ -276,9 +273,9 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **What it is.** The number of instances is not known until the last one finishes. New instances can start while others run. The process continues after all of them finish. See the [official definition](http://www.workflowpatterns.com/patterns/control/multiple_instance/wcp15.php).
 
-**How Dex implements it.** An **RPC** adds an instance through its next Steps and counts it in an **Attribute**. Another RPC closes intake. The join waits for one result at a time and loops until intake is closed and every instance has reported.
+**How Dex implements it.** An **RPC** starts each new instance through its next Steps and counts it in an **Attribute**. Another RPC stops new instances. The join waits for one result at a time. It loops until no new instances can start and every instance has reported.
 
-**Rating:** **+/-**. The join composes an RPC, an Attribute counter, and a re-waiting loop.
+**Rating:** **+/-**. The join composes an RPC, an Attribute counter, and a loop that waits again after each result.
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/NoPriorKnowledgeMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_creation.rs)
 
@@ -298,7 +295,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **What it is.** A set of tasks runs in any order that a partial order allows. Each task runs once. No two of them run at the same time. See the [official definition](http://www.workflowpatterns.com/patterns/control/state/wcp17.php).
 
-**How Dex implements it.** Every task holds an **Execute** lock on one shared **Attribute**. **GoTo** encodes the partial order. A join waits for **ForN** signals from the tasks.
+**How Dex implements it.** Every task's **Execute** declares a lock on the same **Attribute**. **GoTo** encodes the partial order. A join waits for **ForN** signals from the tasks.
 
 **Rating:** **+/-**. The routing composes a lock with Channel signals. The lock covers one **Execute** only. It does not cover a **WaitFor** or a task that spans several Steps.
 
@@ -318,7 +315,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **What it is.** An enabled task is withdrawn before it starts. A running task is stopped where possible. See the [official definition](http://www.workflowpatterns.com/patterns/control/cancellation/wcp19.php).
 
-**How Dex implements it.** An **RPC** result cancels the waiting Step by Step type and starts another Step in the same commit.
+**How Dex implements it.** An **RPC** result cancels the waiting Step by Step type and starts another Step. Dex applies both changes together.
 
 **Rating:** **+**. Canceling Steps is a built-in RPC result.
 
@@ -360,7 +357,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **What it is.** A signal triggers a task only if the task is already waiting. A signal that arrives when no task waits is lost. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp23.php).
 
-**How Dex implements it.** **WaitFor** records in an **Attribute** that a Step is waiting. An **RPC** holds a lock on that Attribute. It accepts a trigger only while the Attribute is set and clears it in the same commit, so later triggers are dropped.
+**How Dex implements it.** The Step's **WaitFor** sets an **Attribute** to record that it is waiting. An **RPC** declares a lock on that Attribute. It accepts a trigger only while the Attribute is set, and it clears the Attribute when it accepts one. Later triggers are dropped.
 
 **Rating:** **+/-**. Channel messages persist, so the example composes an Attribute, a lock, and an RPC guard to drop triggers.
 
@@ -402,7 +399,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **How Dex implements it.** An **RPC** result cancels the instances and their join, then starts the next Step with the results so far.
 
-**Rating:** **+**. One RPC result cancels and continues in the same commit.
+**Rating:** **+**. One RPC result both cancels the instances and starts the next Step.
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/cancellation.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/cancellation.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/cancellation.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/CompleteMultipleInstanceTaskFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/cancellation.rs)
 
@@ -412,7 +409,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **How Dex implements it.** Branches of round k publish to the **ChannelMap** instance for round k. The join waits for **ForN** of 1, and a reset Step waits for the rest. No Step waits for round k + 1 before round k resets, so a next-round signal stays queued and has no effect.
 
-**Rating:** **+/-**. Blocking holds by construction, but it composes a per-round ChannelMap, a **ForN** wait, and a reset Step.
+**Rating:** **+/-**. The blocking needs no extra code. The join still composes a per-round ChannelMap, a **ForN** wait, and a reset Step.
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs)
 
@@ -442,7 +439,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **How Dex implements it.** This works like WCP-28 with a **ForN** of n. Signals are keyed by round, so next-round signals stay queued until the reset.
 
-**Rating:** **+/-**. Blocking holds by construction, but it composes a per-round ChannelMap, a **ForN** wait, and a reset Step.
+**Rating:** **+/-**. The blocking needs no extra code. The join still composes a per-round ChannelMap, a **ForN** wait, and a reset Step.
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/partial-joins.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/partial_joins.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/partial_joins.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/BlockingPartialJoinFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/partial_joins.rs)
 
@@ -490,9 +487,9 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **What it is.** Instances can start while others run, until adding is disabled. A completion condition is checked after each instance finishes. When it holds, the next task starts. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp36.php).
 
-**How Dex implements it.** An **RPC** adds an instance unless an **Attribute** says admission is closed. The join waits for one result at a time and tests its condition. When the condition holds, it closes admission and continues.
+**How Dex implements it.** An **RPC** starts a new instance unless an **Attribute** flag says new instances are disabled. The join waits for one result at a time and tests its condition. When the condition holds, the join sets the flag and continues.
 
-**Rating:** **+/-**. The join composes an RPC, an Attribute flag, a shared lock, and a re-waiting loop.
+**Rating:** **+/-**. The join composes an RPC, an Attribute flag, a shared lock, and a loop that waits again after each result.
 
 **Examples:** [TS](https://github.com/superdurable/dex/blob/main/examples/typescript/src/patterns/workflow-patterns/multiple-instances.ts) · [Python](https://github.com/superdurable/dex/blob/main/examples/python/dex_examples/patterns/workflow_patterns/multiple_instances.py) · [Go](https://github.com/superdurable/dex/blob/main/examples/go/patterns/workflow-patterns/multiple_instances.go) · [Java](https://github.com/superdurable/dex/blob/main/examples/java/src/main/java/io/superdurable/dex/patterns/workflowpatterns/DynamicPartialJoinForMultipleInstancesFlow.java) · [Rust](https://github.com/superdurable/dex/blob/main/examples/rust/src/workflow_patterns/multiple_instances/instance_partial_joins.rs)
 
@@ -510,7 +507,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **What it is.** The merge waits for every active branch, or until "it is not possible that any branch that has not yet been enabled will be enabled at any future time". It works in any process, including unstructured ones with loops. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp38.php).
 
-**How Dex implements it.** An **Attribute** counts the threads that can still reach the merge. Every Step that changes it holds one shared lock. The commit that brings the count to 0 publishes a sentinel to a **Channel**, and the merge Step waits for it.
+**How Dex implements it.** An **Attribute** counts the threads that can still reach the merge. Every Step that changes the count declares a lock on that Attribute. The Step that brings the count to 0 also publishes a "done" message to a **Channel**. The merge Step waits for that message.
 
 **Rating:** **+/-**. The pattern expects the merge to decide reachability from the process structure. In Dex, application code decides it at each **GoTo**.
 
@@ -532,7 +529,7 @@ Each section explains one pattern, how Dex implements it, and why it has its rat
 
 **What it is.** Each task in a set runs once, in any order. No two of them run at the same time. The next task starts after all of them finish. See the [official definition](http://www.workflowpatterns.com/patterns/control/new/wcp40.php).
 
-**How Dex implements it.** Every task holds an **Execute** lock on one shared **Attribute**. A join waits for **ForN** signals from the tasks.
+**How Dex implements it.** Every task's **Execute** declares a lock on the same **Attribute**. A join waits for **ForN** signals from the tasks.
 
 **Rating:** **+/-**. The routing composes a lock with Channel signals. As in WCP-17, the lock covers one **Execute** only.
 
