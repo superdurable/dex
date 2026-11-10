@@ -361,6 +361,52 @@ func TestConnectorConnectionStoreKeepsRecordsWithoutOrWithExternalAuthorizationI
 	assertConnectorTestStoredAuthorizationID(t, store, "github", "legacy", "")
 }
 
+func TestConnectorConnectionStoreComparesCredentialsByJSONValue(t *testing.T) {
+	store, err := newConnectorConnectionStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	connectionWithCredentials := func(appKey string, token string) localConnectorConnection {
+		connection := testLocalConnectorConnection("github", "reviewer", "unused", nil)
+		connection.Credentials = map[string]json.RawMessage{
+			"app_key": json.RawMessage(appKey), "access_token": json.RawMessage(token),
+		}
+		return connection
+	}
+	if err := store.putCurrentForTest(connectionWithCredentials(
+		`{"id":12345678901234567890,"secret":"s/x","scope":{"owner":"example","repository":"dex"}}`, `"token/one"`,
+	), nil); err != nil {
+		t.Fatal(err)
+	}
+	added := requireConnectorTestAuthorizationID(t, store, "github", "reviewer")
+
+	for _, equivalent := range []struct {
+		name   string
+		appKey string
+		token  string
+	}{
+		{"top-level key order", `{"scope":{"owner":"example","repository":"dex"},"secret":"s/x","id":12345678901234567890}`, `"token/one"`},
+		{"nested key order", `{"id":12345678901234567890,"secret":"s/x","scope":{"repository":"dex","owner":"example"}}`, `"token/one"`},
+		{"string escapes", `{"id":12345678901234567890,"secret":"\u0073\/x","scope":{"owner":"example","repository":"dex"}}`, `"token\/one"`},
+	} {
+		if err := store.putCurrentForTest(connectionWithCredentials(equivalent.appKey, equivalent.token), nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := requireConnectorTestAuthorizationID(t, store, "github", "reviewer"); got != added {
+			t.Fatalf("authorizationId after a %s difference = %q, want %q", equivalent.name, got, added)
+		}
+	}
+
+	if err := store.putCurrentForTest(connectionWithCredentials(
+		`{"id":12345678901234567891,"secret":"s/x","scope":{"owner":"example","repository":"dex"}}`, `"token/one"`,
+	), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := requireConnectorTestAuthorizationID(t, store, "github", "reviewer"); got == added {
+		t.Fatal("a number that differs only beyond float64 precision kept the authorizationId")
+	}
+}
+
 // requireConnectorTestAuthorizationID returns the stored authorizationId after checking it is an RFC 4122 UUIDv4.
 func requireConnectorTestAuthorizationID(t *testing.T, store *connectorConnectionStore, connectorID string, connectionName string) string {
 	t.Helper()

@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -409,7 +410,7 @@ func putConnectionInFile(
 	return nil
 }
 
-// hasSameConnectorCredentials compares compacted values, because values read back from the file keep its indentation.
+// hasSameConnectorCredentials compares JSON values, so key order, whitespace, and string escapes do not matter.
 func hasSameConnectorCredentials(stored map[string]json.RawMessage, next map[string]json.RawMessage) (bool, error) {
 	if len(stored) != len(next) {
 		return false, nil
@@ -419,18 +420,30 @@ func hasSameConnectorCredentials(stored map[string]json.RawMessage, next map[str
 		if !found {
 			return false, nil
 		}
-		var compactStored, compactNext bytes.Buffer
-		if err := json.Compact(&compactStored, storedValue); err != nil {
-			return false, fmt.Errorf("compact stored Connector credential %q: %w", name, err)
+		decodedStored, err := decodeConnectorCredentialValue(storedValue)
+		if err != nil {
+			return false, fmt.Errorf("decode stored Connector credential %q: %w", name, err)
 		}
-		if err := json.Compact(&compactNext, nextValue); err != nil {
-			return false, fmt.Errorf("compact Connector credential %q: %w", name, err)
+		decodedNext, err := decodeConnectorCredentialValue(nextValue)
+		if err != nil {
+			return false, fmt.Errorf("decode Connector credential %q: %w", name, err)
 		}
-		if !bytes.Equal(compactStored.Bytes(), compactNext.Bytes()) {
+		if !reflect.DeepEqual(decodedStored, decodedNext) {
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+// decodeConnectorCredentialValue keeps numbers as json.Number so the comparison never loses precision.
+func decodeConnectorCredentialValue(value json.RawMessage) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
 }
 
 // delete deletes the connection with its Trigger bindings and use configurations, and reports whether it existed.
