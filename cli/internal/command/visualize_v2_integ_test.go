@@ -383,7 +383,7 @@ func TestVisualizeV2ReportsMissingPythonAnnotations(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	graph, err := flowviz.Analyze(
 		context.Background(),
-		filepath.Join(repositoryRoot, "examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py"),
+		filepath.Join(repositoryRoot, "cli/internal/command/testfixtures/visualization-v2-python-unannotated/failure_recovery_flow.py"),
 		flowviz.AnalyzeOptions{SchemaVersion: flowviz.SchemaVersionV2},
 	)
 	require.NoError(t, err)
