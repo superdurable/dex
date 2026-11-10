@@ -10,7 +10,9 @@ on:
       - "agents/conformance/session_graph.json"
       - "protos/**"
       - "sdk-go/**"
+      - "script/release/*embedded_web_module.py"
       - ".github/workflows/web-ci.yml"
+      - ".github/workflows/web-embedded-module-release.yml"
   pull_request:
     paths:
       - "web/**"
@@ -19,7 +21,9 @@ on:
       - "agents/conformance/session_graph.json"
       - "protos/**"
       - "sdk-go/**"
+      - "script/release/*embedded_web_module.py"
       - ".github/workflows/web-ci.yml"
+      - ".github/workflows/web-embedded-module-release.yml"
   workflow_dispatch:
 
 permissions:
@@ -38,6 +42,9 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The embedded module check needs the sdk-go release tags.
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -59,6 +66,8 @@ jobs:
         env:
           GOWORK: "off"
         run: make test
+      - name: Embedded module builds in a host module
+        run: python3 ../script/release/check_embedded_web_module.py --skip-if-sdk-go-unreleased
 
   server-zd-e2e:
     name: Dex Web on server-zd
