@@ -106,6 +106,8 @@ Changed in 1.41: Dex Web has one UI. The **v1** and **v2** version picker is gon
 
 Features that need Flow Definition Graphs, and features that are still changing, are **Experimental**. Each carries an **Experimental** label and appears only when it applies. The header has one **Experimental** menu with **Designs**, **Work Queue**, and **Connectors**. The run page shows **Design**, **Agent session**, and **Actions** as extra tabs. See [Flows and Run pages](#v1-pages).
 
+**Connectors** sets up the local Connector connections of **dexcli dev**. Changed in 1.42: it appears whenever **dexcli dev** runs, even with no Flow Definition Graph files, and **+ Add** adds a named connection that no loaded Flow uses, such as one an agent tool opens. See [Local Connector setup](/reference/web/local-connector-setup#add-a-connection).
+
 ```bash
 dexcli visualize ./refund_flow.go --schema-version 2.0 --json --out ./build/refund
 dexcli dev --flow-rendering-dir ./build

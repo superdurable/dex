@@ -565,9 +565,10 @@ once at Worker startup:
 - **Local development.** Set **DEX_CONNECTOR_CONFIG_FILE** to the
   **connections.json** file of your local Connector configuration, by default
   **$HOME/.dex/connectors/connections.json**. It must hold an authorized
-  connection with the name the application opens.
-  [Local Connector setup](/reference/web/local-connector-setup) describes the
-  file.
+  connection with the name the application opens. Create it in Dex Web: run
+  **dexcli dev**, open **Connectors**, add a connection with that name, and
+  authorize it. See
+  [Add a connection](/reference/web/local-connector-setup#add-a-connection).
 - **Deployed.** The **DEX_PROJECT_\*** settings select the project
   configuration that the hosting platform or operator writes.
 
