@@ -26,8 +26,9 @@ SDK, and `zod` 4:
 npm i @superdurable/dex-agents-claude-agent-sdk @superdurable/dex-agents @superdurable/dex zod
 ```
 
-The adapter depends on `@anthropic-ai/claude-agent-sdk` `^0.3.316`.
-`package-lock.json` locks 0.3.316, which bundles Claude Code CLI 2.1.316 as an
+The adapter depends on `@anthropic-ai/claude-agent-sdk` `^0.3.316` and on
+`@modelcontextprotocol/sdk` `^1.29.0`, the range the Claude Agent SDK asks
+for, which serves the custom tool server. `package-lock.json` locks 0.3.316, which bundles Claude Code CLI 2.1.316 as an
 optional platform package; the adapter needs it unless you set
 `pathToClaudeCodeExecutable`. `@superdurable/dex` and `@superdurable/dex-agents` are peer dependencies.
 The application installs exactly one copy of each, because the Dex Registry
@@ -36,7 +37,9 @@ recognizes `ToolExecutionError` only from its own copy of the core. `zod` 4 is a
 dependency, the same one `tool()` schemas use. Requirements: Node
 `^22.0.0 || ^24.0.0` and `@superdurable/dex` 1.38.0. The Worker needs Claude
 Code credentials, such as `ANTHROPIC_API_KEY`, exactly as a plain Claude Agent
-SDK program does.
+SDK program does. Connector tools also need `@superdurable/connectors-sdk`
+0.9.0, the optional peer of `@superdurable/dex-agents/connectors`, and each
+Connector package the agent uses.
 
 Develop the package inside this repository with `./ci.sh`. There
 `@superdurable/dex-agents` is a `file:../core` devDependency, and the
@@ -124,8 +127,8 @@ The session's RPCs, persistence, events, and Flow shape are the core's; see the
 
 | Export | Purpose |
 | --- | --- |
-| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName? }` and the core's session options without `toolPolicies` |
-| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName })` for `createAgentSessionFlow` |
+| `createClaudeAgentSessionFlow(agent, flowType, sessionOptions?)` | Builds the session Flow from a `ClaudeAgentDefinition` `{ options, customTools?, toolPolicies?, customToolServerName?, toolSources?, toolSourceListingTimeoutMs? }` and the core's session options without `toolPolicies` |
+| `ClaudeAgentRunner` | The `AgentFrameworkRunner`; `new ClaudeAgentRunner(options, { customTools, customToolServerName, toolSources, toolSourceListingTimeoutMs })` for `createAgentSessionFlow`. Its `toolCallStepOptions` gives a source call its source's tool Step options |
 | `ClaudeAgentQueryOptions` | The SDK `Options` an application may set |
 | `ClaudeAgentOptionsFactory`, `ClaudeAgentOptionsContext` | Options per segment from `{ flowId, turnId, attempt }` |
 | `currentDeferredToolExecution()` | Inside a custom tool handler: the `DeferredToolExecution` of the tool Step, or `undefined` inline |
@@ -144,10 +147,10 @@ The adapter sets these options for every segment:
 
 | Option | Value |
 | --- | --- |
-| `mcpServers[customToolServerName]` | An in-process SDK MCP server with the custom tools, wrapped by the adapter |
+| `mcpServers[customToolServerName]` | An in-process SDK MCP server that the adapter builds with `@modelcontextprotocol/sdk`: the custom tools, then the tool sources' tools |
 | `extraArgs["mcp-config"]` | Declares that server to the CLI at startup, `{"type": "sdk", "name": ...}`, as the Python SDK does; see "What the real CLI does" |
 | `extraArgs["await-initialize"]` | The CLI waits for the SDK's initialize request before it resumes a deferred call; a defense, see "What the real CLI does" |
-| `hooks.PreToolUse` | One more matcher for every tool, after yours: the adapter's policy decision |
+| `hooks.PreToolUse` | Your matchers, each callback skipped for a resumed call that has a final record, then one more matcher for every tool: the adapter's policy decision |
 | `canUseTool` | Denies a deferrable call that Claude Code did not defer, and answers a resumed call from its record if the CLI asks |
 | `sessionStore` | Serves the committed transcript and collects the segment's entries |
 | `resume` | The stored Claude session ID, from the second segment of a session on |
@@ -159,7 +162,7 @@ A turn attempt fails with a `TypeError` when the options set an option the adapt
 `permissionPromptToolName`, `resume`, `resumeDropsTurn`, `resumeSessionAt`, `sessionId`,
 `sessionStore`, or `extraArgs` for `mcp-config`, `resume`, `session-id`, or `await-initialize`); set
 `permissionMode` to `"bypassPermissions"`, `"acceptEdits"`, or `"auto"`; reuse the custom tool server
-name in `mcpServers`; or list a tool in `allowedTools` whose calls must defer. Those settings would
+name in `mcpServers`; or list a tool in `allowedTools` whose calls must defer, such as any source tool. Those settings would
 let a tool run without its approval or Step. `permissionMode` unset (the CLI reports `default`),
 `"default"`, and `"dontAsk"` all work.
 
@@ -195,6 +198,65 @@ only `signal`, `requestId`, and `_meta`, and `currentDeferredToolExecution()` re
 the idempotency key. A result with `isError: true` records `failed`, and the model sees its text. A
 thrown error fails the Step attempt: an `idempotent_write` call retries, and once its attempts run
 out, or at once for a single-attempt call, the session records `outcome_unknown`.
+
+## Tool sources and connector tools
+
+`toolSources` takes the core's tool sources, such as `ConnectorToolSource` from
+`@superdurable/dex-agents/connectors`, which offers reviewed Connector operations. See the core's
+[Connector tools](https://github.com/superdurable/dex/blob/main/agents/typescript/core/README.md#connector-tools-superdurabledex-agentsconnectors)
+for what the manifest decides.
+
+```ts
+import manifest from "@superdurable/connector-stripe/dex-connector.json" with { type: "json" };
+import { CreateRefundInputSchema, newProjectConnection } from "@superdurable/connector-stripe";
+import { ConnectorToolSource, connectorTool } from "@superdurable/dex-agents/connectors";
+
+const stripe = newProjectConnection(project, "billing-stripe");
+const flow = createClaudeAgentSessionFlow(
+  {
+    options: buildOptions,
+    customTools: [lookupOrder],
+    toolSources: [
+      new ConnectorToolSource([
+        connectorTool(stripe.operations.createRefund(), stripe.reference, {
+          manifest,
+          inputValidator: CreateRefundInputSchema,
+        }),
+      ]),
+    ],
+  },
+  "SupportAgent",
+);
+```
+
+- The runner lists every source in each `RunModel` attempt and serves its tools from the custom tool
+  server, after the custom tools, with the source's name, description, and JSON Schema. The model
+  sees `mcp__tools__<name>`; policies, interrupts, and records use `<name>`.
+- Every call of a source tool defers, reads included, because the source needs its tool Step: a
+  connector call derives its Call ID from the Step execution ID and keeps its fence marker in the
+  Step's heartbeat checkpoint. The source builds the call from the CLI's final input, after your
+  hooks' `updatedInput`, so it decides the effect class and approval, and `toolCallStepOptions`
+  gives the tool Step the operation's timeout and retry policy. A `toolPolicies` entry for a
+  connector tool changes only its approval.
+- The tool Step runs the call through the source's `executeDeferredToolCall`, with the Step's context,
+  heartbeat checkpoint, and attempt. The resumed CLI receives the final record through the custom tool
+  server, as for a deferred custom tool; the source never runs inside the CLI.
+- Source tools are served without MCP annotations, so the CLI runs them one at a time in the model's
+  order. Writes of one reply therefore run one at a time: a later deferrable call is denied inside the
+  turn with a message that asks the model to read the earlier result first. It leaves no record, so
+  the core's `skipped` marker never appears here.
+- Definition fails with a `TypeError` when two sources share a `sourceName`, or a source's
+  `declaredToolNames` repeat a custom tool, a Claude Code tool, or another source's tool. The same
+  names listed at run time fail that `RunModel` attempt. An `allowedTools` entry for a source tool
+  fails the attempt, because the call must defer.
+- The runner polls no tool tasks and asks no questions for a source. A source call that starts a task
+  records `failed` for a `read` call and `outcome_unknown` otherwise; one that asks a question records
+  `failed`. A source whose listing fails or takes longer than `toolSourceListingTimeoutMs`, 10 seconds
+  by default, offers no tools in that attempt.
+- A source tool that the turn already called but the current listing lacks is still served,
+  replay-only, so the resumed CLI receives its recorded result. A new call of that tool is denied in
+  the turn ("its tool source does not offer this tool now"), so it never starts a tool Step under a
+  new Call ID.
 
 ## How a turn runs
 
@@ -318,7 +380,8 @@ behavior:
 Recorded in Dex state, never repeated after a crash:
 
 - The transcript of every completed turn, and the entries of a turn whose call is deferred.
-- Every deferred custom tool call and its outcome: output text, failure, rejection, or unknown outcome.
+- Every deferred custom tool call and source tool call, and its outcome: output text, failure,
+  rejection, or unknown outcome.
 - Approvals and rejections of every deferred call, including CLI tools.
 
 Not recorded, and repeated when `RunModel` reruns a segment after a crash:
@@ -347,7 +410,10 @@ session and sends the failed prompt, the note, and its own prompt as three text 
 - Recorded custom tool results keep text only; other content becomes a placeholder such as
   `[image content omitted]`.
 - The adapter's PreToolUse matcher runs beside your own PreToolUse hooks. Do not return permission
-  decisions from your hooks for tools the adapter defers.
+  decisions from your hooks for tools the adapter defers. The adapter does not call your PreToolUse
+  hooks for a resumed call that already has a final record: the call passed them when it was deferred,
+  and a later deny would hide its recorded result. A resumed tool that runs inside the CLI, such as
+  `Bash`, receives its recorded input instead, the input that was approved.
 - On the first turn of a session Claude Code also writes its usual local transcript under
   `CLAUDE_CONFIG_DIR` (`~/.claude` by default). The adapter never reads it; set `CLAUDE_CONFIG_DIR`
   in `env` to choose where it goes. Later segments run in a temporary directory that the SDK removes,
@@ -422,4 +488,16 @@ in-memory span exporter and checks the `chat` span metadata of a one-call answer
 tool turn, a deferred write and its resumed answer, and a segment with a subagent call, plus the
 provider name mapping. The real-CLI suite covers a `read` tool with a resumed second turn, an approved
 write resumed without a prompt with `permissionMode` unset and with `dontAsk`, a rejected write, two
-writes in one reply, an input-rewriting hook, and approved `Bash`.
+writes in one reply, two connector writes in one reply under `dontAsk`, an input-rewriting hook, and
+approved `Bash`. The fake-CLI suites also cover an application hook that denies a resumed call, and a
+`Bash` command that an application hook rewrote and that resumes with the approved input.
+
+`test/integ/connector-tools.integration.test.ts` runs connector tools from a copy of the core tests'
+fake ledger Connector (`test/fixtures/fake-ledger.ts`): a Query in its tool Step, a Mutation with
+manifest approval across a Worker restart, a session policy that changes only approval, an approval
+predicate on hook-rewritten input, a `retry: safe` Mutation retried with the same Call ID, with and
+without a SIGKILL, `uncertain` writes recorded `outcome_unknown`, a rejected branch and bad arguments
+that never reach the provider, two writes of one reply in the model's order, an application hook
+that denies on resume, an `allowedTools` entry for a source tool, an unexposed operation, refused
+name collisions, the operation's tool Step options, and a dynamic source whose listing empties or
+fails on resume: the recorded call still replays, and a new call of the vanished tool is denied.
