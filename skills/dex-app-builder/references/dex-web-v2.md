@@ -1,6 +1,6 @@
-# Dex Web v2 as the management surface
+# Dex Web as the management surface
 
-Dex Web is the operator UI for Dex. App Builder treats its v2 workspace as the
+Dex Web is the operator UI for Dex. App Builder treats it as the
 first management interface, not merely a Flow inspector. This file holds the
 rules an application must follow so Dex Web can manage it. The
 [Dex Web reference](https://docs.superdurable.io/reference/web/dex-web) has
@@ -24,8 +24,9 @@ the flags, defaults, image details, page behavior, and `/api` contracts.
   permissions, and limits which permissions it sends. Never expose Dex Web or
   the FlowService API to the public Internet.
 
-Web v2 is Go-only. Validate every Flow with the FDG 2.0 analyzer and never
-fall back to v1.
+The Summary, Display, and Action metadata exists only for Go. Validate every
+Flow with the FDG 2.0 analyzer. Features that need these definitions are
+labeled Experimental in the UI and appear only when a definition applies.
 
 ## How Dex Web derives the management UI
 
@@ -81,8 +82,8 @@ Design these contracts before you propose a custom management backend or UI.
 
 ## Start Flow
 
-- Dex Web shows **Start Flow** when the definition has a supported typed
-  start schema. The operator enters a Flow ID and the typed input.
+- Dex Web shows **Start Flow** in the Work Queue list header when the
+  definition has a supported typed start schema. The operator enters a Flow ID and the typed input.
 - The form comes from the start Step's input type. Use a concrete Go struct
   with JSON tags. A `map[string]any` field cannot drive the form.
 - Do not put Worker addresses, actor permissions, or engine run IDs in

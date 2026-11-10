@@ -61,7 +61,7 @@ Use the long-lived `dexcli dev` stack started during implementation (see
 its Dex Web URL again at handoff.
 
 1. Render every Flow into the stack's definition directory. Confirm each Flow
-   type appears in Dex Web v2 with its graph.
+   type appears in Dex Web with its graph.
 2. Run the Worker against the Server address that `dexcli dev` printed, so
    the FDG Flow and Step type names match the Worker's registrations.
 3. Configure each Connector connection in Dex Web **Connectors**. Start the
@@ -187,7 +187,7 @@ Ensure:
   every extra role is justified;
 - the management UI mapping preceded the UI-mode decision, and the mode is
   recorded;
-- every Custom UI surface names a remaining Dex Web v2 gap; a No custom UI
+- every Custom UI surface names a remaining Dex Web gap; a No custom UI
   application exposes no business controls or management routes;
 - a Custom UI's API contract was designed with the Flow and Connector
   boundaries, both generated clients and production bundles reproduce, the

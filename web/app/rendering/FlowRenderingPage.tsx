@@ -7,12 +7,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { FlowDefinitionGraphView } from '@superdurable/flow-definition-renderer';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog, FlowDefinitionEntry } from '@/lib/types';
-import { V2Canvas } from '../v2/V2Canvas';
-import '../v2/css/v2.css';
+import { FlowDesignGraph } from '../design/FlowDesignGraph';
+import { ExperimentalBadge } from '../components/ExperimentalBadge';
+import { PageBreadcrumb } from '../components/PageBreadcrumb';
+import { FlowDefinitionDiagnostics } from './FlowDefinitionDiagnostics';
 
 export function FlowRenderingPage() {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);
@@ -49,13 +49,10 @@ export function FlowRenderingPage() {
 
   return (
     <div className="page-shell flow-rendering-page v1-page">
-      <nav aria-label="Breadcrumb" className="breadcrumbs">
-        <Link to="/v1/flows">Flows</Link><span>/</span>
-        <span>Flow Rendering</span>
-      </nav>
+      <PageBreadcrumb pageName="Designs" />
       <section className="flow-rendering-header">
         <div>
-          <h1>Flow Rendering</h1>
+          <h1>Designs <ExperimentalBadge className="page-title-badge" /></h1>
           <p>Explore statically possible Step paths generated from Go or Python source.</p>
         </div>
         {catalog?.configured && catalog.definitions.length > 0 && (
@@ -112,16 +109,7 @@ export function FlowRenderingPage() {
           </aside>
           <div className="flow-rendering-graph">
             {selected && (
-              selected.graph.schemaVersion === '2.0' ? (
-                <DefinitionCanvas key={selected.id} definition={selected} subFlowLinks={subFlowLinks} />
-              ) : (
-                <FlowDefinitionGraphView
-                  key={selected.id}
-                  displayName={selected.flowName}
-                  graph={selected.graph}
-                  subFlowLinks={subFlowLinks}
-                />
-              )
+              <DefinitionCanvas key={selected.id} definition={selected} subFlowLinks={subFlowLinks} />
             )}
           </div>
         </div>
@@ -130,7 +118,7 @@ export function FlowRenderingPage() {
   );
 }
 
-/** A Version 2.0 file drawn with the **v2** canvas, then its diagnostics and child Flow links. */
+/** One definition file drawn as the Flow design graph, then its diagnostics and child Flow links. */
 function DefinitionCanvas({
   definition,
   subFlowLinks,
@@ -141,8 +129,8 @@ function DefinitionCanvas({
   const children = definition.graph.nodes.filter((node) => subFlowLinks[node.id] !== undefined);
   return (
     <>
-      <div className="v2-shell flow-rendering-canvas">
-        <V2Canvas flowType={definition.flowName} definition={definition} />
+      <div className="flow-rendering-canvas">
+        <FlowDesignGraph definition={definition} />
       </div>
       {children.length > 0 && (
         <p className="flow-rendering-children">
@@ -155,16 +143,7 @@ function DefinitionCanvas({
           ))}
         </p>
       )}
-      {definition.graph.diagnostics.length > 0 && (
-        <div className="flow-definition-diagnostics">
-          {definition.graph.diagnostics.map((diagnostic, index) => (
-            <div className={`flow-definition-diagnostic is-${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
-              <b>{diagnostic.code}</b>
-              <span>{diagnostic.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <FlowDefinitionDiagnostics definition={definition} />
     </>
   );
 }

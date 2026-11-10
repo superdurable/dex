@@ -298,15 +298,15 @@ Go SDK, `dexcli` (including `dexcli dev` and the FDG analyzer), Dex Server
 It starts with business discovery: process maintainers, managers, terminal
 users, permissions, triggers, actions, waits, approvals, recovery, and audit
 requirements. It models Flows, their primitives, and their Flow Definition
-Graph (FDG) before code, and maps management needs to Dex Web v2 before
+Graph (FDG) before code, and maps management needs to Dex Web before
 confirming **No custom UI** or **Custom UI**. Runs and Indexed Attributes cover
 list and search, Summary RPCs provide list fields, Display RPCs provide details
 and editable scalars, Action RPC metadata provides forms and permission-gated
 operations, Work Queue discovers actionable Runs, and timeline/graph views show
 progress and failures. A request for an admin backend is not itself a reason
-for Custom UI; discovery must record a specific Dex Web v2 capability gap.
+for Custom UI; discovery must record a specific Dex Web capability gap.
 
-The backend is Go-only by product decision and must satisfy strict Dex Web v2 / FDG 2.0 rendering.
+The backend is Go-only by product decision and must satisfy strict Dex Web / FDG 2.0 rendering.
 Official Connectors are not Go-only: the catalog lists the languages of each connector and
 of each operation and Trigger, and `dex-sdk` describes Python and TypeScript use.
 An existing application keeps its pinned Go, Dex SDK, `dexcli`, and frontend
@@ -314,7 +314,7 @@ versions. An effectively empty repository becomes a Go module on an exact
 released Dex Go SDK paired with the installed `dexcli`. App Builder does not
 invent a TypeScript backend or borrow SDK setup from a neighboring project.
 
-No custom UI uses Dex Web v2 for every management interaction, so the
+No custom UI uses Dex Web for every management interaction, so the
 application ships only its Go Worker plus any confirmed integration ingress.
 For a custom frontend, App Builder first builds only low-fidelity static pages
 when an interaction choice is unresolved, then designs the Flow, Connector

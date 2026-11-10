@@ -25,6 +25,9 @@ describe('v1 pages without a run breadcrumb', () => {
     render(<MemoryRouter><FlowRenderingPage /></MemoryRouter>);
     const flows = await screen.findByRole('link', { name: 'Flows' });
     expect(flows.getAttribute('href')).toBe('/v1/flows');
+    const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(breadcrumb.textContent).toBe('Flows/Designs');
+    expect(breadcrumb.querySelector('[aria-current="page"]')?.textContent).toBe('Designs');
   });
 
   it('lead a failed current-run lookup back to Flows', async () => {
